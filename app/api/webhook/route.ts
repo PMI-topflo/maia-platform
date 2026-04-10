@@ -30,10 +30,13 @@ export async function POST(req: NextRequest) {
   }
 
   const from = message.from
-  const text = message.text?.body
+  const text = message.text?.body?.trim() || ''
 
   console.log('From:', from)
   console.log('Text:', text)
+
+  const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN
+  const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID
 
   if (!ACCESS_TOKEN || !PHONE_NUMBER_ID) {
     console.error('Missing WhatsApp environment variables')
@@ -41,6 +44,21 @@ export async function POST(req: NextRequest) {
       { status: 'missing_env_vars' },
       { status: 500 }
     )
+  }
+
+  let replyText = `Welcome to PMI Sticker System 🚗
+
+Reply:
+1 - Register a vehicle
+2 - Order sticker
+3 - Contact management`
+
+  if (text === '1') {
+    replyText = 'Please enter your unit number.'
+  } else if (text === '2') {
+    replyText = 'Please enter the number of stickers you want to order.'
+  } else if (text === '3') {
+    replyText = 'A management team member will contact you shortly.'
   }
 
   const response = await fetch(
@@ -54,7 +72,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         messaging_product: 'whatsapp',
         to: from,
-        text: { body: 'Received your message 👍' },
+        text: { body: replyText },
       }),
     }
   )
@@ -63,5 +81,5 @@ export async function POST(req: NextRequest) {
   console.log('WhatsApp send status:', response.status)
   console.log('WhatsApp send response:', responseText)
 
-  return NextResponse.json({ status: 'replied_attempted' })
+  return NextResponse.json({ status: 'replied' })
 }
