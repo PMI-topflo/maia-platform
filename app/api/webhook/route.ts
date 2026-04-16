@@ -660,8 +660,7 @@ async function continueFlow(
         en: `Vehicle color:`, es: `Color del vehículo:`, pt: `Cor do veículo:` })
     }
     if (step === 'awaiting_color') {
-      const vehicle = { ...data, color: message }
-      await createStickerRequest(ctx, vehicle as Record<string, string>)
+const vehicle = { ...data, color: message } as Record<string, string>      await createStickerRequest(ctx, vehicle as Record<string, string>)
       await clearConversationState(ctx.phone)
       // ✅ FEEDBACK — sticker registered
       void maybeRequestFeedback(ctx.phone, ctx, 'sticker_register', ctx.channel)
