@@ -1292,8 +1292,7 @@ async function alertEmergencyTeam(ctx: CallerContext) {
   )
   try {
     await twilioClient.messages.create({
-      from: process.env.TWILIO_PHONE_NUMBER!,
-      to:   process.env.EMERGENCY_PHONE!,
+from: channel === 'whatsapp' ? `whatsapp:${process.env.TWILIO_PHONE_NUMBER!}` : process.env.TWILIO_PHONE_NUMBER!,      to:   process.env.EMERGENCY_PHONE!,
       body: `🚨 EMERGENCY: ${ctx.name} (${ctx.phone}) Unit ${ctx.unitId ?? 'Unknown'} — respond immediately`,
     })
   } catch (err) { console.error('[EMERGENCY SMS]', err) }
