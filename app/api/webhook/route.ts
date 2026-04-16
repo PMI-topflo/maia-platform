@@ -660,8 +660,8 @@ async function continueFlow(
         en: `Vehicle color:`, es: `Color del vehículo:`, pt: `Cor do veículo:` })
     }
     if (step === 'awaiting_color') {
-const vehicle = { ...data, color: message } as Record<string, string>      
-await createStickerRequest(ctx, vehicle as Record<string, string>)
+      const vehicle = { ...data, color: message } as Record<string, string>
+      await createStickerRequest(ctx, vehicle as Record<string, string>)
       await clearConversationState(ctx.phone)
       // ✅ FEEDBACK — sticker registered
       void maybeRequestFeedback(ctx.phone, ctx, 'sticker_register', ctx.channel)
@@ -1292,7 +1292,8 @@ async function alertEmergencyTeam(ctx: CallerContext) {
   )
   try {
     await twilioClient.messages.create({
-from: channel === 'whatsapp' ? `whatsapp:${process.env.TWILIO_PHONE_NUMBER!}` : process.env.TWILIO_PHONE_NUMBER!,      to:   process.env.EMERGENCY_PHONE!,
+      from: process.env.TWILIO_PHONE_NUMBER!,
+      to:   process.env.EMERGENCY_PHONE!,
       body: `🚨 EMERGENCY: ${ctx.name} (${ctx.phone}) Unit ${ctx.unitId ?? 'Unknown'} — respond immediately`,
     })
   } catch (err) { console.error('[EMERGENCY SMS]', err) }
@@ -1312,7 +1313,7 @@ async function notifyTeamByEmail(to: string, subject: string, body: string) {
 
 async function sendReply(phone: string, text: string, channel: Channel) {
   const from = channel === 'whatsapp'
-    ? `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`
+    ? `whatsapp:+14155238886`
     : process.env.TWILIO_PHONE_NUMBER!
   const to = channel === 'whatsapp' ? `whatsapp:${phone}` : phone
 
