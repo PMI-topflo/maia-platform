@@ -481,26 +481,48 @@ follow_up_missing, resolved_well, friendly_tone, confusing_menu, technical_issue
 
 async function buildCallerContext(phone: string, channel: Channel): Promise<CallerContext> {
 
+  // Normalize phone — try both +1XXXXXXXXXX and just the digits
+  const cleanPhone   = phone.replace(/\D/g, '')           // 17866140643
+  const plusPhone    = '+' + cleanPhone                    // +17866140643
+  const shortPhone   = cleanPhone.replace(/^1/, '')        // 7866140643
+
+  // ── 1. Check owners ──────────────────────────────────────────
   const { data: o } = await supabase.from('owners')
-    .select('first_name, last_name, language, unit_number, association_id')
-    .or(`phone.eq.${phone},phone_2.eq.${phone}`).single()
+    .select('first_name, last_name, language, unit_number, association_code, phone, phone_2, phone_3')
+    .or([
+      `phone.eq.${phone}`,
+      `phone.eq.${plusPhone}`,
+      `phone.eq.${shortPhone}`,
+      `phone_2.eq.${phone}`,
+      `phone_2.eq.${plusPhone}`,
+      `phone_2.eq.${shortPhone}`,
+      `phone_e164.eq.${plusPhone}`,
+      `phone_e164.eq.${phone}`,
+    ].join(','))
+    .limit(1)
+    .maybeSingle()
   if (o) return { phone, channel, division: 'association', persona: 'homeowner',
-    language: o.language ?? 'en', name: `${o.first_name} ${o.last_name}`,
-    unitId: o.unit_number, associationId: o.association_id }
+    language: o.language ?? 'en',
+    name: `${o.first_name ?? ''} ${o.last_name ?? ''}`.trim() || 'there',
+    unitId: o.unit_number, associationId: o.association_code }
 
+  // ── 2. Check association tenants ─────────────────────────────
   const { data: t } = await supabase.from('association_tenants')
-    .select('first_name, last_name, language, unit_number, association_id')
-    .or(`phone.eq.${phone},phone_2.eq.${phone}`).single()
+    .select('first_name, last_name, language, unit_number, association_code')
+    .or(`phone.eq.${phone},phone.eq.${plusPhone},phone.eq.${shortPhone}`)
+    .limit(1).maybeSingle()
   if (t) return { phone, channel, division: 'association', persona: 'association_tenant',
-    language: t.language ?? 'en', name: `${t.first_name} ${t.last_name}`,
-    unitId: t.unit_number, associationId: t.association_id }
+    language: t.language ?? 'en', name: `${t.first_name ?? ''} ${t.last_name ?? ''}`.trim() || 'there',
+    unitId: t.unit_number, associationId: t.association_code }
 
+  // ── 3. Check board members ───────────────────────────────────
   const { data: b } = await supabase.from('board_members')
-    .select('first_name, last_name, language, association_id')
-    .or(`phone.eq.${phone},phone_2.eq.${phone}`).single()
+    .select('first_name, last_name, language, association_code')
+    .or(`phone.eq.${phone},phone.eq.${plusPhone},phone.eq.${shortPhone}`)
+    .limit(1).maybeSingle()
   if (b) return { phone, channel, division: 'association', persona: 'board_member',
-    language: b.language ?? 'en', name: `${b.first_name} ${b.last_name}`,
-    associationId: b.association_id }
+    language: b.language ?? 'en', name: `${b.first_name ?? ''} ${b.last_name ?? ''}`.trim() || 'there',
+    associationId: b.association_code }
 
   const { data: v } = await supabase.from('vendor_directory')
     .select('name, language, association_id').eq('phone', phone).single()
