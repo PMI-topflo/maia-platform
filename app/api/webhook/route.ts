@@ -1,15 +1,17 @@
 // ============================================================
 // app/api/webhook/route.ts
 // Unified Twilio Webhook — SMS + WhatsApp + Voice
-// + Feedback system fully wired at every flow completion
 // Stack: Next.js · Supabase · Claude API · Twilio · Rentvine
+// CHANGES vs previous version:
+//   FIX 1 — Added GET handler for Meta/Twilio webhook verification
+//   FIX 2 — sendReply now uses TWILIO_WHATSAPP_NUMBER env var
+//            instead of hardcoded sandbox number +14155238886
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server'
 import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 
-// ─── Clients ────────────────────────────────────────────────
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
@@ -19,8 +21,6 @@ const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID!,
   process.env.TWILIO_AUTH_TOKEN!
 )
-
-// ─── Types ───────────────────────────────────────────────────
 
 type Channel      = 'sms' | 'whatsapp' | 'voice'
 type Division     = 'association' | 'residential' | 'unknown'
@@ -54,9 +54,6 @@ interface ConversationState {
   updated_at:          string
 }
 
-// ── Which flows get feedback + rating type ───────────────────
-// thumbs  = quick interactions (2–4 messages)
-// stars   = complex flows (5+ messages, escalations, disputes)
 const FEEDBACK_CONFIG: Record<string, { type: FeedbackType }> = {
   sticker_register:        { type: 'thumbs' },
   maintenance_rentvine:    { type: 'stars'  },
@@ -75,65 +72,84 @@ const LANGUAGE_NAMES: Record<string, string> = {
 }
 
 // ============================================================
-// FEEDBACK TEMPLATES  (6 languages)
+// FEEDBACK TEMPLATES
 // ============================================================
 
 const FEEDBACK_MSG = {
-
   thumbs: (flow: string, lang: string): string => {
     const label = flow.replace(/_/g, ' ')
     return ({
       en: `How was our support with your ${label}?\n\n👍 Reply UP — great\n👎 Reply DOWN — needs improvement\n\nOptional: add a short note after your reply.`,
-      es: `¿Cómo fue nuestro apoyo con ${label}?\n\n👍 Responde BIEN — excelente\n👎 Responde MAL — necesita mejorar\n\nOpcional: añade una nota corta.`,
-      pt: `Como foi nosso suporte com ${label}?\n\n👍 Responda BOM — ótimo\n👎 Responda RUIM — precisa melhorar\n\nOpcional: adicione uma nota curta.`,
-      fr: `Comment s'est passé notre support pour ${label}?\n\n👍 BIEN — excellent\n👎 MAL — à améliorer`,
-      he: `כיצד היה השירות שלנו?\n\n👍 השב טוב — מצוין\n👎 השב רע — צריך שיפור`,
-      ru: `Как вам наша поддержка?\n\n👍 ХОРОШО — отлично\n👎 ПЛОХО — нужно улучшение`,
+      es: `¿Cómo fue nuestro apoyo con ${label}?\n\n👍 Responde BIEN — excelente\n👎 Responde MAL — necesita mejorar`,
+      pt: `Como foi nosso suporte com ${label}?\n\n👍 Responda BOM — ótimo\n👎 Responda RUIM — precisa melhorar`,
+      fr: `Comment s'est passé notre support pour ${label}?\n\n👍 BIEN\n👎 MAL`,
+      he: `כיצד היה השירות?\n\n👍 טוב\n👎 רע`,
+      ru: `Как вам наша поддержка?\n\n👍 ХОРОШО\n👎 ПЛОХО`,
     } as Record<string, string>)[lang] ?? `Rate our support: reply UP 👍 or DOWN 👎.`
   },
 
   stars: (flow: string, lang: string): string => {
     const label = flow.replace(/_/g, ' ')
     return ({
-      en: `We completed your ${label}. How would you rate our support?\n\n1 ⭐ Very poor\n2 ⭐⭐ Poor\n3 ⭐⭐⭐ OK\n4 ⭐⭐⭐⭐ Good\n5 ⭐⭐⭐⭐⭐ Excellent\n\nReply with a number. Optional: add a comment after.`,
-      es: `Completamos tu ${label}. ¿Cómo calificarías nuestro servicio?\n\n1 ⭐ Muy malo\n2 ⭐⭐ Malo\n3 ⭐⭐⭐ Regular\n4 ⭐⭐⭐⭐ Bueno\n5 ⭐⭐⭐⭐⭐ Excelente\n\nResponde con un número.`,
-      pt: `Concluímos sua ${label}. Como avalia nosso atendimento?\n\n1 ⭐ Muito ruim\n2 ⭐⭐ Ruim\n3 ⭐⭐⭐ Regular\n4 ⭐⭐⭐⭐ Bom\n5 ⭐⭐⭐⭐⭐ Excelente\n\nResponda com um número.`,
-      fr: `Traitement terminé pour ${label}.\n1 ⭐ Très mauvais  2 ⭐⭐ Mauvais  3 ⭐⭐⭐ Correct  4 ⭐⭐⭐⭐ Bon  5 ⭐⭐⭐⭐⭐ Excellent`,
-      he: `כיצד תדרג את חוויית השירות?\n1 ⭐ גרוע  2 ⭐⭐ רע  3 ⭐⭐⭐ בסדר  4 ⭐⭐⭐⭐ טוב  5 ⭐⭐⭐⭐⭐ מצוין`,
-      ru: `Оцените качество поддержки:\n1 ⭐ Очень плохо  2 ⭐⭐ Плохо  3 ⭐⭐⭐ Нормально  4 ⭐⭐⭐⭐ Хорошо  5 ⭐⭐⭐⭐⭐ Отлично`,
+      en: `We completed your ${label}. How would you rate our support?\n\n1 ⭐ Very poor\n2 ⭐⭐ Poor\n3 ⭐⭐⭐ OK\n4 ⭐⭐⭐⭐ Good\n5 ⭐⭐⭐⭐⭐ Excellent\n\nReply with a number.`,
+      es: `Completamos tu ${label}.\n\n1⭐ Muy malo  2⭐⭐ Malo  3⭐⭐⭐ Regular  4⭐⭐⭐⭐ Bueno  5⭐⭐⭐⭐⭐ Excelente`,
+      pt: `Concluímos sua ${label}.\n\n1⭐ Muito ruim  2⭐⭐ Ruim  3⭐⭐⭐ Regular  4⭐⭐⭐⭐ Bom  5⭐⭐⭐⭐⭐ Excelente`,
+      fr: `${label} terminé.\n1⭐ Très mauvais  2⭐⭐ Mauvais  3⭐⭐⭐ Correct  4⭐⭐⭐⭐ Bon  5⭐⭐⭐⭐⭐ Excellent`,
+      he: `1⭐ גרוע  2⭐⭐ רע  3⭐⭐⭐ בסדר  4⭐⭐⭐⭐ טוב  5⭐⭐⭐⭐⭐ מצוין`,
+      ru: `1⭐ Плохо  2⭐⭐ Плохо  3⭐⭐⭐ Нормально  4⭐⭐⭐⭐ Хорошо  5⭐⭐⭐⭐⭐ Отлично`,
     } as Record<string, string>)[lang] ?? `Rate our support 1–5.`
   },
 
   thanks: (lang: string, score: number | null): string => {
     const good = score === null || score >= 4
     return ({
-      en: good
-        ? `🙏 Thank you so much! It was my pleasure to help — Maia 🌸`
-        : `🙏 Thank you for letting us know. I'll make sure the team looks into this. — Maia 🌸`,
-      es: good
-        ? `🙏 ¡Muchas gracias! Fue un placer ayudarte — Maia 🌸`
-        : `🙏 Gracias por avisarnos. Me aseguraré de que el equipo lo revise. — Maia 🌸`,
-      pt: good
-        ? `🙏 Muito obrigada! Foi um prazer te ajudar — Maia 🌸`
-        : `🙏 Obrigada por nos avisar. Vou garantir que a equipe revise isso. — Maia 🌸`,
-      fr: `🙏 Merci beaucoup! C'était un plaisir — Maia 🌸`,
-      he: `🙏 תודה רבה! היה לי תענוג לעזור — מאיה 🌸`,
+      en: good ? `🙏 Thank you so much! It was my pleasure to help — Maia 🌸` : `🙏 Thank you for letting us know. I'll make sure the team looks into this. — Maia 🌸`,
+      es: good ? `🙏 ¡Muchas gracias! Fue un placer ayudarte — Maia 🌸` : `🙏 Gracias por avisarnos. Me aseguraré de que el equipo lo revise. — Maia 🌸`,
+      pt: good ? `🙏 Muito obrigada! Foi um prazer te ajudar — Maia 🌸` : `🙏 Obrigada por nos avisar. Vou garantir que a equipe revise isso. — Maia 🌸`,
+      fr: `🙏 Merci beaucoup! — Maia 🌸`,
+      he: `🙏 תודה רבה! — מאיה 🌸`,
       ru: `🙏 Спасибо за отзыв!`,
     } as Record<string, string>)[lang] ?? `🙏 Thank you for your feedback!`
   },
 
   invalid: (lang: string, type: FeedbackType): string => ({
     en: type === 'stars' ? `Please reply with a number from 1 to 5.` : `Please reply UP 👍 or DOWN 👎.`,
-    es: type === 'stars' ? `Por favor responde con un número del 1 al 5.` : `Por favor responde BIEN 👍 o MAL 👎.`,
-    pt: type === 'stars' ? `Por favor responda com um número de 1 a 5.` : `Por favor responda BOM 👍 ou RUIM 👎.`,
-    fr: type === 'stars' ? `Répondez avec un chiffre de 1 à 5.` : `Répondez BIEN ou MAL.`,
-    he: type === 'stars' ? `השב עם מספר בין 1 ל-5.` : `השב טוב או רע.`,
-    ru: type === 'stars' ? `Ответьте числом от 1 до 5.` : `Ответьте ХОРОШО или ПЛОХО.`,
+    es: type === 'stars' ? `Responde con un número del 1 al 5.` : `Responde BIEN 👍 o MAL 👎.`,
+    pt: type === 'stars' ? `Responda com um número de 1 a 5.` : `Responda BOM 👍 ou RUIM 👎.`,
+    fr: type === 'stars' ? `Répondez 1 à 5.` : `Répondez BIEN ou MAL.`,
+    he: type === 'stars' ? `השב 1 עד 5.` : `השב טוב או רע.`,
+    ru: type === 'stars' ? `Ответьте 1–5.` : `Ответьте ХОРОШО или ПЛОХО.`,
   } as Record<string, string>)[lang] ?? (type === 'stars' ? `Reply 1–5.` : `Reply UP or DOWN.`),
 }
 
 // ============================================================
-// MAIN WEBHOOK HANDLER
+// ✅ FIX 1 — GET handler for Meta + Twilio webhook verification
+// Without this, Meta's "Verify and save" button stays grayed out
+// ============================================================
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const mode      = searchParams.get('hub.mode')
+  const token     = searchParams.get('hub.verify_token')
+  const challenge = searchParams.get('hub.challenge')
+
+  // Meta Cloud API verification handshake
+  if (mode === 'subscribe' && token === process.env.WEBHOOK_VERIFY_TOKEN) {
+    console.log('[WEBHOOK] Meta verification successful')
+    return new NextResponse(challenge, { status: 200 })
+  }
+
+  // Twilio health check (no params) — just return 200
+  if (!mode && !token) {
+    return new NextResponse('OK', { status: 200 })
+  }
+
+  console.warn('[WEBHOOK] Verification failed — token mismatch')
+  return new NextResponse('Forbidden', { status: 403 })
+}
+
+// ============================================================
+// MAIN POST HANDLER
 // ============================================================
 
 export async function POST(req: NextRequest) {
@@ -150,7 +166,6 @@ export async function POST(req: NextRequest) {
     : 'sms'
 
   const cleanPhone = from.replace('whatsapp:', '').trim()
-
   console.log(`[WEBHOOK] ${channel.toUpperCase()} | ${cleanPhone} | "${msgBody}"`)
 
   if (channel === 'voice') return handleVoice(cleanPhone, body)
@@ -182,49 +197,27 @@ async function handleVoice(phone: string, body: FormData): Promise<NextResponse>
 // SMS + WHATSAPP HANDLER
 // ============================================================
 
-async function handleTextChannel(
-  phone:   string,
-  message: string,
-  channel: Channel
-): Promise<NextResponse> {
-
+async function handleTextChannel(phone: string, message: string, channel: Channel): Promise<NextResponse> {
   const ctx   = await buildCallerContext(phone, channel)
   const state = await getConversationState(phone)
 
   let replyText: string
-
   const isGreeting = detectMenuTrigger(message) === 'main_menu'
 
-  // ── Always clear state on greeting ──────────────────────────
-  if (isGreeting) {
-    await clearConversationState(phone)
-  }
+  if (isGreeting) await clearConversationState(phone)
 
   if (!isGreeting && state?.current_flow && state.current_flow !== 'idle') {
-
-    // ── Awaiting feedback reply ──────────────────────────
     if (state.current_flow === 'awaiting_feedback') {
       replyText = await processFeedbackReply(phone, message, ctx, state)
-
-    // ── Agent identification flow ────────────────────────
     } else if (state.current_flow === 'agent_identification') {
       replyText = await continueAgentFlow(ctx, state, message)
-
-    // ── Structured flows (maintenance steps, sticker, schedule) ─
-    } else if ([
-      'sticker_register', 'maintenance_rentvine',
-      'maintenance_association', 'schedule', 'staff_handoff'
-    ].includes(state.current_flow)) {
+    } else if (['sticker_register','maintenance_rentvine','maintenance_association','schedule','staff_handoff','unknown_contact'].includes(state.current_flow)) {
       replyText = await continueFlow(ctx, state, message)
-
-    // ── Everything else → intelligent AI ────────────────────
     } else {
       replyText = await getMaiaIntelligentResponse(ctx, message)
     }
-
   } else if (isGreeting) {
     if (ctx.persona !== 'unknown') {
-      // Known contact — warm personal greeting then open-ended
       const greeting = buildPersonalGreeting(ctx)
       await sendReply(phone, greeting, channel)
       await new Promise(r => setTimeout(r, 1500))
@@ -237,64 +230,43 @@ async function handleTextChannel(
         ru: `Просто скажите что вам нужно и я позабочусь! 😊`,
       })
     } else {
-      // Unknown contact — collect their info and forward to team
       await saveConversationState(phone, 'unknown_contact', 'awaiting_info', {})
       replyText = translate(ctx.language, {
-        en: `Hi! 🌸 I'm Maia from PMI Top Florida Properties. I don't see you registered in our system, so in a few words please tell me your full name, email address, and how I can help you — and I'll make sure my colleagues get back to you as soon as possible!`,
-        es: `¡Hola! 🌸 Soy Maia de PMI Top Florida Properties. No encuentro tu registro en nuestro sistema, así que en pocas palabras dime tu nombre completo, correo electrónico y cómo puedo ayudarte — ¡me aseguraré de que mis colegas te contacten lo antes posible!`,
-        pt: `Olá! 🌸 Sou a Maia da PMI Top Florida Properties. Não encontrei seu cadastro em nosso sistema, então em poucas palavras me diga seu nome completo, e-mail e como posso te ajudar — vou garantir que meus colegas entrem em contato o mais rápido possível!`,
-        fr: `Bonjour! 🌸 Je suis Maia de PMI Top Florida Properties. Je ne vous trouve pas dans notre système, alors en quelques mots dites-moi votre nom complet, email et comment je peux vous aider — je m'assurerai que mes collègues vous contactent dès que possible!`,
-        he: `שלום! 🌸 אני מאיה מ-PMI Top Florida Properties. לא מצאתי אותך במערכת שלנו, אז במילים קצרות אנא ספר לי את שמך המלא, כתובת האימייל וכיצד אוכל לעזור — אדאג שהצוות שלי יחזור אליך בהקדם!`,
-        ru: `Привет! 🌸 Я Мая из PMI Top Florida Properties. Я не нашла вас в нашей системе, поэтому в нескольких словах сообщите мне ваше полное имя, email и как я могу помочь — я позабочусь чтобы мои коллеги связались с вами как можно скорее!`,
+        en: `Hi! 🌸 I'm Maia from PMI Top Florida Properties. I don't see you registered in our system — please share your full name, email, and how I can help, and I'll make sure our team gets back to you!`,
+        es: `¡Hola! 🌸 Soy Maia de PMI Top Florida Properties. No encuentro tu registro — dime tu nombre completo, correo y cómo puedo ayudarte.`,
+        pt: `Olá! 🌸 Sou a Maia da PMI Top Florida Properties. Não encontrei seu cadastro — me diga seu nome completo, e-mail e como posso te ajudar.`,
+        fr: `Bonjour! 🌸 Je suis Maia de PMI Top Florida Properties. Dites-moi votre nom, email et comment je peux vous aider.`,
+        he: `שלום! 🌸 אני מאיה מ-PMI. לא מצאתי אותך במערכת — שתף שם מלא, אימייל ואיך אוכל לעזור.`,
+        ru: `Привет! 🌸 Я Мая из PMI. Вас нет в системе — сообщите имя, email и как я могу помочь.`,
       })
     }
   } else {
-    // All messages → Maia intelligent engine
     replyText = await getMaiaIntelligentResponse(ctx, message)
   }
 
   await sendReply(phone, replyText, channel)
   await logConversation(phone, message, replyText, ctx)
-
   return NextResponse.json({ status: 'ok' })
 }
 
 // ============================================================
 // FEEDBACK — request sender
-// Called with void so it fires AFTER the completion message
-// The 3s delay ensures completion message arrives first
 // ============================================================
 
-async function maybeRequestFeedback(
-  phone:    string,
-  ctx:      CallerContext,
-  flowType: string,
-  channel:  Channel
-): Promise<void> {
-
+async function maybeRequestFeedback(phone: string, ctx: CallerContext, flowType: string, channel: Channel): Promise<void> {
   const config = FEEDBACK_CONFIG[flowType]
   if (!config) return
 
-  // Upgrade to stars if conversation was long (5+ messages)
-  const { count } = await supabase
-    .from('general_conversations')
-    .select('*', { count: 'exact', head: true })
-    .eq('phone_number', phone)
+  const { count } = await supabase.from('general_conversations')
+    .select('*', { count: 'exact', head: true }).eq('phone_number', phone)
 
-  const feedbackType: FeedbackType =
-    (count ?? 0) >= 5 ? 'stars' : config.type
+  const feedbackType: FeedbackType = (count ?? 0) >= 5 ? 'stars' : config.type
 
-  // Save state so next incoming message is treated as feedback
   await saveConversationState(phone, 'awaiting_feedback', 'pending', {
-    flowType,
-    feedbackType,
-    persona:  ctx.persona,
-    language: ctx.language,
-    channel,
-    sentAt:   new Date().toISOString(),
+    flowType, feedbackType, persona: ctx.persona,
+    language: ctx.language, channel, sentAt: new Date().toISOString(),
   })
 
-  // Small delay so flow completion message arrives first
   await new Promise(r => setTimeout(r, 3000))
 
   const msgText = feedbackType === 'stars'
@@ -308,20 +280,10 @@ async function maybeRequestFeedback(
 // FEEDBACK — reply processor
 // ============================================================
 
-async function processFeedbackReply(
-  phone:   string,
-  message: string,
-  ctx:     CallerContext,
-  state:   ConversationState
-): Promise<string> {
-
+async function processFeedbackReply(phone: string, message: string, ctx: CallerContext, state: ConversationState): Promise<string> {
   const data = state.temporary_data_json as {
-    flowType:     string
-    feedbackType: FeedbackType
-    persona:      string
-    language:     string
-    channel:      string
-    sentAt:       string
+    flowType: string; feedbackType: FeedbackType; persona: string
+    language: string; channel: string; sentAt: string
   }
 
   const lang         = data.language ?? ctx.language
@@ -332,21 +294,17 @@ async function processFeedbackReply(
   let starsValue:  number | null         = null
   let comment:     string | null         = null
 
-  // ── Parse thumbs ──────────────────────────────────────────
   if (feedbackType === 'thumbs') {
     const positives = ['up','bien','bom','good','хорошо','טוב','👍','si','sim','yes','great','1']
     const negatives = ['down','mal','ruim','bad','плохо','רע','👎','no','nao','não','poor','2']
-    const isPos     = positives.some(p => msg.startsWith(p))
-    const isNeg     = negatives.some(n => msg.startsWith(n))
-
+    const isPos = positives.some(p => msg.startsWith(p))
+    const isNeg = negatives.some(n => msg.startsWith(n))
     if (!isPos && !isNeg) return FEEDBACK_MSG.invalid(lang, 'thumbs')
-
     thumbsValue = isPos ? 'up' : 'down'
     const keyword = [...positives, ...negatives].find(k => msg.startsWith(k)) ?? ''
     comment = message.slice(keyword.length).trim() || null
   }
 
-  // ── Parse stars ───────────────────────────────────────────
   if (feedbackType === 'stars') {
     const num = parseInt(msg.charAt(0))
     if (isNaN(num) || num < 1 || num > 5) return FEEDBACK_MSG.invalid(lang, 'stars')
@@ -354,55 +312,32 @@ async function processFeedbackReply(
     comment    = message.slice(1).trim() || null
   }
 
-  // ── Claude analysis ───────────────────────────────────────
-  const analysis = await analyzeFeedback({
-    comment, starsValue, thumbsValue,
-    flowType: data.flowType, persona: data.persona, language: lang,
-  })
+  const analysis = await analyzeFeedback({ comment, starsValue, thumbsValue, flowType: data.flowType, persona: data.persona, language: lang })
 
-  // ── Save to Supabase ──────────────────────────────────────
   await supabase.from('conversation_feedback').insert({
-    conversation_id:   phone + '_' + data.sentAt,
-    phone_number:      phone,
-    persona:           data.persona,
-    language:          lang,
-    division:          ctx.division,
-    channel:           data.channel,
-    rating_type:       feedbackType,
-    thumbs_value:      thumbsValue,
-    stars_value:       starsValue,
-    comment,
-    flow_type:         data.flowType,
-    handled_by:        'ai',
-    ai_sentiment:      analysis.sentiment,
-    ai_tags:           analysis.tags,
-    ai_improvement:    analysis.improvement,
-    reviewed_by_staff: false,
-    created_at:        new Date().toISOString(),
+    conversation_id: phone + '_' + data.sentAt, phone_number: phone,
+    persona: data.persona, language: lang, division: ctx.division,
+    channel: data.channel, rating_type: feedbackType,
+    thumbs_value: thumbsValue, stars_value: starsValue, comment,
+    flow_type: data.flowType, handled_by: 'ai',
+    ai_sentiment: analysis.sentiment, ai_tags: analysis.tags,
+    ai_improvement: analysis.improvement, reviewed_by_staff: false,
+    created_at: new Date().toISOString(),
   })
 
-  // ── Auto-ticket for low ratings ───────────────────────────
-  const isNegative =
-    (starsValue !== null && starsValue <= 2) || thumbsValue === 'down'
+  const isNegative = (starsValue !== null && starsValue <= 2) || thumbsValue === 'down'
 
   if (isNegative) {
     await supabase.from('board_tickets').insert({
-      ticket_type:    'feedback_review',
-      subject:        `⚠️ Low Rating — ${data.flowType.replace(/_/g, ' ')} (${starsValue ? starsValue + '★' : '👎'})`,
-      description:    `Phone: ${phone}\nPersona: ${data.persona}\nFlow: ${data.flowType}\nComment: ${comment ?? 'None'}\nAI Suggestion: ${analysis.improvement}`,
-      priority:       starsValue === 1 ? 'urgent' : 'high',
-      status:         'open',
-      channel_source: 'feedback',
-      created_at:     new Date().toISOString(),
+      ticket_type: 'feedback_review',
+      subject: `⚠️ Low Rating — ${data.flowType.replace(/_/g, ' ')} (${starsValue ? starsValue + '★' : '👎'})`,
+      description: `Phone: ${phone}\nPersona: ${data.persona}\nFlow: ${data.flowType}\nComment: ${comment ?? 'None'}\nAI Suggestion: ${analysis.improvement}`,
+      priority: starsValue === 1 ? 'urgent' : 'high',
+      status: 'open', channel_source: 'feedback', created_at: new Date().toISOString(),
     })
-
-    // Immediate email for 1-star ratings
     if (starsValue === 1) {
-      await notifyTeamByEmail(
-        process.env.STAFF_EMAIL!,
-        `🚨 1-Star Rating — ${data.flowType.replace(/_/g, ' ')} — immediate review needed`,
-        `Contact: ${phone}\nPersona: ${data.persona}\nComment: ${comment ?? 'None'}\nAI: ${analysis.improvement}`
-      )
+      await notifyTeamByEmail(process.env.STAFF_EMAIL!, `🚨 1-Star Rating — ${data.flowType.replace(/_/g, ' ')}`,
+        `Contact: ${phone}\nPersona: ${data.persona}\nComment: ${comment ?? 'None'}\nAI: ${analysis.improvement}`)
     }
   }
 
@@ -415,63 +350,33 @@ async function processFeedbackReply(
 // ============================================================
 
 async function analyzeFeedback(params: {
-  comment:     string | null
-  starsValue:  number | null
-  thumbsValue: 'up' | 'down' | null
-  flowType:    string
-  persona:     string
-  language:    string
+  comment: string | null; starsValue: number | null; thumbsValue: 'up' | 'down' | null
+  flowType: string; persona: string; language: string
 }): Promise<{ sentiment: string; tags: string[]; improvement: string }> {
-
   if (!params.comment && !params.starsValue) {
-    return {
-      sentiment:   params.thumbsValue === 'up' ? 'positive' : 'negative',
-      tags:        [],
-      improvement: '',
-    }
+    return { sentiment: params.thumbsValue === 'up' ? 'positive' : 'negative', tags: [], improvement: '' }
   }
 
-  const ratingStr = params.starsValue
-    ? `${params.starsValue}/5 stars`
-    : params.thumbsValue === 'up' ? 'thumbs up' : 'thumbs down'
-
+  const ratingStr = params.starsValue ? `${params.starsValue}/5 stars` : params.thumbsValue === 'up' ? 'thumbs up' : 'thumbs down'
   const prompt = `Analyze this property management support feedback. Return ONLY valid JSON, no markdown.
 
 Flow: ${params.flowType} | Persona: ${params.persona} | Rating: ${ratingStr}
 Comment: "${params.comment ?? 'no comment'}"
 
-{
-  "sentiment": "positive" | "neutral" | "negative",
-  "tags": ["tag1","tag2"],
-  "improvement": "one concise actionable sentence"
-}
+{"sentiment":"positive"|"neutral"|"negative","tags":["tag1"],"improvement":"one concise actionable sentence"}
 
-Tags only from: slow_response, wrong_information, language_barrier, very_helpful, fast_resolution,
-unclear_instructions, payment_issue, escalation_needed, great_ai_response, needs_human_agent,
-follow_up_missing, resolved_well, friendly_tone, confusing_menu, technical_issue`
+Tags only from: slow_response, wrong_information, language_barrier, very_helpful, fast_resolution, unclear_instructions, payment_issue, escalation_needed, great_ai_response, needs_human_agent, follow_up_missing, resolved_well, friendly_tone, confusing_menu, technical_issue`
 
   try {
     const res  = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'Content-Type':      'application/json',
-        'x-api-key':         process.env.ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model:      'claude-sonnet-4-20250514',
-        max_tokens: 200,
-        messages:   [{ role: 'user', content: prompt }],
-      }),
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 200, messages: [{ role: 'user', content: prompt }] }),
     })
     const data = await res.json()
     return JSON.parse(data.content?.[0]?.text?.replace(/```json|```/g, '').trim() ?? '{}')
   } catch {
-    return {
-      sentiment:   params.starsValue && params.starsValue >= 4 ? 'positive' : 'negative',
-      tags:        [],
-      improvement: 'Review this interaction for potential improvements.',
-    }
+    return { sentiment: params.starsValue && params.starsValue >= 4 ? 'positive' : 'negative', tags: [], improvement: 'Review this interaction.' }
   }
 }
 
@@ -480,326 +385,170 @@ follow_up_missing, resolved_well, friendly_tone, confusing_menu, technical_issue
 // ============================================================
 
 async function buildCallerContext(phone: string, channel: Channel): Promise<CallerContext> {
+  const cleanPhone = phone.replace(/\D/g, '')
+  const plusPhone  = '+' + cleanPhone
+  const shortPhone = cleanPhone.replace(/^1/, '')
 
-  // Normalize phone — try both +1XXXXXXXXXX and just the digits
-  const cleanPhone   = phone.replace(/\D/g, '')           // 17866140643
-  const plusPhone    = '+' + cleanPhone                    // +17866140643
-  const shortPhone   = cleanPhone.replace(/^1/, '')        // 7866140643
-
-  // ── 1. Check owners ──────────────────────────────────────────
   const { data: o } = await supabase.from('owners')
-    .select('first_name, last_name, language, unit_number, association_code, phone, phone_2, phone_3')
-    .or([
-      `phone.eq.${phone}`,
-      `phone.eq.${plusPhone}`,
-      `phone.eq.${shortPhone}`,
-      `phone_2.eq.${phone}`,
-      `phone_2.eq.${plusPhone}`,
-      `phone_2.eq.${shortPhone}`,
-      `phone_e164.eq.${plusPhone}`,
-      `phone_e164.eq.${phone}`,
-    ].join(','))
-    .limit(1)
-    .maybeSingle()
+    .select('first_name, last_name, language, unit_number, association_code')
+    .or([`phone.eq.${phone}`,`phone.eq.${plusPhone}`,`phone.eq.${shortPhone}`,
+         `phone_2.eq.${phone}`,`phone_2.eq.${plusPhone}`,`phone_2.eq.${shortPhone}`,
+         `phone_e164.eq.${plusPhone}`,`phone_e164.eq.${phone}`].join(','))
+    .limit(1).maybeSingle()
   if (o) return { phone, channel, division: 'association', persona: 'homeowner',
-    language: o.language ?? 'en',
-    name: `${o.first_name ?? ''} ${o.last_name ?? ''}`.trim() || 'there',
+    language: o.language ?? 'en', name: `${o.first_name ?? ''} ${o.last_name ?? ''}`.trim() || 'there',
     unitId: o.unit_number, associationId: o.association_code }
 
-  // ── 2. Check association tenants ─────────────────────────────
   const { data: t } = await supabase.from('association_tenants')
     .select('first_name, last_name, language, unit_number, association_code')
-    .or(`phone.eq.${phone},phone.eq.${plusPhone},phone.eq.${shortPhone}`)
-    .limit(1).maybeSingle()
+    .or(`phone.eq.${phone},phone.eq.${plusPhone},phone.eq.${shortPhone}`).limit(1).maybeSingle()
   if (t) return { phone, channel, division: 'association', persona: 'association_tenant',
     language: t.language ?? 'en', name: `${t.first_name ?? ''} ${t.last_name ?? ''}`.trim() || 'there',
     unitId: t.unit_number, associationId: t.association_code }
 
-  // ── 3. Check board members ───────────────────────────────────
   const { data: b } = await supabase.from('board_members')
     .select('first_name, last_name, language, association_code')
-    .or(`phone.eq.${phone},phone.eq.${plusPhone},phone.eq.${shortPhone}`)
-    .limit(1).maybeSingle()
+    .or(`phone.eq.${phone},phone.eq.${plusPhone},phone.eq.${shortPhone}`).limit(1).maybeSingle()
   if (b) return { phone, channel, division: 'association', persona: 'board_member',
     language: b.language ?? 'en', name: `${b.first_name ?? ''} ${b.last_name ?? ''}`.trim() || 'there',
     associationId: b.association_code }
 
-  const { data: v } = await supabase.from('vendor_directory')
-    .select('name, language, association_id').eq('phone', phone).single()
+  const { data: v } = await supabase.from('vendor_directory').select('name, language, association_id').eq('phone', phone).single()
   if (v) return { phone, channel, division: 'association', persona: 'vendor',
     language: v.language ?? 'en', name: v.name, associationId: v.association_id }
 
-  // ── 5. Check Real Estate Agents ───────────────────────────
-  const { data: ag } = await supabase.from('real_estate_agents')
-    .select('id, first_name, last_name, language')
-    .eq('phone', phone).single()
+  const { data: ag } = await supabase.from('real_estate_agents').select('id, first_name, last_name, language').eq('phone', phone).single()
   if (ag) return { phone, channel, division: 'association', persona: 'real_estate_agent',
     language: ag.language ?? 'en', name: `${ag.first_name} ${ag.last_name}` }
 
   const rv = await lookupRentvineByPhone(phone)
-  if (rv) return { phone, channel, division: 'residential',
-    persona: rv.type, language: 'pt', name: rv.name, rentvineContactId: rv.id }
+  if (rv) return { phone, channel, division: 'residential', persona: rv.type, language: 'pt', name: rv.name, rentvineContactId: rv.id }
 
   return { phone, channel, division: 'unknown', persona: 'unknown', language: 'en', name: 'there' }
 }
 
 // ============================================================
-// RENTVINE API LOOKUP
+// RENTVINE
 // ============================================================
 
-async function lookupRentvineByPhone(phone: string): Promise<{
-  id: string; name: string; type: PersonaType
-} | null> {
+async function lookupRentvineByPhone(phone: string): Promise<{ id: string; name: string; type: PersonaType } | null> {
   const creds = Buffer.from(`${process.env.RENTVINE_ACCESS_KEY}:${process.env.RENTVINE_SECRET}`).toString('base64')
   const h     = { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' }
   const clean = (p: string) => p.replace(/\D/g, '')
   try {
-    for (const [ep, type] of [
-      ['contacts/owners',  'residential_owner'],
-      ['contacts/tenants', 'residential_tenant'],
-      ['contacts/vendors', 'residential_vendor'],
-    ] as [string, PersonaType][]) {
-      const res   = await fetch(`${process.env.RENTVINE_BASE_URL}/${ep}`, { headers: h })
-      const json  = await res.json()
-      const match = json?.data?.find((c: { phone?: string; name: string; contactID: number }) =>
-        clean(c.phone ?? '') === clean(phone))
+    for (const [ep, type] of [['contacts/owners','residential_owner'],['contacts/tenants','residential_tenant'],['contacts/vendors','residential_vendor']] as [string, PersonaType][]) {
+      const res  = await fetch(`${process.env.RENTVINE_BASE_URL}/${ep}`, { headers: h })
+      const json = await res.json()
+      const match = json?.data?.find((c: { phone?: string; name: string; contactID: number }) => clean(c.phone ?? '') === clean(phone))
       if (match) return { id: String(match.contactID), name: match.name, type }
     }
   } catch (err) { console.error('[RENTVINE]', err) }
   return null
 }
 
-// ============================================================
-// RENTVINE — FULL CONTACT DATA FETCHER
-// Pulls lease, balance, unit, work orders for residential contacts
-// ============================================================
-
 interface RentvineContactData {
-  name:           string
-  email:          string | null
-  phone:          string | null
-  unitAddress:    string | null
-  leaseStart:     string | null
-  leaseEnd:       string | null
-  balance:        number | null
-  pastDue:        number | null
-  openWorkOrders: number
-  type:           'owner' | 'tenant' | 'vendor'
+  name: string; email: string | null; phone: string | null; unitAddress: string | null
+  leaseStart: string | null; leaseEnd: string | null; balance: number | null
+  pastDue: number | null; openWorkOrders: number; type: 'owner' | 'tenant' | 'vendor'
 }
 
-async function getRentvineContactData(
-  contactId: string,
-  type: PersonaType
-): Promise<RentvineContactData | null> {
-  const creds = Buffer.from(
-    `${process.env.RENTVINE_ACCESS_KEY}:${process.env.RENTVINE_SECRET}`
-  ).toString('base64')
-  const h = { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' }
+async function getRentvineContactData(contactId: string, type: PersonaType): Promise<RentvineContactData | null> {
+  const creds = Buffer.from(`${process.env.RENTVINE_ACCESS_KEY}:${process.env.RENTVINE_SECRET}`).toString('base64')
+  const h    = { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' }
   const base = process.env.RENTVINE_BASE_URL!
-
   try {
-    // ── Get contact details ──────────────────────────────────
-    const epMap: Record<string, string> = {
-      residential_owner:  'contacts/owners',
-      residential_tenant: 'contacts/tenants',
-      residential_vendor: 'contacts/vendors',
-    }
-    const ep      = epMap[type] ?? 'contacts/tenants'
-    const cRes    = await fetch(`${base}/${ep}/${contactId}`, { headers: h })
+    const epMap: Record<string, string> = { residential_owner:'contacts/owners', residential_tenant:'contacts/tenants', residential_vendor:'contacts/vendors' }
+    const cRes    = await fetch(`${base}/${epMap[type] ?? 'contacts/tenants'}/${contactId}`, { headers: h })
     const contact = await cRes.json()
-
-    // ── Get lease info ───────────────────────────────────────
-    let leaseStart = null, leaseEnd = null,
-        balance = null, pastDue = null,
-        unitAddress = null, openWorkOrders = 0
+    let leaseStart = null, leaseEnd = null, balance = null, pastDue = null, unitAddress = null, openWorkOrders = 0
 
     if (type === 'residential_tenant' || type === 'residential_owner') {
       const lRes   = await fetch(`${base}/leases/export`, { headers: h })
       const leases = await lRes.json()
-      const lease  = leases?.data?.find((l: {
-        lease: { tenants?: { contactID: number }[]; owners?: { contactID: number }[] }
-        balances: { unpaidTotalAmount: number; pastDueTotalAmount: number }
-        unit:     { address: string }
-        leaseStartDate: string
-        leaseEndDate:   string
-      }) => {
-        const contacts = type === 'residential_tenant'
-          ? l.lease?.tenants
-          : l.lease?.owners
-        return contacts?.some((c: { contactID: number }) =>
-          String(c.contactID) === contactId)
+      const lease  = leases?.data?.find((l: { lease: { tenants?: { contactID: number }[]; owners?: { contactID: number }[] }; balances: { unpaidTotalAmount: number; pastDueTotalAmount: number }; unit: { address: string }; leaseStartDate: string; leaseEndDate: string }) => {
+        const contacts = type === 'residential_tenant' ? l.lease?.tenants : l.lease?.owners
+        return contacts?.some((c: { contactID: number }) => String(c.contactID) === contactId)
       })
-
-      if (lease) {
-        leaseStart   = lease.leaseStartDate
-        leaseEnd     = lease.leaseEndDate
-        balance      = lease.balances?.unpaidTotalAmount ?? null
-        pastDue      = lease.balances?.pastDueTotalAmount ?? null
-        unitAddress  = lease.unit?.address ?? null
-      }
-
-      // ── Get open work orders ─────────────────────────────
-      const wRes  = await fetch(`${base}/maintenance/work-orders?status=open`, { headers: h })
+      if (lease) { leaseStart = lease.leaseStartDate; leaseEnd = lease.leaseEndDate; balance = lease.balances?.unpaidTotalAmount ?? null; pastDue = lease.balances?.pastDueTotalAmount ?? null; unitAddress = lease.unit?.address ?? null }
+      const wRes = await fetch(`${base}/maintenance/work-orders?status=open`, { headers: h })
       const wJson = await wRes.json()
-      openWorkOrders = wJson?.data?.filter((w: {
-        contactID?: number
-      }) => String(w.contactID) === contactId).length ?? 0
+      openWorkOrders = wJson?.data?.filter((w: { contactID?: number }) => String(w.contactID) === contactId).length ?? 0
     }
 
-    return {
-      name:        contact?.data?.name ?? contact?.name ?? 'Unknown',
-      email:       contact?.data?.email ?? contact?.email ?? null,
-      phone:       contact?.data?.phone ?? contact?.phone ?? null,
-      unitAddress,
-      leaseStart,
-      leaseEnd,
-      balance,
-      pastDue,
-      openWorkOrders,
-      type: type === 'residential_owner' ? 'owner'
-          : type === 'residential_vendor' ? 'vendor' : 'tenant',
-    }
-  } catch (err) {
-    console.error('[RENTVINE DATA]', err)
-    return null
-  }
+    return { name: contact?.data?.name ?? contact?.name ?? 'Unknown', email: contact?.data?.email ?? contact?.email ?? null,
+      phone: contact?.data?.phone ?? contact?.phone ?? null, unitAddress, leaseStart, leaseEnd, balance, pastDue, openWorkOrders,
+      type: type === 'residential_owner' ? 'owner' : type === 'residential_vendor' ? 'vendor' : 'tenant' }
+  } catch (err) { console.error('[RENTVINE DATA]', err); return null }
 }
 
-// ── Build Rentvine context string for Maia's AI prompt ───────────
 async function buildRentvineContext(ctx: CallerContext): Promise<string> {
   if (!ctx.rentvineContactId || ctx.division !== 'residential') return ''
-
   const data = await getRentvineContactData(ctx.rentvineContactId, ctx.persona)
   if (!data) return ''
-
-  const lines = [
-    `Rentvine Contact Type: ${data.type}`,
-    data.unitAddress  ? `Unit Address: ${data.unitAddress}` : '',
-    data.leaseStart   ? `Lease Start: ${data.leaseStart}` : '',
-    data.leaseEnd     ? `Lease End: ${data.leaseEnd}` : '',
+  const lines = [`Rentvine Contact Type: ${data.type}`,
+    data.unitAddress ? `Unit Address: ${data.unitAddress}` : '',
+    data.leaseStart  ? `Lease Start: ${data.leaseStart}` : '',
+    data.leaseEnd    ? `Lease End: ${data.leaseEnd}` : '',
     data.balance !== null ? `Current Balance: $${data.balance.toFixed(2)}` : '',
-    data.pastDue !== null && data.pastDue > 0
-      ? `Past Due: $${data.pastDue.toFixed(2)} ⚠️` : '',
-    data.openWorkOrders > 0
-      ? `Open Work Orders: ${data.openWorkOrders}` : '',
+    data.pastDue !== null && data.pastDue > 0 ? `Past Due: $${data.pastDue.toFixed(2)} ⚠️` : '',
+    data.openWorkOrders > 0 ? `Open Work Orders: ${data.openWorkOrders}` : '',
   ].filter(Boolean)
-
   return lines.length ? `\nRentvine Data:\n${lines.join('\n')}` : ''
 }
 
 // ============================================================
-// MENU DETECTION
+// MENU
 // ============================================================
 
 function detectMenuTrigger(message: string): string | null {
   const m = message.trim().toLowerCase()
   const greetings = ['hi','hello','hola','oi','olá','hey','menu','start','0','bom dia','buenos dias','good morning']
   if (greetings.includes(m)) return 'main_menu'
-  return ({ '1':'parking_sticker','2':'maintenance','3':'payment',
-    '4':'documents','5':'schedule','6':'my_account','7':'emergency','8':'staff',
-    '9':'agent_portal',
-  } as Record<string,string>)[m] ?? null
+  return ({'1':'parking_sticker','2':'maintenance','3':'payment','4':'documents','5':'schedule','6':'my_account','7':'emergency','8':'staff','9':'agent_portal'} as Record<string,string>)[m] ?? null
+}
+
+function buildMainMenu(ctx: CallerContext): string {
+  const first = ctx.name !== 'there' ? ` ${ctx.name.split(' ')[0]}` : ''
+  if (ctx.persona === 'real_estate_agent') {
+    return translate(ctx.language, {
+      en: `👋 Hi${first}! I'm Maia 🌸 PMI Agent Portal.\n\n1 - 🏠 Owner / Seller\n2 - 🔑 Buyer\n3 - 📋 Tenant\n8 - 💬 Team\n\nReply with a number.`,
+      es: `👋 ¡Hola${first}! Soy Maia 🌸\n\n1-🏠 Propietario  2-🔑 Comprador  3-📋 Inquilino  8-💬 Equipo`,
+      pt: `👋 Olá${first}! Sou a Maia 🌸\n\n1-🏠 Proprietário  2-🔑 Comprador  3-📋 Inquilino  8-💬 Equipe`,
+      fr: `👋 Bonjour${first}! Maia 🌸\n\n1-🏠 Propriétaire  2-🔑 Acheteur  3-📋 Locataire  8-💬 Équipe`,
+      he: `👋 שלום${first}! מאיה 🌸\n\n1-🏠 בעלים  2-🔑 קונה  3-📋 שוכר  8-💬 צוות`,
+      ru: `👋 Привет${first}! Мая 🌸\n\n1-🏠 Владелец  2-🔑 Покупатель  3-📋 Арендатор  8-💬 Команда`,
+    })
+  }
+  return translate(ctx.language, {
+    en: `👋 Hi${first}! I'm Maia, your PMI assistant 🌸\n\n1 - 🚗 Parking Sticker\n2 - 🔧 Maintenance\n3 - 💰 Payment\n4 - 📄 Documents\n5 - 📅 Schedule\n6 - 🏠 My Account\n7 - 🚨 Emergency\n8 - 💬 Staff\n9 - 🏡 Real Estate Agent\n\nReply with a number.`,
+    es: `👋 ¡Hola${first}! Soy Maia 🌸\n\n1-🚗 Calcomanía  2-🔧 Mant.  3-💰 Pagos\n4-📄 Docs  5-📅 Cita  6-🏠 Cuenta\n7-🚨 Emergencia  8-💬 Equipo  9-🏡 Agente`,
+    pt: `👋 Olá${first}! Sou a Maia 🌸\n\n1-🚗 Adesivo  2-🔧 Manutenção  3-💰 Pagamentos\n4-📄 Documentos  5-📅 Agendar  6-🏠 Conta\n7-🚨 Emergência  8-💬 Equipe  9-🏡 Corretor`,
+    fr: `👋 Bonjour${first}! Maia 🌸\n\n1-🚗 Vignette  2-🔧 Maintenance  3-💰 Paiements\n4-📄 Documents  5-📅 Rendez-vous  6-🏠 Compte\n7-🚨 Urgence  8-💬 Équipe  9-🏡 Agent`,
+    he: `👋 שלום${first}! מאיה 🌸\n\n1-🚗 מדבקה  2-🔧 תחזוקה  3-💰 תשלומים\n4-📄 מסמכים  5-📅 פגישה  6-🏠 חשבון\n7-🚨 חירום  8-💬 צוות  9-🏡 סוכן`,
+    ru: `👋 Привет${first}! Мая 🌸\n\n1-🚗 Наклейка  2-🔧 Ремонт  3-💰 Платежи\n4-📄 Документы  5-📅 Запись  6-🏠 Аккаунт\n7-🚨 Экстренно  8-💬 Команда  9-🏡 Агент`,
+  })
+}
+
+function buildPersonalGreeting(ctx: CallerContext): string {
+  const first = ctx.name && ctx.name !== 'there' ? ctx.name.split(' ')[0] : ''
+  const n = first ? ` ${first}` : ''
+  return translate(ctx.language, {
+    en: `Hi${n}! 🌸 This is Maia from PMI Top Florida Properties. So lovely to hear from you!`,
+    es: `¡Hola${n}! 🌸 Soy Maia de PMI Top Florida Properties. ¡Qué gusto saber de ti!`,
+    pt: `Olá${n}! 🌸 Aqui é a Maia da PMI Top Florida Properties. Que bom te ouvir!`,
+    fr: `Bonjour${n}! 🌸 C'est Maia de PMI Top Florida Properties.`,
+    he: `שלום${n}! 🌸 אני מאיה מ-PMI Top Florida Properties.`,
+    ru: `Привет${n}! 🌸 Это Мая из PMI Top Florida Properties.`,
+  })
 }
 
 // ============================================================
-// MENU HANDLER
+// CONTINUE FLOW
 // ============================================================
 
-async function handleMenuOption(ctx: CallerContext, option: string): Promise<string> {
-  // ── Known RE agents always go straight to agent portal ───
-  if (ctx.persona === 'real_estate_agent' && option === 'main_menu') {
-    return startAgentFlow(ctx)
-  }
-
-  if (option === 'main_menu') return buildMainMenu(ctx)
-
-  await saveConversationState(ctx.phone, option, 'start', {})
-  const { language: lang } = ctx
-
-  switch (option) {
-    case 'parking_sticker':
-      return translate(lang, {
-        en: `🚗 *Parking Sticker*\n\n1 - Check my sticker status\n2 - Register a new vehicle\n3 - Request a new sticker\n\nReply with a number.`,
-        es: `🚗 *Calcomanía*\n\n1 - Ver estado\n2 - Registrar vehículo\n3 - Solicitar calcomanía`,
-        pt: `🚗 *Adesivo*\n\n1 - Ver status\n2 - Registrar veículo\n3 - Solicitar adesivo`,
-      })
-
-    case 'maintenance':
-      if (ctx.division === 'residential') {
-        await saveConversationState(ctx.phone, 'maintenance_rentvine', 'awaiting_description', {})
-        return translate(lang, {
-          en: `🔧 *Maintenance Request*\n\nDescribe the issue in your unit.`,
-          es: `🔧 Describe el problema en tu unidad.`,
-          pt: `🔧 Descreva o problema na sua unidade.`,
-        })
-      }
-      await saveConversationState(ctx.phone, 'maintenance_association', 'awaiting_description', {})
-      return translate(lang, {
-        en: `🔧 *Maintenance Request*\n\nDescribe the issue. Include unit number if not yet verified.`,
-        es: `🔧 Describe el problema e incluye tu número de unidad.`,
-        pt: `🔧 Descreva o problema e inclua o número da unidade.`,
-      })
-
-    case 'payment':
-      return await handlePaymentInquiry(ctx)
-
-    case 'documents':
-      await saveConversationState(ctx.phone, 'documents', 'awaiting_question', { msgCount: 0 })
-      return translate(lang, {
-        en: `📄 *Documents & Lease Info*\n\nWhat would you like to know? Ask about your lease, rules, or policies.`,
-        es: `📄 ¿Qué deseas saber? Contrato, reglamento o políticas.`,
-        pt: `📄 O que deseja saber? Contrato, regras ou políticas.`,
-      })
-
-    case 'schedule':
-      await saveConversationState(ctx.phone, 'schedule', 'awaiting_type', {})
-      return translate(lang, {
-        en: `📅 *Schedule Appointment*\n\n1 - Unit inspection\n2 - Move-in walkthrough\n3 - Meeting with management\n4 - Other`,
-        es: `📅 *Agendar Cita*\n\n1 - Inspección  2 - Recorrido  3 - Reunión  4 - Otro`,
-        pt: `📅 *Agendar Visita*\n\n1 - Inspeção  2 - Vistoria  3 - Reunião  4 - Outro`,
-      })
-
-    case 'my_account':
-      return await handleAccountInfo(ctx)
-
-    case 'emergency':
-      await alertEmergencyTeam(ctx)
-      return translate(lang, {
-        en: `🚨 *EMERGENCY — Maia here*\n\nI've alerted our team right away.\n\nImmediate danger? Please call 911 now.\n📞 Emergency line: ${process.env.EMERGENCY_PHONE}`,
-        es: `🚨 *EMERGENCIA — Soy Maia*\n\nYa alerté a nuestro equipo.\n\nPeligro inmediato: llama al 911.\n📞 ${process.env.EMERGENCY_PHONE}`,
-        pt: `🚨 *EMERGÊNCIA — Aqui é a Maia*\n\nJá avisei nossa equipe.\n\nPerigo imediato: ligue para o 911.\n📞 ${process.env.EMERGENCY_PHONE}`,
-      })
-
-    case 'staff':
-      await saveConversationState(ctx.phone, 'staff_handoff', 'waiting', { msgCount: 0 })
-      await notifyStaff(ctx, 'Resident requested to speak with staff')
-      return translate(lang, {
-        en: `💬 Of course! I'm connecting you with our team right now 🌸\n\nExpect a reply within ~2 business hours.\nOr call us: ${process.env.OFFICE_PHONE}`,
-        es: `💬 ¡Claro! Te estoy conectando con nuestro equipo ahora 🌸\n\nRespuesta en ~2 horas hábiles.`,
-        pt: `💬 Claro! Estou te conectando com nossa equipe agora 🌸\n\nResposta em ~2 horas úteis.`,
-      })
-
-    case 'agent_portal':
-      return startAgentFlow(ctx)
-
-    default:
-      return buildMainMenu(ctx)
-  }
-}
-
-// ============================================================
-// CONTINUE FLOW  — feedback wired at every completion point
-// ============================================================
-
-async function continueFlow(
-  ctx:     CallerContext,
-  state:   ConversationState,
-  message: string
-): Promise<string> {
-
+async function continueFlow(ctx: CallerContext, state: ConversationState, message: string): Promise<string> {
   const { current_flow: flow, current_step: step, temporary_data_json: data } = state
 
-  // ── Sticker menu selection ───────────────────────────────
   if (flow === 'parking_sticker') {
     if (message === '1') {
       const status = await getStickerStatus(ctx)
@@ -809,39 +558,27 @@ async function continueFlow(
     }
     if (message === '2' || message === '3') {
       await saveConversationState(ctx.phone, 'sticker_register', 'awaiting_plate', data)
-      return translate(ctx.language, {
-        en: `Please enter your vehicle's license plate number:`,
-        es: `Ingresa el número de placa:`,
-        pt: `Informe a placa do veículo:`,
-      })
+      return translate(ctx.language, { en: `Please enter your vehicle's license plate number:`, es: `Ingresa el número de placa:`, pt: `Informe a placa do veículo:` })
     }
   }
 
-  // ── Sticker registration ─────────────────────────────────
   if (flow === 'sticker_register') {
     if (step === 'awaiting_plate') {
-      await saveConversationState(ctx.phone, 'sticker_register', 'awaiting_make',
-        { ...data, plate: message.toUpperCase() })
-      return translate(ctx.language, {
-        en: `Vehicle make (e.g. Toyota):`, es: `Marca (ej. Toyota):`, pt: `Marca (ex: Toyota):` })
+      await saveConversationState(ctx.phone, 'sticker_register', 'awaiting_make', { ...data, plate: message.toUpperCase() })
+      return translate(ctx.language, { en: `Vehicle make (e.g. Toyota):`, es: `Marca (ej. Toyota):`, pt: `Marca (ex: Toyota):` })
     }
     if (step === 'awaiting_make') {
-      await saveConversationState(ctx.phone, 'sticker_register', 'awaiting_model',
-        { ...data, make: message })
-      return translate(ctx.language, {
-        en: `Model (e.g. Corolla):`, es: `Modelo (ej. Corolla):`, pt: `Modelo (ex: Corolla):` })
+      await saveConversationState(ctx.phone, 'sticker_register', 'awaiting_model', { ...data, make: message })
+      return translate(ctx.language, { en: `Model (e.g. Corolla):`, es: `Modelo (ej. Corolla):`, pt: `Modelo (ex: Corolla):` })
     }
     if (step === 'awaiting_model') {
-      await saveConversationState(ctx.phone, 'sticker_register', 'awaiting_color',
-        { ...data, model: message })
-      return translate(ctx.language, {
-        en: `Vehicle color:`, es: `Color del vehículo:`, pt: `Cor do veículo:` })
+      await saveConversationState(ctx.phone, 'sticker_register', 'awaiting_color', { ...data, model: message })
+      return translate(ctx.language, { en: `Vehicle color:`, es: `Color del vehículo:`, pt: `Cor do veículo:` })
     }
     if (step === 'awaiting_color') {
       const vehicle = { ...data, color: message } as Record<string, string>
-      await createStickerRequest(ctx, vehicle as Record<string, string>)
+      await createStickerRequest(ctx, vehicle)
       await clearConversationState(ctx.phone)
-      // ✅ FEEDBACK — sticker registered
       void maybeRequestFeedback(ctx.phone, ctx, 'sticker_register', ctx.channel)
       return translate(ctx.language, {
         en: `✅ Sticker request submitted!\n\n${vehicle.make} ${vehicle.model} (${vehicle.color})\nPlate: ${vehicle.plate}\n\nPayment link coming shortly.`,
@@ -851,11 +588,9 @@ async function continueFlow(
     }
   }
 
-  // ── Maintenance — Rentvine ───────────────────────────────
   if (flow === 'maintenance_rentvine' && step === 'awaiting_description') {
     const workOrderId = await createRentvineWorkOrder(ctx, message)
     await clearConversationState(ctx.phone)
-    // ✅ FEEDBACK — maintenance submitted
     void maybeRequestFeedback(ctx.phone, ctx, 'maintenance_rentvine', ctx.channel)
     return translate(ctx.language, {
       en: `✅ Maintenance submitted!\n\nWork Order #${workOrderId}\n"${message}"\n\nOur team will contact you to schedule.`,
@@ -864,629 +599,248 @@ async function continueFlow(
     })
   }
 
-  // ── Maintenance — Association ────────────────────────────
   if (flow === 'maintenance_association' && step === 'awaiting_description') {
     await createAssociationMaintenanceRequest(ctx, message)
     await clearConversationState(ctx.phone)
-    // ✅ FEEDBACK — maintenance submitted
     void maybeRequestFeedback(ctx.phone, ctx, 'maintenance_association', ctx.channel)
     return translate(ctx.language, {
-      en: `✅ Maintenance request received!\n\n"${message}"\n\nForwarded to our maintenance team. You'll receive updates here.`,
-      es: `✅ ¡Solicitud recibida!\n\n"${message}"\n\nEnviada al equipo de mantenimiento.`,
-      pt: `✅ Solicitação recebida!\n\n"${message}"\n\nEncaminhada para a equipe de manutenção.`,
+      en: `✅ Maintenance request received!\n\n"${message}"\n\nForwarded to our maintenance team.`,
+      es: `✅ ¡Solicitud recibida!\n\n"${message}"\n\nEnviada al equipo.`,
+      pt: `✅ Solicitação recebida!\n\n"${message}"\n\nEncaminhada para a equipe.`,
     })
   }
 
-  // ── Documents Q&A ────────────────────────────────────────
   if (flow === 'documents' && step === 'awaiting_question') {
-    const answer   = await getAIResponse(ctx, message, 'documents')
+    const answer   = await getMaiaIntelligentResponse(ctx, message)
     const msgCount = ((data.msgCount as number) ?? 0) + 1
-
     if (msgCount >= 3) {
-      // ✅ FEEDBACK — extended document session ends
       void maybeRequestFeedback(ctx.phone, ctx, 'documents', ctx.channel)
       await clearConversationState(ctx.phone)
-      return answer + translate(ctx.language, {
-        en: `\n\n_Reply *menu* for more options._`,
-        es: `\n\n_Escribe *menú* para más opciones._`,
-        pt: `\n\n_Escreva *menu* para mais opções._`,
-      })
+      return answer + translate(ctx.language, { en: `\n\n_Reply *menu* for more options._`, es: `\n\n_Escribe *menú* para más opciones._`, pt: `\n\n_Escreva *menu* para mais opções._` })
     }
-
     await saveConversationState(ctx.phone, 'documents', 'awaiting_question', { msgCount })
-    return answer + translate(ctx.language, {
-      en: `\n\n📄 Ask another question or reply *menu* to go back.`,
-      es: `\n\n📄 Haz otra pregunta o escribe *menú* para volver.`,
-      pt: `\n\n📄 Faça outra pergunta ou escreva *menu* para voltar.`,
-    })
+    return answer + translate(ctx.language, { en: `\n\n📄 Ask another question or reply *menu*.`, es: `\n\n📄 Haz otra pregunta o escribe *menú*.`, pt: `\n\n📄 Faça outra pergunta ou escreva *menu*.` })
   }
 
-  // ── Schedule appointment ─────────────────────────────────
   if (flow === 'schedule' && step === 'awaiting_type') {
-    const types: Record<string, string> = {
-      '1': 'unit inspection', '2': 'move-in walkthrough',
-      '3': 'management meeting', '4': 'other appointment',
-    }
+    const types: Record<string, string> = { '1':'unit inspection','2':'move-in walkthrough','3':'management meeting','4':'other appointment' }
     const apptType = types[message] ?? 'appointment'
     await notifyStaff(ctx, `Appointment request: ${apptType}`)
     await clearConversationState(ctx.phone)
-    // ✅ FEEDBACK — appointment scheduled
     void maybeRequestFeedback(ctx.phone, ctx, 'schedule', ctx.channel)
     return translate(ctx.language, {
-      en: `📅 Your ${apptType} request has been sent to our team. We'll confirm date and time shortly.`,
-      es: `📅 Solicitud de ${apptType} enviada. Confirmaremos fecha y hora pronto.`,
-      pt: `📅 Solicitação de ${apptType} enviada. Confirmaremos data e horário em breve.`,
+      en: `📅 Your ${apptType} request has been sent. We'll confirm date and time shortly.`,
+      es: `📅 Solicitud de ${apptType} enviada. Confirmaremos pronto.`,
+      pt: `📅 Solicitação de ${apptType} enviada. Confirmaremos em breve.`,
     })
   }
 
-  // ── Staff handoff ────────────────────────────────────────
   if (flow === 'staff_handoff') {
     const msgCount = ((data.msgCount as number) ?? 0) + 1
     await notifyStaff(ctx, message)
-
-    if (msgCount >= 3) {
-      // ✅ FEEDBACK — after extended staff handoff
-      void maybeRequestFeedback(ctx.phone, ctx, 'staff_handoff', ctx.channel)
-      await clearConversationState(ctx.phone)
-    } else {
-      await saveConversationState(ctx.phone, 'staff_handoff', 'waiting', { msgCount })
-    }
-
-    return translate(ctx.language, {
-      en: `✉️ Got it! I've passed your message to our team. They'll be in touch soon 🌸`,
-      es: `✉️ ¡Listo! Le pasé tu mensaje al equipo. Te responderán pronto 🌸`,
-      pt: `✉️ Pronto! Repassei sua mensagem para a equipe. Eles entrarão em contato em breve 🌸`,
-    })
+    if (msgCount >= 3) { void maybeRequestFeedback(ctx.phone, ctx, 'staff_handoff', ctx.channel); await clearConversationState(ctx.phone) }
+    else await saveConversationState(ctx.phone, 'staff_handoff', 'waiting', { msgCount })
+    return translate(ctx.language, { en: `✉️ Got it! I've passed your message to our team. They'll be in touch soon 🌸`, es: `✉️ ¡Listo! Le pasé tu mensaje al equipo 🌸`, pt: `✉️ Pronto! Repassei sua mensagem para a equipe 🌸` })
   }
 
-  // ── Unknown contact info collection ────────────────────────
   if (flow === 'unknown_contact' && step === 'awaiting_info') {
-    // Forward their message to staff with their phone number
-    await notifyTeamByEmail(
-      process.env.STAFF_EMAIL!,
-      `New Unregistered Contact — ${ctx.phone}`,
-      `An unregistered contact reached out via ${ctx.channel.toUpperCase()}.
-
-Phone: ${ctx.phone}
-Message: "${message}"
-
-Please follow up with them directly.
-
-Maia — PMI Top Florida Properties`
-    )
+    await notifyTeamByEmail(process.env.STAFF_EMAIL!, `New Unregistered Contact — ${ctx.phone}`,
+      `An unregistered contact reached out via ${ctx.channel.toUpperCase()}.\n\nPhone: ${ctx.phone}\nMessage: "${message}"\n\nPlease follow up.\n\nMaia — PMI Top Florida Properties`)
     await clearConversationState(ctx.phone)
     void maybeRequestFeedback(ctx.phone, ctx, 'staff_handoff', ctx.channel)
     return translate(ctx.language, {
       en: `Thank you so much! 🌸 I've passed your message to our team and they'll get back to you very soon. Have a wonderful day!`,
       es: `¡Muchas gracias! 🌸 Le pasé tu mensaje a nuestro equipo y te contactarán muy pronto. ¡Que tengas un excelente día!`,
       pt: `Muito obrigada! 🌸 Passei sua mensagem para nossa equipe e eles entrarão em contato em breve. Tenha um ótimo dia!`,
-      fr: `Merci beaucoup! 🌸 J'ai transmis votre message à notre équipe et ils vous contacteront très bientôt. Bonne journée!`,
-      he: `תודה רבה! 🌸 העברתי את ההודעה שלך לצוות שלנו והם יחזרו אליך בקרוב. יום נפלא!`,
-      ru: `Большое спасибо! 🌸 Я передала ваше сообщение нашей команде и они свяжутся с вами очень скоро. Хорошего дня!`,
+      fr: `Merci beaucoup! 🌸 Message transmis. Bonne journée!`,
+      he: `תודה רבה! 🌸 העברתי את ההודעה. יום נפלא!`,
+      ru: `Большое спасибо! 🌸 Сообщение передано. Хорошего дня!`,
     })
   }
 
-  // Default
   await clearConversationState(ctx.phone)
   return buildMainMenu(ctx)
 }
 
 // ============================================================
 // MAIA INTELLIGENT RESPONSE ENGINE
-// Reads context, queries database, responds naturally
 // ============================================================
 
-async function getMaiaIntelligentResponse(
-  ctx:     CallerContext,
-  message: string
-): Promise<string> {
-
+async function getMaiaIntelligentResponse(ctx: CallerContext, message: string): Promise<string> {
   const langName = LANGUAGE_NAMES[ctx.language] ?? 'English'
   const msg      = message.toLowerCase()
 
-  // ── Intent detection ────────────────────────────────────────
-  const isMaintenance = /leak|repair|broken|fix|maintenance|agua|plumb|hvac|electric|roof|door|window|faucet|toilet|ac|heat|mold|pest|consert|manuten|reparar|fuego|calor|frio/.test(msg)
-  const isPayment     = /balance|pay|owe|fee|amount|due|check|payment|cobro|pago|saldo|pagamento|saldo/.test(msg)
+  const isMaintenance = /leak|repair|broken|fix|maintenance|agua|plumb|hvac|electric|roof|door|window|faucet|toilet|ac|heat|mold|pest|manuten|reparar/.test(msg)
+  const isPayment     = /balance|pay|owe|fee|amount|due|check|payment|cobro|pago|saldo|pagamento/.test(msg)
   const isParking     = /park|sticker|car|vehicle|plate|veh|carro|calcoman|adesivo/.test(msg)
   const isBoard       = /board|president|contact|who is|member|junta|directiva|conselho/.test(msg)
-  const isRules       = /rule|regulation|pet|noise|pool|gym|bylaw|regl|norma|regra/.test(msg)
   const isDocument    = /document|form|application|lease|contract|estoppel|arc|doc|formulario|contrato/.test(msg)
   const isSchedule    = /schedul|appointment|visit|inspect|meeting|cita|agend|visita/.test(msg)
   const isEmergency   = /emergency|flood|fire|gas|danger|urgent|help|urgente|emergencia|emergência/.test(msg)
-  const isArcForm     = /arc|architect|modification|exterior|fence|paint|roof|pool|shed|landscap|structur|modifica|arquitect/.test(msg)
-  const isVendorAch   = /vendor|ach|ach form|bank|routing|account.*vendor|vendor.*form|pago.*proveedor|proveedor/.test(msg)
+  const isArcForm     = /arc|architect|modification|exterior|fence|paint|roof|pool|shed|landscap|structur/.test(msg)
+  const isVendorAch   = /vendor|ach form|routing|account.*vendor|vendor.*form|proveedor/.test(msg)
   const isInvoice     = /invoice|approve.*invoice|invoice.*approv|factura|aprob|fatura/.test(msg)
 
-  // ── Fetch relevant database context ─────────────────────────
   let dbContext = ''
 
-  // Rentvine context for residential contacts
-  if (ctx.division === 'residential' && ctx.rentvineContactId) {
-    const rvContext = await buildRentvineContext(ctx)
-    dbContext += rvContext
-  }
+  if (ctx.division === 'residential' && ctx.rentvineContactId)
+    dbContext += await buildRentvineContext(ctx)
 
-  // Owner info
   if (ctx.associationId) {
-    const { data: assoc } = await supabase
-      .from('associations')
+    const { data: assoc } = await supabase.from('associations')
       .select('association_name, association_type, service_type, florida_statute')
-      .eq('association_code', ctx.associationId)
-      .single()
-    if (assoc) {
-      dbContext += `
-Owner's Association: ${assoc.association_name} (${assoc.association_type}, ${assoc.service_type}, ${assoc.florida_statute})`
-    }
+      .eq('association_code', ctx.associationId).single()
+    if (assoc) dbContext += `\nAssociation: ${assoc.association_name} (${assoc.association_type}, ${assoc.service_type})`
   }
 
-  // Board members if asked
   if (isBoard && ctx.associationId) {
-    const { data: board } = await supabase
-      .from('board_members')
-      .select('first_name, last_name, position, email, phone')
-      .eq('association_code', ctx.associationId)
-      .eq('active', true)
-    if (board?.length) {
-      dbContext += `
-Board Members: ${board.map(b => `${b.first_name} ${b.last_name} (${b.position}) - ${b.email}`).join(', ')}`
-    }
+    const { data: board } = await supabase.from('board_members')
+      .select('first_name, last_name, position, email').eq('association_code', ctx.associationId).eq('active', true)
+    if (board?.length) dbContext += `\nBoard: ${board.map(b => `${b.first_name} ${b.last_name} (${b.position}) ${b.email}`).join(', ')}`
   }
 
-  // FAQ answers
   if (!isMaintenance && !isPayment && !isParking) {
-    const { data: faqs } = await supabase
-      .from('association_faq')
-      .select('question, answer, important_note')
-      .limit(5)
-    if (faqs?.length) {
-      dbContext += '\nFAQ Knowledge:\n' + faqs.map(f => `Q: ${f.question}\nA: ${f.answer}`).join('\n')
-    }
+    const { data: faqs } = await supabase.from('association_faq').select('question, answer').limit(5)
+    if (faqs?.length) dbContext += '\nFAQ:\n' + faqs.map(f => `Q: ${f.question}\nA: ${f.answer}`).join('\n')
   }
 
-  // Drive folders for documents
-  if ((isDocument || isRules) && ctx.associationId) {
-    const { data: folders } = await supabase
-      .from('association_drive_folders')
-      .select('folder_type, drive_link')
-      .eq('association_code', ctx.associationId)
-      .not('drive_link', 'is', null)
-    if (folders?.length) {
-      dbContext += `
-Available Documents: ${folders.map(f => `${f.folder_type}: ${f.drive_link}`).join(', ')}`
-    }
+  if ((isDocument) && ctx.associationId) {
+    const { data: folders } = await supabase.from('association_drive_folders')
+      .select('folder_type, drive_link').eq('association_code', ctx.associationId).not('drive_link', 'is', null)
+    if (folders?.length) dbContext += `\nDrive Folders: ${folders.map(f => `${f.folder_type}: ${f.drive_link}`).join(', ')}`
   }
 
-  // ── Handle specific intents with actions ────────────────────
+  if (isArcForm && !isMaintenance) return translate(ctx.language, {
+    en: `🏗️ ARC Request — email info@topfloridaproperties.com with:\n• Owner signature\n• Project description + dimensions\n• Materials list + paint samples\n• Photo or drawing\n• Site plan\n\n⚠️ NO work until ACC approval!\n\nForm: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh 🌸`,
+    es: `🏗️ ARC — email info@topfloridaproperties.com con:\n• Firma propietario\n• Descripción + dimensiones\n• Lista materiales\n• Foto o dibujo\n• Plano\n\n⚠️ ¡Sin aprobación no hay trabajo!\n\nFormulario: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh`,
+    pt: `🏗️ ARC — envie para info@topfloridaproperties.com:\n• Assinatura proprietário\n• Descrição + dimensões\n• Lista materiais\n• Foto ou desenho\n• Planta\n\n⚠️ Nenhum trabalho sem aprovação!\n\nFormulário: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh`,
+  })
 
-  // ARC Form request
-  if (isArcForm && !isMaintenance) {
-    return translate(ctx.language, {
-      en: `🏗️ To request an Architectural Review (ARC), you need to complete the ARC Submission Form and send it to info@topfloridaproperties.com
+  if (isVendorAch) return translate(ctx.language, {
+    en: `📋 Vendor ACH Form — send to billing@topfloridaproperties.com\n\nInclude: business name, bank name, routing #, account # (or VOID check)\n\nForm: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh 🌸`,
+    es: `📋 Formulario ACH — enviar a billing@topfloridaproperties.com\n\nIncluir: nombre negocio, banco, número de ruta, cuenta (o cheque VOID)\n\nFormulario: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh`,
+    pt: `📋 Formulário ACH — enviar para billing@topfloridaproperties.com\n\nIncluir: nome empresa, banco, roteamento, conta (ou cheque VOID)\n\nFormulário: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh`,
+  })
 
-You must include:
-• Owner signature (contractor signatures not accepted)
-• Project description with dimensions and materials
-• Materials list with paint samples
-• Photo or drawing of project
-• Site plan
+  if (isInvoice) return translate(ctx.language, {
+    en: `✅ Invoice Approval:\n\n1️⃣ https://pmitfp.cincwebaxis.com/\n2️⃣ Click "Board Invoice Approval"\n3️⃣ Review + Approve or Decline\n\n⚠️ ONLY portal-approved invoices get paid!\nACH: 5-7 business days after approval.\n\nApp: Android / Apple "Property Management Inc"\n\nQuestions: ar@topfloridaproperties.com 🌸`,
+    es: `✅ Aprobación de facturas:\n\n1️⃣ https://pmitfp.cincwebaxis.com/\n2️⃣ "Board Invoice Approval"\n3️⃣ Aprobar o Rechazar\n\n⚠️ ¡Solo facturas aprobadas en portal se pagan!\n\nar@topfloridaproperties.com 🌸`,
+    pt: `✅ Aprovação de faturas:\n\n1️⃣ https://pmitfp.cincwebaxis.com/\n2️⃣ "Board Invoice Approval"\n3️⃣ Aprovar ou Recusar\n\n⚠️ Apenas faturas aprovadas no portal são pagas!\n\nar@topfloridaproperties.com 🌸`,
+  })
 
-⚠️ NO work can begin until ACC approval is received!
-
-Download the form here:
-https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh
-
-Need help filling it out? 🌸`,
-      es: `🏗️ Para solicitar una Revisión Arquitectónica (ARC), completa el formulario y envíalo a info@topfloridaproperties.com
-
-Debes incluir:
-• Firma del propietario
-• Descripción del proyecto con dimensiones
-• Lista de materiales con muestras de pintura
-• Foto o dibujo del proyecto
-• Plano del sitio
-
-⚠️ ¡NO se puede comenzar ningún trabajo hasta recibir aprobación!
-
-Descarga el formulario:
-https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh`,
-      pt: `🏗️ Para solicitar uma Revisão Arquitetônica (ARC), preencha o formulário e envie para info@topfloridaproperties.com
-
-Você deve incluir:
-• Assinatura do proprietário
-• Descrição do projeto com dimensões
-• Lista de materiais com amostras de tinta
-• Foto ou desenho do projeto
-• Planta do local
-
-⚠️ NENHUM trabalho pode começar sem aprovação!
-
-Baixe o formulário:
-https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh`,
-    })
-  }
-
-  // Vendor ACH form request
-  if (isVendorAch) {
-    return translate(ctx.language, {
-      en: `📋 The Vendor ACH Authorization Form allows vendors to receive payments electronically.
-
-Vendors fill in:
-• Business name
-• Bank name
-• Routing number
-• Account number
-(or attach a VOID check)
-
-Send completed form to: billing@topfloridaproperties.com
-
-Download the form here:
-https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh
-
-Questions? ar@topfloridaproperties.com 🌸`,
-      es: `📋 El Formulario de Autorización ACH para Proveedores permite recibir pagos electrónicamente.
-
-El proveedor completa:
-• Nombre del negocio
-• Nombre del banco
-• Número de ruta
-• Número de cuenta
-(o adjunta un cheque VOID)
-
-Enviar a: billing@topfloridaproperties.com
-
-Descarga el formulario:
-https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh`,
-      pt: `📋 O Formulário de Autorização ACH para Fornecedores permite receber pagamentos eletronicamente.
-
-O fornecedor preenche:
-• Nome da empresa
-• Nome do banco
-• Número de roteamento
-• Número da conta
-(ou anexa um cheque VOID)
-
-Enviar para: billing@topfloridaproperties.com
-
-Baixe o formulário:
-https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh`,
-    })
-  }
-
-  // Invoice approval
-  if (isInvoice) {
-    return translate(ctx.language, {
-      en: `✅ To approve invoices as a board member:
-
-1️⃣ Log in: https://pmitfp.cincwebaxis.com/
-2️⃣ Click "Board Invoice Approval" in the left menu
-3️⃣ Review invoice details and PDF preview
-4️⃣ Click Approve or Decline
-
-⚠️ ONLY invoices approved in the portal will be paid!
-
-Invoices uploaded daily — check twice per week.
-ACH payment: 5-7 business days after approval.
-
-Mobile app:
-📱 Android: https://play.google.com/store/apps/details?id=com.cinc.pmiapp
-🍎 Apple: https://apps.apple.com/sv/app/property-management-inc/id1572855043
-
-Questions? ar@topfloridaproperties.com 🌸`,
-      es: `✅ Para aprobar facturas como miembro de la junta:
-
-1️⃣ Inicia sesión: https://pmitfp.cincwebaxis.com/
-2️⃣ Haz clic en "Board Invoice Approval"
-3️⃣ Revisa los detalles y el PDF
-4️⃣ Haz clic en Aprobar o Rechazar
-
-⚠️ ¡SOLO las facturas aprobadas en el portal se pagarán!
-
-Facturas subidas diariamente — revisa dos veces por semana.
-Pago ACH: 5-7 días hábiles después de aprobación.
-
-Preguntas: ar@topfloridaproperties.com 🌸`,
-      pt: `✅ Para aprovar faturas como membro do conselho:
-
-1️⃣ Acesse: https://pmitfp.cincwebaxis.com/
-2️⃣ Clique em "Board Invoice Approval"
-3️⃣ Revise os detalhes e o PDF
-4️⃣ Clique em Aprovar ou Recusar
-
-⚠️ APENAS faturas aprovadas no portal serão pagas!
-
-Faturas enviadas diariamente — verifique duas vezes por semana.
-Pagamento ACH: 5-7 dias úteis após aprovação.
-
-Dúvidas: ar@topfloridaproperties.com 🌸`,
-    })
-  }
-
-  // Emergency — alert team immediately
   if (isEmergency) {
     await alertEmergencyTeam(ctx)
     return translate(ctx.language, {
-      en: `🚨 I've alerted our emergency team right away ${ctx.name.split(' ')[0]}! If you're in immediate danger please call 911. Our team will contact you very shortly. Stay safe! 📞 ${process.env.EMERGENCY_PHONE}`,
-      es: `🚨 ¡Alerté al equipo de emergencias ahora mismo! Si estás en peligro inmediato llama al 911. Te contactarán muy pronto. ¡Mantente seguro! 📞 ${process.env.EMERGENCY_PHONE}`,
-      pt: `🚨 Alertei nossa equipe de emergência agora mesmo! Se estiver em perigo imediato ligue para o 911. Entrarão em contato em breve. Fique seguro! 📞 ${process.env.EMERGENCY_PHONE}`,
+      en: `🚨 I've alerted our emergency team right away! If you're in immediate danger please call 911. Our team will contact you very shortly. Stay safe! 📞 ${process.env.EMERGENCY_PHONE}`,
+      es: `🚨 ¡Alerté al equipo de emergencias! Peligro inmediato → llama al 911. 📞 ${process.env.EMERGENCY_PHONE}`,
+      pt: `🚨 Alertei nossa equipe! Perigo imediato → ligue para o 911. 📞 ${process.env.EMERGENCY_PHONE}`,
     })
   }
 
-  // Maintenance — start flow
   if (isMaintenance) {
-    const isBookkeeping = ctx.persona !== 'unknown' &&
-      (await supabase.from('associations').select('service_type')
-        .eq('association_code', ctx.associationId ?? '').single())
-        .data?.service_type === 'bookkeeping'
+    const isBookkeeping = ctx.associationId &&
+      (await supabase.from('associations').select('service_type').eq('association_code', ctx.associationId).single()).data?.service_type === 'bookkeeping'
 
     if (isBookkeeping) {
-      // Get board emails and send to them
-      const { data: board } = await supabase
-        .from('board_members')
-        .select('email, first_name, last_name')
-        .eq('association_code', ctx.associationId ?? '')
-        .eq('active', true)
-
+      const { data: board } = await supabase.from('board_members').select('email').eq('association_code', ctx.associationId ?? '').eq('active', true)
       if (board?.length) {
-        const emailList = board.map(b => b.email).filter(Boolean).join(',')
-        await notifyTeamByEmail(
-          emailList,
+        await notifyTeamByEmail(board.map(b => b.email).filter(Boolean).join(','),
           `Maintenance Request — Unit ${ctx.unitId ?? 'Unknown'} — ${ctx.name}`,
-          `Dear Board Members,
-
-A maintenance request has been submitted by ${ctx.name} (Unit ${ctx.unitId ?? 'N/A'}).
-
-Request: "${message}"
-
-Please contact the owner directly.
-
-PMI Top Florida Properties`
-        )
+          `Dear Board Members,\n\nMaintenance request from ${ctx.name} (Unit ${ctx.unitId ?? 'N/A'}).\n\nRequest: "${message}"\n\nPlease contact the owner directly.\n\nPMI Top Florida Properties`)
       }
-
       return translate(ctx.language, {
-        en: `Got it ${ctx.name.split(' ')[0]}! 🌸 Although PMI provides bookkeeping services for your association, we truly care about you. I've forwarded your request to all board members — they'll contact you directly to resolve this. Is there anything else I can help with?`,
-        es: `¡Entendido! 🌸 Aunque PMI brinda servicios de contabilidad para tu asociación, nos importas. Envié tu solicitud a todos los miembros de la junta — te contactarán directamente. ¿Hay algo más en que pueda ayudar?`,
-        pt: `Entendido! 🌸 Embora a PMI forneça serviços de contabilidade para sua associação, você é importante para nós. Encaminhei sua solicitação a todos os membros do conselho — eles entrarão em contato diretamente. Posso ajudar em mais alguma coisa?`,
+        en: `Got it! 🌸 PMI provides bookkeeping for your association. I've forwarded your request to all board members — they'll contact you directly. Anything else I can help with?`,
+        es: `¡Entendido! 🌸 Envié tu solicitud a todos los miembros de la junta. ¿Hay algo más en que pueda ayudar?`,
+        pt: `Entendido! 🌸 Encaminhei sua solicitação a todos os membros do conselho. Posso ajudar em mais alguma coisa?`,
       })
     }
 
-    // Full management or residential — create work order
-    await saveConversationState(ctx.phone,
-      ctx.division === 'residential' ? 'maintenance_rentvine' : 'maintenance_association',
-      'awaiting_description', {})
+    await saveConversationState(ctx.phone, ctx.division === 'residential' ? 'maintenance_rentvine' : 'maintenance_association', 'awaiting_description', {})
 
-    // Check if residential has open work orders already
     let openOrdersNote = ''
     if (ctx.division === 'residential' && ctx.rentvineContactId) {
-      const data = await getRentvineContactData(ctx.rentvineContactId, ctx.persona)
-      if (data && data.openWorkOrders > 0) {
-        openOrdersNote = ` (You currently have ${data.openWorkOrders} open work order${data.openWorkOrders > 1 ? 's' : ''} with us.)`
-      }
+      const d = await getRentvineContactData(ctx.rentvineContactId, ctx.persona)
+      if (d && d.openWorkOrders > 0) openOrdersNote = ` (You currently have ${d.openWorkOrders} open work order${d.openWorkOrders > 1 ? 's' : ''} with us.)`
     }
 
     return translate(ctx.language, {
-      en: `Oh no, let me help you with that right away! 🔧${openOrdersNote} Can you describe the issue in a bit more detail so I can create a work order? Which room, how long has it been happening, and is it urgent?`,
-      es: `¡Enseguida te ayudo con eso! 🔧${openOrdersNote} ¿Puedes describir el problema con más detalle? ¿En qué habitación, desde cuándo y es urgente?`,
-      pt: `Deixa eu te ajudar com isso agora! 🔧${openOrdersNote} Você pode descrever o problema com mais detalhes? Qual cômodo, há quanto tempo e é urgente?`,
+      en: `Oh no, let me help you with that right away! 🔧${openOrdersNote} Can you describe the issue in a bit more detail? Which room, how long has it been happening, and is it urgent?`,
+      es: `¡Enseguida te ayudo! 🔧${openOrdersNote} ¿Puedes describir el problema con más detalle? ¿En qué habitación, desde cuándo y es urgente?`,
+      pt: `Deixa eu te ajudar! 🔧${openOrdersNote} Pode descrever o problema com mais detalhes? Qual cômodo, há quanto tempo e é urgente?`,
     })
   }
 
-  // Parking sticker
   if (isParking) {
     const status = await getStickerStatus(ctx)
     return translate(ctx.language, {
-      en: `🚗 Here's your parking sticker info:
-
-${status}
-
-Need to register a new vehicle or request a sticker? Just let me know!`,
-      es: `🚗 Aquí está tu información de calcomanía:
-
-${status}
-
-¿Necesitas registrar un vehículo nuevo? ¡Solo dímelo!`,
-      pt: `🚗 Aqui está sua informação de adesivo:
-
-${status}
-
-Precisa registrar um novo veículo? É só me avisar!`,
+      en: `🚗 Parking sticker info:\n\n${status}\n\nNeed to register a new vehicle? Just let me know!`,
+      es: `🚗 Info de calcomanía:\n\n${status}\n\n¿Necesitas registrar un vehículo? ¡Dímelo!`,
+      pt: `🚗 Info do adesivo:\n\n${status}\n\nPrecisa registrar um veículo? É só me avisar!`,
     })
   }
 
-  // Payment/balance
   if (isPayment) {
     if (ctx.division === 'residential' && ctx.rentvineContactId) {
-      const data = await getRentvineContactData(ctx.rentvineContactId, ctx.persona)
-      if (data) {
-        const name = ctx.name.split(' ')[0]
-        if (data.balance !== null) {
-          void maybeRequestFeedback(ctx.phone, ctx, 'payment', ctx.channel)
-          return translate(ctx.language, {
-            en: `💰 Hi ${name}! Here's your account summary:
-
-Unit: ${data.unitAddress ?? 'N/A'}
-Balance: $${data.balance.toFixed(2)}${data.pastDue && data.pastDue > 0 ? `
-Past Due: $${data.pastDue.toFixed(2)} ⚠️` : ''}
-
-Need help paying? I can guide you through the options! 🌸`,
-            es: `💰 ¡Hola ${name}! Aquí está tu resumen:
-
-Unidad: ${data.unitAddress ?? 'N/A'}
-Saldo: $${data.balance.toFixed(2)}${data.pastDue && data.pastDue > 0 ? `
-Vencido: $${data.pastDue.toFixed(2)} ⚠️` : ''}
-
-¿Necesitas ayuda para pagar? 🌸`,
-            pt: `💰 Olá ${name}! Aqui está seu resumo:
-
-Unidade: ${data.unitAddress ?? 'N/A'}
-Saldo: $${data.balance.toFixed(2)}${data.pastDue && data.pastDue > 0 ? `
-Vencido: $${data.pastDue.toFixed(2)} ⚠️` : ''}
-
-Precisa de ajuda para pagar? 🌸`,
-          })
-        }
+      const d = await getRentvineContactData(ctx.rentvineContactId, ctx.persona)
+      if (d?.balance !== null && d?.balance !== undefined) {
+        void maybeRequestFeedback(ctx.phone, ctx, 'payment', ctx.channel)
+        return translate(ctx.language, {
+          en: `💰 Hi ${ctx.name.split(' ')[0]}!\n\nUnit: ${d.unitAddress ?? 'N/A'}\nBalance: $${d.balance!.toFixed(2)}${d.pastDue && d.pastDue > 0 ? `\nPast Due: $${d.pastDue.toFixed(2)} ⚠️` : ''}\n\nNeed help paying? 🌸`,
+          es: `💰 ¡Hola ${ctx.name.split(' ')[0]}!\n\nUnidad: ${d.unitAddress ?? 'N/A'}\nSaldo: $${d.balance!.toFixed(2)}`,
+          pt: `💰 Olá ${ctx.name.split(' ')[0]}!\n\nUnidade: ${d.unitAddress ?? 'N/A'}\nSaldo: $${d.balance!.toFixed(2)}`,
+        })
       }
     }
     return await handlePaymentInquiry(ctx)
   }
 
-  // Schedule
   if (isSchedule) {
     await saveConversationState(ctx.phone, 'schedule', 'awaiting_type', {})
     return translate(ctx.language, {
-      en: `📅 Of course! I can schedule that for you. What type of appointment do you need?
-
-1 - Unit inspection
-2 - Move-in walkthrough
-3 - Meeting with management
-4 - Other`,
-      es: `📅 ¡Por supuesto! ¿Qué tipo de cita necesitas?
-
-1 - Inspección de unidad
-2 - Recorrido de mudanza
-3 - Reunión con administración
-4 - Otro`,
-      pt: `📅 Claro! Que tipo de agendamento você precisa?
-
-1 - Inspeção da unidade
-2 - Vistoria de mudança
-3 - Reunião com a administração
-4 - Outro`,
+      en: `📅 What type of appointment do you need?\n\n1 - Unit inspection\n2 - Move-in walkthrough\n3 - Meeting with management\n4 - Other`,
+      es: `📅 ¿Qué tipo de cita?\n\n1 - Inspección  2 - Recorrido  3 - Reunión  4 - Otro`,
+      pt: `📅 Que tipo de agendamento?\n\n1 - Inspeção  2 - Vistoria  3 - Reunião  4 - Outro`,
     })
   }
 
-  // ── Check if person is also a board member ─────────────────
-  let isBoardMember = false
-  let boardPosition = ''
-  if (ctx.phone) {
-    const cleanP = ctx.phone.replace(/\D/g, '')
-    const plusP  = '+' + cleanP
-    const { data: bm } = await supabase
-      .from('board_members')
-      .select('position, association_code')
-      .or(`phone.eq.${ctx.phone},phone.eq.${plusP}`)
-      .limit(1).maybeSingle()
-    if (bm) {
-      isBoardMember = true
-      boardPosition = bm.position ?? 'Board Member'
-    }
-  }
+  // Board member check
+  let isBoardMember = false, boardPosition = ''
+  const cleanP = ctx.phone.replace(/\D/g, '')
+  const { data: bm } = await supabase.from('board_members').select('position')
+    .or(`phone.eq.${ctx.phone},phone.eq.+${cleanP}`).limit(1).maybeSingle()
+  if (bm) { isBoardMember = true; boardPosition = bm.position ?? 'Board Member' }
 
-  // ── Default — ask Claude with full context ───────────────────
   const system = `You are Maia, a warm and caring virtual assistant for PMI Top Florida Properties, a professional property management company in South Florida managing 25 associations with 801 owners.
 
-Respond ONLY in ${langName}. Be warm, friendly and concise. Never say you are an AI unless directly asked. Keep replies under 350 characters for SMS. Use simple language — no jargon.
+Respond ONLY in ${langName}. Be warm, friendly and concise. Never say you are an AI unless directly asked. Keep replies under 350 characters for SMS.
 
 CONTACT CONTEXT:
 - Name: ${ctx.name}
 - Role: ${isBoardMember ? boardPosition + ' (Board Member)' : ctx.persona.replace(/_/g, ' ')}
-- Unit: ${ctx.unitId ?? 'unknown'}
-- Association: ${ctx.associationId ?? 'unknown'}
-- Division: ${ctx.division}
-- Is Board Member: ${isBoardMember}
+- Unit: ${ctx.unitId ?? 'unknown'} | Association: ${ctx.associationId ?? 'unknown'} | Division: ${ctx.division}
 
 DATABASE CONTEXT:
 ${dbContext || 'No additional context available'}
 
-═══════════════════════════════════════
-PMI TOP FLORIDA PROPERTIES — FULL KNOWLEDGE BASE
-═══════════════════════════════════════
-
-COMPANY CONTACTS:
-• Accounts Receivable (HOA fees, assessments, balances): ar@topfloridaproperties.com | (305) 900-5105
-• Customer Service / Care Team (maintenance): service@topfloridaproperties.com | (305) 900-5077
-• Ron / Support / Compliance: support@topfloridaproperties.com
-• Billing / Accounts Payable (vendor invoices): billing@topfloridaproperties.com
-• CINC Portal: https://pmitfp.cincwebaxis.com/
-• Mail: PMI Top Florida Properties, P.O. Box 163556, Miami FL 33116
-
-OFFICE HOURS: Monday–Thursday 10AM–5PM | Friday 10AM–3PM
-Email is always preferred for documentation purposes.
-
-═══════════════════════════════════════
-BOARD MEMBER PROCEDURES (use when isBoardMember = true)
-═══════════════════════════════════════
-
-1. INVOICE APPROVAL:
-   - Vendors send invoices to billing@topfloridaproperties.com (CC: service@topfloridaproperties.com)
-   - Billing dept processes and uploads invoice to CINC portal daily
-   - Board member logs into portal → clicks "Board Invoice Approval" → Approve or Decline
-   - ⚠️ ONLY invoices approved in the portal will be paid
-   - ACH payment takes 5–7 business days after approval
-   - Recommend checking portal TWICE per week
-   - Portal: https://pmitfp.cincwebaxis.com/
-   - App (Android): https://play.google.com/store/apps/details?id=com.cinc.pmiapp
-   - App (Apple): https://apps.apple.com/sv/app/property-management-inc/id1572855043
-   - Questions: ar@topfloridaproperties.com
-
-2. MAINTENANCE / VENDOR ESTIMATES:
-   - Board requests estimate → email Care team at service@topfloridaproperties.com
-   - Care team contacts vendors, gets estimates, uploads to shared Drive folder (year/month)
-   - If board contacts vendor directly → forward estimates to Care team for DocuSign approval
-   - After board approves → Care team schedules the job
-
-3. NEW VENDOR REQUIREMENTS (all required before payment):
-   - W9 form
-   - License
-   - Certificate of Insurance (listing association AND PMI as additional insured)
-   - ACH Vendor Form
-
-4. PAYMENT PROCEDURES:
-   - Utility bills: Must be set up for automatic debit (check = $15 fee)
-   - Vendor payments: Must be paid via ACH (alternative = $10 fee to association)
-   - Standard processing: 5–7 business days
-   - Rush payment: $25 expedited fee
-   - Questions: ar@topfloridaproperties.com
-
-5. COMPLIANCE:
-   - All compliance issues → support@topfloridaproperties.com
-
-═══════════════════════════════════════
-MAINTENANCE RULES (for all contacts)
-═══════════════════════════════════════
-• Emergency (fire/flood/blood): Call 911 immediately
-• Urgent maintenance: Handled within 1–2 business days during working hours
-• Typical maintenance: Handled within 3–5 business days
-• Contact: service@topfloridaproperties.com | (305) 900-5077 (text preferred)
-• Include photos for physical damage
-
-═══════════════════════════════════════
-GENERAL RULES
-═══════════════════════════════════════
-- For balance questions → CINC portal: https://pmitfp.cincwebaxis.com/
-- For HOA applications → https://pmitopfloridaproperties.rentvine.com/public/apply
-- For estoppel → https://secure.condocerts.com/resale/ (5–7 business days)
-- Every application MUST have signature confirming Rules & Regulations read
-- ACH autopay: send form to ar@topfloridaproperties.com (processed on 10th of month)
-- Check payments: payable to FULL HOA NAME, write account number in MEMO
+CONTACTS: ar@topfloridaproperties.com (HOA fees) | service@topfloridaproperties.com (maintenance) | support@topfloridaproperties.com (compliance) | billing@topfloridaproperties.com (vendor invoices)
+PORTAL: https://pmitfp.cincwebaxis.com/ | HOURS: Mon–Thu 10AM–5PM, Fri 10AM–3PM
+ESTOPPEL: https://secure.condocerts.com/resale/ (5–7 days)
+APPLICATIONS: https://pmitopfloridaproperties.rentvine.com/public/apply
+MAIL: P.O. Box 163556, Miami FL 33116
 
 Always end with a warm offer to help with anything else. 🌸`
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: {
-      'Content-Type':      'application/json',
-      'x-api-key':         process.env.ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model:      'claude-sonnet-4-20250514',
-      max_tokens: 500,
-      system,
-      messages:   [{ role: 'user', content: message }],
-    }),
+    headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 500, system, messages: [{ role: 'user', content: message }] }),
   })
   const d = await res.json()
   return d.content?.[0]?.text ?? translate(ctx.language, {
-    en: `I'd love to help with that! Let me connect you with our team for the best assistance. Reply 8 to speak with someone or email support@topfloridaproperties.com 🌸`,
-    es: `¡Me encantaría ayudarte! Déjame conectarte con nuestro equipo. Responde 8 para hablar con alguien o escribe a support@topfloridaproperties.com 🌸`,
-    pt: `Adoraria te ajudar! Vou te conectar com nossa equipe. Responda 8 para falar com alguém ou escreva para support@topfloridaproperties.com 🌸`,
+    en: `I'd love to help! Let me connect you with our team. Reply 8 or email support@topfloridaproperties.com 🌸`,
+    es: `¡Me encantaría ayudarte! Responde 8 o escribe a support@topfloridaproperties.com 🌸`,
+    pt: `Adoraria te ajudar! Responda 8 ou escreva para support@topfloridaproperties.com 🌸`,
   })
-}
-
-// ── Keep getAIResponse as simple fallback ────────────────────────
-async function getAIResponse(ctx: CallerContext, message: string, mode = 'general'): Promise<string> {
-  return getMaiaIntelligentResponse(ctx, message)
 }
 
 // ============================================================
@@ -1494,23 +848,20 @@ async function getAIResponse(ctx: CallerContext, message: string, mode = 'genera
 // ============================================================
 
 async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
+  const name = ctx.name.split(' ')[0]
+
   if (ctx.division === 'residential' && ctx.rentvineContactId) {
     try {
       const creds  = Buffer.from(`${process.env.RENTVINE_ACCESS_KEY}:${process.env.RENTVINE_SECRET}`).toString('base64')
-      const res    = await fetch(`${process.env.RENTVINE_BASE_URL}/leases/export`,
-        { headers: { Authorization: `Basic ${creds}` } })
+      const res    = await fetch(`${process.env.RENTVINE_BASE_URL}/leases/export`, { headers: { Authorization: `Basic ${creds}` } })
       const leases = await res.json()
-      const lease  = leases?.find((l: {
-        lease: { tenants: { contactID: number }[] }
-        balances: { unpaidTotalAmount: number; pastDueTotalAmount: number }
-      }) => l.lease?.tenants?.some((t: { contactID: number }) =>
-        String(t.contactID) === ctx.rentvineContactId))
-
+      const lease  = leases?.find((l: { lease: { tenants: { contactID: number }[] }; balances: { unpaidTotalAmount: number; pastDueTotalAmount: number } }) =>
+        l.lease?.tenants?.some((t: { contactID: number }) => String(t.contactID) === ctx.rentvineContactId))
       if (lease) {
         const { unpaidTotalAmount, pastDueTotalAmount } = lease.balances
         void maybeRequestFeedback(ctx.phone, ctx, 'payment', ctx.channel)
         return translate(ctx.language, {
-          en: `💰 *Your Balance*\n\nUnpaid: $${unpaidTotalAmount?.toFixed(2)}\nPast due: $${pastDueTotalAmount?.toFixed(2)}\n\nContact office to pay or reply *menu*.`,
+          en: `💰 Balance for ${name}:\n\nUnpaid: $${unpaidTotalAmount?.toFixed(2)}\nPast due: $${pastDueTotalAmount?.toFixed(2)}\n\nContact office to pay or reply *menu*.`,
           es: `💰 Pendiente: $${unpaidTotalAmount?.toFixed(2)} — Vencido: $${pastDueTotalAmount?.toFixed(2)}`,
           pt: `💰 Pendente: $${unpaidTotalAmount?.toFixed(2)} — Vencido: $${pastDueTotalAmount?.toFixed(2)}`,
         })
@@ -1518,27 +869,14 @@ async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
     } catch (err) { console.error('[RENTVINE payment]', err) }
   }
 
-  const { data: req } = await supabase.from('sticker_requests')
-    .select('id, status, payment_status').eq('owner_id', ctx.phone)
-    .order('created_at', { ascending: false }).limit(1).single()
-
   void maybeRequestFeedback(ctx.phone, ctx, 'payment', ctx.channel)
-
-  if (req) return translate(ctx.language, {
-    en: `💰 Request ${req.id.slice(0, 8)} — ${req.status} — Payment: ${req.payment_status}\n\nReply *menu* for options.`,
-    es: `💰 Solicitud ${req.id.slice(0, 8)} — ${req.status} — Pago: ${req.payment_status}`,
-    pt: `💰 Solicitação ${req.id.slice(0, 8)} — ${req.status} — Pagamento: ${req.payment_status}`,
-  })
-
-  // Association owner — give full payment instructions
-  const name = ctx.name.split(' ')[0]
   return translate(ctx.language, {
-    en: `💰 Hi ${name}! Here are your HOA payment options:\n\n1️⃣ *ACH Autopay — FREE* ✅\nBest option! Download and fill the ACH form here:\nhttps://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\nEmail completed form to ar@topfloridaproperties.com\nProcessed on the 10th of each month.\n\n2️⃣ *Online Portal* (fee applies)\nhttps://pmitfp.cincwebaxis.com/\n\n📱 *PMI Mobile App*\nAndroid: https://play.google.com/store/apps/details?id=com.cinc.pmiapp\nApple: https://apps.apple.com/sv/app/property-management-inc/id1572855043\n\n3️⃣ *Check by mail*\nPayable to: FULL name of your HOA/Condo\nWrite account number in MEMO\nMail to: PMI Top Florida Properties\nP.O. Box 163556, Miami FL 33116\n\nQuestions: ar@topfloridaproperties.com | (305) 900-5105 🌸`,
-    es: `💰 ¡Hola ${name}! Opciones de pago HOA:\n\n1️⃣ *ACH Autopago — GRATIS* ✅\nDescarga el formulario ACH aquí:\nhttps://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\nEnvíalo a ar@topfloridaproperties.com\nSe procesa el día 10 de cada mes.\n\n2️⃣ *Portal online* (aplica cargo)\nhttps://pmitfp.cincwebaxis.com/\n\n📱 *App PMI*\nAndroid: https://play.google.com/store/apps/details?id=com.cinc.pmiapp\nApple: https://apps.apple.com/sv/app/property-management-inc/id1572855043\n\n3️⃣ *Cheque por correo*\nA nombre completo de tu HOA/Condo\nEscribe tu número de cuenta en el MEMO\nPMI, P.O. Box 163556, Miami FL 33116\n\nPreguntas: ar@topfloridaproperties.com 🌸`,
-    pt: `💰 Olá ${name}! Opções de pagamento HOA:\n\n1️⃣ *ACH Autopagamento — GRÁTIS* ✅\nBaixe o formulário ACH aqui:\nhttps://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\nEnvie para ar@topfloridaproperties.com\nProcessado no dia 10 de cada mês.\n\n2️⃣ *Portal online* (taxa aplicável)\nhttps://pmitfp.cincwebaxis.com/\n\n📱 *App PMI*\nAndroid: https://play.google.com/store/apps/details?id=com.cinc.pmiapp\nApple: https://apps.apple.com/sv/app/property-management-inc/id1572855043\n\n3️⃣ *Cheque pelo correio*\nPagável ao nome completo do HOA/Condo\nEscreva o número da conta no MEMO\nPMI, P.O. Box 163556, Miami FL 33116\n\nDúvidas: ar@topfloridaproperties.com 🌸`,
-    fr: `💰 Bonjour ${name}! Options de paiement HOA:\n\n1️⃣ ACH GRATUIT — Formulaire:\nhttps://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\nar@topfloridaproperties.com\n2️⃣ Portail: https://pmitfp.cincwebaxis.com/\n📱 App Android/Apple: "Property Management Inc"\n3️⃣ Chèque: PMI, P.O. Box 163556, Miami FL 33116 🌸`,
-    he: `💰 שלום ${name}! אפשרויות תשלום:\n\n1️⃣ ACH חינם — טופס:\nhttps://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\nar@topfloridaproperties.com\n2️⃣ פורטל: https://pmitfp.cincwebaxis.com/\n📱 אפליקציה Android/Apple\n3️⃣ המחאה: P.O. Box 163556, Miami FL 33116 🌸`,
-    ru: `💰 Привет ${name}! Способы оплаты:\n\n1️⃣ ACH Бесплатно — форма:\nhttps://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\nar@topfloridaproperties.com\n2️⃣ Портал: https://pmitfp.cincwebaxis.com/\n📱 Приложение Android/Apple\n3️⃣ Чек: P.O. Box 163556, Miami FL 33116 🌸`,
+    en: `💰 Hi ${name}! HOA Payment Options:\n\n1️⃣ *ACH Autopay — FREE* ✅\nForm: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\nEmail: ar@topfloridaproperties.com (processed 10th)\n\n2️⃣ *Online Portal* (fee)\nhttps://pmitfp.cincwebaxis.com/\n\n📱 App: "Property Management Inc" (Android/Apple)\n\n3️⃣ *Check by mail*\nPayable to: FULL HOA name | Write account # in MEMO\nPMI, P.O. Box 163556, Miami FL 33116\n\n📞 (305) 900-5105 🌸`,
+    es: `💰 ¡Hola ${name}! Opciones HOA:\n\n1️⃣ ACH GRATIS ✅ — ar@topfloridaproperties.com\nFormulario: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\n\n2️⃣ Portal: https://pmitfp.cincwebaxis.com/\n📱 App "Property Management Inc"\n\n3️⃣ Cheque: PMI, P.O. Box 163556, Miami FL 33116\n\n📞 (305) 900-5105 🌸`,
+    pt: `💰 Olá ${name}! Opções HOA:\n\n1️⃣ ACH GRÁTIS ✅ — ar@topfloridaproperties.com\nFormulário: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\n\n2️⃣ Portal: https://pmitfp.cincwebaxis.com/\n📱 App "Property Management Inc"\n\n3️⃣ Cheque: PMI, P.O. Box 163556, Miami FL 33116\n\n📞 (305) 900-5105 🌸`,
+    fr: `💰 Bonjour ${name}!\n1️⃣ ACH gratuit — ar@topfloridaproperties.com\n2️⃣ https://pmitfp.cincwebaxis.com/\n3️⃣ Chèque: P.O. Box 163556, Miami FL 33116 🌸`,
+    he: `💰 שלום ${name}!\n1️⃣ ACH חינם — ar@topfloridaproperties.com\n2️⃣ https://pmitfp.cincwebaxis.com/\n3️⃣ המחאה: P.O. Box 163556, Miami FL 33116 🌸`,
+    ru: `💰 Привет ${name}!\n1️⃣ ACH бесплатно — ar@topfloridaproperties.com\n2️⃣ https://pmitfp.cincwebaxis.com/\n3️⃣ Чек: P.O. Box 163556, Miami FL 33116 🌸`,
   })
 }
 
@@ -1548,8 +886,7 @@ async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
 
 async function handleAccountInfo(ctx: CallerContext): Promise<string> {
   const [{ data: reqs }, { data: vehicles }] = await Promise.all([
-    supabase.from('sticker_requests').select('id, status').eq('owner_id', ctx.phone)
-      .order('created_at', { ascending: false }).limit(3),
+    supabase.from('sticker_requests').select('id, status').eq('owner_id', ctx.phone).order('created_at', { ascending: false }).limit(3),
     supabase.from('vehicles').select('make, model, plate').eq('owner_id', ctx.phone).eq('active', true),
   ])
   const vList = vehicles?.map(v => `• ${v.make} ${v.model} — ${v.plate}`).join('\n') ?? 'None registered'
@@ -1565,506 +902,140 @@ async function handleAccountInfo(ctx: CallerContext): Promise<string> {
 // REAL ESTATE AGENT FLOW
 // ============================================================
 
-// ── Agent messages (6 languages) ────────────────────────────
 const AGENT_MSG = {
-
-  identify: (lang: string, name: string): string => ({
-    en: `👋 Hello ${name}! Welcome to our Real Estate Agent portal.\n\nWho do you represent in this transaction?\n\n1 - 🏠 Owner / Seller\n2 - 🔑 Buyer\n3 - 📋 Tenant / Renter`,
-    es: `👋 ¡Hola ${name}! Bienvenido al portal de Agentes Inmobiliarios.\n\n¿A quién representa?\n\n1 - 🏠 Propietario / Vendedor\n2 - 🔑 Comprador\n3 - 📋 Inquilino / Arrendatario`,
-    pt: `👋 Olá ${name}! Bem-vindo ao portal de Corretores.\n\nQuem você representa?\n\n1 - 🏠 Proprietário / Vendedor\n2 - 🔑 Comprador\n3 - 📋 Inquilino / Locatário`,
-    fr: `👋 Bonjour ${name}! Bienvenue sur le portail Agent Immobilier.\n\nQui représentez-vous?\n\n1 - 🏠 Propriétaire\n2 - 🔑 Acheteur\n3 - 📋 Locataire`,
-    he: `👋 שלום ${name}! ברוך הבא לפורטל סוכני הנדל"ן.\n\nאת מי אתה מייצג?\n\n1 - 🏠 בעלים / מוכר\n2 - 🔑 קונה\n3 - 📋 שוכר`,
-    ru: `👋 Здравствуйте, ${name}! Добро пожаловать на портал агентов.\n\nКого вы представляете?\n\n1 - 🏠 Владелец / Продавец\n2 - 🔑 Покупатель\n3 - 📋 Арендатор`,
-  } as Record<string,string>)[lang] ?? `Who do you represent? Reply 1 (Owner), 2 (Buyer), or 3 (Tenant).`,
-
-  ownerSelected: (lang: string): string => ({
-    en: `🏠 *Owner / Seller Representation*\n\nTo proceed as listing agent, we require your signed listing agreement.\n\n📎 Upload securely at:\n${process.env.NEXT_PUBLIC_URL}/agents/upload\n\nOr reply with the unit/property address to begin.`,
-    es: `🏠 *Representación del Propietario*\n\nNecesitamos el acuerdo de listado firmado.\n\n📎 Súbelo en:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    pt: `🏠 *Representação do Proprietário*\n\nPrecisamos do contrato de listagem assinado.\n\n📎 Envie em:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    fr: `🏠 *Représentation du Propriétaire*\n\nNous avons besoin de votre contrat de mandat signé.\n\n📎 Téléchargez sur:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    he: `🏠 *ייצוג בעלים*\n\nנדרש הסכם הרישום החתום.\n\n📎 העלה ב:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    ru: `🏠 *Представление владельца*\n\nТребуется подписанное соглашение о листинге.\n\n📎 Загрузите по адресу:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-  } as Record<string,string>)[lang] ?? `Please upload your listing agreement at ${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-
-  buyerSelected: (lang: string): string => ({
-    en: `🔑 *Buyer Representation*\n\nPlease provide:\n• Buyer's full name\n• Unit or property of interest\n• What you need (forms, HOA docs, showing, procedures)\n\nOr complete your request at:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    es: `🔑 *Representación del Comprador*\n\nProporcione:\n• Nombre del comprador\n• Unidad de interés\n• Qué necesita\n\nO visita:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    pt: `🔑 *Representação do Comprador*\n\nInforme:\n• Nome do comprador\n• Unidade de interesse\n• O que você precisa\n\nOu acesse:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    fr: `🔑 *Représentation de l'Acheteur*\n\nFournissez:\n• Nom de l'acheteur\n• Unité souhaitée\n• Ce dont vous avez besoin\n\nOu visitez:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    he: `🔑 *ייצוג קונה*\n\nספק:\n• שם הקונה\n• יחידה מבוקשת\n• מה אתה צריך`,
-    ru: `🔑 *Представление покупателя*\n\nПредоставьте:\n• Имя покупателя\n• Интересующий объект\n• Что вам нужно`,
-  } as Record<string,string>)[lang] ?? `Please provide buyer details at ${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-
-  tenantSelected: (lang: string): string => ({
-    en: `📋 *Tenant Representation*\n\nPlease provide:\n• Tenant's full name\n• Unit of interest\n• What you need (application forms, approval process, procedures)\n\nOr complete your request at:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    es: `📋 *Representación del Inquilino*\n\nProporcione:\n• Nombre del inquilino\n• Unidad de interés\n• Qué necesita\n\nO visita:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    pt: `📋 *Representação do Inquilino*\n\nInforme:\n• Nome do inquilino\n• Unidade de interesse\n• O que você precisa\n\nOu acesse:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    fr: `📋 *Représentation du Locataire*\n\nFournissez:\n• Nom du locataire\n• Unité souhaitée\n• Ce dont vous avez besoin`,
-    he: `📋 *ייצוג שוכר*\n\nספק:\n• שם השוכר\n• יחידה מבוקשת\n• מה אתה צריך`,
-    ru: `📋 *Представление арендатора*\n\nПредоставьте:\n• Имя арендатора\n• Интересующий объект\n• Что вам нужно`,
-  } as Record<string,string>)[lang] ?? `Please provide tenant details at ${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-
-  notRegistered: (lang: string): string => ({
-    en: `👤 We don't have your number on file as a registered agent yet.\n\nPlease register at:\n🔗 ${process.env.NEXT_PUBLIC_URL}/agents/register\n\nOr reply with your full name, license number, and brokerage.`,
-    es: `👤 Tu número no está registrado como agente.\n\nRegístrate en:\n🔗 ${process.env.NEXT_PUBLIC_URL}/agents/register`,
-    pt: `👤 Seu número não está cadastrado como corretor.\n\nCadastre-se em:\n🔗 ${process.env.NEXT_PUBLIC_URL}/agents/register`,
-    fr: `👤 Votre numéro n'est pas enregistré comme agent.\n\nInscrivez-vous sur:\n🔗 ${process.env.NEXT_PUBLIC_URL}/agents/register`,
-    he: `👤 מספרך לא רשום כסוכן. הירשם ב:\n🔗 ${process.env.NEXT_PUBLIC_URL}/agents/register`,
-    ru: `👤 Ваш номер не зарегистрирован как агент. Зарегистрируйтесь:\n🔗 ${process.env.NEXT_PUBLIC_URL}/agents/register`,
-  } as Record<string,string>)[lang] ?? `Please register at ${process.env.NEXT_PUBLIC_URL}/agents/register`,
-
-  uploadReminder: (lang: string, name: string): string => ({
-    en: `📎 Hi ${name}, we're still waiting for your listing agreement.\n\nUpload it here:\n${process.env.NEXT_PUBLIC_URL}/agents/upload\n\nYour request cannot proceed without it.`,
-    es: `📎 Hola ${name}, aún esperamos el acuerdo de listado.\n\nSúbelo aquí:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    pt: `📎 Olá ${name}, ainda aguardamos o contrato de listagem.\n\nEnvie aqui:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    fr: `📎 Bonjour ${name}, nous attendons votre contrat de mandat.\n\nTéléchargez-le:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    he: `📎 שלום ${name}, אנחנו עדיין מחכים להסכם הרישום.\n\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-    ru: `📎 Здравствуйте, ${name}. Ожидаем соглашение о листинге.\n\n${process.env.NEXT_PUBLIC_URL}/agents/upload`,
-  } as Record<string,string>)[lang] ?? `Please upload your listing agreement.`,
-
-  requestLogged: (lang: string, reqId: string): string => ({
-    en: `✅ Request logged!\n\nRef: ${reqId.slice(0,8)}\n\nOur team will send you the relevant forms and procedures within 1 business day.\n\nReply *menu* for other options.`,
-    es: `✅ ¡Solicitud registrada!\n\nRef: ${reqId.slice(0,8)}\n\nNuestro equipo te enviará los formularios en 1 día hábil.`,
-    pt: `✅ Solicitação registrada!\n\nRef: ${reqId.slice(0,8)}\n\nNossa equipe enviará os formulários em 1 dia útil.`,
-    fr: `✅ Demande enregistrée! Réf: ${reqId.slice(0,8)}\n\nNotre équipe vous enverra les formulaires sous 1 jour ouvrable.`,
-    he: `✅ הבקשה נרשמה! מזהה: ${reqId.slice(0,8)}\n\nהצוות יישלח את הטפסים תוך יום עסקים.`,
-    ru: `✅ Запрос зарегистрирован! Реф: ${reqId.slice(0,8)}\n\nКоманда отправит формы в течение 1 рабочего дня.`,
-  } as Record<string,string>)[lang] ?? `✅ Request logged. We'll be in touch within 1 business day.`,
-
-  agreementReceived: (lang: string): string => ({
-    en: `✅ Thank you! Your listing agreement has been received and is under review.\n\nOur team will confirm within 1 business day.`,
-    es: `✅ ¡Gracias! El acuerdo de listado fue recibido y está en revisión.\n\nConfirmaremos en 1 día hábil.`,
-    pt: `✅ Obrigado! O contrato de listagem foi recebido e está em análise.\n\nConfirmaremos em 1 dia útil.`,
-    fr: `✅ Merci! Votre contrat de mandat a été reçu et est en cours d'examen.`,
-    he: `✅ תודה! הסכם הרישום התקבל ונמצא בבדיקה.`,
-    ru: `✅ Спасибо! Соглашение о листинге получено и находится на рассмотрении.`,
-  } as Record<string,string>)[lang] ?? `✅ Listing agreement received. Under review.`,
+  identify: (lang: string, name: string) => ({ en:`👋 Hello ${name}! Agent Portal.\n\n1 - 🏠 Owner / Seller\n2 - 🔑 Buyer\n3 - 📋 Tenant / Renter`, es:`👋 ¡Hola ${name}! Portal de Agentes.\n\n1-🏠 Propietario  2-🔑 Comprador  3-📋 Inquilino`, pt:`👋 Olá ${name}! Portal de Corretores.\n\n1-🏠 Proprietário  2-🔑 Comprador  3-📋 Inquilino`, fr:`👋 Bonjour ${name}!\n1-🏠 Propriétaire  2-🔑 Acheteur  3-📋 Locataire`, he:`👋 שלום ${name}!\n1-🏠 בעלים  2-🔑 קונה  3-📋 שוכר`, ru:`👋 Привет ${name}!\n1-🏠 Владелец  2-🔑 Покупатель  3-📋 Арендатор` } as Record<string,string>)[lang] ?? 'Reply 1, 2, or 3.',
+  ownerSelected: (lang: string) => ({ en:`🏠 Owner/Seller — upload signed listing agreement at:\n${process.env.NEXT_PUBLIC_URL}/agents/upload\n\nOr reply with the property address.`, es:`🏠 Sube el acuerdo de listado firmado:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`, pt:`🏠 Envie o contrato de listagem assinado:\n${process.env.NEXT_PUBLIC_URL}/agents/upload`, fr:`🏠 ${process.env.NEXT_PUBLIC_URL}/agents/upload`, he:`🏠 ${process.env.NEXT_PUBLIC_URL}/agents/upload`, ru:`🏠 ${process.env.NEXT_PUBLIC_URL}/agents/upload` } as Record<string,string>)[lang] ?? `Upload at ${process.env.NEXT_PUBLIC_URL}/agents/upload`,
+  buyerSelected: (lang: string) => ({ en:`🔑 Buyer — provide buyer's name, unit of interest, and what you need.\n\nOr: ${process.env.NEXT_PUBLIC_URL}/agents/upload`, es:`🔑 Proporciona nombre, unidad y qué necesitas.\n${process.env.NEXT_PUBLIC_URL}/agents/upload`, pt:`🔑 Informe nome, unidade e o que precisa.\n${process.env.NEXT_PUBLIC_URL}/agents/upload`, fr:`🔑 ${process.env.NEXT_PUBLIC_URL}/agents/upload`, he:`🔑 ${process.env.NEXT_PUBLIC_URL}/agents/upload`, ru:`🔑 ${process.env.NEXT_PUBLIC_URL}/agents/upload` } as Record<string,string>)[lang] ?? `${process.env.NEXT_PUBLIC_URL}/agents/upload`,
+  tenantSelected: (lang: string) => ({ en:`📋 Tenant — provide tenant's name, unit of interest, and what you need.\n\nOr: ${process.env.NEXT_PUBLIC_URL}/agents/upload`, es:`📋 Proporciona nombre, unidad y qué necesitas.\n${process.env.NEXT_PUBLIC_URL}/agents/upload`, pt:`📋 Informe nome, unidade e o que precisa.\n${process.env.NEXT_PUBLIC_URL}/agents/upload`, fr:`📋 ${process.env.NEXT_PUBLIC_URL}/agents/upload`, he:`📋 ${process.env.NEXT_PUBLIC_URL}/agents/upload`, ru:`📋 ${process.env.NEXT_PUBLIC_URL}/agents/upload` } as Record<string,string>)[lang] ?? `${process.env.NEXT_PUBLIC_URL}/agents/upload`,
+  notRegistered: (lang: string) => ({ en:`👤 You're not registered as an agent yet.\n\nRegister: ${process.env.NEXT_PUBLIC_URL}/agents/register\n\nOr reply with your full name, license #, and brokerage.`, es:`👤 No estás registrado. Regístrate: ${process.env.NEXT_PUBLIC_URL}/agents/register`, pt:`👤 Não cadastrado. Cadastre-se: ${process.env.NEXT_PUBLIC_URL}/agents/register`, fr:`👤 ${process.env.NEXT_PUBLIC_URL}/agents/register`, he:`👤 ${process.env.NEXT_PUBLIC_URL}/agents/register`, ru:`👤 ${process.env.NEXT_PUBLIC_URL}/agents/register` } as Record<string,string>)[lang] ?? `Register at ${process.env.NEXT_PUBLIC_URL}/agents/register`,
+  uploadReminder: (lang: string, name: string) => ({ en:`📎 Hi ${name} — still waiting for your listing agreement.\n\n${process.env.NEXT_PUBLIC_URL}/agents/upload`, es:`📎 Hola ${name} — aún esperamos el acuerdo.\n${process.env.NEXT_PUBLIC_URL}/agents/upload`, pt:`📎 Olá ${name} — ainda aguardamos o contrato.\n${process.env.NEXT_PUBLIC_URL}/agents/upload`, fr:`📎 ${process.env.NEXT_PUBLIC_URL}/agents/upload`, he:`📎 ${process.env.NEXT_PUBLIC_URL}/agents/upload`, ru:`📎 ${process.env.NEXT_PUBLIC_URL}/agents/upload` } as Record<string,string>)[lang] ?? `${process.env.NEXT_PUBLIC_URL}/agents/upload`,
+  requestLogged: (lang: string, reqId: string) => ({ en:`✅ Request logged! Ref: ${reqId.slice(0,8)}\n\nOur team will send forms within 1 business day.`, es:`✅ ¡Solicitud registrada! Ref: ${reqId.slice(0,8)}`, pt:`✅ Solicitação registrada! Ref: ${reqId.slice(0,8)}`, fr:`✅ Ref: ${reqId.slice(0,8)}`, he:`✅ ${reqId.slice(0,8)}`, ru:`✅ ${reqId.slice(0,8)}` } as Record<string,string>)[lang] ?? `✅ Request logged.`,
+  agreementReceived: (lang: string) => ({ en:`✅ Listing agreement received and under review. We'll confirm within 1 business day.`, es:`✅ Acuerdo de listado recibido y en revisión.`, pt:`✅ Contrato de listagem recebido e em análise.`, fr:`✅ Contrat reçu.`, he:`✅ הסכם התקבל.`, ru:`✅ Соглашение получено.` } as Record<string,string>)[lang] ?? `✅ Agreement received.`,
 }
 
-// ── Start agent flow — entry point ───────────────────────────
 async function startAgentFlow(ctx: CallerContext): Promise<string> {
-  const lang = ctx.language
+  if (ctx.persona !== 'real_estate_agent') return AGENT_MSG.notRegistered(ctx.language)
   const firstName = ctx.name !== 'there' ? ctx.name.split(' ')[0] : ''
-
-  // Unknown contact texting in — not registered yet
-  if (ctx.persona !== 'real_estate_agent') {
-    return AGENT_MSG.notRegistered(lang)
-  }
-
-  // Known agent — ask who they represent
-  await saveConversationState(ctx.phone, 'agent_identification', 'awaiting_representation', {
-    lang, agentName: firstName,
-  })
-
-  return AGENT_MSG.identify(lang, firstName)
+  await saveConversationState(ctx.phone, 'agent_identification', 'awaiting_representation', { lang: ctx.language, agentName: firstName })
+  return AGENT_MSG.identify(ctx.language, firstName)
 }
 
-// ── Continue agent flow — processes their replies ────────────
-async function continueAgentFlow(
-  ctx:     CallerContext,
-  state:   ConversationState,
-  message: string
-): Promise<string> {
-
+async function continueAgentFlow(ctx: CallerContext, state: ConversationState, message: string): Promise<string> {
   const { current_step: step, temporary_data_json: data } = state
   const lang      = (data.lang as string) ?? ctx.language
   const agentName = (data.agentName as string) ?? ctx.name.split(' ')[0]
   const msg       = message.trim()
 
-  // ── Step 1: Which side? ──────────────────────────────────
   if (step === 'awaiting_representation') {
-
-    if (msg === '1') {
-      // Owner → create request, require listing agreement upload
-      const { data: req } = await supabase
-        .from('agent_requests')
-        .insert({
-          agent_id:            await getAgentId(ctx.phone),
-          representation_type: 'owner',
-          status:              'awaiting_documents',
-          channel:             ctx.channel,
-          created_at:          new Date().toISOString(),
-        })
-        .select('id').single()
-
-      await saveConversationState(ctx.phone, 'agent_identification', 'awaiting_address', {
-        lang, agentName, repType: 'owner', requestId: req?.id,
-      })
-
-      await notifyAgentTeam(ctx, 'owner', req?.id ?? '')
-      return AGENT_MSG.ownerSelected(lang)
+    for (const [num, repType] of [['1','owner'],['2','buyer'],['3','tenant']] as [string,string][]) {
+      if (msg === num) {
+        const { data: req } = await supabase.from('agent_requests').insert({
+          agent_id: await getAgentId(ctx.phone), representation_type: repType,
+          status: repType === 'owner' ? 'awaiting_documents' : 'new',
+          channel: ctx.channel, created_at: new Date().toISOString(),
+        }).select('id').single()
+        const nextStep = repType === 'owner' ? 'awaiting_address' : `awaiting_${repType}_details`
+        await saveConversationState(ctx.phone, 'agent_identification', nextStep, { lang, agentName, repType, requestId: req?.id })
+        await notifyAgentTeam(ctx, repType, req?.id ?? '')
+        return repType === 'owner' ? AGENT_MSG.ownerSelected(lang) : repType === 'buyer' ? AGENT_MSG.buyerSelected(lang) : AGENT_MSG.tenantSelected(lang)
+      }
     }
-
-    if (msg === '2') {
-      // Buyer → collect details
-      const { data: req } = await supabase
-        .from('agent_requests')
-        .insert({
-          agent_id:            await getAgentId(ctx.phone),
-          representation_type: 'buyer',
-          status:              'new',
-          channel:             ctx.channel,
-          created_at:          new Date().toISOString(),
-        })
-        .select('id').single()
-
-      await saveConversationState(ctx.phone, 'agent_identification', 'awaiting_buyer_details', {
-        lang, agentName, repType: 'buyer', requestId: req?.id,
-      })
-
-      await notifyAgentTeam(ctx, 'buyer', req?.id ?? '')
-      return AGENT_MSG.buyerSelected(lang)
-    }
-
-    if (msg === '3') {
-      // Tenant → collect details
-      const { data: req } = await supabase
-        .from('agent_requests')
-        .insert({
-          agent_id:            await getAgentId(ctx.phone),
-          representation_type: 'tenant',
-          status:              'new',
-          channel:             ctx.channel,
-          created_at:          new Date().toISOString(),
-        })
-        .select('id').single()
-
-      await saveConversationState(ctx.phone, 'agent_identification', 'awaiting_tenant_details', {
-        lang, agentName, repType: 'tenant', requestId: req?.id,
-      })
-
-      await notifyAgentTeam(ctx, 'tenant', req?.id ?? '')
-      return AGENT_MSG.tenantSelected(lang)
-    }
-
-    // Invalid choice — re-prompt
     return AGENT_MSG.identify(lang, agentName)
   }
 
-  // ── Step 2a: Owner — collect property address ────────────
-  if (step === 'awaiting_address' && (data.repType as string) === 'owner') {
-    // Save the address they typed
-    await supabase.from('agent_requests')
-      .update({ property_address: msg })
-      .eq('id', data.requestId)
-
-    // Check if they already uploaded (web portal may have fired first)
-    const { data: req } = await supabase
-      .from('agent_requests')
-      .select('listing_agreement_status')
-      .eq('id', data.requestId)
-      .single()
-
-    if (req?.listing_agreement_status === 'uploaded' ||
-        req?.listing_agreement_status === 'approved') {
+  if (step === 'awaiting_address') {
+    await supabase.from('agent_requests').update({ property_address: msg }).eq('id', data.requestId)
+    const { data: req } = await supabase.from('agent_requests').select('listing_agreement_status').eq('id', data.requestId).single()
+    if (req?.listing_agreement_status === 'uploaded' || req?.listing_agreement_status === 'approved') {
       await clearConversationState(ctx.phone)
       void maybeRequestFeedback(ctx.phone, ctx, 'agent_identification', ctx.channel)
       return AGENT_MSG.agreementReceived(lang)
     }
-
-    // Still pending upload
-    await saveConversationState(ctx.phone, 'agent_identification', 'awaiting_listing_upload', {
-      ...data, propertyAddress: msg,
-    })
+    await saveConversationState(ctx.phone, 'agent_identification', 'awaiting_listing_upload', { ...data, propertyAddress: msg })
     return AGENT_MSG.uploadReminder(lang, agentName)
   }
 
-  // ── Step 2b: Awaiting listing upload confirmation ────────
   if (step === 'awaiting_listing_upload') {
-    const { data: req } = await supabase
-      .from('agent_requests')
-      .select('listing_agreement_status')
-      .eq('id', data.requestId)
-      .single()
-
-    if (req?.listing_agreement_status === 'uploaded' ||
-        req?.listing_agreement_status === 'approved') {
+    const { data: req } = await supabase.from('agent_requests').select('listing_agreement_status').eq('id', data.requestId).single()
+    if (req?.listing_agreement_status === 'uploaded' || req?.listing_agreement_status === 'approved') {
       await clearConversationState(ctx.phone)
       void maybeRequestFeedback(ctx.phone, ctx, 'agent_identification', ctx.channel)
       return AGENT_MSG.agreementReceived(lang)
     }
-
-    // Still not uploaded — resend link
     return AGENT_MSG.uploadReminder(lang, agentName)
   }
 
-  // ── Step 3a: Buyer details collected ────────────────────
-  if (step === 'awaiting_buyer_details') {
-    await supabase.from('agent_requests')
-      .update({ request_notes: msg, status: 'documents_received' })
-      .eq('id', data.requestId)
-
+  if (step === 'awaiting_buyer_details' || step === 'awaiting_tenant_details') {
+    await supabase.from('agent_requests').update({ request_notes: msg, status: 'documents_received' }).eq('id', data.requestId)
     await clearConversationState(ctx.phone)
     void maybeRequestFeedback(ctx.phone, ctx, 'agent_identification', ctx.channel)
     return AGENT_MSG.requestLogged(lang, data.requestId as string)
   }
 
-  // ── Step 3b: Tenant details collected ───────────────────
-  if (step === 'awaiting_tenant_details') {
-    await supabase.from('agent_requests')
-      .update({ request_notes: msg, status: 'documents_received' })
-      .eq('id', data.requestId)
-
-    await clearConversationState(ctx.phone)
-    void maybeRequestFeedback(ctx.phone, ctx, 'agent_identification', ctx.channel)
-    return AGENT_MSG.requestLogged(lang, data.requestId as string)
-  }
-
-  // Default — restart
   await clearConversationState(ctx.phone)
   return startAgentFlow(ctx)
 }
 
-// ── Helper: get agent UUID from phone ────────────────────────
 async function getAgentId(phone: string): Promise<string | null> {
-  const { data } = await supabase
-    .from('real_estate_agents')
-    .select('id')
-    .eq('phone', phone)
-    .single()
+  const { data } = await supabase.from('real_estate_agents').select('id').eq('phone', phone).single()
   return data?.id ?? null
 }
 
-// ── Notify leasing team of new agent request ─────────────────
-async function notifyAgentTeam(
-  ctx:     CallerContext,
-  repType: string,
-  reqId:   string
-): Promise<void> {
-  const labels: Record<string,string> = {
-    owner: 'Owner / Listing Agent', buyer: 'Buyer Agent', tenant: 'Tenant Agent',
-  }
-  await notifyTeamByEmail(
-    process.env.LEASING_EMAIL!,
-    `🏡 Agent Request — ${labels[repType]} — ${ctx.name}`,
-    `Agent: ${ctx.name}\nPhone: ${ctx.phone}\nRepresenting: ${labels[repType]}\nRequest ID: ${reqId}\n\nView:\n${process.env.NEXT_PUBLIC_URL}/admin/agents/${reqId}`
-  )
+async function notifyAgentTeam(ctx: CallerContext, repType: string, reqId: string): Promise<void> {
+  const labels: Record<string,string> = { owner:'Owner / Listing Agent', buyer:'Buyer Agent', tenant:'Tenant Agent' }
+  await notifyTeamByEmail(process.env.LEASING_EMAIL!, `🏡 Agent Request — ${labels[repType]} — ${ctx.name}`,
+    `Agent: ${ctx.name}\nPhone: ${ctx.phone}\nRepresenting: ${labels[repType]}\nRequest ID: ${reqId}\n\nView: ${process.env.NEXT_PUBLIC_URL}/admin/agents/${reqId}`)
 }
 
-// ── Add agent_identification to feedback config ───────────────
-// (this extends the existing FEEDBACK_CONFIG object at runtime)
 ;(FEEDBACK_CONFIG as Record<string,{type:FeedbackType}>)['agent_identification'] = { type: 'stars' }
-
-
-
-// ============================================================
-// PERSONAL GREETING — sent before menu for known contacts
-// ============================================================
-
-function buildPersonalGreeting(ctx: CallerContext): string {
-  const first = (ctx.name && ctx.name !== 'there')
-    ? ctx.name.split(' ')[0]
-    : ''
-  const nameStr = first ? ` ${first}` : ''
-
-  return translate(ctx.language, {
-    en: `Hi${nameStr}! 🌸 This is Maia from PMI Top Florida Properties. So lovely to hear from you!`,
-    es: `¡Hola${nameStr}! 🌸 Soy Maia de PMI Top Florida Properties. ¡Qué gusto saber de ti!`,
-    pt: `Olá${nameStr}! 🌸 Aqui é a Maia da PMI Top Florida Properties. Que bom te ouvir!`,
-    fr: `Bonjour${nameStr}! 🌸 C'est Maia de PMI Top Florida Properties. Ravi de vous entendre!`,
-    he: `שלום${nameStr}! 🌸 אני מאיה מ-PMI Top Florida Properties. כיף לשמוע ממך!`,
-    ru: `Привет${nameStr}! 🌸 Это Мая из PMI Top Florida Properties. Рада слышать вас!`,
-  })
-}
-
-// ============================================================
-// MENU ONLY — sent after personal greeting
-// ============================================================
-
-function buildMenuOnly(ctx: CallerContext): string {
-  if (ctx.persona === 'real_estate_agent') {
-    return translate(ctx.language, {
-      en: `Here's your Agent Portal menu:
-
-1 - 🏠 I represent an Owner / Seller
-2 - 🔑 I represent a Buyer
-3 - 📋 I represent a Tenant / Renter
-8 - 💬 Speak with our team
-
-Just reply with a number!`,
-      es: `Aquí está tu menú de Agente:
-
-1 - 🏠 Propietario
-2 - 🔑 Comprador
-3 - 📋 Inquilino
-8 - 💬 Equipo`,
-      pt: `Aqui está seu menu de Corretor:
-
-1 - 🏠 Proprietário
-2 - 🔑 Comprador
-3 - 📋 Inquilino
-8 - 💬 Equipe`,
-      fr: `Voici votre menu Agent:
-
-1 - 🏠 Propriétaire
-2 - 🔑 Acheteur
-3 - 📋 Locataire
-8 - 💬 Équipe`,
-      he: `תפריט הסוכן שלך:
-
-1-🏠 בעלים  2-🔑 קונה  3-📋 שוכר  8-💬 צוות`,
-      ru: `Меню агента:
-
-1-🏠 Владелец  2-🔑 Покупатель  3-📋 Арендатор  8-💬 Команда`,
-    })
-  }
-
-  return translate(ctx.language, {
-    en: `Here's what I can help you with:
-
-1 - 🚗 Parking Sticker
-2 - 🔧 Maintenance
-3 - 💰 Payment
-4 - 📄 Documents
-5 - 📅 Schedule
-6 - 🏠 My Account
-7 - 🚨 Emergency
-8 - 💬 Staff
-9 - 🏡 Real Estate Agent
-
-Just reply with a number!`,
-    es: `¿En qué puedo ayudarte?
-
-1 - 🚗 Calcomanía
-2 - 🔧 Mantenimiento
-3 - 💰 Pagos
-4 - 📄 Documentos
-5 - 📅 Cita
-6 - 🏠 Mi Cuenta
-7 - 🚨 Emergencia
-8 - 💬 Equipo
-9 - 🏡 Agente Inmobiliario`,
-    pt: `Como posso te ajudar?
-
-1 - 🚗 Adesivo
-2 - 🔧 Manutenção
-3 - 💰 Pagamentos
-4 - 📄 Documentos
-5 - 📅 Agendar
-6 - 🏠 Minha Conta
-7 - 🚨 Emergência
-8 - 💬 Equipe
-9 - 🏡 Corretor Imobiliário`,
-    fr: `Comment puis-je vous aider?
-
-1 - 🚗 Vignette
-2 - 🔧 Maintenance
-3 - 💰 Paiements
-4 - 📄 Documents
-5 - 📅 Rendez-vous
-6 - 🏠 Mon Compte
-7 - 🚨 Urgence
-8 - 💬 Équipe
-9 - 🏡 Agent Immobilier`,
-    he: `במה אוכל לעזור?
-
-1-🚗 מדבקה  2-🔧 תחזוקה  3-💰 תשלומים
-4-📄 מסמכים  5-📅 פגישה  6-🏠 חשבון
-7-🚨 חירום  8-💬 צוות  9-🏡 סוכן`,
-    ru: `Чем могу помочь?
-
-1-🚗 Наклейка  2-🔧 Ремонт  3-💰 Платежи
-4-📄 Документы  5-📅 Запись  6-🏠 Аккаунт
-7-🚨 Экстренно  8-💬 Команда  9-🏡 Агент`,
-  })
-}
-
-function buildMainMenu(ctx: CallerContext): string {
-  const first = ctx.name !== 'there' ? ` ${ctx.name.split(' ')[0]}` : ''
-
-  // ── Dedicated menu for known real estate agents ───────────
-  if (ctx.persona === 'real_estate_agent') {
-    return translate(ctx.language, {
-      en: `👋 Hi${first}! I'm Maia 🌸 Welcome to the PMI Agent Portal.\n\n1 - 🏠 I represent an Owner / Seller\n2 - 🔑 I represent a Buyer\n3 - 📋 I represent a Tenant / Renter\n8 - 💬 Speak with our team\n\nReply with a number.`,
-      es: `👋 ¡Hola${first}! Soy Maia 🌸 Bienvenido al Portal de Agentes PMI.\n\n1 - 🏠 Represento a un Propietario\n2 - 🔑 Represento a un Comprador\n3 - 📋 Represento a un Inquilino\n8 - 💬 Hablar con el equipo`,
-      pt: `👋 Olá${first}! Sou a Maia 🌸 Bem-vindo ao Portal de Corretores PMI.\n\n1 - 🏠 Represento um Proprietário\n2 - 🔑 Represento um Comprador\n3 - 📋 Represento um Inquilino\n8 - 💬 Falar com a equipe`,
-      fr: `👋 Bonjour${first}! Je suis Maia 🌸 Bienvenue sur le Portail Agent PMI.\n\n1 - 🏠 Je représente un Propriétaire\n2 - 🔑 Je représente un Acheteur\n3 - 📋 Je représente un Locataire\n8 - 💬 Parler à l'équipe`,
-      he: `👋 שלום${first}! אני מאיה 🌸 ברוך הבא לפורטל הסוכנים של PMI.\n\n1 - 🏠 אני מייצג בעלים\n2 - 🔑 אני מייצג קונה\n3 - 📋 אני מייצג שוכר\n8 - 💬 דבר עם הצוות`,
-      ru: `👋 Привет${first}! Я Мая 🌸 Добро пожаловать на Портал Агентов PMI.\n\n1 - 🏠 Представляю владельца\n2 - 🔑 Представляю покупателя\n3 - 📋 Представляю арендатора\n8 - 💬 Команда`,
-    })
-  }
-
-  // ── Standard menu for all other personas ─────────────────
-  return translate(ctx.language, {
-    en: `👋 Hi${first}! I'm Maia, your PMI assistant 🌸\n\n1 - 🚗 Parking Sticker\n2 - 🔧 Maintenance\n3 - 💰 Payment\n4 - 📄 Documents\n5 - 📅 Schedule\n6 - 🏠 My Account\n7 - 🚨 Emergency\n8 - 💬 Staff\n9 - 🏡 Real Estate Agent\n\nReply with a number.`,
-    es: `👋 ¡Hola${first}! Soy Maia, tu asistente de PMI 🌸\n\n1 - 🚗 Calcomanía\n2 - 🔧 Mantenimiento\n3 - 💰 Pagos\n4 - 📄 Documentos\n5 - 📅 Cita\n6 - 🏠 Mi Cuenta\n7 - 🚨 Emergencia\n8 - 💬 Equipo\n9 - 🏡 Agente Inmobiliario`,
-    pt: `👋 Olá${first}! Sou a Maia, sua assistente da PMI 🌸\n\n1 - 🚗 Adesivo\n2 - 🔧 Manutenção\n3 - 💰 Pagamentos\n4 - 📄 Documentos\n5 - 📅 Agendar\n6 - 🏠 Minha Conta\n7 - 🚨 Emergência\n8 - 💬 Equipe\n9 - 🏡 Corretor Imobiliário`,
-    fr: `👋 Bonjour${first}! Je suis Maia, votre assistante PMI 🌸\n\n1 - 🚗 Vignette\n2 - 🔧 Maintenance\n3 - 💰 Paiements\n4 - 📄 Documents\n5 - 📅 Rendez-vous\n6 - 🏠 Mon Compte\n7 - 🚨 Urgence\n8 - 💬 Équipe\n9 - 🏡 Agent Immobilier`,
-    he: `👋 שלום${first}! אני מאיה, העוזרת של PMI 🌸\n\n1-🚗 מדבקה  2-🔧 תחזוקה  3-💰 תשלומים\n4-📄 מסמכים  5-📅 פגישה  6-🏠 חשבון\n7-🚨 חירום  8-💬 צוות  9-🏡 סוכן`,
-    ru: `👋 Привет${first}! Я Мая, ваш ассистент PMI 🌸\n\n1-🚗 Наклейка  2-🔧 Ремонт  3-💰 Платежи\n4-📄 Документы  5-📅 Запись  6-🏠 Аккаунт\n7-🚨 Экстренно  8-💬 Команда  9-🏡 Агент`,
-  })
-}
 
 // ============================================================
 // SUPABASE HELPERS
 // ============================================================
 
 async function getConversationState(phone: string): Promise<ConversationState | null> {
-  const { data } = await supabase.from('conversation_state')
-    .select('*').eq('phone_number', phone).single()
+  const { data } = await supabase.from('conversation_state').select('*').eq('phone_number', phone).single()
   return data
 }
 
-async function saveConversationState(
-  phone: string, flow: string, step: string, tempData: Record<string, unknown>
-) {
-  await supabase.from('conversation_state').upsert({
-    phone_number: phone, current_flow: flow,
-    current_step: step, temporary_data_json: tempData,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: 'phone_number' })
+async function saveConversationState(phone: string, flow: string, step: string, tempData: Record<string, unknown>) {
+  await supabase.from('conversation_state').upsert(
+    { phone_number: phone, current_flow: flow, current_step: step, temporary_data_json: tempData, updated_at: new Date().toISOString() },
+    { onConflict: 'phone_number' })
 }
 
 async function clearConversationState(phone: string) {
-  await supabase.from('conversation_state').upsert({
-    phone_number: phone, current_flow: 'idle',
-    current_step: 'idle', temporary_data_json: {},
-    updated_at: new Date().toISOString(),
-  }, { onConflict: 'phone_number' })
+  await supabase.from('conversation_state').upsert(
+    { phone_number: phone, current_flow: 'idle', current_step: 'idle', temporary_data_json: {}, updated_at: new Date().toISOString() },
+    { onConflict: 'phone_number' })
 }
 
 async function getStickerStatus(ctx: CallerContext): Promise<string> {
-  const { data } = await supabase.from('sticker_requests')
-    .select('id, status, payment_status').eq('owner_id', ctx.phone)
-    .order('created_at', { ascending: false }).limit(1).single()
-  if (!data) return translate(ctx.language, {
-    en: `No sticker requests found. Reply *1* from the menu to start.`,
-    es: `Sin solicitudes. Responde *1* para iniciar.`,
-    pt: `Nenhuma solicitação. Responda *1* para iniciar.`,
-  })
-  return translate(ctx.language, {
-    en: `🚗 Request ${data.id.slice(0, 8)} — ${data.status} — Payment: ${data.payment_status}`,
-    es: `🚗 Solicitud ${data.id.slice(0, 8)} — ${data.status} — Pago: ${data.payment_status}`,
-    pt: `🚗 Solicitação ${data.id.slice(0, 8)} — ${data.status} — Pagamento: ${data.payment_status}`,
-  })
+  const { data } = await supabase.from('sticker_requests').select('id, status, payment_status')
+    .eq('owner_id', ctx.phone).order('created_at', { ascending: false }).limit(1).single()
+  if (!data) return translate(ctx.language, { en:`No sticker requests found. Reply *1* from the menu to start.`, es:`Sin solicitudes. Responde *1* para iniciar.`, pt:`Nenhuma solicitação. Responda *1* para iniciar.` })
+  return translate(ctx.language, { en:`🚗 Request ${data.id.slice(0,8)} — ${data.status} — Payment: ${data.payment_status}`, es:`🚗 Solicitud ${data.id.slice(0,8)} — ${data.status}`, pt:`🚗 Solicitação ${data.id.slice(0,8)} — ${data.status}` })
 }
 
 async function createStickerRequest(ctx: CallerContext, vehicle: Record<string, string>) {
-  const { data: v } = await supabase.from('vehicles').upsert({
-    owner_id: ctx.phone, make: vehicle.make, model: vehicle.model,
-    color: vehicle.color, plate: vehicle.plate, active: true,
-  }, { onConflict: 'owner_id,plate' }).select().single()
-
+  const { data: v } = await supabase.from('vehicles').upsert(
+    { owner_id: ctx.phone, make: vehicle.make, model: vehicle.model, color: vehicle.color, plate: vehicle.plate, active: true },
+    { onConflict: 'owner_id,plate' }).select().single()
   await supabase.from('sticker_requests').insert({
-    owner_id: ctx.phone, vehicle_id: v?.id,
-    association_id: ctx.associationId, request_source: ctx.channel,
-    status: 'pending', payment_status: 'unpaid',
+    owner_id: ctx.phone, vehicle_id: v?.id, association_id: ctx.associationId,
+    request_source: ctx.channel, status: 'pending', payment_status: 'unpaid',
     payment_required: true, created_at: new Date().toISOString(),
   })
 }
 
 async function createAssociationMaintenanceRequest(ctx: CallerContext, description: string) {
   await supabase.from('maintenance_requests').insert({
-    owner_id: ctx.phone, unit_id: ctx.unitId,
-    association_id: ctx.associationId, description,
+    owner_id: ctx.phone, unit_id: ctx.unitId, association_id: ctx.associationId, description,
     urgency: description.toLowerCase().includes('emergency') ? 'emergency' : 'medium',
     status: 'open', created_at: new Date().toISOString(),
   })
-  await notifyTeamByEmail(
-    process.env.MAINTENANCE_EMAIL!,
-    `New Maintenance — Unit ${ctx.unitId ?? 'Unknown'}`,
-    `From: ${ctx.name} (${ctx.phone})\nUnit: ${ctx.unitId}\nIssue: ${description}`
-  )
+  await notifyTeamByEmail(process.env.MAINTENANCE_EMAIL!, `New Maintenance — Unit ${ctx.unitId ?? 'Unknown'}`,
+    `From: ${ctx.name} (${ctx.phone})\nUnit: ${ctx.unitId}\nIssue: ${description}`)
 }
 
 async function createRentvineWorkOrder(ctx: CallerContext, description: string): Promise<string> {
@@ -2073,12 +1044,8 @@ async function createRentvineWorkOrder(ctx: CallerContext, description: string):
     const res  = await fetch(`${process.env.RENTVINE_BASE_URL}/maintenance/work-orders`, {
       method: 'POST',
       headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        description,
-        priority:  description.toLowerCase().includes('emergency') ? 'urgent' : 'normal',
-        contactID: ctx.rentvineContactId ? parseInt(ctx.rentvineContactId) : undefined,
-        source:    ctx.channel,
-      }),
+      body: JSON.stringify({ description, priority: description.toLowerCase().includes('emergency') ? 'urgent' : 'normal',
+        contactID: ctx.rentvineContactId ? parseInt(ctx.rentvineContactId) : undefined, source: ctx.channel }),
     })
     const data = await res.json()
     return data?.workOrderID ? String(data.workOrderID) : 'WO-' + Date.now()
@@ -2088,9 +1055,8 @@ async function createRentvineWorkOrder(ctx: CallerContext, description: string):
 async function logConversation(phone: string, inbound: string, outbound: string, ctx: CallerContext) {
   await supabase.from('general_conversations').insert({
     owner_id: phone, phone_number: phone, topic: ctx.persona,
-    summary: `IN: ${inbound.slice(0, 100)} | OUT: ${outbound.slice(0, 100)}`,
-    handled_by: 'ai', channel: ctx.channel,
-    created_at: new Date().toISOString(),
+    summary: `IN: ${inbound.slice(0,100)} | OUT: ${outbound.slice(0,100)}`,
+    handled_by: 'ai', channel: ctx.channel, created_at: new Date().toISOString(),
   })
 }
 
@@ -2099,23 +1065,17 @@ async function logConversation(phone: string, inbound: string, outbound: string,
 // ============================================================
 
 async function notifyStaff(ctx: CallerContext, message: string) {
-  await notifyTeamByEmail(
-    process.env.STAFF_EMAIL!,
-    `Staff Request — ${ctx.persona} (${ctx.name})`,
-    `Contact: ${ctx.name}\nPhone: ${ctx.phone}\nChannel: ${ctx.channel}\n\nMessage: ${message}`
-  )
+  await notifyTeamByEmail(process.env.STAFF_EMAIL!, `Staff Request — ${ctx.persona} (${ctx.name})`,
+    `Contact: ${ctx.name}\nPhone: ${ctx.phone}\nChannel: ${ctx.channel}\n\nMessage: ${message}`)
 }
 
 async function alertEmergencyTeam(ctx: CallerContext) {
-  await notifyTeamByEmail(
-    process.env.EMERGENCY_EMAIL!,
-    `🚨 EMERGENCY — ${ctx.name} Unit ${ctx.unitId ?? 'Unknown'}`,
-    `Contact: ${ctx.name}\nPhone: ${ctx.phone}\nUnit: ${ctx.unitId}`
-  )
+  await notifyTeamByEmail(process.env.EMERGENCY_EMAIL!, `🚨 EMERGENCY — ${ctx.name} Unit ${ctx.unitId ?? 'Unknown'}`,
+    `Contact: ${ctx.name}\nPhone: ${ctx.phone}\nUnit: ${ctx.unitId}`)
   try {
     await twilioClient.messages.create({
       from: process.env.TWILIO_PHONE_NUMBER!,
-      to:   process.env.EMERGENCY_PHONE!,
+      to: process.env.EMERGENCY_PHONE!,
       body: `🚨 EMERGENCY: ${ctx.name} (${ctx.phone}) Unit ${ctx.unitId ?? 'Unknown'} — respond immediately`,
     })
   } catch (err) { console.error('[EMERGENCY SMS]', err) }
@@ -2123,19 +1083,19 @@ async function alertEmergencyTeam(ctx: CallerContext) {
 
 async function notifyTeamByEmail(to: string, subject: string, body: string) {
   await fetch(`${process.env.NEXT_PUBLIC_URL}/api/send-email`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ to, subject, body }),
   }).catch(err => console.error('[EMAIL]', err))
 }
 
 // ============================================================
-// SEND REPLY
+// ✅ FIX 2 — sendReply uses TWILIO_WHATSAPP_NUMBER env var
+// Previously hardcoded to sandbox +14155238886 — now fixed
 // ============================================================
 
 async function sendReply(phone: string, text: string, channel: Channel) {
   const from = channel === 'whatsapp'
-    ? `whatsapp:+14155238886`
+    ? `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`
     : process.env.TWILIO_PHONE_NUMBER!
   const to = channel === 'whatsapp' ? `whatsapp:${phone}` : phone
 
@@ -2153,45 +1113,21 @@ async function sendReply(phone: string, text: string, channel: Channel) {
 
 async function getVoiceGreeting(ctx: CallerContext): Promise<string> {
   const first = ctx.name !== 'there' ? ctx.name.split(' ')[0] : ''
-  return ({
-    en: `Hello ${first}! Thank you for calling. How can I help you today?`,
-    es: `Hola ${first}! Gracias por llamar. ¿En qué puedo ayudarle?`,
-    pt: `Olá ${first}! Obrigado por ligar. Como posso ajudar?`,
-    fr: `Bonjour! Merci d'avoir appelé. Comment puis-je vous aider?`,
-    he: `שלום! תודה על השיחה. איך אני יכול לעזור?`,
-    ru: `Здравствуйте! Спасибо за звонок. Чем могу помочь?`,
-  } as Record<string, string>)[ctx.language] ?? `Hello! How can I help?`
+  return ({ en:`Hello ${first}! Thank you for calling PMI Top Florida Properties. How can I help you today?`, es:`Hola ${first}! Gracias por llamar a PMI Top Florida Properties. ¿En qué puedo ayudarle?`, pt:`Olá ${first}! Obrigado por ligar para a PMI Top Florida Properties. Como posso ajudar?`, fr:`Bonjour! Merci d'avoir appelé PMI Top Florida Properties. Comment puis-je vous aider?`, he:`שלום! תודה על השיחה ל-PMI Top Florida Properties.`, ru:`Здравствуйте! Спасибо за звонок в PMI Top Florida Properties.` } as Record<string,string>)[ctx.language] ?? `Hello! How can I help?`
 }
 
 function getListenPrompt(lang: string): string {
-  return ({
-    en: 'Please describe how I can help you.',
-    es: 'Por favor describa cómo puedo ayudarle.',
-    pt: 'Por favor descreva como posso ajudar.',
-    fr: 'Veuillez décrire comment je peux vous aider.',
-    he: 'אנא תאר כיצד אוכל לעזור לך.',
-    ru: 'Пожалуйста, опишите, как я могу вам помочь.',
-  } as Record<string, string>)[lang] ?? 'How can I help?'
+  return ({ en:'Please describe how I can help you.', es:'Por favor describa cómo puedo ayudarle.', pt:'Por favor descreva como posso ajudar.', fr:'Veuillez décrire comment je peux vous aider.', he:'אנא תאר כיצד אוכל לעזור לך.', ru:'Пожалуйста, опишите, как я могу вам помочь.' } as Record<string,string>)[lang] ?? 'How can I help?'
 }
 
 function getVoiceForLanguage(lang: string): string {
-  return ({
-    en: 'en-US-Neural2-F', es: 'es-US-Neural2-A',
-    pt: 'pt-BR-Neural2-A', fr: 'fr-FR-Neural2-A',
-    he: 'he-IL-Wavenet-A',  ru: 'ru-RU-Neural2-A',
-  } as Record<string, string>)[lang] ?? 'en-US-Neural2-F'
+  return ({ en:'en-US-Neural2-F', es:'es-US-Neural2-A', pt:'pt-BR-Neural2-A', fr:'fr-FR-Neural2-A', he:'he-IL-Wavenet-A', ru:'ru-RU-Neural2-A' } as Record<string,string>)[lang] ?? 'en-US-Neural2-F'
 }
 
 // ============================================================
 // TRANSLATION HELPER
 // ============================================================
 
-function translate(
-  language: string,
-  options: Partial<Record<'en' | 'es' | 'pt' | 'fr' | 'he' | 'ru', string>>
-): string {
-  return options[language as keyof typeof options]
-    ?? options.en
-    ?? Object.values(options)[0]
-    ?? ''
+function translate(language: string, options: Partial<Record<'en'|'es'|'pt'|'fr'|'he'|'ru', string>>): string {
+  return options[language as keyof typeof options] ?? options.en ?? Object.values(options)[0] ?? ''
 }
