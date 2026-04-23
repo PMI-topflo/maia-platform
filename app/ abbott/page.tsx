@@ -142,6 +142,7 @@ body{font-family:'Open Sans',sans-serif;background:#fff;color:#222}
           <div className="prow-btn">Download</div>
         </a>
 
+        <div className="dgrid">
 <div className="dcard locked"><div className="dcard-icon">📜</div><div className="dcard-name">Rules &amp; Regulations</div><span className="dcard-cs">Coming Soon</span></div>
         <div className="dcard locked"><div className="dcard-icon">📋</div><div className="dcard-name">Tenant Applications</div><span className="dcard-cs">Coming Soon</span></div>
 <div className="dcard locked"><div className="dcard-icon">💰</div><div className="dcard-name">Financials</div><span className="dcard-cs">Coming Soon</span></div>

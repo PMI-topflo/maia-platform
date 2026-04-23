@@ -105,7 +105,7 @@ export async function updateOwner(id: number, fields: Partial<Owner>): Promise<{
   return {}
 }
 
-export async function createOwner(fields: Omit<Owner, 'id' | 'created_at'>): Promise<{ error?: string; id?: number }> {
+export async function createOwner(fields: Partial<Omit<Owner, 'id' | 'created_at'>>): Promise<{ error?: string; id?: number }> {
   const { data, error } = await supabaseAdmin
     .from('owners')
     .insert(fields)
