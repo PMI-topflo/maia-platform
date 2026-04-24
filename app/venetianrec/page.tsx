@@ -45,15 +45,6 @@ export default function PageVenetianrec() {
             <div className="prow-btn">Submit</div>
           </a>
 
-          <a href="https://pmitopfloridaproperties.rentvine.com/public/apply" target="_blank" rel="noreferrer" className="prow">
-            <div className="prow-orb">🏠</div>
-            <div className="prow-info">
-              <div className="prow-t">Tenant / Buyer Application</div>
-              <div className="prow-d">Board approval required &middot; Background and credit check included</div>
-            </div>
-            <div className="prow-btn">Apply Now</div>
-          </a>
-
         </div>
       </section>
 
@@ -70,15 +61,6 @@ export default function PageVenetianrec() {
         >
           <div className="dcard-icon">📋</div>
           <div className="dcard-name">Rules & Regulations</div>
-        </a>
-        <a
-          href="https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh"
-          target="_blank"
-          rel="noreferrer"
-          className="dcard"
-        >
-          <div className="dcard-icon">📝</div>
-          <div className="dcard-name">Tenant Applications</div>
         </a>
         <a
           href="https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh"
