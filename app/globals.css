@@ -108,7 +108,7 @@ body {
   flex-shrink:       0;
   width:             130px;
   height:            44px;
-  background:        url('/pmi-logo.jpg') no-repeat left center;
+  background:        url('/pmi-icon.jpg') no-repeat left center;
   background-size:   contain;
   text-decoration:   none;
   outline:           none;

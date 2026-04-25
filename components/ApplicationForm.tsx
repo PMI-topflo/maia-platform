@@ -606,7 +606,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
       <div style={{ textAlign: "center", marginBottom: 28 }}>
         <div style={{ marginBottom: 14 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/pmi-logo.jpg" alt="PMI Top Florida Properties" style={{ height: 44, width: "auto", objectFit: "contain" }} />
+          <img src="/pmi-icon.jpg" alt="PMI Top Florida Properties" style={{ height: 44, width: "auto", objectFit: "contain" }} />
         </div>
         <h1 style={{ color: "#fff", fontFamily: "'Fraunces', Georgia, serif", fontSize: 28, fontWeight: 300, margin: 0, letterSpacing: "-0.01em" }}>
           {t.title}
