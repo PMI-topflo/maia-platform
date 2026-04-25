@@ -9,10 +9,16 @@ type View =
   | 'home'
   | 'homeowner-form'
   | 'homeowner-notfound'
+  | 'role-selector'
   | 'agent-form'
   | 'agent-sent'
   | 'vendor-form'
   | 'vendor-sent'
+
+type MatchedRole =
+  | { type: 'staff' }
+  | { type: 'owner';  owner_id: number; association_code: string; association_name: string }
+  | { type: 'board';  association_code: string; association_name: string; position: string | null }
 
 const LANG_TABS: { code: Lang; label: string }[] = [
   { code: 'en', label: 'EN' },
@@ -264,8 +270,10 @@ const labelCls = 'block mb-1 text-[0.62rem] font-medium uppercase tracking-[0.1e
 export default function Home() {
   const router = useRouter()
   const [lang, setLang]   = useState<Lang>('en')
-  const [view, setView]   = useState<View>('home')
-  const [busy, setBusy]   = useState(false)
+  const [view, setView]         = useState<View>('home')
+  const [busy, setBusy]         = useState(false)
+  const [matchedRoles, setMatchedRoles] = useState<MatchedRole[]>([])
+  const [savedPersona, setSavedPersona] = useState<MatchedRole | null>(null)
 
   // Homeowner form
   const [hwFirst, setHwFirst] = useState('')
@@ -296,6 +304,14 @@ export default function Home() {
       .catch(() => {/* silently ignore — dropdowns will just be empty */})
   }, [])
 
+  // Restore saved persona from sessionStorage
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('maia_persona')
+      if (saved) setSavedPersona(JSON.parse(saved) as MatchedRole)
+    } catch { /* ignore */ }
+  }, [])
+
   const t     = COPY[lang]
   const isRtl = lang === 'he'
 
@@ -312,6 +328,13 @@ export default function Home() {
     if (key === 'staff')     { setView('homeowner-form'); return }
   }
 
+  function routeToRole(role: MatchedRole) {
+    try { sessionStorage.setItem('maia_persona', JSON.stringify(role)) } catch { /* ignore */ }
+    if (role.type === 'staff') { router.push('/admin'); return }
+    if (role.type === 'owner') { router.push(`/my-account?id=${role.owner_id}&assoc=${role.association_code}`); return }
+    if (role.type === 'board') { window.open('https://pmitfp.cincwebaxis.com/', '_blank'); return }
+  }
+
   async function handleHomeownerLookup(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
@@ -322,12 +345,16 @@ export default function Home() {
         body: JSON.stringify({ firstName: hwFirst, lastName: hwLast, email: hwEmail, phone: hwPhone }),
       })
       const data = await res.json()
-      if (data.found && data.staff) {
-        router.push('/admin')
-      } else if (data.found && data.owner_id && data.association_code) {
-        router.push(`/my-account?id=${data.owner_id}&assoc=${data.association_code}`)
-      } else {
+      if (!data.found || !data.roles?.length) {
         setView('homeowner-notfound')
+        return
+      }
+      if (data.roles.length === 1) {
+        routeToRole(data.roles[0] as MatchedRole)
+      } else {
+        setMatchedRoles(data.roles as MatchedRole[])
+        try { sessionStorage.setItem('maia_roles', JSON.stringify(data.roles)) } catch { /* ignore */ }
+        setView('role-selector')
       }
     } catch {
       setView('homeowner-notfound')
@@ -370,7 +397,7 @@ export default function Home() {
 
   const BackBtn = () => (
     <button
-      onClick={() => setView('home')}
+      onClick={() => { setMatchedRoles([]); setView('home') }}
       className="inline-flex items-center gap-1 text-[0.72rem] text-[#6b7280] hover:text-[#f26a1b] [font-family:var(--font-mono)] uppercase tracking-[0.08em] mb-6 transition-colors"
     >
       {t.back}
@@ -451,6 +478,34 @@ export default function Home() {
         {/* ── HOME — persona grid ─────────────────────────── */}
         {view === 'home' && (
           <>
+            {/* Saved persona quick-access */}
+            {savedPersona && (
+              <div className="max-w-md mx-auto mb-6 bg-white border border-[#e5e7eb] rounded-[3px] shadow-[0_1px_4px_rgba(13,13,13,.06)] p-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[0.6rem] font-medium uppercase tracking-[0.1em] text-[#6b7280] [font-family:var(--font-mono)] mb-0.5">Quick Access</div>
+                  <div className="text-sm font-semibold text-[#0d0d0d] leading-snug">
+                    {savedPersona.type === 'staff' && 'PMI Staff Dashboard'}
+                    {savedPersona.type === 'owner' && `Unit Owner — ${savedPersona.association_name}`}
+                    {savedPersona.type === 'board' && `Board Member — ${savedPersona.association_name}`}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => routeToRole(savedPersona)}
+                    className="bg-[#f26a1b] hover:bg-[#f58140] text-white [font-family:var(--font-mono)] text-[0.6rem] uppercase tracking-[0.08em] px-3 py-1.5 rounded-[2px] transition-colors"
+                  >
+                    Continue
+                  </button>
+                  <button
+                    onClick={() => { try { sessionStorage.removeItem('maia_persona') } catch { /* ignore */ }; setSavedPersona(null) }}
+                    className="text-[0.6rem] text-[#6b7280] hover:text-[#0d0d0d] [font-family:var(--font-mono)] uppercase tracking-[0.08em] transition-colors"
+                  >
+                    Not you?
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className={`mb-8 ${isRtl ? 'text-right' : 'text-center'}`}>
               <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">{t.welcome}</h1>
               <p className="text-gray-500 text-base">{t.subtitle}</p>
@@ -521,6 +576,48 @@ export default function Home() {
                 <a href="tel:+13059005077" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">
                   305.900.5077
                 </a>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── ROLE SELECTOR — multiple matches ─────────────── */}
+        {view === 'role-selector' && (
+          <div className="max-w-md mx-auto">
+            <BackBtn />
+            <div className="bg-white border border-[#e5e7eb] rounded-[3px] shadow-[0_1px_4px_rgba(13,13,13,.06)] p-6">
+              <h2 className="text-lg font-light text-[#0d0d0d] mb-1 [font-family:var(--font-display)]">Multiple Roles Found</h2>
+              <p className="text-sm text-[#6b7280] mb-5">Your account exists in multiple roles. How would you like to access today?</p>
+              <div className="flex flex-col gap-2">
+                {matchedRoles.map((role, i) => {
+                  const icon = role.type === 'staff' ? '🔒' : role.type === 'owner' ? '🏠' : '👥'
+                  const title = role.type === 'staff'
+                    ? 'PMI Staff'
+                    : role.type === 'owner'
+                    ? 'Unit Owner'
+                    : `Board Member${role.position ? ` — ${role.position}` : ''}`
+                  const sub = role.type === 'staff'
+                    ? 'Access staff dashboard'
+                    : role.type === 'owner'
+                    ? `View my account — ${role.association_name}`
+                    : `Access board portal — ${role.association_name}`
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => routeToRole(role)}
+                      className="flex items-center gap-3 p-3 bg-white border border-[#e5e7eb] rounded-[3px] hover:border-[#f26a1b] hover:shadow-[0_3px_12px_rgba(242,106,27,.14)] transition-all text-left group"
+                    >
+                      <span className="text-2xl w-9 text-center flex-shrink-0">{icon}</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-semibold text-[#0d0d0d] group-hover:text-[#f26a1b] transition-colors">{title}</span>
+                        <span className="block text-[0.62rem] text-[#6b7280] [font-family:var(--font-mono)] mt-0.5 truncate">{sub}</span>
+                      </span>
+                      <span className="text-[0.6rem] text-white bg-[#f26a1b] [font-family:var(--font-mono)] uppercase tracking-[0.08em] px-2.5 py-1 rounded-[2px] flex-shrink-0">
+                        Select
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </div>
