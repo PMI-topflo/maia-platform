@@ -90,12 +90,13 @@ export async function POST(req: NextRequest) {
   // For vendor persona, fetch all associations with addresses for COI lookups
   if (isVendor) {
     contextQueries.push(
-      supabaseAdmin
-        .from('associations')
-        .select('association_code, association_name, principal_address, city, state, zip')
-        .eq('active', true)
-        .order('association_code')
-        .then(({ data }) => {
+      Promise.resolve(
+        supabaseAdmin
+          .from('associations')
+          .select('association_code, association_name, principal_address, city, state, zip')
+          .eq('active', true)
+          .order('association_code')
+      ).then(({ data }) => {
           if (!data?.length) return
           const lines = data.map((a: {
             association_code: string
