@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sendEmail } from '@/lib/gmail'
+import { randomUUID } from 'crypto'
 
 export async function POST(req: NextRequest) {
   const { companyName, contactName, email, phone, association } = await req.json()
@@ -8,11 +9,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Missing required fields' }, { status: 400 })
   }
 
-  // Email to vendor
+  const recipientName = contactName || companyName
+  const coiAssocLine = association
+    ? `Additional insured requirements for <strong>${association}</strong> will be provided by our team.`
+    : "Your association's additional insured requirements will be provided by our team."
+  const coiAssocText = association
+    ? `Additional insured requirements for ${association} will be provided by our team.`
+    : "Your association's additional insured requirements will be provided by our team."
+
+  // ── Vendor HTML ─────────────────────────────────────────────────────────────
   const vendorHtml = `
     <div style="font-family:Arial,sans-serif;max-width:560px">
       <h2 style="color:#111">Welcome to PMI Top Florida Properties</h2>
-      <p>Thank you for your inquiry, <strong>${contactName || companyName}</strong>. To start working with us, please complete the following:</p>
+      <p>Thank you for your inquiry, <strong>${recipientName}</strong>. To start working with us, please complete the following:</p>
 
       <h3 style="color:#f97316;font-size:15px;margin-top:24px">📄 Required Documents</h3>
 
@@ -32,7 +41,7 @@ export async function POST(req: NextRequest) {
         <tr>
           <td style="padding:12px 16px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px">
             <strong style="display:block;margin-bottom:4px">Certificate of Insurance (COI)</strong>
-            <span style="font-size:13px;color:#555">Required before any work begins.${association ? ` Additional insured requirements for <strong>${association}</strong> will be provided by our team.` : ' Your association\'s additional insured requirements will be provided by our team.'}</span><br/>
+            <span style="font-size:13px;color:#555">Required before any work begins. ${coiAssocLine}</span><br/>
             <span style="font-size:12px;color:#888;margin-top:6px;display:block">Send completed COI to: <a href="mailto:service@topfloridaproperties.com">service@topfloridaproperties.com</a></span>
           </td>
         </tr>
@@ -45,11 +54,46 @@ export async function POST(req: NextRequest) {
         <li>Phone: (305) 900-5077</li>
       </ul>
       ${association ? `<p style="margin-top:16px"><strong>Association:</strong> ${association}</p>` : ''}
-      <p style="color:#888;font-size:12px;margin-top:24px">PMI Top Florida Properties · 305.900.5077 · PMI@topfloridaproperties.com</p>
+
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0"/>
+      <p style="color:#9ca3af;font-size:11px;line-height:1.6;margin:0">
+        PMI Top Florida Properties · 1031 Ives Dairy Road Suite 228, Miami, FL 33179 · (305) 900-5077<br/>
+        You received this email because you submitted a vendor inquiry through our website.<br/>
+        To stop receiving emails, reply with "unsubscribe" in the subject line.
+      </p>
     </div>
   `
 
-  // Internal notification
+  // ── Vendor plain text ────────────────────────────────────────────────────────
+  const vendorText = `Welcome to PMI Top Florida Properties
+
+Thank you for your inquiry, ${recipientName}. To start working with us, please complete the following:
+
+REQUIRED DOCUMENTS
+------------------
+
+1. Vendor ACH Authorization Form
+   Required for electronic payment setup via ACH direct deposit.
+   Download: https://www.pmitop.com/vendor-ach-form.pdf
+
+2. Certificate of Insurance (COI)
+   Required before any work begins. ${coiAssocText}
+   Send completed COI to: service@topfloridaproperties.com
+
+CONTACT
+-------
+Billing & ACH:         billing@topfloridaproperties.com
+Service Coordination:  service@topfloridaproperties.com
+Phone:                 (305) 900-5077
+${association ? `\nAssociation: ${association}` : ''}
+
+--
+PMI Top Florida Properties · 1031 Ives Dairy Road Suite 228, Miami, FL 33179
+You received this email because you submitted a vendor inquiry through our website.
+To unsubscribe, reply with "unsubscribe" in the subject line.
+`
+
+  // ── Internal notification ────────────────────────────────────────────────────
   const internalHtml = `
     <h2 style="color:#111;font-family:Arial,sans-serif">New Vendor Inquiry</h2>
     <table style="font-family:Arial,sans-serif;font-size:14px;border-collapse:collapse;width:100%;max-width:500px">
@@ -69,11 +113,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: true })
   }
 
+  const msgId = randomUUID()
+
   const results = await Promise.allSettled([
     sendEmail({
       to: email,
       subject: `Welcome to PMI Top Florida Properties — Next Steps for ${companyName}`,
       html: vendorHtml,
+      text: vendorText,
+      replyTo: 'maia@pmitop.com',
+      headers: { 'X-Entity-Ref-ID': msgId },
     }),
     sendEmail({
       to: 'maia@pmitop.com',

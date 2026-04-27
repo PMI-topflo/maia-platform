@@ -1,7 +1,7 @@
 // Email sender — Resend primary, Gmail OAuth fallback
 // All outbound email goes through sendEmail(); provider is chosen at runtime.
 
-const FROM = 'MAIA <maia@pmitop.com>'
+const FROM = 'MAIA | PMI Top Florida Properties <maia@pmitop.com>'
 
 // ── Normalise recipients ─────────────────────────────────────────────────────
 
@@ -16,10 +16,16 @@ async function sendViaResend({
   to,
   subject,
   html,
+  text,
+  replyTo,
+  headers,
 }: {
   to: string[]
   subject: string
   html: string
+  text?: string
+  replyTo?: string
+  headers?: Record<string, string>
 }): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) throw new Error('[Resend] RESEND_API_KEY not set')
@@ -30,7 +36,15 @@ async function sendViaResend({
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ from: FROM, to, subject, html }),
+    body: JSON.stringify({
+      from: FROM,
+      to,
+      subject,
+      html,
+      ...(text     && { text }),
+      ...(replyTo  && { reply_to: replyTo }),
+      ...(headers  && { headers }),
+    }),
   })
 
   if (!res.ok) {
@@ -103,11 +117,15 @@ export async function sendEmail({
   subject,
   html,
   text,
+  replyTo,
+  headers,
 }: {
   to: string | string[]
   subject: string
   html?: string
   text?: string
+  replyTo?: string
+  headers?: Record<string, string>
 }): Promise<void> {
   const addresses = toAddresses(to)
   if (addresses.length === 0) throw new Error('[Email] No recipients provided')
@@ -115,7 +133,7 @@ export async function sendEmail({
   const body = html ?? `<pre style="font-family:sans-serif;white-space:pre-wrap">${text ?? ''}</pre>`
 
   if (process.env.RESEND_API_KEY) {
-    await sendViaResend({ to: addresses, subject, html: body })
+    await sendViaResend({ to: addresses, subject, html: body, text, replyTo, headers })
     return
   }
 
