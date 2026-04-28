@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sendEmail } from '@/lib/gmail'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { logEmail } from '@/lib/email-logger'
 import { randomUUID } from 'crypto'
 
 export async function POST(req: NextRequest) {
@@ -246,10 +247,13 @@ To unsubscribe, reply with "unsubscribe" in the subject line.
 
   const msgId = randomUUID()
 
+  const vendorSubject  = `Welcome to PMI Top Florida Properties — Next Steps for ${companyName}`
+  const internalSubject = `[Vendor Inquiry] ${companyName} — ${association || 'No association'}`
+
   const results = await Promise.allSettled([
     sendEmail({
       to: email,
-      subject: `Welcome to PMI Top Florida Properties — Next Steps for ${companyName}`,
+      subject: vendorSubject,
       html: vendorHtml,
       text: vendorText,
       replyTo: 'maia@pmitop.com',
@@ -257,7 +261,7 @@ To unsubscribe, reply with "unsubscribe" in the subject line.
     }),
     sendEmail({
       to: 'maia@pmitop.com',
-      subject: `[Vendor Inquiry] ${companyName} — ${association || 'No association'}`,
+      subject: internalSubject,
       html: internalHtml,
     }),
   ])
@@ -270,6 +274,28 @@ To unsubscribe, reply with "unsubscribe" in the subject line.
       console.error(`[vendor-inquiry] Email failed → ${label}:`, r.reason)
     }
   })
+
+  // Log both emails — fire and forget
+  if (results[0].status === 'fulfilled') {
+    void logEmail({
+      toEmail:          email,
+      subject:          vendorSubject,
+      fullBody:         vendorText,
+      persona:          'vendor',
+      associationCode:  assocFullName ?? undefined,
+      resendMessageId:  results[0].value.messageId,
+    })
+  }
+  if (results[1].status === 'fulfilled') {
+    void logEmail({
+      toEmail:          'maia@pmitop.com',
+      subject:          internalSubject,
+      fullBody:         internalHtml,
+      persona:          'vendor',
+      associationCode:  assocFullName ?? undefined,
+      resendMessageId:  results[1].value.messageId,
+    })
+  }
 
   return NextResponse.json({ ok: true })
 }

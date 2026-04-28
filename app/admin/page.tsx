@@ -14,12 +14,20 @@ export default async function AdminPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <SiteHeader subtitle="STAFF DASHBOARD">
-        <Link
-          href="/admin/new-buyer"
-          className="text-white border border-white/30 hover:border-white/60 [font-family:var(--font-mono)] text-[0.6rem] uppercase tracking-[0.08em] px-3 py-1.5 rounded-[2px] transition-colors"
-        >
-          + New Unit Buyer
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/admin/communications"
+            className="text-white/70 hover:text-white border border-white/20 hover:border-white/50 [font-family:var(--font-mono)] text-[0.6rem] uppercase tracking-[0.08em] px-3 py-1.5 rounded-[2px] transition-colors"
+          >
+            Communications
+          </Link>
+          <Link
+            href="/admin/new-buyer"
+            className="text-white border border-white/30 hover:border-white/60 [font-family:var(--font-mono)] text-[0.6rem] uppercase tracking-[0.08em] px-3 py-1.5 rounded-[2px] transition-colors"
+          >
+            + New Unit Buyer
+          </Link>
+        </div>
       </SiteHeader>
 
       <main className="max-w-screen-xl mx-auto px-6 py-6">

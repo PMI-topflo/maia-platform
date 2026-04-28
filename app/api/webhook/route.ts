@@ -1054,9 +1054,22 @@ async function createRentvineWorkOrder(ctx: CallerContext, description: string):
 
 async function logConversation(phone: string, inbound: string, outbound: string, ctx: CallerContext) {
   await supabase.from('general_conversations').insert({
-    owner_id: phone, phone_number: phone, topic: ctx.persona,
-    summary: `IN: ${inbound.slice(0,100)} | OUT: ${outbound.slice(0,100)}`,
-    handled_by: 'ai', channel: ctx.channel, created_at: new Date().toISOString(),
+    session_id:    `twilio-${phone}-${Date.now()}`,
+    phone_number:  phone,
+    contact_phone: phone,
+    contact_name:  ctx.name !== 'there' ? ctx.name : null,
+    persona:       ctx.persona,
+    language:      ctx.language,
+    channel:       ctx.channel,
+    topic:         ctx.persona,
+    summary:       `IN: ${inbound.slice(0, 100)} | OUT: ${outbound.slice(0, 100)}`,
+    messages:      [
+      { role: 'user',      content: inbound  },
+      { role: 'assistant', content: outbound },
+    ],
+    status:        'open',
+    created_at:    new Date().toISOString(),
+    updated_at:    new Date().toISOString(),
   })
 }
 

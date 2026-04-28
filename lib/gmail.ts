@@ -26,7 +26,7 @@ async function sendViaResend({
   text?: string
   replyTo?: string
   headers?: Record<string, string>
-}): Promise<void> {
+}): Promise<string | undefined> {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) throw new Error('[Resend] RESEND_API_KEY not set')
 
@@ -51,6 +51,9 @@ async function sendViaResend({
     const err = await res.text()
     throw new Error(`[Resend] Send failed (${res.status}): ${err}`)
   }
+
+  const json = await res.json() as { id?: string }
+  return json.id
 }
 
 // ── Gmail OAuth fallback ─────────────────────────────────────────────────────
@@ -112,6 +115,10 @@ async function sendViaGmail({ to, subject, html }: { to: string[]; subject: stri
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
+export interface SendEmailResult {
+  messageId?: string
+}
+
 export async function sendEmail({
   to,
   subject,
@@ -126,16 +133,17 @@ export async function sendEmail({
   text?: string
   replyTo?: string
   headers?: Record<string, string>
-}): Promise<void> {
+}): Promise<SendEmailResult> {
   const addresses = toAddresses(to)
   if (addresses.length === 0) throw new Error('[Email] No recipients provided')
 
   const body = html ?? `<pre style="font-family:sans-serif;white-space:pre-wrap">${text ?? ''}</pre>`
 
   if (process.env.RESEND_API_KEY) {
-    await sendViaResend({ to: addresses, subject, html: body, text, replyTo, headers })
-    return
+    const messageId = await sendViaResend({ to: addresses, subject, html: body, text, replyTo, headers })
+    return { messageId }
   }
 
   await sendViaGmail({ to: addresses, subject, html: body })
+  return {}
 }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
+import { sendEmail } from "@/lib/gmail";
+import { logEmail } from "@/lib/email-logger";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2023-10-16" });
 
@@ -72,8 +74,12 @@ async function sendApplicantEmail(app: Record<string, unknown>, session: Stripe.
   const to = applicants?.[0]?.email;
   if (!to) return;
   const refNum = "PMI-" + (app.id as string).slice(0, 8).toUpperCase();
+  const subject = `Application Received — ${app.association} · ${refNum}`;
   const text = `Dear Applicant,\n\nYour application for ${app.association} has been received.\n\nReference: ${refNum}\nAmount Paid: $${((session.amount_total || 0) / 100).toFixed(2)}\n\nThe board will review within 7-10 business days.\n\nPMI Top Florida Properties | (305) 900-5077 · WhatsApp (786) 686-3223`;
-  await sendEmail({ to, subject: `Application Received — ${app.association} · ${refNum}`, text });
+  try {
+    const { messageId } = await sendEmail({ to, subject, text });
+    void logEmail({ toEmail: to, subject, fullBody: text, persona: 'buyer', resendMessageId: messageId });
+  } catch (err) { console.error("[stripe-webhook] Applicant email failed:", err); }
 }
 
 async function sendTeamEmail(app: Record<string, unknown>, session: Stripe.Checkout.Session) {
@@ -83,18 +89,10 @@ async function sendTeamEmail(app: Record<string, unknown>, session: Stripe.Check
   const list = app.app_type === "commercial"
     ? (principals || []).map((p, i) => `Principal ${i + 1}: ${p.name}`).join("\n")
     : (applicants || []).map((a, i) => `Applicant ${i + 1}: ${a.firstName} ${a.lastName} · ${a.email}`).join("\n");
+  const subject = `[New Application] ${app.association} · ${refNum}`;
   const text = `NEW APPLICATION — ${refNum}\nAssociation: ${app.association}\nType: ${app.app_type}\nPaid: $${((session.amount_total || 0) / 100).toFixed(2)}\n\n${list}\n\nSupabase ID: ${app.id}`;
-  await sendEmail({ to: "support@topfloridaproperties.com", subject: `[New Application] ${app.association} · ${refNum}`, text });
-}
-
-async function sendEmail({ to, subject, text }: { to: string; subject: string; text: string }) {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) { console.log(`[email] No provider. Would send to ${to}`); return; }
   try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: "PMI Top Florida Properties <maia@pmitop.com>", to: [to], subject, text }),
-    });
-  } catch (err) { console.error("[email] Failed:", err); }
+    const { messageId } = await sendEmail({ to: "support@topfloridaproperties.com", subject, text });
+    void logEmail({ toEmail: "support@topfloridaproperties.com", subject, fullBody: text, persona: 'buyer', resendMessageId: messageId });
+  } catch (err) { console.error("[stripe-webhook] Team email failed:", err); }
 }
