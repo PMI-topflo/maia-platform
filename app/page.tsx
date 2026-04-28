@@ -583,7 +583,10 @@ export default function Home() {
                   PMI@topfloridaproperties.com
                 </a>
                 <a href="tel:+13059005077" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">
-                  305.900.5077
+                  📞 305.900.5077
+                </a>
+                <a href="https://wa.me/17866863223" target="_blank" rel="noreferrer" className="block hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]" style={{ color: '#25d366' }}>
+                  💬 (786) 686-3223
                 </a>
               </div>
             </div>
@@ -765,6 +768,8 @@ export default function Home() {
             <a href="mailto:PMI@topfloridaproperties.com" className="text-orange-400 hover:text-orange-300 hover:underline">PMI@topfloridaproperties.com</a>
             <span className="text-white/20">·</span>
             <a href="tel:+13059005077" className="text-orange-400 hover:text-orange-300 hover:underline">305.900.5077</a>
+            <span className="text-white/20">·</span>
+            <a href="https://wa.me/17866863223" target="_blank" rel="noreferrer" className="hover:underline" style={{ color: '#25d366' }}>💬 (786) 686-3223</a>
           </div>
           <div className="text-white/30">© 2026 PMI Top Florida Properties</div>
         </div>

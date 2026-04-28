@@ -136,7 +136,7 @@ export default async function AssocSlugPage(props: {
   return (
     <main className="assoc-page">
       <div className="assoc-topbar">
-        <span className="assoc-topbar-l">WHATSAPP 24/7 · WE SPEAK ENGLISH, SPANISH, FRENCH &amp; PORTUGUESE</span>
+        <span className="assoc-topbar-l">WHATSAPP &amp; SMS 24/7 · +1 (786) 686-3223 · WE SPEAK ENGLISH, SPANISH, FRENCH &amp; PORTUGUESE</span>
         <span className="assoc-topbar-r">305.900.5077</span>
       </div>
 

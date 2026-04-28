@@ -6,7 +6,7 @@ export default function PageBrook() {
 
       {/* Top bar */}
       <div className="assoc-topbar">
-        <span className="assoc-topbar-l">WHATSAPP 24/7 · WE SPEAK ENGLISH, SPANISH, FRENCH &amp; PORTUGUESE</span>
+        <span className="assoc-topbar-l">WHATSAPP &amp; SMS 24/7 · +1 (786) 686-3223 · WE SPEAK ENGLISH, SPANISH, FRENCH &amp; PORTUGUESE</span>
         <span className="assoc-topbar-r">305.900.5077</span>
       </div>
 
@@ -253,7 +253,7 @@ export default function PageBrook() {
           <div className="contact-icon">🔧</div>
           <div className="contact-label">Maintenance &amp; Service</div>
           <a href="mailto:service@topfloridaproperties.com" className="contact-link">service@topfloridaproperties.com</a>
-          <a href="tel:3059005077" className="contact-phone">(305) 900-5077</a>
+          <a href="tel:3059005077" className="contact-phone">(305) 900-5077</a><a href="https://wa.me/17866863223" target="_blank" rel="noreferrer" className="contact-phone" style={{color:"#25d366"}}>💬 (786) 686-3223</a>
         </div>
         <div className="contact-card">
           <div className="contact-icon">⚖️</div>

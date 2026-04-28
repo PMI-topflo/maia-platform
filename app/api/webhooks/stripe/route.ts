@@ -72,7 +72,7 @@ async function sendApplicantEmail(app: Record<string, unknown>, session: Stripe.
   const to = applicants?.[0]?.email;
   if (!to) return;
   const refNum = "PMI-" + (app.id as string).slice(0, 8).toUpperCase();
-  const text = `Dear Applicant,\n\nYour application for ${app.association} has been received.\n\nReference: ${refNum}\nAmount Paid: $${((session.amount_total || 0) / 100).toFixed(2)}\n\nThe board will review within 7-10 business days.\n\nPMI Top Florida Properties | 305.900.5077`;
+  const text = `Dear Applicant,\n\nYour application for ${app.association} has been received.\n\nReference: ${refNum}\nAmount Paid: $${((session.amount_total || 0) / 100).toFixed(2)}\n\nThe board will review within 7-10 business days.\n\nPMI Top Florida Properties | (305) 900-5077 · WhatsApp (786) 686-3223`;
   await sendEmail({ to, subject: `Application Received — ${app.association} · ${refNum}`, text });
 }
 

@@ -40,14 +40,24 @@ export default function SiteHeader({ subtitle, children }: SiteHeaderProps) {
         </div>
       </a>
 
-      {/* Right — optional slot + phone */}
+      {/* Right — optional slot + phone + WhatsApp */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexShrink: 0 }}>
         {children}
         <a
           href="tel:+13059005077"
           style={{ color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textDecoration: 'none', whiteSpace: 'nowrap', letterSpacing: '0.06em' }}
+          title="Office"
         >
-          305.900.5077
+          📞 305.900.5077
+        </a>
+        <a
+          href="https://wa.me/17866863223"
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: '#25d366', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textDecoration: 'none', whiteSpace: 'nowrap', letterSpacing: '0.06em' }}
+          title="WhatsApp / SMS"
+        >
+          💬 (786) 686-3223
         </a>
       </div>
 

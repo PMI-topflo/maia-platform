@@ -159,8 +159,12 @@ export async function POST(req: NextRequest) {
                 <a href="mailto:service@topfloridaproperties.com" style="color:#f26a1b;text-decoration:none">service@topfloridaproperties.com</a>
               </td>
               <td style="font-size:12px;color:#d1d5db">
-                Phone<br/>
+                Office<br/>
                 <a href="tel:+13059005077" style="color:#f26a1b;text-decoration:none">(305) 900-5077</a>
+              </td>
+              <td style="font-size:12px;color:#d1d5db;padding-left:20px">
+                WhatsApp / SMS<br/>
+                <a href="https://wa.me/17866863223" style="color:#25d366;text-decoration:none">(786) 686-3223</a>
               </td>
             </tr>
           </table>
@@ -210,7 +214,8 @@ CONTACT
 -------
 Billing & ACH:        billing@topfloridaproperties.com
 Service & Work Orders: service@topfloridaproperties.com
-Phone:                (305) 900-5077
+Office:               (305) 900-5077
+WhatsApp / SMS:       (786) 686-3223
 
 --
 PMI Top Florida Properties · 1031 Ives Dairy Road Suite 228, Miami, FL 33179

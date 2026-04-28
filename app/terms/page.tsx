@@ -11,7 +11,7 @@ export default function Terms() {
 
       <div className="assoc-topbar">
         <span className="assoc-topbar-l">PMI Top Florida Properties · Miami, FL</span>
-        <span className="assoc-topbar-r">305.900.5077</span>
+        <span className="assoc-topbar-r">305.900.5077 · (786) 686-3223</span>
       </div>
 
       <SiteHeader subtitle="Terms & Conditions" />

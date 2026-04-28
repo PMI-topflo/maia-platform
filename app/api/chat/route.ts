@@ -126,7 +126,8 @@ export async function POST(req: NextRequest) {
 ${personaContext}
 
 COMPANY INFO:
-- Phone: (305) 900-5077
+- Office Phone: (305) 900-5077
+- WhatsApp/SMS: (786) 686-3223
 - Email: maia@pmitop.com
 - Website: pmitop.com
 - Service/Maintenance: service@topfloridaproperties.com
@@ -136,7 +137,7 @@ ${faqContext}${vendorAssocList}
 RESPONSE RULES:
 - Always respond in ${langName}.
 - Be helpful, concise, and professional. Keep responses under 150 words unless a longer explanation is truly needed.
-- If you don't know the answer, say so honestly and direct them to call (305) 900-5077 or email maia@pmitop.com.
+- If you don't know the answer, say so honestly and direct them to call (305) 900-5077, WhatsApp (786) 686-3223, or email maia@pmitop.com.
 - Never invent specific dollar amounts, dates, or policy details you are not certain about.
 - For urgent maintenance (flooding, no AC, safety hazards), always include the service email and phone number.`
 

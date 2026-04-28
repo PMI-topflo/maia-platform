@@ -501,8 +501,9 @@ export default function MaiaWidget({ embedded = false }: { embedded?: boolean })
       <p style={{ fontFamily: 'var(--font-display)', fontSize: '1.05rem', fontWeight: 300, color: 'var(--navy)', margin: '0 0 6px' }}>{t.not_found}</p>
       <p style={{ fontFamily: 'var(--font-body)', fontSize: '0.82rem', color: 'var(--muted)', margin: '0 0 18px' }}>{t.not_found_help}</p>
       <div style={{ ...S.card, padding: '14px 16px', display: 'inline-block', textAlign: 'left' }}>
-        <a href="tel:+13059005077"          style={{ display: 'block', fontSize: '0.82rem', color: 'var(--gold)', textDecoration: 'none', marginBottom: '5px' }}>📞 (305) 900-5077</a>
-        <a href="mailto:maia@pmitop.com"    style={{ display: 'block', fontSize: '0.82rem', color: 'var(--gold)', textDecoration: 'none' }}>✉️ maia@pmitop.com</a>
+        <a href="tel:+13059005077"             style={{ display: 'block', fontSize: '0.82rem', color: 'var(--gold)', textDecoration: 'none', marginBottom: '5px' }}>📞 (305) 900-5077</a>
+        <a href="https://wa.me/17866863223" target="_blank" rel="noreferrer" style={{ display: 'block', fontSize: '0.82rem', color: '#25d366', textDecoration: 'none', marginBottom: '5px' }}>💬 (786) 686-3223</a>
+        <a href="mailto:maia@pmitop.com"       style={{ display: 'block', fontSize: '0.82rem', color: 'var(--gold)', textDecoration: 'none' }}>✉️ maia@pmitop.com</a>
       </div>
     </div>
   )
