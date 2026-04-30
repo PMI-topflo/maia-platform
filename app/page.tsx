@@ -495,10 +495,14 @@ export default function Home() {
 
   function navigateToPortal(role: MatchedRole) {
     try { sessionStorage.setItem('maia_persona', JSON.stringify(role)) } catch { /* ignore */ }
-    if (role.type === 'staff')  { router.push('/admin'); return }
-    if (role.type === 'owner')  { router.push(`/my-account?id=${role.owner_id}&assoc=${role.association_code}`); return }
-    if (role.type === 'board')  { router.push(`/board?id=${role.board_member_id}&assoc=${role.association_code}`); return }
-    if (role.type === 'tenant') { router.push(`/my-account?assoc=${role.association_code}`); return }
+    // Use window.location.href (hard navigation) so the browser makes a fresh
+    // HTTP request that includes the maia_session cookie set by verify-otp.
+    // router.push (soft navigation) can serve a cached RSC payload predating
+    // authentication, causing middleware to see no session and redirect back.
+    if (role.type === 'staff')  { window.location.href = '/admin'; return }
+    if (role.type === 'owner')  { window.location.href = `/my-account?id=${role.owner_id}&assoc=${role.association_code}`; return }
+    if (role.type === 'board')  { window.location.href = `/board?id=${role.board_member_id}&assoc=${role.association_code}`; return }
+    if (role.type === 'tenant') { window.location.href = `/my-account?assoc=${role.association_code}`; return }
   }
 
   function routeToRole(role: MatchedRole) {
@@ -1385,19 +1389,22 @@ export default function Home() {
                 )}
 
                 {/* ── HW 2FA ───────────────────────────────────────────── */}
-                {view === 'hw-2fa' && pending2FA && (
-                  <div className="maia-fade">
-                    <BackBtn onClick={() => { setPending2FA(null); setView('homeowner-form') }} />
-                    <TwoFactorAuth
-                      role={pending2FA}
-                      email={hwEmail}
-                      phone={hwPhone}
-                      lang={lang}
-                      onVerified={() => navigateToPortal(pending2FA)}
-                      onBack={() => { setPending2FA(null); setView('homeowner-form') }}
-                    />
-                  </div>
-                )}
+                {view === 'hw-2fa' && pending2FA && (() => {
+                  const role2fa = pending2FA  // capture non-null value for callbacks
+                  return (
+                    <div className="maia-fade">
+                      <BackBtn onClick={() => { setPending2FA(null); setView('homeowner-form') }} />
+                      <TwoFactorAuth
+                        role={role2fa}
+                        email={hwEmail}
+                        phone={hwPhone}
+                        lang={lang}
+                        onVerified={() => navigateToPortal(role2fa)}
+                        onBack={() => { setPending2FA(null); setView('homeowner-form') }}
+                      />
+                    </div>
+                  )
+                })()}
 
               </div>
             </div>
