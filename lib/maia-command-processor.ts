@@ -731,16 +731,19 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
   if (AUTO_REPLY_SUBJECTS.some(s => subjectLower.includes(s))) return
 
   // Idempotency: log first to prevent double-processing on Pub/Sub retries
+  const now = new Date().toISOString()
   const { data: convRow, error: convErr } = await supabaseAdmin
     .from('general_conversations')
     .insert({
       gmail_message_id: parsed.messageId,
+      gmail_thread_id:  parsed.threadId,
       channel:          'email',
       sender_email:     parsed.senderEmail,
       sender_name:      parsed.senderName,
       subject:          parsed.subject,
       message:          parsed.body.slice(0, 4000),
       status:           'processing',
+      initiated_at:     now,
     })
     .select('id')
     .single()
@@ -752,12 +755,35 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
   }
 
   try {
-    const emailContent = `Subject: ${parsed.subject}\nFrom: ${parsed.sender}\n\n${parsed.body}`
+    // Fetch up to last 5 exchanges in this thread for context
+    const { data: history } = await supabaseAdmin
+      .from('general_conversations')
+      .select('message, response')
+      .eq('gmail_thread_id', parsed.threadId)
+      .not('response', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(5)
+
+    type MsgPair = { role: 'user' | 'assistant'; content: string }
+    const historyMessages: MsgPair[] = (history ?? [])
+      .reverse()
+      .flatMap(h => [
+        { role: 'user'      as const, content: h.message  ?? '' },
+        { role: 'assistant' as const, content: h.response ?? '' },
+      ])
+      .filter(m => m.content)
+
+    const currentMessage = `From: ${parsed.senderName} <${parsed.senderEmail}>\nSubject: ${parsed.subject}\n\n${parsed.body}`
+    const messages: MsgPair[] = [
+      ...historyMessages,
+      { role: 'user', content: currentMessage },
+    ]
+
     const message = await anthropic.messages.create({
       model:      'claude-sonnet-4-20250514',
       max_tokens: 1024,
       system:     GENERAL_SYSTEM_PROMPT,
-      messages:   [{ role: 'user', content: emailContent }],
+      messages,
     })
 
     const aiText  = message.content.find(b => b.type === 'text')?.text ?? ''
@@ -820,11 +846,23 @@ export async function processEmailCommand(messageId: string): Promise<void> {
 
     const trigger = detectTrigger(parsed.body)
     if (!trigger) {
-      // General @maia query — open to any sender, anti-loop handled inside
       const mentionsMaia =
         parsed.subject.toLowerCase().includes('@maia') ||
         parsed.body.toLowerCase().includes('@maia')
-      if (!mentionsMaia) return
+
+      // Check if this reply belongs to a thread Maia already joined
+      let isActiveThread = false
+      if (!mentionsMaia && parsed.threadId) {
+        const { data: existing } = await supabaseAdmin
+          .from('general_conversations')
+          .select('id')
+          .eq('gmail_thread_id', parsed.threadId)
+          .limit(1)
+          .maybeSingle()
+        isActiveThread = !!existing
+      }
+
+      if (!mentionsMaia && !isActiveThread) return
       await handleGeneralEmailQuery(parsed)
       return
     }
