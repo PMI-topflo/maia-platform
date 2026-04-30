@@ -38,6 +38,8 @@ export async function POST(req: NextRequest) {
     staffRes,
     ownerEmailRes,
     ownerPhoneRes,
+    prevOwnerEmailRes,
+    prevOwnerPhoneRes,
     boardEmailRes,
     boardPhoneRes,
   ] = await Promise.all([
@@ -45,10 +47,12 @@ export async function POST(req: NextRequest) {
       ? supabaseAdmin.from('pmi_staff').select('id').eq('active', true).or(staffOr).limit(1).single()
       : Promise.resolve({ data: null }),
 
+    // Active owners only
     email
       ? supabaseAdmin.from('owners')
           .select('id, association_code, association_name, first_name, last_name')
           .ilike('emails', `%${email}%`)
+          .neq('status', 'previous')
           .limit(5)
       : Promise.resolve({ data: [] }),
 
@@ -56,7 +60,27 @@ export async function POST(req: NextRequest) {
       ? supabaseAdmin.from('owners')
           .select('id, association_code, association_name, first_name, last_name')
           .or(`phone.ilike.%${digits}%,phone_e164.ilike.%${digits}%,phone_2.ilike.%${digits}%,phone_3.ilike.%${digits}%`)
+          .neq('status', 'previous')
           .limit(5)
+      : Promise.resolve({ data: [] }),
+
+    // Previous owners — separate check to show blocked message
+    email
+      ? supabaseAdmin.from('owners')
+          .select('id, first_name, last_name, association_code, association_name, unit_number, ownership_end_date')
+          .ilike('emails', `%${email}%`)
+          .eq('status', 'previous')
+          .order('ownership_end_date', { ascending: false })
+          .limit(1)
+      : Promise.resolve({ data: [] }),
+
+    digits.length >= 7
+      ? supabaseAdmin.from('owners')
+          .select('id, first_name, last_name, association_code, association_name, unit_number, ownership_end_date')
+          .or(`phone.ilike.%${digits}%,phone_e164.ilike.%${digits}%,phone_2.ilike.%${digits}%,phone_3.ilike.%${digits}%`)
+          .eq('status', 'previous')
+          .order('ownership_end_date', { ascending: false })
+          .limit(1)
       : Promise.resolve({ data: [] }),
 
     email
@@ -83,7 +107,7 @@ export async function POST(req: NextRequest) {
     roles.push({ type: 'staff' })
   }
 
-  // ── Owners — merge + deduplicate ─────────────────────────────────────────
+  // ── Owners — merge + deduplicate (active only) ────────────────────────────
   type OwnerRow = { id: number; association_code: string; association_name: string; first_name?: string | null; last_name?: string | null }
   const ownerRows: OwnerRow[] = [
     ...((ownerEmailRes as { data: OwnerRow[] }).data ?? []),
@@ -139,7 +163,39 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (roles.length === 0) return NextResponse.json({ found: false })
+  // ── Previous owner check — block access, return specific reason ───────────
+  if (roles.length === 0) {
+    type PrevRow = { id: number; first_name?: string | null; last_name?: string | null; association_code: string; association_name?: string | null; unit_number?: string | null; ownership_end_date?: string | null }
+    const prevRows: PrevRow[] = [
+      ...((prevOwnerEmailRes as { data: PrevRow[] }).data ?? []),
+      ...((prevOwnerPhoneRes as { data: PrevRow[] }).data ?? []),
+    ]
+    const prevMatch = prevRows.find(r => nameMatches(r))
+    if (prevMatch) {
+      void supabaseAdmin.from('login_history').insert({
+        event:          'previous_owner_blocked',
+        identifier:     email ?? phone ?? '',
+        persona:        'owner',
+        association_code: prevMatch.association_code ?? null,
+        ip_address:     'unknown',
+        success:        false,
+        failure_reason: 'previous_owner',
+        role_data:      prevMatch,
+      })
+      return NextResponse.json({
+        found:  false,
+        reason: 'previous_owner',
+        details: {
+          name:      [prevMatch.first_name, prevMatch.last_name].filter(Boolean).join(' ') || 'Owner',
+          assocName: prevMatch.association_name ?? prevMatch.association_code,
+          unit:      prevMatch.unit_number ?? null,
+          endDate:   prevMatch.ownership_end_date ?? null,
+        },
+      })
+    }
+
+    return NextResponse.json({ found: false })
+  }
 
   return NextResponse.json({ found: true, roles })
 }

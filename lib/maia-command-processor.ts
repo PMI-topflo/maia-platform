@@ -51,6 +51,15 @@ export interface ExtractedRecord {
   }>
 }
 
+interface UpsertResult {
+  table:            string
+  recordId:         string
+  assocName?:       string | null
+  isTransfer?:      boolean
+  previousOwner?:   { id: number; name: string; email: string | null; endDate: string }
+  hasActiveTenants?: boolean
+}
+
 interface ParsedEmail {
   messageId:    string
   threadId:     string
@@ -247,12 +256,12 @@ async function extractWithClaude(emailContent: string): Promise<ExtractedRecord>
 
 // ── Supabase upsert ───────────────────────────────────────────────────────────
 
-async function upsertRecord(ext: ExtractedRecord): Promise<{ table: string; recordId: string }> {
+async function upsertRecord(ext: ExtractedRecord): Promise<UpsertResult> {
   if (!ext.record_type) throw new Error('record_type is null')
 
   const code = ext.association_code?.toUpperCase() ?? null
 
-  let assocName = code
+  let assocName: string | null = code
   if (code) {
     const { data } = await supabaseAdmin
       .from('associations')
@@ -264,24 +273,84 @@ async function upsertRecord(ext: ExtractedRecord): Promise<{ table: string; reco
 
   switch (ext.record_type) {
     case 'owner': {
+      const today   = new Date().toISOString().slice(0, 10)
+      const newName = [ext.first_name, ext.last_name].filter(Boolean).join(' ') || ext.entity_name || 'New Owner'
+
+      // Find existing active owner at this unit
+      type PrevRow = { id: number; first_name: string | null; last_name: string | null; entity_name: string | null; emails: string | null }
+      let prevOwner: PrevRow | null = null
+      if (code && ext.unit_number) {
+        const { data } = await supabaseAdmin
+          .from('owners')
+          .select('id, first_name, last_name, entity_name, emails')
+          .eq('association_code', code)
+          .eq('unit_number', ext.unit_number)
+          .neq('status', 'previous')
+          .maybeSingle()
+        prevOwner = (data as PrevRow | null) ?? null
+      }
+
+      const prevName = prevOwner
+        ? ([prevOwner.first_name, prevOwner.last_name].filter(Boolean).join(' ') || prevOwner.entity_name || 'Previous Owner')
+        : null
+
+      // Archive previous owner
+      if (prevOwner) {
+        await supabaseAdmin
+          .from('owners')
+          .update({
+            status:             'previous',
+            active:             false,
+            ownership_end_date: today,
+            transferred_to:     newName,
+          })
+          .eq('id', prevOwner.id)
+      }
+
+      // Check for active tenants at this unit
+      let hasActiveTenants = false
+      if (code && ext.unit_number) {
+        const { data: tenants } = await supabaseAdmin
+          .from('association_tenants')
+          .select('id')
+          .eq('association_code', code)
+          .eq('unit_number', ext.unit_number)
+          .limit(1)
+        hasActiveTenants = (tenants?.length ?? 0) > 0
+      }
+
+      // Insert new owner
       const { data, error } = await supabaseAdmin
         .from('owners')
         .insert({
-          association_code: code,
-          association_name: assocName,
-          unit_number:      ext.unit_number,
-          entity_name:      ext.entity_name,
-          first_name:       ext.first_name,
-          last_name:        ext.last_name,
-          emails:           ext.email,
-          phone:            ext.phone,
-          address:          ext.address,
-          notes:            ext.notes,
+          association_code:     code,
+          association_name:     assocName,
+          unit_number:          ext.unit_number,
+          entity_name:          ext.entity_name,
+          first_name:           ext.first_name,
+          last_name:            ext.last_name,
+          emails:               ext.email,
+          phone:                ext.phone,
+          address:              ext.address,
+          notes:                ext.notes,
+          status:               'active',
+          active:               true,
+          ownership_start_date: today,
+          transferred_from:     prevName,
+          previous_owner_id:    prevOwner?.id ?? null,
         })
         .select('id')
         .single()
       if (error) throw new Error(`owners: ${error.message}`)
-      return { table: 'owners', recordId: String(data.id) }
+
+      return {
+        table:    'owners',
+        recordId: String(data.id),
+        assocName,
+        isTransfer:      !!prevOwner,
+        hasActiveTenants,
+        previousOwner: prevOwner ? { id: prevOwner.id, name: prevName!, email: prevOwner.emails ?? null, endDate: today } : undefined,
+      }
     }
 
     case 'tenant': {
@@ -385,6 +454,67 @@ async function uploadAttachment(
 
 // ── Reply HTML ────────────────────────────────────────────────────────────────
 
+function transferHtml(opts: {
+  ext:              ExtractedRecord
+  assocName:        string | null
+  prevOwner:        { name: string; email: string | null; endDate: string }
+  today:            string
+  ref:              string
+  files:            Array<{ filename: string; url: string | null }>
+  hasActiveTenants: boolean
+}): string {
+  const { ext, assocName, prevOwner, today, ref, files, hasActiveTenants } = opts
+  const newName   = [ext.first_name, ext.last_name].filter(Boolean).join(' ') || ext.entity_name || '—'
+  const unit      = ext.unit_number ? `Unit ${ext.unit_number}` : ''
+  const filesHtml = files.length
+    ? files.map(f => `<li>${f.filename}${f.url ? ` — <a href="${f.url}" style="color:#f26a1b">view</a>` : ' (upload failed)'}</li>`).join('')
+    : '<li>None</li>'
+  const tenantsWarning = hasActiveTenants
+    ? `<div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:4px;padding:12px 16px;margin:16px 0">
+        <strong>⚠️ Action Needed:</strong> This unit has active tenants. Please confirm their status with the new owner.
+       </div>`
+    : ''
+
+  return `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#222;max-width:600px;margin:0 auto;padding:20px">
+<div style="border-left:4px solid #22c55e;padding-left:16px;margin-bottom:24px">
+  <p style="font-size:18px;font-weight:600;margin:0">✅ Ownership Transfer Complete!</p>
+  <p style="color:#6b7280;margin:4px 0 0">Unit: ${assocName ?? ext.association_code ?? '—'}${unit ? ` — ${unit}` : ''}</p>
+</div>
+<p style="font-weight:600;color:#6b7280;text-transform:uppercase;font-size:11px;letter-spacing:.08em;margin-bottom:4px">Previous Owner (access removed)</p>
+<table style="width:100%;border-collapse:collapse;margin-bottom:20px">
+  <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600;width:120px">Name</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${prevOwner.name}</td></tr>
+  <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600">Email</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${prevOwner.email ?? '—'}</td></tr>
+  <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600">Period ended</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${prevOwner.endDate}</td></tr>
+</table>
+<p style="font-weight:600;color:#6b7280;text-transform:uppercase;font-size:11px;letter-spacing:.08em;margin-bottom:4px">New Owner (access granted)</p>
+<table style="width:100%;border-collapse:collapse;margin-bottom:20px">
+  <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600;width:120px">Name</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${newName}</td></tr>
+  <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600">Email</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${ext.email ?? '—'}</td></tr>
+  <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600">Phone</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${ext.phone ?? '—'}</td></tr>
+  <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600">Ownership start</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${today}</td></tr>
+  <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600">Documents</td><td style="padding:8px 12px;border:1px solid #e5e7eb"><ul style="margin:0;padding-left:16px">${filesHtml}</ul></td></tr>
+</table>
+${tenantsWarning}
+<p><a href="https://www.pmitop.com/admin?search=${encodeURIComponent(newName)}" style="background:#f26a1b;color:white;padding:10px 20px;text-decoration:none;border-radius:4px;font-weight:600">View New Owner Record →</a></p>
+<p style="color:#6b7280;font-size:12px;margin-top:24px">Reference: ${ref}</p>
+<p style="color:#6b7280;font-size:12px">— MAIA, PMI Top Florida Properties</p>
+</body></html>`
+}
+
+function courtesyHtml(prevOwnerName: string, assocName: string | null, unit: string | null, endDate: string): string {
+  return `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#222;max-width:600px;margin:0 auto;padding:20px">
+<p>Dear ${prevOwnerName},</p>
+<p>This is a courtesy notice to let you know that your ownership record for <strong>${unit ? `Unit ${unit}` : 'your unit'}</strong> at <strong>${assocName ?? 'your association'}</strong> has been updated in our system as of ${endDate}.</p>
+<p>If you have any questions about this update, please contact PMI Top Florida Properties:</p>
+<ul>
+  <li>Email: <a href="mailto:PMI@topfloridaproperties.com">PMI@topfloridaproperties.com</a></li>
+  <li>Phone: 305.900.5077</li>
+</ul>
+<p>Thank you.</p>
+<p style="color:#6b7280;font-size:12px">— PMI Top Florida Properties</p>
+</body></html>`
+}
+
 function successHtml(ext: ExtractedRecord, ref: string, files: Array<{ filename: string; url: string | null }>): string {
   const name      = [ext.first_name, ext.last_name].filter(Boolean).join(' ') || ext.entity_name || '—'
   const labelMap: Record<string, string> = { owner: 'Unit Owner', tenant: 'Tenant', board_member: 'Board Member', agent: 'Real Estate Agent', vendor: 'Vendor' }
@@ -481,11 +611,21 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     }
 
     // DB upsert
-    let dbResult:    { table: string; recordId: string } | null = null
+    let dbResult:    UpsertResult | null = null
     let upsertError: string | null = null
     if (isComplete) {
       try { dbResult = await upsertRecord(extracted) }
       catch (err) { upsertError = err instanceof Error ? err.message : String(err) }
+    }
+
+    // Courtesy email to previous owner (fire-and-forget)
+    if (dbResult?.isTransfer && dbResult.previousOwner?.email) {
+      const { name, email: prevEmail, endDate } = dbResult.previousOwner
+      void sendEmail({
+        to:      prevEmail,
+        subject: `Your ownership record has been updated — ${dbResult.assocName ?? extracted.association_code ?? 'your association'}`,
+        html:    courtesyHtml(name, dbResult.assocName ?? null, extracted.unit_number, endDate),
+      })
     }
 
     // Reply-all (sender + To + CC, minus maia itself)
@@ -493,8 +633,19 @@ export async function processEmailCommand(messageId: string): Promise<void> {
       [parsed.senderEmail, ...parsed.to, ...parsed.cc].filter(e => e && e !== MAIA_EMAIL && e.includes('@'))
     )]
     const replySubject = parsed.subject.startsWith('Re:') ? parsed.subject : `Re: ${parsed.subject}`
+    const today        = new Date().toISOString().slice(0, 10)
     const replyHtml    = (isComplete && !upsertError)
-      ? successHtml(extracted, ref, uploadedFiles)
+      ? (dbResult?.isTransfer && dbResult.previousOwner
+          ? transferHtml({
+              ext: extracted,
+              assocName:        dbResult.assocName ?? null,
+              prevOwner:        dbResult.previousOwner,
+              today,
+              ref,
+              files:            uploadedFiles,
+              hasActiveTenants: dbResult.hasActiveTenants ?? false,
+            })
+          : successHtml(extracted, ref, uploadedFiles))
       : incompleteHtml(
           { ...extracted, missing_fields: [...(extracted.missing_fields ?? []), ...(upsertError ? ['database_error'] : [])] },
           ref,

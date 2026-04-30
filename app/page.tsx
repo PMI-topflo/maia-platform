@@ -13,7 +13,7 @@ type Lang = 'en' | 'es' | 'pt' | 'fr' | 'he' | 'ru'
 type View =
   | 'home' | 'homeowner-form' | 'homeowner-notfound' | 'role-selector'
   | 'hw-step2' | 'hw-step3' | 'hw-escalate' | 'hw-escalate-form' | 'hw-escalate-sent'
-  | 'hw-chat' | 'hw-chat-sent' | 'hw-2fa'
+  | 'hw-chat' | 'hw-chat-sent' | 'hw-2fa' | 'hw-previous-owner'
   | 'agent-form' | 'agent-sent' | 'vendor-form' | 'vendor-sent'
 
 type MatchedRole =
@@ -426,6 +426,7 @@ export default function Home() {
   const [hasSession,      setHasSession]      = useState(false)
   const [returnUrl,       setReturnUrl]       = useState<string | null>(null)
   const [sessionContact,  setSessionContact]  = useState('')   // full name from session cookie
+  const [prevOwnerDetails, setPrevOwnerDetails] = useState<{ name: string; assocName: string; unit: string | null; endDate: string | null } | null>(null)
 
   // Agent form
   const [agName,    setAgName]    = useState('')
@@ -562,6 +563,7 @@ export default function Home() {
         body: JSON.stringify({ firstName: hwFirst, lastName: hwLast, email: hwEmail, phone: hwPhone }),
       })
       const data = await res.json()
+      if (!data.found && data.reason === 'previous_owner') { setPrevOwnerDetails(data.details); setView('hw-previous-owner'); return }
       if (!data.found || !data.roles?.length) { setHwStep2Addr(hwAddress); setView('hw-step2'); return }
       if (data.roles.length === 1) {
         routeToRole(data.roles[0] as MatchedRole)
@@ -1093,6 +1095,29 @@ export default function Home() {
                       <a href="mailto:PMI@topfloridaproperties.com" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">PMI@topfloridaproperties.com</a>
                       <a href="tel:+13059005077" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">📞 305.900.5077</a>
                       <a href="https://wa.me/17866863223" target="_blank" rel="noreferrer" className="block hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]" style={{ color: '#25d366' }}>💬 (786) 686-3223</a>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── PREVIOUS OWNER BLOCKED ──────────────────────────── */}
+                {view === 'hw-previous-owner' && (
+                  <div className="maia-fade text-center py-4">
+                    <BackBtn />
+                    <div className="text-4xl mb-3">🏠</div>
+                    <h2 className="text-base font-light text-white mb-2 [font-family:var(--font-display)]">Previous Ownership Record Found</h2>
+                    {prevOwnerDetails && (
+                      <div className="bg-[#1a1a1a] border border-[#333] rounded-[2px] px-4 py-3 mb-4 text-left text-sm">
+                        <div className="text-[#9ca3af] text-xs mb-2 [font-family:var(--font-mono)] uppercase tracking-[0.08em]">Your previous record</div>
+                        <div className="text-white font-medium">{prevOwnerDetails.assocName}{prevOwnerDetails.unit ? ` — Unit ${prevOwnerDetails.unit}` : ''}</div>
+                        {prevOwnerDetails.endDate && (
+                          <div className="text-[#9ca3af] text-xs mt-1">Ownership ended {prevOwnerDetails.endDate}</div>
+                        )}
+                      </div>
+                    )}
+                    <p className="text-sm text-[#9ca3af] mb-4">We found your previous ownership record, but your portal access has ended. If you have questions, please contact us directly:</p>
+                    <div className="space-y-2">
+                      <a href="mailto:PMI@topfloridaproperties.com" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">PMI@topfloridaproperties.com</a>
+                      <a href="tel:+13059005077" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">📞 305.900.5077</a>
                     </div>
                   </div>
                 )}

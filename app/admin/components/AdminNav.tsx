@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { label: 'Registrations',     href: '/admin/registrations' },
   { label: 'Pending Approvals', href: '/admin/pending-approvals' },
   { label: 'Login History',     href: '/admin/login-history' },
+  { label: 'Ownership History', href: '/admin/ownership-history' },
 ]
 
 export default function AdminNav() {
