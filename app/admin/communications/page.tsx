@@ -8,7 +8,7 @@ export const metadata = { title: 'Communications — PMI Top Florida' }
 export const dynamic = 'force-dynamic'
 
 async function getData() {
-  const [convRes, emailRes, ticketRes, staffRes] = await Promise.all([
+  const [convRes, emailRes, ticketRes, staffRes, cmdRes] = await Promise.all([
     supabaseAdmin
       .from('general_conversations')
       .select('id, session_id, persona, language, association_code, topic, status, channel, contact_name, contact_phone, contact_email, assigned_to, handled_by, summary, created_at, updated_at, messages')
@@ -29,6 +29,11 @@ async function getData() {
       .select('id, name, email, role, department')
       .eq('active', true)
       .order('name'),
+    supabaseAdmin
+      .from('maia_email_commands')
+      .select('id, sender_email, sender_name, subject, trigger_phrase, record_type, extracted_data, status, error_message, db_record_id, db_table, reply_sent, attachments, reference_code, created_at, updated_at')
+      .order('created_at', { ascending: false })
+      .limit(200),
   ])
 
   return {
@@ -36,6 +41,7 @@ async function getData() {
     emails:        emailRes.data ?? [],
     tickets:       ticketRes.data ?? [],
     staff:         staffRes.data ?? [],
+    emailCommands: cmdRes.data ?? [],
   }
 }
 

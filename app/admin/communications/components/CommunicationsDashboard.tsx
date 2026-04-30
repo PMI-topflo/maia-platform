@@ -68,11 +68,31 @@ interface Staff {
   department: string | null
 }
 
+interface EmailCommand {
+  id: string
+  sender_email: string
+  sender_name: string | null
+  subject: string | null
+  trigger_phrase: string | null
+  record_type: string | null
+  extracted_data: Record<string, unknown> | null
+  status: string
+  error_message: string | null
+  db_record_id: string | null
+  db_table: string | null
+  reply_sent: boolean | null
+  attachments: Array<{ filename: string; url: string | null }> | null
+  reference_code: string | null
+  created_at: string
+  updated_at: string
+}
+
 interface Props {
   conversations: Conversation[]
   emails: EmailLog[]
   tickets: Ticket[]
   staff: Staff[]
+  emailCommands: EmailCommand[]
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -485,6 +505,207 @@ function TicketsTab({ tickets, staff }: { tickets: Ticket[]; staff: Staff[] }) {
   )
 }
 
+// ── Tab: Email Commands ───────────────────────────────────────────────────────
+
+function cmdStatusBadge(status: string) {
+  const map: Record<string, string> = {
+    completed:  'bg-green-100 text-green-800',
+    incomplete: 'bg-amber-100 text-amber-800',
+    failed:     'bg-red-100 text-red-800',
+    processing: 'bg-blue-100 text-blue-800',
+    pending:    'bg-gray-100 text-gray-600',
+  }
+  const icon: Record<string, string> = {
+    completed: '✅', incomplete: '⚠️', failed: '❌', processing: '⏳', pending: '⏳',
+  }
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${map[status] ?? map.pending}`}>
+      {icon[status] ?? ''} {status}
+    </span>
+  )
+}
+
+function EmailCommandsTab({ commands }: { commands: EmailCommand[] }) {
+  const [search,       setSearch]       = useState('')
+  const [filterStatus, setFilterStatus] = useState('all')
+  const [expanded,     setExpanded]     = useState<string | null>(null)
+
+  const filtered = commands.filter(c => {
+    if (filterStatus !== 'all' && c.status !== filterStatus) return false
+    if (search) {
+      const q = search.toLowerCase()
+      return (
+        c.sender_email.toLowerCase().includes(q) ||
+        c.sender_name?.toLowerCase().includes(q) ||
+        c.subject?.toLowerCase().includes(q) ||
+        c.reference_code?.toLowerCase().includes(q) ||
+        c.record_type?.toLowerCase().includes(q)
+      )
+    }
+    return true
+  })
+
+  const completed  = commands.filter(c => c.status === 'completed').length
+  const incomplete = commands.filter(c => c.status === 'incomplete').length
+  const failed     = commands.filter(c => c.status === 'failed').length
+
+  return (
+    <div>
+      {/* Mini stats */}
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="bg-green-50 border border-green-100 rounded-lg px-4 py-3">
+          <div className="text-xl font-semibold text-green-700">{completed}</div>
+          <div className="text-xs text-green-600 font-medium uppercase tracking-wide">Completed</div>
+        </div>
+        <div className="bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
+          <div className="text-xl font-semibold text-amber-700">{incomplete}</div>
+          <div className="text-xs text-amber-600 font-medium uppercase tracking-wide">Incomplete</div>
+        </div>
+        <div className="bg-red-50 border border-red-100 rounded-lg px-4 py-3">
+          <div className="text-xl font-semibold text-red-700">{failed}</div>
+          <div className="text-xs text-red-600 font-medium uppercase tracking-wide">Failed</div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-3 mb-4">
+        <input
+          type="text"
+          placeholder="Search sender, subject, reference…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="flex-1 min-w-[200px] border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-[#f26a1b]"
+        />
+        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="border border-gray-200 rounded px-2 py-1.5 text-sm">
+          <option value="all">All statuses</option>
+          <option value="completed">Completed</option>
+          <option value="incomplete">Incomplete</option>
+          <option value="failed">Failed</option>
+          <option value="processing">Processing</option>
+          <option value="pending">Pending</option>
+        </select>
+      </div>
+
+      <div className="text-xs text-gray-400 mb-2">{filtered.length} email commands</div>
+
+      <div className="space-y-2">
+        {filtered.map(c => (
+          <div key={c.id} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <button
+              onClick={() => setExpanded(expanded === c.id ? null : c.id)}
+              className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-start gap-3">
+                <span className="text-lg mt-0.5">📧</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-sm text-gray-900">
+                      {c.sender_name ?? c.sender_email}
+                    </span>
+                    <span className="text-xs text-gray-400">{c.sender_email}</span>
+                    {cmdStatusBadge(c.status)}
+                    {c.record_type && (
+                      <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] uppercase">
+                        {c.record_type.replace(/_/g, ' ')}
+                      </span>
+                    )}
+                  </div>
+                  {c.subject && <p className="text-xs text-gray-500 mt-1 truncate">{c.subject}</p>}
+                  {c.reference_code && (
+                    <p className="text-[10px] font-mono text-gray-400 mt-0.5">{c.reference_code}</p>
+                  )}
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-xs text-gray-400">{fmtDate(c.created_at)}</div>
+                </div>
+              </div>
+            </button>
+
+            {expanded === c.id && (
+              <div className="border-t border-gray-100 px-4 py-3 bg-gray-50 text-xs space-y-3">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+                  <div><span className="text-gray-400">Sender:</span> {c.sender_email}</div>
+                  <div><span className="text-gray-400">Reply sent:</span> {c.reply_sent ? 'Yes' : 'No'}</div>
+                  <div><span className="text-gray-400">DB table:</span> {c.db_table ?? '—'}</div>
+                  <div><span className="text-gray-400">DB record ID:</span> {c.db_record_id ?? '—'}</div>
+                  <div><span className="text-gray-400">Trigger:</span> <span className="font-mono">{c.trigger_phrase ?? '—'}</span></div>
+                  <div><span className="text-gray-400">Reference:</span> <span className="font-mono">{c.reference_code ?? '—'}</span></div>
+                </div>
+
+                {c.error_message && (
+                  <div className="bg-red-50 border border-red-100 rounded px-3 py-2">
+                    <div className="font-semibold text-red-600 mb-1">Error</div>
+                    <div className="font-mono text-red-700 whitespace-pre-wrap">{c.error_message}</div>
+                  </div>
+                )}
+
+                {c.extracted_data && (
+                  <div>
+                    <div className="font-semibold text-gray-600 mb-1">Extracted Data</div>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+                      {(['first_name', 'last_name', 'entity_name', 'association_code', 'unit_number', 'email', 'phone', 'address'] as const).map(field => {
+                        const val = (c.extracted_data as Record<string, unknown>)?.[field]
+                        if (!val) return null
+                        return (
+                          <div key={field}><span className="text-gray-400">{field.replace(/_/g, ' ')}:</span> {String(val)}</div>
+                        )
+                      })}
+                    </div>
+                    {Array.isArray((c.extracted_data as Record<string, unknown>)?.missing_fields) &&
+                      ((c.extracted_data as Record<string, unknown>).missing_fields as string[]).length > 0 && (
+                      <div className="mt-2 text-amber-600">
+                        <span className="font-semibold">Missing:</span> {((c.extracted_data as Record<string, unknown>).missing_fields as string[]).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {c.attachments && c.attachments.length > 0 && (
+                  <div>
+                    <div className="font-semibold text-gray-600 mb-1">Attachments</div>
+                    <ul className="space-y-1">
+                      {c.attachments.map((att, i) => (
+                        <li key={i}>
+                          {att.filename}
+                          {att.url && (
+                            <a href={att.url} target="_blank" rel="noopener noreferrer" className="ml-2 text-[#f26a1b] hover:underline">view</a>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {c.status === 'incomplete' && (
+                  <div className="pt-1">
+                    <a
+                      href={`/admin?search=${encodeURIComponent([
+                        (c.extracted_data as Record<string, unknown>)?.first_name,
+                        (c.extracted_data as Record<string, unknown>)?.last_name,
+                      ].filter(Boolean).join(' ') || '')}`}
+                      className="inline-block bg-[#f26a1b] text-white text-[11px] font-semibold px-3 py-1.5 rounded hover:bg-[#f58140] transition-colors"
+                    >
+                      Fix manually →
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {filtered.length === 0 && (
+          <div className="text-center py-12 text-gray-400 text-sm">
+            No email commands yet.
+            {commands.length === 0 && (
+              <div className="mt-2 text-xs">CC maia@pmitop.com and type <span className="font-mono">@Maia please add to the database</span> to get started.</div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Summary cards ─────────────────────────────────────────────────────────────
 
 function StatCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
@@ -499,8 +720,8 @@ function StatCard({ label, value, sub }: { label: string; value: number | string
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
-export default function CommunicationsDashboard({ conversations, emails, tickets, staff }: Props) {
-  const [tab, setTab] = useState<'conversations' | 'emails' | 'tickets'>('conversations')
+export default function CommunicationsDashboard({ conversations, emails, tickets, staff, emailCommands }: Props) {
+  const [tab, setTab] = useState<'conversations' | 'emails' | 'tickets' | 'commands'>('conversations')
 
   const openConvs   = conversations.filter(c => (c.status ?? 'open') === 'open').length
   const bouncedEmails = emails.filter(e => e.status === 'bounced').length
@@ -523,6 +744,7 @@ export default function CommunicationsDashboard({ conversations, emails, tickets
           { key: 'conversations', label: `Conversations (${conversations.length})` },
           { key: 'emails',        label: `Emails (${emails.length})` },
           { key: 'tickets',       label: `Board Tickets (${tickets.length})` },
+          { key: 'commands',      label: `Email Commands (${emailCommands.length})` },
         ] as const).map(t => (
           <button
             key={t.key}
@@ -541,6 +763,7 @@ export default function CommunicationsDashboard({ conversations, emails, tickets
       {tab === 'conversations' && <ConversationsTab conversations={conversations} staff={staff} />}
       {tab === 'emails'        && <EmailsTab emails={emails} />}
       {tab === 'tickets'       && <TicketsTab tickets={tickets} staff={staff} />}
+      {tab === 'commands'      && <EmailCommandsTab commands={emailCommands} />}
     </div>
   )
 }
