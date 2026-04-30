@@ -423,6 +423,8 @@ export default function Home() {
   const [chatInput,     setChatInput]     = useState('')
   const [chatBusy,      setChatBusy]      = useState(false)
   const [pending2FA,    setPending2FA]    = useState<MatchedRole | null>(null)
+  const [hasSession,    setHasSession]    = useState(false)
+  const [returnUrl,     setReturnUrl]     = useState<string | null>(null)
 
   // Agent form
   const [agName,    setAgName]    = useState('')
@@ -438,12 +440,32 @@ export default function Home() {
   const [vdPhone,   setVdPhone]   = useState('')
   const [vdAssoc,   setVdAssoc]   = useState<AddressResult | null>(null)
 
-  // Restore saved persona
+  // Restore saved persona + check active session cookie
   useEffect(() => {
+    let sp: MatchedRole | null = null
     try {
       const saved = sessionStorage.getItem('maia_persona')
-      if (saved) setSavedPersona(JSON.parse(saved) as MatchedRole)
+      if (saved) { sp = JSON.parse(saved) as MatchedRole; setSavedPersona(sp) }
     } catch { /* ignore */ }
+
+    const rUrl = new URLSearchParams(window.location.search).get('return')
+    if (rUrl) setReturnUrl(rUrl)
+
+    fetch('/api/auth/check-session')
+      .then(r => r.json())
+      .then((data: { valid: boolean; session?: { persona: string } }) => {
+        if (!data.valid) return
+        setHasSession(true)
+        // Auto-redirect when arriving via middleware ?return= redirect
+        if (rUrl) { window.location.href = rUrl; return }
+        // Sync sessionStorage if cookie exists but sessionStorage was cleared (e.g. new tab)
+        if (!sp && data.session?.persona === 'staff') {
+          const role: MatchedRole = { type: 'staff' }
+          setSavedPersona(role)
+          try { sessionStorage.setItem('maia_persona', JSON.stringify(role)) } catch { /* ignore */ }
+        }
+      })
+      .catch(() => { /* network error — ignore, will fall through to OTP */ })
   }, [])
 
   // Opening animation sequence
@@ -495,14 +517,12 @@ export default function Home() {
 
   function navigateToPortal(role: MatchedRole) {
     try { sessionStorage.setItem('maia_persona', JSON.stringify(role)) } catch { /* ignore */ }
-    // Use window.location.href (hard navigation) so the browser makes a fresh
-    // HTTP request that includes the maia_session cookie set by verify-otp.
-    // router.push (soft navigation) can serve a cached RSC payload predating
-    // authentication, causing middleware to see no session and redirect back.
-    if (role.type === 'staff')  { window.location.href = '/admin'; return }
-    if (role.type === 'owner')  { window.location.href = `/my-account?id=${role.owner_id}&assoc=${role.association_code}`; return }
-    if (role.type === 'board')  { window.location.href = `/board?id=${role.board_member_id}&assoc=${role.association_code}`; return }
-    if (role.type === 'tenant') { window.location.href = `/my-account?assoc=${role.association_code}`; return }
+    // Hard navigation ensures a fresh HTTP request with the new cookie.
+    // Prefer ?return= URL (set by middleware) so the user lands exactly where they were headed.
+    if (role.type === 'staff')  { window.location.href = returnUrl ?? '/admin'; return }
+    if (role.type === 'owner')  { window.location.href = returnUrl ?? `/my-account?id=${role.owner_id}&assoc=${role.association_code}`; return }
+    if (role.type === 'board')  { window.location.href = returnUrl ?? `/board?id=${role.board_member_id}&assoc=${role.association_code}`; return }
+    if (role.type === 'tenant') { window.location.href = returnUrl ?? `/my-account?assoc=${role.association_code}`; return }
   }
 
   function routeToRole(role: MatchedRole) {
@@ -896,13 +916,30 @@ export default function Home() {
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <button
-                            onClick={() => routeToRole(savedPersona)}
+                            onClick={() => {
+                              if (hasSession) {
+                                // Active cookie — go straight to portal without re-verifying
+                                const dest = returnUrl
+                                  ?? (savedPersona.type === 'staff'  ? '/admin'
+                                    : savedPersona.type === 'owner'  ? `/my-account?id=${(savedPersona as Extract<MatchedRole,{type:'owner'}>).owner_id}&assoc=${(savedPersona as Extract<MatchedRole,{type:'owner'}>).association_code}`
+                                    : savedPersona.type === 'board'  ? `/board?id=${(savedPersona as Extract<MatchedRole,{type:'board'}>).board_member_id}&assoc=${(savedPersona as Extract<MatchedRole,{type:'board'}>).association_code}`
+                                    : `/my-account?assoc=${(savedPersona as Extract<MatchedRole,{type:'tenant'}>).association_code}`)
+                                window.location.href = dest
+                              } else {
+                                routeToRole(savedPersona)
+                              }
+                            }}
                             className="bg-[#f26a1b] hover:bg-[#f58140] text-white [font-family:var(--font-mono)] text-[0.58rem] uppercase tracking-[0.08em] px-3 py-1.5 rounded-[2px] transition-colors"
                           >
                             Continue
                           </button>
                           <button
-                            onClick={() => { try { sessionStorage.removeItem('maia_persona') } catch { /* ignore */ }; setSavedPersona(null) }}
+                            onClick={() => {
+                              try { sessionStorage.removeItem('maia_persona') } catch { /* ignore */ }
+                              setSavedPersona(null)
+                              setHasSession(false)
+                              void fetch('/api/auth/check-session', { method: 'DELETE' })
+                            }}
                             className="text-[0.58rem] text-[#6b7280] hover:text-white [font-family:var(--font-mono)] uppercase tracking-[0.08em] transition-colors"
                           >
                             Not you?
