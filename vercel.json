@@ -3,6 +3,14 @@
     {
       "path": "/api/cron/renew-gmail-watch",
       "schedule": "0 9 */6 * *"
+    },
+    {
+      "path": "/api/cron/sync-rentvine-tenants",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/check-lease-expiry",
+      "schedule": "0 8 * * *"
     }
   ]
 }
