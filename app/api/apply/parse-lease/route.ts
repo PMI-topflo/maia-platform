@@ -88,18 +88,23 @@ export async function POST(req: NextRequest) {
 
   let extracted: Extracted = { association: null, address: null, unit: null, moveIn: null, tenants: [] }
 
+  // Normalise MIME type to what Gemini accepts
+  const geminiMime = mimeType.includes('pdf') ? 'application/pdf'
+    : mimeType.includes('png') ? 'image/png'
+    : 'image/jpeg'
+
   try {
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    // inlineData must come before the text prompt (matches drive-scan pattern)
     const result = await model.generateContent([
-      EXTRACTION_PROMPT,
-      { inlineData: { data: buffer.toString('base64'), mimeType: mimeType as 'application/pdf' | 'image/jpeg' | 'image/png' } },
+      { inlineData: { data: buffer.toString('base64'), mimeType: geminiMime } },
+      { text: EXTRACTION_PROMPT },
     ])
     const raw = result.response.text().trim()
-    // Extract the first JSON object from anywhere in the response —
-    // handles cases where Gemini wraps output in prose or markdown fences
+    // Extract the first JSON object from anywhere in the response
     const jsonMatch = raw.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) throw new Error('No JSON object in response: ' + raw.slice(0, 300))
+    if (!jsonMatch) throw new Error('No JSON in response: ' + raw.slice(0, 300))
     extracted = JSON.parse(jsonMatch[0])
     if (!Array.isArray(extracted.tenants)) extracted.tenants = []
   } catch (err) {
