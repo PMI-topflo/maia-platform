@@ -90,18 +90,20 @@ export async function POST(req: NextRequest) {
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
     const result = await model.generateContent([
       EXTRACTION_PROMPT,
       { inlineData: { data: buffer.toString('base64'), mimeType: mimeType as 'application/pdf' | 'image/jpeg' | 'image/png' } },
     ])
     const raw = result.response.text().trim()
-    // Strip any markdown fences Gemini adds despite instruction
-    const json = raw.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim()
-    extracted = JSON.parse(json)
+    // Extract the first JSON object from anywhere in the response —
+    // handles cases where Gemini wraps output in prose or markdown fences
+    const jsonMatch = raw.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) throw new Error('No JSON object in response: ' + raw.slice(0, 300))
+    extracted = JSON.parse(jsonMatch[0])
     if (!Array.isArray(extracted.tenants)) extracted.tenants = []
   } catch (err) {
-    console.error('[parse-lease] Gemini error', err)
+    console.error('[parse-lease] Gemini extraction error', err)
     return NextResponse.json(
       { error: 'Could not read your document. Please try a clearer scan or contact us.' },
       { status: 422 }

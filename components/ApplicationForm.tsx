@@ -975,14 +975,14 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
               {/* Upload drop zone */}
               {!leaseData && (
                 <div
-                  onClick={() => (document.getElementById("lease-upload") as HTMLInputElement | null)?.click()}
+                  onClick={() => { const el = document.getElementById("lease-upload") as HTMLInputElement | null; if (el) { el.value = ""; el.click(); } }}
                   onDragOver={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement).style.borderColor = "#f26a1b"; (e.currentTarget as HTMLElement).style.background = "#fff7f0"; }}
                   onDragLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = leaseParseError ? "#fca5a5" : "#e5e7eb"; (e.currentTarget as HTMLElement).style.background = leaseParseError ? "#fef2f2" : "#fafaf9"; }}
                   onDrop={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement).style.borderColor = "#e5e7eb"; (e.currentTarget as HTMLElement).style.background = "#fafaf9"; if (e.dataTransfer.files[0]) handleLeaseUpload(e.dataTransfer.files[0]); }}
                   style={{ border: `1.5px dashed ${leaseParseError ? "#fca5a5" : "#e5e7eb"}`, borderRadius: 4, padding: "32px 20px", textAlign: "center", cursor: leaseUploading ? "wait" : "pointer", background: leaseParseError ? "#fef2f2" : "#fafaf9", transition: "all 0.18s", opacity: leaseUploading ? 0.7 : 1 }}
                 >
                   <input id="lease-upload" type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }}
-                    onChange={(e) => { if (e.target.files?.[0]) handleLeaseUpload(e.target.files[0]); }} />
+                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) handleLeaseUpload(f); }} />
                   {leaseUploading ? (
                     <div>
                       <div style={{ fontSize: 22, marginBottom: 10 }}>⏳</div>
