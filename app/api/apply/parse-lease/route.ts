@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
     // inlineData must come before the text prompt (matches drive-scan pattern)
     const result = await model.generateContent([
       { inlineData: { data: buffer.toString('base64'), mimeType: geminiMime } },
