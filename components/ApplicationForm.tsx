@@ -1427,7 +1427,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                   <div style={{ background: "#fff", border: "1px solid #fed7aa", borderRadius: 3, padding: "12px 14px", marginBottom: 16, maxHeight: 200, overflowY: "auto" }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: "#9a3412", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace", marginBottom: 8 }}>Topics covered</div>
                     {rulesSections.map((s, i) => (
-                      <div key={i} style={{ fontSize: 12, color: "#374151", lineHeight: 1.7, paddingLeft: 4, borderLeft: "2px solid #fed7aa", marginBottom: 3, paddingLeft: 8 }}>
+                      <div key={i} style={{ fontSize: 12, color: "#374151", lineHeight: 1.7, borderLeft: "2px solid #fed7aa", marginBottom: 3, paddingLeft: 8 }}>
                         {s}
                       </div>
                     ))}
