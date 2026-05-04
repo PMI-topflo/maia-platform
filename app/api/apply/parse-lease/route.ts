@@ -107,11 +107,10 @@ export async function POST(req: NextRequest) {
     if (!jsonMatch) throw new Error('No JSON in response: ' + raw.slice(0, 300))
     extracted = JSON.parse(jsonMatch[0])
     if (!Array.isArray(extracted.tenants)) extracted.tenants = []
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
+  } catch (err) {
     console.error('[parse-lease] Gemini extraction error', err)
     return NextResponse.json(
-      { error: 'Could not read your document. Please try a clearer scan or contact us.', _debug: msg },
+      { error: 'Could not read your document. Please try a clearer scan or contact us.' },
       { status: 422 }
     )
   }
