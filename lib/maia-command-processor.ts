@@ -231,8 +231,14 @@ From the email subject, body, and any forwarded/quoted content, extract:
 - notes: any additional relevant info
 
 Rules:
-- For record_type, infer from context (@maia add owner → owner, @maia add tenant → tenant, etc.)
+- For record_type, infer from context:
+  - @maia add owner / @maia update db / @maia new owner / subject has "NEW OWNER" / "TRANSFER OF OWNERSHIP" → "owner"
+  - @maia add tenant / @maia new tenant / subject has "NEW TENANT" → "tenant"
+  - @maia add board member → "board_member"
+  - @maia add agent / @maia add vendor → infer accordingly
+  - If the subject or body clearly indicates a new owner or property transfer, always use "owner" even if no explicit command phrase was given
 - If you see multiple people (couple, co-owners), list the primary in main fields and extras in additional_people
+- For association_code: account numbers like "ESSI16" combine association code + unit number. Extract the alphabetic prefix only: ESSI16 → "ESSI", ABBO5 → "ABBO", MACO12 → "MACO". If the code is clearly just letters (ABBOTT, MACO, PALM), return as-is
 - missing_fields: list required fields you could NOT extract
   - owner requires: association_code, unit_number, first_name or entity_name, and email or phone
   - tenant requires: association_code, unit_number, first_name
@@ -882,22 +888,28 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     const msg    = await fetchGmailMessage(messageId)
     const parsed = parseGmailMessage(msg)
 
-    const trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body)
-    const bodyNorm = parsed.body.toLowerCase().replace(/\s+/g, ' ')
-    console.log(`[MAIA] subject="${parsed.subject.slice(0,80)}" sender="${parsed.senderEmail}" trigger="${trigger}" mentionsMaia=${bodyNorm.includes('@maia')}`)
+    const bodyNorm     = parsed.body.toLowerCase().replace(/\s+/g, ' ')
+    const subjectNorm  = parsed.subject.toLowerCase()
+    const mentionsMaia = subjectNorm.includes('@maia') || bodyNorm.includes('@maia')
+    const allowed      = isAllowedSender(parsed.senderEmail)
+
+    // Determine trigger: explicit phrase > keyword inference > implicit (@maia from authorized sender)
+    let trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body)
+    if (!trigger && mentionsMaia && allowed) {
+      // Authorized sender mentioned @maia without a recognized command phrase.
+      // Route to DB extraction and let Claude infer record_type from context.
+      trigger = '@maia'
+    }
+
+    console.log(`[MAIA] subject="${subjectNorm.slice(0,80)}" sender="${parsed.senderEmail}" trigger="${trigger}" mentionsMaia=${mentionsMaia} allowed=${allowed}`)
     console.log(`[MAIA] body_preview="${parsed.body.slice(0,300).replace(/\n/g,'↵')}"`)
     console.log(`[MAIA] body_tail="${parsed.body.slice(-150).replace(/\n/g,'↵')}"`)
     console.log(`[MAIA] body_hex_tail="${Buffer.from(parsed.body.slice(-50)).toString('hex')}"`)
-    console.log(`[MAIA] trigger_exact_check="${JSON.stringify(TRIGGER_PHRASES.map(p => ({ phrase: p, found: bodyNorm.includes(p) })))}"`)
 
     if (!trigger) {
-      const mentionsMaia =
-        parsed.subject.toLowerCase().includes('@maia') ||
-        bodyNorm.includes('@maia')
-
-      // Check if this reply belongs to a thread Maia already joined
+      // No @maia mention at all — check if thread is already active with MAIA
       let isActiveThread = false
-      if (!mentionsMaia && parsed.threadId) {
+      if (parsed.threadId) {
         const { data: existing } = await supabaseAdmin
           .from('general_conversations')
           .select('id')
@@ -906,15 +918,12 @@ export async function processEmailCommand(messageId: string): Promise<void> {
           .maybeSingle()
         isActiveThread = !!existing
       }
-
-      if (!mentionsMaia && !isActiveThread) return
+      if (!isActiveThread) return
       await handleGeneralEmailQuery(parsed)
       return
     }
 
-    // DB command — restricted to authorized staff senders; external senders fall through to chat
-    const allowed = isAllowedSender(parsed.senderEmail)
-    console.log(`[MAIA] DB command: allowed=${allowed} sender="${parsed.senderEmail}"`)
+    // DB command — restricted to authorized staff senders; external senders get freeform chat
     if (!allowed) {
       await handleGeneralEmailQuery(parsed)
       return
