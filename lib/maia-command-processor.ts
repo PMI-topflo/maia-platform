@@ -801,20 +801,35 @@ export async function detectAssociationCode(text: string): Promise<string | null
     }))
   }
 
+  if (!_assocCodeCache) return null
   const cache = _assocCodeCache
   const upper = text.toUpperCase()
-  // Check for account-number patterns first (e.g. ESSI16 → ESSI, ABBO5 → ABBO)
-  const acctMatch = upper.match(/\b([A-Z]{2,6})\d{1,3}\b/)
+
+  // 1. Most reliable: account-number pattern (e.g. ESSI16 → ESSI, ABBO5 → ABBO)
+  //    Require prefix to be at least 3 chars to avoid false positives (e.g. "FL22")
+  const acctMatch = upper.match(/\b([A-Z]{3,6})\d{1,3}\b/)
   if (acctMatch) {
     const prefix = acctMatch[1]
     const hit = cache.find(a => a.code === prefix)
     if (hit) return hit.code
   }
-  // Then check for bare association codes or names
+
+  // 2. Bare code — require word boundary AND at least 4 characters to avoid
+  //    matching short codes like "AB" inside common English words ("cable", "tab")
   for (const a of cache) {
-    if (a.code && upper.includes(a.code)) return a.code
-    if (a.name && upper.includes(a.name.toUpperCase())) return a.code
+    if (a.code && a.code.length >= 4) {
+      if (new RegExp(`\\b${a.code}\\b`).test(upper)) return a.code
+    }
   }
+
+  // 3. Full association name — require word boundary, only try names ≥ 6 chars
+  for (const a of cache) {
+    if (a.name && a.name.length >= 6) {
+      const escaped = a.name.toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      if (new RegExp(`\\b${escaped}\\b`).test(upper)) return a.code
+    }
+  }
+
   return null
 }
 

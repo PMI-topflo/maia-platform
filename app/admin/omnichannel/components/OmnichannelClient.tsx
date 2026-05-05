@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useMemo, useCallback, type ChangeEvent } from 'react'
+import { useState, useMemo, useCallback, useEffect, type ChangeEvent } from 'react'
+import type { RentvineContact } from '@/app/api/admin/omnichannel/rentvine-contacts/route'
 
 export type ConvItem = {
   id: string
@@ -18,15 +19,16 @@ export type ConvItem = {
 
 type Association = { association_code: string; association_name: string }
 type Period = 'day' | 'week' | 'month' | 'year'
+type View   = 'all' | 'associations' | 'residential'
 
 const CHANNEL_COLOR: Record<string, string> = {
-  whatsapp:  '#25d366',
-  sms:       '#3b82f6',
-  email:     '#8b5cf6',
+  whatsapp:    '#25d366',
+  sms:         '#3b82f6',
+  email:       '#8b5cf6',
   'email-in':  '#8b5cf6',
   'email-out': '#a78bfa',
-  web:       '#6b7280',
-  ticket:    '#f26a1b',
+  web:         '#6b7280',
+  ticket:      '#f26a1b',
 }
 
 const CHANNEL_LABEL: Record<string, string> = {
@@ -41,17 +43,16 @@ function bucketKey(date: Date, period: Period): string {
   if (period === 'day')   return `${y}-${m}-${d}`
   if (period === 'month') return `${y}-${m}`
   if (period === 'year')  return String(y)
-  // week: use ISO week number
-  const jan1   = new Date(y, 0, 1)
-  const week   = Math.ceil(((date.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7)
+  const jan1 = new Date(y, 0, 1)
+  const week = Math.ceil(((date.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7)
   return `${y}-W${String(week).padStart(2, '0')}`
 }
 
 function shortLabel(key: string, period: Period): string {
-  if (period === 'day')   return key.slice(5)    // MM-DD
-  if (period === 'month') return key.slice(5)    // MM
-  if (period === 'week')  return key.slice(5)    // Www
-  return key                                      // YYYY
+  if (period === 'day')   return key.slice(5)
+  if (period === 'month') return key.slice(5)
+  if (period === 'week')  return key.slice(5)
+  return key
 }
 
 function groupByPeriod(items: ConvItem[], period: Period): Array<{ key: string; label: string; count: number }> {
@@ -77,31 +78,60 @@ export default function OmnichannelClient({
   items: ConvItem[]
   associations: Association[]
 }) {
-  const [assocFilter, setAssocFilter]   = useState('')
+  const [view, setView]                   = useState<View>('all')
+  const [assocFilter, setAssocFilter]     = useState('')
   const [personaFilter, setPersonaFilter] = useState('')
-  const [nameSearch, setNameSearch]     = useState('')
-  const [period, setPeriod]             = useState<Period>('day')
+  const [nameSearch, setNameSearch]       = useState('')
+  const [period, setPeriod]               = useState<Period>('day')
 
-  const [aiLoading, setAiLoading]   = useState(false)
-  const [aiSummary, setAiSummary]   = useState<{ summary: string; pending: string[] } | null>(null)
-  const [aiError, setAiError]       = useState<string | null>(null)
+  // Rentvine residential contacts
+  const [rentvineContacts, setRentvineContacts] = useState<RentvineContact[]>([])
+  const [rentvineLoading, setRentvineLoading]   = useState(false)
+  const [rentvineFilter, setRentvineFilter]     = useState('')
 
-  // Local status overrides so the UI updates instantly without a page reload
+  // AI summary
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiSummary, setAiSummary] = useState<{ summary: string; pending: string[]; label: string } | null>(null)
+  const [aiError, setAiError]     = useState<string | null>(null)
+
+  // Per-card status overrides (instant UI, persisted async)
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({})
   const [statusSaving, setStatusSaving]       = useState<Record<string, boolean>>({})
+
+  // Known HOA association codes from the associations table
+  const knownAssocCodes = useMemo(
+    () => new Set(associations.map(a => a.association_code)),
+    [associations]
+  )
+
+  // Classify each item into association vs residential
+  const isAssociation = useCallback(
+    (item: ConvItem) => !!item.association_code && knownAssocCodes.has(item.association_code),
+    [knownAssocCodes]
+  )
+
+  // Fetch Rentvine contacts when switching to residential view
+  useEffect(() => {
+    if (view !== 'residential' || rentvineContacts.length > 0 || rentvineLoading) return
+    setRentvineLoading(true)
+    fetch('/api/admin/omnichannel/rentvine-contacts')
+      .then(r => r.json())
+      .then(d => setRentvineContacts(d.contacts ?? []))
+      .catch(() => {})
+      .finally(() => setRentvineLoading(false))
+  }, [view, rentvineContacts.length, rentvineLoading])
 
   const personas = useMemo(
     () => [...new Set(items.map(i => i.persona).filter(Boolean))] as string[],
     [items]
   )
 
-  // Build dropdown from codes that actually appear in the data.
-  // Look up display names from the associations table; fall back to the raw code.
+  // Association dropdown — only valid HOA associations
   const activeAssociations = useMemo(() => {
-    const nameMap = new Map(associations.map(a => [a.association_code, a.association_name || a.association_code]))
+    const nameMap  = new Map(associations.map(a => [a.association_code, a.association_name || a.association_code]))
     const countMap = new Map<string, number>()
     for (const item of items) {
-      if (item.association_code) {
+      if (item.association_code && knownAssocCodes.has(item.association_code)) {
         countMap.set(item.association_code, (countMap.get(item.association_code) ?? 0) + 1)
       }
     }
@@ -112,13 +142,33 @@ export default function OmnichannelClient({
         association_name: nameMap.get(code) ?? code,
         count,
       }))
-  }, [items, associations])
+  }, [items, associations, knownAssocCodes])
+
+  // Selected Rentvine contact name (for AI summary label)
+  const selectedRentvineContact = useMemo(
+    () => rentvineContacts.find(c => c.id === rentvineFilter) ?? null,
+    [rentvineContacts, rentvineFilter]
+  )
 
   const filtered = useMemo(() => {
     const needle = nameSearch.toLowerCase().trim()
     return items.filter(item => {
-      if (assocFilter   && item.association_code !== assocFilter)   return false
-      if (personaFilter && item.persona          !== personaFilter) return false
+      // Tab filter
+      if (view === 'associations' && !isAssociation(item)) return false
+      if (view === 'residential'  &&  isAssociation(item)) return false
+
+      // Association dropdown (associations tab only)
+      if (assocFilter && item.association_code !== assocFilter) return false
+
+      // Rentvine contact filter (residential tab)
+      if (rentvineFilter && selectedRentvineContact) {
+        const contact = selectedRentvineContact
+        const nameHit  = contact.name  && (item.contact_name?.toLowerCase().includes(contact.name.toLowerCase()) || item.contact_email?.toLowerCase().includes(contact.name.toLowerCase()))
+        const emailHit = contact.email && item.contact_email?.toLowerCase() === contact.email.toLowerCase()
+        if (!nameHit && !emailHit) return false
+      }
+
+      if (personaFilter && item.persona !== personaFilter) return false
       if (needle) {
         const haystack = [item.contact_name, item.contact_email, item.subject]
           .filter(Boolean).join(' ').toLowerCase()
@@ -126,14 +176,21 @@ export default function OmnichannelClient({
       }
       return true
     })
-  }, [items, assocFilter, personaFilter, nameSearch])
+  }, [items, view, assocFilter, personaFilter, nameSearch, rentvineFilter, selectedRentvineContact, isAssociation])
 
   const chartData = useMemo(
     () => limitPeriods(groupByPeriod(filtered, period), period),
     [filtered, period]
   )
-
   const maxCount = Math.max(...chartData.map((d: { count: number }) => d.count), 1)
+
+  // Any active filter → show AI button
+  const hasActiveFilter = nameSearch.trim() || assocFilter || rentvineFilter
+  const aiQueryLabel = nameSearch.trim()
+    ? nameSearch
+    : assocFilter
+      ? (associations.find(a => a.association_code === assocFilter)?.association_name ?? assocFilter)
+      : selectedRentvineContact?.name ?? ''
 
   const runAiSummary = useCallback(async () => {
     setAiLoading(true)
@@ -144,7 +201,7 @@ export default function OmnichannelClient({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          query: nameSearch,
+          query: aiQueryLabel,
           conversations: filtered.map((item: ConvItem) => ({
             date:          item.created_at,
             channel:       item.channel,
@@ -158,13 +215,13 @@ export default function OmnichannelClient({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Request failed')
-      setAiSummary({ summary: data.summary, pending: data.pending ?? [] })
+      setAiSummary({ summary: data.summary, pending: data.pending ?? [], label: aiQueryLabel })
     } catch (err) {
       setAiError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setAiLoading(false)
     }
-  }, [nameSearch, filtered])
+  }, [aiQueryLabel, filtered])
 
   const updateStatus = useCallback(async (id: string, newStatus: string) => {
     setStatusOverrides((prev: Record<string, string>) => ({ ...prev, [id]: newStatus }))
@@ -180,22 +237,74 @@ export default function OmnichannelClient({
     }
   }, [])
 
+  function clearFilters() {
+    setAssocFilter(''); setPersonaFilter(''); setNameSearch(''); setRentvineFilter('')
+    setAiSummary(null); setAiError(null)
+  }
+
+  // Tab counts
+  const assocCount       = useMemo(() => items.filter(i => isAssociation(i)).length,  [items, isAssociation])
+  const residentialCount = useMemo(() => items.filter(i => !isAssociation(i)).length, [items, isAssociation])
+
   return (
     <div>
-      {/* Filters */}
+      {/* ── Tab switcher ─────────────────────────────────────────────── */}
+      <div className="flex gap-0 mb-5 border border-gray-200 rounded-lg overflow-hidden w-fit">
+        {([
+          ['all',          `All (${items.length})`],
+          ['associations', `Associations (${assocCount})`],
+          ['residential',  `Residential (${residentialCount})`],
+        ] as [View, string][]).map(([v, label]) => (
+          <button
+            key={v}
+            onClick={() => { setView(v); clearFilters() }}
+            className={[
+              'px-4 py-2 text-xs font-medium transition-colors',
+              view === v
+                ? 'bg-[#0d2340] text-white'
+                : 'bg-white text-gray-500 hover:bg-gray-50',
+            ].join(' ')}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Filters ──────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-3 mb-6 items-center">
-        <select
-          value={assocFilter}
-          onChange={(e: ChangeEvent<HTMLSelectElement>) => setAssocFilter(e.target.value)}
-          className="border border-gray-200 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:border-gray-400"
-        >
-          <option value="">All Associations ({items.length})</option>
-          {activeAssociations.map((a: { association_code: string; association_name: string; count: number }) => (
-            <option key={a.association_code} value={a.association_code}>
-              {a.association_name} ({a.count})
-            </option>
-          ))}
-        </select>
+
+        {/* Association dropdown — only in associations / all views */}
+        {view !== 'residential' && (
+          <select
+            value={assocFilter}
+            onChange={(e: ChangeEvent<HTMLSelectElement>) => { setAssocFilter(e.target.value); setAiSummary(null) }}
+            className="border border-gray-200 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:border-gray-400"
+          >
+            <option value="">All Associations ({view === 'all' ? assocCount : filtered.length || assocCount})</option>
+            {activeAssociations.map((a: { association_code: string; association_name: string; count: number }) => (
+              <option key={a.association_code} value={a.association_code}>
+                {a.association_name} ({a.count})
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* Rentvine contact dropdown — only in residential view */}
+        {view === 'residential' && (
+          <select
+            value={rentvineFilter}
+            onChange={(e: ChangeEvent<HTMLSelectElement>) => { setRentvineFilter(e.target.value); setAiSummary(null) }}
+            className="border border-gray-200 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:border-gray-400 min-w-56"
+            disabled={rentvineLoading}
+          >
+            <option value="">{rentvineLoading ? 'Loading contacts…' : `All Residential (${residentialCount})`}</option>
+            {rentvineContacts.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} · {c.type}{c.unit ? ` · ${c.unit}` : ''}
+              </option>
+            ))}
+          </select>
+        )}
 
         <select
           value={personaFilter}
@@ -214,11 +323,11 @@ export default function OmnichannelClient({
             placeholder="Search name or email…"
             className="border border-gray-200 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:border-gray-400 min-w-48"
           />
-          {nameSearch.trim() && filtered.length > 0 && (
+          {hasActiveFilter && filtered.length > 0 && (
             <button
               onClick={runAiSummary}
               disabled={aiLoading}
-              title="AI summary of all conversations with this person"
+              title="AI summary of filtered conversations"
               className="flex items-center gap-1 px-2.5 py-1.5 rounded border text-[0.7rem] font-medium transition-colors disabled:opacity-50"
               style={{ background: aiLoading ? '#f9fafb' : '#fff7ed', borderColor: '#f26a1b', color: '#f26a1b' }}
             >
@@ -250,7 +359,7 @@ export default function OmnichannelClient({
         </div>
       </div>
 
-      {/* Chart */}
+      {/* ── Chart ────────────────────────────────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-medium text-gray-700">Interactions over time</span>
@@ -266,12 +375,11 @@ export default function OmnichannelClient({
               const pct = Math.max(2, Math.round((d.count / maxCount) * 88))
               return (
                 <div key={d.key} className="flex-1 flex flex-col justify-end items-center group relative">
-                  {/* Tooltip */}
                   <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-10 pointer-events-none">
                     {d.key}: {d.count}
                   </div>
                   <div
-                    style={{ height: `${pct}px`, backgroundColor: '#f26a1b' }}
+                    style={{ height: `${pct}px`, backgroundColor: view === 'residential' ? '#3b82f6' : '#f26a1b' }}
                     className="w-full rounded-t-sm opacity-75 hover:opacity-100 transition-opacity cursor-default"
                   />
                   {chartData.length <= 14 && (
@@ -284,8 +392,6 @@ export default function OmnichannelClient({
             })}
           </div>
         )}
-
-        {/* Channel legend */}
         <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-gray-50">
           {Object.entries(CHANNEL_COLOR)
             .filter(([ch]) => !ch.includes('-') || ch === 'email-in' || ch === 'email-out')
@@ -298,7 +404,7 @@ export default function OmnichannelClient({
         </div>
       </div>
 
-      {/* AI Summary card */}
+      {/* ── AI Summary card ───────────────────────────────────────────── */}
       {(aiSummary || aiError) && (
         <div className="mb-4 rounded-lg border p-4 relative" style={{ borderColor: '#f26a1b', background: '#fff7ed' }}>
           <button
@@ -307,7 +413,7 @@ export default function OmnichannelClient({
           >×</button>
           <div className="flex items-center gap-2 mb-2">
             <span style={{ color: '#f26a1b' }}>✦</span>
-            <span className="text-sm font-semibold text-gray-800">AI Summary — {nameSearch}</span>
+            <span className="text-sm font-semibold text-gray-800">AI Summary — {aiSummary?.label ?? aiQueryLabel}</span>
             <span className="text-[10px] text-gray-400">{filtered.length} interaction{filtered.length !== 1 ? 's' : ''} analysed</span>
           </div>
           {aiError ? (
@@ -315,7 +421,7 @@ export default function OmnichannelClient({
           ) : aiSummary ? (
             <>
               <p className="text-sm text-gray-700 leading-relaxed mb-3">{aiSummary.summary}</p>
-              {aiSummary.pending.length > 0 && (
+              {aiSummary.pending.length > 0 ? (
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Pending / Follow-up</p>
                   <ul className="space-y-1">
@@ -327,8 +433,7 @@ export default function OmnichannelClient({
                     ))}
                   </ul>
                 </div>
-              )}
-              {aiSummary.pending.length === 0 && (
+              ) : (
                 <p className="text-xs text-gray-400">No pending items detected.</p>
               )}
             </>
@@ -336,7 +441,7 @@ export default function OmnichannelClient({
         </div>
       )}
 
-      {/* Unified conversation list */}
+      {/* ── Conversation list ─────────────────────────────────────────── */}
       <div className="space-y-1.5">
         {filtered.length === 0 && (
           <div className="bg-white border border-gray-200 rounded-lg p-8 text-center text-gray-400 text-sm">
@@ -348,8 +453,7 @@ export default function OmnichannelClient({
           const color       = CHANNEL_COLOR[item.channel] ?? '#6b7280'
           const effectiveSt = statusOverrides[item.id] ?? item.status ?? ''
           const saving      = statusSaving[item.id] ?? false
-
-          const statusCls =
+          const statusCls   =
             effectiveSt === 'open'         ? 'bg-blue-100 text-blue-600' :
             effectiveSt === 'resolved'     ? 'bg-green-100 text-green-600' :
             effectiveSt === 'unidentified' ? 'bg-red-100 text-red-600' :
@@ -358,10 +462,7 @@ export default function OmnichannelClient({
 
           return (
             <div key={item.id} className="bg-white border border-gray-200 rounded-lg px-4 py-3 flex items-start gap-3">
-              <div
-                className="mt-1.5 w-2 h-2 rounded-full shrink-0"
-                style={{ backgroundColor: color }}
-              />
+              <div className="mt-1.5 w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-medium text-gray-900">
@@ -376,7 +477,7 @@ export default function OmnichannelClient({
                   {item.persona && (
                     <span className="text-[9px] text-gray-400 uppercase tracking-wide">{item.persona}</span>
                   )}
-                  {item.association_code && (
+                  {item.association_code && isAssociation(item) && (
                     <span className="text-[9px] text-gray-400 font-mono">{item.association_code}</span>
                   )}
                   <div className="ml-auto flex items-center gap-1">
@@ -414,7 +515,7 @@ export default function OmnichannelClient({
 
         {filtered.length > 150 && (
           <p className="text-center text-xs text-gray-400 py-3">
-            Showing 150 of {filtered.length} — filter by association or persona to narrow results
+            Showing 150 of {filtered.length} — filter to narrow results
           </p>
         )}
       </div>
