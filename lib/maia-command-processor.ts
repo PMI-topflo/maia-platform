@@ -188,13 +188,25 @@ function detectTrigger(body: string): string | null {
   return TRIGGER_PHRASES.find(p => lower.includes(p)) ?? null
 }
 
-// Infer a DB command when @maia is mentioned AND the subject/body contains
-// recognizable intent keywords. Requiring @maia prevents random emails with
-// "new owner" in the subject from triggering DB writes unintentionally.
-function inferTrigger(subject: string, body: string): string | null {
-  // Normalize whitespace so @maia on its own line is still detected
+// Infer a DB command from subject/body keywords.
+// For authorized senders: subject keywords alone are sufficient (no @maia required).
+// For all others: @maia must also be present.
+function inferTrigger(subject: string, body: string, senderAllowed = false): string | null {
   const combined = (subject + ' ' + body).toLowerCase().replace(/\s+/g, ' ')
-  if (!combined.includes('@maia')) return null
+  const hasMaia  = combined.includes('@maia') || combined.includes('maia@pmitop.com')
+
+  // Authorized senders with ownership keywords in subject trigger without @maia
+  const subjectLow = subject.toLowerCase()
+  if (senderAllowed) {
+    if (/new owner|owner transfer|transfer of ownership|new buyer|new purchaser/.test(subjectLow)) return '@maia add owner'
+    if (/new tenant|new renter|new lease|tenant transfer/.test(subjectLow))                        return '@maia add tenant'
+    if (/new board member/.test(subjectLow))                                                        return '@maia add board member'
+    if (/new agent|real estate agent/.test(subjectLow))                                             return '@maia add agent'
+    if (/new vendor/.test(subjectLow))                                                              return '@maia add vendor'
+  }
+
+  // Without @maia require explicit mention
+  if (!hasMaia) return null
 
   if (/new owner|owner transfer|transfer of ownership|new buyer|new purchaser/.test(combined)) return '@maia add owner'
   if (/new tenant|new renter|new lease|tenant transfer/.test(combined))                        return '@maia add tenant'
@@ -893,8 +905,8 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     const mentionsMaia = subjectNorm.includes('@maia') || bodyNorm.includes('@maia')
     const allowed      = isAllowedSender(parsed.senderEmail)
 
-    // Determine trigger: explicit phrase > keyword inference > implicit (@maia from authorized sender)
-    let trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body)
+    // Determine trigger: explicit phrase > subject keyword (authorized) > @maia + keyword > implicit @maia
+    let trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body, allowed)
     if (!trigger && mentionsMaia && allowed) {
       // Authorized sender mentioned @maia without a recognized command phrase.
       // Route to DB extraction and let Claude infer record_type from context.
