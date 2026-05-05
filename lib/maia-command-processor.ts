@@ -175,11 +175,21 @@ function detectTrigger(body: string): string | null {
   return TRIGGER_PHRASES.find(p => lower.includes(p)) ?? null
 }
 
-// When the email only says "@maia" without a specific command, infer intent
-// from keywords in the subject line or body so staff can write naturally.
-function inferTrigger(subject: string, body: string): string | null {
-  const combined = (subject + ' ' + body).toLowerCase()
-  if (!combined.includes('@maia')) return null
+// Infer intent from subject/body keywords when no explicit trigger phrase is present.
+// Fires when EITHER:
+//   (a) @maia appears anywhere in the subject or body text, OR
+//   (b) maia@pmitop.com is in the To / CC field (staff CC'd her directly)
+function inferTrigger(
+  subject: string,
+  body: string,
+  to: string[] = [],
+  cc: string[] = [],
+): string | null {
+  const combined     = (subject + ' ' + body).toLowerCase()
+  const maiaInToOrCc = [...to, ...cc].some(e => e.toLowerCase().includes('maia@'))
+  const maiaAddressed = combined.includes('@maia') || maiaInToOrCc
+
+  if (!maiaAddressed) return null
 
   if (/new owner|owner transfer|transfer of ownership|new buyer|new purchaser/.test(combined)) return '@maia add owner'
   if (/new tenant|new renter|new lease|tenant transfer/.test(combined))                        return '@maia add tenant'
@@ -867,7 +877,7 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     const msg    = await fetchGmailMessage(messageId)
     const parsed = parseGmailMessage(msg)
 
-    const trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body)
+    const trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body, parsed.to, parsed.cc)
     if (!trigger) {
       const mentionsMaia =
         parsed.subject.toLowerCase().includes('@maia') ||
