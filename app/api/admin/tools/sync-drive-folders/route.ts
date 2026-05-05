@@ -56,9 +56,10 @@ async function getOrCreateFolder(drive: any, name: string, parentId: string, app
 }
 
 export async function POST(req: NextRequest) {
-  const { apply = false, association_code = 'MANXI' } = await req.json()
+  try {
+    const { apply = false, association_code = 'MANXI' } = await req.json()
 
-  const googleJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+    const googleJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
   if (!googleJson) return NextResponse.json({ ok: false, error: 'GOOGLE_SERVICE_ACCOUNT_JSON not set' }, { status: 500 })
 
   const { google } = await import('googleapis')
@@ -181,10 +182,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({
-    ok: true,
-    apply,
-    summary: { renamed, created, already_correct: ok, units_total: units.size },
-    log,
-  })
+    return NextResponse.json({
+      ok: true,
+      apply,
+      summary: { renamed, created, already_correct: ok, units_total: units.size },
+      log,
+    })
+  } catch (err) {
+    console.error('[sync-drive-folders]', err)
+    return NextResponse.json(
+      { ok: false, error: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    )
+  }
 }
