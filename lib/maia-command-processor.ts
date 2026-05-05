@@ -175,25 +175,15 @@ function detectTrigger(body: string): string | null {
   return TRIGGER_PHRASES.find(p => lower.includes(p)) ?? null
 }
 
-// Infer intent from subject/body keywords when no explicit trigger phrase is present.
-// Fires when EITHER:
-//   (a) @maia appears anywhere in the subject or body text, OR
-//   (b) maia@pmitop.com is in the To / CC field (staff CC'd her directly)
-function inferTrigger(
-  subject: string,
-  body: string,
-  to: string[] = [],
-  cc: string[] = [],
-): string | null {
-  const combined     = (subject + ' ' + body).toLowerCase()
-  const maiaInToOrCc = [...to, ...cc].some(e => e.toLowerCase().includes('maia@'))
-  const maiaAddressed = combined.includes('@maia') || maiaInToOrCc
-
-  if (!maiaAddressed) return null
+// Infer a DB command from subject/body keywords when no explicit trigger phrase
+// is present. The isAllowedSender check downstream ensures only PMI staff can
+// actually execute a DB write — so no @maia guard is needed here.
+function inferTrigger(subject: string, body: string): string | null {
+  const combined = (subject + ' ' + body).toLowerCase()
 
   if (/new owner|owner transfer|transfer of ownership|new buyer|new purchaser/.test(combined)) return '@maia add owner'
   if (/new tenant|new renter|new lease|tenant transfer/.test(combined))                        return '@maia add tenant'
-  if (/new board member|board member/.test(combined))                                           return '@maia add board member'
+  if (/new board member/.test(combined))                                                        return '@maia add board member'
   if (/new agent|real estate agent/.test(combined))                                             return '@maia add agent'
   if (/new vendor/.test(combined))                                                              return '@maia add vendor'
   return null
@@ -877,7 +867,7 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     const msg    = await fetchGmailMessage(messageId)
     const parsed = parseGmailMessage(msg)
 
-    const trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body, parsed.to, parsed.cc)
+    const trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body)
     if (!trigger) {
       const mentionsMaia =
         parsed.subject.toLowerCase().includes('@maia') ||
@@ -900,8 +890,11 @@ export async function processEmailCommand(messageId: string): Promise<void> {
       return
     }
 
-    // DB command — restricted to authorized staff senders
-    if (!isAllowedSender(parsed.senderEmail)) return
+    // DB command — restricted to authorized staff senders; external senders fall through to chat
+    if (!isAllowedSender(parsed.senderEmail)) {
+      await handleGeneralEmailQuery(parsed)
+      return
+    }
 
     // Log as processing — unique constraint prevents double-processing on Pub/Sub retries
     const { data: cmdRow, error: cmdErr } = await supabaseAdmin
