@@ -789,7 +789,7 @@ const AUTO_REPLY_SENDERS  = ['maia@', 'noreply@', 'no-reply@', 'mailer-daemon@']
 // Cache association codes for the lifetime of the process to avoid repeated DB lookups
 let _assocCodeCache: Array<{ code: string; name: string }> | null = null
 
-async function detectAssociationCode(text: string): Promise<string | null> {
+export async function detectAssociationCode(text: string): Promise<string | null> {
   if (!_assocCodeCache) {
     const { data } = await supabaseAdmin
       .from('associations')

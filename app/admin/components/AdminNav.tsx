@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { label: 'Ownership',         href: '/admin/ownership-history' },
   { label: 'Tenancy',           href: '/admin/tenancy-history' },
   { label: 'Logins',            href: '/admin/login-history' },
+  { label: 'Tools',             href: '/admin/tools' },
 ]
 
 export default function AdminNav() {

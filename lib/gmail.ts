@@ -195,6 +195,59 @@ export async function fetchGmailAttachmentData(
   return Buffer.from(data.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64')
 }
 
+// ── Per-account functions (staff Gmail OAuth) ────────────────────────────────
+
+export async function refreshStaffToken(refreshToken: string): Promise<{ access_token: string; expires_in: number }> {
+  const res = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id:     process.env.GMAIL_CLIENT_ID!,
+      client_secret: process.env.GMAIL_CLIENT_SECRET!,
+      refresh_token: refreshToken,
+      grant_type:    'refresh_token',
+    }),
+  })
+  if (!res.ok) throw new Error(`[Gmail staff] Token refresh failed: ${await res.text()}`)
+  return res.json() as Promise<{ access_token: string; expires_in: number }>
+}
+
+export async function fetchGmailMessageWithToken(messageId: string, accessToken: string): Promise<GmailFullMessage> {
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  )
+  if (!res.ok) throw new Error(`[Gmail staff] Fetch message failed (${res.status}): ${await res.text()}`)
+  return res.json() as Promise<GmailFullMessage>
+}
+
+export async function fetchGmailHistoryWithToken(startHistoryId: string, accessToken: string): Promise<string[]> {
+  const url = `https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${startHistoryId}&historyTypes=messageAdded&labelId=INBOX`
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+  if (!res.ok) {
+    if (res.status === 404) return []
+    throw new Error(`[Gmail staff] History API failed (${res.status}): ${await res.text()}`)
+  }
+  const data = await res.json() as { history?: Array<{ messagesAdded?: Array<{ message: { id: string } }> }> }
+  const ids: string[] = []
+  for (const h of (data.history ?? [])) {
+    for (const ma of (h.messagesAdded ?? [])) {
+      if (ma.message?.id && !ids.includes(ma.message.id)) ids.push(ma.message.id)
+    }
+  }
+  return ids
+}
+
+export async function registerGmailWatchWithToken(topicName: string, accessToken: string): Promise<{ historyId: string; expiration: string }> {
+  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/watch', {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ topicName, labelIds: ['INBOX'] }),
+  })
+  if (!res.ok) throw new Error(`[Gmail staff] Watch registration failed (${res.status}): ${await res.text()}`)
+  return res.json() as Promise<{ historyId: string; expiration: string }>
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export interface SendEmailResult {
