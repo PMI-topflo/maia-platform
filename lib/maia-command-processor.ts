@@ -175,6 +175,20 @@ function detectTrigger(body: string): string | null {
   return TRIGGER_PHRASES.find(p => lower.includes(p)) ?? null
 }
 
+// When the email only says "@maia" without a specific command, infer intent
+// from keywords in the subject line or body so staff can write naturally.
+function inferTrigger(subject: string, body: string): string | null {
+  const combined = (subject + ' ' + body).toLowerCase()
+  if (!combined.includes('@maia')) return null
+
+  if (/new owner|owner transfer|transfer of ownership|new buyer|new purchaser/.test(combined)) return '@maia add owner'
+  if (/new tenant|new renter|new lease|tenant transfer/.test(combined))                        return '@maia add tenant'
+  if (/new board member|board member/.test(combined))                                           return '@maia add board member'
+  if (/new agent|real estate agent/.test(combined))                                             return '@maia add agent'
+  if (/new vendor/.test(combined))                                                              return '@maia add vendor'
+  return null
+}
+
 // ── Reference code ────────────────────────────────────────────────────────────
 
 function genRef(): string {
@@ -846,7 +860,7 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     const msg    = await fetchGmailMessage(messageId)
     const parsed = parseGmailMessage(msg)
 
-    const trigger = detectTrigger(parsed.body)
+    const trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body)
     if (!trigger) {
       const mentionsMaia =
         parsed.subject.toLowerCase().includes('@maia') ||
