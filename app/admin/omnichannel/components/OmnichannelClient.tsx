@@ -86,6 +86,10 @@ export default function OmnichannelClient({
   const [aiSummary, setAiSummary]   = useState<{ summary: string; pending: string[] } | null>(null)
   const [aiError, setAiError]       = useState<string | null>(null)
 
+  // Local status overrides so the UI updates instantly without a page reload
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({})
+  const [statusSaving, setStatusSaving]       = useState<Record<string, boolean>>({})
+
   const personas = useMemo(
     () => [...new Set(items.map(i => i.persona).filter(Boolean))] as string[],
     [items]
@@ -161,6 +165,20 @@ export default function OmnichannelClient({
       setAiLoading(false)
     }
   }, [nameSearch, filtered])
+
+  const updateStatus = useCallback(async (id: string, newStatus: string) => {
+    setStatusOverrides((prev: Record<string, string>) => ({ ...prev, [id]: newStatus }))
+    setStatusSaving((prev: Record<string, boolean>) => ({ ...prev, [id]: true }))
+    try {
+      await fetch('/api/admin/omnichannel/status', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: newStatus }),
+      })
+    } finally {
+      setStatusSaving((prev: Record<string, boolean>) => ({ ...prev, [id]: false }))
+    }
+  }, [])
 
   return (
     <div>
@@ -327,12 +345,15 @@ export default function OmnichannelClient({
         )}
 
         {filtered.slice(0, 150).map((item: ConvItem) => {
-          const color = CHANNEL_COLOR[item.channel] ?? '#6b7280'
+          const color       = CHANNEL_COLOR[item.channel] ?? '#6b7280'
+          const effectiveSt = statusOverrides[item.id] ?? item.status ?? ''
+          const saving      = statusSaving[item.id] ?? false
+
           const statusCls =
-            item.status === 'open'         ? 'bg-blue-100 text-blue-600' :
-            item.status === 'resolved'     ? 'bg-green-100 text-green-600' :
-            item.status === 'unidentified' ? 'bg-red-100 text-red-600' :
-            item.status === 'completed'    ? 'bg-gray-100 text-gray-500' :
+            effectiveSt === 'open'         ? 'bg-blue-100 text-blue-600' :
+            effectiveSt === 'resolved'     ? 'bg-green-100 text-green-600' :
+            effectiveSt === 'unidentified' ? 'bg-red-100 text-red-600' :
+            effectiveSt === 'completed'    ? 'bg-gray-100 text-gray-500' :
             'bg-gray-100 text-gray-400'
 
           return (
@@ -358,11 +379,21 @@ export default function OmnichannelClient({
                   {item.association_code && (
                     <span className="text-[9px] text-gray-400 font-mono">{item.association_code}</span>
                   )}
-                  {item.status && (
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-semibold ml-auto ${statusCls}`}>
-                      {item.status}
-                    </span>
-                  )}
+                  <div className="ml-auto flex items-center gap-1">
+                    {saving && <span className="w-2.5 h-2.5 rounded-full border border-current border-t-transparent animate-spin text-gray-300" />}
+                    <select
+                      value={effectiveSt}
+                      disabled={saving}
+                      onChange={(e: ChangeEvent<HTMLSelectElement>) => updateStatus(item.id, e.target.value)}
+                      className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-semibold border-0 cursor-pointer focus:outline-none focus:ring-1 focus:ring-orange-300 ${statusCls}`}
+                    >
+                      <option value="open">open</option>
+                      <option value="received">received</option>
+                      <option value="resolved">resolved</option>
+                      <option value="completed">completed</option>
+                      <option value="unidentified">unidentified</option>
+                    </select>
+                  </div>
                 </div>
                 {item.subject && (
                   <p className="text-xs text-gray-600 mt-0.5 truncate">{item.subject}</p>
