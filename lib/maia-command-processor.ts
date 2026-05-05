@@ -349,7 +349,6 @@ async function upsertRecord(ext: ExtractedRecord): Promise<UpsertResult> {
           .from('owners')
           .update({
             status:             'previous',
-            active:             false,
             ownership_end_date: today,
             transferred_to:     newName,
           })
@@ -375,18 +374,15 @@ async function upsertRecord(ext: ExtractedRecord): Promise<UpsertResult> {
           association_code:     code,
           association_name:     assocName,
           unit_number:          ext.unit_number,
-          entity_name:          ext.entity_name,
+          entity_name:          ext.entity_name ?? null,
           first_name:           ext.first_name,
           last_name:            ext.last_name,
           emails:               ext.email,
           phone:                ext.phone,
           address:              ext.address,
-          notes:                ext.notes,
           status:               'active',
-          active:               true,
           ownership_start_date: today,
           transferred_from:     prevName,
-          previous_owner_id:    prevOwner?.id ?? null,
         })
         .select('id')
         .single()
