@@ -786,11 +786,46 @@ RULES:
 const AUTO_REPLY_SUBJECTS = ['out of office', 'auto-reply', 'automatic reply', 'delivery failed', 'undeliverable', 'autoreply']
 const AUTO_REPLY_SENDERS  = ['maia@', 'noreply@', 'no-reply@', 'mailer-daemon@']
 
+// Cache association codes for the lifetime of the process to avoid repeated DB lookups
+let _assocCodeCache: Array<{ code: string; name: string }> | null = null
+
+async function detectAssociationCode(text: string): Promise<string | null> {
+  if (!_assocCodeCache) {
+    const { data } = await supabaseAdmin
+      .from('associations')
+      .select('association_code, association_name')
+      .eq('active', true)
+    _assocCodeCache = (data ?? []).map((r: Record<string, unknown>) => ({
+      code: String(r.association_code ?? ''),
+      name: String(r.association_name ?? ''),
+    }))
+  }
+
+  const cache = _assocCodeCache
+  const upper = text.toUpperCase()
+  // Check for account-number patterns first (e.g. ESSI16 → ESSI, ABBO5 → ABBO)
+  const acctMatch = upper.match(/\b([A-Z]{2,6})\d{1,3}\b/)
+  if (acctMatch) {
+    const prefix = acctMatch[1]
+    const hit = cache.find(a => a.code === prefix)
+    if (hit) return hit.code
+  }
+  // Then check for bare association codes or names
+  for (const a of cache) {
+    if (a.code && upper.includes(a.code)) return a.code
+    if (a.name && upper.includes(a.name.toUpperCase())) return a.code
+  }
+  return null
+}
+
 async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
   // Anti-loop: skip automated senders and auto-reply subjects
   if (AUTO_REPLY_SENDERS.some(s => parsed.senderEmail.toLowerCase().includes(s))) return
   const subjectLower = parsed.subject.toLowerCase()
   if (AUTO_REPLY_SUBJECTS.some(s => subjectLower.includes(s))) return
+
+  // Try to detect association from subject/body without a full Claude extraction
+  const detectedAssocCode = await detectAssociationCode(parsed.subject + ' ' + parsed.body)
 
   // Idempotency: log first to prevent double-processing on Pub/Sub retries
   const now = new Date().toISOString()
@@ -804,6 +839,7 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
       sender_name:      parsed.senderName,
       subject:          parsed.subject,
       message:          parsed.body.slice(0, 4000),
+      association_code: detectedAssocCode,
       status:           'processing',
       initiated_at:     now,
     })
@@ -925,14 +961,27 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     console.log(`[MAIA] body_hex_tail="${Buffer.from(parsed.body.slice(-50)).toString('hex')}"`)
 
     // Log every inbound email so the omnichannel view is complete
-    void logEmail({
-      direction:  'inbound',
-      fromEmail:  parsed.senderEmail,
-      toEmail:    'maia@pmitop.com',
-      subject:    parsed.subject,
-      fullBody:   parsed.body,
-      persona:    allowed ? 'staff' : 'external',
-      status:     'received',
+    detectAssociationCode(parsed.subject + ' ' + parsed.body).then(assocCode => {
+      void logEmail({
+        direction:       'inbound',
+        fromEmail:       parsed.senderEmail,
+        toEmail:         'maia@pmitop.com',
+        subject:         parsed.subject,
+        fullBody:        parsed.body,
+        persona:         allowed ? 'staff' : 'external',
+        associationCode: assocCode ?? undefined,
+        status:          'received',
+      })
+    }).catch(() => {
+      void logEmail({
+        direction: 'inbound',
+        fromEmail: parsed.senderEmail,
+        toEmail:   'maia@pmitop.com',
+        subject:   parsed.subject,
+        fullBody:  parsed.body,
+        persona:   allowed ? 'staff' : 'external',
+        status:    'received',
+      })
     })
 
     if (!trigger) {

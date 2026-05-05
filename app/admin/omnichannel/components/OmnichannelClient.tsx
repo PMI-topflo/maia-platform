@@ -86,6 +86,12 @@ export default function OmnichannelClient({
     [items]
   )
 
+  // Only show associations that actually have records in the loaded data
+  const activeAssociations = useMemo(() => {
+    const codes = new Set(items.map(i => i.association_code).filter(Boolean))
+    return associations.filter(a => codes.has(a.association_code))
+  }, [items, associations])
+
   const filtered = useMemo(
     () => items.filter(item => {
       if (assocFilter   && item.association_code !== assocFilter)   return false
@@ -100,7 +106,7 @@ export default function OmnichannelClient({
     [filtered, period]
   )
 
-  const maxCount = Math.max(...chartData.map(d => d.count), 1)
+  const maxCount = Math.max(...chartData.map((d: { count: number }) => d.count), 1)
 
   return (
     <div>
@@ -111,12 +117,15 @@ export default function OmnichannelClient({
           onChange={(e: ChangeEvent<HTMLSelectElement>) => setAssocFilter(e.target.value)}
           className="border border-gray-200 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:border-gray-400"
         >
-          <option value="">All Associations</option>
-          {associations.map(a => (
-            <option key={a.association_code} value={a.association_code}>
-              {a.association_name || a.association_code}
-            </option>
-          ))}
+          <option value="">All Associations ({items.length})</option>
+          {activeAssociations.map((a: Association) => {
+            const count = items.filter((i: ConvItem) => i.association_code === a.association_code).length
+            return (
+              <option key={a.association_code} value={a.association_code}>
+                {a.association_name || a.association_code} ({count})
+              </option>
+            )
+          })}
         </select>
 
         <select
@@ -125,11 +134,11 @@ export default function OmnichannelClient({
           className="border border-gray-200 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:border-gray-400"
         >
           <option value="">All Personas</option>
-          {personas.map(p => <option key={p} value={p}>{p}</option>)}
+          {personas.map((p: string) => <option key={p} value={p}>{p}</option>)}
         </select>
 
         <div className="ml-auto flex gap-1">
-          {(['day', 'week', 'month', 'year'] as const).map((p: Period) => (
+          {(['day', 'week', 'month', 'year'] as Period[]).map((p: Period) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
@@ -158,7 +167,7 @@ export default function OmnichannelClient({
           </div>
         ) : (
           <div className="flex items-end gap-px h-28 pb-5 relative">
-            {chartData.map(d => {
+            {chartData.map((d: { key: string; label: string; count: number }) => {
               const pct = Math.max(2, Math.round((d.count / maxCount) * 88))
               return (
                 <div key={d.key} className="flex-1 flex flex-col justify-end items-center group relative">
@@ -202,7 +211,7 @@ export default function OmnichannelClient({
           </div>
         )}
 
-        {filtered.slice(0, 150).map(item => {
+        {filtered.slice(0, 150).map((item: ConvItem) => {
           const color = CHANNEL_COLOR[item.channel] ?? '#6b7280'
           const statusCls =
             item.status === 'open'         ? 'bg-blue-100 text-blue-600' :
