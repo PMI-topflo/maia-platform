@@ -170,7 +170,7 @@ async function saveLeaseToDrive(
   buffer: Buffer,
   ext: string,
   mimeType: string,
-  extracted: { association: string | null; unit: string | null },
+  extracted: { association: string | null; unit: string | null; tenants: string[] },
   matched: { association_code: string; association_name: string } | null
 ): Promise<string> {
   const { google } = await import('googleapis')
@@ -198,12 +198,19 @@ async function saveLeaseToDrive(
   }
   if (!rootFolderId) throw new Error('No Drive root folder configured for this association')
 
-  // Find or create UNIT Docs → [account - address] or New Applications
+  // Build application subfolder label: {account} - {YYYY} - {Month} - {Name}
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = now.toLocaleString('en-US', { month: 'long' })
+  const applicantName = (extracted.tenants[0] ?? 'Unknown Applicant')
+    .replace(/[/\\:*?"<>|]/g, '').trim()
+
   const unitDocsFolderId = await findOrCreateFolder(drive, 'UNIT Docs', rootFolderId)
   const unitNumber = extracted.unit?.trim() || null
   let unitFolderLabel: string = 'New Applications'
+  let accountNumber: string | null = null
+
   if (unitNumber && matched) {
-    // Look up account_number + property address from homeowners
     const { data: hw } = await supabaseAdmin
       .from('owners')
       .select('account_number, street_number, address')
@@ -212,15 +219,23 @@ async function saveLeaseToDrive(
       .limit(1)
       .maybeSingle()
     if (hw?.account_number) {
+      accountNumber = hw.account_number
       const propertyAddress = [hw.street_number, hw.address].filter(Boolean).join(' ').trim()
       unitFolderLabel = propertyAddress
-        ? `${hw.account_number} - ${propertyAddress}`
-        : hw.account_number
+        ? `${accountNumber} - ${propertyAddress}`
+        : accountNumber
     } else {
       unitFolderLabel = unitNumber
     }
   }
-  const targetFolderId = await findOrCreateFolder(drive, unitFolderLabel, unitDocsFolderId)
+
+  const unitFolderId = await findOrCreateFolder(drive, unitFolderLabel, unitDocsFolderId)
+
+  // Application subfolder: {account} - {YYYY} - {Month} - {Name}
+  const appFolderLabel = accountNumber
+    ? `${accountNumber} - ${year} - ${month} - ${applicantName}`
+    : `${year} - ${month} - ${applicantName}`
+  const targetFolderId = await findOrCreateFolder(drive, appFolderLabel, unitFolderId)
 
   // Upload the file
   const { Readable } = await import('stream')
