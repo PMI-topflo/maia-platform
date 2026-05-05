@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, type ChangeEvent } from 'react'
+import { useState, useMemo, useCallback, type ChangeEvent } from 'react'
 
 export type ConvItem = {
   id: string
@@ -82,6 +82,10 @@ export default function OmnichannelClient({
   const [nameSearch, setNameSearch]     = useState('')
   const [period, setPeriod]             = useState<Period>('day')
 
+  const [aiLoading, setAiLoading]   = useState(false)
+  const [aiSummary, setAiSummary]   = useState<{ summary: string; pending: string[] } | null>(null)
+  const [aiError, setAiError]       = useState<string | null>(null)
+
   const personas = useMemo(
     () => [...new Set(items.map(i => i.persona).filter(Boolean))] as string[],
     [items]
@@ -127,6 +131,37 @@ export default function OmnichannelClient({
 
   const maxCount = Math.max(...chartData.map((d: { count: number }) => d.count), 1)
 
+  const runAiSummary = useCallback(async () => {
+    setAiLoading(true)
+    setAiSummary(null)
+    setAiError(null)
+    try {
+      const res = await fetch('/api/admin/omnichannel/ai-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: nameSearch,
+          conversations: filtered.map((item: ConvItem) => ({
+            date:          item.created_at,
+            channel:       item.channel,
+            subject:       item.subject,
+            summary:       item.summary,
+            contact_name:  item.contact_name,
+            contact_email: item.contact_email,
+            status:        item.status,
+          })),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Request failed')
+      setAiSummary({ summary: data.summary, pending: data.pending ?? [] })
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setAiLoading(false)
+    }
+  }, [nameSearch, filtered])
+
   return (
     <div>
       {/* Filters */}
@@ -153,13 +188,31 @@ export default function OmnichannelClient({
           {personas.map((p: string) => <option key={p} value={p}>{p}</option>)}
         </select>
 
-        <input
-          type="search"
-          value={nameSearch}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => setNameSearch(e.target.value)}
-          placeholder="Search name or email…"
-          className="border border-gray-200 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:border-gray-400 min-w-48"
-        />
+        <div className="flex items-center gap-1.5">
+          <input
+            type="search"
+            value={nameSearch}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => { setNameSearch(e.target.value); setAiSummary(null); setAiError(null) }}
+            placeholder="Search name or email…"
+            className="border border-gray-200 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:border-gray-400 min-w-48"
+          />
+          {nameSearch.trim() && filtered.length > 0 && (
+            <button
+              onClick={runAiSummary}
+              disabled={aiLoading}
+              title="AI summary of all conversations with this person"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded border text-[0.7rem] font-medium transition-colors disabled:opacity-50"
+              style={{ background: aiLoading ? '#f9fafb' : '#fff7ed', borderColor: '#f26a1b', color: '#f26a1b' }}
+            >
+              {aiLoading ? (
+                <span className="animate-spin inline-block w-3 h-3 border border-current border-t-transparent rounded-full" />
+              ) : (
+                <span>✦</span>
+              )}
+              {aiLoading ? 'Thinking…' : 'AI Summary'}
+            </button>
+          )}
+        </div>
 
         <div className="ml-auto flex gap-1">
           {(['day', 'week', 'month', 'year'] as Period[]).map((p: Period) => (
@@ -226,6 +279,44 @@ export default function OmnichannelClient({
             ))}
         </div>
       </div>
+
+      {/* AI Summary card */}
+      {(aiSummary || aiError) && (
+        <div className="mb-4 rounded-lg border p-4 relative" style={{ borderColor: '#f26a1b', background: '#fff7ed' }}>
+          <button
+            onClick={() => { setAiSummary(null); setAiError(null) }}
+            className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 text-lg leading-none"
+          >×</button>
+          <div className="flex items-center gap-2 mb-2">
+            <span style={{ color: '#f26a1b' }}>✦</span>
+            <span className="text-sm font-semibold text-gray-800">AI Summary — {nameSearch}</span>
+            <span className="text-[10px] text-gray-400">{filtered.length} interaction{filtered.length !== 1 ? 's' : ''} analysed</span>
+          </div>
+          {aiError ? (
+            <p className="text-sm text-red-600">{aiError}</p>
+          ) : aiSummary ? (
+            <>
+              <p className="text-sm text-gray-700 leading-relaxed mb-3">{aiSummary.summary}</p>
+              {aiSummary.pending.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Pending / Follow-up</p>
+                  <ul className="space-y-1">
+                    {aiSummary.pending.map((item: string, i: number) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                        <span className="mt-0.5 shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: '#f26a1b20', color: '#f26a1b' }}>{i + 1}</span>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {aiSummary.pending.length === 0 && (
+                <p className="text-xs text-gray-400">No pending items detected.</p>
+              )}
+            </>
+          ) : null}
+        </div>
+      )}
 
       {/* Unified conversation list */}
       <div className="space-y-1.5">
