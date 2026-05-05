@@ -976,7 +976,10 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     let upsertError: string | null = null
     if (isComplete) {
       try { dbResult = await upsertRecord(extracted) }
-      catch (err) { upsertError = err instanceof Error ? err.message : String(err) }
+      catch (err) {
+        upsertError = err instanceof Error ? err.message : String(err)
+        console.error('[MAIA] upsertRecord error:', upsertError, 'extracted:', JSON.stringify(extracted))
+      }
     }
 
     const today = new Date().toISOString().slice(0, 10)
@@ -1042,7 +1045,7 @@ export async function processEmailCommand(messageId: string): Promise<void> {
           return successHtml(extracted, ref, uploadedFiles)
         })()
       : incompleteHtml(
-          { ...extracted, missing_fields: [...(extracted.missing_fields ?? []), ...(upsertError ? ['database_error'] : [])] },
+          { ...extracted, missing_fields: [...(extracted.missing_fields ?? []), ...(upsertError ? [`database_error: ${upsertError}`] : [])] },
           ref,
         )
 
