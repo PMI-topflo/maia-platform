@@ -13,12 +13,12 @@ export default async function UnitManagerPage() {
   const session = token ? await verifySession(token) : null
 
   if (!session || session.persona !== 'unit_manager') redirect('/')
-  const validSession = session
 
   const { data: mgr } = await supabaseAdmin
     .from('unit_managers')
     .select('id, first_name, last_name, email, phone, association_code, managed_units, company_name')
-    .eq('id', String(validSession.userId))
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    .eq('id', String(session!.userId))
     .eq('active', true)
     .single()
 
