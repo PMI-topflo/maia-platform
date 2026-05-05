@@ -25,6 +25,8 @@ const TRIGGER_PHRASES = [
   '@maia add board member',
   '@maia update owner',
   '@maia update unit',
+  '@maia update db',
+  '@maia new owner',
 ]
 
 const MAIA_EMAIL = 'maia@pmitop.com'
@@ -144,8 +146,20 @@ export function parseGmailMessage(msg: GmailFullMessage): ParsedEmail {
     body = b64url(msg.payload.body.data)
   } else {
     const { plain, html } = extractParts(msg.payload.parts)
-    body = plain || html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim()
+    body = plain || html
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&#64;/g, '@')
+      .replace(/&commat;/gi, '@')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/ /g, ' ')   // non-breaking space
+      .replace(/\s+/g, ' ')
+      .trim()
   }
+  // Normalize non-breaking spaces from plain text sources too
+  body = body.replace(/ /g, ' ')
 
   return {
     messageId:    msg.id,
@@ -169,8 +183,37 @@ function isAllowedSender(email: string): boolean {
 }
 
 function detectTrigger(body: string): string | null {
-  const lower = body.toLowerCase()
+  // Normalize whitespace so "@maia\nupdate db" matches "@maia update db"
+  const lower = body.toLowerCase().replace(/\s+/g, ' ')
   return TRIGGER_PHRASES.find(p => lower.includes(p)) ?? null
+}
+
+// Infer a DB command from subject/body keywords.
+// For authorized senders: subject keywords alone are sufficient (no @maia required).
+// For all others: @maia must also be present.
+function inferTrigger(subject: string, body: string, senderAllowed = false): string | null {
+  const combined = (subject + ' ' + body).toLowerCase().replace(/\s+/g, ' ')
+  const hasMaia  = combined.includes('@maia') || combined.includes('maia@pmitop.com')
+
+  // Authorized senders with ownership keywords in subject trigger without @maia
+  const subjectLow = subject.toLowerCase()
+  if (senderAllowed) {
+    if (/new owner|owner transfer|transfer of ownership|new buyer|new purchaser/.test(subjectLow)) return '@maia add owner'
+    if (/new tenant|new renter|new lease|tenant transfer/.test(subjectLow))                        return '@maia add tenant'
+    if (/new board member/.test(subjectLow))                                                        return '@maia add board member'
+    if (/new agent|real estate agent/.test(subjectLow))                                             return '@maia add agent'
+    if (/new vendor/.test(subjectLow))                                                              return '@maia add vendor'
+  }
+
+  // Without @maia require explicit mention
+  if (!hasMaia) return null
+
+  if (/new owner|owner transfer|transfer of ownership|new buyer|new purchaser/.test(combined)) return '@maia add owner'
+  if (/new tenant|new renter|new lease|tenant transfer/.test(combined))                        return '@maia add tenant'
+  if (/new board member/.test(combined))                                                        return '@maia add board member'
+  if (/new agent|real estate agent/.test(combined))                                             return '@maia add agent'
+  if (/new vendor/.test(combined))                                                              return '@maia add vendor'
+  return null
 }
 
 // ── Reference code ────────────────────────────────────────────────────────────
@@ -200,8 +243,14 @@ From the email subject, body, and any forwarded/quoted content, extract:
 - notes: any additional relevant info
 
 Rules:
-- For record_type, infer from context (@maia add owner → owner, @maia add tenant → tenant, etc.)
+- For record_type, infer from context:
+  - @maia add owner / @maia update db / @maia new owner / subject has "NEW OWNER" / "TRANSFER OF OWNERSHIP" → "owner"
+  - @maia add tenant / @maia new tenant / subject has "NEW TENANT" → "tenant"
+  - @maia add board member → "board_member"
+  - @maia add agent / @maia add vendor → infer accordingly
+  - If the subject or body clearly indicates a new owner or property transfer, always use "owner" even if no explicit command phrase was given
 - If you see multiple people (couple, co-owners), list the primary in main fields and extras in additional_people
+- For association_code: account numbers like "ESSI16" combine association code + unit number. Extract the alphabetic prefix only: ESSI16 → "ESSI", ABBO5 → "ABBO", MACO12 → "MACO". If the code is clearly just letters (ABBOTT, MACO, PALM), return as-is
 - missing_fields: list required fields you could NOT extract
   - owner requires: association_code, unit_number, first_name or entity_name, and email or phone
   - tenant requires: association_code, unit_number, first_name
@@ -714,11 +763,18 @@ FAQ KNOWLEDGE:
 - Estoppel: 5-7 business days via condocerts.com
 - Balance: check at https://pmitfp.cincwebaxis.com/
 
+INTERNAL STAFF COMMANDS:
+You are also used internally by PMI staff to update the database. If this email appears to be from a PMI staff member (domain: @topfloridaproperties.com, @pmitop.com, @mypmitop.com) and contains owner/tenant/board/transfer information but no explicit command, instruct them to add "@maia" anywhere in the email body. You can infer the intent from the subject:
+- Subject has "NEW OWNER" or "TRANSFER" → tell them to add "@maia" to trigger an owner update
+- Subject has "NEW TENANT" or body has "new tenant" → tell them to add "@maia" to trigger a tenant update
+Do NOT say you cannot access databases — you can, when the correct trigger is present.
+
 RULES:
 - Respond in English only
 - Be professional and concise
 - If unsure, direct to service@topfloridaproperties.com or 305.900.5077
 - Never fabricate financial figures or legal details
+- Never say you cannot access or update the PMI database — you can when triggered correctly
 - Always sign as: Maia | PMI Top Florida Properties AI Assistant`
 
 const AUTO_REPLY_SUBJECTS = ['out of office', 'auto-reply', 'automatic reply', 'delivery failed', 'undeliverable', 'autoreply']
@@ -844,15 +900,28 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     const msg    = await fetchGmailMessage(messageId)
     const parsed = parseGmailMessage(msg)
 
-    const trigger = detectTrigger(parsed.body)
-    if (!trigger) {
-      const mentionsMaia =
-        parsed.subject.toLowerCase().includes('@maia') ||
-        parsed.body.toLowerCase().includes('@maia')
+    const bodyNorm     = parsed.body.toLowerCase().replace(/\s+/g, ' ')
+    const subjectNorm  = parsed.subject.toLowerCase()
+    const mentionsMaia = subjectNorm.includes('@maia') || bodyNorm.includes('@maia')
+    const allowed      = isAllowedSender(parsed.senderEmail)
 
-      // Check if this reply belongs to a thread Maia already joined
+    // Determine trigger: explicit phrase > subject keyword (authorized) > @maia + keyword > implicit @maia
+    let trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body, allowed)
+    if (!trigger && mentionsMaia && allowed) {
+      // Authorized sender mentioned @maia without a recognized command phrase.
+      // Route to DB extraction and let Claude infer record_type from context.
+      trigger = '@maia'
+    }
+
+    console.log(`[MAIA] subject="${subjectNorm.slice(0,80)}" sender="${parsed.senderEmail}" trigger="${trigger}" mentionsMaia=${mentionsMaia} allowed=${allowed}`)
+    console.log(`[MAIA] body_preview="${parsed.body.slice(0,300).replace(/\n/g,'↵')}"`)
+    console.log(`[MAIA] body_tail="${parsed.body.slice(-150).replace(/\n/g,'↵')}"`)
+    console.log(`[MAIA] body_hex_tail="${Buffer.from(parsed.body.slice(-50)).toString('hex')}"`)
+
+    if (!trigger) {
+      // No @maia mention at all — check if thread is already active with MAIA
       let isActiveThread = false
-      if (!mentionsMaia && parsed.threadId) {
+      if (parsed.threadId) {
         const { data: existing } = await supabaseAdmin
           .from('general_conversations')
           .select('id')
@@ -861,14 +930,16 @@ export async function processEmailCommand(messageId: string): Promise<void> {
           .maybeSingle()
         isActiveThread = !!existing
       }
-
-      if (!mentionsMaia && !isActiveThread) return
+      if (!isActiveThread) return
       await handleGeneralEmailQuery(parsed)
       return
     }
 
-    // DB command — restricted to authorized staff senders
-    if (!isAllowedSender(parsed.senderEmail)) return
+    // DB command — restricted to authorized staff senders; external senders get freeform chat
+    if (!allowed) {
+      await handleGeneralEmailQuery(parsed)
+      return
+    }
 
     // Log as processing — unique constraint prevents double-processing on Pub/Sub retries
     const { data: cmdRow, error: cmdErr } = await supabaseAdmin

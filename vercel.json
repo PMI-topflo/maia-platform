@@ -7,6 +7,14 @@
     {
       "path": "/api/cron/compliance-alerts",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/sync-rentvine-tenants",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/check-lease-expiry",
+      "schedule": "0 8 * * *"
     }
   ]
 }

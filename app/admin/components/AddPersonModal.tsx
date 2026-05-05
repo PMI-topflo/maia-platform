@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-type TabKey = 'owner' | 'board' | 'agent' | 'vendor' | 'staff'
+type TabKey = 'owner' | 'board' | 'unit_manager' | 'building_manager' | 'agent' | 'vendor' | 'staff'
 
 interface Props {
   associations: Array<{ association_code: string; association_name: string }>
@@ -11,11 +11,13 @@ interface Props {
 }
 
 const TABS: { key: TabKey; label: string; icon: string }[] = [
-  { key: 'owner',  label: 'Unit Owner',    icon: '🏠' },
-  { key: 'board',  label: 'Board Member',  icon: '👥' },
-  { key: 'agent',  label: 'Agent',         icon: '🏢' },
-  { key: 'vendor', label: 'Vendor',        icon: '🔧' },
-  { key: 'staff',  label: 'Staff Member',  icon: '🔒' },
+  { key: 'owner',            label: 'Unit Owner',         icon: '🏠' },
+  { key: 'board',            label: 'Board Member',       icon: '👥' },
+  { key: 'unit_manager',     label: 'Unit Manager',       icon: '🏢' },
+  { key: 'building_manager', label: 'Bldg Manager',       icon: '🏗️' },
+  { key: 'agent',            label: 'Agent',              icon: '🤝' },
+  { key: 'vendor',           label: 'Vendor',             icon: '🔧' },
+  { key: 'staff',            label: 'Staff Member',       icon: '🔒' },
 ]
 
 const inputCls  = 'w-full border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-[#f26a1b] transition-colors'
@@ -41,9 +43,15 @@ export default function AddPersonModal({ associations, onClose, onAdded }: Props
   async function submit() {
     setBusy(true); setError('')
     try {
+      // For unit_manager, parse managed_units from JSON string back to array
+      const data = { ...form }
+      if (tab === 'unit_manager' && data.managed_units) {
+        try { (data as Record<string, unknown>).managed_units = JSON.parse(data.managed_units) } catch { /* keep as-is */ }
+      }
+      delete (data as Record<string, unknown>).managed_units_raw
       const res = await fetch('/api/admin/add-person', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: tab, data: form }),
+        body: JSON.stringify({ type: tab, data }),
       })
       const json = await res.json()
       if (!json.ok) { setError(json.error ?? 'Failed to save'); setBusy(false); return }
@@ -141,6 +149,42 @@ export default function AddPersonModal({ associations, onClose, onAdded }: Props
                   <Field label="Position"><input className={inputCls} placeholder="President, Treasurer, Secretary…" value={form.position ?? ''} onChange={set('position')} /></Field>
                   <Field label="Email"><input type="email" className={inputCls} value={form.email ?? ''} onChange={set('email')} /></Field>
                   <Field label="Phone"><input type="tel" className={inputCls} value={form.phone ?? ''} onChange={set('phone')} /></Field>
+                </>
+              )}
+
+              {tab === 'unit_manager' && (
+                <>
+                  <div className={gridTwo}>
+                    <Field label="First Name *"><input className={inputCls} value={form.first_name ?? ''} onChange={set('first_name')} /></Field>
+                    <Field label="Last Name *"><input className={inputCls} value={form.last_name ?? ''} onChange={set('last_name')} /></Field>
+                  </div>
+                  <Field label="Association *">{assocSelect}</Field>
+                  <Field label="Managed Units">
+                    <input
+                      className={inputCls}
+                      placeholder="e.g. 101, 205, 310 (comma-separated)"
+                      value={form.managed_units_raw ?? ''}
+                      onChange={e => setForm(f => ({ ...f, managed_units_raw: e.target.value, managed_units: JSON.stringify(e.target.value.split(',').map(s => s.trim()).filter(Boolean)) }))}
+                    />
+                  </Field>
+                  <Field label="Email"><input type="email" className={inputCls} value={form.email ?? ''} onChange={set('email')} /></Field>
+                  <Field label="Phone"><input type="tel" className={inputCls} value={form.phone ?? ''} onChange={set('phone')} /></Field>
+                  <Field label="Company Name"><input className={inputCls} placeholder="Management company (optional)" value={form.company_name ?? ''} onChange={set('company_name')} /></Field>
+                  <Field label="Notes"><input className={inputCls} value={form.notes ?? ''} onChange={set('notes')} /></Field>
+                </>
+              )}
+
+              {tab === 'building_manager' && (
+                <>
+                  <div className={gridTwo}>
+                    <Field label="First Name *"><input className={inputCls} value={form.first_name ?? ''} onChange={set('first_name')} /></Field>
+                    <Field label="Last Name *"><input className={inputCls} value={form.last_name ?? ''} onChange={set('last_name')} /></Field>
+                  </div>
+                  <Field label="Association *">{assocSelect}</Field>
+                  <Field label="Email"><input type="email" className={inputCls} value={form.email ?? ''} onChange={set('email')} /></Field>
+                  <Field label="Phone"><input type="tel" className={inputCls} value={form.phone ?? ''} onChange={set('phone')} /></Field>
+                  <Field label="Company Name"><input className={inputCls} placeholder="On-site management company (optional)" value={form.company_name ?? ''} onChange={set('company_name')} /></Field>
+                  <Field label="Notes"><input className={inputCls} value={form.notes ?? ''} onChange={set('notes')} /></Field>
                 </>
               )}
 
