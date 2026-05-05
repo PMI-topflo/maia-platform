@@ -154,7 +154,7 @@ async function listPdfsInFolder(folderId: string, drive: ReturnType<typeof drive
 async function resolveAccountNumber(associationCode: string, unitNumber: string | null) {
   if (!unitNumber) return null;
   const { data } = await getSupabase()
-    .from('homeowners')
+    .from('owners')
     .select('account_number')
     .eq('association_code', associationCode)
     .eq('unit_number', String(unitNumber))

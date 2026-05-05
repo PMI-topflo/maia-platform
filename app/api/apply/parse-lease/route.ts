@@ -205,7 +205,7 @@ async function saveLeaseToDrive(
   if (unitNumber && matched) {
     // Look up account_number + property address from homeowners
     const { data: hw } = await supabaseAdmin
-      .from('homeowners')
+      .from('owners')
       .select('account_number, street_number, address')
       .eq('association_code', matched.association_code)
       .eq('unit_number', unitNumber)

@@ -24,7 +24,7 @@ async function getData() {
 
   // Get homeowner addresses
   const { data: homeowners } = await supabase
-    .from('homeowners')
+    .from('owners')
     .select('account_number, association_code, association_name, street_number, address, unit_number, first_name, last_name, emails');
 
   // Get active alerts grouped by account

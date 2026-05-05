@@ -187,7 +187,7 @@ async function main() {
 
   // 1. Pull MANXI units from homeowners (deduped on account_number)
   const { data: rawUnits, error } = await supabase
-    .from('homeowners')
+    .from('owners')
     .select('account_number, unit_number, street_number, address')
     .eq('association_code', ASSOCIATION_CODE);
   if (error) throw error;

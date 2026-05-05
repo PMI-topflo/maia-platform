@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
 
   // Load units from homeowners
   const { data: rawUnits, error: unitsErr } = await supabaseAdmin
-    .from('homeowners')
+    .from('owners')
     .select('account_number, unit_number, street_number, address')
     .eq('association_code', association_code)
 
