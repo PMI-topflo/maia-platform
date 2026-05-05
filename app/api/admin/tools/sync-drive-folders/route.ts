@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const runtime = 'nodejs'
-export const maxDuration = 300
+export const maxDuration = 60
+
+const BATCH_SIZE = 15
 
 const SUBFOLDERS = [
   { name: 'Lease Applications',            type: 'lease_applications' },
@@ -57,135 +59,142 @@ async function getOrCreateFolder(drive: any, name: string, parentId: string, app
 
 export async function POST(req: NextRequest) {
   try {
-    const { apply = false, association_code = 'MANXI' } = await req.json()
+    const {
+      apply = false,
+      association_code = 'MANXI',
+      offset = 0,
+    } = await req.json()
 
     const googleJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
-  if (!googleJson) return NextResponse.json({ ok: false, error: 'GOOGLE_SERVICE_ACCOUNT_JSON not set' }, { status: 500 })
+    if (!googleJson) return NextResponse.json({ ok: false, error: 'GOOGLE_SERVICE_ACCOUNT_JSON not set' }, { status: 500 })
 
-  const { google } = await import('googleapis')
-  const auth = new google.auth.GoogleAuth({
-    credentials: JSON.parse(googleJson),
-    scopes: ['https://www.googleapis.com/auth/drive'],
-  })
-  const drive = google.drive({ version: 'v3', auth })
+    const { google } = await import('googleapis')
+    const auth = new google.auth.GoogleAuth({
+      credentials: JSON.parse(googleJson),
+      scopes: ['https://www.googleapis.com/auth/drive'],
+    })
+    const drive = google.drive({ version: 'v3', auth })
 
-  // Get root folder from association_config or env fallback
-  const { data: cfg } = await supabaseAdmin
-    .from('association_config')
-    .select('drive_root_folder_id')
-    .eq('association_code', association_code)
-    .maybeSingle()
+    // Root folder
+    const { data: cfg } = await supabaseAdmin
+      .from('association_config')
+      .select('drive_root_folder_id')
+      .eq('association_code', association_code)
+      .maybeSingle()
 
-  const rootFolderId =
-    (cfg as any)?.drive_root_folder_id ??
-    process.env.MANXI_PARENT_FOLDER_ID ??
-    '1kRDm6ajZr8lXuXGcAXTnA3vigzhLCZpz'
+    const rootFolderId =
+      (cfg as any)?.drive_root_folder_id ??
+      process.env.MANXI_PARENT_FOLDER_ID ??
+      '1kRDm6ajZr8lXuXGcAXTnA3vigzhLCZpz'
 
-  // Load units from homeowners
-  const { data: rawUnits, error: unitsErr } = await supabaseAdmin
-    .from('owners')
-    .select('account_number, unit_number, street_number, address')
-    .eq('association_code', association_code)
+    // Load all units (deduped)
+    const { data: rawUnits, error: unitsErr } = await supabaseAdmin
+      .from('owners')
+      .select('account_number, unit_number, street_number, address')
+      .eq('association_code', association_code)
+    if (unitsErr) return NextResponse.json({ ok: false, error: unitsErr.message }, { status: 500 })
 
-  if (unitsErr) return NextResponse.json({ ok: false, error: unitsErr.message }, { status: 500 })
-
-  const units = new Map<string, { unit_number: string; property_address: string }>()
-  for (const u of rawUnits ?? []) {
-    if (!units.has(u.account_number)) {
-      const addr = [u.street_number, u.address].filter(Boolean).join(' ').trim()
-      units.set(u.account_number, { unit_number: String(u.unit_number), property_address: addr })
-    }
-  }
-
-  // List existing Drive folders
-  const existingFolders = await listChildFolders(drive, rootFolderId)
-
-  // Match folders to units
-  const matchesByAccount = new Map<string, { id: string; name: string }[]>()
-  for (const folder of existingFolders) {
-    const candidates = Array.from(units.entries()).filter(([, u]) =>
-      matchFolderToUnit(folder.name, u.unit_number)
-    )
-    if (candidates.length === 1) {
-      const acct = candidates[0][0]
-      if (!matchesByAccount.has(acct)) matchesByAccount.set(acct, [])
-      matchesByAccount.get(acct)!.push(folder)
-    }
-  }
-
-  // Plan and execute
-  const log: string[] = []
-  const registryRows: any[] = []
-  let renamed = 0, created = 0, ok = 0
-
-  for (const [account, unit] of Array.from(units.entries()).sort()) {
-    const target = `${account} - ${unit.property_address}`
-    const matches = matchesByAccount.get(account) ?? []
-
-    let unitFolderId: string
-
-    if (matches.length === 1) {
-      unitFolderId = matches[0].id
-      if (matches[0].name !== target) {
-        if (apply) {
-          await drive.files.update({
-            fileId: unitFolderId,
-            requestBody: { name: target },
-            supportsAllDrives: true,
-          })
-          renamed++
-          log.push(`RENAMED: "${matches[0].name}" → "${target}"`)
-        } else {
-          log.push(`WOULD RENAME: "${matches[0].name}" → "${target}"`)
-          renamed++
-        }
-      } else {
-        ok++
+    const allUnits = new Map<string, { unit_number: string; property_address: string }>()
+    for (const u of rawUnits ?? []) {
+      if (!allUnits.has(u.account_number)) {
+        const addr = [u.street_number, u.address].filter(Boolean).join(' ').trim()
+        allUnits.set(u.account_number, { unit_number: String(u.unit_number), property_address: addr })
       }
-    } else if (matches.length === 0) {
-      unitFolderId = await getOrCreateFolder(drive, target, rootFolderId, apply)
-      created++
-      log.push(`${apply ? 'CREATED' : 'WOULD CREATE'}: "${target}"`)
-    } else {
-      log.push(`SKIPPED (ambiguous): ${account}`)
-      continue
     }
 
-    if (apply && !unitFolderId.startsWith('dry-run:')) {
-      registryRows.push({
-        account_number: account,
-        association_code,
-        folder_type: 'unit_root',
-        drive_folder_id: unitFolderId,
-        drive_url: `https://drive.google.com/drive/folders/${unitFolderId}`,
-      })
+    const sortedAccounts = Array.from(allUnits.keys()).sort()
+    const total = sortedAccounts.length
+    const batch = sortedAccounts.slice(offset, offset + BATCH_SIZE)
+    const nextOffset = offset + BATCH_SIZE < total ? offset + BATCH_SIZE : null
 
-      for (const sub of SUBFOLDERS) {
-        const subId = await getOrCreateFolder(drive, sub.name, unitFolderId, apply)
+    // List existing Drive folders once per batch call
+    const existingFolders = await listChildFolders(drive, rootFolderId)
+
+    // Match folders to units
+    const matchesByAccount = new Map<string, { id: string; name: string }[]>()
+    for (const folder of existingFolders) {
+      const candidates = Array.from(allUnits.entries()).filter(([, u]) =>
+        matchFolderToUnit(folder.name, u.unit_number)
+      )
+      if (candidates.length === 1) {
+        const acct = candidates[0][0]
+        if (!matchesByAccount.has(acct)) matchesByAccount.set(acct, [])
+        matchesByAccount.get(acct)!.push(folder)
+      }
+    }
+
+    // Process this batch in parallel
+    const log: string[] = []
+    const registryRows: any[] = []
+    let renamed = 0, created = 0, ok = 0
+
+    await Promise.all(batch.map(async (account) => {
+      const unit = allUnits.get(account)!
+      const target = `${account} - ${unit.property_address}`
+      const matches = matchesByAccount.get(account) ?? []
+
+      let unitFolderId: string
+
+      if (matches.length === 1) {
+        unitFolderId = matches[0].id
+        if (matches[0].name !== target) {
+          if (apply) {
+            await drive.files.update({
+              fileId: unitFolderId,
+              requestBody: { name: target },
+              supportsAllDrives: true,
+            })
+          }
+          log.push(`${apply ? 'RENAMED' : 'WOULD RENAME'}: "${matches[0].name}" → "${target}"`)
+          renamed++
+        } else {
+          ok++
+        }
+      } else if (matches.length === 0) {
+        unitFolderId = await getOrCreateFolder(drive, target, rootFolderId, apply)
+        log.push(`${apply ? 'CREATED' : 'WOULD CREATE'}: "${target}"`)
+        created++
+      } else {
+        log.push(`SKIPPED (ambiguous): ${account}`)
+        return
+      }
+
+      if (apply && !unitFolderId.startsWith('dry-run:')) {
         registryRows.push({
           account_number: account,
           association_code,
-          folder_type: sub.type,
-          drive_folder_id: subId,
-          drive_url: `https://drive.google.com/drive/folders/${subId}`,
+          folder_type: 'unit_root',
+          drive_folder_id: unitFolderId,
+          drive_url: `https://drive.google.com/drive/folders/${unitFolderId}`,
         })
+        // Create subfolders in parallel
+        await Promise.all(SUBFOLDERS.map(async (sub) => {
+          const subId = await getOrCreateFolder(drive, sub.name, unitFolderId, apply)
+          registryRows.push({
+            account_number: account,
+            association_code,
+            folder_type: sub.type,
+            drive_folder_id: subId,
+            drive_url: `https://drive.google.com/drive/folders/${subId}`,
+          })
+        }))
       }
-    }
-  }
+    }))
 
-  // Upsert registry
-  if (registryRows.length > 0) {
-    for (let i = 0; i < registryRows.length; i += 500) {
+    // Upsert registry
+    if (registryRows.length > 0) {
       await supabaseAdmin
         .from('unit_drive_folders')
-        .upsert(registryRows.slice(i, i + 500), { onConflict: 'account_number,folder_type' })
+        .upsert(registryRows, { onConflict: 'account_number,folder_type' })
     }
-  }
 
     return NextResponse.json({
       ok: true,
       apply,
-      summary: { renamed, created, already_correct: ok, units_total: units.size },
+      offset,
+      next_offset: nextOffset,
+      total,
+      summary: { renamed, created, already_correct: ok, batch_size: batch.length },
       log,
     })
   } catch (err) {
