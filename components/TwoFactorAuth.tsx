@@ -7,9 +7,11 @@ type Step   = 'method' | 'code' | 'success'
 
 type MatchedRole =
   | { type: 'staff' }
-  | { type: 'owner';  owner_id: number;       association_code: string; association_name: string }
-  | { type: 'board';  board_member_id: string; association_code: string; association_name: string; position: string | null }
-  | { type: 'tenant'; association_code: string; association_name: string }
+  | { type: 'owner';            owner_id: number;            association_code: string; association_name: string }
+  | { type: 'board';            board_member_id: string;     association_code: string; association_name: string; position: string | null }
+  | { type: 'tenant';           association_code: string;    association_name: string }
+  | { type: 'unit_manager';     unit_manager_id: string;     association_code: string; association_name: string; managed_units: string[] }
+  | { type: 'building_manager'; building_manager_id: string; association_code: string; association_name: string }
 
 interface Props {
   role:       MatchedRole
