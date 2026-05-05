@@ -329,12 +329,15 @@ async function upsertRecord(ext: ExtractedRecord): Promise<UpsertResult> {
       type PrevRow = { id: number; first_name: string | null; last_name: string | null; entity_name: string | null; emails: string | null }
       let prevOwner: PrevRow | null = null
       if (code && ext.unit_number) {
+        // Use "IS DISTINCT FROM" logic: status != 'previous' OR status IS NULL
         const { data } = await supabaseAdmin
           .from('owners')
           .select('id, first_name, last_name, entity_name, emails')
           .eq('association_code', code)
           .eq('unit_number', ext.unit_number)
-          .neq('status', 'previous')
+          .or('status.neq.previous,status.is.null')
+          .order('id', { ascending: false })
+          .limit(1)
           .maybeSingle()
         prevOwner = (data as PrevRow | null) ?? null
       }
