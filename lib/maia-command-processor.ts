@@ -25,6 +25,8 @@ const TRIGGER_PHRASES = [
   '@maia add board member',
   '@maia update owner',
   '@maia update unit',
+  '@maia update db',
+  '@maia new owner',
 ]
 
 const MAIA_EMAIL = 'maia@pmitop.com'
