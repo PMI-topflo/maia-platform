@@ -378,6 +378,7 @@ async function upsertRecord(ext: ExtractedRecord): Promise<UpsertResult> {
           association_code:     code,
           association_name:     assocName,
           unit_number:          ext.unit_number,
+          entity_name:          ext.entity_name ?? null,
           first_name:           insertFirstName,
           last_name:            insertLastName,
           emails:               ext.email,
@@ -695,7 +696,10 @@ function courtesyHtml(prevOwnerName: string, assocName: string | null, unit: str
 }
 
 function successHtml(ext: ExtractedRecord, ref: string, files: Array<{ filename: string; url: string | null }>): string {
-  const name      = [ext.first_name, ext.last_name].filter(Boolean).join(' ') || ext.entity_name || '—'
+  const contactName = [ext.first_name, ext.last_name].filter(Boolean).join(' ') || '—'
+  const displayName = ext.entity_name
+    ? `${ext.entity_name}${contactName !== '—' ? ` (${contactName})` : ''}`
+    : contactName
   const labelMap: Record<string, string> = { owner: 'Unit Owner', tenant: 'Tenant', board_member: 'Board Member', agent: 'Real Estate Agent', vendor: 'Vendor' }
   const label     = labelMap[ext.record_type ?? ''] ?? ext.record_type ?? 'Record'
   const filesHtml = files.length
@@ -708,13 +712,13 @@ function successHtml(ext: ExtractedRecord, ref: string, files: Array<{ filename:
 </div>
 <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
   <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600;width:140px">Record type</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${label}</td></tr>
-  <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600">Name</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${name}</td></tr>
+  <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600">Name</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${displayName}</td></tr>
   <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600">Association</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${ext.association_code ?? '—'}${ext.unit_number ? ` — Unit ${ext.unit_number}` : ''}</td></tr>
   <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600">Email</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${ext.email ?? '—'}</td></tr>
   <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600">Phone</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${ext.phone ?? '—'}</td></tr>
   <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;font-weight:600">Documents</td><td style="padding:8px 12px;border:1px solid #e5e7eb"><ul style="margin:0;padding-left:16px">${filesHtml}</ul></td></tr>
 </table>
-<p><a href="https://www.pmitop.com/admin?search=${encodeURIComponent(name)}" style="background:#f26a1b;color:white;padding:10px 20px;text-decoration:none;border-radius:4px;font-weight:600">View &amp; Edit Record →</a></p>
+<p><a href="https://www.pmitop.com/admin?search=${encodeURIComponent(displayName)}" style="background:#f26a1b;color:white;padding:10px 20px;text-decoration:none;border-radius:4px;font-weight:600">View &amp; Edit Record →</a></p>
 <p style="color:#6b7280;font-size:12px;margin-top:24px">Reference: ${ref}</p>
 <p style="color:#6b7280;font-size:12px">— MAIA, PMI Top Florida Properties</p>
 </body></html>`
