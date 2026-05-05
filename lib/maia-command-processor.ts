@@ -924,6 +924,17 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     console.log(`[MAIA] body_tail="${parsed.body.slice(-150).replace(/\n/g,'↵')}"`)
     console.log(`[MAIA] body_hex_tail="${Buffer.from(parsed.body.slice(-50)).toString('hex')}"`)
 
+    // Log every inbound email so the omnichannel view is complete
+    void logEmail({
+      direction:  'inbound',
+      fromEmail:  parsed.senderEmail,
+      toEmail:    'maia@pmitop.com',
+      subject:    parsed.subject,
+      fullBody:   parsed.body,
+      persona:    allowed ? 'staff' : 'external',
+      status:     'received',
+    })
+
     if (!trigger) {
       // No @maia mention at all — check if thread is already active with MAIA
       let isActiveThread = false

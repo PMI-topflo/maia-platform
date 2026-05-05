@@ -4,7 +4,7 @@ import { useState, useMemo, type ChangeEvent } from 'react'
 
 export type ConvItem = {
   id: string
-  type: 'conversation' | 'ticket'
+  type: 'conversation' | 'ticket' | 'email'
   channel: string
   association_code: string | null
   persona: string | null
@@ -20,11 +20,18 @@ type Association = { association_code: string; association_name: string }
 type Period = 'day' | 'week' | 'month' | 'year'
 
 const CHANNEL_COLOR: Record<string, string> = {
-  whatsapp: '#25d366',
-  sms:      '#3b82f6',
-  email:    '#8b5cf6',
-  web:      '#6b7280',
-  ticket:   '#f26a1b',
+  whatsapp:  '#25d366',
+  sms:       '#3b82f6',
+  email:     '#8b5cf6',
+  'email-in':  '#8b5cf6',
+  'email-out': '#a78bfa',
+  web:       '#6b7280',
+  ticket:    '#f26a1b',
+}
+
+const CHANNEL_LABEL: Record<string, string> = {
+  'email-in':  '📥 email',
+  'email-out': '📤 email',
 }
 
 function bucketKey(date: Date, period: Period): string {
@@ -176,12 +183,14 @@ export default function OmnichannelClient({
 
         {/* Channel legend */}
         <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-gray-50">
-          {Object.entries(CHANNEL_COLOR).map(([ch, color]) => (
-            <span key={ch} className="flex items-center gap-1.5 text-[10px] text-gray-400">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-              {ch}
-            </span>
-          ))}
+          {Object.entries(CHANNEL_COLOR)
+            .filter(([ch]) => !ch.includes('-') || ch === 'email-in' || ch === 'email-out')
+            .map(([ch, color]) => (
+              <span key={ch} className="flex items-center gap-1.5 text-[10px] text-gray-400">
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                {CHANNEL_LABEL[ch] ?? ch}
+              </span>
+            ))}
         </div>
       </div>
 
@@ -217,7 +226,7 @@ export default function OmnichannelClient({
                     className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide"
                     style={{ backgroundColor: color + '20', color }}
                   >
-                    {item.channel}
+                    {CHANNEL_LABEL[item.channel] ?? item.channel}
                   </span>
                   {item.persona && (
                     <span className="text-[9px] text-gray-400 uppercase tracking-wide">{item.persona}</span>
