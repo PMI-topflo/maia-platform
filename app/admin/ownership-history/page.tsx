@@ -28,7 +28,14 @@ function fmtDate(d: string | null) {
 }
 
 function ownerName(r: OwnerRecord) {
-  return [r.first_name, r.last_name].filter(Boolean).join(' ') || r.entity_name || '—'
+  if (r.entity_name) return r.entity_name
+  return [r.first_name, r.last_name].filter(Boolean).join(' ') || '—'
+}
+
+function contactPerson(r: OwnerRecord): string | null {
+  // When entity_name is set, MAIA stores the contact person's full name in last_name
+  if (r.entity_name && r.last_name && r.last_name !== r.entity_name) return r.last_name
+  return null
 }
 
 export default async function OwnershipHistoryPage() {
@@ -107,6 +114,7 @@ export default async function OwnershipHistoryPage() {
                               <span className="bg-green-100 text-green-700 text-[10px] font-semibold px-2 py-0.5 rounded uppercase">Current Owner</span>
                             </div>
                             <div className="text-xs text-gray-400 mt-0.5 space-x-3">
+                              {contactPerson(current) && <span className="text-gray-500">c/o {contactPerson(current)}</span>}
                               {current.emails && <span>{current.emails}</span>}
                               {current.phone  && <span>{current.phone}</span>}
                               {current.ownership_start_date && <span>Since {fmtDate(current.ownership_start_date)}</span>}

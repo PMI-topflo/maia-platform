@@ -4,20 +4,23 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const NAV_ITEMS = [
-  { label: 'Dashboard',         href: '/admin' },
+  { label: 'Overview',          href: '/admin' },
+  { label: 'Owners',            href: '/admin/owners' },
   { label: 'Communications',    href: '/admin/communications' },
   { label: 'Registrations',     href: '/admin/registrations' },
-  { label: 'Pending Approvals', href: '/admin/pending-approvals' },
-  { label: 'Login History',     href: '/admin/login-history' },
-  { label: 'Ownership History', href: '/admin/ownership-history' },
-  { label: 'Tenancy History',  href: '/admin/tenancy-history' },
+  { label: 'Applications',      href: '/admin/applications' },
+  { label: 'Approvals',         href: '/admin/pending-approvals' },
+  { label: 'Omnichannel',       href: '/admin/omnichannel' },
+  { label: 'Ownership',         href: '/admin/ownership-history' },
+  { label: 'Tenancy',           href: '/admin/tenancy-history' },
+  { label: 'Logins',            href: '/admin/login-history' },
 ]
 
 export default function AdminNav() {
   const pathname = usePathname()
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1 flex-wrap">
       {NAV_ITEMS.map(item => {
         const active = item.href === '/admin'
           ? pathname === '/admin'
