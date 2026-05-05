@@ -863,8 +863,12 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         .then(({ sections }: { sections: string[] }) => setRulesSections(sections))
         .catch(() => setRulesSections([]));
     }
-    // Auto-select application type based on number of tenants on lease
-    if (leaseData.extracted.tenants.length >= 2) {
+    // Auto-select application type based on extracted data
+    if (leaseData.extracted.entity) {
+      // Entity buyer/tenant — switch to commercial and pre-fill entity name
+      setAppType("commercial");
+      setEntityName(leaseData.extracted.entity);
+    } else if (leaseData.extracted.tenants.length >= 2) {
       setAppType("couple");
       setApplicants((prev) => prev.length < 2 ? [...prev, {}] : prev);
     } else if (leaseData.extracted.tenants.length === 1 && !appType) {
@@ -1318,7 +1322,8 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                     <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: "monospace" }}>{t.sunbizId} *</label>
                     <input type="text" value={sunbizId} onChange={(e) => setSunbizId(e.target.value)} style={inp} onFocus={(e) => (e.target.style.borderColor = "#f26a1b")} onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")} />
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#0d0d0d", marginBottom: 12, fontFamily: "monospace" }}>{t.principals} <span style={{ color: "#f26a1b" }}>($100 each)</span></div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#0d0d0d", marginBottom: 4, fontFamily: "monospace" }}>{t.principals} <span style={{ color: "#f26a1b" }}>($100 each)</span></div>
+                  <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>List all natural persons (individuals) over 18 years old who are members, officers, trustees, or beneficial owners of this entity.</p>
                   {principals.map((p, idx) => (
                     <div key={idx} style={{ background: "#fafaf9", borderRadius: 4, padding: 16, marginBottom: 10, border: "1px solid #e5e7eb" }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: "#f26a1b", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: "monospace" }}>Principal {idx + 1}</div>

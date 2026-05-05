@@ -27,9 +27,11 @@ Extract the following and return STRICT JSON only — no markdown, no prose:
   "address": "<full property address including street, city, state, zip — or null>",
   "unit": "<unit/apt/suite number only (e.g. '203', 'A', '14B') — or null>",
   "moveIn": "<lease start date or closing date in YYYY-MM-DD format — or null>",
-  "tenants": ["<full legal name of each tenant or buyer listed>"]
+  "entity": "<if the tenant or buyer is a company, LLC, Inc, Corp, Trust, LP, LLP, Foundation, or any legal entity — return its exact legal name; otherwise null>",
+  "tenants": ["<full legal name of each individual tenant or buyer listed — exclude entity names>"]
 }
 If a field cannot be determined, use null. For tenants use an empty array if none found.
+If the buyer/tenant is an entity, put its name in 'entity' and leave 'tenants' empty or with any individual co-signers listed separately.
 Do NOT include any text outside the JSON object.`
 
 export async function POST(req: NextRequest) {
@@ -83,10 +85,11 @@ export async function POST(req: NextRequest) {
     address: string | null
     unit: string | null
     moveIn: string | null
+    entity: string | null
     tenants: string[]
   }
 
-  let extracted: Extracted = { association: null, address: null, unit: null, moveIn: null, tenants: [] }
+  let extracted: Extracted = { association: null, address: null, unit: null, moveIn: null, entity: null, tenants: [] }
 
   // Normalise MIME type to what Gemini accepts
   const geminiMime = mimeType.includes('pdf') ? 'application/pdf'
@@ -170,7 +173,7 @@ async function saveLeaseToDrive(
   buffer: Buffer,
   ext: string,
   mimeType: string,
-  extracted: { association: string | null; unit: string | null; tenants: string[] },
+  extracted: { association: string | null; unit: string | null; entity: string | null; tenants: string[] },
   matched: { association_code: string; association_name: string } | null
 ): Promise<string> {
   const { google } = await import('googleapis')
@@ -202,7 +205,7 @@ async function saveLeaseToDrive(
   const now = new Date()
   const year = now.getFullYear()
   const month = now.toLocaleString('en-US', { month: 'long' })
-  const applicantName = (extracted.tenants[0] ?? 'Unknown Applicant')
+  const applicantName = (extracted.entity ?? extracted.tenants[0] ?? 'Unknown Applicant')
     .replace(/[/\\:*?"<>|]/g, '').trim()
 
   const unitDocsFolderId = await findOrCreateFolder(drive, 'UNIT Docs', rootFolderId)
