@@ -323,7 +323,7 @@ async function upsertRecord(ext: ExtractedRecord): Promise<UpsertResult> {
   switch (ext.record_type) {
     case 'owner': {
       const today   = new Date().toISOString().slice(0, 10)
-      const newName = [ext.first_name, ext.last_name].filter(Boolean).join(' ') || ext.entity_name || 'New Owner'
+      const newName = ext.entity_name || [ext.first_name, ext.last_name].filter(Boolean).join(' ') || 'New Owner'
 
       // Find existing active owner at this unit
       type PrevRow = { id: number; first_name: string | null; last_name: string | null; entity_name: string | null; emails: string | null }
@@ -368,15 +368,18 @@ async function upsertRecord(ext: ExtractedRecord): Promise<UpsertResult> {
       }
 
       // Insert new owner
+      // When entity_name is set (LLC/Corp), use it as first_name so it's stored
+      const insertFirstName = ext.entity_name ?? ext.first_name
+      const insertLastName  = ext.entity_name ? (ext.first_name ? `${ext.first_name} ${ext.last_name ?? ''}`.trim() : ext.last_name) : ext.last_name
+
       const { data, error } = await supabaseAdmin
         .from('owners')
         .insert({
           association_code:     code,
           association_name:     assocName,
           unit_number:          ext.unit_number,
-          entity_name:          ext.entity_name ?? null,
-          first_name:           ext.first_name,
-          last_name:            ext.last_name,
+          first_name:           insertFirstName,
+          last_name:            insertLastName,
           emails:               ext.email,
           phone:                ext.phone,
           address:              ext.address,
