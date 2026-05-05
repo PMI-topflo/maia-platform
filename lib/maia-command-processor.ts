@@ -146,8 +146,20 @@ export function parseGmailMessage(msg: GmailFullMessage): ParsedEmail {
     body = b64url(msg.payload.body.data)
   } else {
     const { plain, html } = extractParts(msg.payload.parts)
-    body = plain || html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim()
+    body = plain || html
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&#64;/g, '@')
+      .replace(/&commat;/gi, '@')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/ /g, ' ')   // non-breaking space
+      .replace(/\s+/g, ' ')
+      .trim()
   }
+  // Normalize non-breaking spaces from plain text sources too
+  body = body.replace(/ /g, ' ')
 
   return {
     messageId:    msg.id,
@@ -171,7 +183,8 @@ function isAllowedSender(email: string): boolean {
 }
 
 function detectTrigger(body: string): string | null {
-  const lower = body.toLowerCase()
+  // Normalize whitespace so "@maia\nupdate db" matches "@maia update db"
+  const lower = body.toLowerCase().replace(/\s+/g, ' ')
   return TRIGGER_PHRASES.find(p => lower.includes(p)) ?? null
 }
 
@@ -179,7 +192,8 @@ function detectTrigger(body: string): string | null {
 // recognizable intent keywords. Requiring @maia prevents random emails with
 // "new owner" in the subject from triggering DB writes unintentionally.
 function inferTrigger(subject: string, body: string): string | null {
-  const combined = (subject + ' ' + body).toLowerCase()
+  // Normalize whitespace so @maia on its own line is still detected
+  const combined = (subject + ' ' + body).toLowerCase().replace(/\s+/g, ' ')
   if (!combined.includes('@maia')) return null
 
   if (/new owner|owner transfer|transfer of ownership|new buyer|new purchaser/.test(combined)) return '@maia add owner'
@@ -869,12 +883,17 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     const parsed = parseGmailMessage(msg)
 
     const trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body)
-    console.log(`[MAIA] subject="${parsed.subject.slice(0,80)}" sender="${parsed.senderEmail}" trigger="${trigger}" mentionsMaia=${parsed.body.toLowerCase().includes('@maia')}`)
+    const bodyNorm = parsed.body.toLowerCase().replace(/\s+/g, ' ')
+    console.log(`[MAIA] subject="${parsed.subject.slice(0,80)}" sender="${parsed.senderEmail}" trigger="${trigger}" mentionsMaia=${bodyNorm.includes('@maia')}`)
+    console.log(`[MAIA] body_preview="${parsed.body.slice(0,300).replace(/\n/g,'↵')}"`)
+    console.log(`[MAIA] body_tail="${parsed.body.slice(-150).replace(/\n/g,'↵')}"`)
+    console.log(`[MAIA] body_hex_tail="${Buffer.from(parsed.body.slice(-50)).toString('hex')}"`)
+    console.log(`[MAIA] trigger_exact_check="${JSON.stringify(TRIGGER_PHRASES.map(p => ({ phrase: p, found: bodyNorm.includes(p) })))}"`)
 
     if (!trigger) {
       const mentionsMaia =
         parsed.subject.toLowerCase().includes('@maia') ||
-        parsed.body.toLowerCase().includes('@maia')
+        bodyNorm.includes('@maia')
 
       // Check if this reply belongs to a thread Maia already joined
       let isActiveThread = false
