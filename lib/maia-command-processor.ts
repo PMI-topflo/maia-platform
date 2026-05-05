@@ -175,11 +175,12 @@ function detectTrigger(body: string): string | null {
   return TRIGGER_PHRASES.find(p => lower.includes(p)) ?? null
 }
 
-// Infer a DB command from subject/body keywords when no explicit trigger phrase
-// is present. The isAllowedSender check downstream ensures only PMI staff can
-// actually execute a DB write — so no @maia guard is needed here.
+// Infer a DB command when @maia is mentioned AND the subject/body contains
+// recognizable intent keywords. Requiring @maia prevents random emails with
+// "new owner" in the subject from triggering DB writes unintentionally.
 function inferTrigger(subject: string, body: string): string | null {
   const combined = (subject + ' ' + body).toLowerCase()
+  if (!combined.includes('@maia')) return null
 
   if (/new owner|owner transfer|transfer of ownership|new buyer|new purchaser/.test(combined)) return '@maia add owner'
   if (/new tenant|new renter|new lease|tenant transfer/.test(combined))                        return '@maia add tenant'
@@ -868,6 +869,8 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     const parsed = parseGmailMessage(msg)
 
     const trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body)
+    console.log(`[MAIA] subject="${parsed.subject.slice(0,80)}" sender="${parsed.senderEmail}" trigger="${trigger}" mentionsMaia=${parsed.body.toLowerCase().includes('@maia')}`)
+
     if (!trigger) {
       const mentionsMaia =
         parsed.subject.toLowerCase().includes('@maia') ||
@@ -891,7 +894,9 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     }
 
     // DB command — restricted to authorized staff senders; external senders fall through to chat
-    if (!isAllowedSender(parsed.senderEmail)) {
+    const allowed = isAllowedSender(parsed.senderEmail)
+    console.log(`[MAIA] DB command: allowed=${allowed} sender="${parsed.senderEmail}"`)
+    if (!allowed) {
       await handleGeneralEmailQuery(parsed)
       return
     }
