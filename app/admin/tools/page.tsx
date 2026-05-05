@@ -33,6 +33,11 @@ export default function AdminToolsPage() {
   const [gmailAccounts, setGmailAccounts]       = useState<GmailAccount[]>([])
   const [gmailLoading, setGmailLoading]         = useState(true)
   const [gmailMsg, setGmailMsg]                 = useState<string | null>(null)
+
+  // Email association code cleanup state
+  const [cleanRunning, setCleanRunning] = useState(false)
+  const [cleanResult, setCleanResult]   = useState<{ total_tagged: number; kept: number; cleared: number; dry_run: boolean } | null>(null)
+  const [cleanError, setCleanError]     = useState<string | null>(null)
   const [disconnecting, setDisconnecting]       = useState<string | null>(null)
 
   useEffect(() => {
@@ -126,7 +131,27 @@ export default function AdminToolsPage() {
     }
   }
 
-  const btnBase: React.CSSProperties = {
+  async function runClean(apply: boolean) {
+    setCleanRunning(true)
+    setCleanResult(null)
+    setCleanError(null)
+    try {
+      const res  = await fetch('/api/admin/tools/clean-email-assoc-codes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dry_run: !apply }),
+      })
+      const json = await res.json()
+      if (!res.ok || !json.ok) throw new Error(json.error ?? 'Request failed')
+      setCleanResult(json)
+    } catch (err) {
+      setCleanError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setCleanRunning(false)
+    }
+  }
+
+  const btnBase: import('react').CSSProperties = {
     padding: '0.6rem 1.2rem', borderRadius: 6, fontWeight: 600,
     cursor: running ? 'not-allowed' : 'pointer', opacity: running ? 0.5 : 1,
     fontSize: '0.875rem',
@@ -297,6 +322,63 @@ export default function AdminToolsPage() {
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ── Email Association Code Cleanup ────────────────────────────── */}
+        <section style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', marginTop: '1.5rem' }}>
+          <div style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb', padding: '1rem 1.25rem' }}>
+            <h2 style={{ fontWeight: 700, margin: 0, fontSize: '1rem' }}>Clean Up Email Association Codes</h2>
+            <p style={{ color: '#6b7280', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
+              Removes incorrectly assigned association codes from email logs where no explicit account-number
+              pattern (e.g. <code style={{ background: '#f3f4f6', padding: '0 3px', borderRadius: 3, fontSize: '0.75rem' }}>ESSI16</code>) exists in the subject or body.
+              Run <strong>Preview</strong> first to see how many records will be affected.
+            </p>
+          </div>
+
+          <div style={{ padding: '1.25rem', display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => runClean(false)}
+              disabled={cleanRunning}
+              style={{ padding: '0.6rem 1.2rem', borderRadius: 6, fontWeight: 600, fontSize: '0.875rem', border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: cleanRunning ? 'not-allowed' : 'pointer', opacity: cleanRunning ? 0.5 : 1 }}
+            >
+              {cleanRunning ? 'Running…' : 'Preview (dry run)'}
+            </button>
+            <button
+              onClick={() => { if (confirm('This will permanently clear mis-tagged association codes. Continue?')) runClean(true) }}
+              disabled={cleanRunning}
+              style={{ padding: '0.6rem 1.2rem', borderRadius: 6, fontWeight: 600, fontSize: '0.875rem', border: 'none', background: '#f26a1b', color: '#fff', cursor: cleanRunning ? 'not-allowed' : 'pointer', opacity: cleanRunning ? 0.5 : 1 }}
+            >
+              Apply Cleanup
+            </button>
+            {cleanError && <span style={{ fontSize: '0.875rem', color: '#dc2626' }}>{cleanError}</span>}
+          </div>
+
+          {cleanResult && (
+            <div style={{ borderTop: '1px solid #e5e7eb', padding: '1.25rem' }}>
+              <div style={{ display: 'flex', gap: '1.5rem', marginBottom: cleanResult.dry_run ? '0.75rem' : 0 }}>
+                {[
+                  ['Total tagged',   cleanResult.total_tagged, '#6b7280'],
+                  ['Kept (valid)',    cleanResult.kept,         '#16a34a'],
+                  ['Cleared',        cleanResult.cleared,      '#f26a1b'],
+                ].map(([label, value, color]) => (
+                  <div key={label as string}>
+                    <div style={{ color: color as string, fontWeight: 700, fontSize: '1.4rem' }}>{value as number}</div>
+                    <div style={{ color: '#6b7280', fontSize: '0.8rem' }}>{label as string}</div>
+                  </div>
+                ))}
+              </div>
+              {cleanResult.dry_run && cleanResult.cleared > 0 && (
+                <p style={{ fontSize: '0.8rem', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '0.6rem 0.75rem', margin: '0.75rem 0 0' }}>
+                  ⚠ Dry run — {cleanResult.cleared} record{cleanResult.cleared !== 1 ? 's' : ''} would be cleared. Click <strong>Apply Cleanup</strong> to commit.
+                </p>
+              )}
+              {!cleanResult.dry_run && (
+                <p style={{ fontSize: '0.8rem', color: '#15803d', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '0.6rem 0.75rem', margin: '0.75rem 0 0' }}>
+                  ✅ Done — {cleanResult.cleared} record{cleanResult.cleared !== 1 ? 's' : ''} cleared, {cleanResult.kept} kept.
+                </p>
               )}
             </div>
           )}
