@@ -79,6 +79,7 @@ export default function OmnichannelClient({
 }) {
   const [assocFilter, setAssocFilter]   = useState('')
   const [personaFilter, setPersonaFilter] = useState('')
+  const [nameSearch, setNameSearch]     = useState('')
   const [period, setPeriod]             = useState<Period>('day')
 
   const personas = useMemo(
@@ -105,14 +106,19 @@ export default function OmnichannelClient({
       }))
   }, [items, associations])
 
-  const filtered = useMemo(
-    () => items.filter(item => {
+  const filtered = useMemo(() => {
+    const needle = nameSearch.toLowerCase().trim()
+    return items.filter(item => {
       if (assocFilter   && item.association_code !== assocFilter)   return false
       if (personaFilter && item.persona          !== personaFilter) return false
+      if (needle) {
+        const haystack = [item.contact_name, item.contact_email, item.subject]
+          .filter(Boolean).join(' ').toLowerCase()
+        if (!haystack.includes(needle)) return false
+      }
       return true
-    }),
-    [items, assocFilter, personaFilter]
-  )
+    })
+  }, [items, assocFilter, personaFilter, nameSearch])
 
   const chartData = useMemo(
     () => limitPeriods(groupByPeriod(filtered, period), period),
@@ -146,6 +152,14 @@ export default function OmnichannelClient({
           <option value="">All Personas</option>
           {personas.map((p: string) => <option key={p} value={p}>{p}</option>)}
         </select>
+
+        <input
+          type="search"
+          value={nameSearch}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setNameSearch(e.target.value)}
+          placeholder="Search name or email…"
+          className="border border-gray-200 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:border-gray-400 min-w-48"
+        />
 
         <div className="ml-auto flex gap-1">
           {(['day', 'week', 'month', 'year'] as Period[]).map((p: Period) => (
