@@ -3,9 +3,11 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export type MatchedRole =
   | { type: 'staff' }
-  | { type: 'owner';  owner_id: number;       association_code: string; association_name: string; firstName?: string; lastName?: string }
-  | { type: 'board';  board_member_id: string; association_code: string; association_name: string; position: string | null; firstName?: string; lastName?: string }
-  | { type: 'tenant'; association_code: string; association_name: string }
+  | { type: 'owner';            owner_id: number;           association_code: string; association_name: string; firstName?: string; lastName?: string }
+  | { type: 'board';            board_member_id: string;    association_code: string; association_name: string; position: string | null; firstName?: string; lastName?: string }
+  | { type: 'tenant';           association_code: string;   association_name: string }
+  | { type: 'unit_manager';     unit_manager_id: string;    association_code: string; association_name: string; managed_units: string[]; firstName?: string; lastName?: string }
+  | { type: 'building_manager'; building_manager_id: string; association_code: string; association_name: string; firstName?: string; lastName?: string }
 
 export async function POST(req: NextRequest) {
   const { firstName, lastName, email, phone } = await req.json()
@@ -42,6 +44,10 @@ export async function POST(req: NextRequest) {
     prevOwnerPhoneRes,
     boardEmailRes,
     boardPhoneRes,
+    unitMgrEmailRes,
+    unitMgrPhoneRes,
+    bldgMgrEmailRes,
+    bldgMgrPhoneRes,
   ] = await Promise.all([
     staffOr
       ? supabaseAdmin.from('pmi_staff').select('id').eq('active', true).or(staffOr).limit(1).single()
@@ -94,6 +100,40 @@ export async function POST(req: NextRequest) {
     digits.length >= 7
       ? supabaseAdmin.from('board_members')
           .select('id, association_code, first_name, last_name, position')
+          .eq('active', true)
+          .ilike('phone', `%${digits}%`)
+          .limit(5)
+      : Promise.resolve({ data: [] }),
+
+    // Unit managers
+    email
+      ? supabaseAdmin.from('unit_managers')
+          .select('id, association_code, first_name, last_name, managed_units')
+          .eq('active', true)
+          .ilike('email', `%${email}%`)
+          .limit(5)
+      : Promise.resolve({ data: [] }),
+
+    digits.length >= 7
+      ? supabaseAdmin.from('unit_managers')
+          .select('id, association_code, first_name, last_name, managed_units')
+          .eq('active', true)
+          .ilike('phone', `%${digits}%`)
+          .limit(5)
+      : Promise.resolve({ data: [] }),
+
+    // Building managers
+    email
+      ? supabaseAdmin.from('building_managers')
+          .select('id, association_code, first_name, last_name')
+          .eq('active', true)
+          .ilike('email', `%${email}%`)
+          .limit(5)
+      : Promise.resolve({ data: [] }),
+
+    digits.length >= 7
+      ? supabaseAdmin.from('building_managers')
+          .select('id, association_code, first_name, last_name')
           .eq('active', true)
           .ilike('phone', `%${digits}%`)
           .limit(5)
@@ -157,6 +197,77 @@ export async function POST(req: NextRequest) {
         association_code: row.association_code,
         association_name: nameMap[row.association_code] ?? row.association_code,
         position: row.position ?? null,
+        firstName: row.first_name ?? undefined,
+        lastName:  row.last_name  ?? undefined,
+      })
+    }
+  }
+
+  // ── Unit managers — merge + deduplicate ───────────────────────────────────
+  type UnitMgrRow = { id: string; association_code: string; first_name?: string | null; last_name?: string | null; managed_units?: string[] | null }
+  const unitMgrRows: UnitMgrRow[] = [
+    ...((unitMgrEmailRes as { data: UnitMgrRow[] }).data ?? []),
+    ...((unitMgrPhoneRes  as { data: UnitMgrRow[] }).data ?? []),
+  ]
+  const seenUnitMgr = new Set<string>()
+  const unitMgrMatches: UnitMgrRow[] = []
+  for (const row of unitMgrRows) {
+    if (seenUnitMgr.has(row.id) || !nameMatches(row) || !row.association_code) continue
+    seenUnitMgr.add(row.id)
+    unitMgrMatches.push(row)
+  }
+
+  if (unitMgrMatches.length > 0) {
+    const codes = [...new Set(unitMgrMatches.map(r => r.association_code))]
+    const { data: assocs } = await supabaseAdmin
+      .from('associations')
+      .select('association_code, association_name')
+      .in('association_code', codes)
+    const nameMap: Record<string, string> = {}
+    assocs?.forEach(a => { nameMap[a.association_code] = a.association_name })
+
+    for (const row of unitMgrMatches) {
+      roles.push({
+        type: 'unit_manager',
+        unit_manager_id: row.id,
+        association_code: row.association_code,
+        association_name: nameMap[row.association_code] ?? row.association_code,
+        managed_units: row.managed_units ?? [],
+        firstName: row.first_name ?? undefined,
+        lastName:  row.last_name  ?? undefined,
+      })
+    }
+  }
+
+  // ── Building managers — merge + deduplicate ────────────────────────────────
+  type BldgMgrRow = { id: string; association_code: string; first_name?: string | null; last_name?: string | null }
+  const bldgMgrRows: BldgMgrRow[] = [
+    ...((bldgMgrEmailRes as { data: BldgMgrRow[] }).data ?? []),
+    ...((bldgMgrPhoneRes  as { data: BldgMgrRow[] }).data ?? []),
+  ]
+  const seenBldgMgr = new Set<string>()
+  const bldgMgrMatches: BldgMgrRow[] = []
+  for (const row of bldgMgrRows) {
+    if (seenBldgMgr.has(row.id) || !nameMatches(row) || !row.association_code) continue
+    seenBldgMgr.add(row.id)
+    bldgMgrMatches.push(row)
+  }
+
+  if (bldgMgrMatches.length > 0) {
+    const codes = [...new Set(bldgMgrMatches.map(r => r.association_code))]
+    const { data: assocs } = await supabaseAdmin
+      .from('associations')
+      .select('association_code, association_name')
+      .in('association_code', codes)
+    const nameMap: Record<string, string> = {}
+    assocs?.forEach(a => { nameMap[a.association_code] = a.association_name })
+
+    for (const row of bldgMgrMatches) {
+      roles.push({
+        type: 'building_manager',
+        building_manager_id: row.id,
+        association_code: row.association_code,
+        association_name: nameMap[row.association_code] ?? row.association_code,
         firstName: row.first_name ?? undefined,
         lastName:  row.last_name  ?? undefined,
       })

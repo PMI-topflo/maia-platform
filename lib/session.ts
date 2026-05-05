@@ -10,7 +10,7 @@ const dec = new TextDecoder()
 
 export interface SessionData {
   userId:          string | number
-  persona:         'owner' | 'board' | 'staff' | 'tenant'
+  persona:         'owner' | 'board' | 'staff' | 'tenant' | 'unit_manager' | 'building_manager'
   associationCode: string
   displayName:     string
   contactName:     string

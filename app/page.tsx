@@ -18,9 +18,11 @@ type View =
 
 type MatchedRole =
   | { type: 'staff' }
-  | { type: 'owner';  owner_id: number; association_code: string; association_name: string }
-  | { type: 'board';  board_member_id: string; association_code: string; association_name: string; position: string | null }
-  | { type: 'tenant'; association_code: string; association_name: string }
+  | { type: 'owner';            owner_id: number;            association_code: string; association_name: string }
+  | { type: 'board';            board_member_id: string;     association_code: string; association_name: string; position: string | null }
+  | { type: 'tenant';           association_code: string;    association_name: string }
+  | { type: 'unit_manager';     unit_manager_id: string;     association_code: string; association_name: string; managed_units: string[] }
+  | { type: 'building_manager'; building_manager_id: string; association_code: string; association_name: string }
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -463,10 +465,12 @@ export default function Home() {
         // Reconstruct savedPersona from session when sessionStorage was cleared (e.g. new tab)
         if (!sp) {
           let role: MatchedRole | null = null
-          if (p === 'staff')  role = { type: 'staff' }
-          if (p === 'owner')  role = { type: 'owner',  owner_id: 0, association_code: ac, association_name: dn }
-          if (p === 'board')  role = { type: 'board',  board_member_id: '', association_code: ac, association_name: dn, position: null }
-          if (p === 'tenant') role = { type: 'tenant', association_code: ac, association_name: dn }
+          if (p === 'staff')            role = { type: 'staff' }
+          if (p === 'owner')            role = { type: 'owner',            owner_id: 0,           association_code: ac, association_name: dn }
+          if (p === 'board')            role = { type: 'board',            board_member_id: '',    association_code: ac, association_name: dn, position: null }
+          if (p === 'tenant')           role = { type: 'tenant',           association_code: ac,   association_name: dn }
+          if (p === 'unit_manager')     role = { type: 'unit_manager',     unit_manager_id: '',    association_code: ac, association_name: dn, managed_units: [] }
+          if (p === 'building_manager') role = { type: 'building_manager', building_manager_id: '', association_code: ac, association_name: dn }
           if (role) {
             setSavedPersona(role)
             try { sessionStorage.setItem('maia_persona', JSON.stringify(role)) } catch { /* ignore */ }
@@ -532,10 +536,12 @@ export default function Home() {
   }
 
   function portalUrl(role: MatchedRole): string {
-    if (role.type === 'staff')  return '/admin'
-    if (role.type === 'owner')  return role.owner_id > 0 ? `/my-account?id=${role.owner_id}&assoc=${role.association_code}` : '/my-account'
-    if (role.type === 'board')  return role.board_member_id ? `/board?id=${role.board_member_id}&assoc=${role.association_code}` : '/board'
-    if (role.type === 'tenant') return `/my-account?assoc=${role.association_code}`
+    if (role.type === 'staff')            return '/admin'
+    if (role.type === 'owner')            return role.owner_id > 0 ? `/my-account?id=${role.owner_id}&assoc=${role.association_code}` : '/my-account'
+    if (role.type === 'board')            return role.board_member_id ? `/board?id=${role.board_member_id}&assoc=${role.association_code}` : '/board'
+    if (role.type === 'tenant')           return `/my-account?assoc=${role.association_code}`
+    if (role.type === 'unit_manager')     return '/unit-manager'
+    if (role.type === 'building_manager') return '/building-manager'
     return '/'
   }
 
@@ -927,9 +933,11 @@ export default function Home() {
                     {savedPersona && (() => {
                       const firstName = (sessionContact || '').split(' ')[0] || null
                       const subtitle =
-                        savedPersona.type === 'staff'  ? 'Ready to access your PMI Staff Dashboard?' :
-                        savedPersona.type === 'owner'  ? `Your ${savedPersona.association_name} account is ready.` :
-                        savedPersona.type === 'board'  ? `Your board portal for ${savedPersona.association_name} is ready.` :
+                        savedPersona.type === 'staff'            ? 'Ready to access your PMI Staff Dashboard?' :
+                        savedPersona.type === 'owner'            ? `Your ${savedPersona.association_name} account is ready.` :
+                        savedPersona.type === 'board'            ? `Your board portal for ${savedPersona.association_name} is ready.` :
+                        savedPersona.type === 'unit_manager'     ? `Your unit manager portal for ${savedPersona.association_name} is ready.` :
+                        savedPersona.type === 'building_manager' ? `Your building manager portal for ${savedPersona.association_name} is ready.` :
                         `Your ${savedPersona.association_name} portal is ready.`
                       return (
                         <div className="mb-4 rounded-[4px] overflow-hidden maia-fade" style={{ background: 'linear-gradient(135deg, rgba(242,106,27,0.10) 0%, rgba(242,106,27,0.04) 100%)', border: '1px solid rgba(242,106,27,0.22)' }}>
@@ -939,9 +947,11 @@ export default function Home() {
                             </div>
                             <div className="text-[1.1rem] font-light text-white [font-family:var(--font-display)] leading-snug mb-1">
                               {firstName ? `${firstName}! 👋` : (hasSession ? 'Good to see you! 👋' : (
-                                savedPersona.type === 'staff'  ? 'PMI Staff Dashboard' :
-                                savedPersona.type === 'owner'  ? `Unit Owner — ${savedPersona.association_name}` :
-                                savedPersona.type === 'board'  ? `Board — ${savedPersona.association_name}` :
+                                savedPersona.type === 'staff'            ? 'PMI Staff Dashboard' :
+                                savedPersona.type === 'owner'            ? `Unit Owner — ${savedPersona.association_name}` :
+                                savedPersona.type === 'board'            ? `Board — ${savedPersona.association_name}` :
+                                savedPersona.type === 'unit_manager'     ? `Unit Manager — ${savedPersona.association_name}` :
+                                savedPersona.type === 'building_manager' ? `Building Manager — ${savedPersona.association_name}` :
                                 `Tenant — ${savedPersona.association_name}`
                               ))}
                             </div>

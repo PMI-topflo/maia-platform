@@ -62,13 +62,15 @@ export async function POST(req: NextRequest) {
   let assocCode               = ''
   let displayName             = ''
   let contactName             = ''
-  let sessionPersona: 'owner' | 'board' | 'staff' | 'tenant' = 'owner'
+  let sessionPersona: 'owner' | 'board' | 'staff' | 'tenant' | 'unit_manager' | 'building_manager' = 'owner'
 
   if (role) {
-    if (role.type === 'staff')  { userId = 'staff';               sessionPersona = 'staff';  assocCode = 'PMI' }
-    if (role.type === 'owner')  { userId = role.owner_id;         sessionPersona = 'owner';  assocCode = role.association_code; displayName = role.association_name; contactName = [role.firstName, role.lastName].filter(Boolean).join(' ') }
-    if (role.type === 'board')  { userId = role.board_member_id;  sessionPersona = 'board';  assocCode = role.association_code; displayName = role.association_name; contactName = [role.firstName, role.lastName].filter(Boolean).join(' ') }
-    if (role.type === 'tenant') { userId = identifier.trim();     sessionPersona = 'tenant'; assocCode = role.association_code; displayName = role.association_name }
+    if (role.type === 'staff')            { userId = 'staff';                    sessionPersona = 'staff';            assocCode = 'PMI' }
+    if (role.type === 'owner')            { userId = role.owner_id;              sessionPersona = 'owner';            assocCode = role.association_code; displayName = role.association_name; contactName = [role.firstName, role.lastName].filter(Boolean).join(' ') }
+    if (role.type === 'board')            { userId = role.board_member_id;       sessionPersona = 'board';            assocCode = role.association_code; displayName = role.association_name; contactName = [role.firstName, role.lastName].filter(Boolean).join(' ') }
+    if (role.type === 'tenant')           { userId = identifier.trim();          sessionPersona = 'tenant';           assocCode = role.association_code; displayName = role.association_name }
+    if (role.type === 'unit_manager')     { userId = role.unit_manager_id;       sessionPersona = 'unit_manager';     assocCode = role.association_code; displayName = role.association_name; contactName = [role.firstName, role.lastName].filter(Boolean).join(' ') }
+    if (role.type === 'building_manager') { userId = role.building_manager_id;   sessionPersona = 'building_manager'; assocCode = role.association_code; displayName = role.association_name; contactName = [role.firstName, role.lastName].filter(Boolean).join(' ') }
   }
 
   // For staff, look up their name from pmi_staff using the identifier (email)

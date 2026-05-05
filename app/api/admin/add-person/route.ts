@@ -77,5 +77,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
+  if (type === 'unit_manager') {
+    const { first_name, last_name, email, phone, association_code, managed_units, company_name, notes } = data
+    if (!first_name || !last_name || !association_code) {
+      return NextResponse.json({ ok: false, error: 'First name, last name, and association are required' }, { status: 400 })
+    }
+    const { error } = await supabaseAdmin.from('unit_managers').insert({
+      first_name, last_name, email: email || null, phone: phone || null,
+      association_code, managed_units: managed_units ?? [],
+      company_name: company_name || null, notes: notes || null, active: true,
+    })
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
+  if (type === 'building_manager') {
+    const { first_name, last_name, email, phone, association_code, company_name, notes } = data
+    if (!first_name || !last_name || !association_code) {
+      return NextResponse.json({ ok: false, error: 'First name, last name, and association are required' }, { status: 400 })
+    }
+    const { error } = await supabaseAdmin.from('building_managers').insert({
+      first_name, last_name, email: email || null, phone: phone || null,
+      association_code, company_name: company_name || null, notes: notes || null, active: true,
+    })
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
   return NextResponse.json({ ok: false, error: 'Unknown type' }, { status: 400 })
 }
