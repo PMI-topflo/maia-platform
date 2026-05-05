@@ -86,10 +86,23 @@ export default function OmnichannelClient({
     [items]
   )
 
-  // Only show associations that actually have records in the loaded data
+  // Build dropdown from codes that actually appear in the data.
+  // Look up display names from the associations table; fall back to the raw code.
   const activeAssociations = useMemo(() => {
-    const codes = new Set(items.map(i => i.association_code).filter(Boolean))
-    return associations.filter(a => codes.has(a.association_code))
+    const nameMap = new Map(associations.map(a => [a.association_code, a.association_name || a.association_code]))
+    const countMap = new Map<string, number>()
+    for (const item of items) {
+      if (item.association_code) {
+        countMap.set(item.association_code, (countMap.get(item.association_code) ?? 0) + 1)
+      }
+    }
+    return [...countMap.entries()]
+      .sort(([a], [b]) => (nameMap.get(a) ?? a).localeCompare(nameMap.get(b) ?? b))
+      .map(([code, count]) => ({
+        association_code: code,
+        association_name: nameMap.get(code) ?? code,
+        count,
+      }))
   }, [items, associations])
 
   const filtered = useMemo(
@@ -118,14 +131,11 @@ export default function OmnichannelClient({
           className="border border-gray-200 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:border-gray-400"
         >
           <option value="">All Associations ({items.length})</option>
-          {activeAssociations.map((a: Association) => {
-            const count = items.filter((i: ConvItem) => i.association_code === a.association_code).length
-            return (
-              <option key={a.association_code} value={a.association_code}>
-                {a.association_name || a.association_code} ({count})
-              </option>
-            )
-          })}
+          {activeAssociations.map((a: { association_code: string; association_name: string; count: number }) => (
+            <option key={a.association_code} value={a.association_code}>
+              {a.association_name} ({a.count})
+            </option>
+          ))}
         </select>
 
         <select
