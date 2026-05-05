@@ -87,6 +87,7 @@ export default function OmnichannelClient({
   // Rentvine residential contacts
   const [rentvineContacts, setRentvineContacts] = useState<RentvineContact[]>([])
   const [rentvineLoading, setRentvineLoading]   = useState(false)
+  const [rentvineLoaded, setRentvineLoaded]     = useState(false)
   const [rentvineFilter, setRentvineFilter]     = useState('')
 
   // AI summary
@@ -110,16 +111,17 @@ export default function OmnichannelClient({
     [knownAssocCodes]
   )
 
-  // Fetch Rentvine contacts when switching to residential view
+  // Fetch Rentvine contacts once when first switching to residential view.
+  // rentvineLoaded prevents re-fetch even if the result is an empty array.
   useEffect(() => {
-    if (view !== 'residential' || rentvineContacts.length > 0 || rentvineLoading) return
+    if (view !== 'residential' || rentvineLoaded || rentvineLoading) return
     setRentvineLoading(true)
     fetch('/api/admin/omnichannel/rentvine-contacts')
       .then(r => r.json())
       .then(d => setRentvineContacts(d.contacts ?? []))
       .catch(() => {})
-      .finally(() => setRentvineLoading(false))
-  }, [view, rentvineContacts.length, rentvineLoading])
+      .finally(() => { setRentvineLoading(false); setRentvineLoaded(true) })
+  }, [view, rentvineLoaded, rentvineLoading])
 
   const personas = useMemo(
     () => [...new Set(items.map(i => i.persona).filter(Boolean))] as string[],

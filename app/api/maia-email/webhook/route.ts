@@ -173,7 +173,8 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
       if (['out of office', 'auto-reply', 'automatic reply', 'delivery failed', 'undeliverable'].some(s => subjectLow.includes(s))) continue
       if (['maia@', 'noreply@', 'no-reply@', 'mailer-daemon@'].some(s => parsed.senderEmail.toLowerCase().includes(s))) continue
 
-      const assocCode = await detectAssociationCode(parsed.subject + ' ' + parsed.body)
+      // Strict mode: only match explicit account-number patterns (e.g. ESSI16)
+      const assocCode = await detectAssociationCode(parsed.subject + ' ' + parsed.body, true)
 
       void logEmail({
         direction:       'inbound',

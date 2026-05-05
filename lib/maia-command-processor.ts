@@ -789,7 +789,9 @@ const AUTO_REPLY_SENDERS  = ['maia@', 'noreply@', 'no-reply@', 'mailer-daemon@']
 // Cache association codes for the lifetime of the process to avoid repeated DB lookups
 let _assocCodeCache: Array<{ code: string; name: string }> | null = null
 
-export async function detectAssociationCode(text: string): Promise<string | null> {
+// strict=true → only match explicit account-number patterns like "ESSI16"
+// strict=false → also try bare code and association name (more false positives)
+export async function detectAssociationCode(text: string, strict = false): Promise<string | null> {
   if (!_assocCodeCache) {
     const { data } = await supabaseAdmin
       .from('associations')
@@ -805,8 +807,8 @@ export async function detectAssociationCode(text: string): Promise<string | null
   const cache = _assocCodeCache
   const upper = text.toUpperCase()
 
-  // 1. Most reliable: account-number pattern (e.g. ESSI16 → ESSI, ABBO5 → ABBO)
-  //    Require prefix to be at least 3 chars to avoid false positives (e.g. "FL22")
+  // Most reliable: explicit account-number pattern (e.g. ESSI16 → ESSI, MANXI23 → MANXI)
+  // Require prefix ≥ 3 chars to avoid "FL22" style false positives
   const acctMatch = upper.match(/\b([A-Z]{3,6})\d{1,3}\b/)
   if (acctMatch) {
     const prefix = acctMatch[1]
@@ -814,15 +816,17 @@ export async function detectAssociationCode(text: string): Promise<string | null
     if (hit) return hit.code
   }
 
-  // 2. Bare code — require word boundary AND at least 4 characters to avoid
-  //    matching short codes like "AB" inside common English words ("cable", "tab")
+  // In strict mode we stop here — email logs use strict to avoid cross-contamination
+  if (strict) return null
+
+  // Bare code at word boundary, min 4 chars (loose — can still produce false positives)
   for (const a of cache) {
     if (a.code && a.code.length >= 4) {
       if (new RegExp(`\\b${a.code}\\b`).test(upper)) return a.code
     }
   }
 
-  // 3. Full association name — require word boundary, only try names ≥ 6 chars
+  // Full association name at word boundary, min 6 chars
   for (const a of cache) {
     if (a.name && a.name.length >= 6) {
       const escaped = a.name.toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -975,8 +979,10 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     console.log(`[MAIA] body_tail="${parsed.body.slice(-150).replace(/\n/g,'↵')}"`)
     console.log(`[MAIA] body_hex_tail="${Buffer.from(parsed.body.slice(-50)).toString('hex')}"`)
 
-    // Log every inbound email so the omnichannel view is complete
-    detectAssociationCode(parsed.subject + ' ' + parsed.body).then(assocCode => {
+    // Log every inbound email so the omnichannel view is complete.
+    // Use strict mode: only trust explicit account-number patterns to avoid
+    // cross-contamination between associations from incidental email body mentions.
+    detectAssociationCode(parsed.subject + ' ' + parsed.body, true).then(assocCode => {
       void logEmail({
         direction:       'inbound',
         fromEmail:       parsed.senderEmail,
