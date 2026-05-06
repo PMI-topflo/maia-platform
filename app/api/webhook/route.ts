@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
+import { findOrCreateTicket, appendMessage, createTicket } from '@/lib/tickets'
 
 function getSupabase() {
   const env = process.env;
@@ -590,12 +591,21 @@ async function processFeedbackReply(phone: string, message: string, ctx: CallerC
   const isNegative = (starsValue !== null && starsValue <= 2) || thumbsValue === 'down'
 
   if (isNegative) {
-    await getSupabase().from('board_tickets').insert({
-      ticket_type: 'feedback_review',
-      subject: `⚠️ Low Rating — ${data.flowType.replace(/_/g, ' ')} (${starsValue ? starsValue + '★' : '👎'})`,
-      description: `Phone: ${phone}\nPersona: ${data.persona}\nFlow: ${data.flowType}\nComment: ${comment ?? 'None'}\nAI Suggestion: ${analysis.improvement}`,
-      priority: starsValue === 1 ? 'urgent' : 'high',
-      status: 'open', channel_source: 'feedback', created_at: new Date().toISOString(),
+    const subject     = `⚠️ Low Rating — ${data.flowType.replace(/_/g, ' ')} (${starsValue ? starsValue + '★' : '👎'})`
+    const description = `Phone: ${phone}\nPersona: ${data.persona}\nFlow: ${data.flowType}\nComment: ${comment ?? 'None'}\nAI Suggestion: ${analysis.improvement}`
+    const ticket = await createTicket({
+      channel_origin: data.channel as 'sms' | 'whatsapp' | 'phone',
+      priority:       starsValue === 1 ? 'urgent' : 'high',
+      persona:        data.persona,
+      contact_phone:  phone,
+      subject,
+      summary:        description,
+    })
+    await appendMessage(ticket.id, {
+      direction: 'internal_note',
+      channel:   'internal',
+      from_addr: 'system',
+      body:      description,
     })
     if (starsValue === 1) {
       await notifyTeamByEmail(process.env.STAFF_EMAIL!, `🚨 1-Star Rating — ${data.flowType.replace(/_/g, ' ')}`,
@@ -1351,6 +1361,44 @@ async function logConversation(phone: string, inbound: string, outbound: string,
     created_at:    new Date().toISOString(),
     updated_at:    new Date().toISOString(),
   })
+
+  // Mirror into the ticket primitive so SMS/WhatsApp/voice show up in the
+  // unified dashboard. Auto-threads onto the contact's open ticket if one
+  // exists within the recency window; otherwise creates a new ticket.
+  void ingestTwilioConversationToTicket(phone, inbound, outbound, ctx)
+}
+
+async function ingestTwilioConversationToTicket(
+  phone: string,
+  inbound: string,
+  outbound: string,
+  ctx: CallerContext,
+): Promise<void> {
+  try {
+    const channelOrigin = ctx.channel === 'voice' ? 'phone' : ctx.channel
+    const ticket = await findOrCreateTicket({
+      channel_origin:   channelOrigin,
+      persona:          ctx.persona,
+      contact_name:     ctx.name !== 'there' ? ctx.name : null,
+      contact_phone:    phone,
+      subject:          inbound.slice(0, 120),
+      summary:          inbound.slice(0, 280),
+    })
+    await appendMessage(ticket.id, {
+      direction: 'inbound',
+      channel:   channelOrigin,
+      from_addr: phone,
+      body:      inbound,
+    })
+    await appendMessage(ticket.id, {
+      direction: 'outbound',
+      channel:   channelOrigin,
+      to_addr:   phone,
+      body:      outbound,
+    })
+  } catch (err) {
+    console.error('[tickets] ingest twilio conversation failed:', err instanceof Error ? err.message : err)
+  }
 }
 
 // ============================================================

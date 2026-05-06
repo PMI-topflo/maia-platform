@@ -20,8 +20,8 @@ async function getData() {
       .order('created_at', { ascending: false })
       .limit(200),
     supabaseAdmin
-      .from('board_tickets')
-      .select('id, title, subject, description, type, ticket_type, status, priority, association_code, channel_source, contact_name, contact_phone, contact_email, persona, assigned_to, created_by, created_at, updated_at')
+      .from('tickets')
+      .select('id, title:ticket_number, subject, description:summary, type, ticket_type:type, status, priority, association_code, channel_source:channel_origin, contact_name, contact_phone, contact_email, persona, assigned_to:assignee_email, created_at, updated_at')
       .order('created_at', { ascending: false })
       .limit(100),
     supabaseAdmin

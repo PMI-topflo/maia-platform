@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { logEmail } from '@/lib/email-logger'
+import { findOrCreateTicket, findOpenTicketByGmailThread, appendMessage } from '@/lib/tickets'
 import {
   fetchGmailMessage,
   fetchGmailAttachmentData,
@@ -932,6 +933,17 @@ ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join(
       sentBy:    'maia-general',
     })
 
+    // Append the AI's outbound reply to the same ticket so the dashboard
+    // shows the full thread in one place.
+    void appendOutboundEmailToTicket({
+      threadId:   parsed.threadId,
+      toEmail:    parsed.senderEmail,
+      subject:    replySubject,
+      bodyHtml:   replyHtml,
+      bodyText:   aiText,
+      externalId: replyMsgId ?? null,
+    })
+
     await supabaseAdmin
       .from('general_conversations')
       .update({
@@ -949,6 +961,69 @@ ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join(
       .from('general_conversations')
       .update({ status: 'failed', error_message: msg, updated_at: new Date().toISOString() })
       .eq('id', convRow.id)
+  }
+}
+
+// ── Ticket ingest ─────────────────────────────────────────────────────────────
+
+async function ingestInboundEmailToTicket(
+  parsed:    ParsedEmail,
+  allowed:   boolean,
+  assocCode: string | null,
+): Promise<void> {
+  try {
+    const ticket = await findOrCreateTicket({
+      channel_origin:   'email',
+      association_code: assocCode,
+      persona:          allowed ? 'staff' : 'external',
+      contact_name:     parsed.senderName || null,
+      contact_email:    parsed.senderEmail,
+      subject:          parsed.subject,
+      summary:          parsed.body.slice(0, 280),
+      gmail_thread_id:  parsed.threadId || null,
+    })
+    await appendMessage(ticket.id, {
+      direction:   'inbound',
+      channel:     'email',
+      from_addr:   parsed.senderEmail,
+      to_addr:     'maia@pmitop.com',
+      subject:     parsed.subject,
+      body:        parsed.body,
+      external_id: parsed.messageId,
+      attachments: parsed.attachments.map(a => ({
+        filename: a.filename, mimeType: a.mimeType, size: a.size,
+      })),
+    })
+  } catch (err) {
+    console.error('[tickets] ingest inbound email failed:', err instanceof Error ? err.message : err)
+  }
+}
+
+async function appendOutboundEmailToTicket(opts: {
+  threadId:    string
+  toEmail:     string
+  subject:     string
+  bodyHtml:    string
+  bodyText:    string
+  externalId:  string | null
+}): Promise<void> {
+  try {
+    // The inbound message that triggered this reply already created the
+    // ticket on the same gmail_thread_id, so this lookup should hit.
+    const ticket = await findOpenTicketByGmailThread(opts.threadId)
+    if (!ticket) return
+    await appendMessage(ticket.id, {
+      direction:   'outbound',
+      channel:     'email',
+      from_addr:   'maia@pmitop.com',
+      to_addr:     opts.toEmail,
+      subject:     opts.subject,
+      body:        opts.bodyText,
+      body_html:   opts.bodyHtml,
+      external_id: opts.externalId,
+    })
+  } catch (err) {
+    console.error('[tickets] append outbound email failed:', err instanceof Error ? err.message : err)
   }
 }
 
@@ -993,6 +1068,7 @@ export async function processEmailCommand(messageId: string): Promise<void> {
         associationCode: assocCode ?? undefined,
         status:          'received',
       })
+      void ingestInboundEmailToTicket(parsed, allowed, assocCode ?? null)
     }).catch(() => {
       void logEmail({
         direction: 'inbound',
@@ -1003,6 +1079,7 @@ export async function processEmailCommand(messageId: string): Promise<void> {
         persona:   allowed ? 'staff' : 'external',
         status:    'received',
       })
+      void ingestInboundEmailToTicket(parsed, allowed, null)
     })
 
     if (!trigger) {

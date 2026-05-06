@@ -44,7 +44,7 @@ interface EmailLog {
 }
 
 interface Ticket {
-  id: string
+  id: string | number
   title: string | null
   subject: string | null
   description: string | null
@@ -59,7 +59,7 @@ interface Ticket {
   contact_email: string | null
   persona: string | null
   assigned_to: string | null
-  created_by: string | null
+  created_by?: string | null
   created_at: string
   updated_at: string
 }
@@ -506,7 +506,7 @@ function TicketsTab({ tickets, staff }: { tickets: Ticket[]; staff: Staff[] }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-sm text-gray-900">
-                      {t.title ?? t.subject ?? `Ticket ${t.id.slice(0, 8)}`}
+                      {t.title ?? t.subject ?? `Ticket ${String(t.id).slice(0, 8)}`}
                     </span>
                     {statusBadge(t.status)}
                     {priorityBadge(t.priority)}

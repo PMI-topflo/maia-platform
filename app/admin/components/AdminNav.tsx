@@ -10,7 +10,6 @@ const NAV_ITEMS = [
   { label: 'Registrations',     href: '/admin/registrations' },
   { label: 'Applications',      href: '/admin/applications' },
   { label: 'Approvals',         href: '/admin/pending-approvals' },
-  { label: 'Omnichannel',       href: '/admin/omnichannel' },
   { label: 'Ownership',         href: '/admin/ownership-history' },
   { label: 'Tenancy',           href: '/admin/tenancy-history' },
   { label: 'Logins',            href: '/admin/login-history' },

@@ -25,7 +25,7 @@ export default async function OverviewPage() {
     supabaseAdmin.from('applications').select('id', { count: 'exact', head: true }).eq('board_approval_status', 'pending').eq('stripe_payment_status', 'paid'),
     supabaseAdmin.from('real_estate_agents').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     supabaseAdmin.from('vendors').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-    supabaseAdmin.from('board_tickets').select('id', { count: 'exact', head: true }).neq('status', 'resolved').neq('status', 'closed'),
+    supabaseAdmin.from('tickets').select('id', { count: 'exact', head: true }).in('status', ['open', 'pending', 'waiting_external']),
     supabaseAdmin.from('maia_email_commands').select('id', { count: 'exact', head: true }).eq('status', 'error'),
     supabaseAdmin.from('owners').select('id', { count: 'exact', head: true }).or('status.neq.previous,status.is.null'),
     supabaseAdmin.from('association_tenants').select('id', { count: 'exact', head: true }).eq('status', 'active'),
@@ -80,12 +80,6 @@ export default async function OverviewPage() {
       href: '/admin/communications',
       badge: totalTickets || null,
       stats: [`${totalTickets ?? 0} open tickets`],
-    },
-    {
-      label: 'Omnichannel',
-      href: '/admin/omnichannel',
-      badge: null,
-      stats: [`${tenantCount ?? 0} active tenants`, `${totalConvs ?? 0} conversations`],
     },
     {
       label: 'Ownership History',
