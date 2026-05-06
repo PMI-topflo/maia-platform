@@ -120,35 +120,58 @@ interface ProbeResult {
   hint:        string
 }
 
-async function probe(path: string, hint: string): Promise<ProbeResult> {
+// Resolved at runtime — the prefix that returned real JSON during discovery.
+let API_PREFIX = ''
+
+async function rawFetch(path: string): Promise<{
+  status: number
+  contentType: string | null
+  body: unknown
+  isJson: boolean
+  isHtml: boolean
+  parseError: string | null
+}> {
   const url = `${BASE}${path.startsWith('/') ? path : '/' + path}`
+  const res = await fetch(url, {
+    method:  'GET',
+    headers: { Authorization: AUTH, Accept: 'application/json' },
+  })
+  const contentType = res.headers.get('content-type')
+  const isJson = !!contentType?.includes('json')
+  const isHtml = !!contentType?.includes('html')
+  let body: unknown = null
+  let parseError: string | null = null
   try {
-    const res = await fetch(url, {
-      method:  'GET',
-      headers: { Authorization: AUTH, Accept: 'application/json' },
-    })
-    const contentType = res.headers.get('content-type')
-    let body: unknown = null
-    let parseError: string | null = null
-    try {
-      body = contentType?.includes('json') ? await res.json() : await res.text()
-    } catch (e) {
-      parseError = e instanceof Error ? e.message : String(e)
-    }
+    body = isJson ? await res.json() : await res.text()
+  } catch (e) {
+    parseError = e instanceof Error ? e.message : String(e)
+  }
+  return { status: res.status, contentType, body, isJson, isHtml, parseError }
+}
+
+async function probe(path: string, hint: string): Promise<ProbeResult> {
+  const fullPath = `${API_PREFIX}${path.startsWith('/') ? path : '/' + path}`
+  try {
+    const { status, contentType, body, isJson, isHtml, parseError } = await rawFetch(fullPath)
+    // HTML response = we hit the SPA shell, not the API. Treat as failure.
+    const isApiResponse = isJson || (!isHtml && body !== null)
+    const ok = isApiResponse && status >= 200 && status < 300
     return {
-      endpoint:    path,
+      endpoint:    fullPath,
       method:      'GET',
-      status:      res.status,
-      ok:          res.ok,
+      status,
+      ok,
       contentType,
-      shape:       res.ok ? shapeOf(body) : null,
-      sample:      res.ok ? redact(body) : (typeof body === 'string' ? body.slice(0, 300) : redact(body)),
-      error:       parseError,
+      shape:       ok ? shapeOf(body) : null,
+      sample:      ok ? redact(body)
+                     : isHtml ? '<SPA HTML shell — not an API response>'
+                     : (typeof body === 'string' ? body.slice(0, 300) : redact(body)),
+      error:       parseError ?? (isHtml ? 'received HTML (likely SPA shell), not JSON' : null),
       hint,
     }
   } catch (err) {
     return {
-      endpoint:    path,
+      endpoint:    fullPath,
       method:      'GET',
       status:      null,
       ok:          false,
@@ -159,6 +182,26 @@ async function probe(path: string, hint: string): Promise<ProbeResult> {
       hint,
     }
   }
+}
+
+// Try a list of candidate prefixes against a known endpoint path; pick the first
+// one that returns real JSON. Falls back to '' if nothing works (so we still
+// produce a report).
+async function discoverApiPrefix(): Promise<{ prefix: string; tried: Array<{ prefix: string; status: number | null; isJson: boolean; isHtml: boolean }> }> {
+  const candidates = ['/api', '/api/v1', '/api/v2', '/v1', '/v2', '']
+  const tried: Array<{ prefix: string; status: number | null; isJson: boolean; isHtml: boolean }> = []
+  for (const prefix of candidates) {
+    try {
+      // Use /workorders as the canary — it should exist if the API is alive.
+      const { status, isJson, isHtml } = await rawFetch(`${prefix}/workorders?limit=1`)
+      tried.push({ prefix: prefix || '(none)', status, isJson, isHtml })
+      // Accept JSON regardless of 2xx/4xx — a structured 401/403/404 still proves we hit the API.
+      if (isJson) return { prefix, tried }
+    } catch (err) {
+      tried.push({ prefix: prefix || '(none)', status: null, isJson: false, isHtml: false })
+    }
+  }
+  return { prefix: '', tried }
 }
 
 // Pull a candidate id out of a list response (Rentvine seems to use mixed casing)
@@ -183,9 +226,21 @@ function extractId(body: unknown): string | null {
 }
 
 async function main() {
-  const report: { startedAt: string; base: string; results: ProbeResult[] } = {
+  // Step 0: figure out which path prefix actually serves the API (vs. the SPA).
+  const { prefix, tried } = await discoverApiPrefix()
+  API_PREFIX = prefix
+
+  const report: {
+    startedAt:  string
+    base:       string
+    apiPrefix:  string
+    discovery:  typeof tried
+    results:    ProbeResult[]
+  } = {
     startedAt: new Date().toISOString(),
     base:      BASE!,
+    apiPrefix: prefix || '(none — every candidate returned HTML or failed)',
+    discovery: tried,
     results:   [],
   }
 
@@ -229,7 +284,6 @@ async function main() {
   // --- Webhooks: can we subscribe instead of polling? ---
   report.results.push(await probe('/webhooks',              'Existing webhook subscriptions'))
   report.results.push(await probe('/webhooks/events',       'Available event types'))
-  report.results.push(await probe('/api/webhooks',          'Alternate webhook path'))
 
   // --- Rate limit / API root sniff ---
   report.results.push(await probe('/',                'API root (may return 404, that is informative)'))
