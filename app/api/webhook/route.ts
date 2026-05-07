@@ -1365,7 +1365,10 @@ async function logConversation(phone: string, inbound: string, outbound: string,
   // Mirror into the ticket primitive so SMS/WhatsApp/voice show up in the
   // unified dashboard. Auto-threads onto the contact's open ticket if one
   // exists within the recency window; otherwise creates a new ticket.
-  void ingestTwilioConversationToTicket(phone, inbound, outbound, ctx)
+  // Awaited (not fire-and-forget): Vercel can freeze the function immediately
+  // after the response, killing in-flight Promises mid-flight. The ticket
+  // ingest is several sequential Supabase calls and was getting cut off.
+  await ingestTwilioConversationToTicket(phone, inbound, outbound, ctx)
 }
 
 async function ingestTwilioConversationToTicket(

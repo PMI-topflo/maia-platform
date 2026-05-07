@@ -934,8 +934,9 @@ ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join(
     })
 
     // Append the AI's outbound reply to the same ticket so the dashboard
-    // shows the full thread in one place.
-    void appendOutboundEmailToTicket({
+    // shows the full thread in one place. Awaited (not fire-and-forget) for
+    // the same serverless reason described in processEmailCommand.
+    await appendOutboundEmailToTicket({
       threadId:   parsed.threadId,
       toEmail:    parsed.senderEmail,
       subject:    replySubject,
@@ -1057,30 +1058,28 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     // Log every inbound email so the omnichannel view is complete.
     // Use strict mode: only trust explicit account-number patterns to avoid
     // cross-contamination between associations from incidental email body mentions.
-    detectAssociationCode(parsed.subject + ' ' + parsed.body, true).then(assocCode => {
-      void logEmail({
-        direction:       'inbound',
-        fromEmail:       parsed.senderEmail,
-        toEmail:         'maia@pmitop.com',
-        subject:         parsed.subject,
-        fullBody:        parsed.body,
-        persona:         allowed ? 'staff' : 'external',
-        associationCode: assocCode ?? undefined,
-        status:          'received',
-      })
-      void ingestInboundEmailToTicket(parsed, allowed, assocCode ?? null)
-    }).catch(() => {
-      void logEmail({
-        direction: 'inbound',
-        fromEmail: parsed.senderEmail,
-        toEmail:   'maia@pmitop.com',
-        subject:   parsed.subject,
-        fullBody:  parsed.body,
-        persona:   allowed ? 'staff' : 'external',
-        status:    'received',
-      })
-      void ingestInboundEmailToTicket(parsed, allowed, null)
+    //
+    // The ticket ingest is *awaited* so it completes before processEmailCommand
+    // returns. Vercel's serverless runtime can freeze the container immediately
+    // after the handler returns, killing in-flight Promises mid-flight — which
+    // is why earlier fire-and-forget versions of this code created email_logs
+    // rows (single fast INSERT) but no tickets rows (6 sequential ops).
+    let assocCode: string | null = null
+    try {
+      assocCode = await detectAssociationCode(parsed.subject + ' ' + parsed.body, true)
+    } catch { /* fall through with null */ }
+
+    void logEmail({
+      direction:       'inbound',
+      fromEmail:       parsed.senderEmail,
+      toEmail:         'maia@pmitop.com',
+      subject:         parsed.subject,
+      fullBody:        parsed.body,
+      persona:         allowed ? 'staff' : 'external',
+      associationCode: assocCode ?? undefined,
+      status:          'received',
     })
+    await ingestInboundEmailToTicket(parsed, allowed, assocCode)
 
     if (!trigger) {
       // No @maia mention at all — check if thread is already active with MAIA
