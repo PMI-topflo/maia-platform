@@ -5,12 +5,13 @@ import { usePathname } from 'next/navigation'
 
 const NAV_ITEMS = [
   { label: 'Overview',          href: '/admin' },
+  { label: 'Tickets',           href: '/admin/tickets' },
+  { label: 'Work Orders',       href: '/admin/work-orders' },
   { label: 'Owners',            href: '/admin/owners' },
   { label: 'Communications',    href: '/admin/communications' },
   { label: 'Registrations',     href: '/admin/registrations' },
   { label: 'Applications',      href: '/admin/applications' },
   { label: 'Approvals',         href: '/admin/pending-approvals' },
-  { label: 'Omnichannel',       href: '/admin/omnichannel' },
   { label: 'Ownership',         href: '/admin/ownership-history' },
   { label: 'Tenancy',           href: '/admin/tenancy-history' },
   { label: 'Logins',            href: '/admin/login-history' },
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
 
 export default function AdminNav() {
   const pathname = usePathname()
+  const helpActive = pathname.startsWith('/admin/help')
 
   return (
     <div className="flex items-center gap-1 flex-wrap">
@@ -41,6 +43,20 @@ export default function AdminNav() {
           </Link>
         )
       })}
+
+      {/* Help — visually separated, always at the end, distinct accent */}
+      <Link
+        href="/admin/help"
+        title="Staff procedures + quick links"
+        className={[
+          '[font-family:var(--font-mono)] text-[0.6rem] uppercase tracking-[0.08em] px-3 py-1.5 rounded-[2px] transition-colors ml-2',
+          helpActive
+            ? 'text-white bg-[#f26a1b] border border-[#f26a1b]'
+            : 'text-[#f26a1b] border border-[#f26a1b]/40 hover:bg-[#f26a1b] hover:text-white',
+        ].join(' ')}
+      >
+        ? Help
+      </Link>
     </div>
   )
 }

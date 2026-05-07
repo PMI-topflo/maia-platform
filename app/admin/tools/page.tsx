@@ -68,7 +68,7 @@ export default function AdminToolsPage() {
   }, [])
 
   async function disconnect(gmail_address: string) {
-    if (!confirm(`Disconnect ${gmail_address}? Their emails will no longer appear in the omnichannel.`)) return
+    if (!confirm(`Disconnect ${gmail_address}? Their emails will no longer appear in the communications view.`)) return
     setDisconnecting(gmail_address)
     try {
       const res = await fetch('/api/auth/gmail-staff/disconnect', {
@@ -176,7 +176,7 @@ export default function AdminToolsPage() {
             <div>
               <h2 style={{ fontWeight: 700, margin: 0, fontSize: '1rem' }}>Connected Gmail Accounts</h2>
               <p style={{ color: '#6b7280', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
-                Staff Gmail inboxes connected to the omnichannel view. Each account requires a one-time authorization.
+                Staff Gmail inboxes connected to the unified communications view. Each account requires a one-time authorization.
               </p>
             </div>
             <a
