@@ -46,3 +46,26 @@ export async function sendWhatsAppOTP(to: string, otpCode: string): Promise<bool
   })
   return true
 }
+
+// ---------------------------------------------------------------------
+// Strict variants — return the Twilio message SID and throw on failure.
+// Use from interactive surfaces (e.g. the staff dashboard) where the
+// caller needs the sid for ticket dedupe and the error needs to surface
+// to the user instead of being silently logged.
+// ---------------------------------------------------------------------
+
+export async function sendSMSStrict(to: string, body: string): Promise<string> {
+  const result = await client.messages.create({
+    from: process.env.TWILIO_PHONE_NUMBER!,
+    to,
+    body,
+  })
+  return result.sid
+}
+
+export async function sendWhatsAppStrict(to: string, body: string): Promise<string> {
+  const waFrom = `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER ?? process.env.TWILIO_PHONE_NUMBER}`
+  const waTo   = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`
+  const result = await client.messages.create({ from: waFrom, to: waTo, body })
+  return result.sid
+}

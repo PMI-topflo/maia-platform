@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { appendMessage, type MessageDirection, type TicketChannel } from '@/lib/tickets'
 import { sendEmail } from '@/lib/gmail'
+import { sendSMSStrict, sendWhatsAppStrict } from '@/lib/twilio-send'
 import { logEmail } from '@/lib/email-logger'
 
 export const dynamic = 'force-dynamic'
@@ -122,6 +123,38 @@ export async function POST(
       body:        body.body,
       body_html:   html,
       external_id: externalId,
+    })
+    return NextResponse.json({ message })
+  }
+
+  // Outbound SMS / WhatsApp — send via Twilio, then record with the sid.
+  if (body.direction === 'outbound' && (body.channel === 'sms' || body.channel === 'whatsapp')) {
+    const recipient = body.to_addr ?? ticket.contact_phone
+    if (!recipient) {
+      return NextResponse.json({ error: 'No contact phone on this ticket' }, { status: 400 })
+    }
+
+    let sid: string
+    try {
+      sid = body.channel === 'whatsapp'
+        ? await sendWhatsAppStrict(recipient, body.body)
+        : await sendSMSStrict(recipient, body.body)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return NextResponse.json({ error: `${body.channel.toUpperCase()} send failed: ${msg}` }, { status: 500 })
+    }
+
+    const fromAddr = body.channel === 'whatsapp'
+      ? `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER ?? process.env.TWILIO_PHONE_NUMBER}`
+      : (process.env.TWILIO_PHONE_NUMBER ?? 'maia')
+
+    const message = await appendMessage(ticketId, {
+      direction:   'outbound',
+      channel:     body.channel,
+      from_addr:   fromAddr,
+      to_addr:     recipient,
+      body:        body.body,
+      external_id: sid,
     })
     return NextResponse.json({ message })
   }

@@ -114,7 +114,13 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
   const [priority,      setPriority]      = useState(ticket.priority)
   const [assignee,      setAssignee]      = useState(ticket.assignee_email ?? '')
   const [saving,        setSaving]        = useState<string | null>(null)
-  const [replyChannel,  setReplyChannel]  = useState<'email' | 'internal_note'>(ticket.channel_origin === 'email' ? 'email' : 'internal_note')
+  type ReplyChannel = 'email' | 'sms' | 'whatsapp' | 'internal_note'
+  const initialReplyChannel: ReplyChannel =
+    (ticket.channel_origin === 'email'    && ticket.contact_email) ? 'email'    :
+    (ticket.channel_origin === 'whatsapp' && ticket.contact_phone) ? 'whatsapp' :
+    (ticket.channel_origin === 'sms'      && ticket.contact_phone) ? 'sms'      :
+    'internal_note'
+  const [replyChannel,  setReplyChannel]  = useState<ReplyChannel>(initialReplyChannel)
   const [replyBody,     setReplyBody]     = useState('')
   const [sending,       setSending]       = useState(false)
   const [error,         setError]         = useState<string | null>(null)
@@ -147,7 +153,7 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
           direction: replyChannel === 'internal_note' ? 'internal_note' : 'outbound',
-          channel:   replyChannel === 'internal_note' ? 'internal'      : 'email',
+          channel:   replyChannel === 'internal_note' ? 'internal'      : replyChannel,
           body:      replyBody,
         }),
       })
@@ -216,48 +222,81 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
 
         {/* Reply box */}
         <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <button
-              onClick={() => setReplyChannel('email')}
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <ReplyTab
+              channel={replyChannel}
+              value="email"
+              label="✉️ Email"
+              activeClass="bg-[#f26a1b] text-white"
               disabled={!ticket.contact_email}
-              title={ticket.contact_email ? '' : 'No contact email on this ticket'}
-              className={[
-                'px-3 py-1 text-xs rounded font-medium',
-                replyChannel === 'email' ? 'bg-[#f26a1b] text-white' : 'bg-gray-100 text-gray-600',
-                !ticket.contact_email ? 'opacity-50 cursor-not-allowed' : '',
-              ].join(' ')}
-            >
-              ✉️ Email reply
-            </button>
-            <button
+              disabledTitle="No contact email on this ticket"
+              onClick={() => setReplyChannel('email')}
+            />
+            <ReplyTab
+              channel={replyChannel}
+              value="sms"
+              label="📱 SMS"
+              activeClass="bg-blue-500 text-white"
+              disabled={!ticket.contact_phone}
+              disabledTitle="No contact phone on this ticket"
+              onClick={() => setReplyChannel('sms')}
+            />
+            <ReplyTab
+              channel={replyChannel}
+              value="whatsapp"
+              label="💬 WhatsApp"
+              activeClass="bg-green-600 text-white"
+              disabled={!ticket.contact_phone}
+              disabledTitle="No contact phone on this ticket"
+              onClick={() => setReplyChannel('whatsapp')}
+            />
+            <ReplyTab
+              channel={replyChannel}
+              value="internal_note"
+              label="📝 Internal note"
+              activeClass="bg-yellow-500 text-white"
               onClick={() => setReplyChannel('internal_note')}
-              className={[
-                'px-3 py-1 text-xs rounded font-medium',
-                replyChannel === 'internal_note' ? 'bg-yellow-500 text-white' : 'bg-gray-100 text-gray-600',
-              ].join(' ')}
-            >
-              📝 Internal note
-            </button>
-            {replyChannel === 'email' && ticket.contact_email && (
+            />
+            {replyChannel === 'email'    && ticket.contact_email && (
               <span className="text-xs text-gray-500 ml-1">to <span className="font-mono">{ticket.contact_email}</span></span>
+            )}
+            {(replyChannel === 'sms' || replyChannel === 'whatsapp') && ticket.contact_phone && (
+              <span className="text-xs text-gray-500 ml-1">to <span className="font-mono">{ticket.contact_phone}</span></span>
             )}
           </div>
           <textarea
             value={replyBody}
             onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setReplyBody(e.target.value)}
             rows={5}
-            placeholder={replyChannel === 'email' ? 'Type your reply…' : 'Internal note (not visible to customer)…'}
+            placeholder={
+              replyChannel === 'internal_note' ? 'Internal note (not visible to customer)…' :
+              replyChannel === 'sms'           ? 'Type your SMS reply (keep it short)…'    :
+              replyChannel === 'whatsapp'      ? 'Type your WhatsApp reply…'                :
+                                                 'Type your reply…'
+            }
             className="w-full border border-gray-300 rounded p-2 text-sm focus:outline-none focus:border-[#f26a1b]"
           />
           <div className="flex items-center justify-between mt-2">
-            {error && <span className="text-xs text-red-600">{error}</span>}
-            <span></span>
+            <div className="flex items-center gap-3">
+              {error && <span className="text-xs text-red-600">{error}</span>}
+              {(replyChannel === 'sms' || replyChannel === 'whatsapp') && replyBody && (
+                <span className="text-xs text-gray-400">
+                  {replyBody.length} chars
+                  {replyChannel === 'sms' && replyBody.length > 160 && ` · ${Math.ceil(replyBody.length / 160)} segments`}
+                </span>
+              )}
+            </div>
             <button
               onClick={sendMessage}
               disabled={sending || !replyBody.trim()}
               className="bg-[#f26a1b] text-white px-4 py-1.5 rounded text-sm font-medium hover:bg-[#d85a14] disabled:opacity-50"
             >
-              {sending ? 'Sending…' : (replyChannel === 'email' ? 'Send email' : 'Add note')}
+              {sending ? 'Sending…' : (
+                replyChannel === 'internal_note' ? 'Add note' :
+                replyChannel === 'sms'           ? 'Send SMS' :
+                replyChannel === 'whatsapp'      ? 'Send WhatsApp' :
+                                                   'Send email'
+              )}
             </button>
           </div>
         </div>
@@ -374,6 +413,32 @@ function describeEvent(e: EventRecord): string {
     case 'message_added':     return `New ${(p as { direction?: string }).direction ?? ''} message via ${(p as { channel?: string }).channel ?? ''}`.trim()
     default:                  return e.event_type
   }
+}
+
+function ReplyTab(props: {
+  channel:        string
+  value:          string
+  label:          string
+  activeClass:    string
+  disabled?:      boolean
+  disabledTitle?: string
+  onClick:        () => void
+}) {
+  const isActive = props.channel === props.value
+  return (
+    <button
+      onClick={props.onClick}
+      disabled={props.disabled}
+      title={props.disabled ? props.disabledTitle : ''}
+      className={[
+        'px-3 py-1 text-xs rounded font-medium',
+        isActive ? props.activeClass : 'bg-gray-100 text-gray-600',
+        props.disabled ? 'opacity-50 cursor-not-allowed' : '',
+      ].join(' ')}
+    >
+      {props.label}
+    </button>
+  )
 }
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
