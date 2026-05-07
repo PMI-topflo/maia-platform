@@ -177,7 +177,7 @@ export async function createTicket(input: CreateTicketInput): Promise<Ticket> {
     .single()
   if (error || !data) throw new Error(`createTicket failed: ${error?.message}`)
 
-  void supabaseAdmin.from('ticket_events').insert({
+  await supabaseAdmin.from('ticket_events').insert({
     ticket_id:   data.id,
     actor_email: 'system',
     event_type:  'created',
@@ -230,12 +230,12 @@ export async function updateTicket(
   if (patch.type           && patch.type           !== prev?.type)           events.push({ event_type: 'type_changed',       payload: { from: prev?.type,           to: patch.type           } })
 
   if (events.length) {
-    void supabaseAdmin.from('ticket_events').insert(
+    await supabaseAdmin.from('ticket_events').insert(
       events.map(e => ({ ticket_id: ticketId, actor_email: actorEmail, ...e })),
     )
   }
 
-  if (data.type === 'work_order') void enqueueOutbox(ticketId, 'ticket', 'update')
+  if (data.type === 'work_order') await enqueueOutbox(ticketId, 'ticket', 'update')
 
   return data as Ticket
 }
@@ -286,12 +286,12 @@ export async function appendMessage(
   }
 
   // Touch the ticket so updated_at advances and dashboards re-sort.
-  void supabaseAdmin
+  await supabaseAdmin
     .from('tickets')
     .update({ updated_at: new Date().toISOString() })
     .eq('id', ticketId)
 
-  void supabaseAdmin.from('ticket_events').insert({
+  await supabaseAdmin.from('ticket_events').insert({
     ticket_id:   ticketId,
     actor_email: input.from_addr ?? 'system',
     event_type:  'message_added',
@@ -300,7 +300,7 @@ export async function appendMessage(
 
   // Sync outbound staff replies + inbound external messages on work orders.
   if (input.direction !== 'internal_note') {
-    void enqueueOutboxIfWorkOrder(ticketId, data.id as number)
+    await enqueueOutboxIfWorkOrder(ticketId, data.id as number)
   }
 
   return data as TicketMessage
