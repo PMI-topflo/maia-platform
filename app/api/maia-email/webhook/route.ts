@@ -4,6 +4,8 @@ import {
   fetchGmailHistory,
   fetchGmailHistoryWithToken,
   fetchGmailMessageWithToken,
+  listRecentInboxMessages,
+  listRecentInboxMessagesWithToken,
   refreshStaffToken,
 } from '@/lib/gmail'
 import {
@@ -86,18 +88,37 @@ export async function POST(req: NextRequest) {
 
   const lastHistoryId = state?.last_history_id
 
-  await supabaseAdmin
-    .from('maia_watch_state')
-    .upsert({ id: 1, last_history_id: newHistoryId, updated_at: new Date().toISOString() })
-
-  if (!lastHistoryId) return NextResponse.json({ ok: true })
+  // First-ever notification: just establish the baseline.
+  if (!lastHistoryId) {
+    await supabaseAdmin
+      .from('maia_watch_state')
+      .upsert({ id: 1, last_history_id: newHistoryId, updated_at: new Date().toISOString() })
+    return NextResponse.json({ ok: true, baseline: true })
+  }
 
   let messageIds: string[]
   try {
     messageIds = await fetchGmailHistory(lastHistoryId)
   } catch (err) {
+    // Transient Gmail API error — return non-200 so Pub/Sub retries with the
+    // same notification (and our cursor stays put).
     console.error('[maia-webhook] History API error:', err)
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: false, error: 'history_fetch_failed' }, { status: 500 })
+  }
+
+  // Recovery path: 404s and other "history purged / out of range" cases come
+  // back from fetchGmailHistory as []. Falling back to listing recent inbox
+  // messages directly catches the message that prompted the notification.
+  // Idempotency in processEmailCommand (UNIQUE on gmail_message_id) and in
+  // ticket_messages.external_id makes this safe to re-run.
+  if (messageIds.length === 0) {
+    console.log('[maia-webhook] history fetch returned empty — falling back to direct inbox scan')
+    try {
+      messageIds = await listRecentInboxMessages(20)
+    } catch (err) {
+      console.error('[maia-webhook] inbox scan fallback error:', err)
+      return NextResponse.json({ ok: false, error: 'inbox_scan_failed' }, { status: 500 })
+    }
   }
 
   for (const id of messageIds) {
@@ -107,6 +128,12 @@ export async function POST(req: NextRequest) {
       console.error(`[maia-webhook] processEmailCommand(${id}) error:`, err)
     }
   }
+
+  // Advance the cursor only after we got the messages back. If the request
+  // above 500'd, we never reach here, so Pub/Sub retries with the same start.
+  await supabaseAdmin
+    .from('maia_watch_state')
+    .upsert({ id: 1, last_history_id: newHistoryId, updated_at: new Date().toISOString() })
 
   return NextResponse.json({ ok: true, processed: messageIds.length })
 }
@@ -147,12 +174,6 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
     return
   }
 
-  // Update historyId first to avoid re-processing on retries
-  await supabaseAdmin
-    .from('staff_gmail_accounts')
-    .update({ history_id: newHistoryId, updated_at: new Date().toISOString() })
-    .eq('gmail_address', account.gmail_address)
-
   let accessToken: string
   try {
     accessToken = await getValidStaffToken(account)
@@ -167,6 +188,19 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
   } catch (err) {
     console.error(`[staff-gmail] History API error for ${account.gmail_address}:`, err)
     return
+  }
+
+  // Recovery path: empty history (404 / out of range) → fall back to recent
+  // inbox scan so we don't silently lose messages when Gmail's history
+  // index is stale.
+  if (messageIds.length === 0) {
+    console.log(`[staff-gmail] history empty for ${account.gmail_address} — falling back to direct inbox scan`)
+    try {
+      messageIds = await listRecentInboxMessagesWithToken(accessToken, 20)
+    } catch (err) {
+      console.error(`[staff-gmail] inbox scan fallback error for ${account.gmail_address}:`, err)
+      return
+    }
   }
 
   for (const id of messageIds) {
@@ -218,4 +252,13 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
       console.error(`[staff-gmail] Failed to process message ${id} for ${account.gmail_address}:`, err)
     }
   }
+
+  // Advance the staff account cursor only after processing finished — if
+  // fetchGmailHistoryWithToken errored above we've already returned and
+  // never reach this point, so the next notification retries from the
+  // same start.
+  await supabaseAdmin
+    .from('staff_gmail_accounts')
+    .update({ history_id: newHistoryId, updated_at: new Date().toISOString() })
+    .eq('gmail_address', account.gmail_address)
 }

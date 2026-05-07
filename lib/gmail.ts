@@ -168,6 +168,22 @@ export async function fetchGmailHistory(startHistoryId: string): Promise<string[
   return ids
 }
 
+/** Recovery helper used when fetchGmailHistory returns empty (404 or
+ *  out-of-range start id). Lists the most recent INBOX messages directly
+ *  via the Gmail messages.list API. Idempotency in our processing pipeline
+ *  (UNIQUE constraints on gmail_message_id and ticket_messages.external_id)
+ *  prevents double-handling. */
+export async function listRecentInboxMessages(limit: number = 20): Promise<string[]> {
+  const token = await getAccessToken()
+  const url   = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in:inbox&maxResults=${limit}`
+  const res   = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+  if (!res.ok) {
+    throw new Error(`[Gmail] messages.list failed (${res.status}): ${await res.text()}`)
+  }
+  const data = await res.json() as { messages?: Array<{ id: string }> }
+  return (data.messages ?? []).map(m => m.id)
+}
+
 export async function registerGmailWatch(
   topicName: string,
 ): Promise<{ historyId: string; expiration: string }> {
@@ -236,6 +252,18 @@ export async function fetchGmailHistoryWithToken(startHistoryId: string, accessT
     }
   }
   return ids
+}
+
+/** Staff-account variant of listRecentInboxMessages — used as recovery
+ *  when fetchGmailHistoryWithToken returns empty. */
+export async function listRecentInboxMessagesWithToken(accessToken: string, limit: number = 20): Promise<string[]> {
+  const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in:inbox&maxResults=${limit}`
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+  if (!res.ok) {
+    throw new Error(`[Gmail staff] messages.list failed (${res.status}): ${await res.text()}`)
+  }
+  const data = await res.json() as { messages?: Array<{ id: string }> }
+  return (data.messages ?? []).map(m => m.id)
 }
 
 export async function registerGmailWatchWithToken(topicName: string, accessToken: string): Promise<{ historyId: string; expiration: string }> {
