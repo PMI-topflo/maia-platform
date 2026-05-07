@@ -6,6 +6,7 @@
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { fetchStaffList } from '@/lib/staff-list'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../../components/AdminNav'
 import TicketListClient, { type TicketRow } from './TicketListClient'
@@ -52,7 +53,7 @@ export async function renderTicketsList(
     query = query.or(`subject.ilike.%${needle}%,summary.ilike.%${needle}%,contact_name.ilike.%${needle}%,contact_email.ilike.%${needle}%,ticket_number.ilike.%${needle}%`)
   }
 
-  const [{ data: tickets }, { data: associations }, { data: counts }, { data: staff }] = await Promise.all([
+  const [{ data: tickets }, { data: associations }, { data: counts }, staff] = await Promise.all([
     query,
     supabaseAdmin
       .from('associations')
@@ -62,11 +63,7 @@ export async function renderTicketsList(
     supabaseAdmin
       .from('tickets')
       .select('status, type'),
-    supabaseAdmin
-      .from('pmi_staff')
-      .select('name, email, role')
-      .eq('active', true)
-      .order('name'),
+    fetchStaffList(),
   ])
 
   const countsByStatus: Record<string, number> = {
@@ -109,7 +106,7 @@ export async function renderTicketsList(
         <TicketListClient
           rows={rows}
           associations={associations ?? []}
-          staff={(staff ?? []) as Array<{ name: string; email: string; role: string | null }>}
+          staff={staff}
           countsByStatus={countsByStatus}
           baseHref={'/admin/tickets'}
           showWorkOrderColumns={defaultType === 'work_order'}
