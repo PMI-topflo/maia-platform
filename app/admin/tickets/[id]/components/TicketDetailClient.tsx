@@ -68,11 +68,18 @@ interface WorkOrderRecord {
   invoice_url:   string | null
 }
 
+export interface StaffMember {
+  name:  string
+  email: string
+  role:  string | null
+}
+
 export interface TicketDetailData {
   ticket:     TicketRecord
   messages:   MessageRecord[]
   events:     EventRecord[]
   workOrder:  WorkOrderRecord | null
+  staff:      StaffMember[]
 }
 
 const STATUS_OPTIONS   = ['open', 'pending', 'waiting_external', 'resolved', 'closed']
@@ -108,7 +115,7 @@ function fmtMoney(cents: number | null): string {
 
 export default function TicketDetailClient({ data }: { data: TicketDetailData }) {
   const router = useRouter()
-  const { ticket, messages, events, workOrder } = data
+  const { ticket, messages, events, workOrder, staff } = data
 
   const [status,        setStatus]        = useState(ticket.status)
   const [priority,      setPriority]      = useState(ticket.priority)
@@ -327,14 +334,27 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
         </Card>
 
         <Card title="Assignee">
-          <input
-            type="email"
-            placeholder="staff@pmitop.com"
+          <select
             value={assignee}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setAssignee(e.target.value)}
-            onBlur={() => { if (assignee !== (ticket.assignee_email ?? '')) patch('assignee_email', assignee || null) }}
-            className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono"
-          />
+            onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+              const next = e.target.value
+              setAssignee(next)
+              patch('assignee_email', next || null)
+            }}
+            disabled={saving === 'assignee_email'}
+            className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white"
+          >
+            <option value="">Unassigned</option>
+            {staff.map(s => (
+              <option key={s.email} value={s.email.toLowerCase()}>
+                {s.name}{s.role ? ` · ${s.role}` : ''}
+              </option>
+            ))}
+            {/* Preserve a value set via @assign that isn't in the staff list */}
+            {assignee && !staff.some(s => s.email.toLowerCase() === assignee.toLowerCase()) && (
+              <option value={assignee}>{assignee} (external)</option>
+            )}
+          </select>
         </Card>
 
         <Card title="Details">
