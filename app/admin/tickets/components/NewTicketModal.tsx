@@ -15,8 +15,15 @@ interface Association {
   association_name: string
 }
 
+interface StaffMember {
+  name:  string
+  email: string
+  role:  string | null
+}
+
 interface Props {
   associations: Association[]
+  staff:        StaffMember[]
   defaultType:  'ticket' | 'work_order'
   onClose:      () => void
 }
@@ -25,7 +32,7 @@ const CHANNEL_OPTIONS  = ['phone', 'web', 'internal', 'email', 'sms', 'whatsapp'
 const PRIORITY_OPTIONS = ['low', 'normal', 'high', 'urgent']
 const PERSONA_OPTIONS  = ['owner', 'tenant', 'board', 'vendor', 'prospect', 'other']
 
-export default function NewTicketModal({ associations, defaultType, onClose }: Props) {
+export default function NewTicketModal({ associations, staff, defaultType, onClose }: Props) {
   const router = useRouter()
   const [submitting, setSubmitting] = useState(false)
   const [error,      setError]      = useState<string | null>(null)
@@ -203,14 +210,19 @@ export default function NewTicketModal({ associations, defaultType, onClose }: P
                 ))}
               </select>
             </Field>
-            <Field label="Assignee email">
-              <input
-                type="email"
+            <Field label="Assignee">
+              <select
                 value={assigneeEmail}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setAssigneeEmail(e.target.value)}
-                placeholder="staff@pmitop.com"
-                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono"
-              />
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setAssigneeEmail(e.target.value)}
+                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white"
+              >
+                <option value="">Unassigned</option>
+                {staff.map(s => (
+                  <option key={s.email} value={s.email.toLowerCase()}>
+                    {s.name}{s.role ? ` · ${s.role}` : ''}
+                  </option>
+                ))}
+              </select>
             </Field>
           </div>
 

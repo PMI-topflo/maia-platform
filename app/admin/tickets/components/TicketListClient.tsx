@@ -46,9 +46,16 @@ interface ActiveFilters {
   type:        string
 }
 
+interface StaffMember {
+  name:  string
+  email: string
+  role:  string | null
+}
+
 interface Props {
   rows:                  TicketRow[]
   associations:          Association[]
+  staff:                 StaffMember[]
   countsByStatus:        Record<string, number>
   baseHref:              string
   showWorkOrderColumns:  boolean
@@ -188,6 +195,7 @@ export default function TicketListClient(props: Props) {
       {showNewModal && (
         <NewTicketModal
           associations={props.associations}
+          staff={props.staff}
           defaultType={props.lockTypeTo === 'work_order' ? 'work_order' : 'ticket'}
           onClose={() => setShowNewModal(false)}
         />

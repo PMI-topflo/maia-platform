@@ -23,7 +23,7 @@ export default async function TicketDetailPage(props: PageProps) {
   const ticketId = Number(id)
   if (!Number.isFinite(ticketId)) notFound()
 
-  const [{ data: ticket }, { data: messages }, { data: events }] = await Promise.all([
+  const [{ data: ticket }, { data: messages }, { data: events }, { data: staff }] = await Promise.all([
     supabaseAdmin.from('tickets').select('*').eq('id', ticketId).single(),
     supabaseAdmin
       .from('ticket_messages')
@@ -35,6 +35,11 @@ export default async function TicketDetailPage(props: PageProps) {
       .select('id, actor_email, event_type, payload, created_at')
       .eq('ticket_id', ticketId)
       .order('created_at', { ascending: true }),
+    supabaseAdmin
+      .from('pmi_staff')
+      .select('name, email, role')
+      .eq('active', true)
+      .order('name'),
   ])
 
   if (!ticket) notFound()
@@ -48,6 +53,7 @@ export default async function TicketDetailPage(props: PageProps) {
     messages:   messages ?? [],
     events:     events   ?? [],
     workOrder,
+    staff:      (staff ?? []) as Array<{ name: string; email: string; role: string | null }>,
   }
 
   return (
