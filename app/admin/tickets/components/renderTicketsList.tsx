@@ -105,7 +105,7 @@ export async function renderTicketsList(
           rows={rows}
           associations={associations ?? []}
           countsByStatus={countsByStatus}
-          baseHref={defaultType === 'work_order' ? '/admin/work-orders' : '/admin/tickets'}
+          baseHref={'/admin/tickets'}
           showWorkOrderColumns={defaultType === 'work_order'}
           lockTypeTo={defaultType === 'all' ? null : defaultType}
           activeFilters={{
