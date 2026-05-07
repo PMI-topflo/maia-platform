@@ -990,7 +990,7 @@ async function ingestInboundEmailToTicket(
       to_addr:     'maia@pmitop.com',
       subject:     parsed.subject,
       body:        parsed.body,
-      external_id: parsed.messageId,
+      external_id: parsed.rfcMessageId || parsed.messageId,
       attachments: parsed.attachments.map(a => ({
         filename: a.filename, mimeType: a.mimeType, size: a.size,
       })),
