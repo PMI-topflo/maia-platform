@@ -6,7 +6,7 @@ import {
   fetchGmailMessageWithToken,
   refreshStaffToken,
 } from '@/lib/gmail'
-import { processEmailCommand, parseGmailMessage, detectAssociationCode } from '@/lib/maia-command-processor'
+import { processEmailCommand, parseGmailMessage, detectAssociationCode, isAllowedSender } from '@/lib/maia-command-processor'
 import { logEmail } from '@/lib/email-logger'
 import { findOrCreateTicket, appendMessage } from '@/lib/tickets'
 
@@ -196,14 +196,19 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
         sentBy:          account.gmail_address,
       })
 
-      // Ingest into the ticket primitive so emails received by connected
-      // staff Gmail accounts show up in /admin/tickets. Awaited (not
-      // fire-and-forget) so the writes survive the serverless container
-      // freezing after the webhook returns.
+      // Tickets only created when the sender is staff (forwarding a customer
+      // thread, BCCing maia@, etc.). External-sender messages still land in
+      // email_logs above; staff promote them by forwarding from a PMI inbox.
+      if (!isAllowedSender(parsed.senderEmail)) continue
+
+      // Ingest into the ticket primitive so emails forwarded/sent by
+      // connected staff Gmail accounts show up in /admin/tickets. Awaited
+      // (not fire-and-forget) so the writes survive the serverless
+      // container freezing after the webhook returns.
       const ticket = await findOrCreateTicket({
         channel_origin:   'email',
         association_code: assocCode,
-        persona:          'external',
+        persona:          'staff',
         contact_name:     parsed.senderName || null,
         contact_email:    parsed.senderEmail,
         subject:          parsed.subject,
