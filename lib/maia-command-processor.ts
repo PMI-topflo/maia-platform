@@ -2,7 +2,14 @@ import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { logEmail } from '@/lib/email-logger'
-import { findOrCreateTicket, findOpenTicketByGmailThread, appendMessage } from '@/lib/tickets'
+import {
+  createTicket,
+  findOpenTicketByGmailThread,
+  findOpenTicketBySubject,
+  appendMessage,
+  type TicketPriority,
+  type TicketType,
+} from '@/lib/tickets'
 import {
   fetchGmailMessage,
   fetchGmailAttachmentData,
@@ -967,34 +974,147 @@ ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join(
 
 // ── Ticket ingest ─────────────────────────────────────────────────────────────
 
-async function ingestInboundEmailToTicket(
+// Phrases that, when present in the body of a staff-sent email, create a new
+// ticket. Replies in an existing thread are always appended regardless of
+// whether the trigger is present (it's already a ticket).
+const TICKET_CREATE_TRIGGERS = [
+  '@maia ct',
+  '@maia create ticket',
+  '@maia ticket',
+  '@maia open ticket',
+  '@ticket',
+] as const
+
+function detectTicketTrigger(body: string): boolean {
+  const norm = ' ' + body.toLowerCase().replace(/\s+/g, ' ') + ' '
+  return TICKET_CREATE_TRIGGERS.some(t => norm.includes(' ' + t + ' ') || norm.includes(t + '\n') || norm.includes(t + ',') || norm.includes(t + '.') || norm.includes(t + '!'))
+}
+
+interface TicketModifiers {
+  assignee?: string
+  priority?: TicketPriority
+  type?:     TicketType
+}
+
+function parseTicketModifiers(body: string): TicketModifiers {
+  const assignMatch   = body.match(/@assign\s+([\w._%+-]+@[\w.-]+\.[A-Za-z]{2,})/i)
+  const priorityMatch = body.match(/@priority\s+(urgent|high|normal|low)/i)
+  const typeMatch     = body.match(/@(?:work[\s_-]?order|wo)\b/i)
+  return {
+    assignee: assignMatch?.[1]?.toLowerCase(),
+    priority: priorityMatch ? (priorityMatch[1].toLowerCase() as TicketPriority) : undefined,
+    type:     typeMatch     ? 'work_order'                                       : undefined,
+  }
+}
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
+
+async function notifyAssignee(
+  ticket:        { id: number; ticket_number: string; subject: string | null; type: string },
+  assigneeEmail: string,
+  assignerEmail: string,
+): Promise<void> {
+  try {
+    const label = ticket.type === 'work_order' ? 'work order' : 'ticket'
+    await sendEmail({
+      to:      assigneeEmail,
+      subject: `🎫 You've been assigned ${ticket.ticket_number} — ${ticket.subject ?? '(no subject)'}`,
+      html:    `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#222;max-width:600px;margin:0 auto;padding:20px">
+<p style="font-size:14px;color:#555">${assignerEmail} has assigned you a ${label}:</p>
+<div style="background:#f9fafb;border-left:3px solid #f26a1b;padding:12px 16px;margin:16px 0">
+  <div style="font-family:ui-monospace,monospace;font-size:12px;color:#6b7280">${ticket.ticket_number}</div>
+  <div style="font-size:16px;font-weight:600;margin-top:4px">${ticket.subject ?? '(no subject)'}</div>
+</div>
+<p style="font-size:14px;margin-top:24px">
+  <a href="${APP_URL}/admin/tickets/${ticket.id}" style="background:#f26a1b;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:500">Open ${label}</a>
+</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:32px 0 16px">
+<p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties · automated notification</p>
+</body></html>`,
+    })
+  } catch (err) {
+    console.error('[tickets] notifyAssignee failed:', err instanceof Error ? err.message : err)
+  }
+}
+
+function makeInboundMessageInput(parsed: ParsedEmail) {
+  return {
+    direction:   'inbound' as const,
+    channel:     'email'   as const,
+    from_addr:   parsed.senderEmail,
+    to_addr:     'maia@pmitop.com',
+    subject:     parsed.subject,
+    body:        parsed.body,
+    external_id: parsed.rfcMessageId || parsed.messageId,
+    attachments: parsed.attachments.map(a => ({
+      filename: a.filename, mimeType: a.mimeType, size: a.size,
+    })),
+  }
+}
+
+/** Email-to-ticket ingest. Called by both the main MAIA webhook and the
+ *  staff-Gmail webhook so logic stays in one place.
+ *
+ *  Rules:
+ *    - Staff senders only (caller passes `allowed=true` to enable ticket
+ *      creation; external senders just get logged in email_logs).
+ *    - Replies in an existing ticket thread (gmail_thread_id match) are
+ *      always appended — no trigger needed for replies.
+ *    - New tickets require an explicit trigger phrase in the body
+ *      (TICKET_CREATE_TRIGGERS).
+ *    - Subject-match: a second "@maia ticket" email about the same subject
+ *      from the same contact within 30 days appends to the open ticket
+ *      instead of creating a duplicate.
+ *    - Inline modifiers (`@assign`, `@priority`, `@workorder`) are parsed
+ *      from the body and applied at create time. `@assign` triggers a
+ *      courtesy notification email to the new assignee. */
+export async function ingestInboundEmailToTicket(
   parsed:    ParsedEmail,
   allowed:   boolean,
   assocCode: string | null,
 ): Promise<void> {
+  if (!allowed) return
+
   try {
-    const ticket = await findOrCreateTicket({
+    // 1. Reply in existing thread → append, no trigger required.
+    if (parsed.threadId) {
+      const existing = await findOpenTicketByGmailThread(parsed.threadId)
+      if (existing) {
+        await appendMessage(existing.id, makeInboundMessageInput(parsed))
+        return
+      }
+    }
+
+    // 2. New tickets only when a trigger phrase is present.
+    if (!detectTicketTrigger(parsed.body)) return
+
+    // 3. Subject-match dedupe across separate threads.
+    const existingBySubject = await findOpenTicketBySubject(parsed.subject, parsed.senderEmail)
+    if (existingBySubject) {
+      await appendMessage(existingBySubject.id, makeInboundMessageInput(parsed))
+      return
+    }
+
+    // 4. Create new ticket with parsed modifiers.
+    const mods   = parseTicketModifiers(parsed.body)
+    const ticket = await createTicket({
+      type:             mods.type ?? 'ticket',
       channel_origin:   'email',
+      priority:         mods.priority,
       association_code: assocCode,
-      persona:          allowed ? 'staff' : 'external',
+      persona:          'staff',
       contact_name:     parsed.senderName || null,
       contact_email:    parsed.senderEmail,
       subject:          parsed.subject,
       summary:          parsed.body.slice(0, 280),
       gmail_thread_id:  parsed.threadId || null,
+      assignee_email:   mods.assignee,
     })
-    await appendMessage(ticket.id, {
-      direction:   'inbound',
-      channel:     'email',
-      from_addr:   parsed.senderEmail,
-      to_addr:     'maia@pmitop.com',
-      subject:     parsed.subject,
-      body:        parsed.body,
-      external_id: parsed.rfcMessageId || parsed.messageId,
-      attachments: parsed.attachments.map(a => ({
-        filename: a.filename, mimeType: a.mimeType, size: a.size,
-      })),
-    })
+    await appendMessage(ticket.id, makeInboundMessageInput(parsed))
+
+    if (mods.assignee) {
+      await notifyAssignee(ticket, mods.assignee, parsed.senderEmail)
+    }
   } catch (err) {
     console.error('[tickets] ingest inbound email failed:', err instanceof Error ? err.message : err)
   }
@@ -1080,14 +1200,11 @@ export async function processEmailCommand(messageId: string): Promise<void> {
       status:          'received',
     })
 
-    // Tickets are created only when staff initiate them — either by sending
-    // an email from a PMI domain (forwards, BCCs, direct emails) or via the
-    // dashboard's "New Ticket" button. External emails (customers, vendors,
-    // marketing, spam) get logged to email_logs but skip the ticket ingest;
-    // staff can promote them to tickets by forwarding to maia@pmitop.com.
-    if (allowed) {
-      await ingestInboundEmailToTicket(parsed, allowed, assocCode)
-    }
+    // Tickets are created only when staff initiate them via an explicit
+    // trigger phrase (@maia ticket, @ticket, etc.). The helper itself
+    // gates on `allowed` and on trigger presence; replies in existing
+    // ticket threads are always appended.
+    await ingestInboundEmailToTicket(parsed, allowed, assocCode)
 
     if (!trigger) {
       // No @maia mention at all — check if thread is already active with MAIA

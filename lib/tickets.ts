@@ -103,6 +103,53 @@ export async function findOpenTicketByGmailThread(threadId: string): Promise<Tic
   return data as Ticket | null
 }
 
+/** Strip Re:/Fwd:, lowercase, collapse whitespace. Used for subject-match
+ *  threading so "Plumbing leak" and "Re: Plumbing leak" link to one ticket. */
+export function normalizeSubject(s: string | null | undefined): string {
+  if (!s) return ''
+  let out = s.trim()
+  // Strip nested Re:/Fwd: prefixes
+  for (let i = 0; i < 5; i++) {
+    const stripped = out.replace(/^(re|fwd|fw)\s*:\s*/i, '')
+    if (stripped === out) break
+    out = stripped.trim()
+  }
+  return out.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+/** Find an open ticket with the same normalized subject from this contact in
+ *  the recency window. Used so a second "ticket me X" email about the same
+ *  issue appends to the existing ticket instead of creating a duplicate. */
+export async function findOpenTicketBySubject(
+  subject:      string | null | undefined,
+  contactEmail: string | null | undefined,
+  withinDays:   number = 30,
+): Promise<Ticket | null> {
+  const target = normalizeSubject(subject)
+  if (!target || target.length < 5) return null
+  const since  = new Date(Date.now() - withinDays * 86400_000).toISOString()
+
+  let query = supabaseAdmin
+    .from('tickets')
+    .select('*')
+    .in('status', OPEN_STATUSES)
+    .gte('updated_at', since)
+    .order('updated_at', { ascending: false })
+    .limit(20)
+
+  if (contactEmail) query = query.eq('contact_email', contactEmail.toLowerCase())
+
+  const { data, error } = await query
+  if (error) {
+    console.error('[tickets] findOpenTicketBySubject error:', error.message)
+    return null
+  }
+  for (const t of data ?? []) {
+    if (normalizeSubject((t as Ticket).subject) === target) return t as Ticket
+  }
+  return null
+}
+
 export async function findOpenTicketByContact(opts: {
   email?:           string | null
   phone?:           string | null

@@ -112,21 +112,58 @@ export default function HelpPage() {
         </Section>
 
         {/* Gmail procedures */}
-        <Section title="2 · Starting in Gmail">
+        <Section title="2 · Opening a ticket from Gmail">
           <p className="text-sm text-gray-700 mb-3">
-            Three ways to open a ticket directly from your Gmail without leaving the inbox:
-          </p>
-          <Steps items={[
-            <><strong>Forward a customer email</strong> to <code className="bg-gray-100 px-1 rounded">maia@pmitop.com</code> — the original sender becomes the ticket contact.</>,
-            <><strong>BCC <code className="bg-gray-100 px-1 rounded">maia@pmitop.com</code></strong> when emailing a customer for the first time — captures the thread from message #1 onward.</>,
-            <><strong>Reply to an existing thread</strong> that already has MAIA on it — every reply auto-appends to the same ticket. No duplicates.</>,
-          ]} />
-
-          <h3 className="text-sm font-semibold text-gray-900 mt-5 mb-2">Inline triggers (work today)</h3>
-          <p className="text-sm text-gray-700 mb-2">
-            From an authorized staff domain (<code className="bg-gray-100 px-1 rounded">@topfloridaproperties.com</code>,
+            Tickets are created only when a staff member sends an email from a PMI domain
+            (<code className="bg-gray-100 px-1 rounded">@topfloridaproperties.com</code>,
             <code className="bg-gray-100 px-1 rounded ml-1">@pmitop.com</code>,
-            <code className="bg-gray-100 px-1 rounded ml-1">@mypmitop.com</code>), include any of these in the email body:
+            <code className="bg-gray-100 px-1 rounded ml-1">@mypmitop.com</code>) <strong>and</strong> the body contains
+            one of the trigger phrases below. External emails are logged but never auto-create tickets — staff promote
+            them by forwarding from a PMI inbox with a trigger.
+          </p>
+
+          <h3 className="text-sm font-semibold text-gray-900 mt-4 mb-2">Trigger phrases — any one of these creates a ticket</h3>
+          <CodeBlock>
+{`@maia ticket
+@maia create ticket
+@maia open ticket
+@maia ct
+@ticket`}
+          </CodeBlock>
+
+          <h3 className="text-sm font-semibold text-gray-900 mt-5 mb-2">Inline modifiers (anywhere in the body)</h3>
+          <Table
+            head={['Modifier', 'Effect']}
+            rows={[
+              [<code className="bg-gray-100 px-1 rounded">@assign jane@pmitop.com</code>, 'Sets the assignee. Sends a courtesy notification email to the new assignee with a link to the ticket.'],
+              [<code className="bg-gray-100 px-1 rounded">@priority urgent</code>, 'Sets priority (urgent / high / normal / low). Recomputes the SLA due_at.'],
+              [<code className="bg-gray-100 px-1 rounded">@workorder</code>, 'Creates as a work order instead of a ticket.'],
+            ]}
+          />
+
+          <h3 className="text-sm font-semibold text-gray-900 mt-5 mb-2">Example — ticket assigned to a teammate</h3>
+          <CodeBlock>
+{`Subject: Plumbing leak — Serenity Place IV unit 6
+
+@maia ticket @assign jane@pmitop.com @priority high
+
+Tenant called about a leak under the kitchen sink.
+Needs vendor dispatched by tomorrow morning.`}
+          </CodeBlock>
+          <p className="text-sm text-gray-700 mt-2">
+            → Ticket created with that subject, priority=high, assigned to Jane. Jane receives an email
+            <em> "You've been assigned TKT-XXXX"</em> with a button to open it.
+          </p>
+
+          <h3 className="text-sm font-semibold text-gray-900 mt-5 mb-2">Threading</h3>
+          <ul className="text-sm text-gray-700 space-y-1 list-disc pl-5">
+            <li>Replying in an existing ticket thread <strong>always</strong> appends to that ticket — no trigger needed.</li>
+            <li>If you send a new <code className="bg-gray-100 px-1 rounded">@maia ticket</code> with the same subject as an open ticket from the same contact within 30 days, it appends instead of creating a duplicate.</li>
+          </ul>
+
+          <h3 className="text-sm font-semibold text-gray-900 mt-5 mb-2">DB-update commands (separate from tickets)</h3>
+          <p className="text-sm text-gray-700 mb-2">
+            These are existing MAIA commands for owner / tenant / board changes — they update the database, they don't create tickets.
           </p>
           <CodeBlock>
 {`@maia add owner
@@ -136,16 +173,10 @@ export default function HelpPage() {
 @maia add vendor
 @maia update owner / @maia update unit / @maia update db`}
           </CodeBlock>
-          <p className="text-sm text-gray-700 mt-2">
-            For authorized senders, subject keywords like <em>NEW OWNER</em>, <em>TRANSFER OF OWNERSHIP</em>, or
-            <em> NEW TENANT</em> work without an explicit <code className="bg-gray-100 px-1 rounded">@maia</code>.
-          </p>
-          <Callout tone="warn">
-            <strong>Coming soon:</strong> <code className="bg-yellow-100 px-1 rounded">@maia close</code>,
-            <code className="bg-yellow-100 px-1 rounded ml-1">@maia priority urgent</code>,
-            <code className="bg-yellow-100 px-1 rounded ml-1">@maia assign jane@pmitop.com</code>,
-            <code className="bg-yellow-100 px-1 rounded ml-1">@maia convert to work order</code>.
-            For now, do status changes in the dashboard.
+
+          <Callout>
+            <strong>No trigger? No ticket.</strong> Forwarding or BCCing <code className="bg-blue-100 px-1 rounded">maia@pmitop.com</code> without
+            one of the trigger phrases just logs the email — it doesn't open a ticket. Add <code className="bg-blue-100 px-1 rounded">@maia ticket</code> to the body to capture it.
           </Callout>
         </Section>
 
@@ -205,7 +236,7 @@ export default function HelpPage() {
             <li><strong>Rentvine sync:</strong> waiting on Rentvine support for the actual API endpoint names. The outbox table queues syncs in the meantime.</li>
             <li><strong>CINC sync:</strong> stubbed behind <code className="bg-gray-100 px-1 rounded">CINC_SYNC_ENABLED</code>; will wire when credentials arrive.</li>
             <li><strong>Tenant lease cron</strong> (<code className="bg-gray-100 px-1 rounded">/api/cron/sync-rentvine-tenants</code>) is hitting the wrong base URL; will fix when the Rentvine docs land.</li>
-            <li><strong>Inline <code className="bg-gray-100 px-1 rounded">@maia close</code> / assign / priority</strong> from Gmail aren't wired yet. Use the dashboard for status changes.</li>
+            <li><strong>Inline <code className="bg-gray-100 px-1 rounded">@maia close</code></strong> from Gmail isn't wired yet — use the dashboard to close tickets. (<code className="bg-gray-100 px-1 rounded">@assign</code> and <code className="bg-gray-100 px-1 rounded">@priority</code> work today at create time.)</li>
             <li><strong>Vendor portal:</strong> vendors get email and reply via email; no magic-link portal yet.</li>
             <li><strong>Assignee:</strong> free-text email today; no avatar picker.</li>
           </ul>

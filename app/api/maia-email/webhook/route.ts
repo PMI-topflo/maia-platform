@@ -6,9 +6,14 @@ import {
   fetchGmailMessageWithToken,
   refreshStaffToken,
 } from '@/lib/gmail'
-import { processEmailCommand, parseGmailMessage, detectAssociationCode, isAllowedSender } from '@/lib/maia-command-processor'
+import {
+  processEmailCommand,
+  parseGmailMessage,
+  detectAssociationCode,
+  isAllowedSender,
+  ingestInboundEmailToTicket,
+} from '@/lib/maia-command-processor'
 import { logEmail } from '@/lib/email-logger'
-import { findOrCreateTicket, appendMessage } from '@/lib/tickets'
 
 // POST /api/maia-email/webhook
 // Receives Gmail push notifications via Google Cloud Pub/Sub.
@@ -196,37 +201,11 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
         sentBy:          account.gmail_address,
       })
 
-      // Tickets only created when the sender is staff (forwarding a customer
-      // thread, BCCing maia@, etc.). External-sender messages still land in
-      // email_logs above; staff promote them by forwarding from a PMI inbox.
-      if (!isAllowedSender(parsed.senderEmail)) continue
-
-      // Ingest into the ticket primitive so emails forwarded/sent by
-      // connected staff Gmail accounts show up in /admin/tickets. Awaited
-      // (not fire-and-forget) so the writes survive the serverless
-      // container freezing after the webhook returns.
-      const ticket = await findOrCreateTicket({
-        channel_origin:   'email',
-        association_code: assocCode,
-        persona:          'staff',
-        contact_name:     parsed.senderName || null,
-        contact_email:    parsed.senderEmail,
-        subject:          parsed.subject,
-        summary:          parsed.body.slice(0, 280),
-        gmail_thread_id:  parsed.threadId || null,
-      })
-      await appendMessage(ticket.id, {
-        direction:   'inbound',
-        channel:     'email',
-        from_addr:   parsed.senderEmail,
-        to_addr:     account.gmail_address,
-        subject:     parsed.subject,
-        body:        parsed.body,
-        external_id: parsed.rfcMessageId || parsed.messageId,
-        attachments: parsed.attachments.map(a => ({
-          filename: a.filename, mimeType: a.mimeType, size: a.size,
-        })),
-      })
+      // Single source of truth for ticket logic — handles staff-only gating,
+      // gmail-thread reply matching, subject-match dedupe, trigger phrase
+      // detection, modifier parsing (@assign / @priority / @workorder), and
+      // assignee notification. Same call as the main maia@pmitop.com path.
+      await ingestInboundEmailToTicket(parsed, isAllowedSender(parsed.senderEmail), assocCode)
     } catch (err) {
       console.error(`[staff-gmail] Failed to process message ${id} for ${account.gmail_address}:`, err)
     }
