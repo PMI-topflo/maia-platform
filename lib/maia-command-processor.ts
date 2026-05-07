@@ -179,7 +179,7 @@ export function parseGmailMessage(msg: GmailFullMessage): ParsedEmail {
 
 // ── Sender / trigger checks ───────────────────────────────────────────────────
 
-function isAllowedSender(email: string): boolean {
+export function isAllowedSender(email: string): boolean {
   return ALLOWED_DOMAINS.some(d => email.toLowerCase().endsWith(d))
 }
 
@@ -1079,7 +1079,15 @@ export async function processEmailCommand(messageId: string): Promise<void> {
       associationCode: assocCode ?? undefined,
       status:          'received',
     })
-    await ingestInboundEmailToTicket(parsed, allowed, assocCode)
+
+    // Tickets are created only when staff initiate them — either by sending
+    // an email from a PMI domain (forwards, BCCs, direct emails) or via the
+    // dashboard's "New Ticket" button. External emails (customers, vendors,
+    // marketing, spam) get logged to email_logs but skip the ticket ingest;
+    // staff can promote them to tickets by forwarding to maia@pmitop.com.
+    if (allowed) {
+      await ingestInboundEmailToTicket(parsed, allowed, assocCode)
+    }
 
     if (!trigger) {
       // No @maia mention at all — check if thread is already active with MAIA

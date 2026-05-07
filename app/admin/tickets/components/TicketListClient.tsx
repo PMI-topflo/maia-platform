@@ -9,6 +9,7 @@
 import { useRouter, usePathname } from 'next/navigation'
 import { useTransition, useState, useEffect, type ChangeEvent } from 'react'
 import Link from 'next/link'
+import NewTicketModal from './NewTicketModal'
 
 export interface TicketRow {
   id:               number
@@ -116,6 +117,7 @@ export default function TicketListClient(props: Props) {
 
   // Local search input — debounced into the URL so we don't refetch every keystroke.
   const [searchInput, setSearchInput] = useState(props.activeFilters.q)
+  const [showNewModal, setShowNewModal] = useState(false)
   useEffect(() => {
     const handle = setTimeout(() => {
       if (searchInput !== props.activeFilters.q) updateFilter('q', searchInput)
@@ -164,7 +166,7 @@ export default function TicketListClient(props: Props) {
             {props.rows.length} shown · {props.countsByStatus.open_any ?? 0} open
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {pending && <span className="text-xs text-gray-400">Updating…</span>}
           {activeFilterCount > 0 && (
             <button
@@ -174,8 +176,22 @@ export default function TicketListClient(props: Props) {
               Clear filters
             </button>
           )}
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="bg-[#f26a1b] text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-[#d85a14]"
+          >
+            + New {props.lockTypeTo === 'work_order' ? 'work order' : 'ticket'}
+          </button>
         </div>
       </div>
+
+      {showNewModal && (
+        <NewTicketModal
+          associations={props.associations}
+          defaultType={props.lockTypeTo === 'work_order' ? 'work_order' : 'ticket'}
+          onClose={() => setShowNewModal(false)}
+        />
+      )}
 
       {/* Status tabs */}
       <div className="flex items-center gap-1 mb-4 border-b border-gray-200">
