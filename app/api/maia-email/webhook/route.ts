@@ -201,6 +201,14 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
         sentBy:          account.gmail_address,
       })
 
+      // Tickets are created only for emails explicitly addressed to
+      // maia@pmitop.com (To / CC / BCC). Internal staff-to-staff or
+      // staff-to-customer emails that happen to land in a connected
+      // staff inbox via thread membership won't create tickets — that
+      // way only intentional ticket requests from staff hit the dashboard.
+      const allRecipients = [...parsed.to, ...parsed.cc].join(' ').toLowerCase()
+      if (!allRecipients.includes('maia@pmitop.com')) continue
+
       // Single source of truth for ticket logic — handles staff-only gating,
       // gmail-thread reply matching, subject-match dedupe, trigger phrase
       // detection, modifier parsing (@assign / @priority / @workorder), and
