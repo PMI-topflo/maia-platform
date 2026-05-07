@@ -1095,13 +1095,21 @@ export async function ingestInboundEmailToTicket(
       return
     }
 
+    // For ticket creation, prefer loose association detection — staff write
+    // the association name on purpose ("For Serenity Place IV") so we can
+    // match by name, not just account-number patterns. This overrides the
+    // strict-mode result that the caller passes in (which it uses for
+    // email_logs to avoid customer-mention cross-contamination).
+    const looseAssoc = await detectAssociationCode(parsed.subject + ' ' + parsed.body, false).catch(() => null)
+    const finalAssocCode = looseAssoc ?? assocCode
+
     // 4. Create new ticket with parsed modifiers.
     const mods   = parseTicketModifiers(parsed.body)
     const ticket = await createTicket({
       type:             mods.type ?? 'ticket',
       channel_origin:   'email',
       priority:         mods.priority,
-      association_code: assocCode,
+      association_code: finalAssocCode,
       persona:          'staff',
       contact_name:     parsed.senderName || null,
       contact_email:    parsed.senderEmail,
@@ -1205,6 +1213,12 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     // gates on `allowed` and on trigger presence; replies in existing
     // ticket threads are always appended.
     await ingestInboundEmailToTicket(parsed, allowed, assocCode)
+
+    // Ticket-creation emails are handled by the ticket pipeline above —
+    // skip the structured-record extraction pipeline (owner / tenant /
+    // board updates) so we don't reply with a confusing "couldn't extract
+    // required information" message for what was clearly a ticket request.
+    if (allowed && detectTicketTrigger(parsed.body)) return
 
     if (!trigger) {
       // No @maia mention at all — check if thread is already active with MAIA
