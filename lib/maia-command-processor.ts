@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { logEmail } from '@/lib/email-logger'
+import { fetchStaffList } from '@/lib/staff-list'
+import { signAssignToken } from '@/lib/ticket-assign-tokens'
 import {
   createTicket,
   findOpenTicketByGmailThread,
@@ -1122,10 +1124,73 @@ export async function ingestInboundEmailToTicket(
 
     if (mods.assignee) {
       await notifyAssignee(ticket, mods.assignee, parsed.senderEmail)
+    } else {
+      // No explicit @assign — send a triage email back to the sender with
+      // one-click buttons for each staff member. Forces a quick decision so
+      // the ticket doesn't sit unassigned.
+      await sendTriageEmail(ticket, parsed.senderEmail)
     }
   } catch (err) {
     console.error('[tickets] ingest inbound email failed:', err instanceof Error ? err.message : err)
   }
+}
+
+async function sendTriageEmail(
+  ticket:      { id: number; ticket_number: string; subject: string | null; type: string },
+  toEmail:     string,
+): Promise<void> {
+  try {
+    const staff = await fetchStaffList()
+    if (staff.length === 0) {
+      console.warn(`[tickets] triage email skipped — no staff in pmi_staff for ${ticket.ticket_number}`)
+      return
+    }
+
+    const label = ticket.type === 'work_order' ? 'Work order' : 'Ticket'
+
+    // Build one button per staff member + a "keep it for myself" button.
+    const tokens = await Promise.all(staff.map(async s => ({
+      ...s,
+      token: await signAssignToken(ticket.id, s.email),
+    })))
+    const selfToken = await signAssignToken(ticket.id, toEmail)
+
+    const buttonStyle = 'display:inline-block;background:#f9fafb;border:1px solid #e5e7eb;color:#111827;padding:10px 14px;margin:4px 4px 4px 0;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500'
+    const meStyle     = 'display:inline-block;background:#f26a1b;color:#fff;padding:10px 14px;margin:4px 4px 4px 0;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500'
+
+    const buttons = tokens.map(s => {
+      const link = `${APP_URL}/api/tickets/${ticket.id}/assign?to=${encodeURIComponent(s.email)}&token=${s.token}`
+      const subtitle = s.role ? ` <span style="color:#9ca3af;font-weight:400">· ${s.role}</span>` : ''
+      return `<a href="${link}" style="${buttonStyle}">${escapeHtml(s.name)}${subtitle}</a>`
+    }).join('')
+
+    const meLink = `${APP_URL}/api/tickets/${ticket.id}/assign?to=${encodeURIComponent(toEmail.toLowerCase())}&token=${selfToken}`
+
+    await sendEmail({
+      to:      toEmail,
+      subject: `🎫 ${ticket.ticket_number} needs an assignee — ${ticket.subject ?? '(no subject)'}`,
+      html:    `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#222;max-width:600px;margin:0 auto;padding:20px">
+<p style="font-size:14px;color:#555">${label} created — please pick who should handle this:</p>
+<div style="background:#f9fafb;border-left:3px solid #f26a1b;padding:12px 16px;margin:16px 0">
+  <div style="font-family:ui-monospace,monospace;font-size:12px;color:#6b7280">${ticket.ticket_number}</div>
+  <div style="font-size:16px;font-weight:600;margin-top:4px">${escapeHtml(ticket.subject ?? '(no subject)')}</div>
+</div>
+<div style="margin:20px 0">
+  ${buttons}
+</div>
+<div style="margin:20px 0;padding-top:16px;border-top:1px solid #e5e7eb">
+  <a href="${meLink}" style="${meStyle}">Keep it for myself</a>
+</div>
+<p style="color:#9ca3af;font-size:11px;margin-top:24px">Click any button to set the assignee. They'll get a notification with a link to the ticket. Links expire in 14 days.</p>
+</body></html>`,
+    })
+  } catch (err) {
+    console.error('[tickets] sendTriageEmail failed:', err instanceof Error ? err.message : err)
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
 async function appendOutboundEmailToTicket(opts: {
