@@ -230,6 +230,33 @@ Needs vendor dispatched by tomorrow morning.`}
           <p className="text-xs text-gray-500 mt-2">
             Changing priority recalculates <code className="bg-gray-100 px-1 rounded">due_at</code> automatically.
           </p>
+
+          <h3 className="text-sm font-semibold text-gray-900 mt-5 mb-2">Pushing the due date with a reason</h3>
+          <p className="text-sm text-gray-700 mb-3">
+            On any ticket detail page, click the <strong>Due</strong> field in the right sidebar to open the
+            change-date modal. Pick a new date, choose a reason from the dropdown (grouped by Maintenance / Financial /
+            Operations / Internal), and add an optional note. The change is recorded in the timeline as
+            "Due: <em>old date</em> → <em>new date</em> (<em>reason</em>)" so you have a full audit trail.
+          </p>
+          <Callout>
+            <strong>KPI buckets</strong> — every reason is tagged <em>external</em> (vendor, owner, bank, permit) or
+            <em> internal</em> (staff capacity, missed follow-up, rework). Internal reasons are the only ones that count
+            toward team-efficiency KPIs. The other 13 reasons are non-controllable by definition, so the team isn't
+            penalized for vendor lateness or owner indecision.
+          </Callout>
+          <p className="text-xs text-gray-500 mt-2">
+            Reporting query template (count of pushes by bucket over last 30 days):
+          </p>
+          <CodeBlock>
+{`SELECT payload->>'bucket' AS bucket,
+       payload->>'reason_label' AS reason,
+       COUNT(*) AS push_count
+FROM ticket_events
+WHERE event_type = 'due_changed'
+  AND created_at > NOW() - INTERVAL '30 days'
+GROUP BY bucket, reason
+ORDER BY push_count DESC;`}
+          </CodeBlock>
         </Section>
 
         {/* Work orders */}

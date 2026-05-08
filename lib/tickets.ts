@@ -302,6 +302,51 @@ export interface AppendMessageInput {
   external_id?: string | null
 }
 
+/** Push a ticket's due_at and record why. Always emits a 'due_changed'
+ *  ticket_events row carrying the from/to dates, the reason code/label
+ *  (so the UI doesn't need to re-resolve it), the bucket
+ *  ('external' = non-controllable / 'internal' = controllable, used by
+ *  KPI reporting), and an optional free-text note. */
+export async function changeDueDate(
+  ticketId:   number,
+  newDueAt:   string,
+  reasonCode: string,
+  reasonLabel: string,
+  bucket:     'external' | 'internal',
+  actorEmail: string,
+  note?:      string | null,
+): Promise<Ticket> {
+  const { data: prev } = await supabaseAdmin
+    .from('tickets')
+    .select('due_at')
+    .eq('id', ticketId)
+    .single()
+
+  const { data, error } = await supabaseAdmin
+    .from('tickets')
+    .update({ due_at: newDueAt })
+    .eq('id', ticketId)
+    .select('*')
+    .single()
+  if (error || !data) throw new Error(`changeDueDate failed: ${error?.message}`)
+
+  await supabaseAdmin.from('ticket_events').insert({
+    ticket_id:   ticketId,
+    actor_email: actorEmail,
+    event_type:  'due_changed',
+    payload: {
+      from:         prev?.due_at ?? null,
+      to:           newDueAt,
+      reason_code:  reasonCode,
+      reason_label: reasonLabel,
+      bucket,
+      note:         note?.trim() || null,
+    },
+  })
+
+  return data as Ticket
+}
+
 export async function appendMessage(
   ticketId: number,
   input:    AppendMessageInput,

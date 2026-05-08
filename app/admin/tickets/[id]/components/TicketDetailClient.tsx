@@ -9,6 +9,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Fragment, useState, type ChangeEvent, type ReactNode } from 'react'
+import DueDateModal from './DueDateModal'
 
 interface TicketRecord {
   id:                     number
@@ -131,6 +132,7 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
   const [replyBody,     setReplyBody]     = useState('')
   const [sending,       setSending]       = useState(false)
   const [error,         setError]         = useState<string | null>(null)
+  const [showDueModal,  setShowDueModal]  = useState(false)
 
   async function patch(field: string, value: string | null) {
     setSaving(field)
@@ -362,9 +364,27 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           <Detail label="Association" value={ticket.association_code ?? '—'} />
           <Detail label="Email"       value={ticket.contact_email   ?? '—'} mono />
           <Detail label="Phone"       value={ticket.contact_phone   ?? '—'} mono />
-          <Detail label="Due"         value={ticket.due_at ? fmtAbs(ticket.due_at) : '—'} highlight={!!overdue} />
+          <div className="flex items-baseline justify-between text-xs py-1">
+            <span className="text-gray-400">Due</span>
+            <button
+              type="button"
+              onClick={() => setShowDueModal(true)}
+              className={['hover:underline', overdue ? 'text-red-600 font-medium' : 'text-gray-700'].join(' ')}
+              title="Click to change due date with a reason"
+            >
+              {ticket.due_at ? fmtAbs(ticket.due_at) : '— set'}
+            </button>
+          </div>
           <Detail label="Updated"     value={fmtAbs(ticket.updated_at)} />
         </Card>
+
+        {showDueModal && (
+          <DueDateModal
+            ticketId={ticket.id}
+            currentDue={ticket.due_at}
+            onClose={() => setShowDueModal(false)}
+          />
+        )}
 
         {workOrder && (
           <Card title="Work order">
@@ -431,6 +451,14 @@ function describeEvent(e: EventRecord): string {
     case 'assigned':          return `Assigned: ${(p as { from?: string }).from ?? '—'} → ${(p as { to?: string }).to ?? '—'}`
     case 'type_changed':      return `Type: ${(p as { from?: string }).from} → ${(p as { to?: string }).to}`
     case 'message_added':     return `New ${(p as { direction?: string }).direction ?? ''} message via ${(p as { channel?: string }).channel ?? ''}`.trim()
+    case 'due_changed': {
+      const cast = p as { from?: string; to?: string; reason_label?: string; bucket?: string; note?: string }
+      const fromStr = cast.from ? new Date(cast.from).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'
+      const toStr   = cast.to   ? new Date(cast.to)  .toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'
+      const tag     = cast.bucket === 'internal' ? ' [internal]' : ''
+      const note    = cast.note ? ` — "${cast.note}"` : ''
+      return `Due: ${fromStr} → ${toStr} (${cast.reason_label ?? 'no reason'})${tag}${note}`
+    }
     default:                  return e.event_type
   }
 }
