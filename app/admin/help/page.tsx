@@ -155,6 +155,18 @@ Needs vendor dispatched by tomorrow morning.`}
             <em> "You've been assigned TKT-XXXX"</em> with a button to open it.
           </p>
 
+          <h3 className="text-sm font-semibold text-gray-900 mt-5 mb-2">No <code className="bg-gray-100 px-1 rounded">@assign</code>? Triage email with one-click buttons</h3>
+          <p className="text-sm text-gray-700 mb-3">
+            Send a ticket without an explicit assignee and you'll get a reply within seconds asking who should
+            handle it. Each teammate is a button — one click, the ticket gets assigned, the assignee receives
+            their notification, and you land on the ticket detail page. Includes a <strong>"Keep it for myself"</strong> button
+            if you wanted to own it. <em>Maia (AI)</em> is also in the list — assign her now and AI-assisted resolution slots in later.
+          </p>
+          <Callout>
+            Triage links expire in 14 days. After that the ticket has to be assigned via the dashboard or by replying
+            with <code className="bg-blue-100 px-1 rounded">@assign someone@pmitop.com</code>.
+          </Callout>
+
           <h3 className="text-sm font-semibold text-gray-900 mt-5 mb-2">Threading</h3>
           <ul className="text-sm text-gray-700 space-y-1 list-disc pl-5">
             <li>Replying in an existing ticket thread <strong>always</strong> appends to that ticket — no trigger needed.</li>
