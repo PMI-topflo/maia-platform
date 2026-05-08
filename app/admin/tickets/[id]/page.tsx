@@ -41,9 +41,19 @@ export default async function TicketDetailPage(props: PageProps) {
 
   if (!ticket) notFound()
 
-  const workOrder = ticket.type === 'work_order'
-    ? (await supabaseAdmin.from('work_order_details').select('*').eq('ticket_id', ticketId).maybeSingle()).data
-    : null
+  const [workOrder, associationName] = await Promise.all([
+    ticket.type === 'work_order'
+      ? supabaseAdmin.from('work_order_details').select('*').eq('ticket_id', ticketId).maybeSingle().then(r => r.data)
+      : Promise.resolve(null),
+    ticket.association_code
+      ? supabaseAdmin
+          .from('associations')
+          .select('association_name')
+          .eq('association_code', ticket.association_code)
+          .maybeSingle()
+          .then(r => r.data?.association_name as string | undefined ?? null)
+      : Promise.resolve(null),
+  ])
 
   const data: TicketDetailData = {
     ticket,
@@ -51,6 +61,7 @@ export default async function TicketDetailPage(props: PageProps) {
     events:     events   ?? [],
     workOrder,
     staff,
+    associationName,
   }
 
   return (

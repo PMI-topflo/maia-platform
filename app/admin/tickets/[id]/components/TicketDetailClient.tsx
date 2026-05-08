@@ -76,11 +76,12 @@ export interface StaffMember {
 }
 
 export interface TicketDetailData {
-  ticket:     TicketRecord
-  messages:   MessageRecord[]
-  events:     EventRecord[]
-  workOrder:  WorkOrderRecord | null
-  staff:      StaffMember[]
+  ticket:           TicketRecord
+  messages:         MessageRecord[]
+  events:           EventRecord[]
+  workOrder:        WorkOrderRecord | null
+  staff:            StaffMember[]
+  associationName:  string | null
 }
 
 const STATUS_OPTIONS   = ['open', 'pending', 'waiting_external', 'resolved', 'closed']
@@ -116,7 +117,7 @@ function fmtMoney(cents: number | null): string {
 
 export default function TicketDetailClient({ data }: { data: TicketDetailData }) {
   const router = useRouter()
-  const { ticket, messages, events, workOrder, staff } = data
+  const { ticket, messages, events, workOrder, staff, associationName } = data
 
   const [status,        setStatus]        = useState(ticket.status)
   const [priority,      setPriority]      = useState(ticket.priority)
@@ -361,7 +362,14 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
 
         <Card title="Details">
           <Detail label="Channel"     value={CHANNEL_LABELS[ticket.channel_origin] ?? ticket.channel_origin} />
-          <Detail label="Association" value={ticket.association_code ?? '—'} />
+          <Detail
+            label="Association"
+            value={
+              associationName && ticket.association_code
+                ? `${associationName} (${ticket.association_code})`
+                : (associationName ?? ticket.association_code ?? '—')
+            }
+          />
           <Detail label="Email"       value={ticket.contact_email   ?? '—'} mono />
           <Detail label="Phone"       value={ticket.contact_phone   ?? '—'} mono />
           <div className="flex items-baseline justify-between text-xs py-1">
