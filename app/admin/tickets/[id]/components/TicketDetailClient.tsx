@@ -396,10 +396,24 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           </Card>
         )}
 
-        {(ticket.rentvine_workorder_id || ticket.cinc_workorder_id) && (
-          <Card title="Sync">
-            {ticket.rentvine_workorder_id && <Detail label="Rentvine" value={ticket.rentvine_workorder_id} mono />}
-            {ticket.cinc_workorder_id     && <Detail label="CINC"     value={ticket.cinc_workorder_id}     mono />}
+        {ticket.type === 'work_order' && (
+          <Card title="Sync status">
+            <Detail label="Rentvine" value={ticket.rentvine_workorder_id ?? 'pending sync'} mono />
+            <Detail label="CINC"     value={ticket.cinc_workorder_id     ?? 'pending sync'} mono />
+            {(() => {
+              const sync = (ticket.sync_status ?? {}) as Record<string, { ok?: boolean; last_error?: string; last_synced_at?: string }>
+              const errors: string[] = []
+              if (sync.cinc?.last_error)     errors.push(`CINC: ${sync.cinc.last_error}`)
+              if (sync.rentvine?.last_error) errors.push(`Rentvine: ${sync.rentvine.last_error}`)
+              if (errors.length === 0) return null
+              return (
+                <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
+                  {errors.map((e, i) => (
+                    <div key={i} className="text-[11px] text-red-600 break-words">{e}</div>
+                  ))}
+                </div>
+              )
+            })()}
           </Card>
         )}
       </aside>
