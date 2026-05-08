@@ -231,6 +231,18 @@ export async function createTicket(input: CreateTicketInput): Promise<Ticket> {
     payload:     { channel_origin: row.channel_origin, type: row.type },
   })
 
+  // Mirror new work orders into CINC + Rentvine via the outbox, so the
+  // sync survives serverless cold-starts and can retry on transient
+  // upstream failures. Each target is gated by its own env flag.
+  if (data.type === 'work_order') {
+    if (process.env.CINC_SYNC_ENABLED === 'true') {
+      await enqueueOutbox(data.id, 'ticket', 'create', 'cinc')
+    }
+    if (process.env.RENTVINE_SYNC_ENABLED === 'true') {
+      await enqueueOutbox(data.id, 'ticket', 'create', 'rentvine')
+    }
+  }
+
   return data as Ticket
 }
 
@@ -282,7 +294,14 @@ export async function updateTicket(
     )
   }
 
-  if (data.type === 'work_order') await enqueueOutbox(ticketId, 'ticket', 'update')
+  if (data.type === 'work_order') {
+    if (process.env.RENTVINE_SYNC_ENABLED === 'true') {
+      await enqueueOutbox(ticketId, 'ticket', 'update', 'rentvine')
+    }
+    if (process.env.CINC_SYNC_ENABLED === 'true') {
+      await enqueueOutbox(ticketId, 'ticket', 'update', 'cinc')
+    }
+  }
 
   return data as Ticket
 }
@@ -465,7 +484,12 @@ async function enqueueOutboxIfWorkOrder(ticketId: number, messageId: number): Pr
     .single()
   if (data?.type !== 'work_order') return
 
-  await enqueueOutbox(messageId, 'ticket_message', 'append_message', 'rentvine')
+  // Each integration is gated by its own env flag so we can enable
+  // CINC and Rentvine independently. Rentvine wiring lands once their
+  // endpoint catalog is locked down.
+  if (process.env.RENTVINE_SYNC_ENABLED === 'true') {
+    await enqueueOutbox(messageId, 'ticket_message', 'append_message', 'rentvine')
+  }
   if (process.env.CINC_SYNC_ENABLED === 'true') {
     await enqueueOutbox(messageId, 'ticket_message', 'append_message', 'cinc')
   }
