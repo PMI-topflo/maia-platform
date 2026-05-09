@@ -18,6 +18,7 @@ import {
   type GmailFullMessage,
   type GmailMessagePart,
 } from '@/lib/gmail'
+import { buildSkillsPromptBlock } from '@/lib/skills'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -906,10 +907,11 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
       { role: 'user', content: currentMessage },
     ]
 
+    const skillsBlock = await buildSkillsPromptBlock('internal')
     const message = await anthropic.messages.create({
       model:      'claude-sonnet-4-20250514',
       max_tokens: 1024,
-      system:     GENERAL_SYSTEM_PROMPT,
+      system:     GENERAL_SYSTEM_PROMPT + skillsBlock,
       messages,
     })
 
