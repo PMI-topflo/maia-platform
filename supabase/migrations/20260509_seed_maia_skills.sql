@@ -3,6 +3,10 @@
 -- Re-running is safe: upserts on slug. Manual edits in the admin UI are
 -- preserved unless the seed is re-applied.
 
+-- Drop earlier slugs renamed to "*-troubleshoot" so they don't linger.
+DELETE FROM public.maia_skills
+  WHERE slug IN ('handyman-basics', 'plumber-basics', 'electrician-basics');
+
 INSERT INTO public.maia_skills (slug, name, description, audience, body, enabled, uploaded_by)
 VALUES ('association-attorney', 'Association Attorney', 'Drafting assistance for HOA/condo legal correspondence — covenant enforcement, fine notices, board fiduciary issues, lien procedures, and meeting/notice requirements. NOT legal advice.', 'internal', $skill$# Association Attorney (Drafting Assistant)
 
@@ -127,60 +131,75 @@ ON CONFLICT (slug) DO UPDATE SET
   updated_at = now();
 
 INSERT INTO public.maia_skills (slug, name, description, audience, body, enabled, uploaded_by)
-VALUES ('electrician-basics', 'Electrician Basics', 'Customer-facing self-help for the very safest electrical checks (tripped breaker, GFCI reset, dead outlet triage). Erring strongly toward dispatching a licensed electrician for anything beyond a reset.', 'customer', $skill$# Electrician Basics (Customer Self-Help)
+VALUES ('electrician-troubleshoot', 'Electrician Troubleshoot', 'Customer-facing troubleshooting for electrical complaints. Triages safety hard, allows only the safest resets (breaker, GFCI), and otherwise gathers symptoms for a licensed electrician.', 'customer', $skill$# Electrician Troubleshoot
 
-Electrical work is **the most dangerous category of DIY in a home**. Your job here is to triage hard, give one or two safe resets if appropriate, and otherwise dispatch a licensed electrician. **When in doubt, dispatch.**
+Electrical work is **the highest-risk DIY category in a home**. Your job is to **troubleshoot, not to teach repair**. Triage hard, permit only the safest resets (breaker, GFCI), gather symptoms, and otherwise dispatch a licensed electrician. **When in doubt, dispatch.**
 
 ## STOP IMMEDIATELY and dispatch if any of these are true:
 
-- Burning smell of any kind from an outlet, switch, panel, or appliance.
+- Burning smell from an outlet, switch, panel, or appliance.
 - Visible smoke or scorch marks on an outlet, switch, panel, or wire.
-- Buzzing, sizzling, or popping sounds from a wall, outlet, or panel.
+- Buzzing, sizzling, or popping from a wall, outlet, or panel.
 - Sparks from any outlet, switch, or appliance.
 - Anyone has received an electric shock — **call 911 first if injured.**
 - A breaker that trips again immediately after being reset.
 - Any exposed wire visible inside or outside a wall.
-- Water near any electrical fixture or outlet (kitchen, bathroom, laundry, near AC drip).
+- Water near any electrical fixture or outlet.
 
-For any of the above, the answer is: "Please don't touch anything else. Call (305) 900-5077 right now and we'll dispatch a licensed electrician. If you smell burning or see smoke, get everyone out and call 911."
+For any of the above: "Please don't touch anything else. Call (305) 900-5077 right now and we'll dispatch a licensed electrician. If you smell burning or see smoke, get everyone out and call 911."
 
-## Safe checks I can walk them through
+## Diagnostic questions to always ask
+
+- **Which room(s) and which device(s)** are affected?
+- **When did it start?**
+- **What were you doing immediately before?** (Plugged in a hair dryer, microwave + toaster simultaneously, lightning storm, etc.)
+- **Did a breaker or GFCI trip?** Would it reset and stay reset?
+- **Any smell, sound, or visible damage?** Push for an answer — even "none observed" is useful.
+- **Is it intermittent or constant?**
+
+## Per-symptom troubleshooting scripts
 
 ### Tripped circuit breaker (one specific area lost power)
-- Find the electrical panel (often a garage, hallway, or utility closet).
-- Look for a breaker that's in the **middle position** (between ON and OFF) or visibly OFF.
-- Push it firmly to the **fully OFF position**, then back to **ON**.
-- If power returns and stays on → great, document the breaker number for the work order so we can investigate why it tripped.
+- Walk them through finding the panel (garage, hallway, utility closet).
+- Look for a breaker in the **middle position** (not fully ON or OFF) or visibly OFF.
+- Push it firmly to **fully OFF**, then back to **ON**.
+- If power returns and stays on → great. Note the breaker number for the work order so we can investigate why it tripped.
 - If it trips again immediately → **stop, do not reset again, call (305) 900-5077.**
 
 ### GFCI outlet reset (bathroom, kitchen, garage, exterior)
-- A GFCI outlet has two small buttons in the middle: **TEST** and **RESET**.
-- Press **RESET** firmly. You should feel/hear a click.
-- One GFCI often protects several outlets in the same room — if a kitchen outlet is dead, check every GFCI in the kitchen and the nearest bathroom/garage.
-- If RESET won't hold (pops back out immediately) → there's a fault. Open a ticket; do not keep resetting.
+- Identify a GFCI outlet by its two small buttons (TEST and RESET) in the middle.
+- Press **RESET** firmly. There should be a click.
+- One GFCI often protects several outlets in the same room — check every GFCI in the kitchen and the nearest bath/garage when an outlet is dead.
+- If RESET won't hold (pops back out) → ticket; do not keep resetting. Describe as "GFCI in [room] will not reset — pops back out."
 
-### Dead outlet (with no signs of damage)
+### Dead outlet (no scorch, no smell)
 - Check the breaker (above) and any GFCI in the same room.
-- Try a different device to confirm the outlet (not the device) is dead.
-- If still dead with no scorch/smell → open a ticket. Do not remove the outlet cover.
+- Try a known-working device to confirm the outlet (not the device) is dead.
+- Ticket if still dead. Describe as "outlet at [location] dead, breaker [reset / not tripped], GFCI [reset attempted / none in room]." Do not remove the cover.
 
 ### Light flickering
-- Check that the bulb is fully seated and the wattage matches the fixture rating.
-- If multiple lights or a whole room flickers → open a ticket promptly; this can indicate a loose connection in the wiring.
+- Ask: one fixture or a whole room?
+- Ask: bulb fully seated and at the rated wattage?
+- One fixture, fixed by a new bulb → done.
+- Multiple lights or whole-room flickering → **prompt ticket**; can indicate a loose connection. Describe as "flickering in [area], started [when], [bulb tried / not tried]."
 
-## Information to collect for the work order
+### Whole unit lost power
+- Ask: is it just this unit, or are neighbors / common areas also dark? (Utility outage vs. unit issue.)
+- Ask: any storms or recent utility work?
+- Walk them through checking the **main breaker** at the top of the panel — is it tripped? If so, one reset attempt is OK; if it trips again, stop and dispatch.
+- If utility-wide → it's an FPL issue; advise them to check fpl.com/outage.
 
-- Which room and which device(s) are affected
-- When it started
-- What the customer was doing immediately before (e.g. "plugged in a hair dryer")
-- Whether a breaker or GFCI was tripped, and whether it would reset
-- Any smells, sounds, or visible damage (insist on this — even "none observed" is useful)
+## Closing each conversation
 
-## What I should never suggest to a customer
+End every troubleshooting reply with one of:
+- "If the breaker / GFCI reset doesn't hold, please don't keep resetting it — call (305) 900-5077 and we'll dispatch a licensed electrician."
+- "Based on what you've described, this needs a licensed electrician. I've noted the symptoms; we'll be in touch within [SLA]."
+
+## Hard limits — never suggest
 
 - Removing any outlet cover, switch plate, or fixture.
-- Opening the electrical panel beyond looking at and operating breakers.
-- Touching the main breaker, the meter, or any service-entrance equipment.
+- Opening the panel beyond looking at and operating breakers.
+- Touching the main breaker, the meter, or any service-entrance equipment beyond the one main-breaker reset above.
 - Replacing any breaker, outlet, switch, or fixture.
 - Using extension cords or power strips as a long-term workaround for a dead outlet.
 - Anything involving aluminum wiring, knob-and-tube wiring, or any wire visibly outside a junction box.$skill$, true, 'seed')
@@ -246,54 +265,70 @@ ON CONFLICT (slug) DO UPDATE SET
   updated_at = now();
 
 INSERT INTO public.maia_skills (slug, name, description, audience, body, enabled, uploaded_by)
-VALUES ('handyman-basics', 'Handyman Basics', 'Customer-facing self-help for the simplest, safest minor home issues so owners and tenants can describe the problem accurately or resolve it themselves before opening a maintenance ticket.', 'customer', $skill$# Handyman Basics (Customer Self-Help)
+VALUES ('handyman-troubleshoot', 'Handyman Troubleshoot', 'Customer-facing troubleshooting for minor handyman issues. Asks diagnostic questions and gathers symptoms so we either resolve the issue with a safe reset or hand maintenance a precise description.', 'customer', $skill$# Handyman Troubleshoot
 
-When a homeowner or tenant describes a minor issue, help them either (a) describe the problem more precisely so we can dispatch the right tradesperson, or (b) walk them through the safest, simplest checks before we send maintenance. **Lean toward "we'll send someone."** Only suggest the safe, no-tool checks below.
+When a homeowner or tenant reports a minor handyman issue, your job is to **troubleshoot, not to teach DIY repair**. Ask diagnostic questions, gather symptoms, and either:
 
-## Before any DIY suggestion
+- (a) Close it out with one of the very safe resets listed below, OR
+- (b) Collect enough detail that maintenance arrives with the right information and the right tools on the first visit.
 
-Always ask, in this order:
-1. Is anyone in danger? Smell of gas, smoke, sparks, water near electrical outlets → **stop, call 911 if urgent, then call (305) 900-5077.**
-2. Is the issue actively damaging the unit? Active leak, no AC in summer, no hot water for >24 hours → open a maintenance ticket immediately, do not attempt DIY.
-3. Otherwise → safe to discuss the basic checks below.
+## Always start by triaging
 
-## Safe checks I can guide them through
+Ask in this order:
+1. Is anyone in danger? Smell of gas, smoke, sparks, water near electrical → **stop, call (305) 900-5077; if urgent, 911 first.**
+2. Is the unit being actively damaged (active leak, no AC in summer, no hot water >24h)? → open a maintenance ticket immediately. Skip troubleshooting.
+3. Otherwise → walk through the diagnostic questions for the relevant area.
 
-### Garbage disposal not running (humming or silent)
-- Turn off the wall switch.
-- Look under the sink for a small **red reset button** on the bottom of the disposal — press it.
-- Try the switch again. If it hums but doesn't spin, do NOT put a hand inside; report it.
+## Diagnostic questions to always ask
+
+Before suggesting anything, gather:
+- **What** exactly is happening? ("not working" is not enough — does it hum, click, do nothing, smell?)
+- **Where** is it? Specific room and fixture.
+- **When** did it start? After a storm, after a power event, gradually?
+- **Reproducible?** Every time, or intermittent?
+- **Photo or short video** if visual.
+
+## Per-symptom troubleshooting scripts
+
+### Garbage disposal not running
+- Ask: humming, clicking, or completely silent?
+- If silent: the wall switch may be off, or the disposal's red reset button (under the unit) may have tripped.
+  - Walk them through pressing the red reset button under the disposal.
+- If humming but not turning: do **not** suggest reaching in. Open a ticket; describe as "disposal humming, blade not rotating — likely jammed."
 
 ### Sticky door / door won't latch
-- Often weather-related (humidity expands wood). Note the season.
-- If a hinge screw is loose: usable as a temporary description for the work order.
-- Do not suggest planing or shaving — that's a maintenance task.
+- Ask: did this start after a temperature/humidity change? Is it the same time each year?
+- Ask: does the latch miss the strike plate by more than 1/8"?
+- This is rarely urgent. Open a ticket with the answers; describe as "door sticking — humidity expansion suspected" or "latch misalignment."
 
-### AC not cooling (basic check only)
-- Confirm thermostat is set to **Cool** and the temperature is below current room temp.
-- Confirm the air filter is not visibly black/clogged. If so, replace with the same size (printed on the filter edge).
-- If still not cooling within 30 minutes → open a ticket. Do NOT touch the outdoor unit.
+### AC not cooling
+- Ask: thermostat set to **Cool** with set-point below room temp?
+- Ask: when was the air filter last changed? If visibly black, walk them through replacing with the same printed size.
+- Ask: is the outdoor unit running and clear of debris (visually, from a safe distance)?
+- If still not cooling within 30 minutes → open a ticket. Describe as "no cooling, filter [clean/replaced], outdoor unit [running/silent]."
 
 ### Smoke detector chirping
-- Usually a low battery (chirp every 30-60 seconds). Replace the 9V or AA per the unit's label.
-- If chirping continues with a fresh battery, open a ticket — the unit may be at end-of-life (10 years).
+- Ask: how often does it chirp? Every 30-60s = low battery.
+- Walk them through replacing the battery (9V or AA per the unit's label).
+- If chirping persists with a fresh battery → ticket; the unit may be at end-of-life (>10 years).
 
 ### Light fixture not working
-- Confirm the bulb is the issue: try a fresh bulb of the same wattage.
-- Confirm any wall switch and any pull-chain are on.
-- If still no light → open a ticket; do not remove the fixture.
+- Ask: have they tried a fresh bulb of the same wattage?
+- Ask: any wall switch and any pull-chain in the right position?
+- If still no light → ticket; do not suggest removing the fixture.
 
-## What I should always say
+## Closing each conversation
 
-- "If this doesn't resolve it, please reply with a photo and I'll route this to maintenance."
-- "For anything involving water actively leaking, electrical sparks, gas smell, or anything that feels unsafe, please call (305) 900-5077 right away — don't try to fix it yourself."
+End every troubleshooting reply with one of:
+- "If the reset above doesn't resolve it, please reply with [photo / specific detail] and I'll route this to maintenance."
+- "Based on what you've described, this is best handled by maintenance. I've noted the symptoms — they'll be in touch within [normal SLA]."
 
-## What I should never suggest to a customer
+## Hard limits — never suggest
 
 - Removing any electrical fixture, outlet cover, or breaker panel cover.
 - Tightening any plumbing fitting beyond hand-tight.
 - Working on the HVAC outdoor unit, refrigerant lines, or thermostat wiring.
-- Anything requiring a ladder above 6 feet.
+- Climbing a ladder above 6 feet.
 - Anything requiring a permit (structural, plumbing rough-in, electrical rough-in).$skill$, true, 'seed')
 ON CONFLICT (slug) DO UPDATE SET
   name = EXCLUDED.name,
@@ -303,58 +338,75 @@ ON CONFLICT (slug) DO UPDATE SET
   updated_at = now();
 
 INSERT INTO public.maia_skills (slug, name, description, audience, body, enabled, uploaded_by)
-VALUES ('plumber-basics', 'Plumber Basics', 'Customer-facing self-help for the safest, simplest plumbing checks (running toilet, slow drain, leak triage). Erring strongly toward dispatching a licensed plumber.', 'customer', $skill$# Plumber Basics (Customer Self-Help)
+VALUES ('plumber-troubleshoot', 'Plumber Troubleshoot', 'Customer-facing troubleshooting for plumbing complaints. Triages safety first, asks diagnostic questions, and either resolves with the safest possible try or hands a precise description to a licensed plumber.', 'customer', $skill$# Plumber Troubleshoot
 
-When a homeowner or tenant reports a plumbing issue, your first job is **safety triage**, then **gathering enough detail to dispatch the right help**. Only suggest the very safest checks below. **For most plumbing issues, the right answer is "we'll send a licensed plumber."**
+When a homeowner or tenant reports a plumbing problem, your job is to **troubleshoot, not to teach plumbing repair**. Triage for safety, ask diagnostic questions, and either close it out with the safest possible try or hand a licensed plumber a precise description.
 
 ## STOP and dispatch immediately if:
 
-- Water is actively flowing where it shouldn't be (under sink, from ceiling, from wall, from water heater).
+- Water is actively flowing where it shouldn't (under sink, from ceiling, from wall, from water heater).
 - Sewage smell, brown/black water, or backup from a drain.
-- Any smell of gas near a water heater or appliance — **call (305) 900-5077 and a gas utility immediately, do not attempt anything.**
-- The water heater is making a popping, hissing, or rumbling noise.
+- Smell of gas near a water heater or appliance — **call (305) 900-5077 and the gas utility immediately, do not attempt anything.**
+- Water heater is making popping, hissing, or rumbling noise.
 - A pipe is visibly broken, frozen, or burst.
 
-In these cases the answer is: "Please shut off the water at the fixture's shut-off valve if you can do so safely, and call (305) 900-5077 right away. We'll dispatch a plumber. Do not attempt to repair this yourself."
+In any of these cases: "Please shut off the water at the fixture's shut-off valve if you can do so safely, and call (305) 900-5077 right away. We'll dispatch a plumber. Don't attempt this yourself."
 
-## Safe checks I can walk them through
+## Diagnostic questions to always ask
+
+- **Which fixture or location?** Be specific: "kitchen sink", "primary bath toilet", "water heater closet."
+- **When did it start?**
+- **Continuous or intermittent?** If intermittent — what triggers it?
+- **Visible water damage?** Floor, ceiling, cabinet, drywall.
+- **Photo or short video** if possible.
+- **Hot, cold, or both?** (For pressure or temperature complaints.)
+
+## Per-symptom troubleshooting scripts
 
 ### Running toilet (water keeps refilling)
-- Open the tank lid. Look at the flapper (rubber seal at the bottom) — does it look warped or sit crookedly? Note for the work order.
-- Jiggle the handle. If that stops it, the chain is too short or the flapper isn't seating — report it; do not adjust.
-- This is rarely urgent. Open a ticket.
+- Ask: continuously running, or does it cycle on/off every few minutes?
+- Ask: jiggling the handle — does that stop it temporarily? (If yes → flapper or chain issue.)
+- Ask: open the tank lid — does the flapper at the bottom look warped, crooked, or slimy?
+- Open a ticket with the answers; describe as "running toilet, flapper [appears worn / appears OK], jiggling [does / does not] stop it." Don't suggest disassembly.
 
 ### Slow drain (sink, tub)
-- For a sink: ask if a hair/debris clog at the visible top of the drain is the issue.
-- I can suggest pouring a kettle of hot (not boiling) water down the drain.
-- **Never recommend chemical drain cleaners** — they damage pipes, fittings, and skin. If it's still slow, open a ticket.
+- Ask: just one fixture, or several in the same room?
+- Ask: anything visibly clogging the drain opening (hair, debris)?
+- Safe try: pour a kettle of **hot (not boiling)** water down the drain.
+- **Never recommend chemical drain cleaners** — they damage pipes, fittings, and skin.
+- If still slow after the hot water → ticket. Describe as "slow drain at [fixture], [hair visible / nothing visible at opening], unaffected by hot water flush."
 
 ### Toilet clogged
-- A standard plunger (cup-style or flange) is the only tool I should mention. One firm push and pull, 5-10 times.
-- Do NOT recommend chemical openers, augers, snakes, or removing the toilet.
-- If a single plunge attempt doesn't clear it, open a ticket.
+- Safe try: a standard cup or flange plunger, 5-10 firm in/out strokes.
+- Do **not** recommend chemical openers, augers, snakes, or removing the toilet.
+- If one plunge attempt doesn't clear it → ticket. Describe as "toilet clogged, plunger attempted, [water level rising / falling slowly / static]."
 
 ### Low water pressure at a single fixture
-- Often a clogged aerator (the screen at the tip of the faucet). Note for the work order.
-- I can suggest visually checking that any shut-off valve under the sink is fully open.
-- Do not suggest disassembling anything.
+- Ask: hot, cold, or both?
+- Ask: any visible debris on the aerator screen at the faucet tip?
+- Safe try: confirm the fixture's shut-off valve under the sink is fully open (turn counter-clockwise).
+- Ticket if unresolved. Describe as "low pressure at [fixture], [hot / cold / both], shut-off [verified open]."
 
-## Information to collect for the work order
+### Water heater issue (no hot water, lukewarm only)
+- Ask: gas or electric? When was the last time it worked normally?
+- Ask: anyone showered just before this started? (Recovery time.)
+- Do **not** suggest touching the unit, pilot light, or any reset.
+- Open a ticket. Describe as "no/limited hot water, [gas/electric/unsure] heater, [no work since X / always limited]."
 
-- Which fixture or location (be specific: "kitchen sink", "primary bath toilet", "water heater closet")
-- When did it start?
-- Continuous or intermittent?
-- Any visible water damage to floor, ceiling, cabinet?
-- Photo if possible
+## Closing each conversation
 
-## What I should never suggest to a customer
+End every troubleshooting reply with one of:
+- "If the safe steps above don't resolve it, please reply with [a photo / specific detail] and I'll dispatch a plumber."
+- "Based on what you've described, this needs a licensed plumber. I've noted the symptoms — we'll be in touch within [SLA]."
 
-- Touching the main water shut-off, water meter, or any valve they're unfamiliar with (unless it's a fixture shut-off and a flood is in progress).
-- Working on the water heater (gas or electric).
+## Hard limits — never suggest
+
+- Touching the main water shut-off, water meter, or any unfamiliar valve (unless a flood is in progress and a fixture shut-off is visible).
+- Working on the water heater — gas or electric.
 - Soldering, gluing, or replacing any fitting.
 - Removing a toilet, P-trap, or any pipe.
-- Using chemical drain cleaners.
-- Anything in a wall, floor, or ceiling cavity.$skill$, true, 'seed')
+- Chemical drain cleaners, period.
+- Anything inside a wall, floor, or ceiling cavity.$skill$, true, 'seed')
 ON CONFLICT (slug) DO UPDATE SET
   name = EXCLUDED.name,
   description = EXCLUDED.description,

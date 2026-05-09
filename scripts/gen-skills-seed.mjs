@@ -30,7 +30,11 @@ function parse(text) {
 console.log(`-- Seed the six built-in MAIA skills.
 -- Generated from supabase/skills/*.md via scripts/gen-skills-seed.mjs.
 -- Re-running is safe: upserts on slug. Manual edits in the admin UI are
--- preserved unless the seed is re-applied.\n`)
+-- preserved unless the seed is re-applied.
+
+-- Drop earlier slugs renamed to "*-troubleshoot" so they don't linger.
+DELETE FROM public.maia_skills
+  WHERE slug IN ('handyman-basics', 'plumber-basics', 'electrician-basics');\n`)
 
 for (const f of files) {
   const s = parse(fs.readFileSync(path.join(skillsDir, f), 'utf8'))
