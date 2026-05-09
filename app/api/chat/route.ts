@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { buildSkillsPromptBlock } from '@/lib/skills'
+import { buildOfficeHoursBlock } from '@/lib/office-hours'
 
 const client = new Anthropic()
 
@@ -157,7 +158,7 @@ RESPONSE RULES:
 - Be helpful, concise, and professional. Keep responses under 150 words unless a longer explanation is truly needed.
 - If you don't know the answer, say so honestly and direct them to call (305) 900-5077, WhatsApp (786) 686-3223, or email maia@pmitop.com.
 - Never invent specific dollar amounts, dates, or policy details you are not certain about.
-- For urgent maintenance (flooding, no AC, safety hazards), always include the service email and phone number.${skillsBlock}`
+- For urgent maintenance (flooding, no AC, safety hazards), always include the service email and phone number.${buildOfficeHoursBlock()}${skillsBlock}`
 
   let reply = ''
   try {

@@ -27,7 +27,7 @@ function parse(text) {
   return { name: fields.name, description: fields.description, audience: fields.audience || 'internal', body }
 }
 
-console.log(`-- Seed the six built-in MAIA skills.
+console.log(`-- Seed the built-in MAIA skills.
 -- Generated from supabase/skills/*.md via scripts/gen-skills-seed.mjs.
 -- Re-running is safe: upserts on slug. Manual edits in the admin UI are
 -- preserved unless the seed is re-applied.
