@@ -52,6 +52,7 @@ function describeAssociationType(t: string): string {
     case 'commercial_condo': return 'commercial / non-residential condominium (governed by Florida Statutes Chapter 718; voting and assessments often weighted by square footage; tenants are commercial lessees, not residential tenants)'
     case 'coop':             return 'cooperative — owners hold shares + a proprietary lease (governed by Florida Statutes Chapter 719)'
     case 'hoa':              return 'homeowners association (governed by Florida Statutes Chapter 720)'
+    case 'master_hoa':       return 'master HOA — governs community-wide common areas above one or more sub-associations (still Florida Statutes Chapter 720, but at the umbrella level; unit-level rules belong to the sub-association)'
     default:                 return t
   }
 }

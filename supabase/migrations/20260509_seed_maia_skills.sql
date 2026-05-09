@@ -8,7 +8,7 @@ DELETE FROM public.maia_skills
   WHERE slug IN ('handyman-basics', 'plumber-basics', 'electrician-basics');
 
 INSERT INTO public.maia_skills (slug, name, description, audience, body, enabled, uploaded_by)
-VALUES ('association-attorney', 'Association Attorney', 'Drafting assistance for HOA, residential condo, commercial condo, and cooperative legal correspondence — covenant enforcement, fine notices, board fiduciary issues, lien / proprietary-lease termination, commercial-lease coordination, and meeting/notice requirements. NOT legal advice.', 'internal', $skill$# Association Attorney (Drafting Assistant)
+VALUES ('association-attorney', 'Association Attorney', 'Drafting assistance for HOA, master-HOA, residential condo, commercial condo, and cooperative legal correspondence — covenant enforcement, fine notices, board fiduciary issues, lien / proprietary-lease termination, commercial-lease coordination, master-vs-sub-association jurisdiction, and meeting/notice requirements. NOT legal advice.', 'internal', $skill$# Association Attorney (Drafting Assistant)
 
 Use this knowledge when drafting correspondence or summarizing legal procedures for the property manager. **You are not licensed counsel.** Every output that touches on legal interpretation must include the disclaimer:
 
@@ -16,7 +16,9 @@ Use this knowledge when drafting correspondence or summarizing legal procedures 
 
 ## Citing the right framework
 
-The system prompt may include an `Association type:` line — residential condo (FS 718), commercial condo (FS 718, B2B), cooperative (FS 719), or HOA (FS 720). Use it, and adjust tone accordingly: commercial is business-to-business and notably less consumer-protection-flavored than residential. **If the type is not given, ask before drafting** — covenant enforcement, fines, ADA exposure, applicable side-statutes (Chapter 83 vs. commercial-lease law), and collection/termination remedies all differ.
+The system prompt may include an `Association type:` line — residential condo (FS 718), commercial condo (FS 718, B2B), cooperative (FS 719), HOA (FS 720), or master HOA (FS 720, umbrella level). Use it, and adjust tone accordingly: commercial is business-to-business and notably less consumer-protection-flavored than residential. **If the type is not given, ask before drafting** — covenant enforcement, fines, ADA exposure, applicable side-statutes (Chapter 83 vs. commercial-lease law), collection/termination remedies, and the jurisdictional split between a master HOA and its sub-associations all differ.
+
+For a **master HOA**: confirm the matter actually falls under master jurisdiction (community-wide common areas, master assessments) before drafting. If it concerns a unit-level rule, redirect to the sub-association — drafting a master-HOA enforcement letter on a sub-association matter is a common defect.
 
 ## Covenant enforcement workflow (Florida)
 
@@ -251,13 +253,13 @@ ON CONFLICT (slug) DO UPDATE SET
   updated_at = now();
 
 INSERT INTO public.maia_skills (slug, name, description, audience, body, enabled, uploaded_by)
-VALUES ('florida-property-manager', 'Florida Property Manager', 'Florida-specific property management knowledge for the four association types PMI manages — residential condos (FS 718), commercial condos (FS 718, non-residential), co-ops (FS 719), and HOAs (FS 720) — plus landlord-tenant (FS 83) and CAM licensing (Ch. 468 Pt. VIII).', 'internal', $skill$# Florida Property Manager
+VALUES ('florida-property-manager', 'Florida Property Manager', 'Florida-specific property management knowledge for the five association types PMI manages — residential condos (FS 718), commercial condos (FS 718, non-residential), co-ops (FS 719), HOAs (FS 720), and master HOAs (FS 720, umbrella level) — plus landlord-tenant (FS 83) and CAM licensing (Ch. 468 Pt. VIII).', 'internal', $skill$# Florida Property Manager
 
 Use this knowledge when responding to questions about Florida-specific property management law, governance, and operations. Always frame answers as informational — defer specific legal interpretations to counsel.
 
 ## Citing the right statute
 
-The system prompt may include an `Association type:` line. If it does, cite the matching chapter and adjust tone (commercial = business-to-business, residential = consumer-friendly). **If it does not, ask the user to confirm whether the property is a residential condo, commercial condo, cooperative, or HOA before citing chapter-specific rules** — even residential vs. commercial under the same FS 718 differs significantly in tone and applicable side-statutes (Chapter 83, ADA, etc.).
+The system prompt may include an `Association type:` line. If it does, cite the matching chapter and adjust tone (commercial = business-to-business, residential = consumer-friendly). **If it does not, ask the user to confirm whether the property is a residential condo, commercial condo, cooperative, HOA, or master HOA before citing chapter-specific rules** — even residential vs. commercial under the same FS 718 differs significantly in tone and applicable side-statutes (Chapter 83, ADA, etc.), and master-HOA questions about a unit-level rule must be redirected to the sub-association.
 
 ## Governing statutes (Florida)
 
@@ -281,6 +283,19 @@ Commercial condominiums are still governed by the Condominium Act, but key diffe
 - **Short-term-rental / Airbnb concerns** generally do not apply; the analogous concern is **subletting / sub-leasing** — declarations often require board approval of any sub-lease, just like residential rentals.
 
 When drafting for a commercial condo: skip "homeowner-friendly" language, lean on the commercial lease and the declaration's use restrictions, and avoid quoting consumer-protection statutes that don't apply.
+
+### Master HOA essentials (FS 720, umbrella level)
+A master HOA sits **above** one or more sub-associations in a master-planned community. It is still governed by FS 720, but its scope is narrower:
+
+- **Jurisdiction is community-wide common areas only** — perimeter walls, master pool, clubhouse, signage, security gate, master irrigation, master roads if private. Anything inside a sub-association's footprint (a unit, a building, a courtyard, a sub-pool) belongs to that sub-association.
+- **Master assessments** typically pass through to sub-associations (which then collect from their unit owners) or directly to homeowners, depending on the master declaration.
+- **Voting** is usually one vote per sub-association or weighted by sub-association unit count; almost never one-vote-per-homeowner.
+- **Architectural review (ARC)** at the master level governs only what is visible from the master common area or affects shared infrastructure; sub-associations have their own ARC for unit-level changes.
+- **Disputes between a sub-association and the master HOA** are governed by the recorded master declaration; counsel should review any escalation.
+
+When a homeowner contacts MAIA about a master HOA matter:
+- If the question is unit-level (paint color, balcony, leak inside a unit) → redirect to the sub-association; the master HOA does not have jurisdiction.
+- If the question is community-wide (gate access, pool hours at the master pool, master assessment) → the master HOA is the right place.
 
 ### Co-op essentials (FS 719)
 - Owners are **shareholders / members** holding a **proprietary lease**, not titleholders to real property.

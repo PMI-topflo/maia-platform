@@ -1,6 +1,6 @@
 ---
 name: Association Attorney
-description: Drafting assistance for HOA, residential condo, commercial condo, and cooperative legal correspondence — covenant enforcement, fine notices, board fiduciary issues, lien / proprietary-lease termination, commercial-lease coordination, and meeting/notice requirements. NOT legal advice.
+description: Drafting assistance for HOA, master-HOA, residential condo, commercial condo, and cooperative legal correspondence — covenant enforcement, fine notices, board fiduciary issues, lien / proprietary-lease termination, commercial-lease coordination, master-vs-sub-association jurisdiction, and meeting/notice requirements. NOT legal advice.
 audience: internal
 ---
 
@@ -12,7 +12,9 @@ Use this knowledge when drafting correspondence or summarizing legal procedures 
 
 ## Citing the right framework
 
-The system prompt may include an `Association type:` line — residential condo (FS 718), commercial condo (FS 718, B2B), cooperative (FS 719), or HOA (FS 720). Use it, and adjust tone accordingly: commercial is business-to-business and notably less consumer-protection-flavored than residential. **If the type is not given, ask before drafting** — covenant enforcement, fines, ADA exposure, applicable side-statutes (Chapter 83 vs. commercial-lease law), and collection/termination remedies all differ.
+The system prompt may include an `Association type:` line — residential condo (FS 718), commercial condo (FS 718, B2B), cooperative (FS 719), HOA (FS 720), or master HOA (FS 720, umbrella level). Use it, and adjust tone accordingly: commercial is business-to-business and notably less consumer-protection-flavored than residential. **If the type is not given, ask before drafting** — covenant enforcement, fines, ADA exposure, applicable side-statutes (Chapter 83 vs. commercial-lease law), collection/termination remedies, and the jurisdictional split between a master HOA and its sub-associations all differ.
+
+For a **master HOA**: confirm the matter actually falls under master jurisdiction (community-wide common areas, master assessments) before drafting. If it concerns a unit-level rule, redirect to the sub-association — drafting a master-HOA enforcement letter on a sub-association matter is a common defect.
 
 ## Covenant enforcement workflow (Florida)
 

@@ -1,6 +1,6 @@
 ---
 name: Florida Property Manager
-description: Florida-specific property management knowledge for the four association types PMI manages — residential condos (FS 718), commercial condos (FS 718, non-residential), co-ops (FS 719), and HOAs (FS 720) — plus landlord-tenant (FS 83) and CAM licensing (Ch. 468 Pt. VIII).
+description: Florida-specific property management knowledge for the five association types PMI manages — residential condos (FS 718), commercial condos (FS 718, non-residential), co-ops (FS 719), HOAs (FS 720), and master HOAs (FS 720, umbrella level) — plus landlord-tenant (FS 83) and CAM licensing (Ch. 468 Pt. VIII).
 audience: internal
 ---
 
@@ -10,7 +10,7 @@ Use this knowledge when responding to questions about Florida-specific property 
 
 ## Citing the right statute
 
-The system prompt may include an `Association type:` line. If it does, cite the matching chapter and adjust tone (commercial = business-to-business, residential = consumer-friendly). **If it does not, ask the user to confirm whether the property is a residential condo, commercial condo, cooperative, or HOA before citing chapter-specific rules** — even residential vs. commercial under the same FS 718 differs significantly in tone and applicable side-statutes (Chapter 83, ADA, etc.).
+The system prompt may include an `Association type:` line. If it does, cite the matching chapter and adjust tone (commercial = business-to-business, residential = consumer-friendly). **If it does not, ask the user to confirm whether the property is a residential condo, commercial condo, cooperative, HOA, or master HOA before citing chapter-specific rules** — even residential vs. commercial under the same FS 718 differs significantly in tone and applicable side-statutes (Chapter 83, ADA, etc.), and master-HOA questions about a unit-level rule must be redirected to the sub-association.
 
 ## Governing statutes (Florida)
 
@@ -34,6 +34,19 @@ Commercial condominiums are still governed by the Condominium Act, but key diffe
 - **Short-term-rental / Airbnb concerns** generally do not apply; the analogous concern is **subletting / sub-leasing** — declarations often require board approval of any sub-lease, just like residential rentals.
 
 When drafting for a commercial condo: skip "homeowner-friendly" language, lean on the commercial lease and the declaration's use restrictions, and avoid quoting consumer-protection statutes that don't apply.
+
+### Master HOA essentials (FS 720, umbrella level)
+A master HOA sits **above** one or more sub-associations in a master-planned community. It is still governed by FS 720, but its scope is narrower:
+
+- **Jurisdiction is community-wide common areas only** — perimeter walls, master pool, clubhouse, signage, security gate, master irrigation, master roads if private. Anything inside a sub-association's footprint (a unit, a building, a courtyard, a sub-pool) belongs to that sub-association.
+- **Master assessments** typically pass through to sub-associations (which then collect from their unit owners) or directly to homeowners, depending on the master declaration.
+- **Voting** is usually one vote per sub-association or weighted by sub-association unit count; almost never one-vote-per-homeowner.
+- **Architectural review (ARC)** at the master level governs only what is visible from the master common area or affects shared infrastructure; sub-associations have their own ARC for unit-level changes.
+- **Disputes between a sub-association and the master HOA** are governed by the recorded master declaration; counsel should review any escalation.
+
+When a homeowner contacts MAIA about a master HOA matter:
+- If the question is unit-level (paint color, balcony, leak inside a unit) → redirect to the sub-association; the master HOA does not have jurisdiction.
+- If the question is community-wide (gate access, pool hours at the master pool, master assessment) → the master HOA is the right place.
 
 ### Co-op essentials (FS 719)
 - Owners are **shareholders / members** holding a **proprietary lease**, not titleholders to real property.
