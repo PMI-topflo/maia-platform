@@ -46,6 +46,15 @@ const LANGUAGE_NAMES: Record<string, string> = {
   en: 'English', es: 'Spanish', pt: 'Portuguese', fr: 'French', he: 'Hebrew', ru: 'Russian',
 }
 
+function describeAssociationType(t: string): string {
+  switch (t) {
+    case 'condo': return 'condominium (governed by Florida Statutes Chapter 718)'
+    case 'coop':  return 'cooperative — owners hold shares + a proprietary lease (governed by Florida Statutes Chapter 719)'
+    case 'hoa':   return 'homeowners association (governed by Florida Statutes Chapter 720)'
+    default:      return t
+  }
+}
+
 export async function POST(req: NextRequest) {
   const { messages, persona, associationCode, language, sessionId } = await req.json()
 
@@ -71,12 +80,15 @@ export async function POST(req: NextRequest) {
           .limit(20),
         supabaseAdmin
           .from('associations')
-          .select('association_name')
+          .select('association_name, association_type')
           .eq('association_code', associationCode)
           .single(),
       ]).then(([faqRes, assocRes]) => {
         if (assocRes.data?.association_name) {
           faqContext += `\n\nASSOCIATION: ${assocRes.data.association_name} (${associationCode})`
+        }
+        if (assocRes.data?.association_type) {
+          faqContext += `\nASSOCIATION TYPE: ${describeAssociationType(assocRes.data.association_type)}`
         }
         if (faqRes.data?.length) {
           faqContext += '\n\nKNOWLEDGE BASE:\n' +

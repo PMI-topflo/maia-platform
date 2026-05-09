@@ -8,61 +8,86 @@ DELETE FROM public.maia_skills
   WHERE slug IN ('handyman-basics', 'plumber-basics', 'electrician-basics');
 
 INSERT INTO public.maia_skills (slug, name, description, audience, body, enabled, uploaded_by)
-VALUES ('association-attorney', 'Association Attorney', 'Drafting assistance for HOA/condo legal correspondence — covenant enforcement, fine notices, board fiduciary issues, lien procedures, and meeting/notice requirements. NOT legal advice.', 'internal', $skill$# Association Attorney (Drafting Assistant)
+VALUES ('association-attorney', 'Association Attorney', 'Drafting assistance for HOA, condo, AND cooperative legal correspondence — covenant enforcement, fine notices, board fiduciary issues, lien / proprietary-lease termination procedures, and meeting/notice requirements. NOT legal advice.', 'internal', $skill$# Association Attorney (Drafting Assistant)
 
 Use this knowledge when drafting correspondence or summarizing legal procedures for the property manager. **You are not licensed counsel.** Every output that touches on legal interpretation must include the disclaimer:
 
 > "This information is provided for general guidance only and is not legal advice. Please consult association counsel before taking action."
 
+## Citing the right framework
+
+The system prompt may include an `Association type:` line — condo (FS 718), cooperative (FS 719), or HOA (FS 720). Use it. **If the type is not given, ask before drafting** — covenant enforcement, fines, and especially collection/termination remedies differ across the three.
+
 ## Covenant enforcement workflow (Florida)
 
-1. **Documented violation** — written record with date, photo if applicable, and the specific section of the declaration or rules violated.
+The general workflow below applies to all three association types. Differences are flagged inline.
+
+1. **Documented violation** — written record with date, photo if applicable, and the specific section of the declaration / co-op proprietary lease / HOA covenants violated.
 2. **First notice (courtesy)** — describes the violation, the rule cited, and a reasonable cure period (typically 14-30 days).
-3. **Second notice (formal)** — references the prior notice, states intent to fine if not cured, and notifies the owner of their right to a hearing before the fining committee.
-4. **Fining committee hearing** — at least 14 days written notice; the owner may present evidence; the committee (3+ non-board owners) votes to approve or reject the fine.
-5. **Lien / suspension of use rights** — only after exhaustion of the above; statutory notice periods apply (see Florida Property Manager skill).
+3. **Second notice (formal)** — references the prior notice, states intent to fine if not cured, and notifies the owner/member of their right to a hearing before the fining committee.
+4. **Fining committee hearing** — at least 14 days written notice; the owner/member may present evidence; the committee (3+ non-board owners/members) votes to approve or reject the fine.
+5. **Lien / proprietary-lease termination / suspension of use rights** — only after exhaustion of the above; statutory notice periods apply (see Florida Property Manager skill).
 
 ## Fine notice template (structure only)
 
-- Owner name + unit
+- Owner/member name + unit/share
 - Date of violation, location, description
-- Rule/covenant section violated (verbatim)
+- Rule/covenant/proprietary-lease section violated (verbatim)
 - Cure period given in prior notice and the response (or lack thereof)
 - Proposed fine amount and statutory cap
 - Date, time, and location of fining committee hearing
-- Owner's rights: appear, present evidence, be represented
+- Owner's/member's rights: appear, present evidence, be represented
 - Closing disclaimer + counsel cc
 
-## Board fiduciary duty (FS 718.111(1) / 720.303(1))
+## Board fiduciary duty (FS 718.111(1) / FS 719.104(8) / FS 720.303(1))
 
-Directors must:
+Directors of all three association types must:
 - Act in good faith
 - Exercise the care of an ordinarily prudent person in like circumstances
 - Act in a manner reasonably believed to be in the best interests of the association
 - Avoid self-dealing; disclose conflicts of interest in writing
 
-Common pitfalls to flag in drafts:
-- Selective enforcement (enforcing a rule against one owner but not others)
+Common pitfalls to flag in drafts (any type):
+- Selective enforcement (enforcing a rule against one owner/member but not others)
 - Retroactive enforcement of a newly amended rule
 - Discussion of personnel/legal matters in open session (these belong in executive session)
 - Quorum or notice defects in board action
 
-## Lien procedure (condensed)
+Co-op-specific pitfalls:
+- **Transferee approval denials** without a written, non-discriminatory reason — high litigation risk under fair-housing law.
+- **Share-transfer paperwork** processed without confirming the new proprietary lease was properly executed.
+- Treating a co-op share interest as if it were a deeded condo unit (it isn't — it's personal property).
 
+## Collection remedies
+
+### Condo (718) and HOA (720) — lien procedure
 1. **45-day notice of intent to record claim of lien** sent by certified mail.
 2. If unpaid → record claim of lien in county records.
 3. **45-day notice of intent to foreclose** sent by certified mail.
 4. If still unpaid → foreclose lien (judicial process; counsel required).
 5. Pre-suit demand for attorney's fees + costs is recoverable per statute and declaration.
 
+### Co-op (719) — termination of proprietary lease
+- Co-ops can also assert a lien (FS 719.108), but the more potent remedy is **termination of the proprietary lease** for non-payment or material breach.
+- Notice and cure periods are governed by the proprietary lease itself in addition to FS 719.108. **Always escalate co-op collection matters to counsel** before sending a termination notice — the procedure is more complex than a condo lien and irreversible if mishandled.
+- Eviction of the former member after termination follows landlord-tenant procedure, but the substantive right comes from the cooperative documents, not Chapter 83.
+
+## Co-op transferee approval letters
+
+If drafting an approval or denial letter for a proposed share assignment / proprietary-lease transfer:
+
+- **Approval**: confirm the new member's name, the share certificate number, the effective date, and that the proprietary lease has been executed and recorded.
+- **Denial**: state the **non-discriminatory** ground in writing. Never base denial on race, color, national origin, religion, sex, familial status, or disability. Common acceptable grounds: insufficient documentation, history of relevant covenant breaches at another association, or financial criteria objectively applied. **Always send denial drafts to counsel before mailing.**
+
 ## What to ALWAYS escalate to counsel
 
 - Any draft involving litigation strategy, settlement terms, or pleadings
 - Recall petitions, election challenges, or removal of directors
-- Bankruptcy filings affecting a unit
+- Bankruptcy filings affecting a unit / cooperative member
 - Fair Housing Act / ADA complaints or accommodation requests
 - Construction defect, hurricane-damage assessment disputes, or insurance claim coverage
-- Anything involving criminal allegations$skill$, true, 'seed')
+- Anything involving criminal allegations
+- **Co-op transferee denials** and **proprietary-lease termination notices** — both before mailing$skill$, true, 'seed')
 ON CONFLICT (slug) DO UPDATE SET
   name = EXCLUDED.name,
   description = EXCLUDED.description,
@@ -211,52 +236,75 @@ ON CONFLICT (slug) DO UPDATE SET
   updated_at = now();
 
 INSERT INTO public.maia_skills (slug, name, description, audience, body, enabled, uploaded_by)
-VALUES ('florida-property-manager', 'Florida Property Manager', 'Florida-specific property management knowledge — condo (FS 718), HOA (FS 720), and landlord-tenant (FS 83) statutes, license rules, and common owner/tenant questions.', 'internal', $skill$# Florida Property Manager
+VALUES ('florida-property-manager', 'Florida Property Manager', 'Florida-specific property management knowledge for the three association types PMI manages — condos (FS 718), co-ops (FS 719), and HOAs (FS 720) — plus landlord-tenant (FS 83) and CAM licensing (Ch. 468 Pt. VIII).', 'internal', $skill$# Florida Property Manager
 
 Use this knowledge when responding to questions about Florida-specific property management law, governance, and operations. Always frame answers as informational — defer specific legal interpretations to counsel.
+
+## Citing the right statute
+
+The system prompt may include an `Association type:` line. If it does, cite the matching chapter. **If it does not, ask the user to confirm whether the property is a condominium, cooperative, or HOA before citing chapter-specific rules** — the three statutes differ in important details.
 
 ## Governing statutes (Florida)
 
 - **Chapter 718, Florida Statutes** — Condominium Act. Governs condominium associations: assessments, board duties, official records, meetings, fining, estoppel, and recall.
-- **Chapter 720, Florida Statutes** — Homeowners' Association Act. Governs HOAs (non-condo). Similar in structure to 718 but distinct in detail, especially around fines and recall.
+- **Chapter 719, Florida Statutes** — Cooperative Act. Governs cooperative associations. Owners hold shares and a proprietary lease, **not** a deeded unit. Many provisions parallel 718 but with cooperative-specific terminology.
+- **Chapter 720, Florida Statutes** — Homeowners' Association Act. Governs HOAs (deeded lots, no shared-structure ownership). Distinct from 718/719 in fines and recall in particular.
 - **Chapter 83, Part II, Florida Statutes** — Residential Landlord and Tenant Act. Governs leases, security deposits, notices to vacate, and eviction grounds.
 - **Chapter 468, Part VIII** — Community Association Manager (CAM) licensing.
+
+### Co-op essentials (FS 719)
+- Owners are **shareholders / members** holding a **proprietary lease**, not titleholders to real property.
+- The cooperative association owns the building; the member's interest is personal property (the share certificate), not real property.
+- Transfers are **share assignments** with a new proprietary lease, not deeds — title companies/closing flows differ from condos.
+- Approval rights typically are **stricter** than condos: the board often has true approval authority over proposed transferees, subject to anti-discrimination law.
+- Estoppel/resale-style requests are governed by FS 719.106(1)(c); fee/timing structure parallels 718 but is calculated against shares rather than a unit.
+- Many lender financing programs do not finance co-op shares the same way as condo units; expect more cash buyers and stricter board approval review.
+- Property tax: co-op buildings are taxed as a single parcel; the association apportions tax to members per the proprietary lease.
 
 ## Common topics and standard answers
 
 ### Estoppel certificates
-- Must be delivered within 10 business days of request (FS 718.116(8) / 720.30851).
-- Maximum statutory fee: $299 plus an additional $119 if the account is delinquent. Rush fee allowed if delivered within 3 business days.
-- For PMI: estoppels are processed via condocerts.com, typical turnaround 5-7 business days.
+- **Condo (718.116(8))** and **Co-op (719.106(1)(c))**: must be delivered within 10 business days of request. Statutory cap: $299 (plus $119 if delinquent). Rush surcharge allowed if delivered within 3 business days.
+- **HOA (720.30851)**: same 10-business-day rule and same cap structure.
+- For PMI: estoppels are processed via condocerts.com; typical turnaround 5-7 business days regardless of type.
 
 ### Assessments and collections
 - Late fee may not exceed the greater of $25 or 5% of the past-due assessment.
-- Interest may be charged up to 18% per year if authorized in the declaration.
+- Interest may be charged up to 18% per year if authorized in the declaration / co-op documents / HOA covenants.
 - Liens require statutory notice: 45 days written notice of intent to lien; 45 additional days notice of intent to foreclose.
+- For co-ops, the remedy can also include termination of the proprietary lease (FS 719.108) — distinct from condo/HOA lien foreclosure.
 
-### Official records
-- Owners have the right to inspect official records within 10 working days of written request.
-- Records must be kept for 7 years.
+### Official records and inspection
+- All three statutes guarantee owners/members the right to inspect official records within 10 working days of written request.
+- Records must be kept for **7 years**.
 - The association may charge reasonable copy costs.
 
 ### Meetings and notices
-- Board meetings: 48 hours posted notice (continuously, in a conspicuous place on the property), except emergency meetings.
-- Annual meeting: at least 14 days written notice with an agenda; 60 days notice for the first notice of election.
+- Board meetings: **48 hours** posted notice (continuously, in a conspicuous place on the property), except emergency meetings.
+- Annual meeting: at least **14 days** written notice with an agenda; **60 days** notice for the first notice of election.
 - Members have the right to speak on agenda items (3 minutes minimum per item, by statute).
 
 ### Fines
-- Condo (718): Max $100 per violation, up to $1,000 aggregate; must be approved by an independent fining committee of at least 3 unit owners not on the board.
-- HOA (720): Max $100 per day (capped at $1,000 aggregate unless the declaration provides otherwise); same independent committee requirement.
+- **Condo (718)**: max $100 per violation, up to $1,000 aggregate; must be approved by an independent fining committee of at least 3 unit owners not on the board.
+- **Co-op (719)**: max $100 per violation, up to $1,000 aggregate; same independent-committee requirement (FS 719.303(3)).
+- **HOA (720)**: max $100 per day (capped at $1,000 aggregate unless the declaration provides otherwise); same independent-committee requirement.
 
 ### Insurance
-- Condos: association insures everything from the unfinished drywall outward (FS 718.111(11)). Owners insure interior improvements, betterments, and personal property (HO-6).
-- HOAs: governed by the declaration; typically the association insures common areas only.
+- **Condos (FS 718.111(11))**: association insures from the unfinished drywall outward. Owners insure interior improvements and personal property (HO-6).
+- **Co-ops**: the association typically insures the entire building (since it owns the structure). Members carry personal-property and improvement coverage; PMI usually requires proof of an HO-6-style policy.
+- **HOAs**: governed by the declaration; typically the association insures common areas only.
+
+### Selling / transferring
+- **Condo**: deeded transfer; HOA may have a right of first refusal but limited approval authority over a buyer.
+- **Co-op**: share assignment + new proprietary lease; the board typically has full approval authority subject to fair-housing law.
+- **HOA**: deeded transfer; approval rights vary by declaration, generally narrower than condo/co-op.
 
 ## When to escalate
 
 - Threats of litigation, lien foreclosure questions, or recall petitions → refer to association counsel.
-- Bankruptcy notices regarding a unit owner → refer to counsel and to AR.
-- Discrimination or fair-housing complaints → refer immediately to counsel; do not respond substantively.$skill$, true, 'seed')
+- Bankruptcy notices regarding a unit owner / co-op member → counsel + AR.
+- Discrimination, fair-housing, or accommodation requests → refer immediately to counsel; do not respond substantively.
+- Co-op board denials of a proposed transferee → counsel review before sending the denial letter (high litigation risk).$skill$, true, 'seed')
 ON CONFLICT (slug) DO UPDATE SET
   name = EXCLUDED.name,
   description = EXCLUDED.description,
