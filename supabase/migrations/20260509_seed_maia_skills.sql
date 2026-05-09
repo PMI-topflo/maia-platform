@@ -8,7 +8,7 @@ DELETE FROM public.maia_skills
   WHERE slug IN ('handyman-basics', 'plumber-basics', 'electrician-basics');
 
 INSERT INTO public.maia_skills (slug, name, description, audience, body, enabled, uploaded_by)
-VALUES ('association-attorney', 'Association Attorney', 'Drafting assistance for HOA, condo, AND cooperative legal correspondence — covenant enforcement, fine notices, board fiduciary issues, lien / proprietary-lease termination procedures, and meeting/notice requirements. NOT legal advice.', 'internal', $skill$# Association Attorney (Drafting Assistant)
+VALUES ('association-attorney', 'Association Attorney', 'Drafting assistance for HOA, residential condo, commercial condo, and cooperative legal correspondence — covenant enforcement, fine notices, board fiduciary issues, lien / proprietary-lease termination, commercial-lease coordination, and meeting/notice requirements. NOT legal advice.', 'internal', $skill$# Association Attorney (Drafting Assistant)
 
 Use this knowledge when drafting correspondence or summarizing legal procedures for the property manager. **You are not licensed counsel.** Every output that touches on legal interpretation must include the disclaimer:
 
@@ -16,7 +16,7 @@ Use this knowledge when drafting correspondence or summarizing legal procedures 
 
 ## Citing the right framework
 
-The system prompt may include an `Association type:` line — condo (FS 718), cooperative (FS 719), or HOA (FS 720). Use it. **If the type is not given, ask before drafting** — covenant enforcement, fines, and especially collection/termination remedies differ across the three.
+The system prompt may include an `Association type:` line — residential condo (FS 718), commercial condo (FS 718, B2B), cooperative (FS 719), or HOA (FS 720). Use it, and adjust tone accordingly: commercial is business-to-business and notably less consumer-protection-flavored than residential. **If the type is not given, ask before drafting** — covenant enforcement, fines, ADA exposure, applicable side-statutes (Chapter 83 vs. commercial-lease law), and collection/termination remedies all differ.
 
 ## Covenant enforcement workflow (Florida)
 
@@ -58,6 +58,14 @@ Co-op-specific pitfalls:
 - **Share-transfer paperwork** processed without confirming the new proprietary lease was properly executed.
 - Treating a co-op share interest as if it were a deeded condo unit (it isn't — it's personal property).
 
+Commercial-condo-specific pitfalls:
+- **Citing residential consumer protections** (homestead, Chapter 83 Part II tenant rights) to a commercial unit owner or its sub-tenant — they don't apply.
+- **Equal-vote assumptions** when the declaration provides for **square-footage-weighted voting** — verify before quoting any percentage.
+- **Use restrictions inconsistently enforced** across owners (signage rules, hours, parking, permitted use) — selective enforcement is a strong defense for the violator.
+- **ADA Title III demand letters** treated as ordinary correspondence — these are litigation triggers; route to counsel immediately.
+- **Sub-lease approval letters** drafted as if they were residential rental approvals — for commercial sub-tenants the analysis is the declaration + the master commercial lease, not Chapter 83.
+- **Mixed-use voting** (FS 718.404) — a commercial-only matter routed to the residential board, or vice-versa, can be invalidated.
+
 ## Collection remedies
 
 ### Condo (718) and HOA (720) — lien procedure
@@ -66,6 +74,13 @@ Co-op-specific pitfalls:
 3. **45-day notice of intent to foreclose** sent by certified mail.
 4. If still unpaid → foreclose lien (judicial process; counsel required).
 5. Pre-suit demand for attorney's fees + costs is recoverable per statute and declaration.
+
+### Commercial condos — assessment collection + lease coordination
+
+- Assessment liens follow the same FS 718 procedure as residential condos (45-day intent-to-lien, 45-day intent-to-foreclose).
+- Where the unit is leased to a commercial sub-tenant, the **master commercial lease** typically lets the association notice the sub-tenant and require rent payments be re-directed to the association if the unit owner is delinquent. Always confirm the lease and declaration grant this right before sending such a notice.
+- Use-restriction violations (signage, hours, parking, permitted use) usually escalate faster than residential covenants because each day of violation can cost the association leasable goodwill and trigger ADA / municipal-code exposure.
+- ADA Title III correspondence is **never** routine — route to counsel before any acknowledgement beyond "we have received your letter and are reviewing it with counsel."
 
 ### Co-op (719) — termination of proprietary lease
 - Co-ops can also assert a lien (FS 719.108), but the more potent remedy is **termination of the proprietary lease** for non-payment or material breach.
@@ -236,13 +251,13 @@ ON CONFLICT (slug) DO UPDATE SET
   updated_at = now();
 
 INSERT INTO public.maia_skills (slug, name, description, audience, body, enabled, uploaded_by)
-VALUES ('florida-property-manager', 'Florida Property Manager', 'Florida-specific property management knowledge for the three association types PMI manages — condos (FS 718), co-ops (FS 719), and HOAs (FS 720) — plus landlord-tenant (FS 83) and CAM licensing (Ch. 468 Pt. VIII).', 'internal', $skill$# Florida Property Manager
+VALUES ('florida-property-manager', 'Florida Property Manager', 'Florida-specific property management knowledge for the four association types PMI manages — residential condos (FS 718), commercial condos (FS 718, non-residential), co-ops (FS 719), and HOAs (FS 720) — plus landlord-tenant (FS 83) and CAM licensing (Ch. 468 Pt. VIII).', 'internal', $skill$# Florida Property Manager
 
 Use this knowledge when responding to questions about Florida-specific property management law, governance, and operations. Always frame answers as informational — defer specific legal interpretations to counsel.
 
 ## Citing the right statute
 
-The system prompt may include an `Association type:` line. If it does, cite the matching chapter. **If it does not, ask the user to confirm whether the property is a condominium, cooperative, or HOA before citing chapter-specific rules** — the three statutes differ in important details.
+The system prompt may include an `Association type:` line. If it does, cite the matching chapter and adjust tone (commercial = business-to-business, residential = consumer-friendly). **If it does not, ask the user to confirm whether the property is a residential condo, commercial condo, cooperative, or HOA before citing chapter-specific rules** — even residential vs. commercial under the same FS 718 differs significantly in tone and applicable side-statutes (Chapter 83, ADA, etc.).
 
 ## Governing statutes (Florida)
 
@@ -251,6 +266,21 @@ The system prompt may include an `Association type:` line. If it does, cite the 
 - **Chapter 720, Florida Statutes** — Homeowners' Association Act. Governs HOAs (deeded lots, no shared-structure ownership). Distinct from 718/719 in fines and recall in particular.
 - **Chapter 83, Part II, Florida Statutes** — Residential Landlord and Tenant Act. Governs leases, security deposits, notices to vacate, and eviction grounds.
 - **Chapter 468, Part VIII** — Community Association Manager (CAM) licensing.
+
+### Commercial / non-residential condo essentials (FS 718)
+Commercial condominiums are still governed by the Condominium Act, but key differences shape day-to-day management:
+
+- **Owners are businesses** (LLCs, corporations, trusts), not consumers. Correspondence should be business-to-business in tone — formal but more transactional, less consumer-protection-flavored.
+- **Voting and assessments are commonly weighted by square footage**, not one-vote-per-unit. Always confirm against the declaration before quoting voting percentages.
+- **Tenants are commercial lessees**, not residential tenants. **Chapter 83, Part II (residential landlord-tenant) does NOT apply** — commercial leases are governed by Chapter 83, Part I and the lease's own terms. Do not cite residential tenant rights to a commercial sub-lessee.
+- **ADA compliance is more aggressive**: public-accommodation requirements under Title III apply to most commercial spaces. Triggers from violations or accessibility complaints should be escalated to counsel quickly — Title III suits proliferate and demand-letter-driven settlements are common in Florida.
+- **Use restrictions** in the declaration are the central enforcement tool: permitted use (office, retail, industrial), exclusive-use rights, hours of operation, signage rules, parking allocation, common-area access during business hours.
+- **Insurance** is typically a master commercial policy on the building; owners carry their own commercial property + liability + business-interruption coverage. PMI commonly requires proof of commercial general liability and additional-insured endorsements.
+- **Estoppel and resale rules under FS 718 still apply**, but transfers are commercial real estate transactions — different closing flows, often with title companies more accustomed to commercial files.
+- **Mixed-use buildings (FS 718.404)**: when a single condominium has both residential and commercial units, a separate commercial-unit-owner board or sub-association may exist. Always identify the correct sub-board before citing voting/quorum.
+- **Short-term-rental / Airbnb concerns** generally do not apply; the analogous concern is **subletting / sub-leasing** — declarations often require board approval of any sub-lease, just like residential rentals.
+
+When drafting for a commercial condo: skip "homeowner-friendly" language, lean on the commercial lease and the declaration's use restrictions, and avoid quoting consumer-protection statutes that don't apply.
 
 ### Co-op essentials (FS 719)
 - Owners are **shareholders / members** holding a **proprietary lease**, not titleholders to real property.
@@ -290,7 +320,8 @@ The system prompt may include an `Association type:` line. If it does, cite the 
 - **HOA (720)**: max $100 per day (capped at $1,000 aggregate unless the declaration provides otherwise); same independent-committee requirement.
 
 ### Insurance
-- **Condos (FS 718.111(11))**: association insures from the unfinished drywall outward. Owners insure interior improvements and personal property (HO-6).
+- **Residential condos (FS 718.111(11))**: association insures from the unfinished drywall outward. Owners insure interior improvements and personal property (HO-6).
+- **Commercial condos**: same statutory framework, but owners typically carry commercial property + general liability + business-interruption policies, with the association named as additional insured. PMI usually requires evidence of CGL with stated limits.
 - **Co-ops**: the association typically insures the entire building (since it owns the structure). Members carry personal-property and improvement coverage; PMI usually requires proof of an HO-6-style policy.
 - **HOAs**: governed by the declaration; typically the association insures common areas only.
 

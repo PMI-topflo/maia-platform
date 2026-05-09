@@ -799,10 +799,11 @@ const AUTO_REPLY_SENDERS  = ['maia@', 'noreply@', 'no-reply@', 'mailer-daemon@']
 
 function describeAssociationType(t: string): string {
   switch (t) {
-    case 'condo': return 'condominium (governed by Florida Statutes Chapter 718)'
-    case 'coop':  return 'cooperative — owners hold shares + a proprietary lease (governed by Florida Statutes Chapter 719)'
-    case 'hoa':   return 'homeowners association (governed by Florida Statutes Chapter 720)'
-    default:      return t
+    case 'condo':            return 'residential condominium (governed by Florida Statutes Chapter 718)'
+    case 'commercial_condo': return 'commercial / non-residential condominium (governed by Florida Statutes Chapter 718; voting and assessments often weighted by square footage; tenants are commercial lessees, not residential tenants)'
+    case 'coop':             return 'cooperative — owners hold shares + a proprietary lease (governed by Florida Statutes Chapter 719)'
+    case 'hoa':              return 'homeowners association (governed by Florida Statutes Chapter 720)'
+    default:                 return t
   }
 }
 

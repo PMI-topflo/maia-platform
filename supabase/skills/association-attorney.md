@@ -1,6 +1,6 @@
 ---
 name: Association Attorney
-description: Drafting assistance for HOA, condo, AND cooperative legal correspondence — covenant enforcement, fine notices, board fiduciary issues, lien / proprietary-lease termination procedures, and meeting/notice requirements. NOT legal advice.
+description: Drafting assistance for HOA, residential condo, commercial condo, and cooperative legal correspondence — covenant enforcement, fine notices, board fiduciary issues, lien / proprietary-lease termination, commercial-lease coordination, and meeting/notice requirements. NOT legal advice.
 audience: internal
 ---
 
@@ -12,7 +12,7 @@ Use this knowledge when drafting correspondence or summarizing legal procedures 
 
 ## Citing the right framework
 
-The system prompt may include an `Association type:` line — condo (FS 718), cooperative (FS 719), or HOA (FS 720). Use it. **If the type is not given, ask before drafting** — covenant enforcement, fines, and especially collection/termination remedies differ across the three.
+The system prompt may include an `Association type:` line — residential condo (FS 718), commercial condo (FS 718, B2B), cooperative (FS 719), or HOA (FS 720). Use it, and adjust tone accordingly: commercial is business-to-business and notably less consumer-protection-flavored than residential. **If the type is not given, ask before drafting** — covenant enforcement, fines, ADA exposure, applicable side-statutes (Chapter 83 vs. commercial-lease law), and collection/termination remedies all differ.
 
 ## Covenant enforcement workflow (Florida)
 
@@ -54,6 +54,14 @@ Co-op-specific pitfalls:
 - **Share-transfer paperwork** processed without confirming the new proprietary lease was properly executed.
 - Treating a co-op share interest as if it were a deeded condo unit (it isn't — it's personal property).
 
+Commercial-condo-specific pitfalls:
+- **Citing residential consumer protections** (homestead, Chapter 83 Part II tenant rights) to a commercial unit owner or its sub-tenant — they don't apply.
+- **Equal-vote assumptions** when the declaration provides for **square-footage-weighted voting** — verify before quoting any percentage.
+- **Use restrictions inconsistently enforced** across owners (signage rules, hours, parking, permitted use) — selective enforcement is a strong defense for the violator.
+- **ADA Title III demand letters** treated as ordinary correspondence — these are litigation triggers; route to counsel immediately.
+- **Sub-lease approval letters** drafted as if they were residential rental approvals — for commercial sub-tenants the analysis is the declaration + the master commercial lease, not Chapter 83.
+- **Mixed-use voting** (FS 718.404) — a commercial-only matter routed to the residential board, or vice-versa, can be invalidated.
+
 ## Collection remedies
 
 ### Condo (718) and HOA (720) — lien procedure
@@ -62,6 +70,13 @@ Co-op-specific pitfalls:
 3. **45-day notice of intent to foreclose** sent by certified mail.
 4. If still unpaid → foreclose lien (judicial process; counsel required).
 5. Pre-suit demand for attorney's fees + costs is recoverable per statute and declaration.
+
+### Commercial condos — assessment collection + lease coordination
+
+- Assessment liens follow the same FS 718 procedure as residential condos (45-day intent-to-lien, 45-day intent-to-foreclose).
+- Where the unit is leased to a commercial sub-tenant, the **master commercial lease** typically lets the association notice the sub-tenant and require rent payments be re-directed to the association if the unit owner is delinquent. Always confirm the lease and declaration grant this right before sending such a notice.
+- Use-restriction violations (signage, hours, parking, permitted use) usually escalate faster than residential covenants because each day of violation can cost the association leasable goodwill and trigger ADA / municipal-code exposure.
+- ADA Title III correspondence is **never** routine — route to counsel before any acknowledgement beyond "we have received your letter and are reviewing it with counsel."
 
 ### Co-op (719) — termination of proprietary lease
 - Co-ops can also assert a lien (FS 719.108), but the more potent remedy is **termination of the proprietary lease** for non-payment or material breach.
