@@ -890,6 +890,26 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
     }
   }
 
+  // Global rate limit: hard cap of MAIA_FREEFORM_RATE_LIMIT freeform
+  // replies in any rolling 5-minute window across ALL threads. Defaults
+  // to 5. The user-configured Resend cap was the only thing that stopped
+  // a 99-reply loop before this guard existed — this is the application-
+  // level circuit breaker so we never depend on the upstream provider's
+  // quota again. If hit, MAIA stops replying and logs a warning until
+  // the window clears.
+  const RATE_LIMIT  = Number(process.env.MAIA_FREEFORM_RATE_LIMIT ?? 5)
+  const RATE_WINDOW = 5 * 60_000  // 5 minutes
+  const windowStart = new Date(Date.now() - RATE_WINDOW).toISOString()
+  const { count: recentRepliesCount } = await supabaseAdmin
+    .from('general_conversations')
+    .select('id', { count: 'exact', head: true })
+    .eq('reply_sent', true)
+    .gte('updated_at', windowStart)
+  if ((recentRepliesCount ?? 0) >= RATE_LIMIT) {
+    console.error(`[MAIA general] CIRCUIT BREAKER: ${recentRepliesCount} replies in last 5m exceeds limit of ${RATE_LIMIT} — skipping`)
+    return
+  }
+
   // Anti-loop: skip automated senders and auto-reply subjects
   if (AUTO_REPLY_SENDERS.some(s => parsed.senderEmail.toLowerCase().includes(s))) return
   const subjectLower = parsed.subject.toLowerCase()
