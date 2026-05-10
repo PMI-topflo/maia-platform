@@ -861,6 +861,35 @@ export async function detectAssociationCode(text: string, strict = false): Promi
 }
 
 async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
+  // EMERGENCY KILL SWITCH — set MAIA_FREEFORM_DISABLED=true in Vercel to
+  // stop ALL freeform replies immediately (e.g. if a thread enters a
+  // reply loop). Inbound emails are still logged via the caller, only
+  // the AI reply is suppressed.
+  if (process.env.MAIA_FREEFORM_DISABLED === 'true') {
+    console.warn('[MAIA general] freeform replies disabled via MAIA_FREEFORM_DISABLED env var')
+    return
+  }
+
+  // Loop guard: don't reply if MAIA already sent an outbound on this
+  // exact gmail thread within the last 10 minutes. Stops self-perpetuating
+  // signature loops where a quoted "MAIA" in a reply triggers another
+  // reply, which contains "MAIA" in its signature, etc.
+  if (parsed.threadId) {
+    const tenMinAgo = new Date(Date.now() - 10 * 60_000).toISOString()
+    const { data: recentMaiaReply } = await supabaseAdmin
+      .from('general_conversations')
+      .select('id')
+      .eq('gmail_thread_id', parsed.threadId)
+      .eq('reply_sent', true)
+      .gte('updated_at', tenMinAgo)
+      .limit(1)
+      .maybeSingle()
+    if (recentMaiaReply) {
+      console.warn(`[MAIA general] thread ${parsed.threadId}: skipping reply, already replied within 10m`)
+      return
+    }
+  }
+
   // Anti-loop: skip automated senders and auto-reply subjects
   if (AUTO_REPLY_SENDERS.some(s => parsed.senderEmail.toLowerCase().includes(s))) return
   const subjectLower = parsed.subject.toLowerCase()
@@ -1262,11 +1291,16 @@ export async function processEmailCommand(messageId: string): Promise<void> {
 
     const bodyNorm     = parsed.body.toLowerCase().replace(/\s+/g, ' ')
     const subjectNorm  = parsed.subject.toLowerCase()
-    // Match either "@maia" (the explicit handle) or just "maia" as a name
-    // (word-boundary so we don't match "maiabella", "maia@gmail.com" inside
-    // someone else's address, etc.). bodyNorm is already lowercased so the
-    // regex doesn't need /i.
-    const mentionsMaia = /\bmaia\b/.test(subjectNorm) || /\bmaia\b/.test(bodyNorm)
+    // Subject: match either "@maia" or "Maia" by name (most customers
+    // don't know the @ syntax — natural greetings like "Hi Maia" should
+    // route to the AI handler).
+    //
+    // Body: only match "@maia" literally. Plain "Maia" mentions are too
+    // permissive — quoted MAIA signatures from previous replies in a
+    // thread will match and cause loops. Customers writing "Hi Maia," in
+    // the body still trigger via the recipient address (maia@pmitop.com)
+    // and via the subject — which is where the greeting usually shows up.
+    const mentionsMaia = /\bmaia\b/.test(subjectNorm) || bodyNorm.includes('@maia')
     const allowed      = isAllowedSender(parsed.senderEmail)
 
     // Determine trigger: explicit phrase > subject keyword (authorized).
