@@ -1265,13 +1265,14 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     const mentionsMaia = subjectNorm.includes('@maia') || bodyNorm.includes('@maia')
     const allowed      = isAllowedSender(parsed.senderEmail)
 
-    // Determine trigger: explicit phrase > subject keyword (authorized) > @maia + keyword > implicit @maia
-    let trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body, allowed)
-    if (!trigger && mentionsMaia && allowed) {
-      // Authorized sender mentioned @maia without a recognized command phrase.
-      // Route to DB extraction and let Claude infer record_type from context.
-      trigger = '@maia'
-    }
+    // Determine trigger: explicit phrase > subject keyword (authorized).
+    // No fallback to '@maia' here — staff mentioning @maia in passing
+    // (e.g., asking a general question) should go to handleGeneralEmailQuery
+    // below, which has skills + association-type context loaded. The old
+    // fallback forced those into the structured-record extraction pipeline
+    // and produced confusing "couldn't extract required information"
+    // replies for what were just questions.
+    const trigger = detectTrigger(parsed.body) ?? inferTrigger(parsed.subject, parsed.body, allowed)
 
     console.log(`[MAIA] subject="${subjectNorm.slice(0,80)}" sender="${parsed.senderEmail}" trigger="${trigger}" mentionsMaia=${mentionsMaia} allowed=${allowed}`)
     console.log(`[MAIA] body_preview="${parsed.body.slice(0,300).replace(/\n/g,'↵')}"`)
@@ -1316,7 +1317,13 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     if (allowed && detectTicketTrigger(parsed.body)) return
 
     if (!trigger) {
-      // No @maia mention at all — check if thread is already active with MAIA
+      // No structured trigger phrase. Three cases route to the freeform
+      // AI handler (which has skills + association-type context loaded);
+      // anything else gets ignored.
+      //   1. Staff mentioned @maia in passing — they want an answer.
+      //   2. Reply on an already-active MAIA thread — continue the thread.
+      //   3. External sender — let the freeform handler decide whether to
+      //      reply (it has its own AUTO_REPLY filters).
       let isActiveThread = false
       if (parsed.threadId) {
         const { data: existing } = await supabaseAdmin
@@ -1327,7 +1334,8 @@ export async function processEmailCommand(messageId: string): Promise<void> {
           .maybeSingle()
         isActiveThread = !!existing
       }
-      if (!isActiveThread) return
+      const shouldRoute = isActiveThread || (allowed && mentionsMaia) || (!allowed && mentionsMaia)
+      if (!shouldRoute) return
       await handleGeneralEmailQuery(parsed)
       return
     }
