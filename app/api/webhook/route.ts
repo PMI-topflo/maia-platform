@@ -12,6 +12,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import { findOrCreateTicket, appendMessage, createTicket } from '@/lib/tickets'
+import { buildSkillsPromptBlock } from '@/lib/skills'
+import { buildOfficeHoursBlock } from '@/lib/office-hours'
 
 function getSupabase() {
   const env = process.env;
@@ -1084,6 +1086,12 @@ async function getMaiaIntelligentResponse(ctx: CallerContext, message: string): 
 
   const isVoiceCall = ctx.channel === 'voice'
 
+  // Pull customer-audience skills (triage policy, trade-troubleshooting,
+  // etc.) and the live office-hours flag so the same triage rules MAIA
+  // uses on web chat and email also apply on SMS / WhatsApp / voice.
+  const skillsBlock = await buildSkillsPromptBlock('customer')
+  const officeBlock = buildOfficeHoursBlock()
+
   const system = `You are Maia, a warm and caring virtual assistant for PMI Top Florida Properties, a professional property management company in South Florida managing 25 associations with 801 owners.
 
 Respond ONLY in ${langName}. Be warm, friendly and concise.${isVoiceCall ? ' This is a VOICE CALL — keep responses under 2 sentences, no bullet points, no URLs, no emoji.' : ' Keep replies under 350 characters for SMS.'} Never say you are an AI unless directly asked.
@@ -1110,7 +1118,7 @@ CROSS-CHANNEL CAPABILITY — YOU CAN SEND WHATSAPP MESSAGES:
 - Proactively offer this when sharing complex info (balances, links, instructions): "I can also send this to your WhatsApp if you'd like!"
 - After sending, confirm: "I've sent that to your WhatsApp."
 ` : ''}
-Always end with a warm offer to help with anything else. 🌸`
+Always end with a warm offer to help with anything else. 🌸${officeBlock}${skillsBlock}`
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
