@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { buildSkillsPromptBlock } from '@/lib/skills'
+import { buildOfficeHoursBlock } from '@/lib/office-hours'
 
 const client = new Anthropic()
 
@@ -45,6 +47,17 @@ const LANGUAGE_NAMES: Record<string, string> = {
   en: 'English', es: 'Spanish', pt: 'Portuguese', fr: 'French', he: 'Hebrew', ru: 'Russian',
 }
 
+function describeAssociationType(t: string): string {
+  switch (t) {
+    case 'condo':            return 'residential condominium (governed by Florida Statutes Chapter 718)'
+    case 'commercial_condo': return 'commercial / non-residential condominium (governed by Florida Statutes Chapter 718; voting and assessments often weighted by square footage; tenants are commercial lessees, not residential tenants)'
+    case 'coop':             return 'cooperative — owners hold shares + a proprietary lease (governed by Florida Statutes Chapter 719)'
+    case 'hoa':              return 'homeowners association (governed by Florida Statutes Chapter 720)'
+    case 'master_hoa':       return 'master HOA — governs community-wide common areas above one or more sub-associations (still Florida Statutes Chapter 720, but at the umbrella level; unit-level rules belong to the sub-association)'
+    default:                 return t
+  }
+}
+
 export async function POST(req: NextRequest) {
   const { messages, persona, associationCode, language, sessionId } = await req.json()
 
@@ -70,12 +83,15 @@ export async function POST(req: NextRequest) {
           .limit(20),
         supabaseAdmin
           .from('associations')
-          .select('association_name')
+          .select('association_name, association_type')
           .eq('association_code', associationCode)
           .single(),
       ]).then(([faqRes, assocRes]) => {
         if (assocRes.data?.association_name) {
           faqContext += `\n\nASSOCIATION: ${assocRes.data.association_name} (${associationCode})`
+        }
+        if (assocRes.data?.association_type) {
+          faqContext += `\nASSOCIATION TYPE: ${describeAssociationType(assocRes.data.association_type)}`
         }
         if (faqRes.data?.length) {
           faqContext += '\n\nKNOWLEDGE BASE:\n' +
@@ -116,7 +132,10 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  await Promise.all(contextQueries)
+  const [skillsBlock] = await Promise.all([
+    buildSkillsPromptBlock('customer'),
+    Promise.all(contextQueries),
+  ])
 
   const langName = LANGUAGE_NAMES[language ?? 'en'] ?? 'English'
   const personaContext = PERSONA_PROMPTS[persona ?? 'homeowner'] ?? PERSONA_PROMPTS.homeowner
@@ -139,7 +158,7 @@ RESPONSE RULES:
 - Be helpful, concise, and professional. Keep responses under 150 words unless a longer explanation is truly needed.
 - If you don't know the answer, say so honestly and direct them to call (305) 900-5077, WhatsApp (786) 686-3223, or email maia@pmitop.com.
 - Never invent specific dollar amounts, dates, or policy details you are not certain about.
-- For urgent maintenance (flooding, no AC, safety hazards), always include the service email and phone number.`
+- For urgent maintenance (flooding, no AC, safety hazards), always include the service email and phone number.${buildOfficeHoursBlock()}${skillsBlock}`
 
   let reply = ''
   try {

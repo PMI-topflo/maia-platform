@@ -18,6 +18,8 @@ import {
   type GmailFullMessage,
   type GmailMessagePart,
 } from '@/lib/gmail'
+import { buildSkillsPromptBlock } from '@/lib/skills'
+import { buildOfficeHoursBlock } from '@/lib/office-hours'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -796,6 +798,17 @@ RULES:
 const AUTO_REPLY_SUBJECTS = ['out of office', 'auto-reply', 'automatic reply', 'delivery failed', 'undeliverable', 'autoreply']
 const AUTO_REPLY_SENDERS  = ['maia@', 'noreply@', 'no-reply@', 'mailer-daemon@']
 
+function describeAssociationType(t: string): string {
+  switch (t) {
+    case 'condo':            return 'residential condominium (governed by Florida Statutes Chapter 718)'
+    case 'commercial_condo': return 'commercial / non-residential condominium (governed by Florida Statutes Chapter 718; voting and assessments often weighted by square footage; tenants are commercial lessees, not residential tenants)'
+    case 'coop':             return 'cooperative — owners hold shares + a proprietary lease (governed by Florida Statutes Chapter 719)'
+    case 'hoa':              return 'homeowners association (governed by Florida Statutes Chapter 720)'
+    case 'master_hoa':       return 'master HOA — governs community-wide common areas above one or more sub-associations (still Florida Statutes Chapter 720, but at the umbrella level; unit-level rules belong to the sub-association)'
+    default:                 return t
+  }
+}
+
 // Cache association codes for the lifetime of the process to avoid repeated DB lookups
 let _assocCodeCache: Array<{ code: string; name: string }> | null = null
 
@@ -906,10 +919,27 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
       { role: 'user', content: currentMessage },
     ]
 
+    let assocBlock = ''
+    if (detectedAssocCode) {
+      const { data: assoc } = await supabaseAdmin
+        .from('associations')
+        .select('association_name, association_type')
+        .eq('association_code', detectedAssocCode)
+        .maybeSingle()
+      if (assoc?.association_name) {
+        assocBlock = `\n\nDETECTED ASSOCIATION: ${assoc.association_name} (${detectedAssocCode})`
+        if (assoc.association_type) {
+          assocBlock += `\nASSOCIATION TYPE: ${describeAssociationType(assoc.association_type)}`
+        }
+      }
+    }
+
+    const skillsBlock = await buildSkillsPromptBlock('internal')
+    const officeBlock = buildOfficeHoursBlock()
     const message = await anthropic.messages.create({
       model:      'claude-sonnet-4-20250514',
       max_tokens: 1024,
-      system:     GENERAL_SYSTEM_PROMPT,
+      system:     GENERAL_SYSTEM_PROMPT + assocBlock + officeBlock + skillsBlock,
       messages,
     })
 
