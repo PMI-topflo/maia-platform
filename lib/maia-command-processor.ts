@@ -1262,7 +1262,11 @@ export async function processEmailCommand(messageId: string): Promise<void> {
 
     const bodyNorm     = parsed.body.toLowerCase().replace(/\s+/g, ' ')
     const subjectNorm  = parsed.subject.toLowerCase()
-    const mentionsMaia = subjectNorm.includes('@maia') || bodyNorm.includes('@maia')
+    // Match either "@maia" (the explicit handle) or just "maia" as a name
+    // (word-boundary so we don't match "maiabella", "maia@gmail.com" inside
+    // someone else's address, etc.). bodyNorm is already lowercased so the
+    // regex doesn't need /i.
+    const mentionsMaia = /\bmaia\b/.test(subjectNorm) || /\bmaia\b/.test(bodyNorm)
     const allowed      = isAllowedSender(parsed.senderEmail)
 
     // Determine trigger: explicit phrase > subject keyword (authorized).
