@@ -129,11 +129,13 @@ interface WorkOrderStatus { WorkOrderStatusId: number; WorkOrderStatusDescriptio
 let _typesCache:    WorkOrderType[]   | null = null
 let _statusesCache: WorkOrderStatus[] | null = null
 
-async function listWorkOrderTypes(): Promise<WorkOrderType[]> {
+export async function listWorkOrderTypes(): Promise<WorkOrderType[]> {
   if (_typesCache) return _typesCache
   _typesCache = await call<WorkOrderType[]>('/management/1/workOrderTypes')
   return _typesCache
 }
+
+export type WorkOrderTypeSummary = { id: number; name: string }
 
 async function listWorkOrderStatuses(): Promise<WorkOrderStatus[]> {
   if (_statusesCache) return _statusesCache
@@ -216,6 +218,7 @@ export interface CreateWorkOrderInput {
   contactName?:     string | null
   vendorName?:      string | null
   initialNote?:     string | null
+  workOrderTypeId?: number | null               // CINC WorkOrderTypeId; falls back to default if omitted
 }
 
 export interface CreateWorkOrderResult {
@@ -225,11 +228,14 @@ export interface CreateWorkOrderResult {
 export async function createLinkedWorkOrder(
   input: CreateWorkOrderInput,
 ): Promise<CreateWorkOrderResult> {
-  const [typeId, statusId, assocId] = await Promise.all([
+  const [defaultTypeId, statusId, assocId] = await Promise.all([
     getDefaultWorkOrderTypeId(),
     getOpenWorkOrderStatusId(),
     findAssocIdByCode(input.associationCode),
   ])
+  // Honor the explicit type ID from the ticket; only fall back to the
+  // default when the caller didn't pick one.
+  const typeId = input.workOrderTypeId ?? defaultTypeId
 
   if (!assocId) {
     throw new CincApiError(

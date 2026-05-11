@@ -24,19 +24,21 @@ const VALID_CHANNEL:  TicketChannel[]  = ['email', 'whatsapp', 'sms', 'web', 'ph
 const VALID_PRIORITY: TicketPriority[] = ['low', 'normal', 'high', 'urgent']
 
 interface CreateBody {
-  type?:             TicketType
-  channel_origin?:   TicketChannel
-  priority?:         TicketPriority
-  association_code?: string | null
-  persona?:          string | null
-  contact_name?:     string | null
-  contact_email?:    string | null
-  contact_phone?:    string | null
-  subject?:          string | null
-  summary?:          string | null
-  assignee_email?:   string | null
-  initial_note?:     string                // optional — seeds the timeline
-  actor_email?:      string                // who is creating it
+  type?:                 TicketType
+  channel_origin?:       TicketChannel
+  priority?:             TicketPriority
+  association_code?:     string | null
+  persona?:              string | null
+  contact_name?:         string | null
+  contact_email?:        string | null
+  contact_phone?:        string | null
+  subject?:              string | null
+  summary?:              string | null
+  assignee_email?:       string | null
+  work_order_type_id?:   number | null
+  work_order_type_name?: string | null
+  initial_note?:         string                // optional — seeds the timeline
+  actor_email?:          string                // who is creating it
 }
 
 export async function POST(req: Request) {
@@ -58,17 +60,19 @@ export async function POST(req: Request) {
 
   try {
     const ticket = await createTicket({
-      type:             body.type           ?? 'ticket',
-      channel_origin:   body.channel_origin ?? 'internal',
-      priority:         body.priority       ?? 'normal',
-      association_code: body.association_code,
-      persona:          body.persona,
-      contact_name:     body.contact_name,
-      contact_email:    body.contact_email,
-      contact_phone:    body.contact_phone,
-      subject:          body.subject,
-      summary:          body.summary ?? body.initial_note?.slice(0, 280) ?? null,
-      assignee_email:   body.assignee_email,
+      type:                 body.type           ?? 'ticket',
+      channel_origin:       body.channel_origin ?? 'internal',
+      priority:             body.priority       ?? 'normal',
+      association_code:     body.association_code,
+      persona:              body.persona,
+      contact_name:         body.contact_name,
+      contact_email:        body.contact_email,
+      contact_phone:        body.contact_phone,
+      subject:              body.subject,
+      summary:              body.summary ?? body.initial_note?.slice(0, 280) ?? null,
+      assignee_email:       body.assignee_email,
+      work_order_type_id:   body.work_order_type_id,
+      work_order_type_name: body.work_order_type_name,
     })
 
     if (body.initial_note?.trim()) {

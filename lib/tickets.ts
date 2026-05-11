@@ -47,6 +47,8 @@ export interface Ticket {
   gmail_thread_id:        string | null
   rentvine_workorder_id:  string | null
   cinc_workorder_id:      string | null
+  work_order_type_id:     number | null
+  work_order_type_name:   string | null
   sync_status:            Record<string, unknown>
   created_at:             string
   updated_at:             string
@@ -185,37 +187,41 @@ export async function findOpenTicketByContact(opts: {
 // Create / update
 // ---------------------------------------------------------------------
 export interface CreateTicketInput {
-  type?:             TicketType
-  channel_origin:    TicketChannel
-  priority?:         TicketPriority
-  association_code?: string | null
-  persona?:          string | null
-  contact_name?:     string | null
-  contact_email?:    string | null
-  contact_phone?:    string | null
-  subject?:          string | null
-  summary?:          string | null
-  gmail_thread_id?:  string | null
-  assignee_email?:   string | null
+  type?:                 TicketType
+  channel_origin:        TicketChannel
+  priority?:             TicketPriority
+  association_code?:     string | null
+  persona?:              string | null
+  contact_name?:         string | null
+  contact_email?:        string | null
+  contact_phone?:        string | null
+  subject?:              string | null
+  summary?:              string | null
+  gmail_thread_id?:      string | null
+  assignee_email?:       string | null
+  work_order_type_id?:   number | null
+  work_order_type_name?: string | null
 }
 
 export async function createTicket(input: CreateTicketInput): Promise<Ticket> {
   const priority = input.priority ?? 'normal'
   const row = {
-    type:             input.type ?? 'ticket',
-    status:           'open' as TicketStatus,
+    type:                 input.type ?? 'ticket',
+    status:               'open' as TicketStatus,
     priority,
-    channel_origin:   input.channel_origin,
-    association_code: input.association_code ?? null,
-    persona:          input.persona ?? null,
-    contact_name:     input.contact_name ?? null,
-    contact_email:    input.contact_email?.toLowerCase() ?? null,
-    contact_phone:    input.contact_phone ?? null,
-    subject:          input.subject ?? null,
-    summary:          input.summary ?? null,
-    assignee_email:   input.assignee_email?.toLowerCase() ?? null,
-    gmail_thread_id:  input.gmail_thread_id ?? null,
-    due_at:           dueAtFor(priority),
+    channel_origin:       input.channel_origin,
+    association_code:     input.association_code ?? null,
+    persona:              input.persona ?? null,
+    contact_name:         input.contact_name ?? null,
+    contact_email:        input.contact_email?.toLowerCase() ?? null,
+    contact_phone:        input.contact_phone ?? null,
+    subject:              input.subject ?? null,
+    summary:              input.summary ?? null,
+    assignee_email:       input.assignee_email?.toLowerCase() ?? null,
+    gmail_thread_id:      input.gmail_thread_id ?? null,
+    due_at:               dueAtFor(priority),
+    work_order_type_id:   input.work_order_type_id   ?? null,
+    work_order_type_name: input.work_order_type_name ?? null,
   }
   const { data, error } = await supabaseAdmin
     .from('tickets')

@@ -79,7 +79,7 @@ async function markFailedOrRetry(rowId: number, attempts: number, err: unknown):
 async function handleCincTicketCreate(ticketId: number): Promise<void> {
   const { data: t, error } = await supabaseAdmin
     .from('tickets')
-    .select('id, subject, summary, association_code, contact_email, contact_phone, contact_name, due_at, cinc_workorder_id')
+    .select('id, subject, summary, association_code, contact_email, contact_phone, contact_name, due_at, cinc_workorder_id, work_order_type_id')
     .eq('id', ticketId)
     .single()
   if (error || !t) throw new Error(`ticket ${ticketId} not found`)
@@ -99,6 +99,7 @@ async function handleCincTicketCreate(ticketId: number): Promise<void> {
     contactPhone:    t.contact_phone,
     contactName:     t.contact_name,
     initialNote:     t.summary,
+    workOrderTypeId: t.work_order_type_id,
   })
 
   await supabaseAdmin
