@@ -179,16 +179,56 @@ export async function getOpenWorkOrderStatusId(): Promise<number> {
 // ─────────────────────────────────────────────────────────────────────
 const _assocIdCache = new Map<string, number>()
 
-interface CincWorkOrder {
-  WorkOrderId: number
-  AssocId:     number
-  AssocCode:   string
-  AssociationName?: string
-  WorkOrderStatus?: string
-  WorkOrderType?:   string
-  CreatedDate?:     string
-  Description?:     string
-  Notes?: Array<{ NoteId: number; NoteDescription: string; NoteCreatedDate: string }>
+export interface CincNote {
+  NoteId:                       number
+  NoteDescription:              string
+  NoteCreatedDate:              string
+  NoteCreatedUserId?:           number
+  NoteCreatedBy?:               string
+  IsNotePublic?:                number
+  IsNoteEmailedToVendor?:       number
+  IsNoteEmailedToWorkLocation?: number
+  IsNoteSystemGenerated?:       number
+}
+
+export interface CincContact {
+  ContactId:     number
+  ContactName?:  string
+  ContactEmail?: string
+  ContactPhone?: string
+}
+
+export interface CincWorkOrder {
+  WorkOrderId:        number
+  AssocId:            number
+  AssocCode:          string
+  AssociationName?:   string
+  HoID?:              string
+  PropertyId?:        number
+  IsCommonArea?:      number
+  IsUnlinked?:        number
+  CreatedDate?:       string
+  EnteredDate?:       string
+  CreatedBy?:         string
+  IssuedDate?:        string
+  DueDate?:           string
+  FollowUpDate?:      string
+  Description?:       string
+  EstimateTotal?:     number
+  WorkOrderStatusId?: number
+  WorkOrderStatus?:   string
+  WorkOrderTypId?:    number   // sic — CINC's typo in their response
+  WorkOrderType?:     string
+  Contacts?:          CincContact[]
+  VendorId?:          number
+  Vendor?:            string
+  WorkLocationName?:  string
+  AddressLine1?:      string
+  AddressLine2?:      string
+  City?:              string
+  State?:             string
+  Zip?:               string
+  Notes?:             CincNote[]
 }
 
 export async function findAssocIdByCode(assocCode: string): Promise<number | null> {
@@ -308,4 +348,42 @@ export async function addWorkOrderNote(
       isNoteEmailedToVendor:       opts.emailToVendor       ?? false,
     }],
   })
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Inbound read helpers (Phase B-1 / B-2)
+// ─────────────────────────────────────────────────────────────────────
+
+/** Lists work orders created at or after the given ISO timestamp.
+ *  CINC accepts `yyyy-mm-dd hh:mm:ss` in GMT for createdFromDate. */
+export async function listWorkOrdersCreatedSince(cursorIso: string): Promise<CincWorkOrder[]> {
+  // CINC's createdFromDate accepts ISO-ish; using the raw ISO string works
+  // empirically. If we ever see CINC reject the format, switch to
+  // `new Date(cursorIso).toISOString().replace('T', ' ').replace(/\..*$/, '')`.
+  return await call<CincWorkOrder[]>('/management/1/workOrders', {
+    method: 'GET',
+    query:  { createdFromDate: cursorIso },
+  }).catch(err => {
+    // Empty result and 4xx for "no matches" come back as CincApiError —
+    // treat as empty list, not a hard failure.
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincWorkOrder[]
+    }
+    throw err
+  })
+}
+
+/** Fetches a single work order by ID, with notes / contacts / vendor
+ *  info embedded. Returns null if CINC has no such work order. */
+export async function getWorkOrderById(workOrderId: number): Promise<CincWorkOrder | null> {
+  const list = await call<CincWorkOrder[]>('/management/1/workOrders', {
+    method: 'GET',
+    query:  { workOrderId },
+  }).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincWorkOrder[]
+    }
+    throw err
+  })
+  return list.find(w => w.WorkOrderId === workOrderId) ?? null
 }
