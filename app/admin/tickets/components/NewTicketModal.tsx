@@ -8,7 +8,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
 
 interface Association {
   association_code: string
@@ -37,17 +37,37 @@ export default function NewTicketModal({ associations, staff, defaultType, onClo
   const [submitting, setSubmitting] = useState(false)
   const [error,      setError]      = useState<string | null>(null)
 
-  const [type,            setType]            = useState<'ticket' | 'work_order'>(defaultType)
-  const [channelOrigin,   setChannelOrigin]   = useState('phone')
-  const [priority,        setPriority]        = useState('normal')
-  const [persona,         setPersona]         = useState('')
-  const [associationCode, setAssociationCode] = useState('')
-  const [subject,         setSubject]         = useState('')
-  const [contactName,     setContactName]     = useState('')
-  const [contactEmail,    setContactEmail]    = useState('')
-  const [contactPhone,    setContactPhone]    = useState('')
-  const [assigneeEmail,   setAssigneeEmail]   = useState('')
-  const [initialNote,     setInitialNote]     = useState('')
+  const [type,             setType]             = useState<'ticket' | 'work_order'>(defaultType)
+  const [channelOrigin,    setChannelOrigin]    = useState('phone')
+  const [priority,         setPriority]         = useState('normal')
+  const [persona,          setPersona]          = useState('')
+  const [associationCode,  setAssociationCode]  = useState('')
+  const [subject,          setSubject]          = useState('')
+  const [contactName,      setContactName]      = useState('')
+  const [contactEmail,     setContactEmail]     = useState('')
+  const [contactPhone,     setContactPhone]     = useState('')
+  const [assigneeEmail,    setAssigneeEmail]    = useState('')
+  const [initialNote,      setInitialNote]      = useState('')
+  const [workOrderTypeId,  setWorkOrderTypeId]  = useState<string>('')
+  const [workOrderTypes,   setWorkOrderTypes]   = useState<Array<{ id: number; name: string }>>([])
+  const [typesLoading,     setTypesLoading]     = useState(false)
+  const [typesError,       setTypesError]       = useState<string | null>(null)
+
+  // Fetch CINC work-order types lazily the first time type=work_order.
+  // Cached in lib/integrations/cinc.ts so subsequent fetches don't hit CINC.
+  useEffect(() => {
+    if (type !== 'work_order' || workOrderTypes.length > 0 || typesLoading) return
+    setTypesLoading(true)
+    setTypesError(null)
+    fetch('/api/admin/cinc/work-order-types')
+      .then(r => r.json())
+      .then((data: { items?: Array<{ id: number; name: string }>; error?: string }) => {
+        if (data.error) throw new Error(data.error)
+        setWorkOrderTypes(data.items ?? [])
+      })
+      .catch(err => setTypesError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setTypesLoading(false))
+  }, [type, workOrderTypes.length, typesLoading])
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -58,21 +78,24 @@ export default function NewTicketModal({ associations, staff, defaultType, onClo
     setSubmitting(true)
     setError(null)
     try {
+      const chosenWoType = workOrderTypes.find(t => String(t.id) === workOrderTypeId)
       const res = await fetch('/api/admin/tickets', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
           type,
-          channel_origin:   channelOrigin,
+          channel_origin:       channelOrigin,
           priority,
-          persona:          persona          || null,
-          association_code: associationCode  || null,
-          subject:          subject.trim(),
-          contact_name:     contactName.trim()  || null,
-          contact_email:    contactEmail.trim() || null,
-          contact_phone:    contactPhone.trim() || null,
-          assignee_email:   assigneeEmail.trim() || null,
-          initial_note:     initialNote.trim()  || null,
+          persona:              persona          || null,
+          association_code:     associationCode  || null,
+          subject:              subject.trim(),
+          contact_name:         contactName.trim()  || null,
+          contact_email:        contactEmail.trim() || null,
+          contact_phone:        contactPhone.trim() || null,
+          assignee_email:       assigneeEmail.trim() || null,
+          initial_note:         initialNote.trim()  || null,
+          work_order_type_id:   type === 'work_order' && chosenWoType ? chosenWoType.id   : null,
+          work_order_type_name: type === 'work_order' && chosenWoType ? chosenWoType.name : null,
         }),
       })
       const data = await res.json()
@@ -141,6 +164,32 @@ export default function NewTicketModal({ associations, staff, defaultType, onClo
               </select>
             </Field>
           </div>
+
+          {/* Work order type — only shown for work orders. CINC requires a typeId on
+              create; we show CINC's catalog so staff pick the right category
+              (Plumbing, Roof Leak, Pool, etc.) instead of defaulting to Unassigned. */}
+          {type === 'work_order' && (
+            <Field label="Work order type">
+              <select
+                value={workOrderTypeId}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setWorkOrderTypeId(e.target.value)}
+                disabled={typesLoading}
+                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white"
+              >
+                <option value="">
+                  {typesLoading ? 'Loading CINC types…' : '— Default (CINC chooses)'}
+                </option>
+                {workOrderTypes.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              {typesError && (
+                <span className="block text-[10px] text-red-600 mt-1">
+                  Could not load CINC types: {typesError}
+                </span>
+              )}
+            </Field>
+          )}
 
           {/* Subject */}
           <Field label="Subject *">
