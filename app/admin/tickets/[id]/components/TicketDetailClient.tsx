@@ -207,6 +207,29 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           {ticket.type === 'work_order' && (
             <span className="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase">Work order</span>
           )}
+          {/* Reclassify between work_order and ticket. Useful when an item came in
+              via the CINC inbound feed but isn't really a maintenance work order
+              (a billing question, general inquiry, etc.), or vice versa. The CINC
+              record itself is untouched — only our local classification flips. */}
+          <button
+            type="button"
+            onClick={() => {
+              const target = ticket.type === 'work_order' ? 'ticket' : 'work_order'
+              const verb   = ticket.type === 'work_order' ? 'Reclassify as ticket' : 'Reclassify as work order'
+              if (confirm(`${verb}? CINC won't be modified — only how this is classified locally.`)) {
+                patch('type', target)
+              }
+            }}
+            disabled={saving === 'type'}
+            className="text-[10px] text-gray-500 hover:text-[#f26a1b] underline disabled:opacity-50"
+            title="Toggle between work_order and ticket. CINC record is not modified."
+          >
+            {saving === 'type'
+              ? 'Reclassifying…'
+              : ticket.type === 'work_order'
+                ? '→ Reclassify as ticket'
+                : '→ Reclassify as work order'}
+          </button>
         </div>
 
         <h1 className="text-2xl font-semibold text-gray-900 mb-1">{ticket.subject ?? '(no subject)'}</h1>
