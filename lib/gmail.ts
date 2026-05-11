@@ -297,6 +297,17 @@ export async function sendEmail({
   replyTo?: string
   headers?: Record<string, string>
 }): Promise<SendEmailResult> {
+  // GLOBAL OUTBOUND KILL SWITCH — set MAIA_OUTBOUND_DISABLED=true in
+  // Vercel to block EVERY outbound email from this codebase, regardless
+  // of which code path called sendEmail (freeform replies, structured-
+  // record success/failure, ticket assignment, triage emails, etc.).
+  // The previous MAIA_FREEFORM_DISABLED only stopped freeform AI replies;
+  // this catches everything.
+  if (process.env.MAIA_OUTBOUND_DISABLED === 'true') {
+    console.error(`[sendEmail] BLOCKED by MAIA_OUTBOUND_DISABLED. to=${JSON.stringify(to)} subject="${subject}"`)
+    return { messageId: 'blocked-by-killswitch' }
+  }
+
   const addresses = toAddresses(to)
   if (addresses.length === 0) throw new Error('[Email] No recipients provided')
 
