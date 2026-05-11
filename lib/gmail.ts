@@ -1,6 +1,8 @@
 // Email sender — Resend primary, Gmail OAuth fallback
 // All outbound email goes through sendEmail(); provider is chosen at runtime.
 
+import { checkOutboundRateLimit, recordOutboundAttempt } from '@/lib/outbound-rate-limit'
+
 const FROM = 'MAIA | PMI Top Florida Properties <maia@pmitop.com>'
 
 // ── Normalise recipients ─────────────────────────────────────────────────────
@@ -311,13 +313,29 @@ export async function sendEmail({
   const addresses = toAddresses(to)
   if (addresses.length === 0) throw new Error('[Email] No recipients provided')
 
-  const body = html ?? `<pre style="font-family:sans-serif;white-space:pre-wrap">${text ?? ''}</pre>`
-
-  if (process.env.RESEND_API_KEY) {
-    const messageId = await sendViaResend({ to: addresses, subject, html: body, text, replyTo, headers })
-    return { messageId }
+  // Application-level rate limit at the sendEmail boundary. Catches loops
+  // through ANY caller (structured-record replies, ticket notifications,
+  // vendor inquiries, courtesy emails, etc.) — not just freeform. See
+  // lib/outbound-rate-limit.ts for caps and env-var overrides.
+  const decision = await checkOutboundRateLimit({ toEmails: addresses, subject })
+  if (!decision.allow) {
+    console.error(`[sendEmail] BLOCKED by ${decision.reason}. ${decision.detail}`)
+    await recordOutboundAttempt({ toEmails: addresses, subject, blockedReason: decision.reason })
+    return { messageId: `blocked-by-${decision.reason}` }
   }
 
-  await sendViaGmail({ to: addresses, subject, html: body })
-  return {}
+  const body = html ?? `<pre style="font-family:sans-serif;white-space:pre-wrap">${text ?? ''}</pre>`
+
+  let messageId: string | undefined
+  if (process.env.RESEND_API_KEY) {
+    messageId = await sendViaResend({ to: addresses, subject, html: body, text, replyTo, headers })
+  } else {
+    await sendViaGmail({ to: addresses, subject, html: body })
+  }
+
+  // Record AFTER successful provider call so the counter reflects what
+  // actually went out (not what we attempted but failed to send).
+  await recordOutboundAttempt({ toEmails: addresses, subject })
+
+  return messageId !== undefined ? { messageId } : {}
 }
