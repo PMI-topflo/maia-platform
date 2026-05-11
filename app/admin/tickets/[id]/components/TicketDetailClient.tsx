@@ -404,26 +404,31 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           </Card>
         )}
 
-        {ticket.type === 'work_order' && (
-          <Card title="Sync status">
-            <Detail label="Rentvine" value={ticket.rentvine_workorder_id ?? 'pending sync'} mono />
-            <Detail label="CINC"     value={ticket.cinc_workorder_id     ?? 'pending sync'} mono />
-            {(() => {
-              const sync = (ticket.sync_status ?? {}) as Record<string, { ok?: boolean; last_error?: string; last_synced_at?: string }>
-              const errors: string[] = []
-              if (sync.cinc?.last_error)     errors.push(`CINC: ${sync.cinc.last_error}`)
-              if (sync.rentvine?.last_error) errors.push(`Rentvine: ${sync.rentvine.last_error}`)
-              if (errors.length === 0) return null
-              return (
+        {ticket.type === 'work_order' && (() => {
+          const sync = (ticket.sync_status ?? {}) as Record<string, { ok?: boolean; last_error?: string; last_synced_at?: string }>
+          // Only show "pending sync" when sync_status[target] has been touched
+          // (indicating an attempt was made). Otherwise show "—" — the ticket
+          // simply doesn't sync to that integration. Prevents the misleading
+          // "Rentvine: pending sync" on CINC-sourced tickets and vice versa.
+          const cincLabel     = ticket.cinc_workorder_id     ?? (sync.cinc     ? 'pending sync' : '—')
+          const rentvineLabel = ticket.rentvine_workorder_id ?? (sync.rentvine ? 'pending sync' : '—')
+          const errors: string[] = []
+          if (sync.cinc?.last_error)     errors.push(`CINC: ${sync.cinc.last_error}`)
+          if (sync.rentvine?.last_error) errors.push(`Rentvine: ${sync.rentvine.last_error}`)
+          return (
+            <Card title="Sync status">
+              <Detail label="Rentvine" value={rentvineLabel} mono />
+              <Detail label="CINC"     value={cincLabel}     mono />
+              {errors.length > 0 && (
                 <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
                   {errors.map((e, i) => (
                     <div key={i} className="text-[11px] text-red-600 break-words">{e}</div>
                   ))}
                 </div>
-              )
-            })()}
-          </Card>
-        )}
+              )}
+            </Card>
+          )
+        })()}
       </aside>
     </div>
   )
