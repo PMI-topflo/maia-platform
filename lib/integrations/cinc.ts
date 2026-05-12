@@ -325,6 +325,33 @@ export async function createLinkedWorkOrder(
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Update existing work order — type, description, dates, work location
+// (NOT status or vendor; those have their own endpoints).
+//
+// PATCH /management/1/workOrderDetails uses PascalCase per CINC's spec
+// (POST endpoints use camelCase — see docs/cinc-api.md "PascalCase vs
+// camelCase inconsistency"). Only WorkOrderId is required; every other
+// field is optional and only sent when the caller provides it, so we
+// don't accidentally clobber CINC-side values we don't track locally.
+// ─────────────────────────────────────────────────────────────────────
+export interface UpdateWorkOrderDetailsInput {
+  workOrderId:      number
+  workOrderTypeId?: number | null
+  description?:     string | null
+  dueDate?:         string | null
+}
+
+export async function updateWorkOrderDetails(
+  input: UpdateWorkOrderDetailsInput,
+): Promise<void> {
+  const body: Record<string, unknown> = { WorkOrderId: input.workOrderId }
+  if (input.workOrderTypeId != null) body.WorkOrderTypeId = input.workOrderTypeId
+  if (input.description     != null) body.Description    = input.description.slice(0, 1000)
+  if (input.dueDate         != null) body.DueDate        = input.dueDate
+  await call<unknown>('/management/1/workOrderDetails', { method: 'PATCH', json: body })
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Add note to existing work order
 // ─────────────────────────────────────────────────────────────────────
 export interface AddNoteOptions {
