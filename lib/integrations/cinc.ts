@@ -110,12 +110,16 @@ async function call<T>(
     _token = null
     headers.set('Authorization', `Bearer ${await getToken()}`)
     const retry = await fetch(url, { ...init, headers, body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body })
-    if (!retry.ok) throw new CincApiError(`${init?.method ?? 'GET'} ${path} failed (${retry.status})`, retry.status, await retry.text())
+    if (!retry.ok) {
+      const body = await retry.text()
+      throw new CincApiError(`${init?.method ?? 'GET'} ${path} failed (${retry.status}): ${body.slice(0, 400)}`, retry.status, body)
+    }
     return retry.status === 204 ? (undefined as unknown as T) : (await retry.json() as T)
   }
 
   if (!res.ok) {
-    throw new CincApiError(`${init?.method ?? 'GET'} ${path} failed (${res.status})`, res.status, await res.text())
+    const body = await res.text()
+    throw new CincApiError(`${init?.method ?? 'GET'} ${path} failed (${res.status}): ${body.slice(0, 400)}`, res.status, body)
   }
   return res.status === 204 ? (undefined as unknown as T) : (await res.json() as T)
 }
@@ -344,11 +348,13 @@ export interface UpdateWorkOrderDetailsInput {
 export async function updateWorkOrderDetails(
   input: UpdateWorkOrderDetailsInput,
 ): Promise<void> {
-  const body: Record<string, unknown> = { WorkOrderId: input.workOrderId }
-  if (input.workOrderTypeId != null) body.WorkOrderTypeId = input.workOrderTypeId
-  if (input.description     != null) body.Description    = input.description.slice(0, 1000)
-  if (input.dueDate         != null) body.DueDate        = input.dueDate
-  await call<unknown>('/management/1/workOrderDetails', { method: 'PATCH', json: body })
+  const item: Record<string, unknown> = { WorkOrderId: input.workOrderId }
+  if (input.workOrderTypeId != null) item.WorkOrderTypeId = input.workOrderTypeId
+  if (input.description     != null) item.Description    = input.description.slice(0, 1000)
+  if (input.dueDate         != null) item.DueDate        = input.dueDate
+  // Array wrap matches CINC's pattern for write endpoints — workOrderNotes
+  // uses the same shape and we got 400s from this endpoint without it.
+  await call<unknown>('/management/1/workOrderDetails', { method: 'PATCH', json: [item] })
 }
 
 // ─────────────────────────────────────────────────────────────────────
