@@ -14,14 +14,16 @@ const VALID_PRIORITY: TicketPriority[] = ['low', 'normal', 'high', 'urgent']
 const VALID_TYPE:     TicketType[]     = ['ticket', 'work_order']
 
 interface PatchBody {
-  status?:         TicketStatus
-  priority?:       TicketPriority
-  type?:           TicketType
-  assignee_email?: string | null
-  due_at?:         string | null
-  subject?:        string | null
-  summary?:        string | null
-  actor_email?:    string
+  status?:               TicketStatus
+  priority?:             TicketPriority
+  type?:                 TicketType
+  assignee_email?:       string | null
+  due_at?:               string | null
+  subject?:              string | null
+  summary?:              string | null
+  work_order_type_id?:   number | null
+  work_order_type_name?: string | null
+  actor_email?:          string
 }
 
 export async function PATCH(
@@ -44,18 +46,25 @@ export async function PATCH(
   if (body.status   && !VALID_STATUS  .includes(body.status))   return NextResponse.json({ error: 'Invalid status'   }, { status: 400 })
   if (body.priority && !VALID_PRIORITY.includes(body.priority)) return NextResponse.json({ error: 'Invalid priority' }, { status: 400 })
   if (body.type     && !VALID_TYPE    .includes(body.type))     return NextResponse.json({ error: 'Invalid type'     }, { status: 400 })
+  if (body.work_order_type_id !== undefined
+      && body.work_order_type_id !== null
+      && !(Number.isInteger(body.work_order_type_id) && body.work_order_type_id > 0)) {
+    return NextResponse.json({ error: 'Invalid work_order_type_id' }, { status: 400 })
+  }
 
   try {
     const ticket = await updateTicket(
       ticketId,
       {
-        status:         body.status,
-        priority:       body.priority,
-        type:           body.type,
-        assignee_email: body.assignee_email,
-        due_at:         body.due_at,
-        subject:        body.subject,
-        summary:        body.summary,
+        status:               body.status,
+        priority:             body.priority,
+        type:                 body.type,
+        assignee_email:       body.assignee_email,
+        due_at:               body.due_at,
+        subject:              body.subject,
+        summary:              body.summary,
+        work_order_type_id:   body.work_order_type_id,
+        work_order_type_name: body.work_order_type_name,
       },
       body.actor_email ?? 'staff',
     )

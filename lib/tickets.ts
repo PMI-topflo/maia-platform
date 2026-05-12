@@ -253,13 +253,15 @@ export async function createTicket(input: CreateTicketInput): Promise<Ticket> {
 }
 
 export interface UpdateTicketPatch {
-  status?:           TicketStatus
-  priority?:         TicketPriority
-  assignee_email?:   string | null
-  subject?:          string | null
-  summary?:          string | null
-  due_at?:           string | null
-  type?:             TicketType
+  status?:               TicketStatus
+  priority?:             TicketPriority
+  assignee_email?:       string | null
+  subject?:              string | null
+  summary?:              string | null
+  due_at?:               string | null
+  type?:                 TicketType
+  work_order_type_id?:   number | null
+  work_order_type_name?: string | null
 }
 
 export async function updateTicket(
@@ -270,7 +272,7 @@ export async function updateTicket(
   // Pull previous values so the audit row records the actual change.
   const { data: prev } = await supabaseAdmin
     .from('tickets')
-    .select('status, priority, assignee_email, type')
+    .select('status, priority, assignee_email, type, work_order_type_id, work_order_type_name')
     .eq('id', ticketId)
     .single()
 
@@ -294,6 +296,19 @@ export async function updateTicket(
   if (patch.assignee_email !== undefined && patch.assignee_email !== prev?.assignee_email) events.push({ event_type: 'assigned', payload: { from: prev?.assignee_email, to: patch.assignee_email } })
   if (patch.type           && patch.type           !== prev?.type)           events.push({ event_type: 'type_changed',       payload: { from: prev?.type,           to: patch.type           } })
 
+  const woTypeChanged = patch.work_order_type_id !== undefined && patch.work_order_type_id !== prev?.work_order_type_id
+  if (woTypeChanged) {
+    events.push({
+      event_type: 'work_order_type_changed',
+      payload: {
+        from_id:   prev?.work_order_type_id   ?? null,
+        from_name: prev?.work_order_type_name ?? null,
+        to_id:     patch.work_order_type_id   ?? null,
+        to_name:   patch.work_order_type_name ?? null,
+      },
+    })
+  }
+
   if (events.length) {
     await supabaseAdmin.from('ticket_events').insert(
       events.map(e => ({ ticket_id: ticketId, actor_email: actorEmail, ...e })),
@@ -306,6 +321,13 @@ export async function updateTicket(
     }
     if (process.env.CINC_SYNC_ENABLED === 'true') {
       await enqueueOutbox(ticketId, 'ticket', 'update', 'cinc')
+      // Narrow operation that the outbox handler actually services today:
+      // PATCH /workOrderDetails to mirror the WorkOrderTypeId we just set.
+      // Only enqueue when the value actually changed AND the ticket has a
+      // CINC work-order id to update.
+      if (woTypeChanged && data.cinc_workorder_id) {
+        await enqueueOutbox(ticketId, 'ticket', 'update_details', 'cinc')
+      }
     }
   }
 
@@ -465,7 +487,7 @@ export async function findOrCreateTicket(input: IngestInput): Promise<Ticket> {
 export async function enqueueOutbox(
   entityId:   number,
   entityType: 'ticket' | 'ticket_message',
-  operation:  'create' | 'update' | 'append_message' | 'close',
+  operation:  'create' | 'update' | 'update_details' | 'append_message' | 'close',
   target:     'rentvine' | 'cinc' = 'rentvine',
   payload:    Record<string, unknown> = {},
 ): Promise<void> {

@@ -89,15 +89,17 @@ async function upsertWorkOrder(wo: CincWorkOrder): Promise<UpsertCounts> {
     counts.ticketsInserted++
   } else {
     ticketId = existing.id
-    // Update if status / subject / type changed. Don't overwrite manual
-    // edits (e.g., staff reclassified work_order → ticket via PR #27 —
-    // we don't touch the type field on refresh).
+    // Update if status / subject / summary changed on the CINC side.
+    // We deliberately DON'T sync work_order_type_id / _name back from
+    // CINC on refresh: MAIA is the source of truth for the type now
+    // (staff edits flow out via the integration_outbox 'update_details'
+    // handler, which PATCHes /workOrderDetails). Syncing back would
+    // race with in-flight outbound updates and stomp staff edits if
+    // the outbox row hadn't drained yet.
     const patch: Record<string, unknown> = {}
     if (existing.status               !== status)                                   patch.status               = status
     if ((existing.subject ?? '')      !== subject)                                  patch.subject              = subject
     if ((existing.summary ?? '')      !== description.slice(0, 500))                patch.summary              = description.slice(0, 500)
-    if (existing.work_order_type_id   !== (wo.WorkOrderTypId ?? null))              patch.work_order_type_id   = wo.WorkOrderTypId ?? null
-    if ((existing.work_order_type_name ?? null) !== (wo.WorkOrderType  ?? null))    patch.work_order_type_name = wo.WorkOrderType  ?? null
     if (Object.keys(patch).length > 0) {
       patch.sync_status = { cinc: { ok: true, last_synced_at: new Date().toISOString(), source: 'inbound' } }
       const { error: updateErr } = await supabaseAdmin

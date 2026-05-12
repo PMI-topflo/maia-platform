@@ -8,7 +8,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Fragment, useState, type ChangeEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ChangeEvent, type ReactNode } from 'react'
 import DueDateModal from './DueDateModal'
 
 interface TicketRecord {
@@ -31,6 +31,8 @@ interface TicketRecord {
   gmail_thread_id:        string | null
   rentvine_workorder_id:  string | null
   cinc_workorder_id:      string | null
+  work_order_type_id:     number | null
+  work_order_type_name:   string | null
   sync_status:            Record<string, unknown> | null
   created_at:             string
   updated_at:             string
@@ -135,6 +137,28 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
   const [error,         setError]         = useState<string | null>(null)
   const [showDueModal,  setShowDueModal]  = useState(false)
 
+  // CINC work-order type catalog — fetched lazily for work_order tickets so
+  // staff can re-categorize after creation. Sync to CINC happens server-side
+  // via the integration_outbox 'update_details' op.
+  const [woTypeId,       setWoTypeId]       = useState<string>(ticket.work_order_type_id ? String(ticket.work_order_type_id) : '')
+  const [woTypes,        setWoTypes]        = useState<Array<{ id: number; name: string }>>([])
+  const [woTypesLoading, setWoTypesLoading] = useState(false)
+  const [woTypesError,   setWoTypesError]   = useState<string | null>(null)
+
+  useEffect(() => {
+    if (ticket.type !== 'work_order' || woTypes.length > 0 || woTypesLoading) return
+    setWoTypesLoading(true)
+    setWoTypesError(null)
+    fetch('/api/admin/cinc/work-order-types')
+      .then(r => r.json())
+      .then((data: { items?: Array<{ id: number; name: string }>; error?: string }) => {
+        if (data.error) throw new Error(data.error)
+        setWoTypes(data.items ?? [])
+      })
+      .catch(err => setWoTypesError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setWoTypesLoading(false))
+  }, [ticket.type, woTypes.length, woTypesLoading])
+
   async function patch(field: string, value: string | null) {
     setSaving(field)
     setError(null)
@@ -151,6 +175,40 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
     } finally {
       setSaving(null)
     }
+  }
+
+  /** PATCH multiple fields atomically. Used for type changes where both
+   *  id and name flip together. `savingKey` drives the dropdown's
+   *  disabled state. */
+  async function patchFields(body: Record<string, unknown>, savingKey: string) {
+    setSaving(savingKey)
+    setError(null)
+    try {
+      const res = await fetch(`/api/admin/tickets/${ticket.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error((await res.json())?.error ?? 'Update failed')
+      router.refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  function onWoTypeChange(e: ChangeEvent<HTMLSelectElement>) {
+    const next = e.target.value
+    setWoTypeId(next)
+    const chosen = woTypes.find(t => String(t.id) === next)
+    void patchFields(
+      {
+        work_order_type_id:   chosen ? chosen.id   : null,
+        work_order_type_name: chosen ? chosen.name : null,
+      },
+      'work_order_type_id',
+    )
   }
 
   async function sendMessage() {
@@ -383,6 +441,34 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           </select>
         </Card>
 
+        {ticket.type === 'work_order' && (
+          <Card title="Work order type">
+            <select
+              value={woTypeId}
+              onChange={onWoTypeChange}
+              disabled={saving === 'work_order_type_id' || woTypesLoading}
+              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white"
+            >
+              <option value="">
+                {woTypesLoading ? 'Loading CINC types…' : (ticket.work_order_type_name ?? '— Unassigned')}
+              </option>
+              {woTypes.map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+            {woTypesError && (
+              <div className="text-[10px] text-red-600 mt-1">
+                Could not load CINC types: {woTypesError}
+              </div>
+            )}
+            {ticket.cinc_workorder_id ? (
+              <div className="text-[10px] text-gray-400 mt-1">Changes sync to CINC.</div>
+            ) : (
+              <div className="text-[10px] text-gray-400 mt-1">Not yet synced to CINC — change is local-only until the outbound create runs.</div>
+            )}
+          </Card>
+        )}
+
         <Card title="Details">
           <Detail label="Channel"     value={CHANNEL_LABELS[ticket.channel_origin] ?? ticket.channel_origin} />
           <Detail
@@ -500,6 +586,10 @@ function describeEvent(e: EventRecord): string {
     case 'priority_changed':  return `Priority: ${(p as { from?: string }).from} → ${(p as { to?: string }).to}`
     case 'assigned':          return `Assigned: ${(p as { from?: string }).from ?? '—'} → ${(p as { to?: string }).to ?? '—'}`
     case 'type_changed':      return `Type: ${(p as { from?: string }).from} → ${(p as { to?: string }).to}`
+    case 'work_order_type_changed': {
+      const cast = p as { from_name?: string | null; to_name?: string | null }
+      return `Work order type: ${cast.from_name ?? '—'} → ${cast.to_name ?? '—'}`
+    }
     case 'message_added':     return `New ${(p as { direction?: string }).direction ?? ''} message via ${(p as { channel?: string }).channel ?? ''}`.trim()
     case 'due_changed': {
       const cast = p as { from?: string; to?: string; reason_label?: string; bucket?: string; note?: string }
