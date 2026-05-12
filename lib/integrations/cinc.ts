@@ -23,7 +23,7 @@
 const CLIENT_ID     = process.env.CINC_CLIENT_ID
 const CLIENT_SECRET = process.env.CINC_CLIENT_SECRET
 const AUTH_URL      = process.env.CINC_AUTH_URL  ?? 'https://identityserver.cincsys.io/connect/token'
-const API_BASE      = (process.env.CINC_API_BASE ?? 'https://integration.cincsys.io/api').replace(/\/$/, '')
+const API_BASE      = (process.env.CINC_API_BASE ?? 'https://PMITFP.cincsys.com/api').replace(/\/$/, '')
 const SCOPE         = process.env.CINC_SCOPE     ?? 'cincapi.all'
 
 export class CincConfigError extends Error {}
