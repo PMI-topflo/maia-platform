@@ -348,13 +348,38 @@ export interface UpdateWorkOrderDetailsInput {
 export async function updateWorkOrderDetails(
   input: UpdateWorkOrderDetailsInput,
 ): Promise<void> {
-  const item: Record<string, unknown> = { WorkOrderId: input.workOrderId }
-  if (input.workOrderTypeId != null) item.WorkOrderTypeId = input.workOrderTypeId
-  if (input.description     != null) item.Description    = input.description.slice(0, 1000)
-  if (input.dueDate         != null) item.DueDate        = input.dueDate
-  // Array wrap matches CINC's pattern for write endpoints — workOrderNotes
-  // uses the same shape and we got 400s from this endpoint without it.
-  await call<unknown>('/management/1/workOrderDetails', { method: 'PATCH', json: [item] })
+  // CINC's WorkOrderDetailsUpdateVm:
+  //  - Wants a single JSON object (not an array — array gave 400 with
+  //    "Cannot deserialize JSON array into WorkOrderDetailsUpdateVm")
+  //  - Rejects partial bodies (just {WorkOrderId, WorkOrderTypeId} also
+  //    got 400 — CINC requires the full view-model shape)
+  //
+  // Fix: GET the current work order, project it into the documented
+  // PATCH shape, then overlay the caller's changes. This way we only
+  // mutate the field(s) the caller actually wanted to change; every
+  // other field round-trips unchanged.
+  const current = await getWorkOrderById(input.workOrderId)
+  if (!current) {
+    throw new CincApiError(`Cannot fetch CINC work order ${input.workOrderId} to update`)
+  }
+
+  const body: Record<string, unknown> = {
+    WorkOrderId:      input.workOrderId,
+    WorkOrderTypeId:  input.workOrderTypeId ?? current.WorkOrderTypId ?? null,
+    Description:      (input.description    ?? current.Description    ?? '').slice(0, 1000),
+    EstimateTotal:    current.EstimateTotal ?? 0,
+    DueDate:          input.dueDate         ?? current.DueDate        ?? null,
+    FollowupDate:     current.FollowUpDate  ?? null,
+    PropertyId:       current.PropertyId    ?? null,
+    WorkLocationName: current.WorkLocationName ?? '',
+    AddressLine1:     current.AddressLine1  ?? '',
+    AddressLine2:     current.AddressLine2  ?? '',
+    City:             current.City          ?? '',
+    State:            current.State         ?? '',
+    Zip:              current.Zip           ?? '',
+  }
+
+  await call<unknown>('/management/1/workOrderDetails', { method: 'PATCH', json: body })
 }
 
 // ─────────────────────────────────────────────────────────────────────
