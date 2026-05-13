@@ -128,7 +128,7 @@ async function call<T>(
 // Lookups (cached per container)
 // ─────────────────────────────────────────────────────────────────────
 interface WorkOrderType   { WorkOrderTypeId: number; WorkOrderTypeDescription: string }
-interface WorkOrderStatus { WorkOrderStatusId: number; WorkOrderStatusDescription: string }
+interface WorkOrderStatus { WorkOrderStatusId: number; WorkOrderStatusDescription: string; IsCompleted: number }
 
 let _typesCache:    WorkOrderType[]   | null = null
 let _statusesCache: WorkOrderStatus[] | null = null
@@ -380,6 +380,96 @@ export async function updateWorkOrderDetails(
   }
 
   await call<unknown>('/management/1/workOrderDetails', { method: 'PATCH', json: body })
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Update work-order status — mirrors MAIA's TicketStatus changes to
+// CINC. Two endpoints based on whether we're reopening:
+//   PATCH /workOrderStatus        — any transition that isn't a reopen
+//   PATCH /workOrderStatusReopen  — moving FROM a completed CINC status
+//                                   BACK to an open one (CINC blocks
+//                                   plain workOrderStatus calls here).
+// Both take a PascalCase body. Note field is required by CINC and
+// shows up as a system-generated note on the work order.
+// ─────────────────────────────────────────────────────────────────────
+export interface UpdateWorkOrderStatusInput {
+  workOrderId:        number
+  workOrderStatusId:  number
+  workOrderTypeId?:   number | null   // required when CINC is being asked to reopen
+  note?:              string | null
+}
+
+export async function updateWorkOrderStatus(
+  input: UpdateWorkOrderStatusInput,
+): Promise<void> {
+  // Inspect current CINC state to decide which endpoint to use. The
+  // reopen-vs-normal decision can't be made locally because MAIA's
+  // status may already match CINC's by the time the outbox drains.
+  const [current, statuses] = await Promise.all([
+    getWorkOrderById(input.workOrderId),
+    listWorkOrderStatuses(),
+  ])
+  if (!current) {
+    throw new CincApiError(`Cannot fetch CINC work order ${input.workOrderId} to update status`)
+  }
+  const currentStatus = statuses.find(s => s.WorkOrderStatusId === current.WorkOrderStatusId)
+  const newStatus     = statuses.find(s => s.WorkOrderStatusId === input.workOrderStatusId)
+  const isReopen      = currentStatus?.IsCompleted === 1 && newStatus?.IsCompleted !== 1
+
+  const body: Record<string, unknown> = {
+    WorkOrderId:             input.workOrderId,
+    WorkOrderStatusId:       input.workOrderStatusId,
+    Note:                    (input.note ?? '').slice(0, 4000),
+    IsPublic:                false,
+    IsEmailedToVendor:       false,
+    IsEmailedToWorkLocation: false,
+  }
+  if (isReopen) {
+    body.WorkOrderTypeId = input.workOrderTypeId ?? current.WorkOrderTypId ?? null
+  }
+
+  const endpoint = isReopen
+    ? '/management/1/workOrderStatusReopen'
+    : '/management/1/workOrderStatus'
+  await call<unknown>(endpoint, { method: 'PATCH', json: body })
+}
+
+/** Map our local TicketStatus to a CINC WorkOrderStatusId by tenant.
+ *  Uses IsCompleted (0/1) to anchor the side of the catalog we're on,
+ *  then a substring match on WorkOrderStatusDescription. Falls back to
+ *  the first status with the right IsCompleted flag so we never hard-
+ *  fail just because CINC's tenant config doesn't include our keyword. */
+export async function findCincStatusIdForTicketStatus(
+  ticketStatus: 'open' | 'pending' | 'waiting_external' | 'resolved' | 'closed',
+): Promise<number> {
+  const statuses = await listWorkOrderStatuses()
+  if (statuses.length === 0) throw new CincApiError('CINC returned no work order statuses')
+
+  const find = (isCompleted: 0 | 1, needles: string[]): number | undefined => {
+    const hit = statuses.find(s =>
+      s.IsCompleted === isCompleted &&
+      needles.some(n => (s.WorkOrderStatusDescription ?? '').toLowerCase().includes(n))
+    )
+    return hit?.WorkOrderStatusId
+  }
+
+  let id: number | undefined
+  switch (ticketStatus) {
+    case 'open':             id = find(0, ['open', 'new']);                              break
+    case 'pending':          id = find(0, ['pending', 'review', 'hold']);                break
+    case 'waiting_external': id = find(0, ['vendor', 'waiting', 'external', 'awaiting']); break
+    case 'resolved':         id = find(1, ['complete', 'resolved', 'done', 'finished']); break
+    case 'closed':           id = find(1, ['closed', 'cancel']);                         break
+  }
+
+  if (id === undefined) {
+    const wantCompleted: 0 | 1 = (ticketStatus === 'resolved' || ticketStatus === 'closed') ? 1 : 0
+    id = statuses.find(s => s.IsCompleted === wantCompleted)?.WorkOrderStatusId
+  }
+  if (id === undefined) {
+    throw new CincApiError(`No CINC status maps to ticket status "${ticketStatus}"`)
+  }
+  return id
 }
 
 // ─────────────────────────────────────────────────────────────────────

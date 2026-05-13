@@ -7,6 +7,7 @@
 // Phase A surface — CINC only:
 //   ('ticket',         'create')         → cinc.createLinkedWorkOrder
 //   ('ticket',         'update_details') → cinc.updateWorkOrderDetails
+//   ('ticket',         'update_status')  → cinc.updateWorkOrderStatus
 //   ('ticket_message', 'append_message') → cinc.addWorkOrderNote
 //
 // Anything else is logged and marked failed so it doesn't retry forever.
@@ -21,7 +22,7 @@ interface OutboxRow {
   target:       'cinc' | 'rentvine'
   entity_type:  'ticket' | 'ticket_message'
   entity_id:    number
-  operation:    'create' | 'update' | 'update_details' | 'append_message' | 'close'
+  operation:    'create' | 'update' | 'update_details' | 'update_status' | 'append_message' | 'close'
   payload:      Record<string, unknown>
   attempts:     number
 }
@@ -141,6 +142,39 @@ async function handleCincTicketUpdateDetails(ticketId: number): Promise<void> {
     .eq('id', ticketId)
 }
 
+/** Mirror local TicketStatus changes to CINC. Maps the current MAIA
+ *  status to a CINC WorkOrderStatusId by IsCompleted + substring match,
+ *  then PATCHes /workOrderStatus (or /workOrderStatusReopen on reopen).
+ *  No-ops cleanly when the ticket isn't synced to CINC yet. */
+async function handleCincTicketUpdateStatus(ticketId: number): Promise<void> {
+  const { data: t, error } = await supabaseAdmin
+    .from('tickets')
+    .select('id, cinc_workorder_id, status, work_order_type_id, sync_status')
+    .eq('id', ticketId)
+    .single()
+  if (error || !t) throw new Error(`ticket ${ticketId} not found`)
+  if (!t.cinc_workorder_id) return  // not yet mirrored upstream
+
+  const statusId = await cinc.findCincStatusIdForTicketStatus(
+    t.status as 'open' | 'pending' | 'waiting_external' | 'resolved' | 'closed',
+  )
+
+  await cinc.updateWorkOrderStatus({
+    workOrderId:       Number(t.cinc_workorder_id),
+    workOrderStatusId: statusId,
+    workOrderTypeId:   t.work_order_type_id,
+    note:              `Status changed in MAIA to "${t.status}".`,
+  })
+
+  const prevSync = (t.sync_status ?? {}) as Record<string, unknown>
+  await supabaseAdmin
+    .from('tickets')
+    .update({
+      sync_status: { ...prevSync, cinc: { ok: true, last_synced_at: new Date().toISOString() } },
+    })
+    .eq('id', ticketId)
+}
+
 async function handleCincMessageAppend(messageId: number): Promise<void> {
   const { data: m, error: mErr } = await supabaseAdmin
     .from('ticket_messages')
@@ -191,6 +225,8 @@ export async function processOne(row: OutboxRow): Promise<void> {
         await handleCincTicketCreate(row.entity_id)
       } else if (row.entity_type === 'ticket' && row.operation === 'update_details') {
         await handleCincTicketUpdateDetails(row.entity_id)
+      } else if (row.entity_type === 'ticket' && row.operation === 'update_status') {
+        await handleCincTicketUpdateStatus(row.entity_id)
       } else if (row.entity_type === 'ticket_message' && row.operation === 'append_message') {
         await handleCincMessageAppend(row.entity_id)
       } else {
