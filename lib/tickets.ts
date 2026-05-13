@@ -320,11 +320,9 @@ export async function updateTicket(
       await enqueueOutbox(ticketId, 'ticket', 'update', 'rentvine')
     }
     if (process.env.CINC_SYNC_ENABLED === 'true') {
-      await enqueueOutbox(ticketId, 'ticket', 'update', 'cinc')
-      // Narrow operation that the outbox handler actually services today:
-      // PATCH /workOrderDetails to mirror the WorkOrderTypeId we just set.
-      // Only enqueue when the value actually changed AND the ticket has a
-      // CINC work-order id to update.
+      // PATCH /workOrderDetails to mirror the WorkOrderTypeId we just
+      // set. Only enqueue when the value actually changed AND the ticket
+      // has a CINC work-order id to update.
       if (woTypeChanged && data.cinc_workorder_id) {
         await enqueueOutbox(ticketId, 'ticket', 'update_details', 'cinc')
       }
@@ -437,10 +435,11 @@ export async function appendMessage(
     payload:     { direction: input.direction, channel: input.channel, external_id: input.external_id },
   })
 
-  // Sync outbound staff replies + inbound external messages on work orders.
-  if (input.direction !== 'internal_note') {
-    await enqueueOutboxIfWorkOrder(ticketId, data.id as number)
-  }
+  // Mirror all message directions to CINC for a complete audit trail on
+  // the work order — outbound + inbound as public notes, internal_note
+  // as a CINC-private note (isNotePublic=false; not emailed to vendor).
+  // The handler maps the direction to the right CINC visibility flags.
+  await enqueueOutboxIfWorkOrder(ticketId, data.id as number)
 
   return data as TicketMessage
 }
