@@ -435,36 +435,50 @@ export async function updateWorkOrderStatus(
 }
 
 /** Map our local TicketStatus to a CINC WorkOrderStatusId by tenant.
- *  Uses IsCompleted (0/1) to anchor the side of the catalog we're on,
- *  then a substring match on WorkOrderStatusDescription. Falls back to
- *  the first status with the right IsCompleted flag so we never hard-
- *  fail just because CINC's tenant config doesn't include our keyword. */
+ *
+ *  Two rules:
+ *  - Anchor on IsCompleted (0/1) to stay on the right side of the catalog.
+ *  - Among matches, prefer statuses with a positive WorkOrderStatusId.
+ *    CINC's catalog includes system-default rows with NEGATIVE ids
+ *    (e.g. "Pending Review" = -3, "Closed" = -2) that pass schema
+ *    validation but DON'T actually move the status field — they just
+ *    log a no-op audit note. The settable, tenant-configured statuses
+ *    have positive ids ("Open", "Pending", "Closed", etc.).
+ *
+ *  Fallback: first row with the right IsCompleted, preferring positive
+ *  ids again — so we never hard-fail just because CINC's tenant config
+ *  doesn't include our keyword. */
 export async function findCincStatusIdForTicketStatus(
   ticketStatus: 'open' | 'pending' | 'waiting_external' | 'resolved' | 'closed',
 ): Promise<number> {
   const statuses = await listWorkOrderStatuses()
   if (statuses.length === 0) throw new CincApiError('CINC returned no work order statuses')
 
+  const pickSettable = (rows: WorkOrderStatus[]): number | undefined =>
+    (rows.find(s => s.WorkOrderStatusId > 0) ?? rows[0])?.WorkOrderStatusId
+
   const find = (isCompleted: 0 | 1, needles: string[]): number | undefined => {
-    const hit = statuses.find(s =>
+    const matches = statuses.filter(s =>
       s.IsCompleted === isCompleted &&
       needles.some(n => (s.WorkOrderStatusDescription ?? '').toLowerCase().includes(n))
     )
-    return hit?.WorkOrderStatusId
+    return pickSettable(matches)
   }
 
   let id: number | undefined
   switch (ticketStatus) {
-    case 'open':             id = find(0, ['open', 'new']);                              break
-    case 'pending':          id = find(0, ['pending', 'review', 'hold']);                break
-    case 'waiting_external': id = find(0, ['vendor', 'waiting', 'external', 'awaiting']); break
-    case 'resolved':         id = find(1, ['complete', 'resolved', 'done', 'finished']); break
-    case 'closed':           id = find(1, ['closed', 'cancel']);                         break
+    case 'open':             id = find(0, ['open']);                                  break
+    case 'pending':          id = find(0, ['pending']);                               break
+    case 'waiting_external': id = find(0, ['awaiting', 'waiting', 'vendor', 'external', 'quote']); break
+    // CINC tenants in our footprint don't distinguish "resolved" from
+    // "closed" — both map to the single completed status ("Closed").
+    case 'resolved':         id = find(1, ['closed', 'complete', 'resolved', 'done']); break
+    case 'closed':           id = find(1, ['closed', 'cancel']);                       break
   }
 
   if (id === undefined) {
     const wantCompleted: 0 | 1 = (ticketStatus === 'resolved' || ticketStatus === 'closed') ? 1 : 0
-    id = statuses.find(s => s.IsCompleted === wantCompleted)?.WorkOrderStatusId
+    id = pickSettable(statuses.filter(s => s.IsCompleted === wantCompleted))
   }
   if (id === undefined) {
     throw new CincApiError(`No CINC status maps to ticket status "${ticketStatus}"`)
