@@ -320,11 +320,9 @@ export async function updateTicket(
       await enqueueOutbox(ticketId, 'ticket', 'update', 'rentvine')
     }
     if (process.env.CINC_SYNC_ENABLED === 'true') {
-      await enqueueOutbox(ticketId, 'ticket', 'update', 'cinc')
-      // Narrow operation that the outbox handler actually services today:
-      // PATCH /workOrderDetails to mirror the WorkOrderTypeId we just set.
-      // Only enqueue when the value actually changed AND the ticket has a
-      // CINC work-order id to update.
+      // PATCH /workOrderDetails to mirror the WorkOrderTypeId we just
+      // set. Only enqueue when the value actually changed AND the ticket
+      // has a CINC work-order id to update.
       if (woTypeChanged && data.cinc_workorder_id) {
         await enqueueOutbox(ticketId, 'ticket', 'update_details', 'cinc')
       }
