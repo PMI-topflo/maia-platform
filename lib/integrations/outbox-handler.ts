@@ -148,8 +148,7 @@ async function handleCincMessageAppend(messageId: number): Promise<void> {
     .eq('id', messageId)
     .single()
   if (mErr || !m) throw new Error(`ticket_message ${messageId} not found`)
-  if (m.cinc_note_id)         return  // already synced
-  if (m.direction === 'internal_note') return  // internal-only never leaves
+  if (m.cinc_note_id) return  // already synced
 
   const { data: t } = await supabaseAdmin
     .from('tickets')
@@ -160,10 +159,18 @@ async function handleCincMessageAppend(messageId: number): Promise<void> {
     throw new Error(`parent ticket ${m.ticket_id} has no cinc_workorder_id yet`)
   }
 
+  // Direction → CINC note visibility flags:
+  //   internal_note → private to CINC users, NOT emailed (staff-only context)
+  //   outbound      → public, emailed to vendor (staff reply going out)
+  //   inbound       → public, NOT emailed (customer/vendor reply we received)
+  const isInternal = m.direction === 'internal_note'
   await cinc.addWorkOrderNote(
     Number(t.cinc_workorder_id),
     m.body ?? '',
-    { isPublic: true, emailToVendor: m.direction === 'outbound' },
+    {
+      isPublic:      !isInternal,
+      emailToVendor: m.direction === 'outbound',
+    },
   )
 
   // We don't get the new note id back from /workOrderNotes (Swagger

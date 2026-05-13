@@ -435,10 +435,11 @@ export async function appendMessage(
     payload:     { direction: input.direction, channel: input.channel, external_id: input.external_id },
   })
 
-  // Sync outbound staff replies + inbound external messages on work orders.
-  if (input.direction !== 'internal_note') {
-    await enqueueOutboxIfWorkOrder(ticketId, data.id as number)
-  }
+  // Mirror all message directions to CINC for a complete audit trail on
+  // the work order — outbound + inbound as public notes, internal_note
+  // as a CINC-private note (isNotePublic=false; not emailed to vendor).
+  // The handler maps the direction to the right CINC visibility flags.
+  await enqueueOutboxIfWorkOrder(ticketId, data.id as number)
 
   return data as TicketMessage
 }
