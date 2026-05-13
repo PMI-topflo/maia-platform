@@ -22,6 +22,44 @@ import * as cinc                        from '@/lib/integrations/cinc'
 import type { CincWorkOrder, CincNote } from '@/lib/integrations/cinc'
 
 const CINC_CHANNEL = 'internal' // ticket_messages channel CHECK doesn't include 'cinc'
+const CINC_TENANT_TZ = 'America/New_York'
+
+/** Parse a CINC timestamp.
+ *
+ *  CINC's API returns naive wall-clock strings in the tenant's local
+ *  timezone (Eastern for PMITFP). JavaScript Dates parse those as UTC
+ *  by default — so a note CINC labeled "3:57 PM Eastern" was landing
+ *  in our DB as 3:57 PM UTC, displayed back to staff as "11:57 AM ET"
+ *  (4 hours earlier than reality).
+ *
+ *  Fix: if the string is naive, treat the wall-clock parts as Eastern
+ *  and shift to true UTC. If the string already has a timezone marker
+ *  (Z or ±HH:MM), trust it as-is. */
+function parseCincTimestamp(raw: string | undefined | null): string | null {
+  if (!raw) return null
+  if (/Z$|[+-]\d{2}:\d{2}$/.test(raw)) {
+    const d = new Date(raw)
+    return isNaN(d.getTime()) ? null : d.toISOString()
+  }
+  const iso   = raw.includes('T') ? raw : raw.replace(' ', 'T')
+  const asUtc = new Date(iso + 'Z')
+  if (isNaN(asUtc.getTime())) return null
+
+  // Compute Eastern's UTC offset at that wall-clock moment (handles DST).
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: CINC_TENANT_TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  })
+  const parts = Object.fromEntries(fmt.formatToParts(asUtc).map(p => [p.type, p.value]))
+  const easternWallAsUtc = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour) % 24, Number(parts.minute), Number(parts.second),
+  )
+  const offsetMs = easternWallAsUtc - asUtc.getTime()  // negative for EDT/EST
+  return new Date(asUtc.getTime() - offsetMs).toISOString()
+}
 
 /** CINC status string → our TicketStatus. Best-effort string match;
  *  unknown statuses default to 'open' so we don't silently drop them. */
@@ -73,7 +111,7 @@ async function upsertWorkOrder(wo: CincWorkOrder): Promise<UpsertCounts> {
       contact_phone:        contact?.ContactPhone ?? null,
       subject,
       summary:              description.slice(0, 500),
-      due_at:               wo.DueDate ?? null,
+      due_at:               parseCincTimestamp(wo.DueDate),
       cinc_workorder_id:    cincWoIdStr,
       work_order_type_id:   wo.WorkOrderTypId ?? null,
       work_order_type_name: wo.WorkOrderType  ?? null,
@@ -143,7 +181,7 @@ async function insertNoteIfNew(ticketId: number, note: CincNote): Promise<number
       body:         note.NoteDescription,
       external_id:  externalId,
       cinc_note_id: externalId,
-      created_at:   note.NoteCreatedDate,
+      created_at:   parseCincTimestamp(note.NoteCreatedDate) ?? new Date().toISOString(),
     })
   if (insertErr) {
     // 23505 = duplicate key (race condition with concurrent cron) — treat as ok.

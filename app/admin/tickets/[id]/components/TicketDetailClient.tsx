@@ -242,7 +242,8 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
   const timeline: TimelineItem[] = [
     ...messages.map(m => ({ kind: 'message' as const, at: m.created_at, data: m })),
     ...events  .map(e => ({ kind: 'event'   as const, at: e.created_at, data: e })),
-  ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+  // Newest first — most recent activity is the most useful at-a-glance signal.
+  ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
 
   const overdue = ticket.due_at && new Date(ticket.due_at).getTime() < Date.now() && ticket.status !== 'resolved' && ticket.status !== 'closed'
 
