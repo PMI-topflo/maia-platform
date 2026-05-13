@@ -326,6 +326,13 @@ export async function updateTicket(
       if (woTypeChanged && data.cinc_workorder_id) {
         await enqueueOutbox(ticketId, 'ticket', 'update_details', 'cinc')
       }
+      // PATCH /workOrderStatus to mirror status changes (or
+      // /workOrderStatusReopen if CINC needs to be reopened — the
+      // handler decides based on the current CINC state).
+      const statusChanged = !!patch.status && patch.status !== prev?.status
+      if (statusChanged && data.cinc_workorder_id) {
+        await enqueueOutbox(ticketId, 'ticket', 'update_status', 'cinc')
+      }
     }
   }
 
@@ -486,7 +493,7 @@ export async function findOrCreateTicket(input: IngestInput): Promise<Ticket> {
 export async function enqueueOutbox(
   entityId:   number,
   entityType: 'ticket' | 'ticket_message',
-  operation:  'create' | 'update' | 'update_details' | 'append_message' | 'close',
+  operation:  'create' | 'update' | 'update_details' | 'update_status' | 'append_message' | 'close',
   target:     'rentvine' | 'cinc' = 'rentvine',
   payload:    Record<string, unknown> = {},
 ): Promise<void> {
