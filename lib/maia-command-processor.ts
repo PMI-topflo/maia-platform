@@ -1062,6 +1062,27 @@ function detectTicketTrigger(body: string): boolean {
   return TICKET_CREATE_TRIGGERS.some(t => norm.includes(' ' + t + ' ') || norm.includes(t + '\n') || norm.includes(t + ',') || norm.includes(t + '.') || norm.includes(t + '!'))
 }
 
+// Matches @maia append TKT-YYYY-NNNN (4+ digit suffix). Captures the
+// ticket number so the caller can resolve it to a ticket id. Case
+// insensitive on the keyword; the captured ticket_number is uppercased
+// downstream before the DB lookup.
+const APPEND_TRIGGER_REGEX = /@maia\s+append\s+(TKT-\d{4}-\d{4,})/i
+
+function detectAppendTrigger(body: string): string | null {
+  const m = body.match(APPEND_TRIGGER_REGEX)
+  return m ? m[1].toUpperCase() : null
+}
+
+function appendNotFoundHtml(ticketNumber: string, requesterName: string): string {
+  return `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#222;max-width:600px;margin:0 auto;padding:20px">
+<p style="margin-top:0">Hi ${requesterName || 'there'},</p>
+<p>I couldn't find a ticket with the number <strong>${ticketNumber}</strong> to append your email to. Your message has NOT been added anywhere.</p>
+<p style="font-size:14px">Double-check the ticket number — the format is <code>TKT-YYYY-NNNN</code> (look at the ticket header in <a href="https://www.pmitop.com/admin/tickets">/admin/tickets</a>). Resend with the correct number to retry.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:32px 0 12px">
+<p style="color:#9ca3af;font-size:11px;margin:0">MAIA · PMI Top Florida Properties</p>
+</body></html>`
+}
+
 interface TicketModifiers {
   assignee?: string
   priority?: TicketPriority
@@ -1148,6 +1169,30 @@ export async function ingestInboundEmailToTicket(
   if (!allowed) return
 
   try {
+    // 0. Explicit @maia append TKT-YYYY-NNNN → append to the named ticket.
+    //    Wins over both thread-reply and subject-match because staff are
+    //    explicitly targeting a specific ticket (typical use: forwarding
+    //    a vendor estimate into an existing work order). On a typo we
+    //    reply so the email content isn't silently lost.
+    const appendTo = detectAppendTrigger(parsed.body)
+    if (appendTo) {
+      const { data: target } = await supabaseAdmin
+        .from('tickets')
+        .select('id, ticket_number')
+        .eq('ticket_number', appendTo)
+        .maybeSingle()
+      if (!target) {
+        await sendEmail({
+          to:      parsed.senderEmail,
+          subject: parsed.subject.startsWith('Re:') ? parsed.subject : `Re: ${parsed.subject}`,
+          html:    appendNotFoundHtml(appendTo, parsed.senderName),
+        })
+        return
+      }
+      await appendMessage(target.id, makeInboundMessageInput(parsed))
+      return
+    }
+
     // 1. Reply in existing thread → append, no trigger required.
     if (parsed.threadId) {
       const existing = await findOpenTicketByGmailThread(parsed.threadId)
@@ -1359,11 +1404,12 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     // ticket threads are always appended.
     await ingestInboundEmailToTicket(parsed, allowed, assocCode)
 
-    // Ticket-creation emails are handled by the ticket pipeline above —
-    // skip the structured-record extraction pipeline (owner / tenant /
-    // board updates) so we don't reply with a confusing "couldn't extract
-    // required information" message for what was clearly a ticket request.
-    if (allowed && detectTicketTrigger(parsed.body)) return
+    // Ticket-creation and ticket-append emails are handled by the ticket
+    // pipeline above — skip the structured-record extraction pipeline
+    // (owner / tenant / board updates) so we don't reply with a confusing
+    // "couldn't extract required information" message for what was
+    // clearly a ticket request.
+    if (allowed && (detectTicketTrigger(parsed.body) || detectAppendTrigger(parsed.body))) return
 
     if (!trigger) {
       // No structured trigger phrase. Three cases route to the freeform
