@@ -47,9 +47,15 @@ const APPLY            = process.argv.includes('--apply')
 const CLIENT_ID        = process.env.CINC_CLIENT_ID
 const CLIENT_SECRET    = process.env.CINC_CLIENT_SECRET
 const SCOPE            = process.env.CINC_SCOPE     ?? 'cincapi.all'
-const AUTH_URL         = process.env.CINC_AUTH_URL  ?? 'https://identity.cincsys.com/connect/token'
-const API_BASE         = (process.env.CINC_API_BASE ?? 'https://PMITFP.cincsys.com/api').replace(/\/$/, '')
-const SUPABASE_URL     = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL
+// Treat empty-string env vars as missing (some .env.local files set
+// CINC_API_BASE="" to fall back to runtime defaults).
+const orDefault = (v: string | undefined, d: string) => (v && v.trim()) ? v : d
+const AUTH_URL  = orDefault(process.env.CINC_AUTH_URL,  'https://identity.cincsys.com/connect/token')
+const API_BASE  = orDefault(process.env.CINC_API_BASE,  'https://PMITFP.cincsys.com/api').replace(/\/$/, '')
+// Prefer SUPABASE_URL (server-side canonical) over NEXT_PUBLIC_SUPABASE_URL —
+// the latter can carry the public site URL instead of the project URL in
+// some environments. Either form works as long as it ends in *.supabase.co.
+const SUPABASE_URL     = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_SVC_KEY = process.env.SUPABASE_SERVICE_KEY
 
 if (!CLIENT_ID || !CLIENT_SECRET) {
