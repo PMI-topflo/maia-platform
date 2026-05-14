@@ -82,8 +82,7 @@ export async function checkOutboundRateLimit({ toEmails, subject }: CheckArgs): 
  *
  * Errors are swallowed (logged only) — failing to record should not break
  * sends. The trade-off: a Supabase outage could let the counter drift low,
- * but that's still better than hard-failing every email. The kill switch
- * (MAIA_OUTBOUND_DISABLED) remains the final stop.
+ * but that's still better than hard-failing every email.
  */
 export async function recordOutboundAttempt(opts: { toEmails: string[]; subject: string; blockedReason?: string }): Promise<void> {
   const rows = opts.toEmails.map(to => ({
