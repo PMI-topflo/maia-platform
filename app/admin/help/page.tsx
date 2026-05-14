@@ -183,8 +183,30 @@ Needs vendor dispatched by tomorrow morning.`}
 @maia add board member
 @maia add agent
 @maia add vendor
-@maia update owner / @maia update unit / @maia update db`}
+@maia update owner / @maia update unit / @maia update db
+@maia update board members   (needs confirmation — see below)`}
           </CodeBlock>
+
+          <h3 className="text-sm font-semibold text-gray-900 mt-5 mb-2">Replacing a board (two-step confirmation)</h3>
+          <p className="text-sm text-gray-700 mb-2">
+            <code className="bg-gray-100 px-1 rounded">@maia update board members</code> is the only DB command that <strong>does not apply immediately</strong>.
+            MAIA extracts the association and the proposed new board, emails you a preview listing both the
+            current members (which will be deactivated) and the proposed members (which will be added), with
+            <strong> Confirm </strong> and <strong>Cancel</strong> buttons. Nothing changes until you click Confirm.
+            The link is valid for 24 hours.
+          </p>
+          <p className="text-sm text-gray-700 mb-2">Example body:</p>
+          <CodeBlock>
+{`@maia update board members
+Association: Serenity Place IV
+New board:
+- Jane Doe — President
+- John Smith — Treasurer
+- Alice Adams — Secretary`}
+          </CodeBlock>
+          <Callout>
+            Previous board members are <strong>deactivated</strong>, not deleted — the records stay in the database for audit and can be re-activated via the admin UI if you need to roll back.
+          </Callout>
 
           <Callout>
             <strong>No trigger? No ticket.</strong> Forwarding or BCCing <code className="bg-blue-100 px-1 rounded">maia@pmitop.com</code> without
