@@ -861,15 +861,6 @@ export async function detectAssociationCode(text: string, strict = false): Promi
 }
 
 async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
-  // EMERGENCY KILL SWITCH — set MAIA_FREEFORM_DISABLED=true in Vercel to
-  // stop ALL freeform replies immediately (e.g. if a thread enters a
-  // reply loop). Inbound emails are still logged via the caller, only
-  // the AI reply is suppressed.
-  if (process.env.MAIA_FREEFORM_DISABLED === 'true') {
-    console.warn('[MAIA general] freeform replies disabled via MAIA_FREEFORM_DISABLED env var')
-    return
-  }
-
   // Loop guard: don't reply if MAIA already sent an outbound on this
   // exact gmail thread within the last 10 minutes. Stops self-perpetuating
   // signature loops where a quoted "MAIA" in a reply triggers another
