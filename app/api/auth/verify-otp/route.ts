@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
   let sessionPersona: 'owner' | 'board' | 'staff' | 'tenant' | 'unit_manager' | 'building_manager' = 'owner'
 
   if (role) {
-    if (role.type === 'staff')            { userId = 'staff';                    sessionPersona = 'staff';            assocCode = 'PMI' }
+    if (role.type === 'staff')            { userId = identifier.trim();          sessionPersona = 'staff';            assocCode = 'PMI' }
     if (role.type === 'owner')            { userId = role.owner_id;              sessionPersona = 'owner';            assocCode = role.association_code; displayName = role.association_name; contactName = [role.firstName, role.lastName].filter(Boolean).join(' ') }
     if (role.type === 'board')            { userId = role.board_member_id;       sessionPersona = 'board';            assocCode = role.association_code; displayName = role.association_name; contactName = [role.firstName, role.lastName].filter(Boolean).join(' ') }
     if (role.type === 'tenant')           { userId = identifier.trim();          sessionPersona = 'tenant';           assocCode = role.association_code; displayName = role.association_name }
@@ -73,12 +73,17 @@ export async function POST(req: NextRequest) {
     if (role.type === 'building_manager') { userId = role.building_manager_id;   sessionPersona = 'building_manager'; assocCode = role.association_code; displayName = role.association_name; contactName = [role.firstName, role.lastName].filter(Boolean).join(' ') }
   }
 
-  // For staff, look up their name from pmi_staff using the identifier (email)
+  // For staff, look up their name from pmi_staff. Staff rows carry both
+  // `email` (the work account) and `personal_email` (backup login) — match
+  // on either, otherwise the welcome card shows the generic "Good to see
+  // you!" instead of the actual first name for anyone who logs in with
+  // their personal_email.
   if (sessionPersona === 'staff' && !contactName) {
+    const id = identifier.trim()
     const { data: staffRow } = await supabaseAdmin
       .from('pmi_staff')
       .select('name')
-      .ilike('email', identifier.trim())
+      .or(`email.ilike.${id},personal_email.ilike.${id}`)
       .limit(1)
       .maybeSingle()
     contactName = staffRow?.name ?? ''

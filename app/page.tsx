@@ -982,6 +982,24 @@ export default function Home() {
                                 Not {firstName || 'you'}?
                               </button>
                             </div>
+                            {/* Staff has middleware-level access to every portal — surface
+                                jump-links so they don't need to log out and OTP again to view
+                                /board or /my-account. Hidden for non-staff personas because
+                                they don't have cross-portal access. */}
+                            {hasSession && savedPersona.type === 'staff' && (
+                              <div className="mt-3 pt-3 border-t border-[#f26a1b]/15">
+                                <div className="text-[0.55rem] font-medium uppercase tracking-[0.15em] text-[#9ca3af] [font-family:var(--font-mono)] mb-2">
+                                  Switch portal
+                                </div>
+                                <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                                  <a href="/admin"      className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Staff →</a>
+                                  <a href="/board"      className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Board →</a>
+                                  <a href="/my-account" className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Owner →</a>
+                                  <a href="/unit-manager"     className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Unit mgr →</a>
+                                  <a href="/building-manager" className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Building mgr →</a>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )
