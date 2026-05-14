@@ -171,6 +171,7 @@ Needs vendor dispatched by tomorrow morning.`}
           <ul className="text-sm text-gray-700 space-y-1 list-disc pl-5">
             <li>Replying in an existing ticket thread <strong>always</strong> appends to that ticket — no trigger needed.</li>
             <li>If you send a new <code className="bg-gray-100 px-1 rounded">@maia ticket</code> with the same subject as an open ticket from the same contact within 30 days, it appends instead of creating a duplicate.</li>
+            <li>To attach an email from outside MAIA to a <strong>specific existing ticket</strong>, forward (or CC <code className="bg-gray-100 px-1 rounded">maia@pmitop.com</code>) with <code className="bg-gray-100 px-1 rounded">@maia append TKT-2026-0008</code> in the body. Useful when you want a vendor estimate, an owner reply, or a related email to land on a particular ticket regardless of the Gmail thread or subject line. If the ticket number is wrong MAIA replies with an error so the email isn&apos;t silently lost.</li>
           </ul>
 
           <h3 className="text-sm font-semibold text-gray-900 mt-5 mb-2">DB-update commands (separate from tickets)</h3>
