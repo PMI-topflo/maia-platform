@@ -2,136 +2,166 @@
 // lib/cinc-sync.ts
 // Diff + apply for the /admin/cinc-sync importer.
 //
-// Pulls owners + board members from CINC for one association, compares
-// to our DB, and returns four buckets:
-//   - ownerInserts        — units present in CINC, missing in MAIA
-//   - ownerUpdates        — same unit on both sides, MAIA has stale data
-//   - boardInserts        — board members in CINC missing from MAIA
-//   - boardDeactivations  — active board members in MAIA that CINC no
-//                           longer lists (resignations / term ends)
-//
-// Apply selectively writes the IDs the staff member ticks. Owner
-// inserts also write an `ownership_history` row with source='import'
-// so the audit trail captures who imported what and when.
+// Builds a unit-by-unit and board-member-by-board-member comparison
+// between CINC and MAIA so staff can verify alignment before clicking
+// Apply. Owner inserts also write an `ownership_history` row with
+// source='import' so the audit trail captures who imported what.
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import {
   listAssociationProperties,
   listAssociationBoardMembers,
+  getAssociationMeta,
   type CincPropertyInfo,
   type CincBoardMember,
 } from '@/lib/integrations/cinc'
 
 // ─────────────────────────────────────────────────────────────────────
-// Shapes
+// Shared snapshots — used on both sides of the diff so the UI can render
+// the comparison as a single row "what MAIA has" → "what CINC has".
 // ─────────────────────────────────────────────────────────────────────
 
-export interface OwnerInsertProposal {
-  kind:               'owner_insert'
-  /** stable CINC ref */
-  cinc_property_id:   number
-  unit_number:        string | null
-  first_name:         string | null
-  last_name:          string | null
-  emails:             string | null
-  phone:              string | null
-  address:            string | null
+export interface OwnerSnapshot {
+  account_number:  string | null
+  unit_number:     string | null
+  first_name:      string | null
+  last_name:       string | null
+  emails:          string | null
+  phone:           string | null
+  address:         string | null
 }
 
-export interface OwnerUpdateProposal {
-  kind:               'owner_update'
-  owners_id:          number
-  cinc_property_id:   number
-  unit_number:        string | null
-  /** Map of field → {current, proposed} so the UI can highlight the diff. */
-  changes:            Record<string, { current: string | null; proposed: string | null }>
-}
-
-export interface BoardInsertProposal {
-  kind:                 'board_insert'
-  cinc_board_member_id: number
-  name:                 string | null
-  email:                string | null
-  role:                 string | null
-  phone:                string | null
-}
-
-export interface BoardDeactivationProposal {
-  kind:        'board_deactivate'
-  abm_id:      string   // uuid in our table
+export interface BoardSnapshot {
   name:        string | null
   email:       string | null
   role:        string | null
-  reason:      'not_in_cinc'
+  phone:       string | null
 }
 
-export type SyncProposal =
-  | OwnerInsertProposal
-  | OwnerUpdateProposal
-  | BoardInsertProposal
-  | BoardDeactivationProposal
+// ─────────────────────────────────────────────────────────────────────
+// Per-unit / per-board-member comparison rows
+// ─────────────────────────────────────────────────────────────────────
+
+export type OwnerStatus = 'insert' | 'update' | 'match' | 'only_in_maia'
+
+export interface OwnerComparison {
+  status:             OwnerStatus
+  /** Sort key for the UI — prefers CINC's PropertyHOID (e.g. "ABBOTT1"),
+   *  falls back to MAIA's account_number, finally to unit_number. */
+  account_number:     string | null
+  unit_number:        string | null
+  owner_number:       number | null
+  /** stable upstream id if CINC carries the row */
+  cinc_property_id:   number | null
+  /** local row id if MAIA carries the row */
+  owners_id:          number | null
+  maia:               OwnerSnapshot | null
+  cinc:               OwnerSnapshot | null
+  /** Only set on status='update'. Keyed by field, values are the
+   *  before / after we'd write. Lets the UI highlight exactly which
+   *  fields differ. */
+  changes?:           Record<string, { current: string | null; proposed: string | null }>
+}
+
+export type BoardStatus = 'insert' | 'match' | 'only_in_maia'
+
+export interface BoardComparison {
+  status:                 BoardStatus
+  cinc_board_member_id:   number | null
+  abm_id:                 string | null
+  maia:                   BoardSnapshot | null
+  cinc:                   BoardSnapshot | null
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Top-level preview
+// ─────────────────────────────────────────────────────────────────────
 
 export interface SyncPreview {
-  assocCode:           string
-  cincUnitCount:       number
-  cincBoardCount:      number
-  ownerInserts:        OwnerInsertProposal[]
-  ownerUpdates:        OwnerUpdateProposal[]
-  boardInserts:        BoardInsertProposal[]
-  boardDeactivations:  BoardDeactivationProposal[]
-  ownerMatches:        number   // already in sync — useful sanity number
-  boardMatches:        number
+  assocCode:                string
+  associationName:          string | null
+  /** Authoritative unit count from /management/1/associations.
+   *  associationWithProperty can return multiple rows per unit when
+   *  CINC stores joint or historical owners, so this is the better
+   *  number to surface. */
+  cincNumberOfUnits:        number | null
+  /** Raw count of PropertyInfo rows we got back — useful debug signal
+   *  if it disagrees with cincNumberOfUnits. */
+  cincPropertyRowsReturned: number
+  /** After filtering to isCurrentOwner=true; no dedup so joint owners
+   *  show up as separate rows. */
+  cincOwnerRowsConsidered:  number
+  cincBoardCount:           number
+  maiaActiveOwners:         number
+  maiaActiveBoard:          number
+
+  owners:                   OwnerComparison[]
+  board:                    BoardComparison[]
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Helpers — extract a clean tuple from CINC's nested PropertyInfo
+// Helpers
 // ─────────────────────────────────────────────────────────────────────
 
-interface ExtractedOwner {
-  cinc_property_id: number
-  unit_number:      string | null
-  first_name:       string | null
-  last_name:        string | null
-  email:            string | null
-  phone:            string | null
-  address:          string | null
+function lower(s: string | null | undefined): string {
+  return (s ?? '').trim().toLowerCase()
 }
 
-function extractOwner(p: CincPropertyInfo): ExtractedOwner | null {
-  if (!p.isCurrentOwner) return null
+function snapshotFromCincProperty(p: CincPropertyInfo): OwnerSnapshot {
   const a = (p.Address ?? []).find(x => x.OwnerAddress) ?? p.Address?.[0]
   if (!a) return {
-    cinc_property_id: p.PropertyID,
-    unit_number:      p.UnitNo ?? null,
-    first_name:       null,
-    last_name:        null,
-    email:            null,
-    phone:            null,
-    address:          null,
+    account_number: p.PropertyHOID ?? null,
+    unit_number:    p.UnitNo ?? null,
+    first_name:     null, last_name: null, emails: null, phone: null, address: null,
   }
   const street = [a.StreetNumber, a.Address].filter(Boolean).join(' ').trim() || null
   const phone  = a.MobilePhone || a.HomePhone || a.WorkPhone || null
   return {
-    cinc_property_id: p.PropertyID,
-    unit_number:      p.UnitNo ?? null,
-    first_name:       (a.FirstName ?? '').trim() || null,
-    last_name:        (a.LastName  ?? '').trim() || null,
-    email:            (a.Email     ?? '').trim().toLowerCase() || null,
-    phone:            phone ? phone.toString() : null,
-    address:          street,
+    account_number: p.PropertyHOID ?? null,
+    unit_number:    p.UnitNo ?? null,
+    first_name:     (a.FirstName ?? '').trim() || null,
+    last_name:      (a.LastName  ?? '').trim() || null,
+    emails:         (a.Email     ?? '').trim().toLowerCase() || null,
+    phone:          phone ? String(phone) : null,
+    address:        street,
   }
 }
 
-function normalizeEmail(s: string | null | undefined): string {
-  return (s ?? '').trim().toLowerCase()
+interface MaiaOwnerRow {
+  id:               number
+  cinc_property_id: number | null
+  account_number:   string | null
+  unit_number:      string | null
+  first_name:       string | null
+  last_name:        string | null
+  entity_name:      string | null
+  emails:           string | null
+  phone:            string | null
+  phone_2:          string | null
+  address:          string | null
 }
 
-function emailsMatch(stored: string | null | undefined, proposed: string | null | undefined): boolean {
-  const p = normalizeEmail(proposed)
-  if (!p) return !normalizeEmail(stored)
-  // stored may be comma-separated. Match if `p` is one of the entries.
-  return (stored ?? '').toLowerCase().split(/[,;]/).map(s => s.trim()).includes(p)
+function snapshotFromMaiaOwner(r: MaiaOwnerRow): OwnerSnapshot {
+  return {
+    account_number: r.account_number ?? null,
+    unit_number:    r.unit_number    ?? null,
+    first_name:     r.first_name ?? r.entity_name ?? null,
+    last_name:      r.last_name  ?? null,
+    emails:         r.emails     ?? null,
+    phone:          r.phone      ?? r.phone_2 ?? null,
+    address:        r.address    ?? null,
+  }
+}
+
+function nameKey(first: string | null | undefined, last: string | null | undefined): string {
+  return `${(first ?? '').trim().toLowerCase()}|${(last ?? '').trim().toLowerCase()}`
+}
+
+function emailsContain(stored: string | null | undefined, candidate: string | null | undefined): boolean {
+  const c = lower(candidate)
+  if (!c) return true
+  return (stored ?? '').toLowerCase().split(/[,;]/).map(s => s.trim()).includes(c)
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -141,153 +171,227 @@ function emailsMatch(stored: string | null | undefined, proposed: string | null 
 export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> {
   const code = assocCode.toUpperCase()
 
-  const [cincProperties, cincBoard] = await Promise.all([
+  const [meta, cincProperties, cincBoard] = await Promise.all([
+    getAssociationMeta(code),
     listAssociationProperties(code),
     listAssociationBoardMembers(code),
   ])
 
-  // ── Owner side ────────────────────────────────────────────────────
-  const { data: maiaOwners } = await supabaseAdmin
+  // CINC: keep ALL current-owner rows (joint owners come as separate
+  // PropertyInfo rows with different OwnerNumber values). The UI lets
+  // staff see every line per account number.
+  const consideredProperties = cincProperties.filter(p => p.isCurrentOwner)
+
+  // ── Load MAIA owner side ──────────────────────────────────────────
+  const { data: maiaOwnersRaw } = await supabaseAdmin
     .from('owners')
-    .select('id, cinc_property_id, unit_number, first_name, last_name, emails, phone, phone_2, address')
+    .select('id, cinc_property_id, account_number, unit_number, first_name, last_name, entity_name, emails, phone, phone_2, address')
     .eq('association_code', code)
     .or('status.neq.previous,status.is.null')
 
-  // Index our owners by stable CINC id (preferred) and by unit_number (fallback)
-  const byCincId  = new Map<number, NonNullable<typeof maiaOwners>[number]>()
-  const byUnit    = new Map<string, NonNullable<typeof maiaOwners>[number]>()
-  for (const row of (maiaOwners ?? [])) {
-    if (row.cinc_property_id != null) byCincId.set(row.cinc_property_id, row)
-    if (row.unit_number)              byUnit.set(String(row.unit_number).trim(), row)
+  const maiaOwners = (maiaOwnersRaw ?? []) as MaiaOwnerRow[]
+
+  // Many-to-many maps. cinc_property_id can repeat across joint-owner
+  // rows on our side too, so values are arrays.
+  const maiaByCincId  = new Map<number, MaiaOwnerRow[]>()
+  const maiaByUnit    = new Map<string, MaiaOwnerRow[]>()
+  const maiaByNameKey = new Map<string, MaiaOwnerRow[]>()
+  function push<K>(m: Map<K, MaiaOwnerRow[]>, k: K | null | undefined, v: MaiaOwnerRow) {
+    if (k == null) return
+    const arr = m.get(k as K) ?? []
+    arr.push(v)
+    m.set(k as K, arr)
+  }
+  for (const row of maiaOwners) {
+    if (row.cinc_property_id != null) push(maiaByCincId, row.cinc_property_id, row)
+    if (row.unit_number)              push(maiaByUnit,   String(row.unit_number).trim(), row)
+    const nk = nameKey(row.first_name ?? row.entity_name, row.last_name)
+    if (nk !== '|') push(maiaByNameKey, nk, row)
   }
 
-  const ownerInserts: OwnerInsertProposal[] = []
-  const ownerUpdates: OwnerUpdateProposal[] = []
-  let   ownerMatches = 0
+  const maiaIdsMatched = new Set<number>()
+  const owners: OwnerComparison[] = []
 
-  for (const prop of cincProperties) {
-    const ext = extractOwner(prop)
-    if (!ext) continue
+  for (const prop of consideredProperties) {
+    const cincSnap = snapshotFromCincProperty(prop)
+    const nk = nameKey(cincSnap.first_name, cincSnap.last_name)
 
-    // Find our row: stable id first, then unit fallback.
-    const existing = byCincId.get(ext.cinc_property_id)
-                   ?? (ext.unit_number ? byUnit.get(String(ext.unit_number).trim()) : undefined)
+    // Match precedence:
+    //   1. Same cinc_property_id AND same name
+    //   2. Same cinc_property_id (any owner) — but skip already-claimed
+    //   3. Same unit_number AND same name
+    //   4. Any same-name row (assoc-wide)
+    let existing: MaiaOwnerRow | null = null
+    const samePid = maiaByCincId.get(prop.PropertyID) ?? []
+    existing = samePid.find(r => !maiaIdsMatched.has(r.id) && nameKey(r.first_name ?? r.entity_name, r.last_name) === nk) ?? null
+    if (!existing) existing = samePid.find(r => !maiaIdsMatched.has(r.id)) ?? null
+    if (!existing && prop.UnitNo) {
+      const sameUnit = maiaByUnit.get(String(prop.UnitNo).trim()) ?? []
+      existing = sameUnit.find(r => !maiaIdsMatched.has(r.id) && nameKey(r.first_name ?? r.entity_name, r.last_name) === nk) ?? null
+    }
+    if (!existing && nk !== '|') {
+      const sameName = maiaByNameKey.get(nk) ?? []
+      existing = sameName.find(r => !maiaIdsMatched.has(r.id)) ?? null
+    }
+    if (existing) maiaIdsMatched.add(existing.id)
 
     if (!existing) {
-      const fullEmail = ext.email
-      ownerInserts.push({
-        kind:             'owner_insert',
-        cinc_property_id: ext.cinc_property_id,
-        unit_number:      ext.unit_number,
-        first_name:       ext.first_name,
-        last_name:        ext.last_name,
-        emails:           fullEmail,
-        phone:            ext.phone,
-        address:          ext.address,
+      owners.push({
+        status:           'insert',
+        account_number:   cincSnap.account_number,
+        unit_number:      prop.UnitNo ?? null,
+        owner_number:     prop.OwnerNumber ?? null,
+        cinc_property_id: prop.PropertyID,
+        owners_id:        null,
+        maia:             null,
+        cinc:             cincSnap,
       })
       continue
     }
 
-    // Compare every field; only flag a change if CINC has new info we don't.
-    const changes: OwnerUpdateProposal['changes'] = {}
-    if (ext.first_name && ext.first_name !== (existing.first_name ?? null)) {
-      changes.first_name = { current: existing.first_name ?? null, proposed: ext.first_name }
-    }
-    if (ext.last_name && ext.last_name !== (existing.last_name ?? null)) {
-      changes.last_name = { current: existing.last_name ?? null, proposed: ext.last_name }
-    }
-    if (ext.email && !emailsMatch(existing.emails, ext.email)) {
-      changes.emails = { current: existing.emails ?? null, proposed: ext.email }
-    }
-    if (ext.phone && existing.phone !== ext.phone && existing.phone_2 !== ext.phone) {
-      changes.phone = { current: existing.phone ?? null, proposed: ext.phone }
-    }
-    if (ext.address && ext.address !== (existing.address ?? null)) {
-      changes.address = { current: existing.address ?? null, proposed: ext.address }
-    }
-    // Always propose linking the stable ref if it's missing locally.
+    const maiaSnap = snapshotFromMaiaOwner(existing)
+    const changes: NonNullable<OwnerComparison['changes']> = {}
+    if (cincSnap.first_name && cincSnap.first_name !== maiaSnap.first_name) changes.first_name = { current: maiaSnap.first_name, proposed: cincSnap.first_name }
+    if (cincSnap.last_name  && cincSnap.last_name  !== maiaSnap.last_name)  changes.last_name  = { current: maiaSnap.last_name,  proposed: cincSnap.last_name  }
+    if (cincSnap.emails     && !emailsContain(maiaSnap.emails, cincSnap.emails)) changes.emails = { current: maiaSnap.emails, proposed: cincSnap.emails }
+    if (cincSnap.phone      && maiaSnap.phone !== cincSnap.phone && existing.phone_2 !== cincSnap.phone) changes.phone = { current: maiaSnap.phone, proposed: cincSnap.phone }
+    if (cincSnap.address    && cincSnap.address !== maiaSnap.address) changes.address = { current: maiaSnap.address, proposed: cincSnap.address }
+    if (cincSnap.account_number && cincSnap.account_number !== maiaSnap.account_number) changes.account_number = { current: maiaSnap.account_number, proposed: cincSnap.account_number }
     if (existing.cinc_property_id == null) {
-      changes.cinc_property_id = { current: null, proposed: String(ext.cinc_property_id) }
+      changes.cinc_property_id = { current: null, proposed: String(prop.PropertyID) }
     }
 
-    if (Object.keys(changes).length === 0) {
-      ownerMatches++
-    } else {
-      ownerUpdates.push({
-        kind:             'owner_update',
-        owners_id:        existing.id,
-        cinc_property_id: ext.cinc_property_id,
-        unit_number:      ext.unit_number,
-        changes,
-      })
-    }
+    owners.push({
+      status:           Object.keys(changes).length === 0 ? 'match' : 'update',
+      account_number:   cincSnap.account_number ?? maiaSnap.account_number,
+      unit_number:      prop.UnitNo ?? existing.unit_number ?? null,
+      owner_number:     prop.OwnerNumber ?? null,
+      cinc_property_id: prop.PropertyID,
+      owners_id:        existing.id,
+      maia:             maiaSnap,
+      cinc:             cincSnap,
+      changes:          Object.keys(changes).length === 0 ? undefined : changes,
+    })
   }
 
+  // MAIA-only rows
+  for (const row of maiaOwners) {
+    if (maiaIdsMatched.has(row.id)) continue
+    const maiaSnap = snapshotFromMaiaOwner(row)
+    owners.push({
+      status:           'only_in_maia',
+      account_number:   maiaSnap.account_number,
+      unit_number:      row.unit_number,
+      owner_number:     null,
+      cinc_property_id: row.cinc_property_id,
+      owners_id:        row.id,
+      maia:             maiaSnap,
+      cinc:             null,
+    })
+  }
+
+  // Sort: by account_number first (so joint-owner rows for the same
+  // unit group together), then owner_number, then unit_number.
+  function acctSortKey(s: string | null): string {
+    if (!s) return '￿'  // empties last
+    // Split into prefix + numeric suffix for natural sort ("ABBOTT2"
+    // before "ABBOTT10").
+    const m = s.match(/^(.*?)(\d+)?$/)
+    const prefix = (m?.[1] ?? '').toUpperCase()
+    const num    = m?.[2] ? Number(m[2]) : 0
+    return `${prefix}|${String(num).padStart(8, '0')}`
+  }
+  owners.sort((a, b) => {
+    const ka = acctSortKey(a.account_number)
+    const kb = acctSortKey(b.account_number)
+    if (ka !== kb) return ka < kb ? -1 : 1
+    // Same account number → put insert/update before match/only_in_maia
+    const order: Record<OwnerStatus, number> = { insert: 0, update: 1, only_in_maia: 2, match: 3 }
+    const so = order[a.status] - order[b.status]
+    if (so !== 0) return so
+    return (a.owner_number ?? 99) - (b.owner_number ?? 99)
+  })
+
   // ── Board side ────────────────────────────────────────────────────
-  const { data: maiaBoard } = await supabaseAdmin
+  const { data: maiaBoardRaw } = await supabaseAdmin
     .from('association_board_members')
     .select('id, cinc_board_member_id, name, email, role, active')
     .eq('association_code', code)
+  const maiaBoardRows = (maiaBoardRaw ?? []) as Array<{ id: string; cinc_board_member_id: number | null; name: string | null; email: string | null; role: string | null; active: boolean | null }>
 
-  const boardByCincId = new Map<number, NonNullable<typeof maiaBoard>[number]>()
-  const boardByName   = new Map<string, NonNullable<typeof maiaBoard>[number]>()
-  for (const row of (maiaBoard ?? [])) {
+  const boardByCincId = new Map<number, typeof maiaBoardRows[number]>()
+  const boardByName   = new Map<string, typeof maiaBoardRows[number]>()
+  for (const row of maiaBoardRows) {
     if (row.cinc_board_member_id != null) boardByCincId.set(row.cinc_board_member_id, row)
     if (row.name) boardByName.set(row.name.toLowerCase().trim(), row)
   }
-  const seenCincBoardIds = new Set<number>()
+  const boardIdsMatched = new Set<string>()
 
-  const boardInserts:       BoardInsertProposal[]      = []
-  const boardDeactivations: BoardDeactivationProposal[] = []
-  let   boardMatches = 0
-
+  const board: BoardComparison[] = []
   for (const bm of cincBoard) {
-    seenCincBoardIds.add(bm.BoardMemberId)
+    const cincSnap: BoardSnapshot = {
+      name:  bm.BoardMemberName ?? null,
+      email: (bm.Email ?? '').trim().toLowerCase() || null,
+      role:  bm.BoardMemberType ?? null,
+      phone: bm.MobilePhone || bm.HomePhone || bm.WorkPhone || null,
+    }
     const existing = boardByCincId.get(bm.BoardMemberId)
                    ?? (bm.BoardMemberName ? boardByName.get(bm.BoardMemberName.toLowerCase().trim()) : undefined)
+    if (existing) boardIdsMatched.add(existing.id)
 
     if (!existing) {
-      boardInserts.push({
-        kind:                 'board_insert',
+      board.push({
+        status:               'insert',
         cinc_board_member_id: bm.BoardMemberId,
-        name:                 bm.BoardMemberName ?? null,
-        email:                (bm.Email ?? '').trim().toLowerCase() || null,
-        role:                 bm.BoardMemberType ?? null,
-        phone:                bm.MobilePhone || bm.HomePhone || bm.WorkPhone || null,
+        abm_id:               null,
+        maia:                 null,
+        cinc:                 cincSnap,
       })
     } else {
-      boardMatches++
-      // (Board updates kept out of V1 — only inserts + deactivations.
-      // Edits to board members are rare and the existing /admin/board-setup
-      // already covers them.)
-    }
-  }
-
-  // Active MAIA rows that CINC no longer carries — propose deactivation.
-  for (const row of (maiaBoard ?? [])) {
-    if (!row.active) continue
-    if (row.cinc_board_member_id != null && !seenCincBoardIds.has(row.cinc_board_member_id)) {
-      boardDeactivations.push({
-        kind:   'board_deactivate',
-        abm_id: row.id,
-        name:   row.name ?? null,
-        email:  row.email ?? null,
-        role:   row.role  ?? null,
-        reason: 'not_in_cinc',
+      const maiaSnap: BoardSnapshot = {
+        name:  existing.name,
+        email: existing.email,
+        role:  existing.role,
+        phone: null,
+      }
+      board.push({
+        status:               'match',
+        cinc_board_member_id: bm.BoardMemberId,
+        abm_id:               existing.id,
+        maia:                 maiaSnap,
+        cinc:                 cincSnap,
       })
     }
   }
 
+  // Active MAIA rows CINC doesn't carry → propose deactivation.
+  for (const row of maiaBoardRows) {
+    if (!row.active) continue
+    if (boardIdsMatched.has(row.id)) continue
+    board.push({
+      status:               'only_in_maia',
+      cinc_board_member_id: row.cinc_board_member_id,
+      abm_id:               row.id,
+      maia:                 { name: row.name, email: row.email, role: row.role, phone: null },
+      cinc:                 null,
+    })
+  }
+
+  // Sort: insert → only_in_maia → match
+  const boardStatusOrder: Record<BoardStatus, number> = { insert: 0, only_in_maia: 1, match: 2 }
+  board.sort((a, b) => boardStatusOrder[a.status] - boardStatusOrder[b.status])
+
   return {
-    assocCode:          code,
-    cincUnitCount:      cincProperties.length,
-    cincBoardCount:     cincBoard.length,
-    ownerInserts,
-    ownerUpdates,
-    boardInserts,
-    boardDeactivations,
-    ownerMatches,
-    boardMatches,
+    assocCode:                code,
+    associationName:          meta?.AssociationName ?? null,
+    cincNumberOfUnits:        meta?.Numberofunits ?? null,
+    cincPropertyRowsReturned: cincProperties.length,
+    cincOwnerRowsConsidered:  consideredProperties.length,
+    cincBoardCount:           cincBoard.length,
+    maiaActiveOwners:         maiaOwners.length,
+    maiaActiveBoard:          maiaBoardRows.filter(r => r.active).length,
+    owners,
+    board,
   }
 }
 
@@ -296,10 +400,10 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
 // ─────────────────────────────────────────────────────────────────────
 
 export interface ApplySelection {
-  insertOwnerCincIds:        number[]   // cinc_property_id whitelist
-  updateOwnerIds:            number[]   // owners.id whitelist
-  insertBoardCincIds:        number[]   // cinc_board_member_id whitelist
-  deactivateBoardIds:        string[]   // association_board_members.id whitelist
+  insertOwnerCincIds:  number[]
+  updateOwnerIds:      number[]
+  insertBoardCincIds:  number[]
+  deactivateBoardIds:  string[]
 }
 
 export interface ApplyResult {
@@ -324,64 +428,62 @@ export async function applySync(
   let boardInserted    = 0
   let boardDeactivated = 0
 
-  // Association name (used on owner inserts so the column is denormalized
-  // consistently with the rest of the codebase).
   const { data: assocRow } = await supabaseAdmin
     .from('associations')
     .select('association_name')
     .eq('association_code', code)
     .maybeSingle()
-  const assocName = assocRow?.association_name ?? code
+  const assocName = assocRow?.association_name ?? preview.associationName ?? code
 
-  // ── Owner inserts ─────────────────────────────────────────────────
+  // ── Owner inserts ──────────────────────────────────────────────────
   const insertSet = new Set(selection.insertOwnerCincIds)
-  for (const p of preview.ownerInserts) {
-    if (!insertSet.has(p.cinc_property_id)) continue
+  for (const cmp of preview.owners) {
+    if (cmp.status !== 'insert') continue
+    if (cmp.cinc_property_id == null || !insertSet.has(cmp.cinc_property_id)) continue
     const today = new Date().toISOString().slice(0, 10)
     const { data: inserted, error } = await supabaseAdmin
       .from('owners')
       .insert({
         association_code:     code,
         association_name:     assocName,
-        unit_number:          p.unit_number,
-        first_name:           p.first_name,
-        last_name:            p.last_name,
-        emails:               p.emails,
-        phone:                p.phone,
-        address:              p.address,
+        unit_number:          cmp.unit_number,
+        first_name:           cmp.cinc?.first_name ?? null,
+        last_name:            cmp.cinc?.last_name  ?? null,
+        emails:               cmp.cinc?.emails     ?? null,
+        phone:                cmp.cinc?.phone      ?? null,
+        address:              cmp.cinc?.address    ?? null,
         status:               'active',
         ownership_start_date: today,
-        cinc_property_id:     p.cinc_property_id,
+        cinc_property_id:     cmp.cinc_property_id,
       })
       .select('id')
       .single()
     if (error || !inserted) {
-      errors.push(`owner insert (cinc_property_id=${p.cinc_property_id}): ${error?.message}`)
+      errors.push(`owner insert (cinc_property_id=${cmp.cinc_property_id}): ${error?.message}`)
       continue
     }
     ownersInserted++
-
-    // Audit trail
     await supabaseAdmin.from('ownership_history').insert({
-      association_code:      code,
-      unit_number:           p.unit_number,
-      new_owner_id:          inserted.id,
-      new_owner_name:        [p.first_name, p.last_name].filter(Boolean).join(' '),
-      new_owner_emails:      p.emails,
-      transfer_date:         today,
-      source:                'import',
-      actor_email:           actorEmail,
-      notes:                 `Imported from CINC via /admin/cinc-sync (PropertyID=${p.cinc_property_id})`,
+      association_code:  code,
+      unit_number:       cmp.unit_number,
+      new_owner_id:      inserted.id,
+      new_owner_name:    [cmp.cinc?.first_name, cmp.cinc?.last_name].filter(Boolean).join(' '),
+      new_owner_emails:  cmp.cinc?.emails ?? null,
+      transfer_date:     today,
+      source:            'import',
+      actor_email:       actorEmail,
+      notes:             `Imported from CINC via /admin/cinc-sync (PropertyID=${cmp.cinc_property_id})`,
     })
   }
 
   // ── Owner updates ─────────────────────────────────────────────────
   const updateSet = new Set(selection.updateOwnerIds)
-  for (const u of preview.ownerUpdates) {
-    if (!updateSet.has(u.owners_id)) continue
+  for (const cmp of preview.owners) {
+    if (cmp.status !== 'update' || cmp.owners_id == null) continue
+    if (!updateSet.has(cmp.owners_id)) continue
+    if (!cmp.changes) continue
     const patch: Record<string, unknown> = {}
-    for (const [field, diff] of Object.entries(u.changes)) {
-      // cinc_property_id was serialized as string in the diff; coerce.
+    for (const [field, diff] of Object.entries(cmp.changes)) {
       if (field === 'cinc_property_id') {
         patch.cinc_property_id = diff.proposed != null ? Number(diff.proposed) : null
       } else {
@@ -389,33 +491,35 @@ export async function applySync(
       }
     }
     if (Object.keys(patch).length === 0) continue
-    const { error } = await supabaseAdmin.from('owners').update(patch).eq('id', u.owners_id)
-    if (error) errors.push(`owner update (id=${u.owners_id}): ${error.message}`)
+    const { error } = await supabaseAdmin.from('owners').update(patch).eq('id', cmp.owners_id)
+    if (error) errors.push(`owner update (id=${cmp.owners_id}): ${error.message}`)
     else      ownersUpdated++
   }
 
   // ── Board inserts ─────────────────────────────────────────────────
   const boardInsertSet = new Set(selection.insertBoardCincIds)
-  for (const b of preview.boardInserts) {
-    if (!boardInsertSet.has(b.cinc_board_member_id)) continue
+  for (const cmp of preview.board) {
+    if (cmp.status !== 'insert' || cmp.cinc_board_member_id == null) continue
+    if (!boardInsertSet.has(cmp.cinc_board_member_id)) continue
     const { error } = await supabaseAdmin.from('association_board_members').insert({
       association_code:     code,
-      name:                 b.name ?? 'Board Member',
-      email:                b.email,
-      role:                 b.role,
+      name:                 cmp.cinc?.name ?? 'Board Member',
+      email:                cmp.cinc?.email ?? null,
+      role:                 cmp.cinc?.role  ?? null,
       active:               true,
-      cinc_board_member_id: b.cinc_board_member_id,
+      cinc_board_member_id: cmp.cinc_board_member_id,
     })
-    if (error) errors.push(`board insert (cinc_board_member_id=${b.cinc_board_member_id}): ${error.message}`)
+    if (error) errors.push(`board insert (cinc_board_member_id=${cmp.cinc_board_member_id}): ${error.message}`)
     else      boardInserted++
   }
 
   // ── Board deactivations ───────────────────────────────────────────
   const boardDeactSet = new Set(selection.deactivateBoardIds)
-  for (const d of preview.boardDeactivations) {
-    if (!boardDeactSet.has(d.abm_id)) continue
-    const { error } = await supabaseAdmin.from('association_board_members').update({ active: false }).eq('id', d.abm_id)
-    if (error) errors.push(`board deactivate (id=${d.abm_id}): ${error.message}`)
+  for (const cmp of preview.board) {
+    if (cmp.status !== 'only_in_maia' || cmp.abm_id == null) continue
+    if (!boardDeactSet.has(cmp.abm_id)) continue
+    const { error } = await supabaseAdmin.from('association_board_members').update({ active: false }).eq('id', cmp.abm_id)
+    if (error) errors.push(`board deactivate (id=${cmp.abm_id}): ${error.message}`)
     else      boardDeactivated++
   }
 
