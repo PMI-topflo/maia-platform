@@ -4,6 +4,8 @@
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import SiteHeader from '@/components/SiteHeader';
+import AdminNav from '../components/AdminNav';
 import BoardSetupClient from './BoardSetupClient';
 
 export const dynamic = 'force-dynamic';
@@ -27,15 +29,21 @@ export default async function BoardSetupPage() {
   const associations = await getAssociations();
 
   return (
-    <main className="min-h-screen bg-white p-6">
-      <header className="mb-6 border-l-4 border-[#f26a1b] pl-4">
-        <h1 className="text-3xl font-bold text-[#0d0d0d]">Board Setup</h1>
-        <p className="text-gray-600 mt-1">
-          Configure board members, required signatures, and approval letter templates per association.
-        </p>
-      </header>
+    <div className="min-h-screen bg-gray-50">
+      <SiteHeader subtitle="STAFF DASHBOARD">
+        <AdminNav />
+      </SiteHeader>
 
-      <BoardSetupClient associations={associations} />
-    </main>
+      <main className="max-w-screen-xl mx-auto px-6 py-6">
+        <header className="mb-6 border-l-4 border-[#f26a1b] pl-4">
+          <h1 className="text-xl font-semibold text-gray-900">Board Setup</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Configure board members, required signatures, and approval letter templates per association.
+          </p>
+        </header>
+
+        <BoardSetupClient associations={associations} />
+      </main>
+    </div>
   );
 }

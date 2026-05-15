@@ -9,9 +9,12 @@
 // /privacy-policy or the homepage pre-login).
 //
 // Menu items:
-//   - My Account  → goes to the persona's portal landing page
-//   - My Personas → STAFF ONLY (middleware lets staff access every portal
-//                   without re-OTP). Expands inline to list portals.
+//   - My Account  → goes to the current persona's portal landing page
+//   - My Profile  → STAFF ONLY — edit own pmi_staff row
+//   - My Personas → only shown when the user actually has more than one
+//                   persona on file. Loads lazily from /api/auth/my-roles
+//                   (each persona table is scanned for rows matching the
+//                   session login email).
 //   - Sign out    → clears session, redirects to homepage
 // =====================================================================
 
@@ -44,11 +47,21 @@ function initialsFrom(name: string, email: string): string {
   return '?'
 }
 
+interface ResolvedRole {
+  type:              'staff' | 'owner' | 'tenant' | 'board' | 'unit_manager' | 'building_manager'
+  href:              string
+  label:             string
+  association_name?: string | null
+}
+
 export default function UserMenu() {
-  const [session,    setSession]    = useState<SessionInfo | null>(null)
-  const [open,       setOpen]       = useState(false)
-  const [showSwitch, setShowSwitch] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const [session,     setSession]     = useState<SessionInfo | null>(null)
+  const [open,        setOpen]        = useState(false)
+  const [showSwitch,  setShowSwitch]  = useState(false)
+  const [roles,       setRoles]       = useState<ResolvedRole[] | null>(null)
+  const ref           = useRef<HTMLDivElement>(null)
+  const rolesFetchedRef = useRef(false)
+  const rolesLoading  = showSwitch && roles === null
 
   // Load session once.
   useEffect(() => {
@@ -61,6 +74,20 @@ export default function UserMenu() {
       .catch(() => { /* no session → render nothing */ })
     return () => { cancelled = true }
   }, [])
+
+  // Lazily resolve actual personas when the "My Personas" section is
+  // expanded for the first time. Avoids hammering the DB on every page
+  // load — most visits won't open the menu, let alone this submenu.
+  // The ref dedupes; we don't call setState synchronously in this effect
+  // so renders stay clean.
+  useEffect(() => {
+    if (!showSwitch || rolesFetchedRef.current) return
+    rolesFetchedRef.current = true
+    fetch('/api/auth/my-roles')
+      .then(r => r.ok ? r.json() : { roles: [] })
+      .then((data: { roles: ResolvedRole[] }) => setRoles(data.roles ?? []))
+      .catch(() => setRoles([]))
+  }, [showSwitch])
 
   // Close on click-outside.
   useEffect(() => {
@@ -149,32 +176,52 @@ export default function UserMenu() {
             </Link>
           )}
 
-          {/* My Personas — staff only */}
-          {session.persona === 'staff' && (
-            <>
-              <button
-                type="button"
-                onClick={() => setShowSwitch(v => !v)}
-                style={{ ...menuItemStyle, width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer' }}
-              >
-                <span>My personas</span>
-                <span style={{ color: '#9ca3af', fontSize: '0.7rem' }}>{showSwitch ? '▴' : '▾'}</span>
-              </button>
-              {showSwitch && (
-                <div style={{ background: '#fafafa', padding: '0.25rem 0', borderTop: '1px solid #f3f4f6', borderBottom: '1px solid #f3f4f6' }}>
-                  {(['staff', 'board', 'owner', 'unit_manager', 'building_manager'] as const).map(p => {
-                    const portal = PORTAL_URLS[p]
-                    return (
-                      <Link key={p} href={portal.href} style={{ ...menuItemStyle, paddingLeft: '1.5rem', fontSize: '0.78rem' }}>
-                        <span>{portal.label}</span>
+          {/* My Personas — shows only the personas the user is actually
+              registered as (looked up against the persona tables on first
+              expand). If there's just one role, the section is hidden
+              entirely (My Account already covers it). */}
+          {(() => {
+            // Filter out the user's current persona — they're already there
+            // via "My account"; the switcher is for jumping to OTHERS.
+            const others = (roles ?? []).filter(r => r.type !== session.persona)
+            // Show the section header optimistically (before lazy fetch
+            // resolves) for staff, since middleware-level multi-portal
+            // access is a staff-only privilege. Non-staff personas have to
+            // wait for the actual roles to load before we know if there's
+            // anything to show.
+            const shouldShowHeader = roles === null
+              ? session.persona === 'staff'
+              : others.length > 0
+            if (!shouldShowHeader) return null
+            return (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowSwitch(v => !v)}
+                  style={{ ...menuItemStyle, width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  <span>My personas</span>
+                  <span style={{ color: '#9ca3af', fontSize: '0.7rem' }}>{showSwitch ? '▴' : '▾'}</span>
+                </button>
+                {showSwitch && (
+                  <div style={{ background: '#fafafa', padding: '0.25rem 0', borderTop: '1px solid #f3f4f6', borderBottom: '1px solid #f3f4f6' }}>
+                    {rolesLoading && (
+                      <div style={{ padding: '0.5rem 1.5rem', fontSize: '0.75rem', color: '#9ca3af' }}>Looking up your other personas…</div>
+                    )}
+                    {!rolesLoading && others.length === 0 && (
+                      <div style={{ padding: '0.5rem 1.5rem', fontSize: '0.75rem', color: '#9ca3af' }}>You only have the {session.persona} persona on file.</div>
+                    )}
+                    {!rolesLoading && others.map((r, i) => (
+                      <Link key={`${r.type}-${i}`} href={r.href} style={{ ...menuItemStyle, paddingLeft: '1.5rem', fontSize: '0.78rem' }}>
+                        <span>{r.label}</span>
                         <span style={{ color: '#9ca3af', fontSize: '0.65rem' }}>→</span>
                       </Link>
-                    )
-                  })}
-                </div>
-              )}
-            </>
-          )}
+                    ))}
+                  </div>
+                )}
+              </>
+            )
+          })()}
 
           <div style={{ height: 1, background: '#f3f4f6', margin: '0.25rem 0' }} />
 

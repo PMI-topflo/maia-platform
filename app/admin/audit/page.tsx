@@ -6,8 +6,11 @@
 // =====================================================================
 
 import { createClient } from '@supabase/supabase-js';
+import SiteHeader from '@/components/SiteHeader';
+import AdminNav from '../components/AdminNav';
 import { AuditTable } from './AuditTable';
 
+export const metadata = { title: 'Compliance Audit — PMI Top Florida' };
 export const dynamic = 'force-dynamic';
 
 async function getData() {
@@ -53,15 +56,21 @@ export default async function AuditPage(props: {
   const data = await getData();
 
   return (
-    <main className="min-h-screen bg-white p-6">
-      <header className="mb-6 border-l-4 border-[#f26a1b] pl-4">
-        <h1 className="text-3xl font-bold text-[#0d0d0d]">Compliance Audit</h1>
-        <p className="text-gray-600 mt-1">
-          Lease, insurance, Lauderhill Certificate of Use, and violation tracking
-        </p>
-      </header>
+    <div className="min-h-screen bg-gray-50">
+      <SiteHeader subtitle="STAFF DASHBOARD">
+        <AdminNav />
+      </SiteHeader>
 
-      <AuditTable {...data} initialAssociation={association} />
-    </main>
+      <main className="max-w-screen-xl mx-auto px-6 py-6">
+        <header className="mb-6 border-l-4 border-[#f26a1b] pl-4">
+          <h1 className="text-xl font-semibold text-gray-900">Compliance Audit</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Lease, insurance, Lauderhill Certificate of Use, and violation tracking
+          </p>
+        </header>
+
+        <AuditTable {...data} initialAssociation={association} />
+      </main>
+    </div>
   );
 }
