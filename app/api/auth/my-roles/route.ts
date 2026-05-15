@@ -14,6 +14,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { resolveStaffByLoginEmail } from '@/lib/staff-lookup'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,17 +57,13 @@ export async function GET() {
   const roles: ResolvedRole[] = []
 
   // STAFF — always present if the session is a staff session, or if the
-  // login email matches a pmi_staff row by email or personal_email.
+  // login email resolves to a pmi_staff row (exact match on email/
+  // personal_email/alt_emails, or name-derived alias on a trusted PMI
+  // domain).
   if (session.persona === 'staff') {
     roles.push(portalFor('staff', {}))
   } else if (loginEmail) {
-    const { data: staffRow } = await supabaseAdmin
-      .from('pmi_staff')
-      .select('id')
-      .eq('active', true)
-      .or(`email.ilike.${loginEmail},personal_email.ilike.${loginEmail}`)
-      .limit(1)
-      .maybeSingle()
+    const staffRow = await resolveStaffByLoginEmail(loginEmail)
     if (staffRow) roles.push(portalFor('staff', {}))
   }
 

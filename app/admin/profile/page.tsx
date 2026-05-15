@@ -9,6 +9,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { resolveStaffByLoginEmail } from '@/lib/staff-lookup'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../components/AdminNav'
 import ProfileForm from './ProfileForm'
@@ -26,12 +27,15 @@ export default async function StaffProfilePage() {
     ? session.userId.toLowerCase()
     : ''
 
-  const { data: profile } = loginEmail
+  // Use the canonical resolver so name-derived aliases like
+  // fabio@pmitop.com find the right row when the column values store
+  // pmi@pmitop.com / pmi@topfloridaproperties.com.
+  const resolved = loginEmail ? await resolveStaffByLoginEmail(loginEmail) : null
+  const { data: profile } = resolved
     ? await supabaseAdmin
         .from('pmi_staff')
-        .select('id, name, email, personal_email, phone, role, department, active')
-        .or(`email.ilike.${loginEmail},personal_email.ilike.${loginEmail}`)
-        .limit(1)
+        .select('id, name, email, personal_email, alt_emails, phone, role, department, active')
+        .eq('id', resolved.id)
         .maybeSingle()
     : { data: null }
 

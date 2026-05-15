@@ -7,6 +7,7 @@ interface StaffProfile {
   name:           string | null
   email:          string | null
   personal_email: string | null
+  alt_emails:     string[] | null
   phone:          string | null
   role:           string | null
   department:     string | null
@@ -25,6 +26,8 @@ export default function ProfileForm({ initial, loginEmail }: Props) {
   const [name,           setName]           = useState(initial.name           ?? '')
   const [email,          setEmail]          = useState(initial.email          ?? '')
   const [personalEmail,  setPersonalEmail]  = useState(initial.personal_email ?? '')
+  const [altEmails,      setAltEmails]      = useState<string[]>(initial.alt_emails ?? [])
+  const [newAlt,         setNewAlt]         = useState('')
   const [phone,          setPhone]          = useState(initial.phone          ?? '')
   const [role,           setRole]           = useState(initial.role           ?? '')
   const [department,     setDepartment]     = useState(initial.department     ?? '')
@@ -32,15 +35,36 @@ export default function ProfileForm({ initial, loginEmail }: Props) {
   const [error,          setError]          = useState<string | null>(null)
   const [savedAt,        setSavedAt]        = useState<string | null>(null)
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault()
+  function addAlt() {
+    const e = newAlt.trim().toLowerCase()
+    if (!e || !e.includes('@')) { setError('Enter a valid email to add as alias'); return }
+    if (e === email.trim().toLowerCase() || e === personalEmail.trim().toLowerCase()) {
+      setError('That email is already your work or personal email')
+      return
+    }
+    if (altEmails.includes(e)) { setError('That alias is already on the list'); return }
+    setAltEmails([...altEmails, e])
+    setNewAlt('')
+    setError(null)
+  }
+
+  function removeAlt(e: string) {
+    setAltEmails(altEmails.filter(x => x !== e))
+  }
+
+  async function onSubmit(ev: FormEvent) {
+    ev.preventDefault()
     if (!email.trim()) { setError('Work email is required'); return }
     setBusy(true); setError(null)
     try {
       const res = await fetch('/api/admin/me', {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ name, email, personal_email: personalEmail, phone, role, department }),
+        body:    JSON.stringify({
+          name, email, personal_email: personalEmail,
+          alt_emails: altEmails,
+          phone, role, department,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? 'Update failed')
@@ -70,6 +94,41 @@ export default function ProfileForm({ initial, loginEmail }: Props) {
           <label className={labelCls}>Personal email</label>
           <input type="email" className={inputCls} value={personalEmail} onChange={e => setPersonalEmail(e.target.value)} placeholder="(optional backup)" />
           <p className="text-[0.7rem] text-gray-500 mt-1">Alternate address for OTP login. Setting this means tasks assigned to <em>either</em> email show up on your Control Panel.</p>
+        </div>
+
+        <div className="md:col-span-2">
+          <label className={labelCls}>Additional login aliases</label>
+          {altEmails.length > 0 && (
+            <ul className="space-y-1 mb-2">
+              {altEmails.map(e => (
+                <li key={e} className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded px-3 py-1.5 text-sm">
+                  <span className="font-mono">{e}</span>
+                  <button type="button" onClick={() => removeAlt(e)} className="text-xs text-gray-400 hover:text-red-600 [font-family:var(--font-mono)]">Remove</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex gap-2">
+            <input
+              type="email"
+              className={inputCls}
+              value={newAlt}
+              onChange={e => setNewAlt(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addAlt() } }}
+              placeholder="another-alias@pmitop.com"
+            />
+            <button
+              type="button"
+              onClick={addAlt}
+              className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium uppercase tracking-wide px-3 py-2 rounded [font-family:var(--font-mono)] whitespace-nowrap"
+            >
+              + Add alias
+            </button>
+          </div>
+          <p className="text-[0.7rem] text-gray-500 mt-1">
+            Any address here can be used for OTP login and counts toward your &ldquo;My Tasks&rdquo; filter on the Control Panel.
+            You can also log in with <span className="font-mono">firstname@pmitop.com</span> or <span className="font-mono">firstname@topfloridaproperties.com</span> derived from your name — no need to list those here.
+          </p>
         </div>
 
         <div>

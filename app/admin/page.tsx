@@ -2,6 +2,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { resolveStaffByLoginEmail, staffCandidateEmails } from '@/lib/staff-lookup'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from './components/AdminNav'
 import Link from 'next/link'
@@ -61,49 +62,26 @@ export default async function OverviewPage() {
 
   // Resolve every email that could legitimately be on assignee_email for
   // the current staff member, so we don't miss tasks because the @assign
-  // command used a different form of their address:
-  //   - The login email (session.userId)
-  //   - Their canonical work email (pmi_staff.email)
-  //   - Their personal email (pmi_staff.personal_email)
-  //
-  // Sessions signed before #41 carry the literal string "staff" as userId
-  // — in that case we fall back to looking up by contactName so the page
-  // still works without forcing a logout (best-effort; if the name isn't
-  // unique we just show the empty state with a hint).
+  // command used a different form of their address. The resolver covers:
+  //   - exact match on email / personal_email / alt_emails
+  //   - name-derived alias fallback (fabio@pmitop.com → "Fabio …" row)
+  // and the candidate-emails builder unions the row's columns with the
+  // login email itself (so aliases that aren't stored anywhere still
+  // count toward "my tasks").
   const loginEmail = typeof session.userId === 'string' && session.userId.includes('@')
     ? session.userId.toLowerCase()
     : ''
-  const contactName = (session.contactName ?? '').trim()
 
+  let staffLookupHint: 'none' | 'matched' | 'no_match' = 'none'
   const candidateEmails = new Set<string>()
-  if (loginEmail) candidateEmails.add(loginEmail)
-
-  let staffLookupHint: 'none' | 'matched' | 'no_match' | 'name_only' = 'none'
   if (loginEmail) {
-    const { data: row } = await supabaseAdmin
-      .from('pmi_staff')
-      .select('email, personal_email')
-      .or(`email.ilike.${loginEmail},personal_email.ilike.${loginEmail}`)
-      .limit(1)
-      .maybeSingle()
+    candidateEmails.add(loginEmail)
+    const row = await resolveStaffByLoginEmail(loginEmail)
     if (row) {
       staffLookupHint = 'matched'
-      if (row.email)          candidateEmails.add(row.email.toLowerCase())
-      if (row.personal_email) candidateEmails.add(row.personal_email.toLowerCase())
+      for (const e of staffCandidateEmails(row, loginEmail)) candidateEmails.add(e)
     } else {
       staffLookupHint = 'no_match'
-    }
-  } else if (contactName) {
-    // Old session (userId='staff'). Try name match as a soft fallback.
-    const { data: rows } = await supabaseAdmin
-      .from('pmi_staff')
-      .select('email, personal_email')
-      .ilike('name', contactName)
-      .limit(2)
-    if (rows && rows.length === 1) {
-      staffLookupHint = 'name_only'
-      if (rows[0].email)          candidateEmails.add(rows[0].email.toLowerCase())
-      if (rows[0].personal_email) candidateEmails.add(rows[0].personal_email.toLowerCase())
     }
   }
   const candidateList = Array.from(candidateEmails)
