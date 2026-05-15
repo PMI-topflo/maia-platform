@@ -30,14 +30,21 @@ export default async function StaffProfilePage() {
   // Use the canonical resolver so name-derived aliases like
   // fabio@pmitop.com find the right row when the column values store
   // pmi@pmitop.com / pmi@topfloridaproperties.com.
+  //
+  // SELECT only the always-present columns and merge alt_emails from
+  // the resolver (which fetches them defensively — if the migration
+  // isn't applied yet the field is just []). Stops the profile page
+  // from showing "no staff record found" simply because alt_emails
+  // doesn't exist as a column yet.
   const resolved = loginEmail ? await resolveStaffByLoginEmail(loginEmail) : null
-  const { data: profile } = resolved
+  const { data: baseProfile } = resolved
     ? await supabaseAdmin
         .from('pmi_staff')
-        .select('id, name, email, personal_email, alt_emails, phone, role, department, active')
+        .select('id, name, email, personal_email, phone, role, department, active')
         .eq('id', resolved.id)
         .maybeSingle()
     : { data: null }
+  const profile = baseProfile ? { ...baseProfile, alt_emails: resolved?.alt_emails ?? [] } : null
 
   return (
     <div className="min-h-screen bg-gray-50">
