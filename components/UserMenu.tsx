@@ -29,7 +29,7 @@ const PORTAL_URLS = {
   staff:            { href: '/admin',            label: 'Staff Dashboard' },
   board:            { href: '/board',            label: 'Board Portal' },
   owner:            { href: '/my-account',       label: 'Owner Portal' },
-  tenant:           { href: '/my-account',       label: 'Tenant Portal' },
+  tenant:           { href: '/tenant',           label: 'Tenant Portal' },
   unit_manager:     { href: '/unit-manager',     label: 'Unit Manager' },
   building_manager: { href: '/building-manager', label: 'Building Manager' },
 } as const
