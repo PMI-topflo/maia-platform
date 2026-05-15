@@ -19,6 +19,13 @@
 //      first name we want to fall through to "no match" rather than
 //      pick the wrong person.
 //
+// Migration tolerance: this file does NOT reference the alt_emails
+// column at SELECT or WHERE level for the primary match, so it keeps
+// working even if the alt_emails migration hasn't been applied yet.
+// A secondary query attempts the alt_emails lookup and silently
+// degrades to no-op when the column is missing. Once the migration
+// is applied that secondary query lights up automatically.
+//
 // The OTP still gates everything: the code is emailed to whatever
 // the user typed, so even if the resolver matches "Jane Doe" by
 // name, only someone with mailbox access to jane@pmitop.com can
@@ -38,9 +45,23 @@ export interface StaffRow {
 }
 
 const TRUSTED_DOMAINS = new Set(['pmitop.com', 'topfloridaproperties.com', 'mypmitop.com'])
+const BASE_COLS       = 'id, name, email, personal_email, active'
 
 function lower(s: string | null | undefined): string {
   return (s ?? '').trim().toLowerCase()
+}
+
+/** Try to fetch alt_emails for a known staff id. Returns [] if the
+ *  column doesn't exist yet (pre-migration) — silent degradation. */
+async function fetchAltEmails(id: string): Promise<string[]> {
+  const { data, error } = await supabaseAdmin
+    .from('pmi_staff')
+    .select('alt_emails')
+    .eq('id', id)
+    .maybeSingle()
+  if (error || !data) return []
+  const v = (data as { alt_emails?: unknown }).alt_emails
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 }
 
 /** All email addresses tied to this staff record. Useful for building
@@ -68,15 +89,29 @@ export async function resolveStaffByLoginEmail(loginEmail: string): Promise<Staf
   const id = lower(loginEmail)
   if (!id || !id.includes('@')) return null
 
-  // 1. Exact match on email / personal_email / alt_emails.
-  const { data: exact } = await supabaseAdmin
+  // 1a. Exact match on the always-present columns (email / personal_email).
+  //     Kept separate from alt_emails so a missing migration doesn't break
+  //     the primary path — the user's row is still findable via these.
+  const { data: byEmail } = await supabaseAdmin
     .from('pmi_staff')
-    .select('id, name, email, personal_email, alt_emails, active')
-    .or(`email.ilike.${id},personal_email.ilike.${id},alt_emails.cs.{${id}}`)
+    .select(BASE_COLS)
+    .or(`email.ilike.${id},personal_email.ilike.${id}`)
     .eq('active', true)
     .limit(1)
     .maybeSingle()
-  if (exact) return exact as StaffRow
+  if (byEmail) return await attachAltEmails(byEmail as StaffRow)
+
+  // 1b. Exact match against alt_emails. Skipped silently if the column
+  //     doesn't exist yet (migration pending) — the Supabase client
+  //     returns an error which we ignore in favor of falling through.
+  const { data: byAlt } = await supabaseAdmin
+    .from('pmi_staff')
+    .select(BASE_COLS)
+    .contains('alt_emails', [id])
+    .eq('active', true)
+    .limit(1)
+    .maybeSingle()
+  if (byAlt) return await attachAltEmails(byAlt as StaffRow)
 
   // 2. Name-derived fallback. Only applies on trusted PMI work domains.
   const [local, domain] = id.split('@', 2)
@@ -88,7 +123,7 @@ export async function resolveStaffByLoginEmail(loginEmail: string): Promise<Staf
   // small staff team, fine to filter in-app for an unambiguous match.
   const { data: candidates } = await supabaseAdmin
     .from('pmi_staff')
-    .select('id, name, email, personal_email, alt_emails, active')
+    .select(BASE_COLS)
     .ilike('name', `%${tokens[0]}%`)
     .eq('active', true)
     .limit(10)
@@ -102,5 +137,12 @@ export async function resolveStaffByLoginEmail(loginEmail: string): Promise<Staf
     return tokens.every(t => nameLower.includes(t))
   })
   if (filtered.length !== 1) return null
-  return filtered[0] as StaffRow
+  return await attachAltEmails(filtered[0] as StaffRow)
+}
+
+/** Decorate a row from the BASE_COLS select with its alt_emails (best-
+ *  effort — pre-migration this returns []). */
+async function attachAltEmails(row: StaffRow): Promise<StaffRow> {
+  const alt = await fetchAltEmails(row.id)
+  return { ...row, alt_emails: alt }
 }

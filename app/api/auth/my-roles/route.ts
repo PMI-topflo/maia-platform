@@ -14,7 +14,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { resolveStaffByLoginEmail } from '@/lib/staff-lookup'
+import { resolveStaffByLoginEmail, staffCandidateEmails } from '@/lib/staff-lookup'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,53 +56,64 @@ export async function GET() {
 
   const roles: ResolvedRole[] = []
 
-  // STAFF — always present if the session is a staff session, or if the
-  // login email resolves to a pmi_staff row (exact match on email/
-  // personal_email/alt_emails, or name-derived alias on a trusted PMI
-  // domain).
-  if (session.persona === 'staff') {
+  // Resolve staff first — it tells us both whether the user IS staff
+  // and gives us the full set of alternate addresses (email / personal_
+  // email / alt_emails) we should also search the other persona tables
+  // with. Otherwise a staffer who logs in as fabio@pmitop.com but is
+  // also a unit owner registered under pmi@pmitop.com wouldn't see
+  // their owner persona in this menu.
+  const staffRow = loginEmail ? await resolveStaffByLoginEmail(loginEmail) : null
+  if (session.persona === 'staff' || staffRow) {
     roles.push(portalFor('staff', {}))
-  } else if (loginEmail) {
-    const staffRow = await resolveStaffByLoginEmail(loginEmail)
-    if (staffRow) roles.push(portalFor('staff', {}))
   }
 
   if (!loginEmail) {
     return NextResponse.json({ roles })
   }
 
+  // Build the full email set to query the other persona tables with.
+  // If the user resolved to a staff row, search by every email tied to
+  // that row (work + personal + alt_emails + the login email itself).
+  // Otherwise just use the login email.
+  const lookupEmails = staffRow ? staffCandidateEmails(staffRow, loginEmail) : [loginEmail]
+
+  // Build .or() clauses for each table — Postgres ILIKE OR'd across
+  // each candidate email. Empty list shouldn't happen but guard anyway.
+  const emailIlikeOr  = (col: string) => lookupEmails.map(e => `${col}.ilike.${e}`).join(',')
+  const emailsIlikeOr = (col: string) => lookupEmails.map(e => `${col}.ilike.%${e}%`).join(',')
+
   // Run the remaining table lookups in parallel.
   const [ownerRes, tenantRes, boardRes, unitMgrRes, bldgMgrRes] = await Promise.all([
     supabaseAdmin
       .from('owners')
       .select('id, association_code, association_name')
-      .ilike('emails', `%${loginEmail}%`)
+      .or(emailsIlikeOr('emails'))
       .or('status.neq.previous,status.is.null')
-      .limit(5),
+      .limit(10),
     supabaseAdmin
       .from('association_tenants')
       .select('association_code, association_name, status')
-      .ilike('email', loginEmail)
+      .or(emailIlikeOr('email'))
       .in('status', ['active'])
-      .limit(5),
+      .limit(10),
     supabaseAdmin
       .from('association_board_members')
       .select('id, association_code')
-      .ilike('email', loginEmail)
+      .or(emailIlikeOr('email'))
       .eq('active', true)
-      .limit(5),
+      .limit(10),
     supabaseAdmin
       .from('unit_managers')
       .select('id, association_code')
-      .ilike('email', loginEmail)
+      .or(emailIlikeOr('email'))
       .eq('active', true)
-      .limit(5),
+      .limit(10),
     supabaseAdmin
       .from('building_managers')
       .select('id, association_code')
-      .ilike('email', loginEmail)
+      .or(emailIlikeOr('email'))
       .eq('active', true)
-      .limit(5),
+      .limit(10),
   ])
 
   // Resolve association_name for board / unit_mgr / bldg_mgr (their rows
