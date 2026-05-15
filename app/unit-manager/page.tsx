@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import SiteHeader from '@/components/SiteHeader'
-import SignOutButton from '@/components/SignOutButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -227,10 +226,7 @@ export default async function UnitManagerPage() {
         )}
       </div>
 
-      {/* Sign out */}
-      <div style={{ padding: '2rem 1rem', textAlign: 'center' }}>
-        <SignOutButton />
-      </div>
+      {/* Sign out lives in the global UserMenu in SiteHeader. */}
     </main>
   )
 }
