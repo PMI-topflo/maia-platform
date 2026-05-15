@@ -10,11 +10,13 @@
 import { useEffect, useMemo, useState, Fragment } from 'react'
 
 interface OwnerSnap {
-  first_name:  string | null
-  last_name:   string | null
-  emails:      string | null
-  phone:       string | null
-  address:     string | null
+  account_number: string | null
+  unit_number:    string | null
+  first_name:     string | null
+  last_name:      string | null
+  emails:         string | null
+  phone:          string | null
+  address:        string | null
 }
 interface BoardSnap {
   name:  string | null
@@ -24,7 +26,9 @@ interface BoardSnap {
 }
 interface OwnerCmp {
   status:           'insert' | 'update' | 'match' | 'only_in_maia'
+  account_number:   string | null
   unit_number:      string | null
+  owner_number:     number | null
   cinc_property_id: number | null
   owners_id:        number | null
   maia:             OwnerSnap | null
@@ -39,16 +43,16 @@ interface BoardCmp {
   cinc:                 BoardSnap | null
 }
 interface SyncPreview {
-  assocCode:                string
-  associationName:          string | null
-  cincNumberOfUnits:        number | null
-  cincPropertyRowsReturned: number
-  cincUnitsConsidered:      number
-  cincBoardCount:           number
-  maiaActiveOwners:         number
-  maiaActiveBoard:          number
-  owners:                   OwnerCmp[]
-  board:                    BoardCmp[]
+  assocCode:                 string
+  associationName:           string | null
+  cincNumberOfUnits:         number | null
+  cincPropertyRowsReturned:  number
+  cincOwnerRowsConsidered:   number
+  cincBoardCount:            number
+  maiaActiveOwners:          number
+  maiaActiveBoard:           number
+  owners:                    OwnerCmp[]
+  board:                     BoardCmp[]
 }
 interface ApplyResult {
   ownersInserted:   number
@@ -146,13 +150,10 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
           <Stat label="MAIA: active board" value={preview.maiaActiveBoard} color="text-gray-700" />
           <Stat label="Code" value={preview.assocCode} color="text-[#f26a1b]" mono />
         </div>
-        {preview.cincPropertyRowsReturned !== preview.cincNumberOfUnits && (
-          <div className="text-[11px] text-gray-500 leading-snug">
-            CINC&apos;s <code className="bg-gray-100 px-1 rounded">associationWithProperty</code> returned <strong>{preview.cincPropertyRowsReturned}</strong> property rows; after filtering to <em>current owners</em> and deduping by PropertyID we considered <strong>{preview.cincUnitsConsidered}</strong>.
-            The authoritative count from CINC&apos;s <code className="bg-gray-100 px-1 rounded">/associations</code> endpoint says <strong>{preview.cincNumberOfUnits ?? '?'}</strong> — that&apos;s the number shown above.
-            Extra rows on the property endpoint usually mean joint owners or historical records carried by CINC.
-          </div>
-        )}
+        <div className="text-[11px] text-gray-500 leading-snug">
+          CINC <code className="bg-gray-100 px-1 rounded">/associations</code> reports <strong>{preview.cincNumberOfUnits ?? '?'}</strong> units.{' '}
+          <code className="bg-gray-100 px-1 rounded">associationWithProperty</code> returned <strong>{preview.cincPropertyRowsReturned}</strong> property rows; after filtering to <em>current owners</em> we considered <strong>{preview.cincOwnerRowsConsidered}</strong> owner records (a unit with joint owners shows up as multiple rows below, grouped by account number).
+        </div>
       </div>
 
       {result && (
@@ -213,7 +214,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
                   {canPick && <input type="checkbox" checked={sel} onChange={onToggle} className="accent-[#f26a1b]" />}
                 </td>
                 <td className="px-3 py-2 align-top">
-                  <UnitCell unit={cmp.unit_number} cincId={cmp.cinc_property_id} maiaId={cmp.owners_id} />
+                  <UnitCell account={cmp.account_number} unit={cmp.unit_number} ownerNumber={cmp.owner_number} cincId={cmp.cinc_property_id} maiaId={cmp.owners_id} />
                 </td>
                 <td className="px-3 py-2 align-top">
                   <OwnerSide snap={cmp.maia} hidden={!cmp.maia} />
@@ -356,13 +357,16 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function UnitCell({ unit, cincId, maiaId }: { unit: string | null; cincId: number | null; maiaId: number | null }) {
+function UnitCell({ account, unit, ownerNumber, cincId, maiaId }: { account: string | null; unit: string | null; ownerNumber: number | null; cincId: number | null; maiaId: number | null }) {
   return (
     <div>
-      <div className="text-sm font-semibold text-gray-900">Unit {unit ?? '—'}</div>
-      <div className="text-[11px] font-mono text-gray-400 leading-tight">
-        {cincId != null && <div>CINC #{cincId}</div>}
-        {maiaId != null && <div>MAIA #{maiaId}</div>}
+      <div className="text-sm font-semibold text-gray-900 font-mono">{account ?? '—'}</div>
+      <div className="text-[11px] text-gray-500 leading-tight">
+        Unit {unit ?? '—'}{ownerNumber != null && ownerNumber > 1 ? ` · Owner #${ownerNumber}` : ''}
+      </div>
+      <div className="text-[10px] font-mono text-gray-400 leading-tight mt-0.5">
+        {cincId != null && <div>CINC PropertyID {cincId}</div>}
+        {maiaId != null && <div>MAIA owners.id {maiaId}</div>}
       </div>
     </div>
   )
@@ -377,6 +381,11 @@ function OwnerSide({ snap, hidden }: { snap: OwnerSnap | null; hidden: boolean }
       {snap.emails  && <div className="text-gray-500 break-all">{snap.emails}</div>}
       {snap.phone   && <div className="text-gray-500 font-mono">{snap.phone}</div>}
       {snap.address && <div className="text-gray-400 text-[11px]">{snap.address}</div>}
+      {(snap.account_number || snap.unit_number) && (
+        <div className="text-[10px] text-gray-400 font-mono mt-0.5">
+          {snap.account_number ?? '—'}{snap.unit_number ? ` · Unit ${snap.unit_number}` : ''}
+        </div>
+      )}
     </div>
   )
 }
@@ -403,7 +412,7 @@ function SectionTable({ title, leftLabel, rightLabel, children }: { title: strin
         <thead>
           <tr className="border-b border-gray-100 bg-gray-50/40">
             <th className="w-8 px-3 py-2"></th>
-            <th className="text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide px-3 py-2 [font-family:var(--font-mono)]">Unit / ref</th>
+            <th className="text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wide px-3 py-2 [font-family:var(--font-mono)]">Account / Unit</th>
             <th className="text-left text-[10px] font-semibold text-blue-600 uppercase tracking-wide px-3 py-2 [font-family:var(--font-mono)]">{leftLabel}</th>
             <th className="text-left text-[10px] font-semibold text-[#f26a1b] uppercase tracking-wide px-3 py-2 [font-family:var(--font-mono)]">{rightLabel}</th>
             <th className="text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wide px-3 py-2 [font-family:var(--font-mono)]">Action</th>

@@ -23,11 +23,13 @@ import {
 // ─────────────────────────────────────────────────────────────────────
 
 export interface OwnerSnapshot {
-  first_name:  string | null
-  last_name:   string | null
-  emails:      string | null
-  phone:       string | null
-  address:     string | null
+  account_number:  string | null
+  unit_number:     string | null
+  first_name:      string | null
+  last_name:       string | null
+  emails:          string | null
+  phone:           string | null
+  address:         string | null
 }
 
 export interface BoardSnapshot {
@@ -45,7 +47,11 @@ export type OwnerStatus = 'insert' | 'update' | 'match' | 'only_in_maia'
 
 export interface OwnerComparison {
   status:             OwnerStatus
+  /** Sort key for the UI — prefers CINC's PropertyHOID (e.g. "ABBOTT1"),
+   *  falls back to MAIA's account_number, finally to unit_number. */
+  account_number:     string | null
   unit_number:        string | null
+  owner_number:       number | null
   /** stable upstream id if CINC carries the row */
   cinc_property_id:   number | null
   /** local row id if MAIA carries the row */
@@ -83,8 +89,9 @@ export interface SyncPreview {
   /** Raw count of PropertyInfo rows we got back — useful debug signal
    *  if it disagrees with cincNumberOfUnits. */
   cincPropertyRowsReturned: number
-  /** After dedupe by UnitNo + filter to isCurrentOwner. */
-  cincUnitsConsidered:      number
+  /** After filtering to isCurrentOwner=true; no dedup so joint owners
+   *  show up as separate rows. */
+  cincOwnerRowsConsidered:  number
   cincBoardCount:           number
   maiaActiveOwners:         number
   maiaActiveBoard:          number
@@ -103,24 +110,32 @@ function lower(s: string | null | undefined): string {
 
 function snapshotFromCincProperty(p: CincPropertyInfo): OwnerSnapshot {
   const a = (p.Address ?? []).find(x => x.OwnerAddress) ?? p.Address?.[0]
-  if (!a) return { first_name: null, last_name: null, emails: null, phone: null, address: null }
+  if (!a) return {
+    account_number: p.PropertyHOID ?? null,
+    unit_number:    p.UnitNo ?? null,
+    first_name:     null, last_name: null, emails: null, phone: null, address: null,
+  }
   const street = [a.StreetNumber, a.Address].filter(Boolean).join(' ').trim() || null
   const phone  = a.MobilePhone || a.HomePhone || a.WorkPhone || null
   return {
-    first_name: (a.FirstName ?? '').trim() || null,
-    last_name:  (a.LastName  ?? '').trim() || null,
-    emails:     (a.Email     ?? '').trim().toLowerCase() || null,
-    phone:      phone ? String(phone) : null,
-    address:    street,
+    account_number: p.PropertyHOID ?? null,
+    unit_number:    p.UnitNo ?? null,
+    first_name:     (a.FirstName ?? '').trim() || null,
+    last_name:      (a.LastName  ?? '').trim() || null,
+    emails:         (a.Email     ?? '').trim().toLowerCase() || null,
+    phone:          phone ? String(phone) : null,
+    address:        street,
   }
 }
 
 interface MaiaOwnerRow {
   id:               number
   cinc_property_id: number | null
+  account_number:   string | null
   unit_number:      string | null
   first_name:       string | null
   last_name:        string | null
+  entity_name:      string | null
   emails:           string | null
   phone:            string | null
   phone_2:          string | null
@@ -129,12 +144,18 @@ interface MaiaOwnerRow {
 
 function snapshotFromMaiaOwner(r: MaiaOwnerRow): OwnerSnapshot {
   return {
-    first_name: r.first_name ?? null,
-    last_name:  r.last_name  ?? null,
-    emails:     r.emails     ?? null,
-    phone:      r.phone      ?? r.phone_2 ?? null,
-    address:    r.address    ?? null,
+    account_number: r.account_number ?? null,
+    unit_number:    r.unit_number    ?? null,
+    first_name:     r.first_name ?? r.entity_name ?? null,
+    last_name:      r.last_name  ?? null,
+    emails:         r.emails     ?? null,
+    phone:          r.phone      ?? r.phone_2 ?? null,
+    address:        r.address    ?? null,
   }
+}
+
+function nameKey(first: string | null | undefined, last: string | null | undefined): string {
+  return `${(first ?? '').trim().toLowerCase()}|${(last ?? '').trim().toLowerCase()}`
 }
 
 function emailsContain(stored: string | null | undefined, candidate: string | null | undefined): boolean {
@@ -156,54 +177,70 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
     listAssociationBoardMembers(code),
   ])
 
-  // ── Dedupe + filter CINC property rows ─────────────────────────────
-  // CINC can return multiple PropertyInfo rows per unit (joint owners,
-  // historical owners). We only want the current primary owner per
-  // unique unit. Strategy: keep isCurrentOwner=true rows, group by
-  // PropertyID (the stable per-unit ref), prefer the one with
-  // OwnerNumber=1 if multiple come back.
-  const currentByPropertyId = new Map<number, CincPropertyInfo>()
-  for (const p of cincProperties) {
-    if (!p.isCurrentOwner) continue
-    const existing = currentByPropertyId.get(p.PropertyID)
-    if (!existing) {
-      currentByPropertyId.set(p.PropertyID, p)
-    } else if ((existing.OwnerNumber ?? 99) > (p.OwnerNumber ?? 99)) {
-      currentByPropertyId.set(p.PropertyID, p)
-    }
-  }
-  const consideredProperties = [...currentByPropertyId.values()]
+  // CINC: keep ALL current-owner rows (joint owners come as separate
+  // PropertyInfo rows with different OwnerNumber values). The UI lets
+  // staff see every line per account number.
+  const consideredProperties = cincProperties.filter(p => p.isCurrentOwner)
 
   // ── Load MAIA owner side ──────────────────────────────────────────
   const { data: maiaOwnersRaw } = await supabaseAdmin
     .from('owners')
-    .select('id, cinc_property_id, unit_number, first_name, last_name, emails, phone, phone_2, address')
+    .select('id, cinc_property_id, account_number, unit_number, first_name, last_name, entity_name, emails, phone, phone_2, address')
     .eq('association_code', code)
     .or('status.neq.previous,status.is.null')
 
   const maiaOwners = (maiaOwnersRaw ?? []) as MaiaOwnerRow[]
-  const byCincId = new Map<number, MaiaOwnerRow>()
-  const byUnit   = new Map<string, MaiaOwnerRow>()
-  for (const row of maiaOwners) {
-    if (row.cinc_property_id != null) byCincId.set(row.cinc_property_id, row)
-    if (row.unit_number)              byUnit.set(String(row.unit_number).trim(), row)
-  }
-  const maiaIdsMatched = new Set<number>()
 
+  // Many-to-many maps. cinc_property_id can repeat across joint-owner
+  // rows on our side too, so values are arrays.
+  const maiaByCincId  = new Map<number, MaiaOwnerRow[]>()
+  const maiaByUnit    = new Map<string, MaiaOwnerRow[]>()
+  const maiaByNameKey = new Map<string, MaiaOwnerRow[]>()
+  function push<K>(m: Map<K, MaiaOwnerRow[]>, k: K | null | undefined, v: MaiaOwnerRow) {
+    if (k == null) return
+    const arr = m.get(k as K) ?? []
+    arr.push(v)
+    m.set(k as K, arr)
+  }
+  for (const row of maiaOwners) {
+    if (row.cinc_property_id != null) push(maiaByCincId, row.cinc_property_id, row)
+    if (row.unit_number)              push(maiaByUnit,   String(row.unit_number).trim(), row)
+    const nk = nameKey(row.first_name ?? row.entity_name, row.last_name)
+    if (nk !== '|') push(maiaByNameKey, nk, row)
+  }
+
+  const maiaIdsMatched = new Set<number>()
   const owners: OwnerComparison[] = []
 
   for (const prop of consideredProperties) {
     const cincSnap = snapshotFromCincProperty(prop)
+    const nk = nameKey(cincSnap.first_name, cincSnap.last_name)
 
-    // Try to match a MAIA row: stable CINC id first, then unit number.
-    const existing = byCincId.get(prop.PropertyID)
-                   ?? (prop.UnitNo ? byUnit.get(String(prop.UnitNo).trim()) : undefined)
+    // Match precedence:
+    //   1. Same cinc_property_id AND same name
+    //   2. Same cinc_property_id (any owner) — but skip already-claimed
+    //   3. Same unit_number AND same name
+    //   4. Any same-name row (assoc-wide)
+    let existing: MaiaOwnerRow | null = null
+    const samePid = maiaByCincId.get(prop.PropertyID) ?? []
+    existing = samePid.find(r => !maiaIdsMatched.has(r.id) && nameKey(r.first_name ?? r.entity_name, r.last_name) === nk) ?? null
+    if (!existing) existing = samePid.find(r => !maiaIdsMatched.has(r.id)) ?? null
+    if (!existing && prop.UnitNo) {
+      const sameUnit = maiaByUnit.get(String(prop.UnitNo).trim()) ?? []
+      existing = sameUnit.find(r => !maiaIdsMatched.has(r.id) && nameKey(r.first_name ?? r.entity_name, r.last_name) === nk) ?? null
+    }
+    if (!existing && nk !== '|') {
+      const sameName = maiaByNameKey.get(nk) ?? []
+      existing = sameName.find(r => !maiaIdsMatched.has(r.id)) ?? null
+    }
     if (existing) maiaIdsMatched.add(existing.id)
 
     if (!existing) {
       owners.push({
         status:           'insert',
+        account_number:   cincSnap.account_number,
         unit_number:      prop.UnitNo ?? null,
+        owner_number:     prop.OwnerNumber ?? null,
         cinc_property_id: prop.PropertyID,
         owners_id:        null,
         maia:             null,
@@ -212,7 +249,6 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
       continue
     }
 
-    // Compute changes
     const maiaSnap = snapshotFromMaiaOwner(existing)
     const changes: NonNullable<OwnerComparison['changes']> = {}
     if (cincSnap.first_name && cincSnap.first_name !== maiaSnap.first_name) changes.first_name = { current: maiaSnap.first_name, proposed: cincSnap.first_name }
@@ -220,13 +256,16 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
     if (cincSnap.emails     && !emailsContain(maiaSnap.emails, cincSnap.emails)) changes.emails = { current: maiaSnap.emails, proposed: cincSnap.emails }
     if (cincSnap.phone      && maiaSnap.phone !== cincSnap.phone && existing.phone_2 !== cincSnap.phone) changes.phone = { current: maiaSnap.phone, proposed: cincSnap.phone }
     if (cincSnap.address    && cincSnap.address !== maiaSnap.address) changes.address = { current: maiaSnap.address, proposed: cincSnap.address }
+    if (cincSnap.account_number && cincSnap.account_number !== maiaSnap.account_number) changes.account_number = { current: maiaSnap.account_number, proposed: cincSnap.account_number }
     if (existing.cinc_property_id == null) {
       changes.cinc_property_id = { current: null, proposed: String(prop.PropertyID) }
     }
 
     owners.push({
       status:           Object.keys(changes).length === 0 ? 'match' : 'update',
+      account_number:   cincSnap.account_number ?? maiaSnap.account_number,
       unit_number:      prop.UnitNo ?? existing.unit_number ?? null,
+      owner_number:     prop.OwnerNumber ?? null,
       cinc_property_id: prop.PropertyID,
       owners_id:        existing.id,
       maia:             maiaSnap,
@@ -235,30 +274,42 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
     })
   }
 
-  // ── Owners that exist in MAIA but not in CINC ─────────────────────
+  // MAIA-only rows
   for (const row of maiaOwners) {
     if (maiaIdsMatched.has(row.id)) continue
+    const maiaSnap = snapshotFromMaiaOwner(row)
     owners.push({
       status:           'only_in_maia',
+      account_number:   maiaSnap.account_number,
       unit_number:      row.unit_number,
+      owner_number:     null,
       cinc_property_id: row.cinc_property_id,
       owners_id:        row.id,
-      maia:             snapshotFromMaiaOwner(row),
+      maia:             maiaSnap,
       cinc:             null,
     })
   }
 
-  // Sort owners: insert → update → only_in_maia → match, then by unit_number.
-  const ownerStatusOrder: Record<OwnerStatus, number> = { insert: 0, update: 1, only_in_maia: 2, match: 3 }
+  // Sort: by account_number first (so joint-owner rows for the same
+  // unit group together), then owner_number, then unit_number.
+  function acctSortKey(s: string | null): string {
+    if (!s) return '￿'  // empties last
+    // Split into prefix + numeric suffix for natural sort ("ABBOTT2"
+    // before "ABBOTT10").
+    const m = s.match(/^(.*?)(\d+)?$/)
+    const prefix = (m?.[1] ?? '').toUpperCase()
+    const num    = m?.[2] ? Number(m[2]) : 0
+    return `${prefix}|${String(num).padStart(8, '0')}`
+  }
   owners.sort((a, b) => {
-    const so = ownerStatusOrder[a.status] - ownerStatusOrder[b.status]
+    const ka = acctSortKey(a.account_number)
+    const kb = acctSortKey(b.account_number)
+    if (ka !== kb) return ka < kb ? -1 : 1
+    // Same account number → put insert/update before match/only_in_maia
+    const order: Record<OwnerStatus, number> = { insert: 0, update: 1, only_in_maia: 2, match: 3 }
+    const so = order[a.status] - order[b.status]
     if (so !== 0) return so
-    const au = a.unit_number ?? ''
-    const bu = b.unit_number ?? ''
-    // numeric-aware compare for units like "1", "2", "10"
-    const an = Number(au), bn = Number(bu)
-    if (Number.isFinite(an) && Number.isFinite(bn)) return an - bn
-    return au.localeCompare(bu)
+    return (a.owner_number ?? 99) - (b.owner_number ?? 99)
   })
 
   // ── Board side ────────────────────────────────────────────────────
@@ -335,7 +386,7 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
     associationName:          meta?.AssociationName ?? null,
     cincNumberOfUnits:        meta?.Numberofunits ?? null,
     cincPropertyRowsReturned: cincProperties.length,
-    cincUnitsConsidered:      consideredProperties.length,
+    cincOwnerRowsConsidered:  consideredProperties.length,
     cincBoardCount:           cincBoard.length,
     maiaActiveOwners:         maiaOwners.length,
     maiaActiveBoard:          maiaBoardRows.filter(r => r.active).length,
