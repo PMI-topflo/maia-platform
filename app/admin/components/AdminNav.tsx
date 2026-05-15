@@ -45,7 +45,8 @@ export default function AdminNav() {
         )
       })}
 
-      {/* Help — visually separated, always at the end, distinct accent */}
+      {/* Help — visually separated, always at the end, distinct accent.
+          Sign-out lives in the global UserMenu in SiteHeader. */}
       <Link
         href="/admin/help"
         title="Staff procedures + quick links"
@@ -58,20 +59,6 @@ export default function AdminNav() {
       >
         ? Help
       </Link>
-
-      {/* Sign out — destructive-style action, separated from nav links */}
-      <button
-        type="button"
-        onClick={async () => {
-          try { sessionStorage.removeItem('maia_persona') } catch { /* ignore */ }
-          await fetch('/api/auth/check-session', { method: 'DELETE' })
-          window.location.href = '/'
-        }}
-        title="End your staff session and return to the homepage"
-        className="[font-family:var(--font-mono)] text-[0.6rem] uppercase tracking-[0.08em] px-3 py-1.5 rounded-[2px] transition-colors ml-2 text-white/60 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20"
-      >
-        Sign out
-      </button>
     </div>
   )
 }

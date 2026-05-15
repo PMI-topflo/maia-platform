@@ -1,4 +1,5 @@
 import Image from 'next/image'
+import UserMenu from './UserMenu'
 
 interface SiteHeaderProps {
   subtitle: string
@@ -54,6 +55,9 @@ export default function SiteHeader({ subtitle, children }: SiteHeaderProps) {
         >
           💬 (786) 686-3223
         </a>
+        {/* Account menu — renders only when a valid session exists,
+            so this stays invisible on pre-login public pages. */}
+        <UserMenu />
       </div>
 
     </header>
