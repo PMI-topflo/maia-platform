@@ -184,14 +184,21 @@ export default function UserMenu() {
             // Filter out the user's current persona — they're already there
             // via "My account"; the switcher is for jumping to OTHERS.
             const others = (roles ?? []).filter(r => r.type !== session.persona)
-            // Show the section header optimistically (before lazy fetch
-            // resolves) for staff, since middleware-level multi-portal
-            // access is a staff-only privilege. Non-staff personas have to
-            // wait for the actual roles to load before we know if there's
-            // anything to show.
-            const shouldShowHeader = roles === null
-              ? session.persona === 'staff'
-              : others.length > 0
+            // Visibility rules:
+            //   - If the user already clicked the section open, keep it
+            //     visible no matter what the lookup returned. Otherwise
+            //     it appears to "open and close" — they click, the fetch
+            //     resolves with an empty `others`, and the whole section
+            //     unmounts before they can read the empty-state message.
+            //   - Pre-expand: show optimistically for staff (since they
+            //     might legitimately have other personas), and for
+            //     non-staff only after the lookup confirms there's at
+            //     least one other persona to switch to.
+            const shouldShowHeader = showSwitch || (
+              roles === null
+                ? session.persona === 'staff'
+                : others.length > 0
+            )
             if (!shouldShowHeader) return null
             return (
               <>
