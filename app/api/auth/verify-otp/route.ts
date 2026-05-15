@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { makeSession, signSession, SESSION_COOKIE, COOKIE_MAX_AGE } from '@/lib/session'
+import { resolveStaffByLoginEmail } from '@/lib/staff-lookup'
 import type { MatchedRole } from '@/app/api/homeowner-lookup/route'
 
 function logLogin(data: Record<string, unknown>) {
@@ -73,20 +74,13 @@ export async function POST(req: NextRequest) {
     if (role.type === 'building_manager') { userId = role.building_manager_id;   sessionPersona = 'building_manager'; assocCode = role.association_code; displayName = role.association_name; contactName = [role.firstName, role.lastName].filter(Boolean).join(' ') }
   }
 
-  // For staff, look up their name from pmi_staff. Staff rows carry both
-  // `email` (the work account) and `personal_email` (backup login) — match
-  // on either, otherwise the welcome card shows the generic "Good to see
-  // you!" instead of the actual first name for anyone who logs in with
-  // their personal_email.
+  // For staff, look up their name from pmi_staff via the canonical
+  // resolver. Handles email + personal_email + alt_emails AND the
+  // name-derived fallback (jane@pmitop.com → "Jane Doe" row), so any
+  // legitimate PMI work-address alias resolves to the same identity.
   if (sessionPersona === 'staff' && !contactName) {
-    const id = identifier.trim()
-    const { data: staffRow } = await supabaseAdmin
-      .from('pmi_staff')
-      .select('name')
-      .or(`email.ilike.${id},personal_email.ilike.${id}`)
-      .limit(1)
-      .maybeSingle()
-    contactName = staffRow?.name ?? ''
+    const row = await resolveStaffByLoginEmail(identifier.trim())
+    contactName = row?.name ?? ''
   }
 
   const session  = makeSession({ userId, persona: sessionPersona, associationCode: assocCode, displayName, contactName })

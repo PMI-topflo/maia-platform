@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
-import { supabaseAdmin } from '@/lib/supabase-admin'
+import { resolveStaffByLoginEmail } from '@/lib/staff-lookup'
 
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(SESSION_COOKIE)?.value
@@ -9,23 +9,16 @@ export async function GET(req: NextRequest) {
   const session = await verifySession(token)
   if (!session) return NextResponse.json({ valid: false }, { status: 401 })
 
-  // Hydrate the staff contactName from pmi_staff each call. Lets existing
-  // sessions — which may have been signed before the verify-otp lookup
-  // was widened to check personal_email — display the actual first name
-  // without forcing a logout. For non-staff personas contactName is set
-  // correctly at session creation and this path is skipped.
+  // Hydrate the staff contactName from pmi_staff each call. Resolver
+  // handles email + personal_email + alt_emails AND the name-derived
+  // alias fallback, so a session minted from fabio@pmitop.com finds
+  // the Fabio row even when neither column literally stores that
+  // address.
   let { contactName } = session
   if (session.persona === 'staff' && !contactName) {
     const id = typeof session.userId === 'string' ? session.userId : ''
-    if (id && id.includes('@')) {
-      const { data: row } = await supabaseAdmin
-        .from('pmi_staff')
-        .select('name')
-        .or(`email.ilike.${id},personal_email.ilike.${id}`)
-        .limit(1)
-        .maybeSingle()
-      contactName = row?.name ?? ''
-    }
+    const row = id ? await resolveStaffByLoginEmail(id) : null
+    contactName = row?.name ?? ''
   }
 
   return NextResponse.json({ valid: true, session: { ...session, contactName } })
