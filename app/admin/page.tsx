@@ -59,22 +59,54 @@ export default async function OverviewPage() {
   const session     = token ? await verifySession(token) : null
   if (!session || session.persona !== 'staff') redirect('/')
 
-  // Resolve the canonical PMI work email even when the staffer signed in
-  // via their personal_email (so the "my tasks" filter matches the
-  // assignee_email that other staff use in @assign commands).
+  // Resolve every email that could legitimately be on assignee_email for
+  // the current staff member, so we don't miss tasks because the @assign
+  // command used a different form of their address:
+  //   - The login email (session.userId)
+  //   - Their canonical work email (pmi_staff.email)
+  //   - Their personal email (pmi_staff.personal_email)
+  //
+  // Sessions signed before #41 carry the literal string "staff" as userId
+  // — in that case we fall back to looking up by contactName so the page
+  // still works without forcing a logout (best-effort; if the name isn't
+  // unique we just show the empty state with a hint).
   const loginEmail = typeof session.userId === 'string' && session.userId.includes('@')
     ? session.userId.toLowerCase()
     : ''
-  let canonicalEmail = loginEmail
+  const contactName = (session.contactName ?? '').trim()
+
+  const candidateEmails = new Set<string>()
+  if (loginEmail) candidateEmails.add(loginEmail)
+
+  let staffLookupHint: 'none' | 'matched' | 'no_match' | 'name_only' = 'none'
   if (loginEmail) {
-    const { data: staffRow } = await supabaseAdmin
+    const { data: row } = await supabaseAdmin
       .from('pmi_staff')
-      .select('email')
+      .select('email, personal_email')
       .or(`email.ilike.${loginEmail},personal_email.ilike.${loginEmail}`)
       .limit(1)
       .maybeSingle()
-    if (staffRow?.email) canonicalEmail = staffRow.email.toLowerCase()
+    if (row) {
+      staffLookupHint = 'matched'
+      if (row.email)          candidateEmails.add(row.email.toLowerCase())
+      if (row.personal_email) candidateEmails.add(row.personal_email.toLowerCase())
+    } else {
+      staffLookupHint = 'no_match'
+    }
+  } else if (contactName) {
+    // Old session (userId='staff'). Try name match as a soft fallback.
+    const { data: rows } = await supabaseAdmin
+      .from('pmi_staff')
+      .select('email, personal_email')
+      .ilike('name', contactName)
+      .limit(2)
+    if (rows && rows.length === 1) {
+      staffLookupHint = 'name_only'
+      if (rows[0].email)          candidateEmails.add(rows[0].email.toLowerCase())
+      if (rows[0].personal_email) candidateEmails.add(rows[0].personal_email.toLowerCase())
+    }
   }
+  const candidateList = Array.from(candidateEmails)
 
   const [
     { count: unidentified },
@@ -104,11 +136,11 @@ export default async function OverviewPage() {
       .select('id, reference_code, record_type, status, created_at, error_message, sender_email')
       .order('created_at', { ascending: false })
       .limit(6),
-    canonicalEmail
+    candidateList.length > 0
       ? supabaseAdmin
           .from('tickets')
           .select('id, ticket_number, type, status, priority, subject, due_at, assignee_email, association_code, contact_name')
-          .eq('assignee_email', canonicalEmail)
+          .in('assignee_email', candidateList)
           .in('status', ['open', 'pending', 'waiting_external'])
           .order('due_at', { ascending: true, nullsFirst: false })
           .limit(25)
@@ -181,7 +213,22 @@ export default async function OverviewPage() {
           </div>
           {myTasks.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-gray-400">
-              Nothing assigned to you. Open <Link href="/admin/tickets" className="text-[#f26a1b] hover:underline">/admin/tickets</Link> to pick something up.
+              {candidateList.length === 0 ? (
+                <>
+                  Couldn&apos;t identify your email from this session — it was signed before the recent auth update. Open the{' '}
+                  <Link href="/" className="text-[#f26a1b] hover:underline">homepage</Link>, click &quot;Not you?&quot;, sign back in, then refresh.
+                </>
+              ) : (
+                <>
+                  Nothing assigned to{' '}
+                  <span className="font-mono text-gray-500">{candidateList.join(' / ')}</span>.{' '}
+                  Tickets must be <code className="text-[#f26a1b]">@assign</code>-ed to one of these addresses to appear here. Open{' '}
+                  <Link href="/admin/tickets" className="text-[#f26a1b] hover:underline">/admin/tickets</Link>{' '}to pick something up.
+                  {staffLookupHint === 'no_match' && (
+                    <div className="mt-2 text-[11px] text-amber-700">No <code className="bg-amber-50 px-1 rounded">pmi_staff</code> row matches this login email. Adding one (with the work + personal email columns set) will let the page also pull tasks assigned to your work address.</div>
+                  )}
+                </>
+              )}
             </div>
           ) : (
             <div className="divide-y divide-gray-50">
@@ -241,7 +288,7 @@ export default async function OverviewPage() {
                   due.tone === 'overdue' ? 'text-red-600 font-medium' :
                   due.tone === 'today'   ? 'text-amber-700 font-medium' :
                   'text-gray-500'
-                const isMine = canonicalEmail && t.assignee_email?.toLowerCase() === canonicalEmail
+                const isMine = !!t.assignee_email && candidateEmails.has(t.assignee_email.toLowerCase())
                 return (
                   <Link
                     key={t.id}
