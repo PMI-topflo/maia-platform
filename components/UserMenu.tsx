@@ -168,13 +168,30 @@ export default function UserMenu() {
             <span style={{ color: '#9ca3af', fontSize: '0.7rem' }}>{home.label}</span>
           </Link>
 
-          {/* My Profile — staff only (edit own pmi_staff row) */}
-          {session.persona === 'staff' && (
-            <Link href="/admin/profile" style={menuItemStyle}>
-              <span>My profile</span>
-              <span style={{ color: '#9ca3af', fontSize: '0.7rem' }}>Edit staff record</span>
-            </Link>
-          )}
+          {/* My Profile — per-persona edit pages. Staff edits the
+              pmi_staff row directly (no approval). Non-staff personas
+              edit their own record; login-email changes are approval-
+              gated and email staff before they take effect. */}
+          {(() => {
+            const profileHref =
+              session.persona === 'staff'            ? '/admin/profile'             :
+              session.persona === 'owner'            ? '/my-account/profile'        :
+              session.persona === 'tenant'           ? '/tenant/profile'            :
+              session.persona === 'board'            ? '/board/profile'             :
+              session.persona === 'unit_manager'     ? '/unit-manager/profile'      :
+              session.persona === 'building_manager' ? '/building-manager/profile'  :
+              null
+            const sub = session.persona === 'staff'
+              ? 'Edit staff record'
+              : 'Update contact info'
+            if (!profileHref) return null
+            return (
+              <Link href={profileHref} style={menuItemStyle}>
+                <span>My profile</span>
+                <span style={{ color: '#9ca3af', fontSize: '0.7rem' }}>{sub}</span>
+              </Link>
+            )
+          })()}
 
           {/* My Personas — shows only the personas the user is actually
               registered as (looked up against the persona tables on first
