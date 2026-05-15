@@ -65,13 +65,18 @@ export async function POST(req: NextRequest) {
   }
 
   if (type === 'staff') {
-    const { name, email, phone, role, department } = data
+    const { name, email, personal_email, phone, role, department } = data
     if (!name || !email) {
       return NextResponse.json({ ok: false, error: 'Name and email are required' }, { status: 400 })
     }
     const { error } = await supabaseAdmin.from('pmi_staff').insert({
-      name, email, phone: phone || null, role: role || null,
-      department: department || null, active: true,
+      name,
+      email,
+      personal_email: personal_email || null,
+      phone:          phone          || null,
+      role:           role           || null,
+      department:     department     || null,
+      active: true,
     })
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
     return NextResponse.json({ ok: true })
