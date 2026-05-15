@@ -535,6 +535,113 @@ export async function listWorkOrdersCreatedSince(cursorIso: string): Promise<Cin
   })
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Homeowner + board lookups (used by /admin/cinc-sync)
+//
+// Field shapes confirmed by the probe in scripts/probe-cinc-homeowners.ts.
+// CINC's PMITFP tenant has Contacts & Consent OFF, so the v2
+// /management/2/homeowners/associationWithProperty endpoint returns 400
+// — stick with v1.
+// ─────────────────────────────────────────────────────────────────────
+
+export interface CincPropertyAddress {
+  PropertyAddressId:        number
+  BillingTypeID?:           number
+  FirstName?:               string | null
+  LastName?:                string | null
+  FirstName1?:              string | null
+  LastName1?:               string | null
+  StreetNumber?:            number | string | null
+  Address?:                 string | null
+  City?:                    string | null
+  State?:                   string | null
+  Zip?:                     string | null
+  Email?:                   string | null
+  HomePhone?:               string | null
+  WorkPhone?:               string | null
+  MobilePhone?:             string | null
+  Address2?:                string | null
+  AddressTypeId?:           number
+  AddressTypeDescription?:  string | null
+  OwnerAddress?:            boolean
+}
+
+export interface CincPropertyInfo {
+  AssocID:        number
+  AssocCode?:     string | null
+  PropertyID:     number
+  isCurrentOwner: boolean
+  OwnerNumber?:   number
+  PropertyHOID?:  string | null
+  UnitNo?:        string | null
+  PostedDate?:    string | null
+  SettledDate?:   string | null
+  Address:        CincPropertyAddress[]
+}
+
+export interface CincAssociationWithProperty {
+  AssociationId:   number
+  AssociationCode: string
+  AssociationName: string
+  PropertyInfo:    CincPropertyInfo[]
+}
+
+/** Pulls every unit + current-owner contact info for the given
+ *  association. Each CincPropertyInfo's Address[] usually contains one
+ *  row (the property address with the active owner). */
+export async function listAssociationProperties(assocCode: string): Promise<CincPropertyInfo[]> {
+  const data = await call<CincAssociationWithProperty[]>('/management/1/homeowners/associationWithProperty', {
+    method: 'GET',
+    query:  { assocCode: assocCode.toUpperCase() },
+  }).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) return []
+    throw err
+  })
+  const wrap = (data ?? [])[0]
+  return wrap?.PropertyInfo ?? []
+}
+
+export interface CincBoardMember {
+  AssocCode:                 string
+  AssocId:                   number
+  BoardMemberId:             number
+  BoardMemberName:           string | null
+  BoardMemberTypeId?:        number
+  BoardMemberType?:          string | null     // "President" / "Treasurer" / "Secretary" / etc.
+  BoardCommitteeTypeId?:     number
+  BoardCommittee?:           string | null
+  BoardResponsibilityId?:    number
+  BoardResponsibility?:      string | null
+  TermExpiryDate?:           string | null
+  BoardTitle?:               string | null
+  AddressLine1?:             string | null
+  AddressLine2?:             string | null
+  City?:                     string | null
+  State?:                    string | null
+  Zip?:                      string | null
+  HomePhone?:                string | null
+  WorkPhone?:                string | null
+  MobilePhone?:              string | null
+  Email?:                    string | null
+  PropertyAddressId?:        number
+  PropertyContactId?:        number
+  Comment?:                  string | null
+}
+
+/** Active board members for the association, sorted as CINC returns
+ *  them (typically by position). */
+export async function listAssociationBoardMembers(assocCode: string): Promise<CincBoardMember[]> {
+  return await call<CincBoardMember[]>('/management/1/associations/boardMembers', {
+    method: 'GET',
+    query:  { assocCode: assocCode.toUpperCase() },
+  }).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincBoardMember[]
+    }
+    throw err
+  })
+}
+
 /** Fetches a single work order by ID, with notes / contacts / vendor
  *  info embedded. Returns null if CINC has no such work order. */
 export async function getWorkOrderById(workOrderId: number): Promise<CincWorkOrder | null> {
