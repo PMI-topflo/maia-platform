@@ -76,9 +76,11 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'add_staff') {
-    const { name, email, phone, role, department } = data ?? {}
+    const { name, email, personal_email, phone, role, department } = data ?? {}
     const { error } = await supabaseAdmin.from('pmi_staff').insert({
-      name, email, phone, role, department, active: true,
+      name, email,
+      personal_email: personal_email || null,
+      phone, role, department, active: true,
     })
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
     await supabaseAdmin.from('general_conversations').update({ status: 'resolved' }).eq('id', conversationId)

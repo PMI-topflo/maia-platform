@@ -15,6 +15,7 @@
 //   - Sign out    → clears session, redirects to homepage
 // =====================================================================
 
+import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 
 interface SessionInfo {
@@ -135,13 +136,18 @@ export default function UserMenu() {
           <div style={{ height: 1, background: '#f3f4f6', margin: '0.25rem 0' }} />
 
           {/* My Account */}
-          <a
-            href={home.href}
-            style={menuItemStyle}
-          >
+          <Link href={home.href} style={menuItemStyle}>
             <span>My account</span>
             <span style={{ color: '#9ca3af', fontSize: '0.7rem' }}>{home.label}</span>
-          </a>
+          </Link>
+
+          {/* My Profile — staff only (edit own pmi_staff row) */}
+          {session.persona === 'staff' && (
+            <Link href="/admin/profile" style={menuItemStyle}>
+              <span>My profile</span>
+              <span style={{ color: '#9ca3af', fontSize: '0.7rem' }}>Edit staff record</span>
+            </Link>
+          )}
 
           {/* My Personas — staff only */}
           {session.persona === 'staff' && (
@@ -159,10 +165,10 @@ export default function UserMenu() {
                   {(['staff', 'board', 'owner', 'unit_manager', 'building_manager'] as const).map(p => {
                     const portal = PORTAL_URLS[p]
                     return (
-                      <a key={p} href={portal.href} style={{ ...menuItemStyle, paddingLeft: '1.5rem', fontSize: '0.78rem' }}>
+                      <Link key={p} href={portal.href} style={{ ...menuItemStyle, paddingLeft: '1.5rem', fontSize: '0.78rem' }}>
                         <span>{portal.label}</span>
                         <span style={{ color: '#9ca3af', fontSize: '0.65rem' }}>→</span>
-                      </a>
+                      </Link>
                     )
                   })}
                 </div>

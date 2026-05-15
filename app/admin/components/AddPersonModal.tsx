@@ -215,12 +215,16 @@ export default function AddPersonModal({ associations, onClose, onAdded }: Props
               {tab === 'staff' && (
                 <>
                   <Field label="Name *"><input className={inputCls} value={form.name ?? ''} onChange={set('name')} /></Field>
-                  <Field label="Email *"><input type="email" className={inputCls} value={form.email ?? ''} onChange={set('email')} /></Field>
+                  <div className={gridTwo}>
+                    <Field label="Work email *"><input type="email" className={inputCls} placeholder="name@pmitop.com" value={form.email ?? ''} onChange={set('email')} /></Field>
+                    <Field label="Personal email"><input type="email" className={inputCls} placeholder="optional backup login" value={form.personal_email ?? ''} onChange={set('personal_email')} /></Field>
+                  </div>
                   <Field label="Phone"><input type="tel" className={inputCls} value={form.phone ?? ''} onChange={set('phone')} /></Field>
                   <div className={gridTwo}>
                     <Field label="Role"><input className={inputCls} placeholder="Manager, Associate…" value={form.role ?? ''} onChange={set('role')} /></Field>
                     <Field label="Department"><input className={inputCls} value={form.department ?? ''} onChange={set('department')} /></Field>
                   </div>
+                  <p className="text-[0.7rem] text-gray-500 leading-snug">Personal email is the alternate address the staff member may use to log in via OTP. Setting both unlocks tasks assigned to either address on the Control Panel.</p>
                 </>
               )}
 
