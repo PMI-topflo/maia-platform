@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
+import Link from 'next/link'
 import AddressSearch from '@/components/AddressSearch'
 import TwoFactorAuth from '@/components/TwoFactorAuth'
 import type { AddressResult } from '@/app/api/address-search/route'
@@ -532,7 +533,10 @@ export default function Home() {
     if (key === 'agent')     { setView('agent-form'); return }
     if (key === 'board')     { setView('homeowner-form'); return }
     if (key === 'vendor')    { setView('vendor-form'); return }
-    if (key === 'staff')     { setView('homeowner-form'); return }
+    // Staff don't belong to an association — send them straight to the
+    // dedicated staff login (email → OTP), not the homeowner/association
+    // lookup form.
+    if (key === 'staff')     { router.push('/admin/login'); return }
   }
 
   function portalUrl(role: MatchedRole): string {
@@ -992,11 +996,11 @@ export default function Home() {
                                   Switch portal
                                 </div>
                                 <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                                  <a href="/admin"      className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Staff →</a>
-                                  <a href="/board"      className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Board →</a>
-                                  <a href="/my-account" className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Owner →</a>
-                                  <a href="/unit-manager"     className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Unit mgr →</a>
-                                  <a href="/building-manager" className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Building mgr →</a>
+                                  <Link href="/admin"      className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Staff →</Link>
+                                  <Link href="/board"      className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Board →</Link>
+                                  <Link href="/my-account" className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Owner →</Link>
+                                  <Link href="/unit-manager"     className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Unit mgr →</Link>
+                                  <Link href="/building-manager" className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Building mgr →</Link>
                                 </div>
                               </div>
                             )}
