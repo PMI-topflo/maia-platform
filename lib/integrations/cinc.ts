@@ -628,6 +628,44 @@ export interface CincBoardMember {
   Comment?:                  string | null
 }
 
+export interface CincAssociationMeta {
+  AssocId:           number
+  AssocCode:         string
+  AssociationName:   string
+  Numberofunits:     number | null
+  isActive:          boolean | null
+}
+
+/** Authoritative association metadata — primarily Numberofunits, which
+ *  is the count to display in the UI (the property list endpoint can
+ *  return multiple rows per unit when there are joint or historical
+ *  owners). */
+export async function getAssociationMeta(assocCode: string): Promise<CincAssociationMeta | null> {
+  interface Raw {
+    AssocId?:          number
+    AssociationIdLink?:string | null
+    Associationname?:  string | null
+    Numberofunits?:    number | null
+    isActive?:         boolean | null
+  }
+  const list = await call<Raw[]>('/management/1/associations', {
+    method: 'GET',
+    query:  { assocCode: assocCode.toUpperCase() },
+  }).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) return [] as Raw[]
+    throw err
+  })
+  const hit = list.find(r => (r.AssociationIdLink ?? '').toUpperCase() === assocCode.toUpperCase()) ?? list[0]
+  if (!hit) return null
+  return {
+    AssocId:         hit.AssocId ?? 0,
+    AssocCode:       (hit.AssociationIdLink ?? assocCode).toUpperCase(),
+    AssociationName: hit.Associationname ?? assocCode,
+    Numberofunits:   hit.Numberofunits ?? null,
+    isActive:        hit.isActive ?? null,
+  }
+}
+
 /** Active board members for the association, sorted as CINC returns
  *  them (typically by position). */
 export async function listAssociationBoardMembers(assocCode: string): Promise<CincBoardMember[]> {
