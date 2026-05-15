@@ -516,21 +516,29 @@ async function upsertRecord(ext: ExtractedRecord, ctx?: UpsertContext): Promise<
     }
 
     case 'board_member': {
+      // The real table is `association_board_members` and it stores a
+      // single `name` column + `role` (not first_name/last_name/position).
+      // The original code wrote to a non-existent `board_members` table
+      // — every "@maia add board member" silently errored on insert.
+      const fullName = ext.entity_name
+        || [ext.first_name, ext.last_name].filter(Boolean).join(' ').trim()
+        || 'Board Member'
       const { data, error } = await supabaseAdmin
-        .from('board_members')
+        .from('association_board_members')
         .insert({
           association_code: code,
-          first_name:       ext.first_name,
-          last_name:        ext.last_name,
-          email:            ext.email,
-          phone:            ext.phone,
+          name:             fullName,
+          email:            ext.email ?? null,
           active:           true,
-          notes:            ext.notes,
         })
         .select('id')
         .single()
-      if (error) throw new Error(`board_members: ${error.message}`)
-      return { table: 'board_members', recordId: String(data.id) }
+      if (error) throw new Error(`association_board_members: ${error.message}`)
+      // Phone + notes captured by Claude don't have columns on this
+      // table; surface them through the reply email so staff can route
+      // manually if needed. (No data is lost — they remain in the
+      // maia_email_commands.body_text and extracted_data JSON.)
+      return { table: 'association_board_members', recordId: String(data.id) }
     }
 
     case 'agent': {
@@ -599,11 +607,15 @@ async function uploadAttachment(
 // ── Reply HTML ────────────────────────────────────────────────────────────────
 
 async function notifyBoardOfNewTenant(associationCode: string, assocName: string | null, unitNumber: string | null, tenantName: string): Promise<void> {
+  // Was querying the wrong table — `board_members` doesn't exist; the
+  // real table is `association_board_members`. Email column also gained
+  // a NULL-able state in the recent migration, hence the filter.
   const { data: board } = await supabaseAdmin
-    .from('board_members')
+    .from('association_board_members')
     .select('email')
     .eq('association_code', associationCode)
     .eq('active', true)
+    .not('email', 'is', null)
   const emails = (board ?? []).map(b => b.email).filter(Boolean) as string[]
   if (!emails.length) return
 
