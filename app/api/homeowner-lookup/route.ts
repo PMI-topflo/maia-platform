@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { resolveStaffByLoginEmail } from '@/lib/staff-lookup'
 
 export type MatchedRole =
   | { type: 'staff' }
@@ -49,9 +50,16 @@ export async function POST(req: NextRequest) {
     bldgMgrEmailRes,
     bldgMgrPhoneRes,
   ] = await Promise.all([
-    staffOr
-      ? supabaseAdmin.from('pmi_staff').select('id').eq('active', true).or(staffOr).limit(1).single()
-      : Promise.resolve({ data: null }),
+    // Staff — go through the canonical resolver so name-derived aliases
+    // (jane@pmitop.com → "Jane Doe" row) and alt_emails entries also
+    // count, not just literal email / personal_email matches. Phone-only
+    // lookups still fall back to the OR filter via staffOr.
+    email
+      ? resolveStaffByLoginEmail(email).then(row => ({ data: row ? { id: row.id } : null }))
+      : (staffOr
+          ? supabaseAdmin.from('pmi_staff').select('id').eq('active', true).or(staffOr).limit(1).maybeSingle()
+          : Promise.resolve({ data: null })
+        ),
 
     // Active owners only
     email
@@ -89,20 +97,20 @@ export async function POST(req: NextRequest) {
           .limit(1)
       : Promise.resolve({ data: [] }),
 
+    // Board members live in `association_board_members` and store a
+    // single `name` column + a `role` column (not first/last/position).
+    // The original lookup queried a non-existent `board_members` table
+    // and never matched anyone.
     email
-      ? supabaseAdmin.from('board_members')
-          .select('id, association_code, first_name, last_name, position')
+      ? supabaseAdmin.from('association_board_members')
+          .select('id, association_code, name, role')
           .eq('active', true)
           .ilike('email', `%${email}%`)
           .limit(5)
       : Promise.resolve({ data: [] }),
 
     digits.length >= 7
-      ? supabaseAdmin.from('board_members')
-          .select('id, association_code, first_name, last_name, position')
-          .eq('active', true)
-          .ilike('phone', `%${digits}%`)
-          .limit(5)
+      ? Promise.resolve({ data: [] })  // schema has no phone column on this table
       : Promise.resolve({ data: [] }),
 
     // Unit managers
@@ -167,8 +175,10 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // ── Board members — merge + deduplicate + resolve association names ────────
-  type BoardRow = { id: string; association_code: string; first_name?: string | null; last_name?: string | null; position?: string | null }
+  // ── Board members — single `name` column in association_board_members
+  //     gets split into first + last for the MatchedRole shape; `role`
+  //     populates `position`.
+  type BoardRow = { id: string; association_code: string; name?: string | null; role?: string | null }
   const boardRows: BoardRow[] = [
     ...((boardEmailRes as { data: BoardRow[] }).data ?? []),
     ...((boardPhoneRes  as { data: BoardRow[] }).data ?? []),
@@ -176,7 +186,11 @@ export async function POST(req: NextRequest) {
   const seenBoard = new Set<string>()
   const boardMatches: BoardRow[] = []
   for (const row of boardRows) {
-    if (seenBoard.has(row.id) || !nameMatches(row) || !row.association_code) continue
+    const parts = (row.name ?? '').trim().split(/\s+/)
+    const first = parts[0] ?? null
+    const last  = parts.length > 1 ? parts.slice(1).join(' ') : null
+    const nameForMatch = { first_name: first, last_name: last }
+    if (seenBoard.has(row.id) || !nameMatches(nameForMatch) || !row.association_code) continue
     seenBoard.add(row.id)
     boardMatches.push(row)
   }
@@ -191,14 +205,15 @@ export async function POST(req: NextRequest) {
     assocs?.forEach(a => { nameMap[a.association_code] = a.association_name })
 
     for (const row of boardMatches) {
+      const parts = (row.name ?? '').trim().split(/\s+/)
       roles.push({
         type: 'board',
         board_member_id: row.id,
         association_code: row.association_code,
         association_name: nameMap[row.association_code] ?? row.association_code,
-        position: row.position ?? null,
-        firstName: row.first_name ?? undefined,
-        lastName:  row.last_name  ?? undefined,
+        position: row.role ?? null,
+        firstName: parts[0] ?? undefined,
+        lastName:  parts.length > 1 ? parts.slice(1).join(' ') : undefined,
       })
     }
   }
