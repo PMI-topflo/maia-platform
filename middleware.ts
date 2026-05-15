@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 
 // Login paths per persona — staff uses its own login page, others use the homepage
-const PROTECTED: Record<string, { persona: 'owner' | 'board' | 'staff' | 'unit_manager' | 'building_manager'; loginPath: string }> = {
+const PROTECTED: Record<string, { persona: 'owner' | 'board' | 'staff' | 'tenant' | 'unit_manager' | 'building_manager'; loginPath: string }> = {
   '/my-account':       { persona: 'owner',            loginPath: '/' },
+  '/tenant':           { persona: 'tenant',           loginPath: '/' },
   '/board':            { persona: 'board',            loginPath: '/' },
   '/admin':            { persona: 'staff',            loginPath: '/admin/login' },
   '/unit-manager':     { persona: 'unit_manager',     loginPath: '/' },
@@ -51,6 +52,7 @@ export const config = {
   matcher: [
     '/admin/:path*',
     '/my-account/:path*',
+    '/tenant/:path*',
     '/board/:path*',
     '/unit-manager/:path*',
     '/building-manager/:path*',

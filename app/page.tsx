@@ -539,7 +539,7 @@ export default function Home() {
     if (role.type === 'staff')            return '/admin'
     if (role.type === 'owner')            return role.owner_id > 0 ? `/my-account?id=${role.owner_id}&assoc=${role.association_code}` : '/my-account'
     if (role.type === 'board')            return role.board_member_id ? `/board?id=${role.board_member_id}&assoc=${role.association_code}` : '/board'
-    if (role.type === 'tenant')           return `/my-account?assoc=${role.association_code}`
+    if (role.type === 'tenant')           return `/tenant?assoc=${role.association_code}`
     if (role.type === 'unit_manager')     return '/unit-manager'
     if (role.type === 'building_manager') return '/building-manager'
     return '/'
