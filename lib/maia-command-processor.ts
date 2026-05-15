@@ -317,7 +317,13 @@ async function extractWithClaude(emailContent: string): Promise<ExtractedRecord>
 
 // ── Supabase upsert ───────────────────────────────────────────────────────────
 
-async function upsertRecord(ext: ExtractedRecord): Promise<UpsertResult> {
+interface UpsertContext {
+  commandId?:      string | null
+  actorEmail?:     string | null
+  gmailMessageId?: string | null
+}
+
+async function upsertRecord(ext: ExtractedRecord, ctx?: UpsertContext): Promise<UpsertResult> {
   if (!ext.record_type) throw new Error('record_type is null')
 
   const code = ext.association_code?.toUpperCase() ?? null
@@ -406,6 +412,28 @@ async function upsertRecord(ext: ExtractedRecord): Promise<UpsertResult> {
         .select('id')
         .single()
       if (error) throw new Error(`owners: ${error.message}`)
+
+      // Record the transfer event in the explicit audit log. Fire-and-
+      // log on error: a failed history insert shouldn't roll back the
+      // owner mutation we just successfully landed.
+      const { error: ohErr } = await supabaseAdmin
+        .from('ownership_history')
+        .insert({
+          association_code:        code,
+          unit_number:             ext.unit_number,
+          previous_owner_id:       prevOwner?.id        ?? null,
+          previous_owner_name:     prevName             ?? null,
+          previous_owner_emails:   prevOwner?.emails    ?? null,
+          new_owner_id:            data.id,
+          new_owner_name:          newName,
+          new_owner_emails:        ext.email            ?? null,
+          transfer_date:           today,
+          source:                  'maia_email',
+          actor_email:             ctx?.actorEmail      ?? null,
+          maia_email_command_id:   ctx?.commandId       ?? null,
+          gmail_message_id:        ctx?.gmailMessageId  ?? null,
+        })
+      if (ohErr) console.error('[MAIA owner-transfer] ownership_history insert failed:', ohErr.message)
 
       return {
         table:    'owners',
@@ -1479,7 +1507,13 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     let dbResult:    UpsertResult | null = null
     let upsertError: string | null = null
     if (isComplete) {
-      try { dbResult = await upsertRecord(extracted) }
+      try {
+        dbResult = await upsertRecord(extracted, {
+          commandId,
+          actorEmail:     parsed.senderEmail,
+          gmailMessageId: parsed.messageId,
+        })
+      }
       catch (err) {
         upsertError = err instanceof Error ? err.message : String(err)
         console.error('[MAIA] upsertRecord error:', upsertError, 'extracted:', JSON.stringify(extracted))
