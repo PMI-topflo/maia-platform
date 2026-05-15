@@ -38,16 +38,48 @@ function contactPerson(r: OwnerRecord): string | null {
   return null
 }
 
-export default async function OwnershipHistoryPage() {
-  const { data: rows } = await supabaseAdmin
-    .from('owners')
-    .select('id, first_name, last_name, entity_name, association_code, association_name, unit_number, status, ownership_start_date, ownership_end_date, transferred_to, transferred_from, emails, phone')
-    .order('association_code', { ascending: true })
-    .order('unit_number',      { ascending: true })
-    .order('ownership_start_date', { ascending: false })
-    .limit(2000)
+interface HistoryEvent {
+  id:                     string
+  association_code:       string
+  unit_number:            string | null
+  previous_owner_name:    string | null
+  previous_owner_emails:  string | null
+  new_owner_name:         string | null
+  new_owner_emails:       string | null
+  transfer_date:          string
+  source:                 string
+  actor_email:            string | null
+  notes:                  string | null
+  created_at:             string
+}
 
-  const owners = (rows ?? []) as OwnerRecord[]
+const SOURCE_STYLE: Record<string, { label: string; cls: string }> = {
+  maia_email: { label: 'MAIA',     cls: 'bg-orange-100 text-orange-700' },
+  admin_ui:   { label: 'Admin UI', cls: 'bg-blue-100 text-blue-700' },
+  manual:     { label: 'Manual',   cls: 'bg-slate-100 text-slate-700' },
+  import:     { label: 'Import',   cls: 'bg-purple-100 text-purple-700' },
+  backfill:   { label: 'Backfill', cls: 'bg-gray-100 text-gray-600' },
+  unknown:    { label: 'Unknown',  cls: 'bg-gray-100 text-gray-500' },
+}
+
+export default async function OwnershipHistoryPage() {
+  const [{ data: rows }, { data: events }] = await Promise.all([
+    supabaseAdmin
+      .from('owners')
+      .select('id, first_name, last_name, entity_name, association_code, association_name, unit_number, status, ownership_start_date, ownership_end_date, transferred_to, transferred_from, emails, phone')
+      .order('association_code', { ascending: true })
+      .order('unit_number',      { ascending: true })
+      .order('ownership_start_date', { ascending: false })
+      .limit(2000),
+    supabaseAdmin
+      .from('ownership_history')
+      .select('id, association_code, unit_number, previous_owner_name, previous_owner_emails, new_owner_name, new_owner_emails, transfer_date, source, actor_email, notes, created_at')
+      .order('created_at', { ascending: false })
+      .limit(50),
+  ])
+
+  const owners = (rows   ?? []) as OwnerRecord[]
+  const audit  = (events ?? []) as HistoryEvent[]
 
   // Group by (association_code + unit_number)
   const groups = new Map<string, OwnerRecord[]>()
@@ -79,7 +111,53 @@ export default async function OwnershipHistoryPage() {
           <p className="text-sm text-gray-500 mt-1">Full timeline of all unit ownership transfers. {transferUnits.length} units with transfers, {groups.size} total units.</p>
         </div>
 
-        {transferUnits.length === 0 && (
+        {/* Audit feed — explicit transfer events from ownership_history.
+            Shows the same transfers as the by-unit chain below but with
+            actor / source / link-back-to-MAIA-command provenance that
+            the per-row reconstruction can't carry. */}
+        {audit.length > 0 && (
+          <div className="mb-8 bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <div className="bg-gray-50 border-b border-gray-100 px-4 py-2.5 flex items-center justify-between">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide [font-family:var(--font-mono)]">
+                Recent Transfer Events ({audit.length})
+              </span>
+              <span className="text-[10px] text-gray-400 [font-family:var(--font-mono)]">Newest first · last 50</span>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {audit.map(e => {
+                const src = SOURCE_STYLE[e.source] ?? SOURCE_STYLE.unknown
+                return (
+                  <div key={e.id} className="px-4 py-2.5 text-sm">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded ${src.cls}`}>{src.label}</span>
+                      <span className="font-mono text-[11px] text-gray-500">{e.association_code}{e.unit_number ? ` · Unit ${e.unit_number}` : ''}</span>
+                      <span className="text-[11px] text-gray-400 ml-auto">{fmtDate(e.transfer_date)}</span>
+                    </div>
+                    <div className="text-gray-700 text-[13px] leading-snug">
+                      {e.previous_owner_name ? (
+                        <>
+                          <span className="text-gray-500 line-through">{e.previous_owner_name}</span>
+                          {' → '}
+                          <span className="font-medium text-gray-900">{e.new_owner_name ?? '(vacant)'}</span>
+                        </>
+                      ) : (
+                        <>New owner: <span className="font-medium text-gray-900">{e.new_owner_name ?? '—'}</span></>
+                      )}
+                    </div>
+                    {(e.actor_email || e.notes) && (
+                      <div className="text-[11px] text-gray-400 mt-1 space-x-2">
+                        {e.actor_email && <span>by {e.actor_email}</span>}
+                        {e.notes && <span className="italic">· {e.notes}</span>}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {transferUnits.length === 0 && audit.length === 0 && (
           <div className="bg-white border border-gray-200 rounded-lg p-8 text-center text-gray-400 text-sm">
             No ownership transfers recorded yet. They appear here automatically when MAIA processes a new owner for an existing unit.
           </div>
