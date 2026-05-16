@@ -191,9 +191,10 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
 
   const maiaOwners = (maiaOwnersRaw ?? []) as MaiaOwnerRow[]
 
-  // Many-to-many maps. cinc_property_id can repeat across joint-owner
-  // rows on our side too, so values are arrays.
+  // Many-to-many maps. cinc_property_id / account_number can repeat
+  // across joint-owner rows on our side too, so values are arrays.
   const maiaByCincId  = new Map<number, MaiaOwnerRow[]>()
+  const maiaByAcct    = new Map<string, MaiaOwnerRow[]>()
   const maiaByUnit    = new Map<string, MaiaOwnerRow[]>()
   const maiaByNameKey = new Map<string, MaiaOwnerRow[]>()
   function push<K>(m: Map<K, MaiaOwnerRow[]>, k: K | null | undefined, v: MaiaOwnerRow) {
@@ -204,6 +205,7 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
   }
   for (const row of maiaOwners) {
     if (row.cinc_property_id != null) push(maiaByCincId, row.cinc_property_id, row)
+    if (row.account_number)           push(maiaByAcct,   row.account_number.toUpperCase(), row)
     if (row.unit_number)              push(maiaByUnit,   String(row.unit_number).trim(), row)
     const nk = nameKey(row.first_name ?? row.entity_name, row.last_name)
     if (nk !== '|') push(maiaByNameKey, nk, row)
@@ -216,18 +218,29 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
     const cincSnap = snapshotFromCincProperty(prop)
     const nk = nameKey(cincSnap.first_name, cincSnap.last_name)
 
-    // Match precedence:
+    // Match precedence — strict matches first, then loose unit/account
+    // matches so a freshly-imported MAIA row gets paired with its CINC
+    // counterpart even if the names diverge between systems:
     //   1. Same cinc_property_id AND same name
-    //   2. Same cinc_property_id (any owner) — but skip already-claimed
-    //   3. Same unit_number AND same name
-    //   4. Any same-name row (assoc-wide)
+    //   2. Same cinc_property_id (any unclaimed owner)
+    //   3. Same account_number AND same name
+    //   4. Same account_number (any unclaimed)
+    //   5. Same unit_number AND same name
+    //   6. Same unit_number (any unclaimed) ← the new loose fallback
+    //   7. Any same-name row (assoc-wide)
     let existing: MaiaOwnerRow | null = null
     const samePid = maiaByCincId.get(prop.PropertyID) ?? []
     existing = samePid.find(r => !maiaIdsMatched.has(r.id) && nameKey(r.first_name ?? r.entity_name, r.last_name) === nk) ?? null
     if (!existing) existing = samePid.find(r => !maiaIdsMatched.has(r.id)) ?? null
+    if (!existing && cincSnap.account_number) {
+      const sameAcct = maiaByAcct.get(cincSnap.account_number.toUpperCase()) ?? []
+      existing = sameAcct.find(r => !maiaIdsMatched.has(r.id) && nameKey(r.first_name ?? r.entity_name, r.last_name) === nk) ?? null
+      if (!existing) existing = sameAcct.find(r => !maiaIdsMatched.has(r.id)) ?? null
+    }
     if (!existing && prop.UnitNo) {
       const sameUnit = maiaByUnit.get(String(prop.UnitNo).trim()) ?? []
       existing = sameUnit.find(r => !maiaIdsMatched.has(r.id) && nameKey(r.first_name ?? r.entity_name, r.last_name) === nk) ?? null
+      if (!existing) existing = sameUnit.find(r => !maiaIdsMatched.has(r.id)) ?? null
     }
     if (!existing && nk !== '|') {
       const sameName = maiaByNameKey.get(nk) ?? []
