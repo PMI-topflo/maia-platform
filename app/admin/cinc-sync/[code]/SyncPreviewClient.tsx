@@ -112,9 +112,14 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? 'apply failed')
       setResult(data as ApplyResult)
-      // Re-fetch the preview so it reflects what's in DB now
+      // Re-fetch the preview so it reflects what's in DB now, and
+      // automatically reveal the now-synced rows so staff get visual
+      // confirmation (green SYNCED badge) that the data matches on
+      // both sides instead of seeing an empty "everything in sync"
+      // placeholder with no detail.
       const fresh = await fetch(`/api/admin/cinc-sync/${assocCode}/preview`).then(r => r.json())
       setPreview(fresh)
+      setShowMatched(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -155,9 +160,12 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
       </div>
 
       {result && (
-        <div className="bg-white border border-green-300 rounded-lg p-4 text-sm text-green-800">
-          <div className="font-semibold mb-1">Applied:</div>
-          <ul className="list-disc pl-5 space-y-0.5">
+        <div className="bg-green-50 border border-green-300 rounded-lg p-4 text-sm text-green-900">
+          <div className="font-semibold mb-1 flex items-center gap-2">
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-green-600 text-white text-xs">✓</span>
+            Sync complete — rows that match on both sides are now marked <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-green-600 text-white">✓ SYNCED</span> below.
+          </div>
+          <ul className="list-disc pl-5 space-y-0.5 mt-2 text-green-800">
             <li>Owners inserted: {result.ownersInserted}</li>
             <li>Owners updated: {result.ownersUpdated}</li>
             <li>Board members inserted: {result.boardInserted}</li>
@@ -199,7 +207,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
           }
           return (
             <Fragment key={cmp.selection_key}>
-              <tr className={cmp.status === 'match' ? 'opacity-60' : ''}>
+              <tr className={cmp.status === 'match' ? 'bg-green-50/40' : ''}>
                 <td className="px-3 py-2 align-top w-8">
                   {canPick && <input type="checkbox" checked={sel} onChange={onToggle} className="accent-[#f26a1b]" />}
                 </td>
@@ -263,7 +271,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
             }
           }
           return (
-            <tr key={`b-${id}`} className={cmp.status === 'match' ? 'opacity-60' : ''}>
+            <tr key={`b-${id}`} className={cmp.status === 'match' ? 'bg-green-50/40' : ''}>
               <td className="px-3 py-2 align-top w-8">
                 {canPick && <input type="checkbox" checked={sel} onChange={onToggle} className="accent-[#f26a1b]" />}
               </td>
@@ -328,16 +336,19 @@ function Stat({ label, value, color, mono }: { label: string; value: number | st
 }
 
 function StatusBadge({ status }: { status: string }) {
+  // SYNCED gets a saturated green ring so staff can SEE post-apply that
+  // a row really did land. Greys read as "neutral / nothing happened"
+  // and were hard to distinguish from disabled rows.
   const styles: Record<string, string> = {
     insert:       'bg-green-100 text-green-700',
     update:       'bg-amber-100 text-amber-800',
-    match:        'bg-gray-100 text-gray-500',
+    match:        'bg-green-600 text-white',
     only_in_maia: 'bg-blue-100 text-blue-700',
   }
   const labels: Record<string, string> = {
     insert:       'INSERT',
     update:       'UPDATE',
-    match:        'IN SYNC',
+    match:        '✓ SYNCED',
     only_in_maia: 'KEEP (not in CINC)',
   }
   return (
