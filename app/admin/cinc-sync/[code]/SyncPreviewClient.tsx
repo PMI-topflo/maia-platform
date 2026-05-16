@@ -26,10 +26,12 @@ interface BoardSnap {
 }
 interface OwnerCmp {
   status:           'insert' | 'update' | 'match' | 'only_in_maia'
+  selection_key:    string
   account_number:   string | null
   unit_number:      string | null
   owner_number:     number | null
   cinc_property_id: number | null
+  cinc_name_slot:   number | null
   owners_id:        number | null
   maia:             OwnerSnap | null
   cinc:             OwnerSnap | null
@@ -66,10 +68,9 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
   const [preview,  setPreview]  = useState<SyncPreview | null>(null)
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
-  const [selOwnerIns, setSelOwnerIns] = useState<Set<number>>(new Set())
-  const [selOwnerUpd, setSelOwnerUpd] = useState<Set<number>>(new Set())
-  const [selBoardIns, setSelBoardIns] = useState<Set<number>>(new Set())
-  const [selBoardDe,  setSelBoardDe]  = useState<Set<string>>(new Set())
+  const [selOwnerKeys, setSelOwnerKeys] = useState<Set<string>>(new Set())
+  const [selBoardIns,  setSelBoardIns]  = useState<Set<number>>(new Set())
+  const [selBoardDe,   setSelBoardDe]   = useState<Set<string>>(new Set())
   const [showMatched, setShowMatched] = useState(false)
   const [applying, setApplying] = useState(false)
   const [result,   setResult]   = useState<ApplyResult | null>(null)
@@ -83,12 +84,10 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
         if (cancelled) return
         setPreview(data)
         // Pre-select every actionable row (staff unticks what they don't want).
-        const insOwners = data.owners.filter(o => o.status === 'insert' && o.cinc_property_id != null).map(o => o.cinc_property_id as number)
-        const updOwners = data.owners.filter(o => o.status === 'update' && o.owners_id != null).map(o => o.owners_id as number)
+        const ownerKeys = data.owners.filter(o => o.status === 'insert' || o.status === 'update').map(o => o.selection_key)
         const insBoard  = data.board.filter(b => b.status === 'insert' && b.cinc_board_member_id != null).map(b => b.cinc_board_member_id as number)
         const deBoard   = data.board.filter(b => b.status === 'only_in_maia' && b.abm_id != null).map(b => b.abm_id as string)
-        setSelOwnerIns(new Set(insOwners))
-        setSelOwnerUpd(new Set(updOwners))
+        setSelOwnerKeys(new Set(ownerKeys))
         setSelBoardIns(new Set(insBoard))
         setSelBoardDe(new Set(deBoard))
       })
@@ -105,8 +104,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          insertOwnerCincIds: [...selOwnerIns],
-          updateOwnerIds:     [...selOwnerUpd],
+          ownerKeys:          [...selOwnerKeys],
           insertBoardCincIds: [...selBoardIns],
           deactivateBoardIds: [...selBoardDe],
         }),
@@ -137,7 +135,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
   if (error)   return <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</div>
   if (!preview) return null
 
-  const totalToApply = selOwnerIns.size + selOwnerUpd.size + selBoardIns.size + selBoardDe.size
+  const totalToApply = selOwnerKeys.size + selBoardIns.size + selBoardDe.size
 
   return (
     <div className="space-y-4">
@@ -192,29 +190,21 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
         {visibleOwners.length === 0 && (
           <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">{showMatched ? 'No owner rows.' : 'Everything in sync. Tick "Show units already in sync" to verify.'}</td></tr>
         )}
-        {visibleOwners.map((cmp, idx) => {
-          const id = cmp.cinc_property_id ?? cmp.owners_id ?? idx
-          const sel = (() => {
-            if (cmp.status === 'insert' && cmp.cinc_property_id != null) return selOwnerIns.has(cmp.cinc_property_id)
-            if (cmp.status === 'update' && cmp.owners_id != null)        return selOwnerUpd.has(cmp.owners_id)
-            return false
-          })()
+        {visibleOwners.map((cmp) => {
           const canPick = cmp.status === 'insert' || cmp.status === 'update'
+          const sel     = canPick && selOwnerKeys.has(cmp.selection_key)
           const onToggle = () => {
-            if (cmp.status === 'insert' && cmp.cinc_property_id != null) {
-              setSelOwnerIns(prev => toggleNum(prev, cmp.cinc_property_id as number))
-            } else if (cmp.status === 'update' && cmp.owners_id != null) {
-              setSelOwnerUpd(prev => toggleNum(prev, cmp.owners_id as number))
-            }
+            if (!canPick) return
+            setSelOwnerKeys(prev => toggleStr(prev, cmp.selection_key))
           }
           return (
-            <Fragment key={`o-${id}`}>
+            <Fragment key={cmp.selection_key}>
               <tr className={cmp.status === 'match' ? 'opacity-60' : ''}>
                 <td className="px-3 py-2 align-top w-8">
                   {canPick && <input type="checkbox" checked={sel} onChange={onToggle} className="accent-[#f26a1b]" />}
                 </td>
                 <td className="px-3 py-2 align-top">
-                  <UnitCell account={cmp.account_number} unit={cmp.unit_number} ownerNumber={cmp.owner_number} cincId={cmp.cinc_property_id} maiaId={cmp.owners_id} />
+                  <UnitCell account={cmp.account_number} unit={cmp.unit_number} ownerNumber={cmp.owner_number} cincId={cmp.cinc_property_id} maiaId={cmp.owners_id} nameSlot={cmp.cinc_name_slot} />
                 </td>
                 <td className="px-3 py-2 align-top">
                   <OwnerSide snap={cmp.maia} hidden={!cmp.maia} />
@@ -357,15 +347,22 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function UnitCell({ account, unit, ownerNumber, cincId, maiaId }: { account: string | null; unit: string | null; ownerNumber: number | null; cincId: number | null; maiaId: number | null }) {
+function UnitCell({ account, unit, ownerNumber, cincId, maiaId, nameSlot }: { account: string | null; unit: string | null; ownerNumber: number | null; cincId: number | null; maiaId: number | null; nameSlot: number | null }) {
   return (
     <div>
       <div className="text-sm font-semibold text-gray-900 font-mono">{account ?? '—'}</div>
       <div className="text-[11px] text-gray-500 leading-tight">
         Unit {unit ?? '—'}{ownerNumber != null && ownerNumber > 1 ? ` · Owner #${ownerNumber}` : ''}
+        {nameSlot === 1 && (
+          // CINC stores a second name pair on the same address row
+          // (FirstName1/LastName1) for joint owners — person + entity,
+          // two spouses, etc. Surface it so staff know this is the
+          // SECOND owner on the address record, not a duplicate.
+          <span className="ml-1 inline-flex items-center px-1.5 py-0 rounded text-[9px] font-semibold uppercase bg-purple-100 text-purple-700 align-middle">2nd name</span>
+        )}
       </div>
       <div className="text-[10px] font-mono text-gray-400 leading-tight mt-0.5">
-        {cincId != null && <div>CINC PropertyID {cincId}</div>}
+        {cincId != null && <div>CINC PropertyID {cincId}{nameSlot != null ? `·${nameSlot}` : ''}</div>}
         {maiaId != null && <div>MAIA owners.id {maiaId}</div>}
       </div>
     </div>

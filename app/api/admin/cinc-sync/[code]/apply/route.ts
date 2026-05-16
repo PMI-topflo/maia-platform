@@ -26,10 +26,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
   catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }) }
 
   const selection: ApplySelection = {
-    insertOwnerCincIds:  Array.isArray(body.insertOwnerCincIds)  ? body.insertOwnerCincIds.filter((n): n is number => typeof n === 'number') : [],
-    updateOwnerIds:      Array.isArray(body.updateOwnerIds)      ? body.updateOwnerIds    .filter((n): n is number => typeof n === 'number') : [],
-    insertBoardCincIds:  Array.isArray(body.insertBoardCincIds)  ? body.insertBoardCincIds.filter((n): n is number => typeof n === 'number') : [],
-    deactivateBoardIds:  Array.isArray(body.deactivateBoardIds)  ? body.deactivateBoardIds.filter((s): s is string => typeof s === 'string') : [],
+    ownerKeys:           Array.isArray(body.ownerKeys)           ? body.ownerKeys          .filter((s): s is string => typeof s === 'string') : [],
+    insertBoardCincIds:  Array.isArray(body.insertBoardCincIds)  ? body.insertBoardCincIds .filter((n): n is number => typeof n === 'number') : [],
+    deactivateBoardIds:  Array.isArray(body.deactivateBoardIds)  ? body.deactivateBoardIds .filter((s): s is string => typeof s === 'string') : [],
   }
 
   const actorEmail = typeof session.userId === 'string' && session.userId.includes('@') ? session.userId.toLowerCase() : null

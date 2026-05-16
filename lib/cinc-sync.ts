@@ -47,6 +47,15 @@ export type OwnerStatus = 'insert' | 'update' | 'match' | 'only_in_maia'
 
 export interface OwnerComparison {
   status:             OwnerStatus
+  /** Stable identifier for selection / apply. Encodes both which side
+   *  the row came from AND (for CINC rows) the name slot, since a
+   *  single CINC PropertyInfo can carry two distinct name pairs in
+   *  FirstName/LastName and FirstName1/LastName1 (entity + person, two
+   *  spouses, etc.).
+   *    "cinc:<PropertyID>:<slot>"  — CINC-sourced row (slot 0|1)
+   *    "maia:<owners.id>"          — MAIA-sourced row (update / only_in_maia)
+   */
+  selection_key:      string
   /** Sort key for the UI — prefers CINC's PropertyHOID (e.g. "ABBOTT1"),
    *  falls back to MAIA's account_number, finally to unit_number. */
   account_number:     string | null
@@ -54,6 +63,10 @@ export interface OwnerComparison {
   owner_number:       number | null
   /** stable upstream id if CINC carries the row */
   cinc_property_id:   number | null
+  /** Which name slot inside the CINC PropertyInfo this snapshot
+   *  represents (0 = FirstName/LastName, 1 = FirstName1/LastName1).
+   *  Null for MAIA-only rows. */
+  cinc_name_slot:     number | null
   /** local row id if MAIA carries the row */
   owners_id:          number | null
   maia:               OwnerSnapshot | null
@@ -108,27 +121,61 @@ function lower(s: string | null | undefined): string {
   return (s ?? '').trim().toLowerCase()
 }
 
-function snapshotFromCincProperty(p: CincPropertyInfo): OwnerSnapshot {
+/** Returns one snapshot per distinct name pair on the property's owner
+ *  address. CINC stores two name pairs per address row (FirstName/LastName
+ *  and FirstName1/LastName1) so that joint owners — typically a person
+ *  alongside an entity (e.g. "Michel Nasiff + San Sebastian Investors,
+ *  LLC") or two spouses — share the same contact info. We need both,
+ *  otherwise the diff shows only one of them and the user can never
+ *  reconcile what CINC actually has.
+ *
+ *  Each returned snapshot carries the slot index (0 or 1) so callers can
+ *  build a stable selection key that distinguishes the two. */
+function snapshotsFromCincProperty(p: CincPropertyInfo): Array<{ slot: number; snap: OwnerSnapshot }> {
   const a = (p.Address ?? []).find(x => x.OwnerAddress) ?? p.Address?.[0]
-  if (!a) return {
-    account_number: p.PropertyHOID ?? null,
-    unit_number:    p.UnitNo ?? null,
-    first_name:     null, last_name: null, emails: null, phone: null, address: null,
-  }
-  const street = [a.StreetNumber, a.Address].filter(Boolean).join(' ').trim() || null
+  if (!a) return [{
+    slot: 0,
+    snap: {
+      account_number: p.PropertyHOID ?? null,
+      unit_number:    p.UnitNo ?? null,
+      first_name:     null, last_name: null, emails: null, phone: null, address: null,
+    },
+  }]
+  const street   = [a.StreetNumber, a.Address].filter(Boolean).join(' ').trim() || null
   const rawPhone = a.MobilePhone || a.HomePhone || a.WorkPhone || null
-  return {
+  // Normalize at the boundary — CINC stores phones in mixed formats
+  // (raw digits, parenthesized, etc.) but we always want the E.164 form
+  // (+1XXXXXXXXXX) in our DB so WhatsApp / SMS APIs can dial.
+  const phone    = normalizePhone(rawPhone)
+  const emails   = (a.Email ?? '').trim().toLowerCase() || null
+
+  const first1 = (a.FirstName  ?? '').trim() || null
+  const last1  = (a.LastName   ?? '').trim() || null
+  const first2 = (a.FirstName1 ?? '').trim() || null
+  const last2  = (a.LastName1  ?? '').trim() || null
+
+  const baseSnap = (first: string | null, last: string | null): OwnerSnapshot => ({
     account_number: p.PropertyHOID ?? null,
     unit_number:    p.UnitNo ?? null,
-    first_name:     (a.FirstName ?? '').trim() || null,
-    last_name:      (a.LastName  ?? '').trim() || null,
-    emails:         (a.Email     ?? '').trim().toLowerCase() || null,
-    // Normalize at the boundary — CINC stores phones in mixed formats
-    // (raw digits, parenthesized, etc.) but we always want the E.164
-    // form (+1XXXXXXXXXX) in our DB so WhatsApp / SMS APIs can dial.
-    phone:          normalizePhone(rawPhone),
+    first_name:     first,
+    last_name:      last,
+    emails,
+    phone,
     address:        street,
+  })
+
+  const out: Array<{ slot: number; snap: OwnerSnapshot }> = []
+  if (first1 || last1) out.push({ slot: 0, snap: baseSnap(first1, last1) })
+  // Only emit secondary slot when it carries a name distinct from the
+  // primary — CINC sometimes leaves the slot blank, sometimes duplicates
+  // the primary; both should collapse to a single row.
+  if ((first2 || last2) && nameKey(first1, last1) !== nameKey(first2, last2)) {
+    out.push({ slot: 1, snap: baseSnap(first2, last2) })
   }
+  // Edge case: both name pairs are empty — still emit one row so the
+  // address/email/phone show up in the diff.
+  if (out.length === 0) out.push({ slot: 0, snap: baseSnap(null, null) })
+  return out
 }
 
 interface MaiaOwnerRow {
@@ -248,87 +295,114 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
   const maiaIdsMatched = new Set<number>()
   const owners: OwnerComparison[] = []
 
+  // Helper: best STRICT (name-aware) match for one CINC snapshot.
+  // Precedence: same cinc_property_id → same account_number → same unit
+  // → any same-name row in the association. Doesn't claim — caller does.
+  function findStrictMatch(prop: CincPropertyInfo, snap: OwnerSnapshot): MaiaOwnerRow | null {
+    const nk = nameKey(snap.first_name, snap.last_name)
+    if (nk === '|') return null
+    const tryMatch = (rows: MaiaOwnerRow[]) =>
+      rows.find(r => !maiaIdsMatched.has(r.id) && nameKey(r.first_name ?? r.entity_name, r.last_name) === nk) ?? null
+    let m = tryMatch(maiaByCincId.get(prop.PropertyID) ?? [])
+    if (!m && snap.account_number) m = tryMatch(maiaByAcct.get(snap.account_number.toUpperCase()) ?? [])
+    if (!m && prop.UnitNo)         m = tryMatch(maiaByUnit.get(String(prop.UnitNo).trim()) ?? [])
+    if (!m)                        m = tryMatch(maiaByNameKey.get(nk) ?? [])
+    return m
+  }
+
+  // Helper: LOOSE fallback (any unclaimed MAIA row at this PID/account/unit,
+  // regardless of name). Only safe for the primary slot — the secondary
+  // slot's name must line up exactly or it becomes an INSERT.
+  function findLooseMatch(prop: CincPropertyInfo, snap: OwnerSnapshot): MaiaOwnerRow | null {
+    const tryAny = (rows: MaiaOwnerRow[]) =>
+      rows.find(r => !maiaIdsMatched.has(r.id)) ?? null
+    let m = tryAny(maiaByCincId.get(prop.PropertyID) ?? [])
+    if (!m && snap.account_number) m = tryAny(maiaByAcct.get(snap.account_number.toUpperCase()) ?? [])
+    if (!m && prop.UnitNo)         m = tryAny(maiaByUnit.get(String(prop.UnitNo).trim()) ?? [])
+    return m
+  }
+
   for (const prop of consideredProperties) {
-    const cincSnap = snapshotFromCincProperty(prop)
-    const nk = nameKey(cincSnap.first_name, cincSnap.last_name)
+    const snaps = snapshotsFromCincProperty(prop)
 
-    // Match precedence — strict matches first, then loose unit/account
-    // matches so a freshly-imported MAIA row gets paired with its CINC
-    // counterpart even if the names diverge between systems:
-    //   1. Same cinc_property_id AND same name
-    //   2. Same cinc_property_id (any unclaimed owner)
-    //   3. Same account_number AND same name
-    //   4. Same account_number (any unclaimed)
-    //   5. Same unit_number AND same name
-    //   6. Same unit_number (any unclaimed) ← the new loose fallback
-    //   7. Any same-name row (assoc-wide)
-    let existing: MaiaOwnerRow | null = null
-    const samePid = maiaByCincId.get(prop.PropertyID) ?? []
-    existing = samePid.find(r => !maiaIdsMatched.has(r.id) && nameKey(r.first_name ?? r.entity_name, r.last_name) === nk) ?? null
-    if (!existing) existing = samePid.find(r => !maiaIdsMatched.has(r.id)) ?? null
-    if (!existing && cincSnap.account_number) {
-      const sameAcct = maiaByAcct.get(cincSnap.account_number.toUpperCase()) ?? []
-      existing = sameAcct.find(r => !maiaIdsMatched.has(r.id) && nameKey(r.first_name ?? r.entity_name, r.last_name) === nk) ?? null
-      if (!existing) existing = sameAcct.find(r => !maiaIdsMatched.has(r.id)) ?? null
+    // Two-pass matching, per property:
+    //   PASS 1 — strict name match for EVERY slot. This way if CINC
+    //            shuffles Owner 1 ↔ Owner 2 (e.g. person becomes primary,
+    //            entity becomes secondary), the entity row in MAIA gets
+    //            paired with whichever CINC slot still carries the
+    //            entity name — instead of slot 0 hoovering it up first.
+    //   PASS 2 — loose fallback (any unclaimed row at this PID), applied
+    //            ONLY to slot 0. The secondary slot must match by name
+    //            or become an INSERT, otherwise we'd silently rename
+    //            arbitrary MAIA rows.
+    const slotMatches = new Map<number, MaiaOwnerRow>()
+    for (const { slot, snap } of snaps) {
+      const m = findStrictMatch(prop, snap)
+      if (m) { slotMatches.set(slot, m); maiaIdsMatched.add(m.id) }
     }
-    if (!existing && prop.UnitNo) {
-      const sameUnit = maiaByUnit.get(String(prop.UnitNo).trim()) ?? []
-      existing = sameUnit.find(r => !maiaIdsMatched.has(r.id) && nameKey(r.first_name ?? r.entity_name, r.last_name) === nk) ?? null
-      if (!existing) existing = sameUnit.find(r => !maiaIdsMatched.has(r.id)) ?? null
+    for (const { slot, snap } of snaps) {
+      if (slotMatches.has(slot)) continue
+      if (slot !== 0)            continue
+      const m = findLooseMatch(prop, snap)
+      if (m) { slotMatches.set(slot, m); maiaIdsMatched.add(m.id) }
     }
-    if (!existing && nk !== '|') {
-      const sameName = maiaByNameKey.get(nk) ?? []
-      existing = sameName.find(r => !maiaIdsMatched.has(r.id)) ?? null
-    }
-    if (existing) maiaIdsMatched.add(existing.id)
 
-    if (!existing) {
+    for (const { slot, snap: cincSnap } of snaps) {
+      const existing     = slotMatches.get(slot) ?? null
+      const selectionKey = `cinc:${prop.PropertyID}:${slot}`
+
+      if (!existing) {
+        owners.push({
+          status:           'insert',
+          selection_key:    selectionKey,
+          account_number:   cincSnap.account_number,
+          unit_number:      prop.UnitNo ?? null,
+          owner_number:     prop.OwnerNumber ?? null,
+          cinc_property_id: prop.PropertyID,
+          cinc_name_slot:   slot,
+          owners_id:        null,
+          maia:             null,
+          cinc:             cincSnap,
+        })
+        continue
+      }
+
+      const maiaSnap = snapshotFromMaiaOwner(existing)
+      const changes: NonNullable<OwnerComparison['changes']> = {}
+      if (cincSnap.first_name && cincSnap.first_name !== maiaSnap.first_name) changes.first_name = { current: maiaSnap.first_name, proposed: cincSnap.first_name }
+      if (cincSnap.last_name  && cincSnap.last_name  !== maiaSnap.last_name)  changes.last_name  = { current: maiaSnap.last_name,  proposed: cincSnap.last_name  }
+      if (cincSnap.emails     && !emailsContain(maiaSnap.emails, cincSnap.emails)) changes.emails = { current: maiaSnap.emails, proposed: cincSnap.emails }
+      // Phone: compare on digits only so MAIA's E.164 (+17865551212)
+      // matches CINC's raw 7865551212. Skip the change when they share
+      // digits — otherwise the diff would propose to overwrite the
+      // already-formatted WhatsApp-ready number with the raw CINC value.
+      // When MAIA genuinely has nothing, we still write the normalized
+      // form (cincSnap.phone is already normalized at extraction).
+      if (cincSnap.phone
+          && !phonesEqualByDigits(maiaSnap.phone, cincSnap.phone)
+          && !phonesEqualByDigits(existing.phone_2, cincSnap.phone)) {
+        changes.phone = { current: maiaSnap.phone, proposed: cincSnap.phone }
+      }
+      if (cincSnap.address    && cincSnap.address !== maiaSnap.address) changes.address = { current: maiaSnap.address, proposed: cincSnap.address }
+      if (cincSnap.account_number && cincSnap.account_number !== maiaSnap.account_number) changes.account_number = { current: maiaSnap.account_number, proposed: cincSnap.account_number }
+      if (existing.cinc_property_id == null) {
+        changes.cinc_property_id = { current: null, proposed: String(prop.PropertyID) }
+      }
+
       owners.push({
-        status:           'insert',
-        account_number:   cincSnap.account_number,
-        unit_number:      prop.UnitNo ?? null,
+        status:           Object.keys(changes).length === 0 ? 'match' : 'update',
+        selection_key:    selectionKey,
+        account_number:   cincSnap.account_number ?? maiaSnap.account_number,
+        unit_number:      prop.UnitNo ?? existing.unit_number ?? null,
         owner_number:     prop.OwnerNumber ?? null,
         cinc_property_id: prop.PropertyID,
-        owners_id:        null,
-        maia:             null,
+        cinc_name_slot:   slot,
+        owners_id:        existing.id,
+        maia:             maiaSnap,
         cinc:             cincSnap,
+        changes:          Object.keys(changes).length === 0 ? undefined : changes,
       })
-      continue
     }
-
-    const maiaSnap = snapshotFromMaiaOwner(existing)
-    const changes: NonNullable<OwnerComparison['changes']> = {}
-    if (cincSnap.first_name && cincSnap.first_name !== maiaSnap.first_name) changes.first_name = { current: maiaSnap.first_name, proposed: cincSnap.first_name }
-    if (cincSnap.last_name  && cincSnap.last_name  !== maiaSnap.last_name)  changes.last_name  = { current: maiaSnap.last_name,  proposed: cincSnap.last_name  }
-    if (cincSnap.emails     && !emailsContain(maiaSnap.emails, cincSnap.emails)) changes.emails = { current: maiaSnap.emails, proposed: cincSnap.emails }
-    // Phone: compare on digits only so MAIA's E.164 (+17865551212)
-    // matches CINC's raw 7865551212. Skip the change when they share
-    // digits — otherwise the diff would propose to overwrite the
-    // already-formatted WhatsApp-ready number with the raw CINC value.
-    // When MAIA genuinely has nothing, we still write the normalized
-    // form (cincSnap.phone is already normalized at extraction).
-    if (cincSnap.phone
-        && !phonesEqualByDigits(maiaSnap.phone, cincSnap.phone)
-        && !phonesEqualByDigits(existing.phone_2, cincSnap.phone)) {
-      changes.phone = { current: maiaSnap.phone, proposed: cincSnap.phone }
-    }
-    if (cincSnap.address    && cincSnap.address !== maiaSnap.address) changes.address = { current: maiaSnap.address, proposed: cincSnap.address }
-    if (cincSnap.account_number && cincSnap.account_number !== maiaSnap.account_number) changes.account_number = { current: maiaSnap.account_number, proposed: cincSnap.account_number }
-    if (existing.cinc_property_id == null) {
-      changes.cinc_property_id = { current: null, proposed: String(prop.PropertyID) }
-    }
-
-    owners.push({
-      status:           Object.keys(changes).length === 0 ? 'match' : 'update',
-      account_number:   cincSnap.account_number ?? maiaSnap.account_number,
-      unit_number:      prop.UnitNo ?? existing.unit_number ?? null,
-      owner_number:     prop.OwnerNumber ?? null,
-      cinc_property_id: prop.PropertyID,
-      owners_id:        existing.id,
-      maia:             maiaSnap,
-      cinc:             cincSnap,
-      changes:          Object.keys(changes).length === 0 ? undefined : changes,
-    })
   }
 
   // MAIA-only rows
@@ -337,10 +411,12 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
     const maiaSnap = snapshotFromMaiaOwner(row)
     owners.push({
       status:           'only_in_maia',
+      selection_key:    `maia:${row.id}`,
       account_number:   maiaSnap.account_number,
       unit_number:      row.unit_number,
       owner_number:     null,
       cinc_property_id: row.cinc_property_id,
+      cinc_name_slot:   null,
       owners_id:        row.id,
       maia:             maiaSnap,
       cinc:             null,
@@ -457,8 +533,13 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
 // ─────────────────────────────────────────────────────────────────────
 
 export interface ApplySelection {
-  insertOwnerCincIds:  number[]
-  updateOwnerIds:      number[]
+  /** Owner comparison selection_keys to apply.
+   *  "cinc:<PropertyID>:<slot>" rows of status='insert' or 'update' are
+   *  honored; everything else (only_in_maia, match) is ignored even if
+   *  the key is present. The two key formats coexist for the same
+   *  PropertyID so a property with both a primary AND a secondary name
+   *  pair can be inserted as two distinct owner rows. */
+  ownerKeys:           string[]
   insertBoardCincIds:  number[]
   deactivateBoardIds:  string[]
 }
@@ -492,65 +573,63 @@ export async function applySync(
     .maybeSingle()
   const assocName = assocRow?.association_name ?? preview.associationName ?? code
 
-  // ── Owner inserts ──────────────────────────────────────────────────
-  const insertSet = new Set(selection.insertOwnerCincIds)
+  // ── Owners (insert + update share one selection set) ───────────────
+  const ownerKeySet = new Set(selection.ownerKeys)
   for (const cmp of preview.owners) {
-    if (cmp.status !== 'insert') continue
-    if (cmp.cinc_property_id == null || !insertSet.has(cmp.cinc_property_id)) continue
-    const today = new Date().toISOString().slice(0, 10)
-    const { data: inserted, error } = await supabaseAdmin
-      .from('owners')
-      .insert({
-        association_code:     code,
-        association_name:     assocName,
-        unit_number:          cmp.unit_number,
-        first_name:           cmp.cinc?.first_name ?? null,
-        last_name:            cmp.cinc?.last_name  ?? null,
-        emails:               cmp.cinc?.emails     ?? null,
-        phone:                cmp.cinc?.phone      ?? null,
-        address:              cmp.cinc?.address    ?? null,
-        status:               'active',
-        ownership_start_date: today,
-        cinc_property_id:     cmp.cinc_property_id,
+    if (!ownerKeySet.has(cmp.selection_key)) continue
+
+    if (cmp.status === 'insert' && cmp.cinc_property_id != null) {
+      const today = new Date().toISOString().slice(0, 10)
+      const { data: inserted, error } = await supabaseAdmin
+        .from('owners')
+        .insert({
+          association_code:     code,
+          association_name:     assocName,
+          unit_number:          cmp.unit_number,
+          first_name:           cmp.cinc?.first_name ?? null,
+          last_name:            cmp.cinc?.last_name  ?? null,
+          emails:               cmp.cinc?.emails     ?? null,
+          phone:                cmp.cinc?.phone      ?? null,
+          address:              cmp.cinc?.address    ?? null,
+          status:               'active',
+          ownership_start_date: today,
+          cinc_property_id:     cmp.cinc_property_id,
+        })
+        .select('id')
+        .single()
+      if (error || !inserted) {
+        errors.push(`owner insert (${cmp.selection_key}): ${error?.message}`)
+        continue
+      }
+      ownersInserted++
+      await supabaseAdmin.from('ownership_history').insert({
+        association_code:  code,
+        unit_number:       cmp.unit_number,
+        new_owner_id:      inserted.id,
+        new_owner_name:    [cmp.cinc?.first_name, cmp.cinc?.last_name].filter(Boolean).join(' '),
+        new_owner_emails:  cmp.cinc?.emails ?? null,
+        transfer_date:     today,
+        source:            'import',
+        actor_email:       actorEmail,
+        notes:             `Imported from CINC via /admin/cinc-sync (PropertyID=${cmp.cinc_property_id}, name-slot=${cmp.cinc_name_slot ?? 0})`,
       })
-      .select('id')
-      .single()
-    if (error || !inserted) {
-      errors.push(`owner insert (cinc_property_id=${cmp.cinc_property_id}): ${error?.message}`)
       continue
     }
-    ownersInserted++
-    await supabaseAdmin.from('ownership_history').insert({
-      association_code:  code,
-      unit_number:       cmp.unit_number,
-      new_owner_id:      inserted.id,
-      new_owner_name:    [cmp.cinc?.first_name, cmp.cinc?.last_name].filter(Boolean).join(' '),
-      new_owner_emails:  cmp.cinc?.emails ?? null,
-      transfer_date:     today,
-      source:            'import',
-      actor_email:       actorEmail,
-      notes:             `Imported from CINC via /admin/cinc-sync (PropertyID=${cmp.cinc_property_id})`,
-    })
-  }
 
-  // ── Owner updates ─────────────────────────────────────────────────
-  const updateSet = new Set(selection.updateOwnerIds)
-  for (const cmp of preview.owners) {
-    if (cmp.status !== 'update' || cmp.owners_id == null) continue
-    if (!updateSet.has(cmp.owners_id)) continue
-    if (!cmp.changes) continue
-    const patch: Record<string, unknown> = {}
-    for (const [field, diff] of Object.entries(cmp.changes)) {
-      if (field === 'cinc_property_id') {
-        patch.cinc_property_id = diff.proposed != null ? Number(diff.proposed) : null
-      } else {
-        patch[field] = diff.proposed
+    if (cmp.status === 'update' && cmp.owners_id != null && cmp.changes) {
+      const patch: Record<string, unknown> = {}
+      for (const [field, diff] of Object.entries(cmp.changes)) {
+        if (field === 'cinc_property_id') {
+          patch.cinc_property_id = diff.proposed != null ? Number(diff.proposed) : null
+        } else {
+          patch[field] = diff.proposed
+        }
       }
+      if (Object.keys(patch).length === 0) continue
+      const { error } = await supabaseAdmin.from('owners').update(patch).eq('id', cmp.owners_id)
+      if (error) errors.push(`owner update (id=${cmp.owners_id}): ${error.message}`)
+      else      ownersUpdated++
     }
-    if (Object.keys(patch).length === 0) continue
-    const { error } = await supabaseAdmin.from('owners').update(patch).eq('id', cmp.owners_id)
-    if (error) errors.push(`owner update (id=${cmp.owners_id}): ${error.message}`)
-    else      ownersUpdated++
   }
 
   // ── Board inserts ─────────────────────────────────────────────────
