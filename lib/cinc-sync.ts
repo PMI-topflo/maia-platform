@@ -121,38 +121,72 @@ function lower(s: string | null | undefined): string {
   return (s ?? '').trim().toLowerCase()
 }
 
-/** Returns one snapshot per distinct name pair on the property's owner
- *  address. CINC stores two name pairs per address row (FirstName/LastName
- *  and FirstName1/LastName1) so that joint owners — typically a person
- *  alongside an entity (e.g. "Michel Nasiff + San Sebastian Investors,
- *  LLC") or two spouses — share the same contact info. We need both,
- *  otherwise the diff shows only one of them and the user can never
- *  reconcile what CINC actually has.
+/** Returns one snapshot per distinct owner name pair on the property.
  *
- *  Each returned snapshot carries the slot index (0 or 1) so callers can
- *  build a stable selection key that distinguishes the two. */
+ *  Confirmed by probe (scripts/probe-cinc-homeowners.ts ABBOTT): a CINC
+ *  PropertyInfo has TWO Address rows that play different roles:
+ *
+ *  - PROPERTY ADDRESS  (OwnerAddress=false, AddressTypeDescription
+ *                       "Property Address"):
+ *      Carries the actual OWNER NAMES, both slots —
+ *      FirstName/LastName  = primary owner (typically the person)
+ *      FirstName1/LastName1= secondary owner (typically the entity,
+ *                            often only the LastName1 is populated for
+ *                            an LLC). Also carries the multi-email
+ *                            field (comma-joined) and the contact phone.
+ *
+ *  - OFFSITE ADDRESS   (OwnerAddress=true, AddressTypeDescription
+ *                       "Owner's Offsite Address"):
+ *      Carries the BILLING/MAILING info — the street where to send
+ *      paper notices, plus a single billing name + a single billing
+ *      email. It does NOT carry the dual name pair, so reading names
+ *      from here loses the person+entity pairing.
+ *
+ *  Previously this function picked OwnerAddress=true for everything,
+ *  which meant CINC's "Owner 1 + Owner 2" data was invisible to MAIA
+ *  and the diff would propose to overwrite the full multi-email field
+ *  with the single billing email.
+ *
+ *  Now: names + email + phone come from PROPERTY ADDRESS, street comes
+ *  from OFFSITE ADDRESS. Each returned snapshot carries its slot index
+ *  (0 or 1) so the matcher can build a stable selection key. */
 function snapshotsFromCincProperty(p: CincPropertyInfo): Array<{ slot: number; snap: OwnerSnapshot }> {
-  const a = (p.Address ?? []).find(x => x.OwnerAddress) ?? p.Address?.[0]
-  if (!a) return [{
-    slot: 0,
-    snap: {
-      account_number: p.PropertyHOID ?? null,
-      unit_number:    p.UnitNo ?? null,
-      first_name:     null, last_name: null, emails: null, phone: null, address: null,
-    },
-  }]
-  const street   = [a.StreetNumber, a.Address].filter(Boolean).join(' ').trim() || null
-  const rawPhone = a.MobilePhone || a.HomePhone || a.WorkPhone || null
+  const addresses = p.Address ?? []
+  const propAddr  = addresses.find(a => !a.OwnerAddress) ?? null  // owner names + contact
+  const offsite   = addresses.find(a =>  a.OwnerAddress) ?? null  // billing street
+  const fallback  = addresses[0] ?? null
+
+  // Names + email + phone — prefer property-address (dual-slot + multi-
+  // email), fall back to offsite or the first row if CINC stores data
+  // in a non-standard shape for this property.
+  const nameSrc = propAddr ?? offsite ?? fallback
+  // Street address — prefer offsite (the owner's mailing address, which
+  // is what CINC's UI surfaces), fall back to property address.
+  const streetSrc = offsite ?? propAddr ?? fallback
+
+  if (!nameSrc && !streetSrc) {
+    return [{
+      slot: 0,
+      snap: {
+        account_number: p.PropertyHOID ?? null,
+        unit_number:    p.UnitNo ?? null,
+        first_name:     null, last_name: null, emails: null, phone: null, address: null,
+      },
+    }]
+  }
+
+  const street   = streetSrc ? ([streetSrc.StreetNumber, streetSrc.Address].filter(Boolean).join(' ').trim() || null) : null
+  const rawPhone = nameSrc ? (nameSrc.MobilePhone || nameSrc.HomePhone || nameSrc.WorkPhone || null) : null
   // Normalize at the boundary — CINC stores phones in mixed formats
   // (raw digits, parenthesized, etc.) but we always want the E.164 form
   // (+1XXXXXXXXXX) in our DB so WhatsApp / SMS APIs can dial.
   const phone    = normalizePhone(rawPhone)
-  const emails   = (a.Email ?? '').trim().toLowerCase() || null
+  const emails   = (nameSrc?.Email ?? '').trim().toLowerCase() || null
 
-  const first1 = (a.FirstName  ?? '').trim() || null
-  const last1  = (a.LastName   ?? '').trim() || null
-  const first2 = (a.FirstName1 ?? '').trim() || null
-  const last2  = (a.LastName1  ?? '').trim() || null
+  const first1 = (nameSrc?.FirstName  ?? '').trim() || null
+  const last1  = (nameSrc?.LastName   ?? '').trim() || null
+  const first2 = (nameSrc?.FirstName1 ?? '').trim() || null
+  const last2  = (nameSrc?.LastName1  ?? '').trim() || null
 
   const baseSnap = (first: string | null, last: string | null): OwnerSnapshot => ({
     account_number: p.PropertyHOID ?? null,
