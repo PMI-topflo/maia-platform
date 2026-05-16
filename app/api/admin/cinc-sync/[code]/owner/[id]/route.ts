@@ -28,10 +28,16 @@ import { normalizePhone } from '@/lib/cinc-sync'
 export const dynamic = 'force-dynamic'
 
 interface Body {
-  emails?:  string | null
-  phone?:   string | null
-  phone_2?: string | null
+  emails?:   string | null
+  phone?:    string | null
+  phone_2?:  string | null
+  language?: string | null
 }
+
+// Language codes mirror EditModal's <select> options elsewhere in the
+// admin app. Anything outside this whitelist is rejected so a typo
+// can't poison the column.
+const LANGUAGE_CODES = ['en', 'es', 'pt', 'fr', 'he', 'ru'] as const
 
 export async function PATCH(
   req: Request,
@@ -71,6 +77,16 @@ export async function PATCH(
   }
   if ('phone'   in body) patch.phone   = normalizePhone(body.phone)
   if ('phone_2' in body) patch.phone_2 = normalizePhone(body.phone_2)
+  if ('language' in body) {
+    const raw = (body.language ?? '').trim().toLowerCase()
+    if (raw && !LANGUAGE_CODES.includes(raw as typeof LANGUAGE_CODES[number])) {
+      return NextResponse.json(
+        { error: `Invalid language "${raw}". Allowed: ${LANGUAGE_CODES.join(', ')}` },
+        { status: 400 },
+      )
+    }
+    patch.language = raw || null
+  }
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
@@ -83,7 +99,7 @@ export async function PATCH(
     .update(patch)
     .eq('id', ownerId)
     .eq('association_code', code.toUpperCase())
-    .select('id, emails, phone, phone_2')
+    .select('id, emails, phone, phone_2, language')
     .single()
 
   if (error) {

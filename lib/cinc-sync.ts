@@ -35,6 +35,10 @@ export interface OwnerSnapshot {
    *  values without a second round-trip. */
   phone_2:         string | null
   address:         string | null
+  /** Preferred language code (en/es/pt/fr/he/ru). MAIA-only — CINC
+   *  doesn't track this. Surfaced so the edit modal can show + change
+   *  it alongside contact details. */
+  language:        string | null
 }
 
 export interface BoardSnapshot {
@@ -175,7 +179,7 @@ function snapshotsFromCincProperty(p: CincPropertyInfo): Array<{ slot: number; s
       snap: {
         account_number: p.PropertyHOID ?? null,
         unit_number:    p.UnitNo ?? null,
-        first_name:     null, last_name: null, emails: null, phone: null, phone_2: null, address: null,
+        first_name:     null, last_name: null, emails: null, phone: null, phone_2: null, address: null, language: null,
       },
     }]
   }
@@ -200,10 +204,12 @@ function snapshotsFromCincProperty(p: CincPropertyInfo): Array<{ slot: number; s
     last_name:      last,
     emails,
     phone,
-    // CINC's data model has no concept of a secondary owner phone, so
-    // leave it null on this side. Only MAIA snapshots carry it.
+    // CINC's data model has no concept of a secondary owner phone or
+    // language preference, so both stay null on this side. Only MAIA
+    // snapshots carry them.
     phone_2:        null,
     address:        street,
+    language:       null,
   })
 
   const out: Array<{ slot: number; snap: OwnerSnapshot }> = []
@@ -232,6 +238,7 @@ interface MaiaOwnerRow {
   phone:            string | null
   phone_2:          string | null
   address:          string | null
+  language:         string | null
 }
 
 function snapshotFromMaiaOwner(r: MaiaOwnerRow): OwnerSnapshot {
@@ -246,6 +253,7 @@ function snapshotFromMaiaOwner(r: MaiaOwnerRow): OwnerSnapshot {
     phone:          r.phone      ?? null,
     phone_2:        r.phone_2    ?? null,
     address:        r.address    ?? null,
+    language:       r.language   ?? null,
   }
 }
 
@@ -346,7 +354,7 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
   // ── Load MAIA owner side ──────────────────────────────────────────
   const { data: maiaOwnersRaw } = await supabaseAdmin
     .from('owners')
-    .select('id, cinc_property_id, account_number, unit_number, first_name, last_name, entity_name, emails, phone, phone_2, address')
+    .select('id, cinc_property_id, account_number, unit_number, first_name, last_name, entity_name, emails, phone, phone_2, address, language')
     .eq('association_code', code)
     .or('status.neq.previous,status.is.null')
 

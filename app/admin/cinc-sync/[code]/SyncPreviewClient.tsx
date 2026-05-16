@@ -22,7 +22,19 @@ interface OwnerSnap {
    *  another round-trip. */
   phone_2:        string | null
   address:        string | null
+  /** Preferred language (en/es/pt/fr/he/ru). MAIA-only, null on CINC
+   *  side. Pre-populates the edit modal. */
+  language:       string | null
 }
+
+const LANGUAGE_OPTIONS: ReadonlyArray<{ code: string; label: string }> = [
+  { code: 'en', label: 'English' },
+  { code: 'es', label: 'Español' },
+  { code: 'pt', label: 'Português' },
+  { code: 'fr', label: 'Français' },
+  { code: 'he', label: 'עברית' },
+  { code: 'ru', label: 'Русский' },
+]
 interface BoardSnap {
   name:  string | null
   email: string | null
@@ -85,7 +97,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
   // only ever one edit dialog open at a time and we need to clear it
   // after a successful save without prop-drilling.
   const [editTarget, setEditTarget] = useState<
-    | { ownerId: number; label: string; emails: string; phone: string; phone_2: string }
+    | { ownerId: number; label: string; emails: string; phone: string; phone_2: string; language: string }
     | null
   >(null)
   const [editSaving, setEditSaving] = useState(false)
@@ -98,9 +110,13 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
     setEditTarget({
       ownerId:  cmp.owners_id,
       label:    `${cmp.account_number ?? '—'} · ${ownerName}`,
-      emails:   cmp.maia.emails  ?? '',
-      phone:    cmp.maia.phone   ?? '',
-      phone_2:  cmp.maia.phone_2 ?? '',
+      emails:   cmp.maia.emails   ?? '',
+      phone:    cmp.maia.phone    ?? '',
+      phone_2:  cmp.maia.phone_2  ?? '',
+      // Default to English when the column is empty so the select has
+      // a definite value — saving preserves "en" if the user doesn't
+      // change it. Empty string would clear the column to NULL.
+      language: cmp.maia.language ?? 'en',
     })
   }
 
@@ -112,9 +128,10 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          emails:  editTarget.emails,
-          phone:   editTarget.phone,
-          phone_2: editTarget.phone_2,
+          emails:   editTarget.emails,
+          phone:    editTarget.phone,
+          phone_2:  editTarget.phone_2,
+          language: editTarget.language,
         }),
       })
       const data = await res.json()
@@ -427,7 +444,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
               />
             </label>
 
-            <label className="block mb-4">
+            <label className="block mb-3">
               <span className="text-xs font-mono uppercase tracking-wide text-gray-600">Secondary phone (optional)</span>
               <input
                 type="tel"
@@ -437,6 +454,23 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
                 className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#f26a1b] disabled:bg-gray-50 font-mono"
                 placeholder="+13055551212"
               />
+            </label>
+
+            {/* Preferred language drives which template MAIA picks for
+                outbound emails / WhatsApp messages. Owners table only
+                stores ONE language, so this is per-owner not per-channel. */}
+            <label className="block mb-4">
+              <span className="text-xs font-mono uppercase tracking-wide text-gray-600">Preferred language</span>
+              <select
+                value={editTarget.language}
+                onChange={e => setEditTarget({ ...editTarget, language: e.target.value })}
+                disabled={editSaving}
+                className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#f26a1b] disabled:bg-gray-50 bg-white"
+              >
+                {LANGUAGE_OPTIONS.map(opt => (
+                  <option key={opt.code} value={opt.code}>{opt.label}</option>
+                ))}
+              </select>
             </label>
 
             {editError && (
@@ -563,6 +597,16 @@ function OwnerSide({ snap, hidden, onEdit }: { snap: OwnerSnap | null; hidden: b
           has no phone at all. */}
       {!snap.phone && !snap.phone_2 && null}
       {snap.address && <div className="text-gray-400 text-[11px]">{snap.address}</div>}
+      {snap.language && (
+        // Tiny language chip — only renders for MAIA-side snapshots
+        // (CINC always leaves language null). Helps staff spot when a
+        // non-default language is set without opening the modal.
+        <div className="mt-0.5">
+          <span className="inline-flex items-center px-1.5 py-0 rounded text-[9px] font-semibold uppercase tracking-wide bg-indigo-100 text-indigo-700">
+            {snap.language.toUpperCase()}
+          </span>
+        </div>
+      )}
       {(snap.account_number || snap.unit_number) && (
         <div className="text-[10px] text-gray-400 font-mono mt-0.5">
           {snap.account_number ?? '—'}{snap.unit_number ? ` · Unit ${snap.unit_number}` : ''}
