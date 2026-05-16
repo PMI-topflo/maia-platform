@@ -1,11 +1,23 @@
+import { cookies } from 'next/headers'
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import SiteHeader from '@/components/SiteHeader'
+import { verifySession, SESSION_COOKIE } from '@/lib/session'
 
 export default async function MyAccountPage(props: {
   searchParams: Promise<{ id?: string; assoc?: string }>
 }) {
   const { id, assoc } = await props.searchParams
+
+  // Detect staff emulation. Middleware already lets staff sessions
+  // through to /my-account; this read just lets us SHOW that we're in
+  // emulation mode (the owner themselves never sees the banner because
+  // their persona is 'owner', not 'staff').
+  const cookieStore     = await cookies()
+  const sessionToken    = cookieStore.get(SESSION_COOKIE)?.value
+  const viewerSession   = sessionToken ? await verifySession(sessionToken) : null
+  const isStaffEmulating = viewerSession?.persona === 'staff'
 
   // Guard — must have both params
   if (!id || !assoc) redirect('/')
@@ -39,6 +51,41 @@ export default async function MyAccountPage(props: {
 
   return (
     <main className="assoc-page">
+
+      {/* Staff emulation banner — only renders when the visitor's
+          session persona is 'staff'. Lets the team verify what an owner
+          sees while testing/helping users without losing their place
+          in the admin app. */}
+      {isStaffEmulating && (
+        <div style={{
+          background:      '#f26a1b',
+          color:           '#fff',
+          padding:         '0.5rem 1rem',
+          fontFamily:      'var(--font-mono)',
+          fontSize:        '0.7rem',
+          letterSpacing:   '0.08em',
+          textTransform:   'uppercase',
+          display:         'flex',
+          alignItems:      'center',
+          justifyContent:  'space-between',
+          gap:             '1rem',
+          flexWrap:        'wrap',
+        }}>
+          <span>
+            <strong>Staff Emulation</strong> · Viewing as {displayName} ({owner.association_code} · Unit {owner.unit_number ?? '—'}) — this is exactly what the owner sees.
+          </span>
+          <Link
+            href={`/admin/cinc-sync/${owner.association_code}`}
+            style={{
+              color:           '#fff',
+              textDecoration:  'underline',
+              fontWeight:      600,
+            }}
+          >
+            ← Back to CINC sync
+          </Link>
+        </div>
+      )}
 
       {/* Top bar */}
       <div className="assoc-topbar">
