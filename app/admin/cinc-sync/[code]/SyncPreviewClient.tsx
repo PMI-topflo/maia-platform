@@ -16,6 +16,11 @@ interface OwnerSnap {
   last_name:      string | null
   emails:         string | null
   phone:          string | null
+  /** Secondary phone column on MAIA's owners table — CINC has no
+   *  equivalent so it's always null on the CINC side. The edit modal
+   *  uses this so it can pre-populate both phone fields without
+   *  another round-trip. */
+  phone_2:        string | null
   address:        string | null
 }
 interface BoardSnap {
@@ -74,6 +79,57 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
   const [showMatched, setShowMatched] = useState(false)
   const [applying, setApplying] = useState(false)
   const [result,   setResult]   = useState<ApplyResult | null>(null)
+
+  // Inline-edit modal state. Populated when staff clicks "Edit" on a
+  // MAIA owner row. Lives at this level (not per-row) because there's
+  // only ever one edit dialog open at a time and we need to clear it
+  // after a successful save without prop-drilling.
+  const [editTarget, setEditTarget] = useState<
+    | { ownerId: number; label: string; emails: string; phone: string; phone_2: string }
+    | null
+  >(null)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError,  setEditError]  = useState<string | null>(null)
+
+  function openEdit(cmp: OwnerCmp) {
+    if (!cmp.owners_id || !cmp.maia) return
+    const ownerName = [cmp.maia.first_name, cmp.maia.last_name].filter(Boolean).join(' ') || '(unnamed)'
+    setEditError(null)
+    setEditTarget({
+      ownerId:  cmp.owners_id,
+      label:    `${cmp.account_number ?? '—'} · ${ownerName}`,
+      emails:   cmp.maia.emails  ?? '',
+      phone:    cmp.maia.phone   ?? '',
+      phone_2:  cmp.maia.phone_2 ?? '',
+    })
+  }
+
+  async function saveEdit() {
+    if (!editTarget) return
+    setEditSaving(true); setEditError(null)
+    try {
+      const res = await fetch(`/api/admin/cinc-sync/${assocCode}/owner/${editTarget.ownerId}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          emails:  editTarget.emails,
+          phone:   editTarget.phone,
+          phone_2: editTarget.phone_2,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? 'save failed')
+      // Refresh the preview so the edited row's MAIA column updates +
+      // any SYNCED/UPDATE badges recompute against CINC.
+      const fresh = await fetch(`/api/admin/cinc-sync/${assocCode}/preview`).then(r => r.json())
+      setPreview(fresh)
+      setEditTarget(null)
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setEditSaving(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -215,7 +271,15 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
                   <UnitCell account={cmp.account_number} unit={cmp.unit_number} ownerNumber={cmp.owner_number} cincId={cmp.cinc_property_id} maiaId={cmp.owners_id} nameSlot={cmp.cinc_name_slot} />
                 </td>
                 <td className="px-3 py-2 align-top">
-                  <OwnerSide snap={cmp.maia} hidden={!cmp.maia} />
+                  <OwnerSide
+                    snap={cmp.maia}
+                    hidden={!cmp.maia}
+                    // Only MAIA rows that ALREADY exist (have an
+                    // owners.id) are editable here — for CINC-only
+                    // rows staff need to click Apply first to create
+                    // the MAIA row, then edit it.
+                    onEdit={cmp.owners_id != null ? () => openEdit(cmp) : undefined}
+                  />
                 </td>
                 <td className="px-3 py-2 align-top">
                   <OwnerSide snap={cmp.cinc} hidden={!cmp.cinc} />
@@ -307,6 +371,97 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
           {applying ? 'Applying…' : `Apply ${totalToApply} change${totalToApply === 1 ? '' : 's'}`}
         </button>
       </div>
+
+      {/* Edit modal — appears when staff clicks Edit on a MAIA owner row.
+          Lets them update emails + both phones without leaving the page.
+          Phones get E.164-normalized server-side on save so WhatsApp /
+          SMS APIs can dial them. */}
+      {editTarget && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4"
+          onClick={() => !editSaving && setEditTarget(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Edit owner contact</h3>
+                <p className="text-xs text-gray-500 mt-0.5">{editTarget.label}</p>
+              </div>
+              <button
+                onClick={() => !editSaving && setEditTarget(null)}
+                className="text-gray-400 hover:text-gray-700 text-xl leading-none"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <p className="text-[11px] text-gray-500 mb-4 leading-snug">
+              CINC&apos;s homeowner record doesn&apos;t reliably store international phone numbers, so MAIA owns these fields. Phones get normalized to E.164 (<code className="bg-gray-100 px-1 rounded">+1XXXXXXXXXX</code> for US) on save.
+            </p>
+
+            <label className="block mb-3">
+              <span className="text-xs font-mono uppercase tracking-wide text-gray-600">Emails (comma-separated)</span>
+              <textarea
+                value={editTarget.emails}
+                onChange={e => setEditTarget({ ...editTarget, emails: e.target.value })}
+                disabled={editSaving}
+                rows={3}
+                className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#f26a1b] disabled:bg-gray-50"
+                placeholder="owner@example.com,backup@example.com"
+              />
+            </label>
+
+            <label className="block mb-3">
+              <span className="text-xs font-mono uppercase tracking-wide text-gray-600">Primary phone</span>
+              <input
+                type="tel"
+                value={editTarget.phone}
+                onChange={e => setEditTarget({ ...editTarget, phone: e.target.value })}
+                disabled={editSaving}
+                className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#f26a1b] disabled:bg-gray-50 font-mono"
+                placeholder="+17865551212 or +447911123456"
+              />
+            </label>
+
+            <label className="block mb-4">
+              <span className="text-xs font-mono uppercase tracking-wide text-gray-600">Secondary phone (optional)</span>
+              <input
+                type="tel"
+                value={editTarget.phone_2}
+                onChange={e => setEditTarget({ ...editTarget, phone_2: e.target.value })}
+                disabled={editSaving}
+                className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#f26a1b] disabled:bg-gray-50 font-mono"
+                placeholder="+13055551212"
+              />
+            </label>
+
+            {editError && (
+              <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 mb-3">{editError}</div>
+            )}
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => !editSaving && setEditTarget(null)}
+                disabled={editSaving}
+                className="text-xs font-mono uppercase tracking-wide text-gray-500 hover:text-gray-700 px-3 py-2"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveEdit}
+                disabled={editSaving}
+                className="bg-[#f26a1b] hover:bg-[#f58140] disabled:opacity-50 text-white text-xs font-medium uppercase tracking-wide px-4 py-2 rounded transition-colors [font-family:var(--font-mono)]"
+              >
+                {editSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -380,14 +535,33 @@ function UnitCell({ account, unit, ownerNumber, cincId, maiaId, nameSlot }: { ac
   )
 }
 
-function OwnerSide({ snap, hidden }: { snap: OwnerSnap | null; hidden: boolean }) {
+function OwnerSide({ snap, hidden, onEdit }: { snap: OwnerSnap | null; hidden: boolean; onEdit?: () => void }) {
   if (hidden || !snap) return <span className="text-[11px] text-gray-400 italic">— not on this side —</span>
   const name = [snap.first_name, snap.last_name].filter(Boolean).join(' ') || '—'
   return (
-    <div className="text-xs text-gray-700 leading-tight">
-      <div className="font-medium text-gray-900">{name}</div>
+    <div className="text-xs text-gray-700 leading-tight relative group">
+      <div className="font-medium text-gray-900 flex items-center gap-2">
+        <span>{name}</span>
+        {/* Edit button only renders when caller supplied onEdit (MAIA
+            side with an existing owners.id). Hovering the row reveals
+            it without crowding the cell at rest. */}
+        {onEdit && (
+          <button
+            onClick={onEdit}
+            title="Edit emails / phones (MAIA only — CINC doesn't reliably store international numbers)"
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-mono uppercase tracking-wide text-[#f26a1b] hover:text-[#c14d0a] border border-[#f26a1b]/40 hover:border-[#f26a1b] rounded px-1.5 py-0.5"
+          >
+            Edit
+          </button>
+        )}
+      </div>
       {snap.emails  && <div className="text-gray-500 break-all">{snap.emails}</div>}
       {snap.phone   && <div className="text-gray-500 font-mono">{snap.phone}</div>}
+      {snap.phone_2 && <div className="text-gray-500 font-mono">{snap.phone_2} <span className="text-gray-400 not-italic text-[10px] uppercase">2nd</span></div>}
+      {/* Fallback display when primary is empty but secondary is set —
+          otherwise a row with only a secondary phone would look like it
+          has no phone at all. */}
+      {!snap.phone && !snap.phone_2 && null}
       {snap.address && <div className="text-gray-400 text-[11px]">{snap.address}</div>}
       {(snap.account_number || snap.unit_number) && (
         <div className="text-[10px] text-gray-400 font-mono mt-0.5">
