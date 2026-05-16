@@ -29,6 +29,11 @@ export interface OwnerSnapshot {
   last_name:       string | null
   emails:          string | null
   phone:           string | null
+  /** Secondary phone column on MAIA's owners table. CINC has no
+   *  equivalent so the CINC side of every snapshot leaves this null;
+   *  it's surfaced so the edit modal can pre-populate MAIA's current
+   *  values without a second round-trip. */
+  phone_2:         string | null
   address:         string | null
 }
 
@@ -170,7 +175,7 @@ function snapshotsFromCincProperty(p: CincPropertyInfo): Array<{ slot: number; s
       snap: {
         account_number: p.PropertyHOID ?? null,
         unit_number:    p.UnitNo ?? null,
-        first_name:     null, last_name: null, emails: null, phone: null, address: null,
+        first_name:     null, last_name: null, emails: null, phone: null, phone_2: null, address: null,
       },
     }]
   }
@@ -195,6 +200,9 @@ function snapshotsFromCincProperty(p: CincPropertyInfo): Array<{ slot: number; s
     last_name:      last,
     emails,
     phone,
+    // CINC's data model has no concept of a secondary owner phone, so
+    // leave it null on this side. Only MAIA snapshots carry it.
+    phone_2:        null,
     address:        street,
   })
 
@@ -233,7 +241,10 @@ function snapshotFromMaiaOwner(r: MaiaOwnerRow): OwnerSnapshot {
     first_name:     r.first_name ?? r.entity_name ?? null,
     last_name:      r.last_name  ?? null,
     emails:         r.emails     ?? null,
-    phone:          r.phone      ?? r.phone_2 ?? null,
+    // Surface BOTH phones — primary for display, secondary for the
+    // edit modal. Don't collapse them here.
+    phone:          r.phone      ?? null,
+    phone_2:        r.phone_2    ?? null,
     address:        r.address    ?? null,
   }
 }
@@ -298,7 +309,7 @@ function phoneDigits(s: string | null | undefined): string {
  *  Never call this on user-facing snapshots without also keeping the
  *  digits-equal comparison; otherwise reformatting alone would look
  *  like a real change in the diff. */
-function normalizePhone(raw: string | null | undefined): string | null {
+export function normalizePhone(raw: string | null | undefined): string | null {
   if (!raw) return null
   const digits = phoneDigits(raw)
   if (!digits) return null
