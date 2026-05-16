@@ -116,14 +116,17 @@ function snapshotFromCincProperty(p: CincPropertyInfo): OwnerSnapshot {
     first_name:     null, last_name: null, emails: null, phone: null, address: null,
   }
   const street = [a.StreetNumber, a.Address].filter(Boolean).join(' ').trim() || null
-  const phone  = a.MobilePhone || a.HomePhone || a.WorkPhone || null
+  const rawPhone = a.MobilePhone || a.HomePhone || a.WorkPhone || null
   return {
     account_number: p.PropertyHOID ?? null,
     unit_number:    p.UnitNo ?? null,
     first_name:     (a.FirstName ?? '').trim() || null,
     last_name:      (a.LastName  ?? '').trim() || null,
     emails:         (a.Email     ?? '').trim().toLowerCase() || null,
-    phone:          phone ? String(phone) : null,
+    // Normalize at the boundary — CINC stores phones in mixed formats
+    // (raw digits, parenthesized, etc.) but we always want the E.164
+    // form (+1XXXXXXXXXX) in our DB so WhatsApp / SMS APIs can dial.
+    phone:          normalizePhone(rawPhone),
     address:        street,
   }
 }
@@ -162,6 +165,37 @@ function emailsContain(stored: string | null | undefined, candidate: string | nu
   const c = lower(candidate)
   if (!c) return true
   return (stored ?? '').toLowerCase().split(/[,;]/).map(s => s.trim()).includes(c)
+}
+
+/** Strip everything but digits — the only part that uniquely identifies
+ *  a phone number across format variants. */
+function phoneDigits(s: string | null | undefined): string {
+  return (s ?? '').replace(/\D/g, '')
+}
+
+/** Normalize a phone string to E.164 so the database stores a format
+ *  WhatsApp / SMS APIs can dial. Defaults to +1 (US) for 10-digit
+ *  inputs, the most common CINC representation. Anything else gets a
+ *  leading "+" prepended if it doesn't already have one — preserves
+ *  international numbers without guessing their country.
+ *
+ *  Never call this on user-facing snapshots without also keeping the
+ *  digits-equal comparison; otherwise reformatting alone would look
+ *  like a real change in the diff. */
+function normalizePhone(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const digits = phoneDigits(raw)
+  if (!digits) return null
+  if (digits.length === 10)                                  return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1'))        return `+${digits}`
+  return String(raw).trim().startsWith('+') ? String(raw).trim() : `+${digits}`
+}
+
+function phonesEqualByDigits(a: string | null | undefined, b: string | null | undefined): boolean {
+  const da = phoneDigits(a)
+  const db = phoneDigits(b)
+  if (!da || !db) return false
+  return da === db
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -267,7 +301,17 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
     if (cincSnap.first_name && cincSnap.first_name !== maiaSnap.first_name) changes.first_name = { current: maiaSnap.first_name, proposed: cincSnap.first_name }
     if (cincSnap.last_name  && cincSnap.last_name  !== maiaSnap.last_name)  changes.last_name  = { current: maiaSnap.last_name,  proposed: cincSnap.last_name  }
     if (cincSnap.emails     && !emailsContain(maiaSnap.emails, cincSnap.emails)) changes.emails = { current: maiaSnap.emails, proposed: cincSnap.emails }
-    if (cincSnap.phone      && maiaSnap.phone !== cincSnap.phone && existing.phone_2 !== cincSnap.phone) changes.phone = { current: maiaSnap.phone, proposed: cincSnap.phone }
+    // Phone: compare on digits only so MAIA's E.164 (+17865551212)
+    // matches CINC's raw 7865551212. Skip the change when they share
+    // digits — otherwise the diff would propose to overwrite the
+    // already-formatted WhatsApp-ready number with the raw CINC value.
+    // When MAIA genuinely has nothing, we still write the normalized
+    // form (cincSnap.phone is already normalized at extraction).
+    if (cincSnap.phone
+        && !phonesEqualByDigits(maiaSnap.phone, cincSnap.phone)
+        && !phonesEqualByDigits(existing.phone_2, cincSnap.phone)) {
+      changes.phone = { current: maiaSnap.phone, proposed: cincSnap.phone }
+    }
     if (cincSnap.address    && cincSnap.address !== maiaSnap.address) changes.address = { current: maiaSnap.address, proposed: cincSnap.address }
     if (cincSnap.account_number && cincSnap.account_number !== maiaSnap.account_number) changes.account_number = { current: maiaSnap.account_number, proposed: cincSnap.account_number }
     if (existing.cinc_property_id == null) {
