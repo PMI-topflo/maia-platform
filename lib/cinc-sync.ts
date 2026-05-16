@@ -242,10 +242,45 @@ function nameKey(first: string | null | undefined, last: string | null | undefin
   return `${(first ?? '').trim().toLowerCase()}|${(last ?? '').trim().toLowerCase()}`
 }
 
-function emailsContain(stored: string | null | undefined, candidate: string | null | undefined): boolean {
-  const c = lower(candidate)
-  if (!c) return true
-  return (stored ?? '').toLowerCase().split(/[,;]/).map(s => s.trim()).includes(c)
+/** Split a comma/semicolon-separated email field into a normalized set
+ *  of individual addresses. Empty / missing input → empty set. */
+function emailsToSet(s: string | null | undefined): Set<string> {
+  return new Set(
+    (s ?? '').toLowerCase().split(/[,;]/).map(x => x.trim()).filter(Boolean),
+  )
+}
+
+/** True iff every email CINC carries for this owner is already present
+ *  in MAIA's stored email list. Lets us skip "updates" that would just
+ *  rewrite the same set with the same values — which was happening
+ *  constantly when CINC's Email field started returning comma-joined
+ *  multi-email strings (the old emailsContain treated the whole comma
+ *  string as a single candidate, so identical sets never compared equal). */
+function cincEmailsSubsetOfMaia(cincEmails: string | null | undefined, maiaEmails: string | null | undefined): boolean {
+  const cinc = emailsToSet(cincEmails)
+  if (cinc.size === 0) return true
+  const maia = emailsToSet(maiaEmails)
+  for (const e of cinc) if (!maia.has(e)) return false
+  return true
+}
+
+/** Union MAIA's existing list with whatever CINC has, preserving MAIA's
+ *  ordering for already-known addresses and appending any new ones from
+ *  CINC at the end. Used as the proposed value when CINC introduces new
+ *  emails — we never DROP a MAIA email just because CINC doesn't carry
+ *  it (staff may have curated additional contact addresses). */
+function mergeEmails(maiaEmails: string | null | undefined, cincEmails: string | null | undefined): string {
+  const seen = new Set<string>()
+  const out: string[] = []
+  const push = (e: string) => {
+    const k = e.toLowerCase().trim()
+    if (!k || seen.has(k)) return
+    seen.add(k)
+    out.push(e.trim())
+  }
+  for (const e of (maiaEmails ?? '').split(/[,;]/)) push(e)
+  for (const e of (cincEmails ?? '').split(/[,;]/)) push(e)
+  return out.join(',')
 }
 
 /** Strip everything but digits — the only part that uniquely identifies
@@ -405,7 +440,13 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
       const changes: NonNullable<OwnerComparison['changes']> = {}
       if (cincSnap.first_name && cincSnap.first_name !== maiaSnap.first_name) changes.first_name = { current: maiaSnap.first_name, proposed: cincSnap.first_name }
       if (cincSnap.last_name  && cincSnap.last_name  !== maiaSnap.last_name)  changes.last_name  = { current: maiaSnap.last_name,  proposed: cincSnap.last_name  }
-      if (cincSnap.emails     && !emailsContain(maiaSnap.emails, cincSnap.emails)) changes.emails = { current: maiaSnap.emails, proposed: cincSnap.emails }
+      // Emails: skip the field entirely when CINC's set is already a
+      // subset of MAIA's. When CINC has new addresses, propose the
+      // UNION (don't drop MAIA's curated extras) so Apply actually
+      // moves the needle.
+      if (cincSnap.emails && !cincEmailsSubsetOfMaia(cincSnap.emails, maiaSnap.emails)) {
+        changes.emails = { current: maiaSnap.emails, proposed: mergeEmails(maiaSnap.emails, cincSnap.emails) }
+      }
       // Phone: compare on digits only so MAIA's E.164 (+17865551212)
       // matches CINC's raw 7865551212. Skip the change when they share
       // digits — otherwise the diff would propose to overwrite the
