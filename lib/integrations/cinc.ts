@@ -636,6 +636,34 @@ export interface CincAssociationMeta {
   isActive:          boolean | null
 }
 
+/** Returns EVERY association configured in this CINC tenant. Used by
+ *  the cinc-sync listing page to surface associations that exist in
+ *  CINC but haven't been onboarded into MAIA yet, so staff can spin
+ *  up a new association row + import its owners with one click. */
+export async function listAllCincAssociations(): Promise<CincAssociationMeta[]> {
+  interface Raw {
+    AssocId?:          number
+    AssociationIdLink?:string | null
+    Associationname?:  string | null
+    Numberofunits?:    number | null
+    isActive?:         boolean | null
+  }
+  const list = await call<Raw[]>('/management/1/associations', { method: 'GET' })
+    .catch(err => {
+      if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) return [] as Raw[]
+      throw err
+    })
+  return (list ?? [])
+    .filter(r => r.AssociationIdLink)
+    .map(r => ({
+      AssocId:         r.AssocId ?? 0,
+      AssocCode:       (r.AssociationIdLink ?? '').toUpperCase(),
+      AssociationName: r.Associationname ?? (r.AssociationIdLink ?? '').toUpperCase(),
+      Numberofunits:   r.Numberofunits ?? null,
+      isActive:        r.isActive ?? null,
+    }))
+}
+
 /** Authoritative association metadata — primarily Numberofunits, which
  *  is the count to display in the UI (the property list endpoint can
  *  return multiple rows per unit when there are joint or historical
