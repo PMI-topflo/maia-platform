@@ -296,6 +296,10 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
                     // rows staff need to click Apply first to create
                     // the MAIA row, then edit it.
                     onEdit={cmp.owners_id != null ? () => openEdit(cmp) : undefined}
+                    // Same gating as Edit — emulation only makes sense
+                    // when a MAIA row exists, since /my-account renders
+                    // from owners.id.
+                    emulateHref={cmp.owners_id != null ? `/my-account?id=${cmp.owners_id}&assoc=${assocCode}` : null}
                   />
                 </td>
                 <td className="px-3 py-2 align-top">
@@ -569,12 +573,12 @@ function UnitCell({ account, unit, ownerNumber, cincId, maiaId, nameSlot }: { ac
   )
 }
 
-function OwnerSide({ snap, hidden, onEdit }: { snap: OwnerSnap | null; hidden: boolean; onEdit?: () => void }) {
+function OwnerSide({ snap, hidden, onEdit, emulateHref }: { snap: OwnerSnap | null; hidden: boolean; onEdit?: () => void; emulateHref?: string | null }) {
   if (hidden || !snap) return <span className="text-[11px] text-gray-400 italic">— not on this side —</span>
   const name = [snap.first_name, snap.last_name].filter(Boolean).join(' ') || '—'
   return (
     <div className="text-xs text-gray-700 leading-tight relative group">
-      <div className="font-medium text-gray-900 flex items-center gap-2">
+      <div className="font-medium text-gray-900 flex items-center gap-2 flex-wrap">
         <span>{name}</span>
         {/* Edit button only renders when caller supplied onEdit (MAIA
             side with an existing owners.id). Hovering the row reveals
@@ -582,11 +586,27 @@ function OwnerSide({ snap, hidden, onEdit }: { snap: OwnerSnap | null; hidden: b
         {onEdit && (
           <button
             onClick={onEdit}
-            title="Edit emails / phones (MAIA only — CINC doesn't reliably store international numbers)"
+            title="Edit emails / phones / language (MAIA only — CINC doesn't reliably store international numbers)"
             className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-mono uppercase tracking-wide text-[#f26a1b] hover:text-[#c14d0a] border border-[#f26a1b]/40 hover:border-[#f26a1b] rounded px-1.5 py-0.5"
           >
             Edit
           </button>
+        )}
+        {/* "View as owner" — opens the owner's portal in a new tab so
+            staff can verify what the owner sees while testing or
+            helping. New tab keeps the admin session AND the diff page
+            in place. The owner-side page detects the staff session
+            and renders an emulation banner. */}
+        {emulateHref && (
+          <a
+            href={emulateHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open this owner's portal in a new tab — staff emulation"
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-mono uppercase tracking-wide text-indigo-700 hover:text-indigo-900 border border-indigo-400/50 hover:border-indigo-700 rounded px-1.5 py-0.5"
+          >
+            View as ↗
+          </a>
         )}
       </div>
       {snap.emails  && <div className="text-gray-500 break-all">{snap.emails}</div>}
