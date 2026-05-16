@@ -366,7 +366,14 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
                 </div>
               </td>
               <td className="px-3 py-2 align-top">
-                <BoardSide snap={cmp.maia} hidden={!cmp.maia} />
+                <BoardSide
+                  snap={cmp.maia}
+                  hidden={!cmp.maia}
+                  // Emulation only makes sense for rows that already
+                  // exist in MAIA (abm_id present) — CINC-only inserts
+                  // need Apply first to create the row.
+                  emulateHref={cmp.abm_id != null ? `/board?id=${cmp.abm_id}&assoc=${assocCode}` : null}
+                />
               </td>
               <td className="px-3 py-2 align-top">
                 <BoardSide snap={cmp.cinc} hidden={!cmp.cinc} />
@@ -636,11 +643,28 @@ function OwnerSide({ snap, hidden, onEdit, emulateHref }: { snap: OwnerSnap | nu
   )
 }
 
-function BoardSide({ snap, hidden }: { snap: BoardSnap | null; hidden: boolean }) {
+function BoardSide({ snap, hidden, emulateHref }: { snap: BoardSnap | null; hidden: boolean; emulateHref?: string | null }) {
   if (hidden || !snap) return <span className="text-[11px] text-gray-400 italic">— not on this side —</span>
   return (
-    <div className="text-xs text-gray-700 leading-tight">
-      <div className="font-medium text-gray-900">{snap.name ?? '—'}</div>
+    <div className="text-xs text-gray-700 leading-tight relative group">
+      <div className="font-medium text-gray-900 flex items-center gap-2 flex-wrap">
+        <span>{snap.name ?? '—'}</span>
+        {/* "View as board member" — opens the board portal in a new
+            tab so staff can verify what this member sees while testing
+            or helping. Gated to MAIA-side rows that have an abm_id
+            (only meaningful for rows that exist in our DB). */}
+        {emulateHref && (
+          <a
+            href={emulateHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open this board member's portal in a new tab — staff emulation"
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-mono uppercase tracking-wide text-indigo-700 hover:text-indigo-900 border border-indigo-400/50 hover:border-indigo-700 rounded px-1.5 py-0.5"
+          >
+            View as ↗
+          </a>
+        )}
+      </div>
       {snap.role  && <div className="text-gray-500">{snap.role}</div>}
       {snap.email && <div className="text-gray-500 break-all">{snap.email}</div>}
       {snap.phone && <div className="text-gray-400 font-mono text-[11px]">{snap.phone}</div>}

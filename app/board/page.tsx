@@ -1,6 +1,17 @@
+import { cookies } from 'next/headers'
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import SiteHeader from '@/components/SiteHeader'
+import { verifySession, SESSION_COOKIE } from '@/lib/session'
+
+interface BoardMemberView {
+  first_name: string | null
+  last_name:  string | null
+  email:      string | null
+  phone:      string | null
+  position:   string | null
+}
 
 export default async function BoardPage(props: {
   searchParams: Promise<{ id?: string; assoc?: string }>
@@ -9,15 +20,62 @@ export default async function BoardPage(props: {
 
   if (!id || !assoc) redirect('/')
 
-  const { data: member } = await supabaseAdmin
-    .from('board_members')
-    .select('id, first_name, last_name, email, phone, position, association_code')
-    .eq('id', id)
-    .eq('association_code', assoc.toUpperCase())
-    .eq('active', true)
-    .single()
+  // Board members live in TWO tables right now:
+  //   - board_members             (legacy, integer id, has first/last/phone/position)
+  //   - association_board_members (newer, UUID id, has name/role/email, no phone)
+  // The id format tells us which table to query — UUID has hyphens,
+  // integer doesn't. We shape both into a single BoardMemberView so
+  // the rest of the page doesn't care which source it came from.
+  // Once the legacy table is fully retired this branch can collapse
+  // to the association_board_members query.
+  const looksLikeUuid = /-/.test(id)
+  let member: BoardMemberView | null = null
+
+  if (looksLikeUuid) {
+    const { data } = await supabaseAdmin
+      .from('association_board_members')
+      .select('id, name, email, role, active, association_code')
+      .eq('id', id)
+      .eq('association_code', assoc.toUpperCase())
+      .eq('active', true)
+      .single()
+    if (data) {
+      const [first, ...rest] = (data.name ?? '').trim().split(/\s+/)
+      member = {
+        first_name: first || null,
+        last_name:  rest.length > 0 ? rest.join(' ') : null,
+        email:      data.email ?? null,
+        phone:      null,   // association_board_members has no phone column today
+        position:   data.role ?? null,
+      }
+    }
+  } else {
+    const { data } = await supabaseAdmin
+      .from('board_members')
+      .select('id, first_name, last_name, email, phone, position, association_code')
+      .eq('id', id)
+      .eq('association_code', assoc.toUpperCase())
+      .eq('active', true)
+      .single()
+    if (data) {
+      member = {
+        first_name: data.first_name ?? null,
+        last_name:  data.last_name ?? null,
+        email:      data.email ?? null,
+        phone:      data.phone ?? null,
+        position:   data.position ?? null,
+      }
+    }
+  }
 
   if (!member) redirect('/')
+
+  // Staff emulation detection — mirrors /my-account. Lets the team
+  // verify what a board member sees while testing or helping users.
+  const cookieStore      = await cookies()
+  const sessionToken     = cookieStore.get(SESSION_COOKIE)?.value
+  const viewerSession    = sessionToken ? await verifySession(sessionToken) : null
+  const isStaffEmulating = viewerSession?.persona === 'staff'
 
   const { data: assocRow } = await supabaseAdmin
     .from('associations')
@@ -61,6 +119,42 @@ export default async function BoardPage(props: {
 
   return (
     <main className="assoc-page">
+
+      {/* Staff emulation banner — only renders when the visitor's
+          session persona is 'staff'. Lets the team verify what a board
+          member sees while testing/helping users. The actual board
+          member never sees the banner because their persona is
+          'board', not 'staff'. */}
+      {isStaffEmulating && (
+        <div style={{
+          background:      '#f26a1b',
+          color:           '#fff',
+          padding:         '0.5rem 1rem',
+          fontFamily:      'var(--font-mono)',
+          fontSize:        '0.7rem',
+          letterSpacing:   '0.08em',
+          textTransform:   'uppercase',
+          display:         'flex',
+          alignItems:      'center',
+          justifyContent:  'space-between',
+          gap:             '1rem',
+          flexWrap:        'wrap',
+        }}>
+          <span>
+            <strong>Staff Emulation</strong> · Viewing as {displayName} ({member.position ?? 'Board Member'} · {assoc.toUpperCase()}) — this is exactly what the board member sees.
+          </span>
+          <Link
+            href={`/admin/cinc-sync/${assoc.toUpperCase()}`}
+            style={{
+              color:           '#fff',
+              textDecoration:  'underline',
+              fontWeight:      600,
+            }}
+          >
+            ← Back to CINC sync
+          </Link>
+        </div>
+      )}
 
       <div className="assoc-topbar">
         <span className="assoc-topbar-l">WHATSAPP &amp; SMS 24/7 · +1 (786) 686-3223 · WE SPEAK ENGLISH, SPANISH, FRENCH &amp; PORTUGUESE</span>
