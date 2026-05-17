@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import { findOrCreateTicket, appendMessage, createTicket } from '@/lib/tickets'
+import { fetchStaffList } from '@/lib/staff-list'
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
 
@@ -940,12 +941,101 @@ async function continueFlow(ctx: CallerContext, state: ConversationState, messag
 // MAIA INTELLIGENT RESPONSE ENGINE
 // ============================================================
 
+// Detect an explicit "open / create a ticket" request, optionally addressed
+// to a named staff member (English / Spanish / Portuguese). Returns the
+// candidate assignee name if extracted (the actual staff lookup happens
+// later); null when no ticket intent is present.
+function detectTicketCreateIntent(message: string): { assigneeName: string | null } | null {
+  const verbs = /\b(?:open|create|please\s+open|please\s+create|crea|crear|crear?\s+un|abre|abrir|abrir\s+um|cria|criar|criar?\s+um)\b/i
+  const noun  = /\b(?:ticket|chamado|caso|task|tarea|tarefa)\b/i
+  const atTrigger = /@maia[,!.\s]+(?:ct|ticket|create\s+ticket|open\s+ticket|new\s+ticket)/i
+
+  const hasIntent = atTrigger.test(message) || (verbs.test(message) && noun.test(message))
+  if (!hasIntent) return null
+
+  // Pull a first-name after a "to / para / a" preposition.
+  // Capitalised single token, no spaces — keeps the match conservative.
+  const to = message.match(/\b(?:to|para|a)\s+([A-Z][a-zA-Z]{1,30})\b/)
+  return { assigneeName: to?.[1] ?? null }
+}
+
+async function handleExplicitTicketCreate(
+  ctx: CallerContext,
+  message: string,
+  intent: { assigneeName: string | null },
+): Promise<string> {
+  let assigneeEmail: string | null = null
+  let resolvedName:  string | null = null
+
+  if (intent.assigneeName) {
+    try {
+      const staff   = await fetchStaffList()
+      const needle  = intent.assigneeName.toLowerCase()
+      const hit = staff.find(s =>
+        s.name.toLowerCase().split(/\s+/).includes(needle) ||
+        s.email.toLowerCase().split('@')[0].split(/[.\-_]/).includes(needle)
+      )
+      if (hit) { assigneeEmail = hit.email; resolvedName = hit.name }
+    } catch (err) {
+      console.warn('[ticket-intent] staff lookup failed:', err instanceof Error ? err.message : err)
+    }
+  }
+
+  try {
+    const ticket = await createTicket({
+      channel_origin: ctx.channel === 'voice' ? 'phone' : ctx.channel,
+      priority:       'normal',
+      persona:        ctx.persona,
+      contact_phone:  ctx.phone,
+      contact_name:   ctx.name !== 'there' ? ctx.name : null,
+      subject:        message.slice(0, 120),
+      summary:        message.slice(0, 280),
+      assignee_email: assigneeEmail,
+    })
+    const shortId = ticket.id.slice(0, 8)
+    const assignFragment = assigneeEmail && resolvedName
+      ? { en: ` and assigned to ${resolvedName}`,
+          es: ` y asignado a ${resolvedName}`,
+          pt: ` e atribuído a ${resolvedName}` }
+      : intent.assigneeName
+        ? { en: ` (couldn't find staff "${intent.assigneeName}" — left unassigned)`,
+            es: ` (no encontré al personal "${intent.assigneeName}" — sin asignar)`,
+            pt: ` (não encontrei o funcionário "${intent.assigneeName}" — sem responsável)` }
+        : { en: '', es: '', pt: '' }
+
+    return translate(ctx.language, {
+      en: `📋 Ticket ${shortId} created${assignFragment.en}. We'll follow up shortly. 🌸`,
+      es: `📋 Ticket ${shortId} creado${assignFragment.es}. Te respondemos pronto. 🌸`,
+      pt: `📋 Chamado ${shortId} criado${assignFragment.pt}. Retornamos em breve. 🌸`,
+    })
+  } catch (err) {
+    console.error('[ticket-intent] createTicket failed:', err instanceof Error ? err.message : err)
+    return translate(ctx.language, {
+      en: `I tried to open a ticket but ran into an issue. Please email service@topfloridaproperties.com or call (305) 900-5077. 🌸`,
+      es: `Intenté abrir un ticket pero hubo un problema. Escribe a service@topfloridaproperties.com o llama al (305) 900-5077. 🌸`,
+      pt: `Tentei abrir um chamado mas houve um problema. Escreva para service@topfloridaproperties.com ou ligue (305) 900-5077. 🌸`,
+    })
+  }
+}
+
 async function getMaiaIntelligentResponse(ctx: CallerContext, message: string): Promise<string> {
   const langName = LANGUAGE_NAMES[ctx.language] ?? 'English'
   const msg      = message.toLowerCase()
 
+  // Explicit ticket-creation intent ("open a ticket to Jonathan to check…",
+  // "abrir um chamado", "@maia create ticket"). Short-circuits before the
+  // keyword routers so unrelated words in the subject (e.g. "check") don't
+  // misfire other templates.
+  const ticketIntent = detectTicketCreateIntent(message)
+  if (ticketIntent) {
+    return await handleExplicitTicketCreate(ctx, message, ticketIntent)
+  }
+
   const isMaintenance = /leak|repair|broken|fix|maintenance|agua|plumb|hvac|electric|roof|door|window|faucet|toilet|ac|heat|mold|pest|manuten|reparar/.test(msg)
-  const isPayment     = /balance|pay|owe|fee|amount|due|check|payment|cobro|pago|saldo|pagamento/.test(msg)
+  // Match real payment intent only. Bare "check" / "pay" caused false positives
+  // ("check the board members", "let me check") that fired the HOA Payment
+  // Options template on unrelated messages.
+  const isPayment     = /\b(balance|past[\s-]*due|amount\s+due|autopay|payment|paying|paid|owe|cobro|pago|saldo|pagamento)\b|\b(pay|pagar)\s+(my|the|by|via|with|now|online|in\s+full|mi|mis|el|la|los|las|ahora)\b|\b(by|via|with|send|mail|writing)\s+(a\s+)?check\b/i.test(msg)
   const isParking     = /park|sticker|car|vehicle|plate|veh|carro|calcoman|adesivo/.test(msg)
   const isBoard       = /board|president|contact|who is|member|junta|directiva|conselho/.test(msg)
   const isDocument    = /document|form|application|lease|contract|estoppel|arc|doc|formulario|contrato/.test(msg)
@@ -1165,7 +1255,8 @@ async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
     } catch (err) { console.error('[RENTVINE payment]', err) }
   }
 
-  void maybeRequestFeedback(ctx.phone, ctx, 'payment', ctx.channel)
+  // No CSAT here — this is a generic reference card, not a resolved interaction.
+  // Feedback is requested above only when we actually fetched a balance for the user.
   return translate(ctx.language, {
     en: `💰 Hi ${name}! HOA Payment Options:\n\n1️⃣ *ACH Autopay — FREE* ✅\nForm: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\nEmail: ar@topfloridaproperties.com (processed 10th)\n\n2️⃣ *Online Portal* (fee)\nhttps://pmitfp.cincwebaxis.com/\n\n📱 App: "Property Management Inc" (Android/Apple)\n\n3️⃣ *Check by mail*\nPayable to: FULL HOA name | Write account # in MEMO\nPMI, P.O. Box 163556, Miami FL 33116\n\n📞 (305) 900-5105 🌸`,
     es: `💰 ¡Hola ${name}! Opciones HOA:\n\n1️⃣ ACH GRATIS ✅ — ar@topfloridaproperties.com\nFormulario: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\n\n2️⃣ Portal: https://pmitfp.cincwebaxis.com/\n📱 App "Property Management Inc"\n\n3️⃣ Cheque: PMI, P.O. Box 163556, Miami FL 33116\n\n📞 (305) 900-5105 🌸`,
