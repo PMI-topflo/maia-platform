@@ -32,23 +32,35 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 // ─────────────────────────────────────────────────────────────────────
-// Storage bucket bootstrap — same defensive create-if-missing pattern
-// the buyer-notification route uses so the first staff upload doesn't
-// require a manual setup step on a fresh environment.
+// Storage bucket bootstrap — defensive create-if-missing. The cached
+// _bucketEnsured flag flips to true ONLY after we've confirmed the
+// bucket actually exists, so a silent createBucket failure doesn't
+// poison subsequent calls.
 // ─────────────────────────────────────────────────────────────────────
 let _bucketEnsured = false
-async function ensureBucket(): Promise<void> {
-  if (_bucketEnsured) return
-  const { data: buckets } = await supabaseAdmin.storage.listBuckets()
-  if (!buckets?.some(b => b.name === STORAGE_BUCKET)) {
-    await supabaseAdmin.storage.createBucket(STORAGE_BUCKET, {
-      public: false,
-      // 50 MB cap matches what most association docs need (master
-      // policy PDFs run 5–30 MB). Larger uploads should be Drive links.
-      fileSizeLimit: 50 * 1024 * 1024,
-    })
+async function ensureBucket(): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (_bucketEnsured) return { ok: true }
+
+  const { data: buckets, error: listErr } = await supabaseAdmin.storage.listBuckets()
+  if (listErr) {
+    return { ok: false, reason: `listBuckets failed: ${listErr.message}` }
+  }
+  if (buckets?.some(b => b.name === STORAGE_BUCKET)) {
+    _bucketEnsured = true
+    return { ok: true }
+  }
+
+  const { error: createErr } = await supabaseAdmin.storage.createBucket(STORAGE_BUCKET, {
+    public:        false,
+    // 50 MB cap matches what most association docs need (master
+    // policy PDFs run 5–30 MB).
+    fileSizeLimit: 50 * 1024 * 1024,
+  })
+  if (createErr) {
+    return { ok: false, reason: `createBucket failed: ${createErr.message}` }
   }
   _bucketEnsured = true
+  return { ok: true }
 }
 
 async function requireStaff() {
@@ -159,7 +171,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     const effective   = form.get('effective_date')?.toString().trim() || null
     const expiry      = form.get('expiry_date')?.toString().trim() || null
 
-    await ensureBucket()
+    const bucketCheck = await ensureBucket()
+    if (!bucketCheck.ok) {
+      return NextResponse.json(
+        { error: `Storage bucket "${STORAGE_BUCKET}" is not ready: ${bucketCheck.reason}` },
+        { status: 500 },
+      )
+    }
 
     // Stable, collision-resistant storage path so concurrent uploads
     // of identically-named files don't overwrite each other.
