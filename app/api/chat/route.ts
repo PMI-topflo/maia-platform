@@ -3,6 +3,15 @@ import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
+import { categoryLabel } from '@/lib/association-documents'
+
+// Each per-document excerpt is capped so the system prompt stays under
+// Claude Haiku 4.5's effective context window for cost. A typical
+// association ends up with ~25 indexed PDFs; 4 KB each ≈ 100 KB total,
+// well within budget. The truncation note tells Claude when it's
+// looking at a partial doc so it doesn't pretend it has more context.
+const DOC_EXCERPT_BUDGET_PER_DOC = 4000
+const DOC_TOTAL_TEXT_BUDGET      = 120_000
 
 const client = new Anthropic()
 
@@ -68,6 +77,7 @@ export async function POST(req: NextRequest) {
   const isVendor = (persona ?? 'homeowner') === 'vendor'
 
   let faqContext = ''
+  let docsContext = ''
   let vendorAssocList = ''
 
   const contextQueries: Promise<unknown>[] = []
@@ -100,6 +110,59 @@ export async function POST(req: NextRequest) {
             ).join('\n\n')
         }
       })
+    )
+
+    // Pull association documents into context. We fetch extracted_text
+    // here (the only place we do — the admin list endpoint strips it
+    // to keep the listing lightweight). Excerpts are capped both
+    // per-document and in total so the system prompt stays manageable
+    // even for associations with 50+ uploaded PDFs.
+    contextQueries.push(
+      // Wrap the supabase chain in Promise.resolve so its PromiseLike
+      // shape matches contextQueries' Promise<unknown>[] declared type.
+      Promise.resolve(
+        supabaseAdmin
+          .from('association_documents')
+          .select('category, subcategory, filename, extracted_text, notes, effective_date, expiry_date')
+          .eq('association_code', associationCode)
+          // Order: docs with real extracted content first (so they win
+          // the budget), then notes / unsupported rows that only carry
+          // the notes field.
+          .order('extraction_status', { ascending: true })
+          .order('updated_at', { ascending: false })
+          .limit(60)
+      ).then(({ data }) => {
+          if (!data?.length) return
+          let totalChars = 0
+          const blocks: string[] = []
+          for (const d of data as Array<{
+            category:        string
+            subcategory:     string | null
+            filename:        string
+            extracted_text:  string | null
+            notes:           string | null
+            effective_date:  string | null
+            expiry_date:     string | null
+          }>) {
+            if (totalChars >= DOC_TOTAL_TEXT_BUDGET) break
+            const body = (d.extracted_text ?? d.notes ?? '').trim()
+            if (!body) continue
+            const excerpt = body.length > DOC_EXCERPT_BUDGET_PER_DOC
+              ? body.slice(0, DOC_EXCERPT_BUDGET_PER_DOC) + `\n[…truncated; full doc is ${body.length.toLocaleString()} chars]`
+              : body
+            const header = [
+              `--- ${categoryLabel(d.category)}: ${d.filename}`,
+              d.subcategory ? `(${d.subcategory})` : null,
+              d.effective_date ? `effective ${d.effective_date}` : null,
+              d.expiry_date ? `expires ${d.expiry_date}` : null,
+            ].filter(Boolean).join(' ')
+            blocks.push(`${header} ---\n${excerpt}`)
+            totalChars += excerpt.length + header.length + 10
+          }
+          if (blocks.length > 0) {
+            docsContext = `\n\nASSOCIATION DOCUMENTS (verbatim excerpts — cite filename when answering from these):\n${blocks.join('\n\n')}`
+          }
+        }),
     )
   }
 
@@ -151,7 +214,7 @@ COMPANY INFO:
 - Website: pmitop.com
 - Service/Maintenance: service@topfloridaproperties.com
 - Billing: billing@topfloridaproperties.com
-${faqContext}${vendorAssocList}
+${faqContext}${docsContext}${vendorAssocList}
 
 RESPONSE RULES:
 - Always respond in ${langName}.
