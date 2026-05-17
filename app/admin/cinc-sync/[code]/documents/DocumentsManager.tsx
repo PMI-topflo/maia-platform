@@ -13,7 +13,7 @@
 // a redeploy if the workflow expands.
 // =====================================================================
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import {
   CATEGORIES,
@@ -155,10 +155,34 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
+  // Ref to the hidden native <input type="file"> so the dropzone +
+  // primary Upload button can both trigger the OS file picker
+  // programmatically. Avoids relying on a label/htmlFor pairing.
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [dragging, setDragging] = useState(false)
 
   function reset() {
     setNotes(''); setEffective(''); setFilename(''); setFile(null)
     setError(null); setOkMsg(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function openPicker() {
+    if (busy) return
+    fileInputRef.current?.click()
+  }
+
+  function acceptFile(f: File | null) {
+    if (!f) return
+    // PDF-only by category contract. Browsers honor `accept` for the
+    // native picker but drag-and-drop bypasses it, so guard here too.
+    if (!/pdf/i.test(f.type) && !/\.pdf$/i.test(f.name)) {
+      setError('PDF only. Drop a .pdf file.')
+      return
+    }
+    setError(null); setOkMsg(null)
+    setFile(f)
+    if (!filename) setFilename(f.name)
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -258,23 +282,83 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
         </label>
       </div>
 
-      <label className="block">
-        <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">PDF file</span>
+      <div>
+        <div className="text-[10px] font-mono uppercase tracking-wide text-gray-600 mb-1">PDF file</div>
+        {/* Drop-zone: click anywhere on this box to open the OS file
+            picker, OR drag a PDF in from Finder / Files. The native
+            <input> is hidden but kept in the DOM so the form still has
+            it for accessibility / accept-attribute validation. Once a
+            file is picked, the box switches to a green "selected"
+            state showing filename + size + a Change/Remove pair. */}
         <input
+          ref={fileInputRef}
           type="file"
-          accept="application/pdf"
-          onChange={e => {
-            const f = e.target.files?.[0] ?? null
-            setFile(f)
-            if (f && !filename) setFilename(f.name)
-          }}
+          accept="application/pdf,.pdf"
+          onChange={e => acceptFile(e.target.files?.[0] ?? null)}
           disabled={busy}
-          className="mt-1 block text-sm"
+          className="hidden"
         />
-        <span className="text-[10px] text-gray-500 block mt-0.5">
-          PDF only. Max 50 MB. Files &lt; 20 MB are auto-extracted so MAIA can also cite from them when owners ask questions.
-        </span>
-      </label>
+        {file
+          ? (
+            <div className="mt-1 rounded border-2 border-green-500 bg-green-50 px-4 py-3 flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-green-900 truncate">📄 {file.name}</div>
+                <div className="text-[11px] text-green-700 mt-0.5 font-mono">
+                  {(file.size / 1024 / 1024).toFixed(2)} MB · ready to upload
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={openPicker}
+                  disabled={busy}
+                  className="text-[10px] font-mono uppercase tracking-wide text-green-800 hover:text-green-900 border border-green-400 hover:border-green-600 rounded px-2 py-1"
+                >
+                  Change
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setFile(null); if (fileInputRef.current) fileInputRef.current.value = '' }}
+                  disabled={busy}
+                  className="text-[10px] font-mono uppercase tracking-wide text-gray-500 hover:text-red-700 px-2 py-1"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          )
+          : (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={openPicker}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPicker() } }}
+              onDragOver={e => { e.preventDefault(); if (!dragging) setDragging(true) }}
+              onDragEnter={e => { e.preventDefault(); setDragging(true) }}
+              onDragLeave={e => { e.preventDefault(); setDragging(false) }}
+              onDrop={e => {
+                e.preventDefault()
+                setDragging(false)
+                acceptFile(e.dataTransfer.files?.[0] ?? null)
+              }}
+              className={[
+                'mt-1 rounded border-2 border-dashed px-4 py-8 text-center cursor-pointer transition-colors',
+                dragging
+                  ? 'border-[#f26a1b] bg-orange-50'
+                  : 'border-gray-300 bg-gray-50 hover:border-[#f26a1b] hover:bg-orange-50',
+                busy ? 'opacity-50 cursor-wait' : '',
+              ].join(' ')}
+            >
+              <div className="text-3xl mb-2">📄</div>
+              <div className="text-sm font-semibold text-gray-800">
+                Click to choose a PDF, or drag one here
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">
+                PDF only · max 50 MB · files &lt; 20 MB are auto-extracted so MAIA can cite them
+              </div>
+            </div>
+          )}
+      </div>
 
       <label className="block">
         <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">Internal notes (optional)</span>
@@ -291,13 +375,26 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
       {error && <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>}
       {okMsg && <div className="text-xs text-green-800 bg-green-50 border border-green-200 rounded px-3 py-2">{okMsg}</div>}
 
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-2">
+        {!file && !busy && (
+          // Secondary path to the OS file picker when staff scrolls
+          // straight to the bottom of the card without noticing the
+          // drop zone above. Click yields the same OS file picker.
+          <button
+            type="button"
+            onClick={openPicker}
+            className="text-xs font-mono uppercase tracking-wide text-[#f26a1b] hover:text-[#c14d0a] border border-[#f26a1b] hover:bg-[#f26a1b]/10 px-4 py-2 rounded transition-colors"
+          >
+            Choose PDF
+          </button>
+        )}
         <button
           type="submit"
-          disabled={busy}
-          className="bg-[#f26a1b] hover:bg-[#f58140] disabled:opacity-50 text-white text-xs font-semibold uppercase tracking-wide px-4 py-2 rounded transition-colors [font-family:var(--font-mono)]"
+          disabled={busy || !file}
+          title={file ? '' : 'Choose a PDF first'}
+          className="bg-[#f26a1b] hover:bg-[#f58140] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold uppercase tracking-wide px-4 py-2 rounded transition-colors [font-family:var(--font-mono)]"
         >
-          {busy ? 'Uploading & extracting…' : 'Upload'}
+          {busy ? 'Uploading & extracting…' : file ? `Upload "${file.name.length > 30 ? file.name.slice(0, 27) + '…' : file.name}"` : 'Upload'}
         </button>
       </div>
     </form>
