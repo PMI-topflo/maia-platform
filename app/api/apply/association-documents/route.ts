@@ -42,6 +42,10 @@ export async function GET(req: NextRequest) {
     .select('id, category, filename, storage_path, drive_url, source, effective_date, created_at')
     .eq('association_code', code)
     .in('category', wanted)
+    // Only current (non-archived) versions are eligible to surface to
+    // applicants. Older uploads stay in the table for audit history
+    // but new applicants should always sign the latest version.
+    .is('archived_at', null)
     .order('created_at', { ascending: false })
 
   if (error) {

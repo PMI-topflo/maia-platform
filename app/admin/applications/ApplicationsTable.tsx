@@ -48,6 +48,7 @@ export type Application = {
   occupants: Occupant[] | null;
   rules_signature: string | null;
   rules_agreed_at: string | null;
+  acknowledged_document_ids: string[] | null;
   board_decision: 'approved' | 'rejected' | 'pending' | 'board_review' | null;
   board_decided_at: string | null;
   board_notes: string | null;
@@ -55,7 +56,18 @@ export type Application = {
 
 interface Props {
   applications: Application[];
+  /** Pre-resolved metadata for every acknowledged_document_ids UUID
+   *  across all applications. Built server-side in page.tsx so the
+   *  client doesn't have to fetch per-row. Missing IDs (e.g., doc was
+   *  deleted after the applicant signed) render as "[deleted document]"
+   *  rather than crashing. */
+  documentLookup: Record<string, { filename: string; category: string; effective_date: string | null }>;
 }
+
+const DOC_CATEGORY_LABELS: Record<string, string> = {
+  condo_docs: 'Condo Docs / Declaration',
+  rules_regs: 'Rules & Regulations',
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -151,7 +163,15 @@ function DecisionBadge({ decision }: { decision: string | null }) {
 // Detail panel
 // ---------------------------------------------------------------------------
 
-function DetailPanel({ app, onDecisionSaved }: { app: Application; onDecisionSaved: (updated: Partial<Application>) => void }) {
+function DetailPanel({
+  app,
+  documentLookup,
+  onDecisionSaved,
+}: {
+  app: Application;
+  documentLookup: Record<string, { filename: string; category: string; effective_date: string | null }>;
+  onDecisionSaved: (updated: Partial<Application>) => void;
+}) {
   const [decision, setDecision] = useState<'approved' | 'rejected' | 'pending'>(
     (app.board_decision === 'board_review' ? 'pending' : app.board_decision) ?? 'pending'
   );
@@ -286,6 +306,40 @@ function DetailPanel({ app, onDecisionSaved }: { app: Application; onDecisionSav
             <dt className="text-gray-500">Total Charged</dt>
             <dd className="font-medium">{fmtMoney(app.total_charged)}</dd>
           </div>
+          {/* Acknowledged governing documents — audit trail of which
+              Condo Docs + Rules PDF versions the applicant opened
+              before signing. Cross-references against documentLookup
+              built server-side. Older deleted documents show their UUID
+              so the audit trail is still readable. */}
+          {app.acknowledged_document_ids && app.acknowledged_document_ids.length > 0 && (
+            <div className="col-span-2">
+              <dt className="text-gray-500">Documents Acknowledged at Signature</dt>
+              <dd className="font-medium">
+                <ul className="list-disc pl-5 mt-1 space-y-0.5">
+                  {app.acknowledged_document_ids.map(id => {
+                    const meta = documentLookup[id];
+                    if (!meta) {
+                      return (
+                        <li key={id} className="text-xs text-gray-500">
+                          <code className="font-mono">{id.slice(0, 8)}</code> — <span className="italic">document no longer in library</span>
+                        </li>
+                      );
+                    }
+                    const label = DOC_CATEGORY_LABELS[meta.category] ?? meta.category;
+                    return (
+                      <li key={id} className="text-sm">
+                        <span className="font-semibold">{label}</span>
+                        <span className="text-gray-500"> — {meta.filename}</span>
+                        {meta.effective_date && (
+                          <span className="text-gray-400 text-xs ml-1">(effective {meta.effective_date})</span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </dd>
+            </div>
+          )}
         </dl>
       </section>
 
@@ -432,7 +486,7 @@ function DetailPanel({ app, onDecisionSaved }: { app: Application; onDecisionSav
 // Main table component
 // ---------------------------------------------------------------------------
 
-export function ApplicationsTable({ applications: initialApps }: Props) {
+export function ApplicationsTable({ applications: initialApps, documentLookup }: Props) {
   const [apps, setApps] = useState<Application[]>(initialApps);
   const [filter, setFilter] = useState<FilterTab>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -545,6 +599,7 @@ export function ApplicationsTable({ applications: initialApps }: Props) {
               {isOpen && (
                 <DetailPanel
                   app={app}
+                  documentLookup={documentLookup}
                   onDecisionSaved={(updated) => handleDecisionSaved(app.id, updated)}
                 />
               )}

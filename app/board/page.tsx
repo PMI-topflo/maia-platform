@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import SiteHeader from '@/components/SiteHeader'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
+import { getGoverningDocsForPortal } from '@/lib/governing-docs-for-portal'
 
 interface BoardMemberView {
   first_name: string | null
@@ -76,6 +77,10 @@ export default async function BoardPage(props: {
   const sessionToken     = cookieStore.get(SESSION_COOKIE)?.value
   const viewerSession    = sessionToken ? await verifySession(sessionToken) : null
   const isStaffEmulating = viewerSession?.persona === 'staff'
+
+  // Same set of governing docs the application flow uses — board
+  // members need easy access to enforce + cite them in meetings.
+  const governingDocs = await getGoverningDocsForPortal(assoc)
 
   const { data: assocRow } = await supabaseAdmin
     .from('associations')
@@ -199,6 +204,41 @@ export default async function BoardPage(props: {
           )}
         </div>
       </div>
+
+      {/* Governing Documents — board members get the same Condo Docs +
+          Rules PDFs that applicants are asked to sign, so they can
+          enforce + cite them. Hidden when nothing is uploaded yet. */}
+      {governingDocs.length > 0 && (
+        <>
+          <div className="section" style={{ paddingTop: '1.5rem' }}>
+            <h2 className="section-title">Governing Documents</h2>
+          </div>
+          <div className="prow-grid" style={{ marginTop: 0 }}>
+            {governingDocs.map(d => (
+              <a
+                key={d.id}
+                href={d.download_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="prow"
+              >
+                <div className="prow-orb">📄</div>
+                <div className="prow-info">
+                  <div className="prow-t">{d.category_label}</div>
+                  <div className="prow-d">
+                    {d.filename}
+                    {d.effective_date && (
+                      <span style={{ color: 'var(--muted)', fontSize: '0.7rem', marginLeft: '0.5rem' }}>
+                        effective {d.effective_date}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </a>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Quick actions */}
       <div className="section" style={{ paddingTop: '1.5rem' }}>

@@ -57,6 +57,69 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ code: strin
   return NextResponse.json({ ok: true })
 }
 
+// PATCH — archive / restore. Body: { action: 'archive' | 'restore' }.
+// Used by the docs UI's per-row "Archive" and "Make current" buttons.
+// "Restore" archives every OTHER active row in the same category so
+// the restored row is unambiguously the current version (same rule
+// the upload path enforces).
+export async function PATCH(req: Request, ctx: { params: Promise<{ code: string; id: string }> }) {
+  const session = await requireStaff()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { code, id } = await ctx.params
+  const upperCode = code.toUpperCase()
+
+  let body: { action?: 'archive' | 'restore' }
+  try { body = await req.json() }
+  catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }) }
+
+  const actor = typeof session.userId === 'string' && session.userId.includes('@')
+    ? session.userId.toLowerCase()
+    : null
+
+  if (body.action === 'archive') {
+    const { error } = await supabaseAdmin
+      .from('association_documents')
+      .update({ archived_at: new Date().toISOString(), archived_by_email: actor })
+      .eq('id', id)
+      .eq('association_code', upperCode)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
+  if (body.action === 'restore') {
+    // First archive every OTHER currently-active row in this row's
+    // category — same "one current per category" invariant the upload
+    // path holds. Need the row's category first.
+    const { data: row, error: fetchErr } = await supabaseAdmin
+      .from('association_documents')
+      .select('category')
+      .eq('id', id)
+      .eq('association_code', upperCode)
+      .maybeSingle()
+    if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 })
+    if (!row)     return NextResponse.json({ error: 'Document not found' }, { status: 404 })
+
+    await supabaseAdmin
+      .from('association_documents')
+      .update({ archived_at: new Date().toISOString(), archived_by_email: actor })
+      .eq('association_code', upperCode)
+      .eq('category', row.category)
+      .is('archived_at', null)
+      .neq('id', id)
+
+    const { error: restoreErr } = await supabaseAdmin
+      .from('association_documents')
+      .update({ archived_at: null, archived_by_email: null })
+      .eq('id', id)
+      .eq('association_code', upperCode)
+    if (restoreErr) return NextResponse.json({ error: restoreErr.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
+  return NextResponse.json({ error: 'action must be "archive" or "restore"' }, { status: 400 })
+}
+
 export async function GET(_req: Request, ctx: { params: Promise<{ code: string; id: string }> }) {
   if (!(await requireStaff())) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 

@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import SiteHeader from '@/components/SiteHeader'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
+import { getGoverningDocsForPortal } from '@/lib/governing-docs-for-portal'
 
 export default async function MyAccountPage(props: {
   searchParams: Promise<{ id?: string; assoc?: string }>
@@ -44,6 +45,11 @@ export default async function MyAccountPage(props: {
     .filter(Boolean)
 
   const phones = [owner.phone, owner.phone_2].filter(Boolean)
+
+  // Fetch the association's current governing documents (Condo Docs +
+  // Rules) so owners can re-read at any time. Quietly returns [] when
+  // nothing is uploaded yet — the section just won't render.
+  const governingDocs = await getGoverningDocsForPortal(owner.association_code)
 
   const fullAddress = [owner.address, owner.city, owner.state, owner.zip_code]
     .filter(Boolean)
@@ -135,6 +141,42 @@ export default async function MyAccountPage(props: {
         </div>
 
       </div>
+
+      {/* Governing Documents — only renders when staff has uploaded
+          the association's Condo Docs and/or Rules PDFs. Reuses the
+          same files applicants sign during the application flow so
+          owners can re-read them at any time. */}
+      {governingDocs.length > 0 && (
+        <>
+          <div className="section" style={{ paddingTop: '1.5rem' }}>
+            <h2 className="section-title">Governing Documents</h2>
+          </div>
+          <div className="prow-grid" style={{ marginTop: 0 }}>
+            {governingDocs.map(d => (
+              <a
+                key={d.id}
+                href={d.download_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="prow"
+              >
+                <div className="prow-orb">📄</div>
+                <div className="prow-info">
+                  <div className="prow-t">{d.category_label}</div>
+                  <div className="prow-d">
+                    {d.filename}
+                    {d.effective_date && (
+                      <span style={{ color: 'var(--muted)', fontSize: '0.7rem', marginLeft: '0.5rem' }}>
+                        effective {d.effective_date}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </a>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Quick Actions */}
       <div className="section" style={{ paddingTop: '1.5rem' }}>

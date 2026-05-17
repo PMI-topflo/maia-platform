@@ -70,19 +70,57 @@ function actorEmail(session: { userId: string | number }): string | null {
     : null
 }
 
+/** After a fresh upload for (assocCode, category), archive every other
+ *  active row in the same bucket so the new file is unambiguously the
+ *  current version. The just-inserted row's id is excluded so it
+ *  doesn't get archived along with the prior versions.
+ *
+ *  Called inline from POST. We don't roll back on failure — leaving a
+ *  duplicate-active row is recoverable (staff can archive it from the
+ *  UI), losing the just-uploaded file would not be. */
+async function archivePriorActiveVersions(
+  assocCode:    string,
+  category:     string,
+  excludeId:    string,
+  actorEmail:   string | null,
+): Promise<void> {
+  await supabaseAdmin
+    .from('association_documents')
+    .update({
+      archived_at:       new Date().toISOString(),
+      archived_by_email: actorEmail,
+    })
+    .eq('association_code', assocCode)
+    .eq('category', category)
+    .is('archived_at', null)
+    .neq('id', excludeId)
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // GET
+//
+// Returns current (non-archived) rows by default. Pass
+// ?include_archived=1 to also receive the version history rows so the
+// UI can render a "Previous versions" expander.
 // ─────────────────────────────────────────────────────────────────────
-export async function GET(_req: Request, ctx: { params: Promise<{ code: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ code: string }> }) {
   const session = await requireStaff()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { code } = await ctx.params
-  const { data, error } = await supabaseAdmin
+  const url = new URL(req.url)
+  const includeArchived = url.searchParams.get('include_archived') === '1'
+
+  let query = supabaseAdmin
     .from('association_documents')
     .select('*')
     .eq('association_code', code.toUpperCase())
     .order('created_at', { ascending: false })
+
+  if (!includeArchived) {
+    query = query.is('archived_at', null)
+  }
+  const { data, error } = await query
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
@@ -176,6 +214,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
       return NextResponse.json({ error: `DB insert failed: ${dbErr.message}` }, { status: 500 })
     }
 
+    // Auto-archive any prior active versions in this category so the
+    // new upload is the unambiguous current. Skip when the row carries
+    // no category (defensive — should always have one but the column
+    // is text-typed, not enum).
+    if (inserted?.id && category) {
+      await archivePriorActiveVersions(upperCode, category, inserted.id, actorEmail(session))
+    }
+
     // Don't echo extracted_text back — same rationale as GET.
     return NextResponse.json({
       ok:       true,
@@ -233,5 +279,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Same auto-archive behavior on the JSON path (drive link / note).
+  if (inserted?.id && inserted?.category) {
+    await archivePriorActiveVersions(upperCode, inserted.category, inserted.id, actorEmail(session))
+  }
   return NextResponse.json({ ok: true, document: { ...inserted, extracted_text: null } })
 }
