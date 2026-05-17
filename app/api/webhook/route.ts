@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import { findOrCreateTicket, appendMessage, createTicket } from '@/lib/tickets'
-import { fetchStaffList } from '@/lib/staff-list'
+import { fetchStaffList, findStaffByPhone } from '@/lib/staff-list'
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
 
@@ -963,6 +963,7 @@ async function handleExplicitTicketCreate(
   ctx: CallerContext,
   message: string,
   intent: { assigneeName: string | null },
+  requester: { name: string; email: string },
 ): Promise<string> {
   let assigneeEmail: string | null = null
   let resolvedName:  string | null = null
@@ -985,9 +986,10 @@ async function handleExplicitTicketCreate(
     const ticket = await createTicket({
       channel_origin: ctx.channel === 'voice' ? 'phone' : ctx.channel,
       priority:       'normal',
-      persona:        ctx.persona,
+      persona:        'staff',
       contact_phone:  ctx.phone,
-      contact_name:   ctx.name !== 'there' ? ctx.name : null,
+      contact_name:   requester.name,
+      contact_email:  requester.email,
       subject:        message.slice(0, 120),
       summary:        message.slice(0, 280),
       assignee_email: assigneeEmail,
@@ -1026,9 +1028,20 @@ async function getMaiaIntelligentResponse(ctx: CallerContext, message: string): 
   // "abrir um chamado", "@maia create ticket"). Short-circuits before the
   // keyword routers so unrelated words in the subject (e.g. "check") don't
   // misfire other templates.
+  //
+  // Staff-only: opening tickets by directive (especially assigning to a
+  // named staff member) is reserved for PMI staff. Non-staff senders fall
+  // through to the normal keyword routing — their conversation is still
+  // auto-logged as a ticket via ingestTwilioConversationToTicket.
   const ticketIntent = detectTicketCreateIntent(message)
   if (ticketIntent) {
-    return await handleExplicitTicketCreate(ctx, message, ticketIntent)
+    const staffSender = await findStaffByPhone(ctx.phone)
+    if (staffSender) {
+      return await handleExplicitTicketCreate(ctx, message, ticketIntent, staffSender)
+    }
+    // Non-staff: silently fall through — no need to call out that the
+    // feature is staff-only; their request will be handled by the normal
+    // triage below.
   }
 
   const isMaintenance = /leak|repair|broken|fix|maintenance|agua|plumb|hvac|electric|roof|door|window|faucet|toilet|ac|heat|mold|pest|manuten|reparar/.test(msg)
