@@ -19,7 +19,7 @@ export default async function CincSyncIndexPage() {
 
   const { data: associations } = await supabaseAdmin
     .from('associations')
-    .select('association_code, association_name')
+    .select('association_code, association_name, service_type')
     .order('association_name')
 
   // Quick count of owners + board per assoc so staff can see scale before clicking in
@@ -31,6 +31,13 @@ export default async function CincSyncIndexPage() {
     .from('association_board_members')
     .select('association_code')
     .eq('active', true)
+  // Per-association count of CURRENT (non-archived) governing documents
+  // — answers "does this association have Condo Docs + Rules uploaded
+  // yet?" at a glance so staff can spot gaps without clicking in.
+  const { data: docCounts } = await supabaseAdmin
+    .from('association_documents')
+    .select('association_code')
+    .is('archived_at', null)
 
   const ownerByCode: Record<string, number> = {}
   for (const o of (ownerCounts ?? [])) {
@@ -39,6 +46,10 @@ export default async function CincSyncIndexPage() {
   const boardByCode: Record<string, number> = {}
   for (const b of (boardCounts ?? [])) {
     if (b.association_code) boardByCode[b.association_code] = (boardByCode[b.association_code] ?? 0) + 1
+  }
+  const docsByCode: Record<string, number> = {}
+  for (const d of (docCounts ?? [])) {
+    if (d.association_code) docsByCode[d.association_code] = (docsByCode[d.association_code] ?? 0) + 1
   }
 
   // Pull CINC's master list and compute the diff CINC \ MAIA so staff
@@ -138,9 +149,11 @@ export default async function CincSyncIndexPage() {
               <tr>
                 <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Code</th>
                 <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Association</th>
-                <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Owners in MAIA</th>
-                <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Board in MAIA</th>
-                <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]"></th>
+                <th className="text-center text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Service</th>
+                <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Owners</th>
+                <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Board</th>
+                <th className="text-center text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Docs</th>
+                <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -148,9 +161,21 @@ export default async function CincSyncIndexPage() {
                 <tr key={a.association_code} className="hover:bg-gray-50">
                   <td className="px-4 py-2 font-mono text-xs text-gray-500">{a.association_code}</td>
                   <td className="px-4 py-2 text-gray-800">{a.association_name}</td>
+                  <td className="px-4 py-2 text-center">
+                    <ServiceTypeBadge serviceType={a.service_type} />
+                  </td>
                   <td className="px-4 py-2 text-right text-gray-600">{ownerByCode[a.association_code] ?? 0}</td>
                   <td className="px-4 py-2 text-right text-gray-600">{boardByCode[a.association_code] ?? 0}</td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-4 py-2 text-center">
+                    <DocsCountBadge count={docsByCode[a.association_code] ?? 0} />
+                  </td>
+                  <td className="px-4 py-2 text-right whitespace-nowrap">
+                    <Link
+                      href={`/admin/cinc-sync/${a.association_code}/documents`}
+                      className="text-indigo-700 hover:text-indigo-900 hover:underline text-xs font-mono uppercase tracking-wide mr-3"
+                    >
+                      📄 Docs
+                    </Link>
                     <Link
                       href={`/admin/cinc-sync/${a.association_code}`}
                       className="text-[#f26a1b] hover:underline text-xs font-mono uppercase tracking-wide"
@@ -165,5 +190,52 @@ export default async function CincSyncIndexPage() {
         </div>
       </main>
     </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Small presentational helpers — kept in this file because they only
+// matter to the cinc-sync index. service_type values come from the
+// associations table; we normalize the freeform string into the two
+// abbreviations staff actually use ("FM" vs "BK").
+// ─────────────────────────────────────────────────────────────────────
+
+function ServiceTypeBadge({ serviceType }: { serviceType: string | null | undefined }) {
+  const norm = (serviceType ?? '').toLowerCase()
+  // "full management" → FM; "bookkeeping" / "financial only" → BK.
+  // Anything else (or NULL) renders blank so it stands out as
+  // "needs classification" rather than mislabeling.
+  let label = ''
+  let style = ''
+  if (norm.includes('full') || norm === 'fm' || norm.includes('full management')) {
+    label = 'FM'
+    style = 'bg-emerald-100 text-emerald-800 border-emerald-300'
+  } else if (norm.includes('bookkeep') || norm === 'bk' || norm.includes('financial only')) {
+    label = 'BK'
+    style = 'bg-amber-100 text-amber-800 border-amber-300'
+  }
+  if (!label) {
+    return <span className="text-[10px] text-gray-300 font-mono uppercase">—</span>
+  }
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-semibold uppercase tracking-wide border ${style}`}>
+      {label}
+    </span>
+  )
+}
+
+function DocsCountBadge({ count }: { count: number }) {
+  // Color-code: 0 docs = red (missing), 1 doc = amber (half-set —
+  // probably only Condo Docs OR Rules), 2+ = green (both uploaded).
+  // This is a quick visual gap-spotting tool for staff.
+  const color = count === 0
+    ? 'bg-red-100 text-red-700 border-red-300'
+    : count === 1
+      ? 'bg-amber-100 text-amber-800 border-amber-300'
+      : 'bg-green-100 text-green-800 border-green-300'
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-semibold uppercase tracking-wide border ${color}`}>
+      {count}
+    </span>
   )
 }

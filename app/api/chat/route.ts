@@ -125,6 +125,10 @@ export async function POST(req: NextRequest) {
           .from('association_documents')
           .select('category, subcategory, filename, extracted_text, notes, effective_date, expiry_date')
           .eq('association_code', associationCode)
+          // Skip archived (superseded) versions so MAIA answers from
+          // current docs only — citing an outdated Rules PDF would be
+          // worse than not citing one at all.
+          .is('archived_at', null)
           // Order: docs with real extracted content first (so they win
           // the budget), then notes / unsupported rows that only carry
           // the notes field.

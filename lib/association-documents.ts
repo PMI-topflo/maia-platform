@@ -103,6 +103,12 @@ export interface AssociationDocument {
   expiry_date:        string | null
   notes:              string | null
   uploaded_by_email:  string | null
+  /** Soft-archive flag. NULL when this is a current (active) version.
+   *  Set when a newer upload supersedes it OR staff explicitly archives
+   *  it. Archived rows still hold their storage object so a restore
+   *  doesn't require re-uploading the file. */
+  archived_at:        string | null
+  archived_by_email:  string | null
   created_at:         string
   updated_at:         string
 }

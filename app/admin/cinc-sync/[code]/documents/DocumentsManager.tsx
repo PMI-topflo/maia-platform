@@ -29,11 +29,18 @@ export default function DocumentsManager({ assocCode }: Props) {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  // Per-category toggle for showing archived versions. Keyed by
+  // category so opening history for Condo Docs doesn't also open it
+  // for Rules (and vice versa).
+  const [showHistory, setShowHistory] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     let cancelled = false
     setLoading(true); setError(null)
-    fetch(`/api/admin/associations/${assocCode}/documents`)
+    // Always fetch with include_archived so the client has the full
+    // history. We filter visually for "current" vs "previous" rather
+    // than re-fetching when the user expands a history section.
+    fetch(`/api/admin/associations/${assocCode}/documents?include_archived=1`)
       .then(r => r.ok ? r.json() : r.json().then(b => { throw new Error(b?.error ?? 'load failed') }))
       .then(data => { if (!cancelled) setDocs(data.documents ?? []) })
       .catch(e => !cancelled && setError(e instanceof Error ? e.message : String(e)))
@@ -43,15 +50,18 @@ export default function DocumentsManager({ assocCode }: Props) {
 
   function refresh() { setReloadKey(k => k + 1) }
 
-  // Group docs by category key. With just two categories the layout
-  // stays flat — one section per category — instead of being nested
-  // inside a group header (which made sense for the 28-category
-  // version but is overkill now).
-  const byCategory: Record<string, AssociationDocument[]> = {}
-  for (const d of docs) {
-    const key = d.category || 'other'
-    if (!byCategory[key]) byCategory[key] = []
-    byCategory[key].push(d)
+  // Partition by category, then by current/archived. Each category
+  // gets one "current" (newest non-archived) and N "previous" rows
+  // (every other row in the same bucket, regardless of archive flag —
+  // a stray active row would also surface in history so staff can
+  // spot the anomaly).
+  const byCategory: Record<string, { current: AssociationDocument | null; previous: AssociationDocument[] }> = {}
+  for (const cat of CATEGORIES) {
+    const all = docs.filter(d => d.category === cat.key)
+      .sort((a, b) => (a.created_at > b.created_at ? -1 : 1))
+    const current = all.find(d => !d.archived_at) ?? null
+    const previous = all.filter(d => d.id !== current?.id)
+    byCategory[cat.key] = { current, previous }
   }
 
   return (
@@ -65,31 +75,52 @@ export default function DocumentsManager({ assocCode }: Props) {
       {loading && <div className="text-sm text-gray-500">Loading documents…</div>}
 
       {!loading && CATEGORIES.map(cat => {
-        const rows = byCategory[cat.key] ?? []
+        const { current, previous } = byCategory[cat.key]
+        const historyOpen = !!showHistory[cat.key]
         return (
           <section key={cat.key} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 border-b border-gray-100 px-4 py-2.5 flex items-baseline justify-between">
               <h2 className="text-sm font-semibold text-gray-700 [font-family:var(--font-mono)]">{cat.label}</h2>
               <span className="text-[10px] text-gray-400 uppercase font-mono">
-                {rows.length === 0 ? 'No file yet' : `${rows.length} version${rows.length === 1 ? '' : 's'}`}
+                {!current
+                  ? 'No current version'
+                  : `Current + ${previous.length} previous version${previous.length === 1 ? '' : 's'}`}
               </span>
             </div>
-            {rows.length === 0
+            {current
               ? (
+                <ul className="divide-y divide-gray-50">
+                  <DocumentRow doc={current} assocCode={assocCode} variant="current" onChanged={refresh} />
+                </ul>
+              )
+              : (
                 <div className="px-4 py-6 text-center text-xs text-gray-400">
                   Upload the current {cat.label.toLowerCase()} PDF above. Applicants will be required to acknowledge it before signing.
                 </div>
-              )
-              : (
-                <ul className="divide-y divide-gray-50">
-                  {rows.map(d => (
-                    <DocumentRow key={d.id} doc={d} assocCode={assocCode} onChanged={refresh} />
-                  ))}
-                </ul>
               )}
+            {previous.length > 0 && (
+              <div className="border-t border-gray-100 bg-gray-50/40">
+                <button
+                  type="button"
+                  onClick={() => setShowHistory(prev => ({ ...prev, [cat.key]: !historyOpen }))}
+                  className="w-full px-4 py-2 text-[11px] font-mono uppercase tracking-wide text-gray-500 hover:text-gray-800 text-left"
+                >
+                  {historyOpen ? '▾' : '▸'} {previous.length} previous version{previous.length === 1 ? '' : 's'}
+                </button>
+                {historyOpen && (
+                  <ul className="divide-y divide-gray-100">
+                    {previous.map(d => (
+                      <DocumentRow key={d.id} doc={d} assocCode={assocCode} variant="archived" onChanged={refresh} />
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </section>
         )
       })}
+
+      <TranslationsPreviewCard />
     </div>
   )
 }
@@ -220,7 +251,20 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
 // Per-document row in the grouped list
 // ─────────────────────────────────────────────────────────────────────
 
-function DocumentRow({ doc, assocCode, onChanged }: { doc: AssociationDocument; assocCode: string; onChanged: () => void }) {
+function DocumentRow({
+  doc,
+  assocCode,
+  variant,
+  onChanged,
+}: {
+  doc:       AssociationDocument
+  assocCode: string
+  /** 'current' = the active version (full-color row, no archive label).
+   *  'archived' = a previous version inside the history expander (muted
+   *  styling, gets a "Make current" restore button). */
+  variant:   'current' | 'archived'
+  onChanged: () => void
+}) {
   const [busy, setBusy] = useState(false)
 
   async function onDelete() {
@@ -231,6 +275,40 @@ function DocumentRow({ doc, assocCode, onChanged }: { doc: AssociationDocument; 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       alert(`Delete failed: ${data?.error ?? res.status}`)
+      return
+    }
+    onChanged()
+  }
+
+  async function onArchive() {
+    if (!confirm(`Archive "${doc.filename}"? It will move to "Previous versions" and stop appearing for applicants and owners until restored.`)) return
+    setBusy(true)
+    const res = await fetch(`/api/admin/associations/${assocCode}/documents/${doc.id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ action: 'archive' }),
+    })
+    setBusy(false)
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      alert(`Archive failed: ${data?.error ?? res.status}`)
+      return
+    }
+    onChanged()
+  }
+
+  async function onRestore() {
+    if (!confirm(`Make "${doc.filename}" the current version? The existing current version will be archived.`)) return
+    setBusy(true)
+    const res = await fetch(`/api/admin/associations/${assocCode}/documents/${doc.id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ action: 'restore' }),
+    })
+    setBusy(false)
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      alert(`Restore failed: ${data?.error ?? res.status}`)
       return
     }
     onChanged()
@@ -257,21 +335,35 @@ function DocumentRow({ doc, assocCode, onChanged }: { doc: AssociationDocument; 
     unsupported: 'bg-gray-100 text-gray-500',
   }
 
+  // Audit line — who uploaded + when, plus who archived + when if
+  // applicable. Falls back to "system" when an action wasn't tied to
+  // a logged-in staff email (e.g., auto-archive triggered by an API
+  // call without a session — shouldn't happen today but defends).
+  const uploadedAt = new Date(doc.created_at).toLocaleString()
+  const archivedAt = doc.archived_at ? new Date(doc.archived_at).toLocaleString() : null
+
   return (
-    <li className="flex items-start justify-between gap-3 text-xs px-4 py-3">
+    <li className={`flex items-start justify-between gap-3 text-xs px-4 py-3 ${variant === 'archived' ? 'opacity-70' : ''}`}>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={onOpen}
-            className="text-gray-900 hover:text-[#f26a1b] underline-offset-2 hover:underline truncate text-left"
+            className="text-gray-900 hover:text-[#f26a1b] underline-offset-2 hover:underline truncate text-left font-medium"
           >
             {doc.filename}
           </button>
+          {variant === 'current' && (
+            <span className="inline-flex items-center px-1.5 py-0 rounded text-[9px] font-mono font-semibold uppercase bg-green-600 text-white">
+              ✓ Current
+            </span>
+          )}
+          {variant === 'archived' && (
+            <span className="inline-flex items-center px-1.5 py-0 rounded text-[9px] font-mono uppercase bg-gray-200 text-gray-600">
+              Archived
+            </span>
+          )}
           <span className={`inline-flex items-center px-1.5 py-0 rounded text-[9px] font-mono uppercase ${statusStyles[doc.extraction_status] ?? 'bg-gray-100 text-gray-500'}`}>
             {doc.extraction_status}
-          </span>
-          <span className="text-[10px] font-mono uppercase tracking-wide text-gray-400">
-            {doc.source === 'upload' ? 'file' : doc.source === 'drive_link' ? 'drive' : 'note'}
           </span>
           {doc.expiry_date && (
             <span className="text-[10px] font-mono text-amber-700">
@@ -291,8 +383,35 @@ function DocumentRow({ doc, assocCode, onChanged }: { doc: AssociationDocument; 
           {doc.file_size_bytes ? ` · ${(doc.file_size_bytes / 1024 / 1024).toFixed(2)} MB` : ''}
           {doc.effective_date ? ` · effective ${doc.effective_date}` : ''}
         </div>
+        {/* Audit trail: who uploaded + when, who archived + when */}
+        <div className="text-[10px] text-gray-500 mt-1 font-mono">
+          Uploaded by <span className="text-gray-700">{doc.uploaded_by_email ?? 'system'}</span> · {uploadedAt}
+        </div>
+        {archivedAt && (
+          <div className="text-[10px] text-gray-500 font-mono">
+            Archived by <span className="text-gray-700">{doc.archived_by_email ?? 'system'}</span> · {archivedAt}
+          </div>
+        )}
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 flex-wrap justify-end">
+        {variant === 'archived' && (
+          <button
+            onClick={onRestore}
+            disabled={busy}
+            className="text-[10px] font-mono uppercase text-green-700 hover:text-green-900 px-1.5 py-0.5 rounded border border-green-300 hover:border-green-500"
+          >
+            {busy ? '…' : 'Make current'}
+          </button>
+        )}
+        {variant === 'current' && (
+          <button
+            onClick={onArchive}
+            disabled={busy}
+            className="text-[10px] font-mono uppercase text-gray-400 hover:text-amber-700 px-1.5 py-0.5 rounded border border-transparent hover:border-amber-200"
+          >
+            {busy ? '…' : 'Archive'}
+          </button>
+        )}
         <button
           onClick={onDelete}
           disabled={busy}
@@ -302,5 +421,70 @@ function DocumentRow({ doc, assocCode, onChanged }: { doc: AssociationDocument; 
         </button>
       </div>
     </li>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Translations preview
+//
+// Read-only card that shows how the apply-form's "Download & review
+// these documents" prompt + button labels render in each of MAIA's
+// six supported languages. Lets staff spot translation issues
+// (typos, wrong tone, RTL layout bugs) without having to switch
+// languages on the live form.
+//
+// Strings are duplicated here from components/ApplicationForm.tsx so
+// this preview can render even if the form file is loaded lazily.
+// When translations are edited, both places need updating — kept
+// minimal so it stays in sync by inspection.
+// ─────────────────────────────────────────────────────────────────────
+
+interface LangPreview {
+  code:  string
+  label: string
+  title: string
+  opened: string
+  download: string
+  prompt: string
+  rtl?:  boolean
+}
+
+const APPLY_STRINGS_PREVIEW: LangPreview[] = [
+  { code: 'en', label: 'English',    title: 'Download & review these documents', opened: '✓ Opened', download: 'Download ↗', prompt: 'Please open all 2 documents before signing.' },
+  { code: 'es', label: 'Español',    title: 'Descargue y revise estos documentos', opened: '✓ Abierto', download: 'Descargar ↗', prompt: 'Por favor abra los 2 documentos antes de firmar.' },
+  { code: 'pt', label: 'Português',  title: 'Baixe e leia estes documentos', opened: '✓ Aberto', download: 'Baixar ↗', prompt: 'Por favor abra os 2 documentos antes de assinar.' },
+  { code: 'fr', label: 'Français',   title: 'Téléchargez et lisez ces documents', opened: '✓ Ouvert', download: 'Télécharger ↗', prompt: 'Veuillez ouvrir les 2 documents avant de signer.' },
+  { code: 'he', label: 'עברית',      title: 'הורד וקרא את המסמכים האלה', opened: '✓ נפתח', download: 'הורד ↗', prompt: 'אנא פתח את כל 2 המסמכים לפני החתימה.', rtl: true },
+  { code: 'ru', label: 'Русский',    title: 'Скачайте и прочитайте эти документы', opened: '✓ Открыто', download: 'Скачать ↗', prompt: 'Пожалуйста, откройте все 2 документ перед подписанием.' },
+]
+
+function TranslationsPreviewCard() {
+  return (
+    <section className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+      <div className="bg-gray-50 border-b border-gray-100 px-4 py-2.5">
+        <h2 className="text-sm font-semibold text-gray-700 [font-family:var(--font-mono)]">Applicant-facing translations preview</h2>
+        <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
+          How the &quot;Download &amp; review&quot; prompt + button labels appear to applicants in each language. To correct a string, edit the matching key in <code className="bg-gray-100 px-1 rounded font-mono">components/ApplicationForm.tsx</code> (look for <code className="bg-gray-100 px-1 rounded font-mono">docsReviewTitle</code>).
+        </p>
+      </div>
+      <div className="divide-y divide-gray-100">
+        {APPLY_STRINGS_PREVIEW.map(l => (
+          <div key={l.code} className="px-4 py-3" dir={l.rtl ? 'rtl' : 'ltr'}>
+            <div className={`flex items-baseline gap-2 mb-2 ${l.rtl ? 'flex-row-reverse' : ''}`}>
+              <span className="inline-flex items-center px-1.5 py-0 rounded text-[9px] font-mono font-semibold uppercase bg-indigo-100 text-indigo-700">{l.code.toUpperCase()}</span>
+              <span className="text-xs text-gray-700">{l.label}</span>
+            </div>
+            <div className="bg-orange-50 border border-orange-200 rounded p-3">
+              <div className="text-[10px] font-mono uppercase tracking-wide text-orange-700 mb-2">{l.title}</div>
+              <div className={`flex items-center gap-2 ${l.rtl ? 'flex-row-reverse' : ''}`}>
+                <span className="inline-flex items-center px-2 py-1 rounded text-[11px] font-mono font-semibold bg-white border border-orange-300 text-orange-700">{l.download}</span>
+                <span className="inline-flex items-center px-2 py-1 rounded text-[11px] font-mono font-semibold bg-green-50 border border-green-400 text-green-700">{l.opened}</span>
+              </div>
+              <div className="text-[11px] text-orange-700 mt-2">{l.prompt}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }

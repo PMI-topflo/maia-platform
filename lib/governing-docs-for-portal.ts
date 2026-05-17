@@ -36,6 +36,9 @@ export async function getGoverningDocsForPortal(assocCode: string): Promise<Port
     .select('id, category, filename, storage_path, drive_url, source, effective_date, created_at')
     .eq('association_code', code)
     .in('category', wanted)
+    // Skip archived versions — owners + board members always see the
+    // current Condo Docs / Rules, matching what new applicants sign.
+    .is('archived_at', null)
     .order('created_at', { ascending: false })
 
   // Keep only the newest row per category — same "latest version wins"
