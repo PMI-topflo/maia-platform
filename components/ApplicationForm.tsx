@@ -114,6 +114,13 @@ const translations = {
     rulesSignatureLabel: "Electronic Signature",
     rulesSignatureNote: "By typing your name above you are electronically signing this agreement.",
     rulesRequired: "Please sign the Rules & Regulations acknowledgment to continue.",
+    // Strings for the governing-documents download cards on the rules
+    // step. {n} is interpolated with the doc count at render time.
+    docsReviewTitle:    "Download & review these documents",
+    docsOpenedLabel:    "✓ Opened",
+    docsDownloadLabel:  "Download ↗",
+    docsOpenAllPrompt:  "Please open all {n} document{s} before signing.",
+    docsRequiredError:  "Please download and review all {n} document{s} above before signing.",
   },
   es: {
     title: "Solicitud de Residente",
@@ -210,6 +217,11 @@ const translations = {
     rulesSignatureLabel: "Firma Electrónica",
     rulesSignatureNote: "Al escribir su nombre, está firmando electrónicamente este acuerdo.",
     rulesRequired: "Por favor confirme que acepta el Reglamento para continuar.",
+    docsReviewTitle:    "Descargue y revise estos documentos",
+    docsOpenedLabel:    "✓ Abierto",
+    docsDownloadLabel:  "Descargar ↗",
+    docsOpenAllPrompt:  "Por favor abra los {n} documento{s} antes de firmar.",
+    docsRequiredError:  "Por favor descargue y revise los {n} documento{s} de arriba antes de firmar.",
   },
   pt: {
     title: "Solicitação de Residente",
@@ -306,6 +318,11 @@ const translations = {
     rulesSignatureLabel: "Assinatura Eletrônica",
     rulesSignatureNote: "Ao digitar seu nome, você está assinando eletronicamente este acordo.",
     rulesRequired: "Por favor confirme que concorda com o Regulamento para continuar.",
+    docsReviewTitle:    "Baixe e leia estes documentos",
+    docsOpenedLabel:    "✓ Aberto",
+    docsDownloadLabel:  "Baixar ↗",
+    docsOpenAllPrompt:  "Por favor abra os {n} documento{s} antes de assinar.",
+    docsRequiredError:  "Por favor baixe e leia os {n} documento{s} acima antes de assinar.",
   },
   fr: {
     title: "Demande de Résidence",
@@ -402,6 +419,11 @@ const translations = {
     rulesSignatureLabel: "Signature Électronique",
     rulesSignatureNote: "En tapant votre nom, vous signez électroniquement cet accord.",
     rulesRequired: "Veuillez confirmer votre accord avec le Règlement Intérieur pour continuer.",
+    docsReviewTitle:    "Téléchargez et lisez ces documents",
+    docsOpenedLabel:    "✓ Ouvert",
+    docsDownloadLabel:  "Télécharger ↗",
+    docsOpenAllPrompt:  "Veuillez ouvrir les {n} document{s} avant de signer.",
+    docsRequiredError:  "Veuillez télécharger et lire les {n} document{s} ci-dessus avant de signer.",
   },
   he: {
     title: "בקשת מגורים",
@@ -498,6 +520,11 @@ const translations = {
     rulesSignatureLabel: "חתימה אלקטרונית",
     rulesSignatureNote: "על ידי הקלדת שמך, אתה חותם אלקטרונית על הסכם זה.",
     rulesRequired: "אנא אשר הסכמתך לתקנון כדי להמשיך.",
+    docsReviewTitle:    "הורד וקרא את המסמכים האלה",
+    docsOpenedLabel:    "✓ נפתח",
+    docsDownloadLabel:  "הורד ↗",
+    docsOpenAllPrompt:  "אנא פתח את כל {n} המסמכ{s} לפני החתימה.",
+    docsRequiredError:  "אנא הורד וקרא את כל {n} המסמכ{s} למעלה לפני החתימה.",
   },
   ru: {
     title: "Заявка на проживание",
@@ -594,140 +621,11 @@ const translations = {
     rulesSignatureLabel: "Электронная подпись",
     rulesSignatureNote: "Вводя своё имя, вы электронно подписываете это соглашение.",
     rulesRequired: "Пожалуйста, подтвердите согласие с Правилами и нормами для продолжения.",
-  },
-  he: {
-    title: "בקשת מגורים",
-    subtitle: "PMI Top Florida Properties",
-    steps: ["סוג", "מגישים", "מסמכים", "תשלום"],
-    selectAssociation: "בחר עמותה",
-    associationPlaceholder: "בחר את העמותה שלך…",
-    loadingAssociations: "טוען עמותות…",
-    applicantType: "סוג בקשה",
-    individual: "יחיד",
-    individualDesc: "מגיש יחיד",
-    couple: "זוג נשוי",
-    coupleDesc: "בקשה משותפת עם בן/בת הזוג",
-    additionalResident: "דייר נוסף",
-    additionalResidentDesc: "דייר נוסף על בקשה קיימת",
-    commercial: "ישות מסחרית",
-    commercialDesc: "עסק / מגיש תאגידי",
-    marriageCertUpload: "תעודת נישואין",
-    marriageCertNote: "העלה תעודת נישואין לתעריף זוגי ($150). ללא תעודה, כל מגיש ישלם $100.",
-    hasCert: "כן — העלה תעודה",
-    noCert: "ללא תעודה — חיוב נפרד ($100 לכל אחד)",
-    applicant: "מגיש",
-    firstName: "שם פרטי",
-    lastName: "שם משפחה",
-    dob: "תאריך לידה",
-    email: "כתובת אימייל",
-    phone: "מספר טלפון",
-    currentAddress: "כתובת נוכחית",
-    ssn: "מספר ביטוח לאומי (או מספר דרכון למגישים בינלאומיים)",
-    unitApplying: "יחידה מבוקשת",
-    moveInDate: "תאריך כניסה מבוקש",
-    entityName: "שם הישות (כפי שמופיע ב-Sunbiz)",
-    sunbizId: "מספר רישום Sunbiz",
-    principals: "בעלי עניין רשומים",
-    addPrincipal: "+ הוסף בעל עניין",
-    principalName: "שם בעל עניין",
-    principalDOB: "תאריך לידה",
-    documents: "מסמכים נדרשים",
-    govId: "תעודת זהות ממשלתית",
-    proofIncome: "אישור הכנסה",
-    marriageCert: "תעודת נישואין",
-    uploadFile: "לחץ להעלאה או גרור קובץ",
-    uploadFormats: "PDF, JPG, PNG · עד 10 MB",
-    uploaded: "הועלה",
-    paymentSummary: "סיכום תשלום",
-    payTotal: "סה״כ לתשלום",
-    payOnline: "שלם בכרטיס אשראי",
-    signature: "הסכמה והרשאה",
-    signatureConsent: "אני מסמיך את PMI Top Florida Properties לבצע בדיקת רקע, אשראי ופינוי עבור כל המגישים הרשומים לעיל. אני מאשר שכל המידע שמסרתי מדויק ומלא.",
-    iAgree: "אני מסכים לתנאים לעיל",
-    next: "המשך",
-    back: "חזרה",
-    submit: "שלח בקשה",
-    priceBreakdown: "פירוט מחיר",
-    perApplicant: "למגיש",
-    coupleRate: "תעריף זוגי (עם תעודה)",
-    applicationFee: "דמי בקשה",
-    backgroundCheck: "בדיקת רקע (Applycheck)",
-    yourMargin: "דמי עיבוד",
-    addlResident: "דייר נוסף",
-    chooseLanguage: "שפה",
-    consentRequired: "אנא הסכם לתנאים כדי להמשיך.",
-    allFieldsRequired: "אנא מלא את כל השדות הנדרשים.",
-    selectType: "אנא בחר סוג בקשה.",
-    selectAssocPlaceholder: "אנא בחר עמותה.",
-    payingNote: "מעביר לתשלום מאובטח…",
-    uploadError: "ההעלאה נכשלה — נסה שוב.",
-  },
-  ru: {
-    title: "Заявка на проживание",
-    subtitle: "PMI Top Florida Properties",
-    steps: ["Тип", "Заявители", "Документы", "Оплата"],
-    selectAssociation: "Выбрать ассоциацию",
-    associationPlaceholder: "Выберите вашу ассоциацию…",
-    loadingAssociations: "Загрузка ассоциаций…",
-    applicantType: "Тип заявки",
-    individual: "Индивидуальная",
-    individualDesc: "Один заявитель",
-    couple: "Семейная пара",
-    coupleDesc: "Совместная заявка с супругом/супругой",
-    additionalResident: "Дополнительный жилец",
-    additionalResidentDesc: "Дополнительный жилец по существующей заявке",
-    commercial: "Юридическое лицо",
-    commercialDesc: "Компания / корпоративный заявитель",
-    marriageCertUpload: "Свидетельство о браке",
-    marriageCertNote: "Загрузите свидетельство для семейного тарифа ($150). Без него каждый заявитель платит $100.",
-    hasCert: "Да — загрузить свидетельство",
-    noCert: "Без свидетельства — оплата раздельно ($100 каждый)",
-    applicant: "Заявитель",
-    firstName: "Имя",
-    lastName: "Фамилия",
-    dob: "Дата рождения",
-    email: "Электронная почта",
-    phone: "Номер телефона",
-    currentAddress: "Текущий адрес",
-    ssn: "SSN (или номер паспорта для иностранных заявителей)",
-    unitApplying: "Запрашиваемый юнит",
-    moveInDate: "Желаемая дата въезда",
-    entityName: "Название организации (по данным Sunbiz)",
-    sunbizId: "Регистрационный номер Sunbiz",
-    principals: "Зарегистрированные руководители",
-    addPrincipal: "+ Добавить руководителя",
-    principalName: "Имя руководителя",
-    principalDOB: "Дата рождения",
-    documents: "Необходимые документы",
-    govId: "Удостоверение личности",
-    proofIncome: "Подтверждение дохода",
-    marriageCert: "Свидетельство о браке",
-    uploadFile: "Нажмите для загрузки или перетащите файл",
-    uploadFormats: "PDF, JPG, PNG · до 10 МБ",
-    uploaded: "Загружено",
-    paymentSummary: "Итог по оплате",
-    payTotal: "Итого к оплате",
-    payOnline: "Оплатить картой",
-    signature: "Согласие и авторизация",
-    signatureConsent: "Я разрешаю PMI Top Florida Properties провести проверку биографии, кредитной истории и истории выселений для всех указанных заявителей. Я подтверждаю точность и полноту предоставленных данных.",
-    iAgree: "Я согласен с указанными условиями",
-    next: "Продолжить",
-    back: "Назад",
-    submit: "Отправить заявку",
-    priceBreakdown: "Детализация стоимости",
-    perApplicant: "за заявителя",
-    coupleRate: "Семейный тариф (со свидетельством)",
-    applicationFee: "Взнос за заявку",
-    backgroundCheck: "Проверка биографии (Applycheck)",
-    yourMargin: "Сбор за обработку",
-    addlResident: "Дополнительный жилец",
-    chooseLanguage: "Язык",
-    consentRequired: "Пожалуйста, примите условия для продолжения.",
-    allFieldsRequired: "Пожалуйста, заполните все обязательные поля.",
-    selectType: "Пожалуйста, выберите тип заявки.",
-    selectAssocPlaceholder: "Пожалуйста, выберите ассоциацию.",
-    payingNote: "Переход к безопасной оплате…",
-    uploadError: "Ошибка загрузки — попробуйте ещё раз.",
+    docsReviewTitle:    "Скачайте и прочитайте эти документы",
+    docsOpenedLabel:    "✓ Открыто",
+    docsDownloadLabel:  "Скачать ↗",
+    docsOpenAllPrompt:  "Пожалуйста, откройте все {n} документ{s} перед подписанием.",
+    docsRequiredError:  "Пожалуйста, скачайте и прочитайте все {n} документ{s} выше перед подписанием.",
   },
 };
 
@@ -1156,7 +1054,14 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     // been opened. Hardcoded English message — i18n keys live with the
     // other rules-step strings and can be added once the UX is locked.
     if (step === 3 && governingDocs.length > 0 && docsViewed.size < governingDocs.length) {
-      setError(`Please download and review all ${governingDocs.length} document${governingDocs.length === 1 ? "" : "s"} above before signing.`)
+      // The doc-required strings include {n} for the count and {s} for
+      // the plural marker so translators can position them naturally
+      // (Spanish/Portuguese "documento(s)", French "document(s)", etc).
+      setError(
+        t.docsRequiredError
+          .replace("{n}", String(governingDocs.length))
+          .replace("{s}", governingDocs.length === 1 ? "" : "s")
+      )
       return
     }
     if (step === 3 && !agreed) { setError(t.consentRequired); return; }
@@ -1717,7 +1622,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                 {governingDocs.length > 0 && (
                   <div style={{ background: "#fff", border: "1px solid #fed7aa", borderRadius: 3, padding: "12px 14px", marginBottom: 16 }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: "#9a3412", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace", marginBottom: 10 }}>
-                      Download &amp; review these documents
+                      {t.docsReviewTitle}
                     </div>
                     {governingDocs.map(d => {
                       const viewed = docsViewed.has(d.id)
@@ -1750,14 +1655,16 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                             </span>
                           </span>
                           <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "monospace", textTransform: "uppercase", color: viewed ? "#16a34a" : "#f26a1b" }}>
-                            {viewed ? "✓ Opened" : "Download ↗"}
+                            {viewed ? t.docsOpenedLabel : t.docsDownloadLabel}
                           </span>
                         </a>
                       )
                     })}
                     {governingDocs.length > 0 && docsViewed.size < governingDocs.length && (
                       <div style={{ fontSize: 11, color: "#9a3412", marginTop: 6 }}>
-                        Please open all {governingDocs.length} document{governingDocs.length === 1 ? "" : "s"} before signing.
+                        {t.docsOpenAllPrompt
+                          .replace("{n}", String(governingDocs.length))
+                          .replace("{s}", governingDocs.length === 1 ? "" : "s")}
                       </div>
                     )}
                   </div>
