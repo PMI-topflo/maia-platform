@@ -46,13 +46,20 @@ export default async function CincSyncIndexPage() {
   // been onboarded yet. Failures (timeout, auth error) don't block the
   // page — the existing MAIA list still renders so the page degrades
   // gracefully instead of going blank when CINC is down.
+  //
+  // Filter out CINC rows where isActive === false. CINC keeps stale
+  // associations marked inactive (old sample data, decommissioned
+  // communities, etc.) and surfacing those as onboarding candidates
+  // would just clutter the page. Rows where isActive is null/missing
+  // are kept — that's CINC's "unknown" state, not a confirmed
+  // inactive flag.
   let cincOnly: CincAssociationMeta[] = []
   let cincError: string | null = null
   try {
     const cincAssociations = await listAllCincAssociations()
     const maiaCodes        = new Set((associations ?? []).map(a => a.association_code.toUpperCase()))
     cincOnly = cincAssociations
-      .filter(c => c.AssocCode && !maiaCodes.has(c.AssocCode.toUpperCase()))
+      .filter(c => c.AssocCode && c.isActive !== false && !maiaCodes.has(c.AssocCode.toUpperCase()))
       .sort((a, b) => a.AssociationName.localeCompare(b.AssociationName))
   } catch (err) {
     cincError = err instanceof Error ? err.message : String(err)

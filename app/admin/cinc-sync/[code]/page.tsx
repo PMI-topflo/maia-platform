@@ -48,9 +48,18 @@ export default async function CincSyncDetailPage(props: { params: Promise<{ code
       <main className="max-w-screen-xl mx-auto px-6 py-6">
         <Link href="/admin/cinc-sync" className="text-xs text-[#f26a1b] hover:underline [font-family:var(--font-mono)]">← Back to all associations</Link>
         <header className="mb-6 border-l-4 border-[#f26a1b] pl-4 mt-3">
-          <h1 className="text-xl font-semibold text-gray-900">{assocRow.association_name}</h1>
+          <div className="flex items-baseline justify-between gap-4 flex-wrap">
+            <h1 className="text-xl font-semibold text-gray-900">{assocRow.association_name}</h1>
+            <Link
+              href={`/admin/cinc-sync/${assocRow.association_code}/documents`}
+              className="text-xs font-mono uppercase tracking-wide text-[#f26a1b] hover:text-white hover:bg-[#f26a1b] border border-[#f26a1b] px-2.5 py-1 rounded transition-colors"
+            >
+              📄 Documents →
+            </Link>
+          </div>
           <p className="text-sm text-gray-500 mt-1">
             Code <span className="font-mono">{assocRow.association_code}</span>. Diff against CINC&apos;s homeowner + board endpoints. Pick rows to apply.
+            Manage uploaded policies, bylaws, and other documents on the <Link href={`/admin/cinc-sync/${assocRow.association_code}/documents`} className="text-[#f26a1b] hover:underline">Documents page</Link>.
           </p>
         </header>
 

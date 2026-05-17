@@ -42,10 +42,12 @@ export default function OnboardButton({ assocCode, assocName }: Props) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? 'Onboard failed')
-      // Land them on the diff page so they continue the import flow
-      // (owners + board) without an extra click. router.refresh isn't
-      // enough because we want the URL to actually change.
-      router.push(`/admin/cinc-sync/${assocCode}`)
+      // Send them to the documents library first. The biggest gap a
+      // brand-new association has isn't owners (CINC carries those) —
+      // it's the governing docs + insurance policies MAIA needs to
+      // answer owner questions. Staff can navigate one click over to
+      // the owner/board diff page from there.
+      router.push(`/admin/cinc-sync/${assocCode}/documents`)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setBusy(false)

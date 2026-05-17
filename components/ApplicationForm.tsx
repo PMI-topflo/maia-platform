@@ -918,6 +918,23 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [leaseConfirmed, setLeaseConfirmed] = useState(!!preselectedAssociation);
   const [leaseParseError, setLeaseParseError] = useState("");
   const [rulesSections, setRulesSections] = useState<string[]>([]);
+  // Governing documents the applicant must download + acknowledge
+  // before signing the rules step. Populated by /api/apply/
+  // association-documents once an association is locked in. Each row
+  // is the CURRENT version per category (condo_docs, rules_regs).
+  const [governingDocs, setGoverningDocs] = useState<Array<{
+    id:             string
+    category:       string
+    category_label: string
+    filename:       string
+    download_url:   string
+    effective_date: string | null
+  }>>([]);
+  // Track which doc IDs the applicant clicked to download — used to
+  // make the signature field require they've at least opened each one
+  // and to record exactly which document versions were acknowledged
+  // when the application was submitted (audit trail).
+  const [docsViewed, setDocsViewed] = useState<Set<string>>(new Set());
   const [appType, setAppType]         = useState("");
   const [coupleOption, setCoupleOption] = useState("");
   const [applicants, setApplicants]   = useState<Record<string, string>[]>([{}]);
@@ -1021,6 +1038,15 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         .then((r) => r.json())
         .then(({ sections }: { sections: string[] }) => setRulesSections(sections))
         .catch(() => setRulesSections([]));
+      // Pull the current Condo Docs + Rules PDFs (with short-lived
+      // signed URLs) so the rules step can show download buttons. If
+      // the call fails or returns an empty array we fall back to the
+      // legacy text-only "Topics covered" list above.
+      fetch(`/api/apply/association-documents?code=${encodeURIComponent(code)}`)
+        .then((r) => r.json())
+        .then(({ documents }: { documents: typeof governingDocs }) => setGoverningDocs(documents ?? []))
+        .catch(() => setGoverningDocs([]));
+      setDocsViewed(new Set());
     }
     // Auto-select application type based on extracted data
     if (leaseData.extracted.entity) {
@@ -1126,6 +1152,13 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
       if (isCouple && !coupleOption) { setError(t.selectType); return; }
     }
     if (step === 3 && !rulesSignature.trim()) { setError(t.rulesRequired); return; }
+    // Block signature submission until every governing document has
+    // been opened. Hardcoded English message — i18n keys live with the
+    // other rules-step strings and can be added once the UX is locked.
+    if (step === 3 && governingDocs.length > 0 && docsViewed.size < governingDocs.length) {
+      setError(`Please download and review all ${governingDocs.length} document${governingDocs.length === 1 ? "" : "s"} above before signing.`)
+      return
+    }
     if (step === 3 && !agreed) { setError(t.consentRequired); return; }
     setStep((s) => s + 1);
   };
@@ -1155,6 +1188,13 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         occupants: occupants.length > 0 ? occupants : null,
         rules_agreed_at: rulesSignature.trim() ? new Date().toISOString() : null,
         rules_signature: rulesSignature.trim() || null,
+        // Audit-trail field: exact association_documents.id of every
+        // governing doc the applicant opened before signing. When staff
+        // upload a new version of the Rules later, we can answer "what
+        // version did this person agree to?" by looking these up.
+        acknowledged_document_ids: governingDocs.length > 0
+          ? governingDocs.filter(d => docsViewed.has(d.id)).map(d => d.id)
+          : [],
       };
 
       let appId = applicationId;
@@ -1669,6 +1709,59 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                 <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.65, margin: "0 0 12px" }}>
                   {t.rulesConsent} <strong>{association || leaseData?.matched?.name || "your association"}</strong>.
                 </p>
+                {/* Downloadable governing documents — applicants must
+                    open each one before the signature input enables.
+                    Records exactly which document version was viewed
+                    so the audit trail later can answer "what rules
+                    were on file when this person signed?". */}
+                {governingDocs.length > 0 && (
+                  <div style={{ background: "#fff", border: "1px solid #fed7aa", borderRadius: 3, padding: "12px 14px", marginBottom: 16 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#9a3412", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace", marginBottom: 10 }}>
+                      Download &amp; review these documents
+                    </div>
+                    {governingDocs.map(d => {
+                      const viewed = docsViewed.has(d.id)
+                      return (
+                        <a
+                          key={d.id}
+                          href={d.download_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => setDocsViewed(prev => new Set(prev).add(d.id))}
+                          style={{
+                            display:        "flex",
+                            alignItems:     "center",
+                            justifyContent: "space-between",
+                            gap:            8,
+                            padding:        "10px 12px",
+                            marginBottom:   6,
+                            borderRadius:   3,
+                            border:         viewed ? "1.5px solid #16a34a" : "1.5px solid #fed7aa",
+                            background:     viewed ? "#f0fdf4" : "#fff",
+                            color:          "#0d0d0d",
+                            textDecoration: "none",
+                            fontSize:       13,
+                          }}
+                        >
+                          <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                            <span style={{ fontWeight: 600 }}>📄 {d.category_label}</span>
+                            <span style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {d.filename}{d.effective_date ? ` · effective ${d.effective_date}` : ""}
+                            </span>
+                          </span>
+                          <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "monospace", textTransform: "uppercase", color: viewed ? "#16a34a" : "#f26a1b" }}>
+                            {viewed ? "✓ Opened" : "Download ↗"}
+                          </span>
+                        </a>
+                      )
+                    })}
+                    {governingDocs.length > 0 && docsViewed.size < governingDocs.length && (
+                      <div style={{ fontSize: 11, color: "#9a3412", marginTop: 6 }}>
+                        Please open all {governingDocs.length} document{governingDocs.length === 1 ? "" : "s"} before signing.
+                      </div>
+                    )}
+                  </div>
+                )}
                 {rulesSections.length > 0 && (
                   <div style={{ background: "#fff", border: "1px solid #fed7aa", borderRadius: 3, padding: "12px 14px", marginBottom: 16, maxHeight: 200, overflowY: "auto" }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: "#9a3412", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace", marginBottom: 8 }}>Topics covered</div>
