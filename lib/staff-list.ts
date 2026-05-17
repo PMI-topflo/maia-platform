@@ -15,11 +15,12 @@ export interface StaffMember {
   role:  string | null
 }
 
-// Lookup a staff member by their phone number. Used by the Twilio webhook
-// to gate staff-only actions (e.g. explicit ticket creation). Matches on
-// the last 10 digits so Twilio's E.164 format and any locally-stored
-// formatting agree. Returns null if no match — caller treats that as
-// "not staff" and skips the gated action.
+// Lookup a staff member by their PERSONAL mobile number — the number they
+// actually text Maia from. Used by the Twilio webhook to gate staff-only
+// actions (explicit ticket / work-order creation). Matches on the last
+// 10 digits so Twilio's E.164 format and any locally-stored formatting
+// agree. Returns null if no match — caller treats that as "not staff"
+// and skips the gated action.
 export async function findStaffByPhone(phone: string | null | undefined): Promise<StaffMember | null> {
   if (!phone) return null
   const digits = phone.replace(/\D/g, '').slice(-10)
@@ -28,7 +29,7 @@ export async function findStaffByPhone(phone: string | null | undefined): Promis
     const { data, error } = await supabaseAdmin
       .from('pmi_staff')
       .select('name, email, role')
-      .eq('phone_digits', digits)
+      .eq('personal_phone_digits', digits)
       .eq('active', true)
       .limit(1)
       .maybeSingle()

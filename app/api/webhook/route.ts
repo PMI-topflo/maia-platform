@@ -13,6 +13,7 @@ import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import { findOrCreateTicket, appendMessage, createTicket } from '@/lib/tickets'
 import { fetchStaffList, findStaffByPhone } from '@/lib/staff-list'
+import { detectAssociationCode } from '@/lib/maia-command-processor'
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
 
@@ -941,28 +942,48 @@ async function continueFlow(ctx: CallerContext, state: ConversationState, messag
 // MAIA INTELLIGENT RESPONSE ENGINE
 // ============================================================
 
-// Detect an explicit "open / create a ticket" request, optionally addressed
-// to a named staff member (English / Spanish / Portuguese). Returns the
-// candidate assignee name if extracted (the actual staff lookup happens
-// later); null when no ticket intent is present.
-function detectTicketCreateIntent(message: string): { assigneeName: string | null } | null {
-  const verbs = /\b(?:open|create|please\s+open|please\s+create|crea|crear|crear?\s+un|abre|abrir|abrir\s+um|cria|criar|criar?\s+um)\b/i
-  const noun  = /\b(?:ticket|chamado|caso|task|tarea|tarefa)\b/i
-  const atTrigger = /@maia[,!.\s]+(?:ct|ticket|create\s+ticket|open\s+ticket|new\s+ticket)/i
+// Detect an explicit "open / create a ticket | work order" request,
+// optionally addressed to a named staff member and bound to an
+// association / unit (English / Spanish / Portuguese). Returns the
+// extracted bits; null when no create intent is present.
+interface CreateIntent {
+  entityType:   'ticket' | 'work_order'
+  assigneeName: string | null
+  unit:         string | null
+}
+function detectCreateIntent(message: string): CreateIntent | null {
+  const verbs       = /\b(?:open|create|please\s+open|please\s+create|crea|crear|crear?\s+un|abre|abrir|abrir\s+um|cria|criar|criar?\s+um|criar?\s+uma)\b/i
+  const ticketNoun  = /\b(?:ticket|chamado|caso|task|tarea|tarefa)\b/i
+  const workOrder   = /\b(?:work\s*order|wo\b|orden\s+de\s+trabajo|orden\s+de\s+servicio|ordem\s+de\s+servi[çc]o|os\b)/i
+  const atTrigger   = /@maia[,!.\s]+(?:ct|ticket|create\s+ticket|open\s+ticket|new\s+ticket|wo|work\s*order|new\s+work\s*order)/i
 
-  const hasIntent = atTrigger.test(message) || (verbs.test(message) && noun.test(message))
+  const wantsWorkOrder = workOrder.test(message)
+  const wantsTicket    = ticketNoun.test(message)
+  const hasIntent      = atTrigger.test(message) || (verbs.test(message) && (wantsWorkOrder || wantsTicket))
   if (!hasIntent) return null
 
-  // Pull a first-name after a "to / para / a" preposition.
-  // Capitalised single token, no spaces — keeps the match conservative.
+  // Work-order language wins when both happen to match.
+  const entityType: 'ticket' | 'work_order' = wantsWorkOrder ? 'work_order' : 'ticket'
+
+  // Pull a first-name after a "to / para / a" preposition. Capitalised
+  // single token only — keeps the match conservative.
   const to = message.match(/\b(?:to|para|a)\s+([A-Z][a-zA-Z]{1,30})\b/)
-  return { assigneeName: to?.[1] ?? null }
+
+  // Pull a unit number: "unit 4B", "apt 16", "apartment #4", "unidad 4B",
+  // "apartamento 16", or trailing digits on an account-style code like
+  // "ESSI16" (the alphabetic prefix is treated as the association by
+  // detectAssociationCode; the trailing digits are the unit).
+  const explicitUnit = message.match(/\b(?:unit|apt\.?|apartment|unidad|apartamento|departamento)\s*#?\s*([0-9]{1,4}[A-Za-z]?(?:-[0-9]+)?)\b/i)
+  const acctUnit     = message.toUpperCase().match(/\b[A-Z]{3,6}(\d{1,4})\b/)
+  const unit         = explicitUnit?.[1] ?? acctUnit?.[1] ?? null
+
+  return { entityType, assigneeName: to?.[1] ?? null, unit }
 }
 
-async function handleExplicitTicketCreate(
+async function handleExplicitCreate(
   ctx: CallerContext,
   message: string,
-  intent: { assigneeName: string | null },
+  intent: CreateIntent,
   requester: { name: string; email: string },
 ): Promise<string> {
   let assigneeEmail: string | null = null
@@ -978,23 +999,42 @@ async function handleExplicitTicketCreate(
       )
       if (hit) { assigneeEmail = hit.email; resolvedName = hit.name }
     } catch (err) {
-      console.warn('[ticket-intent] staff lookup failed:', err instanceof Error ? err.message : err)
+      console.warn('[create-intent] staff lookup failed:', err instanceof Error ? err.message : err)
     }
   }
 
+  // Association detection: prefer one inferred from the message itself
+  // (so "for ESSI 16" or "at Essington" works for staff who don't have a
+  // unit bound to their phone number). Fall back to the caller's own
+  // associationId if present.
+  let associationCode: string | null = null
+  try {
+    associationCode = await detectAssociationCode(message) ?? ctx.associationId ?? null
+  } catch (err) {
+    console.warn('[create-intent] assoc detection failed:', err instanceof Error ? err.message : err)
+    associationCode = ctx.associationId ?? null
+  }
+
+  const label = intent.entityType === 'work_order' ? 'Work order' : 'Ticket'
+  const labelEs = intent.entityType === 'work_order' ? 'Orden de trabajo' : 'Ticket'
+  const labelPt = intent.entityType === 'work_order' ? 'Ordem de serviço' : 'Chamado'
+
   try {
     const ticket = await createTicket({
-      channel_origin: ctx.channel === 'voice' ? 'phone' : ctx.channel,
-      priority:       'normal',
-      persona:        'staff',
-      contact_phone:  ctx.phone,
-      contact_name:   requester.name,
-      contact_email:  requester.email,
-      subject:        message.slice(0, 120),
-      summary:        message.slice(0, 280),
-      assignee_email: assigneeEmail,
+      type:             intent.entityType,
+      channel_origin:   ctx.channel === 'voice' ? 'phone' : ctx.channel,
+      priority:         'normal',
+      persona:          'staff',
+      association_code: associationCode,
+      contact_phone:    ctx.phone,
+      contact_name:     requester.name,
+      contact_email:    requester.email,
+      subject:          message.slice(0, 120),
+      summary:          message.slice(0, 280),
+      assignee_email:   assigneeEmail,
     })
     const shortId = ticket.id.slice(0, 8)
+
     const assignFragment = assigneeEmail && resolvedName
       ? { en: ` and assigned to ${resolvedName}`,
           es: ` y asignado a ${resolvedName}`,
@@ -1005,17 +1045,24 @@ async function handleExplicitTicketCreate(
             pt: ` (não encontrei o funcionário "${intent.assigneeName}" — sem responsável)` }
         : { en: '', es: '', pt: '' }
 
+    const ctxFragment = (() => {
+      const parts: string[] = []
+      if (associationCode) parts.push(associationCode)
+      if (intent.unit)     parts.push(`Unit ${intent.unit}`)
+      return parts.length ? ` · ${parts.join(' · ')}` : ''
+    })()
+
     return translate(ctx.language, {
-      en: `📋 Ticket ${shortId} created${assignFragment.en}. We'll follow up shortly. 🌸`,
-      es: `📋 Ticket ${shortId} creado${assignFragment.es}. Te respondemos pronto. 🌸`,
-      pt: `📋 Chamado ${shortId} criado${assignFragment.pt}. Retornamos em breve. 🌸`,
+      en: `📋 ${label} ${shortId}${ctxFragment} created${assignFragment.en}. We'll follow up shortly. 🌸`,
+      es: `📋 ${labelEs} ${shortId}${ctxFragment} creada${assignFragment.es}. Te respondemos pronto. 🌸`,
+      pt: `📋 ${labelPt} ${shortId}${ctxFragment} criada${assignFragment.pt}. Retornamos em breve. 🌸`,
     })
   } catch (err) {
-    console.error('[ticket-intent] createTicket failed:', err instanceof Error ? err.message : err)
+    console.error('[create-intent] createTicket failed:', err instanceof Error ? err.message : err)
     return translate(ctx.language, {
-      en: `I tried to open a ticket but ran into an issue. Please email service@topfloridaproperties.com or call (305) 900-5077. 🌸`,
-      es: `Intenté abrir un ticket pero hubo un problema. Escribe a service@topfloridaproperties.com o llama al (305) 900-5077. 🌸`,
-      pt: `Tentei abrir um chamado mas houve um problema. Escreva para service@topfloridaproperties.com ou ligue (305) 900-5077. 🌸`,
+      en: `I tried to open a ${label.toLowerCase()} but ran into an issue. Please email service@topfloridaproperties.com or call (305) 900-5077. 🌸`,
+      es: `Intenté abrir una ${labelEs.toLowerCase()} pero hubo un problema. Escribe a service@topfloridaproperties.com o llama al (305) 900-5077. 🌸`,
+      pt: `Tentei abrir uma ${labelPt.toLowerCase()} mas houve um problema. Escreva para service@topfloridaproperties.com ou ligue (305) 900-5077. 🌸`,
     })
   }
 }
@@ -1033,11 +1080,11 @@ async function getMaiaIntelligentResponse(ctx: CallerContext, message: string): 
   // named staff member) is reserved for PMI staff. Non-staff senders fall
   // through to the normal keyword routing — their conversation is still
   // auto-logged as a ticket via ingestTwilioConversationToTicket.
-  const ticketIntent = detectTicketCreateIntent(message)
-  if (ticketIntent) {
+  const createIntent = detectCreateIntent(message)
+  if (createIntent) {
     const staffSender = await findStaffByPhone(ctx.phone)
     if (staffSender) {
-      return await handleExplicitTicketCreate(ctx, message, ticketIntent, staffSender)
+      return await handleExplicitCreate(ctx, message, createIntent, staffSender)
     }
     // Non-staff: silently fall through — no need to call out that the
     // feature is staff-only; their request will be handled by the normal
