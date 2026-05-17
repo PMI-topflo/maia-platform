@@ -440,22 +440,34 @@ function DocumentRow({
 // ─────────────────────────────────────────────────────────────────────
 
 interface LangPreview {
-  code:  string
-  label: string
-  title: string
-  opened: string
-  download: string
-  prompt: string
-  rtl?:  boolean
+  code:        string
+  label:       string
+  title:       string
+  opened:      string
+  download:    string
+  prompt:      string
+  disclaimer?: string
+  noticeLabel?: string
+  rtl?:        boolean
 }
 
 const APPLY_STRINGS_PREVIEW: LangPreview[] = [
   { code: 'en', label: 'English',    title: 'Download & review these documents', opened: '✓ Opened', download: 'Download ↗', prompt: 'Please open all 2 documents before signing.' },
-  { code: 'es', label: 'Español',    title: 'Descargue y revise estos documentos', opened: '✓ Abierto', download: 'Descargar ↗', prompt: 'Por favor abra los 2 documentos antes de firmar.' },
-  { code: 'pt', label: 'Português',  title: 'Baixe e leia estes documentos', opened: '✓ Aberto', download: 'Baixar ↗', prompt: 'Por favor abra os 2 documentos antes de assinar.' },
-  { code: 'fr', label: 'Français',   title: 'Téléchargez et lisez ces documents', opened: '✓ Ouvert', download: 'Télécharger ↗', prompt: 'Veuillez ouvrir les 2 documents avant de signer.' },
-  { code: 'he', label: 'עברית',      title: 'הורד וקרא את המסמכים האלה', opened: '✓ נפתח', download: 'הורד ↗', prompt: 'אנא פתח את כל 2 המסמכים לפני החתימה.', rtl: true },
-  { code: 'ru', label: 'Русский',    title: 'Скачайте и прочитайте эти документы', opened: '✓ Открыто', download: 'Скачать ↗', prompt: 'Пожалуйста, откройте все 2 документ перед подписанием.' },
+  { code: 'es', label: 'Español',    title: 'Descargue y revise estos documentos', opened: '✓ Abierto', download: 'Descargar ↗', prompt: 'Por favor abra los 2 documentos antes de firmar.',
+    noticeLabel: 'Aviso de traducción',
+    disclaimer: 'Este formulario de solicitud ha sido traducido para su conveniencia. La versión en inglés es la versión oficial de este acuerdo y de los documentos vinculados. Al firmar a continuación, usted acepta la versión en inglés. Si no entiende completamente la versión en inglés, busque asesoramiento profesional antes de firmar.' },
+  { code: 'pt', label: 'Português',  title: 'Baixe e leia estes documentos', opened: '✓ Aberto', download: 'Baixar ↗', prompt: 'Por favor abra os 2 documentos antes de assinar.',
+    noticeLabel: 'Aviso de tradução',
+    disclaimer: 'Este formulário de solicitação foi traduzido para sua conveniência. A versão em inglês é a versão oficial deste acordo e dos documentos vinculados. Ao assinar abaixo, você concorda com a versão em inglês. Se você não entender completamente a versão em inglês, procure orientação profissional antes de assinar.' },
+  { code: 'fr', label: 'Français',   title: 'Téléchargez et lisez ces documents', opened: '✓ Ouvert', download: 'Télécharger ↗', prompt: 'Veuillez ouvrir les 2 documents avant de signer.',
+    noticeLabel: 'Avis de traduction',
+    disclaimer: 'Ce formulaire de demande a été traduit pour votre commodité. La version anglaise est la version officielle de cet accord et des documents liés. En signant ci-dessous, vous acceptez la version anglaise. Si vous ne comprenez pas pleinement la version anglaise, veuillez consulter un conseil professionnel avant de signer.' },
+  { code: 'he', label: 'עברית',      title: 'הורד וקרא את המסמכים האלה', opened: '✓ נפתח', download: 'הורד ↗', prompt: 'אנא פתח את כל 2 המסמכים לפני החתימה.', rtl: true,
+    noticeLabel: 'הודעת תרגום',
+    disclaimer: 'טופס בקשה זה תורגם לנוחיותך. הגרסה האנגלית היא הגרסה הרשמית של הסכם זה ושל המסמכים המקושרים. בחתימתך למטה, אתה מסכים לגרסה האנגלית. אם אינך מבין במלואה את הגרסה האנגלית, אנא פנה לייעוץ מקצועי לפני החתימה.' },
+  { code: 'ru', label: 'Русский',    title: 'Скачайте и прочитайте эти документы', opened: '✓ Открыто', download: 'Скачать ↗', prompt: 'Пожалуйста, откройте все 2 документ перед подписанием.',
+    noticeLabel: 'Уведомление о переводе',
+    disclaimer: 'Эта форма заявки была переведена для вашего удобства. Английская версия является официальной версией этого соглашения и связанных документов. Подписывая ниже, вы соглашаетесь с английской версией. Если вы не полностью понимаете английскую версию, обратитесь за профессиональной консультацией перед подписанием.' },
 ]
 
 function TranslationsPreviewCard() {
@@ -481,6 +493,12 @@ function TranslationsPreviewCard() {
                 <span className="inline-flex items-center px-2 py-1 rounded text-[11px] font-mono font-semibold bg-green-50 border border-green-400 text-green-700">{l.opened}</span>
               </div>
               <div className="text-[11px] text-orange-700 mt-2">{l.prompt}</div>
+              {l.disclaimer && (
+                <div className="mt-3 p-2 bg-amber-50 border border-amber-300 rounded text-[11px] text-amber-900 leading-snug">
+                  <div className="text-[9px] font-mono uppercase tracking-wide text-amber-800 mb-1">⚠ {l.noticeLabel}</div>
+                  {l.disclaimer}
+                </div>
+              )}
             </div>
           </div>
         ))}

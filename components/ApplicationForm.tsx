@@ -121,6 +121,11 @@ const translations = {
     docsDownloadLabel:  "Download ↗",
     docsOpenAllPrompt:  "Please open all {n} document{s} before signing.",
     docsRequiredError:  "Please download and review all {n} document{s} above before signing.",
+    // Empty for English (the form IS in English — no disclaimer
+    // needed). Non-English blocks set this to a notice stating the
+    // English version is the authoritative one and recommending
+    // professional advice. Renders only when non-empty.
+    translationDisclaimer: "",
   },
   es: {
     title: "Solicitud de Residente",
@@ -222,6 +227,7 @@ const translations = {
     docsDownloadLabel:  "Descargar ↗",
     docsOpenAllPrompt:  "Por favor abra los {n} documento{s} antes de firmar.",
     docsRequiredError:  "Por favor descargue y revise los {n} documento{s} de arriba antes de firmar.",
+    translationDisclaimer: "Este formulario de solicitud ha sido traducido para su conveniencia. La versión en inglés es la versión oficial de este acuerdo y de los documentos vinculados. Al firmar a continuación, usted acepta la versión en inglés. Si no entiende completamente la versión en inglés, busque asesoramiento profesional antes de firmar.",
   },
   pt: {
     title: "Solicitação de Residente",
@@ -323,6 +329,7 @@ const translations = {
     docsDownloadLabel:  "Baixar ↗",
     docsOpenAllPrompt:  "Por favor abra os {n} documento{s} antes de assinar.",
     docsRequiredError:  "Por favor baixe e leia os {n} documento{s} acima antes de assinar.",
+    translationDisclaimer: "Este formulário de solicitação foi traduzido para sua conveniência. A versão em inglês é a versão oficial deste acordo e dos documentos vinculados. Ao assinar abaixo, você concorda com a versão em inglês. Se você não entender completamente a versão em inglês, procure orientação profissional antes de assinar.",
   },
   fr: {
     title: "Demande de Résidence",
@@ -424,6 +431,7 @@ const translations = {
     docsDownloadLabel:  "Télécharger ↗",
     docsOpenAllPrompt:  "Veuillez ouvrir les {n} document{s} avant de signer.",
     docsRequiredError:  "Veuillez télécharger et lire les {n} document{s} ci-dessus avant de signer.",
+    translationDisclaimer: "Ce formulaire de demande a été traduit pour votre commodité. La version anglaise est la version officielle de cet accord et des documents liés. En signant ci-dessous, vous acceptez la version anglaise. Si vous ne comprenez pas pleinement la version anglaise, veuillez consulter un conseil professionnel avant de signer.",
   },
   he: {
     title: "בקשת מגורים",
@@ -525,6 +533,7 @@ const translations = {
     docsDownloadLabel:  "הורד ↗",
     docsOpenAllPrompt:  "אנא פתח את כל {n} המסמכ{s} לפני החתימה.",
     docsRequiredError:  "אנא הורד וקרא את כל {n} המסמכ{s} למעלה לפני החתימה.",
+    translationDisclaimer: "טופס בקשה זה תורגם לנוחיותך. הגרסה האנגלית היא הגרסה הרשמית של הסכם זה ושל המסמכים המקושרים. בחתימתך למטה, אתה מסכים לגרסה האנגלית. אם אינך מבין במלואה את הגרסה האנגלית, אנא פנה לייעוץ מקצועי לפני החתימה.",
   },
   ru: {
     title: "Заявка на проживание",
@@ -626,6 +635,7 @@ const translations = {
     docsDownloadLabel:  "Скачать ↗",
     docsOpenAllPrompt:  "Пожалуйста, откройте все {n} документ{s} перед подписанием.",
     docsRequiredError:  "Пожалуйста, скачайте и прочитайте все {n} документ{s} выше перед подписанием.",
+    translationDisclaimer: "Эта форма заявки была переведена для вашего удобства. Английская версия является официальной версией этого соглашения и связанных документов. Подписывая ниже, вы соглашаетесь с английской версией. Если вы не полностью понимаете английскую версию, обратитесь за профессиональной консультацией перед подписанием.",
   },
 };
 
@@ -1677,6 +1687,38 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                         {s}
                       </div>
                     ))}
+                  </div>
+                )}
+                {/* Translation disclaimer — renders only when the form
+                    is in a non-English language. States that the
+                    English version is authoritative and recommends
+                    professional advice when unclear. Yellow/warning
+                    styling so it reads as a legal notice, not part of
+                    the regular form copy. RTL-aware via dir attribute
+                    on Hebrew. */}
+                {t.translationDisclaimer && (
+                  <div
+                    dir={lang === "he" ? "rtl" : "ltr"}
+                    style={{
+                      background:    "#fef3c7",
+                      border:        "1px solid #f59e0b",
+                      borderRadius:  3,
+                      padding:       "10px 14px",
+                      marginBottom:  16,
+                      fontSize:      12,
+                      lineHeight:    1.55,
+                      color:         "#78350f",
+                    }}
+                  >
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace", color: "#92400e", marginBottom: 6 }}>
+                      ⚠ {lang === "es" ? "Aviso de traducción"
+                        : lang === "pt" ? "Aviso de tradução"
+                        : lang === "fr" ? "Avis de traduction"
+                        : lang === "he" ? "הודעת תרגום"
+                        : lang === "ru" ? "Уведомление о переводе"
+                        : "Translation notice"}
+                    </div>
+                    {t.translationDisclaimer}
                   </div>
                 )}
                 <div style={{ marginBottom: 6 }}>
