@@ -230,19 +230,105 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     })
   }
 
-  // ── JSON: drive link or note ──────────────────────────────────────
+  // ── JSON: drive link, note, OR upload_complete ────────────────────
+  // "upload_complete" is the metadata-only follow-up from the browser
+  // after it uploaded the file DIRECTLY to Supabase Storage via a
+  // signed upload URL. The browser sends storage_path + filename +
+  // mime + size; we download the file ourselves (server-internal, no
+  // Vercel body limit) to extract text, then insert the DB row.
   let body: {
-    source?:         DocumentSource
-    category?:       string
-    subcategory?:    string | null
-    drive_url?:      string | null
-    filename?:       string
-    notes?:          string | null
-    effective_date?: string | null
-    expiry_date?:    string | null
+    source?:           DocumentSource | 'upload_complete'
+    category?:         string
+    subcategory?:      string | null
+    drive_url?:        string | null
+    filename?:         string
+    notes?:            string | null
+    effective_date?:   string | null
+    expiry_date?:      string | null
+    // upload_complete only:
+    storage_path?:     string
+    mime_type?:        string
+    file_size_bytes?:  number
   }
   try { body = await req.json() }
   catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }) }
+
+  // ── upload_complete branch — metadata for a file already in storage
+  if (body.source === 'upload_complete') {
+    const storagePath = (body.storage_path ?? '').trim()
+    const filename    = (body.filename ?? '').trim()
+    if (!storagePath || !filename) {
+      return NextResponse.json({ error: 'storage_path and filename are required for upload_complete' }, { status: 400 })
+    }
+    // Defense in depth: the upload-url endpoint generates paths under
+    // <CODE>/<category>/... — reject anything that doesn't fit so a
+    // tampered client can't write metadata pointing at another assoc's
+    // file or an arbitrary path.
+    if (!storagePath.startsWith(`${upperCode}/`)) {
+      return NextResponse.json({ error: 'storage_path does not belong to this association' }, { status: 400 })
+    }
+
+    const category = normalizeCategory(body.category)
+    const mime     = body.mime_type ?? null
+
+    // Fetch the file from storage to extract text. This bypasses
+    // Vercel's body-size limit on the public-facing request because
+    // it's an internal Supabase-to-server stream. For PDFs we extract
+    // inline; non-PDFs get extraction_status='unsupported'.
+    let extraction: { status: 'done' | 'skipped' | 'failed' | 'unsupported'; text: string | null; pages: number | null; error: string | null } =
+      { status: 'unsupported', text: null, pages: null, error: null }
+    if (isExtractableMime(mime, filename)) {
+      const { data: blob, error: dlErr } = await supabaseAdmin.storage
+        .from(STORAGE_BUCKET)
+        .download(storagePath)
+      if (dlErr || !blob) {
+        // Don't fail the row insert — staff can re-trigger extraction
+        // later. Mark as failed so the UI shows the issue.
+        extraction = { status: 'failed', text: null, pages: null, error: `Download for extraction failed: ${dlErr?.message ?? 'no blob'}` }
+      } else {
+        const buf = Buffer.from(await blob.arrayBuffer())
+        extraction = await extractPdfText(buf, mime ?? 'application/pdf')
+      }
+    }
+
+    const { data: inserted, error: dbErr } = await supabaseAdmin
+      .from('association_documents')
+      .insert({
+        association_code:  upperCode,
+        category,
+        subcategory:       body.subcategory?.trim() || null,
+        source:            'upload',
+        storage_path:      storagePath,
+        drive_url:         null,
+        filename,
+        mime_type:         mime,
+        file_size_bytes:   body.file_size_bytes ?? null,
+        extracted_text:    extraction.text,
+        extraction_status: extraction.status,
+        extraction_error:  extraction.error,
+        effective_date:    body.effective_date || null,
+        expiry_date:       body.expiry_date || null,
+        notes:             body.notes?.trim() || null,
+        uploaded_by_email: actorEmail(session),
+      })
+      .select('*')
+      .single()
+
+    if (dbErr) {
+      // Roll back the storage object so we don't leak an orphan file.
+      await supabaseAdmin.storage.from(STORAGE_BUCKET).remove([storagePath]).catch(() => {})
+      return NextResponse.json({ error: `DB insert failed: ${dbErr.message}` }, { status: 500 })
+    }
+
+    if (inserted?.id && category) {
+      await archivePriorActiveVersions(upperCode, category, inserted.id, actorEmail(session))
+    }
+    return NextResponse.json({
+      ok:       true,
+      document: { ...inserted, extracted_text: null },
+      pages:    extraction.pages,
+    })
+  }
 
   const source = body.source === 'note' ? 'note' : 'drive_link'
 

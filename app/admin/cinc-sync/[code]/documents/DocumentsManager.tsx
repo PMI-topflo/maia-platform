@@ -14,11 +14,28 @@
 // =====================================================================
 
 import { useEffect, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
 import {
   CATEGORIES,
+  STORAGE_BUCKET,
   categoryLabel,
   type AssociationDocument,
 } from '@/lib/association-documents'
+
+// Anon-key client used purely for the direct-to-storage upload step.
+// All metadata writes still go through the staff-authed API routes.
+// Singleton because re-creating it on every upload is wasteful and
+// noisy in dev tools.
+let _supabase: ReturnType<typeof createClient> | null = null
+function getBrowserSupabase() {
+  if (!_supabase) {
+    _supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    )
+  }
+  return _supabase
+}
 
 interface Props {
   assocCode: string
@@ -149,15 +166,55 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
     setBusy(true); setError(null); setOkMsg(null)
     try {
       if (!file) throw new Error('Pick a PDF to upload')
-      const form = new FormData()
-      form.append('file', file)
-      form.append('category', category)
-      if (notes)     form.append('notes', notes)
-      if (effective) form.append('effective_date', effective)
-      const res = await fetch(`/api/admin/associations/${assocCode}/documents`, { method: 'POST', body: form })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error ?? 'Upload failed')
-      setOkMsg(`Uploaded${data.pages ? ` (${data.pages} pages extracted)` : ''}.`)
+
+      // Three-step direct-upload flow. Bypasses Vercel's 4.5 MB
+      // serverless body limit so 50 MB master policies / declaration
+      // PDFs go straight from the browser to Supabase Storage.
+      //
+      // Step 1 — small POST: ask the server for a one-time signed
+      // upload URL + token (staff auth happens here).
+      const urlRes = await fetch(`/api/admin/associations/${assocCode}/documents/upload-url`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ filename: file.name, category }),
+      })
+      const urlData = await urlRes.json()
+      if (!urlRes.ok) throw new Error(urlData?.error ?? 'Could not get upload URL')
+
+      // Step 2 — direct browser → Supabase Storage upload using the
+      // signed token. NOT routed through Vercel; no body limit. The
+      // anon-key client only handles this single op; staff auth was
+      // already enforced in step 1 when generating the token.
+      const sb = getBrowserSupabase()
+      const { error: upErr } = await sb.storage
+        .from(STORAGE_BUCKET)
+        .uploadToSignedUrl(urlData.storage_path, urlData.token, file, {
+          contentType: file.type || 'application/pdf',
+          upsert:      false,
+        })
+      if (upErr) throw new Error(`Storage upload failed: ${upErr.message}`)
+
+      // Step 3 — small POST: tell the server the upload completed so
+      // it inserts the DB row, runs PDF extraction (downloading from
+      // storage internally), and auto-archives the prior version.
+      const metaRes = await fetch(`/api/admin/associations/${assocCode}/documents`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          source:           'upload_complete',
+          storage_path:     urlData.storage_path,
+          filename:         file.name,
+          mime_type:        file.type || 'application/pdf',
+          file_size_bytes:  file.size,
+          category,
+          notes:            notes || null,
+          effective_date:   effective || null,
+        }),
+      })
+      const metaData = await metaRes.json()
+      if (!metaRes.ok) throw new Error(metaData?.error ?? 'Could not save metadata')
+
+      setOkMsg(`Uploaded${metaData.pages ? ` (${metaData.pages} pages extracted)` : ''}.`)
       reset()
       onUploaded()
     } catch (e) {
