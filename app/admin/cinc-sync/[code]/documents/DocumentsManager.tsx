@@ -14,28 +14,11 @@
 // =====================================================================
 
 import { useEffect, useRef, useState } from 'react'
-import { createClient } from '@supabase/supabase-js'
 import {
   CATEGORIES,
-  STORAGE_BUCKET,
   categoryLabel,
   type AssociationDocument,
 } from '@/lib/association-documents'
-
-// Anon-key client used purely for the direct-to-storage upload step.
-// All metadata writes still go through the staff-authed API routes.
-// Singleton because re-creating it on every upload is wasteful and
-// noisy in dev tools.
-let _supabase: ReturnType<typeof createClient> | null = null
-function getBrowserSupabase() {
-  if (!_supabase) {
-    _supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    )
-  }
-  return _supabase
-}
 
 interface Props {
   assocCode: string
@@ -205,18 +188,39 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
       const urlData = await urlRes.json()
       if (!urlRes.ok) throw new Error(urlData?.error ?? 'Could not get upload URL')
 
-      // Step 2 — direct browser → Supabase Storage upload using the
-      // signed token. NOT routed through Vercel; no body limit. The
-      // anon-key client only handles this single op; staff auth was
-      // already enforced in step 1 when generating the token.
-      const sb = getBrowserSupabase()
-      const { error: upErr } = await sb.storage
-        .from(STORAGE_BUCKET)
-        .uploadToSignedUrl(urlData.storage_path, urlData.token, file, {
-          contentType: file.type || 'application/pdf',
-          upsert:      false,
-        })
-      if (upErr) throw new Error(`Storage upload failed: ${upErr.message}`)
+      // Step 2 — direct browser → Supabase Storage upload via raw PUT
+      // to the signed URL the server returned. We deliberately don't
+      // go through supabase-js .uploadToSignedUrl() because that
+      // helper has had path-handling regressions across versions; PUT
+      // to the signed URL is the documented, stable path. NOT routed
+      // through Vercel; no 4.5 MB body limit.
+      const uploadRes = await fetch(urlData.signed_url, {
+        method:  'PUT',
+        body:    file,
+        headers: {
+          'Content-Type': file.type || 'application/pdf',
+          // Tell Supabase Storage how to handle conflicts. The path
+          // includes a timestamp + UUID so collisions are vanishingly
+          // unlikely; "false" matches the createSignedUploadUrl
+          // contract.
+          'x-upsert':     'false',
+        },
+      })
+      if (!uploadRes.ok) {
+        // Read the response body for the real error message — Supabase
+        // returns JSON like { statusCode, message, error }. Falls back
+        // to the status line when the body isn't JSON.
+        let detail = `HTTP ${uploadRes.status}`
+        try {
+          const j = await uploadRes.json() as { message?: string; error?: string }
+          if (j?.message) detail = j.message
+          else if (j?.error) detail = j.error
+        } catch {
+          const t = await uploadRes.text().catch(() => '')
+          if (t) detail = t.slice(0, 200)
+        }
+        throw new Error(`Storage upload failed: ${detail}`)
+      }
 
       // Step 3 — small POST: tell the server the upload completed so
       // it inserts the DB row, runs PDF extraction (downloading from
