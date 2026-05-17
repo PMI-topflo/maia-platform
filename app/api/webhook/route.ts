@@ -49,6 +49,26 @@ interface CallerContext {
   unitId?:            string
   associationId?:     string
   rentvineContactId?: string
+  // When the caller's phone matches more than one persona (e.g. they're
+  // both a homeowner at Crystal Hills AND a board member at Brook Haven),
+  // this is populated so handleTextChannel can prompt for which role to
+  // use. Empty / single-element when there's no ambiguity.
+  candidates?:        PersonaCandidate[]
+  // True when this context was materialized from a previously-chosen
+  // candidate (so we don't re-ask each turn).
+  fromChoice?:        boolean
+}
+
+interface PersonaCandidate {
+  persona:            PersonaType | 'staff'
+  label:              string
+  language?:          string
+  name?:              string
+  unitId?:            string
+  associationId?:     string
+  rentvineContactId?: string
+  staffEmail?:        string
+  division:           Division
 }
 
 interface ConversationState {
@@ -464,8 +484,20 @@ function speechToDigits(speech: string): string {
 // SMS + WHATSAPP HANDLER
 // ============================================================
 
+function buildPersonaChoicePrompt(candidates: PersonaCandidate[], language: string): string {
+  const lines = candidates.map((c, i) => `${i + 1}. ${c.label}`).join('\n')
+  return translate(language, {
+    en: `Hi! 🌸 I see you in our system as more than one person. How would you like to continue today? Reply with a number:\n\n${lines}`,
+    es: `¡Hola! 🌸 Te encuentro registrado en más de un rol. ¿Cómo quieres continuar hoy? Responde con un número:\n\n${lines}`,
+    pt: `Olá! 🌸 Você aparece em mais de um cadastro. Como quer continuar hoje? Responda com um número:\n\n${lines}`,
+    fr: `Bonjour! 🌸 Vous avez plusieurs rôles. Comment voulez-vous continuer? Répondez par un numéro:\n\n${lines}`,
+    he: `שלום! 🌸 אתה רשום במספר תפקידים. כיצד תרצה להמשיך? השב במספר:\n\n${lines}`,
+    ru: `Привет! 🌸 У вас несколько ролей. Как продолжить? Ответьте номером:\n\n${lines}`,
+  })
+}
+
 async function handleTextChannel(phone: string, message: string, channel: Channel): Promise<NextResponse> {
-  const ctx   = await buildCallerContext(phone, channel)
+  let   ctx   = await buildCallerContext(phone, channel)
   const state = await getConversationState(phone)
 
   let replyText: string
@@ -473,7 +505,47 @@ async function handleTextChannel(phone: string, message: string, channel: Channe
 
   if (isGreeting) await clearConversationState(phone)
 
-  if (!isGreeting && state?.current_flow && state.current_flow !== 'idle') {
+  // Multi-persona handling: if the caller's phone matches more than one
+  // role (owner + board member, vendor + homeowner, etc.) ask which role
+  // they want to use before doing anything else. Once chosen, the
+  // selection is remembered for the session via conversation state.
+  if (!isGreeting && state?.current_flow === 'awaiting_persona_choice') {
+    const stored = (state.temporary_data_json?.candidates as PersonaCandidate[] | undefined) ?? []
+    const pickIdx = parseInt(message.trim(), 10) - 1
+    if (Number.isInteger(pickIdx) && pickIdx >= 0 && pickIdx < stored.length) {
+      const chosen = stored[pickIdx]
+      ctx = contextFromCandidate(phone, channel, chosen)
+      await saveConversationState(phone, 'persona_chosen', 'active', { candidate: chosen })
+      const reply = translate(ctx.language, {
+        en: `Great — continuing as *${chosen.label}*. What can I help with? 🌸`,
+        es: `Perfecto — continúo como *${chosen.label}*. ¿En qué te ayudo? 🌸`,
+        pt: `Ótimo — vou continuar como *${chosen.label}*. Como posso ajudar? 🌸`,
+      })
+      await sendReply(phone, reply, channel)
+      return NextResponse.json({ success: true })
+    }
+    // Invalid selection — re-prompt.
+    replyText = buildPersonaChoicePrompt(stored, ctx.language)
+    await sendReply(phone, replyText, channel)
+    return NextResponse.json({ success: true })
+  }
+
+  // Remember the persona chosen earlier in this session so we don't re-ask.
+  if (state?.current_flow === 'persona_chosen') {
+    const chosen = state.temporary_data_json?.candidate as PersonaCandidate | undefined
+    if (chosen) ctx = contextFromCandidate(phone, channel, chosen)
+  }
+
+  // Fresh prompt: first time we're seeing this caller with multiple
+  // matching roles. Save the candidates and ask.
+  if (!isGreeting && ctx.candidates && ctx.candidates.length > 1 && !ctx.fromChoice) {
+    await saveConversationState(phone, 'awaiting_persona_choice', 'pending', { candidates: ctx.candidates })
+    const prompt = buildPersonaChoicePrompt(ctx.candidates, ctx.language)
+    await sendReply(phone, prompt, channel)
+    return NextResponse.json({ success: true })
+  }
+
+  if (!isGreeting && state?.current_flow && state.current_flow !== 'idle' && state.current_flow !== 'persona_chosen') {
     if (state.current_flow === 'awaiting_feedback') {
       replyText = await processFeedbackReply(phone, message, ctx, state)
     } else if (state.current_flow === 'agent_identification') {
@@ -665,42 +737,117 @@ async function buildCallerContext(phone: string, channel: Channel): Promise<Call
   const plusPhone  = '+' + cleanPhone
   const shortPhone = cleanPhone.replace(/^1/, '')
 
-  const { data: o } = await getSupabase().from('owners')
-    .select('first_name, last_name, language, unit_number, association_code')
-    .or([`phone.eq.${phone}`,`phone.eq.${plusPhone}`,`phone.eq.${shortPhone}`,
-         `phone_2.eq.${phone}`,`phone_2.eq.${plusPhone}`,`phone_2.eq.${shortPhone}`,
-         `phone_e164.eq.${plusPhone}`,`phone_e164.eq.${phone}`].join(','))
-    .limit(1).maybeSingle()
-  if (o) return { phone, channel, division: 'association', persona: 'homeowner',
-    language: o.language ?? 'en', name: `${o.first_name ?? ''} ${o.last_name ?? ''}`.trim() || 'there',
-    unitId: o.unit_number, associationId: o.association_code }
+  // Scan every persona table in parallel — don't stop at first match. A
+  // caller may be an owner at one association AND a board member at
+  // another; we surface all matches so handleTextChannel can ask which
+  // role they want to use for this conversation.
+  const [oRes, tRes, bRes, vRes, agRes, rv, staffMatch] = await Promise.all([
+    getSupabase().from('owners')
+      .select('first_name, last_name, language, unit_number, association_code')
+      .or([`phone.eq.${phone}`,`phone.eq.${plusPhone}`,`phone.eq.${shortPhone}`,
+           `phone_2.eq.${phone}`,`phone_2.eq.${plusPhone}`,`phone_2.eq.${shortPhone}`,
+           `phone_e164.eq.${plusPhone}`,`phone_e164.eq.${phone}`].join(','))
+      .limit(5),
+    getSupabase().from('association_tenants')
+      .select('first_name, last_name, language, unit_number, association_code')
+      .or(`phone.eq.${phone},phone.eq.${plusPhone},phone.eq.${shortPhone}`).limit(5),
+    getSupabase().from('board_members')
+      .select('first_name, last_name, language, association_code, position')
+      .or(`phone.eq.${phone},phone.eq.${plusPhone},phone.eq.${shortPhone}`).limit(5),
+    getSupabase().from('vendor_directory').select('name, language, association_id').eq('phone', phone).limit(5),
+    getSupabase().from('real_estate_agents').select('id, first_name, last_name, language').eq('phone', phone).limit(5),
+    lookupRentvineByPhone(phone),
+    findStaffByPhone(phone),
+  ])
 
-  const { data: t } = await getSupabase().from('association_tenants')
-    .select('first_name, last_name, language, unit_number, association_code')
-    .or(`phone.eq.${phone},phone.eq.${plusPhone},phone.eq.${shortPhone}`).limit(1).maybeSingle()
-  if (t) return { phone, channel, division: 'association', persona: 'association_tenant',
-    language: t.language ?? 'en', name: `${t.first_name ?? ''} ${t.last_name ?? ''}`.trim() || 'there',
-    unitId: t.unit_number, associationId: t.association_code }
+  const candidates: PersonaCandidate[] = []
 
-  const { data: b } = await getSupabase().from('board_members')
-    .select('first_name, last_name, language, association_code')
-    .or(`phone.eq.${phone},phone.eq.${plusPhone},phone.eq.${shortPhone}`).limit(1).maybeSingle()
-  if (b) return { phone, channel, division: 'association', persona: 'board_member',
-    language: b.language ?? 'en', name: `${b.first_name ?? ''} ${b.last_name ?? ''}`.trim() || 'there',
-    associationId: b.association_code }
+  for (const o of (oRes.data ?? [])) {
+    candidates.push({
+      persona: 'homeowner', division: 'association',
+      label: `Owner — ${o.association_code ?? 'unknown'}${o.unit_number ? ` Unit ${o.unit_number}` : ''}`,
+      language: o.language ?? 'en',
+      name: `${o.first_name ?? ''} ${o.last_name ?? ''}`.trim() || 'there',
+      unitId: o.unit_number, associationId: o.association_code,
+    })
+  }
+  for (const t of (tRes.data ?? [])) {
+    candidates.push({
+      persona: 'association_tenant', division: 'association',
+      label: `Tenant — ${t.association_code ?? 'unknown'}${t.unit_number ? ` Unit ${t.unit_number}` : ''}`,
+      language: t.language ?? 'en',
+      name: `${t.first_name ?? ''} ${t.last_name ?? ''}`.trim() || 'there',
+      unitId: t.unit_number, associationId: t.association_code,
+    })
+  }
+  for (const b of (bRes.data ?? [])) {
+    candidates.push({
+      persona: 'board_member', division: 'association',
+      label: `Board (${b.position ?? 'Member'}) — ${b.association_code ?? 'unknown'}`,
+      language: b.language ?? 'en',
+      name: `${b.first_name ?? ''} ${b.last_name ?? ''}`.trim() || 'there',
+      associationId: b.association_code,
+    })
+  }
+  for (const v of (vRes.data ?? [])) {
+    candidates.push({
+      persona: 'vendor', division: 'association',
+      label: `Vendor — ${v.name}`,
+      language: v.language ?? 'en', name: v.name, associationId: v.association_id,
+    })
+  }
+  for (const ag of (agRes.data ?? [])) {
+    candidates.push({
+      persona: 'real_estate_agent', division: 'association',
+      label: `Real-estate agent — ${ag.first_name} ${ag.last_name}`,
+      language: ag.language ?? 'en', name: `${ag.first_name} ${ag.last_name}`,
+    })
+  }
+  if (rv) {
+    candidates.push({
+      persona: rv.type, division: 'residential',
+      label: `Residential ${rv.type.replace('residential_', '')} — ${rv.name}`,
+      language: 'pt', name: rv.name, rentvineContactId: rv.id,
+    })
+  }
+  if (staffMatch) {
+    candidates.push({
+      persona: 'unknown', division: 'unknown',
+      label: `PMI staff — ${staffMatch.name}${staffMatch.role ? ` (${staffMatch.role})` : ''}`,
+      language: 'en', name: staffMatch.name, staffEmail: staffMatch.email,
+    })
+  }
 
-  const { data: v } = await getSupabase().from('vendor_directory').select('name, language, association_id').eq('phone', phone).single()
-  if (v) return { phone, channel, division: 'association', persona: 'vendor',
-    language: v.language ?? 'en', name: v.name, associationId: v.association_id }
+  if (candidates.length === 0) {
+    return { phone, channel, division: 'unknown', persona: 'unknown', language: 'en', name: 'there' }
+  }
+  if (candidates.length === 1) {
+    return contextFromCandidate(phone, channel, candidates[0])
+  }
+  // Multi-persona: leave persona='unknown' until the caller picks one.
+  // handleTextChannel sees ctx.candidates and prompts.
+  return {
+    phone, channel,
+    division: 'unknown', persona: 'unknown',
+    language: candidates[0].language ?? 'en',
+    name: candidates[0].name ?? 'there',
+    candidates,
+  }
+}
 
-  const { data: ag } = await getSupabase().from('real_estate_agents').select('id, first_name, last_name, language').eq('phone', phone).single()
-  if (ag) return { phone, channel, division: 'association', persona: 'real_estate_agent',
-    language: ag.language ?? 'en', name: `${ag.first_name} ${ag.last_name}` }
-
-  const rv = await lookupRentvineByPhone(phone)
-  if (rv) return { phone, channel, division: 'residential', persona: rv.type, language: 'pt', name: rv.name, rentvineContactId: rv.id }
-
-  return { phone, channel, division: 'unknown', persona: 'unknown', language: 'en', name: 'there' }
+function contextFromCandidate(phone: string, channel: Channel, c: PersonaCandidate): CallerContext {
+  const persona: PersonaType = (c.persona === 'staff') ? 'unknown' : c.persona
+  return {
+    phone, channel,
+    division: c.division,
+    persona,
+    language: c.language ?? 'en',
+    name: c.name ?? 'there',
+    unitId: c.unitId,
+    associationId: c.associationId,
+    rentvineContactId: c.rentvineContactId,
+    fromChoice: true,
+  }
 }
 
 // ============================================================
