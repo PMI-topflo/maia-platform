@@ -39,48 +39,26 @@ export interface CategoryDef {
   dated?: boolean
 }
 
+// Phase 1 scope: just the two documents new tenants / buyers see and
+// e-sign during the application flow. The table + storage bucket are
+// built to handle a wider taxonomy (insurance, financials, etc.) but
+// staff said to land this incrementally — start with the docs that
+// gate the application signature, expand later.
+//
+// Adding categories later is one-liner: append to this array; nothing
+// else has to change because category is a text column, not an enum.
 export const CATEGORIES: CategoryDef[] = [
-  // Governance ───────────────────────────────────────────────────────
-  { key: 'declaration',           group: 'Governance',       label: 'Declaration / Master Deed' },
-  { key: 'bylaws',                group: 'Governance',       label: 'Bylaws' },
-  { key: 'articles_incorp',       group: 'Governance',       label: 'Articles of Incorporation' },
-  { key: 'rules_regs',            group: 'Governance',       label: 'Rules & Regulations' },
-
-  // Financial ────────────────────────────────────────────────────────
-  { key: 'budget',                group: 'Financial',        label: 'Current Year Budget',          dated: true },
-  { key: 'reserve_study',         group: 'Financial',        label: 'Reserve Study',                dated: true },
-  { key: 'audit',                 group: 'Financial',        label: 'Annual Audit / Financials',    dated: true },
-
-  // Operations ───────────────────────────────────────────────────────
-  { key: 'board_minutes',         group: 'Operations',       label: 'Board Meeting Minutes',        dated: true },
-  { key: 'correspondence',        group: 'Operations',       label: 'Important Correspondence' },
-
-  // Insurance ────────────────────────────────────────────────────────
-  { key: 'ins_property',          group: 'Insurance',        label: 'Property / Master Policy',     dated: true },
-  { key: 'ins_general_liability', group: 'Insurance',        label: 'General Liability',            dated: true },
-  { key: 'ins_do',                group: 'Insurance',        label: 'Directors & Officers (D&O)',   dated: true },
-  { key: 'ins_fidelity',          group: 'Insurance',        label: 'Fidelity Bond / Crime',        dated: true },
-  { key: 'ins_workers_comp',      group: 'Insurance',        label: 'Workers’ Compensation',   dated: true },
-  { key: 'ins_umbrella',          group: 'Insurance',        label: 'Umbrella / Excess Liability',  dated: true },
-  { key: 'ins_flood',             group: 'Insurance',        label: 'Flood',                        dated: true },
-  { key: 'ins_cyber',             group: 'Insurance',        label: 'Cyber Liability',              dated: true },
-  { key: 'ins_equipment',         group: 'Insurance',        label: 'Equipment Breakdown',          dated: true },
-  { key: 'ins_ordinance',         group: 'Insurance',        label: 'Ordinance & Law',              dated: true },
-  { key: 'ins_windstorm',         group: 'Insurance',        label: 'Windstorm / Hurricane',        dated: true },
-
-  // Florida-specific safety / structural ─────────────────────────────
-  { key: 'sirs',                  group: 'Florida Safety',   label: 'Structural Integrity Reserve Study', dated: true },
-  { key: 'wind_mitigation',       group: 'Florida Safety',   label: 'Wind Mitigation Report',       dated: true },
-  { key: 'roof_inspection',       group: 'Florida Safety',   label: 'Roof Age / Inspection',        dated: true },
-  { key: 'milestone_inspection',  group: 'Florida Safety',   label: 'Milestone Inspection (SB 4-D)',dated: true },
-
-  // Vendors ──────────────────────────────────────────────────────────
-  { key: 'vendor_coi',            group: 'Vendors',          label: 'Vendor Certificate of Insurance', dated: true },
-  { key: 'vendor_contract',       group: 'Vendors',          label: 'Vendor Contract' },
-
-  // Other ────────────────────────────────────────────────────────────
-  { key: 'other',                 group: 'Other',            label: 'Other / Miscellaneous' },
+  { key: 'condo_docs', group: 'Governing Documents', label: 'Condo Docs / Declaration' },
+  { key: 'rules_regs', group: 'Governing Documents', label: 'Rules & Regulations' },
 ]
+
+/** Categories surfaced to tenant / buyer applicants during the apply
+ *  flow. The application requires acknowledgment of every document in
+ *  this list (or at least one row of each category) before signature. */
+export const APPLICATION_REQUIRED_CATEGORIES: ReadonlySet<string> = new Set([
+  'condo_docs',
+  'rules_regs',
+])
 
 export const CATEGORY_KEYS = new Set(CATEGORIES.map(c => c.key))
 

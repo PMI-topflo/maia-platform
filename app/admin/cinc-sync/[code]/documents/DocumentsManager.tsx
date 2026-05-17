@@ -3,23 +3,19 @@
 // =====================================================================
 // /admin/cinc-sync/[code]/documents/DocumentsManager.tsx
 //
-// Interactive document library for one association. Three input modes:
+// Phase 1 scope: upload PDFs for two governing documents per
+// association — Condo Docs (Declaration) and Rules & Regulations.
+// These are the files MAIA presents to new tenants / buyers during
+// the application flow so they can read + e-sign acknowledgment.
 //
-//   1. Upload a PDF — multipart POST, server extracts text inline
-//   2. Add a Drive link — JSON POST with the URL
-//   3. Add a note — JSON POST with free-form text (useful for facts
-//      that don't have a file yet: "Pool resurfaced May 2026, warranty
-//      until 2028")
-//
-// The list groups documents by category (governance / financial /
-// insurance / Florida safety / vendors / other) so staff can see at
-// a glance which categories are covered and which still need attention.
+// Drive-link and free-form note modes are intentionally hidden in
+// the UI; the API still accepts them so we can add them back without
+// a redeploy if the workflow expands.
 // =====================================================================
 
 import { useEffect, useState } from 'react'
 import {
   CATEGORIES,
-  categoriesByGroup,
   categoryLabel,
   type AssociationDocument,
 } from '@/lib/association-documents'
@@ -47,14 +43,16 @@ export default function DocumentsManager({ assocCode }: Props) {
 
   function refresh() { setReloadKey(k => k + 1) }
 
-  // Group docs by category key for the grouped display.
+  // Group docs by category key. With just two categories the layout
+  // stays flat — one section per category — instead of being nested
+  // inside a group header (which made sense for the 28-category
+  // version but is overkill now).
   const byCategory: Record<string, AssociationDocument[]> = {}
   for (const d of docs) {
     const key = d.category || 'other'
     if (!byCategory[key]) byCategory[key] = []
     byCategory[key].push(d)
   }
-  const groups = categoriesByGroup()
 
   return (
     <div className="space-y-6">
@@ -66,40 +64,29 @@ export default function DocumentsManager({ assocCode }: Props) {
 
       {loading && <div className="text-sm text-gray-500">Loading documents…</div>}
 
-      {!loading && groups.map(({ group, items }) => {
-        const hasAny = items.some(c => (byCategory[c.key]?.length ?? 0) > 0)
+      {!loading && CATEGORIES.map(cat => {
+        const rows = byCategory[cat.key] ?? []
         return (
-          <section key={group} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+          <section key={cat.key} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 border-b border-gray-100 px-4 py-2.5 flex items-baseline justify-between">
-              <h2 className="text-xs font-semibold text-gray-700 uppercase tracking-wide [font-family:var(--font-mono)]">{group}</h2>
-              {!hasAny && <span className="text-[10px] text-gray-400 uppercase font-mono">No documents yet</span>}
+              <h2 className="text-sm font-semibold text-gray-700 [font-family:var(--font-mono)]">{cat.label}</h2>
+              <span className="text-[10px] text-gray-400 uppercase font-mono">
+                {rows.length === 0 ? 'No file yet' : `${rows.length} version${rows.length === 1 ? '' : 's'}`}
+              </span>
             </div>
-            <div className="divide-y divide-gray-50">
-              {items.map(cat => {
-                const rows = byCategory[cat.key] ?? []
-                if (rows.length === 0) {
-                  return (
-                    <div key={cat.key} className="px-4 py-2 flex items-center justify-between text-xs">
-                      <span className="text-gray-500">{cat.label}</span>
-                      <span className="text-gray-300 font-mono uppercase">empty</span>
-                    </div>
-                  )
-                }
-                return (
-                  <div key={cat.key} className="px-4 py-3">
-                    <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                      <span>{cat.label}</span>
-                      <span className="text-[10px] text-gray-400 font-mono">{rows.length} item{rows.length === 1 ? '' : 's'}</span>
-                    </div>
-                    <ul className="space-y-1.5">
-                      {rows.map(d => (
-                        <DocumentRow key={d.id} doc={d} assocCode={assocCode} onChanged={refresh} />
-                      ))}
-                    </ul>
-                  </div>
-                )
-              })}
-            </div>
+            {rows.length === 0
+              ? (
+                <div className="px-4 py-6 text-center text-xs text-gray-400">
+                  Upload the current {cat.label.toLowerCase()} PDF above. Applicants will be required to acknowledge it before signing.
+                </div>
+              )
+              : (
+                <ul className="divide-y divide-gray-50">
+                  {rows.map(d => (
+                    <DocumentRow key={d.id} doc={d} assocCode={assocCode} onChanged={refresh} />
+                  ))}
+                </ul>
+              )}
           </section>
         )
       })}
@@ -112,24 +99,17 @@ export default function DocumentsManager({ assocCode }: Props) {
 // ─────────────────────────────────────────────────────────────────────
 
 function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: () => void }) {
-  const [mode, setMode] = useState<'upload' | 'drive_link' | 'note'>('upload')
   const [category, setCategory] = useState<string>(CATEGORIES[0].key)
-  const [subcategory, setSubcategory] = useState('')
   const [notes, setNotes] = useState('')
   const [effective, setEffective] = useState('')
-  const [expiry, setExpiry] = useState('')
-  const [driveUrl, setDriveUrl] = useState('')
   const [filename, setFilename] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
 
-  const isDated = !!CATEGORIES.find(c => c.key === category)?.dated
-
   function reset() {
-    setSubcategory(''); setNotes(''); setEffective(''); setExpiry('')
-    setDriveUrl(''); setFilename(''); setFile(null)
+    setNotes(''); setEffective(''); setFilename(''); setFile(null)
     setError(null); setOkMsg(null)
   }
 
@@ -137,39 +117,16 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
     e.preventDefault()
     setBusy(true); setError(null); setOkMsg(null)
     try {
-      let res: Response
-      if (mode === 'upload') {
-        if (!file) throw new Error('Pick a file to upload')
-        const form = new FormData()
-        form.append('file', file)
-        form.append('category', category)
-        if (subcategory) form.append('subcategory', subcategory)
-        if (notes)       form.append('notes', notes)
-        if (effective)   form.append('effective_date', effective)
-        if (expiry)      form.append('expiry_date', expiry)
-        res = await fetch(`/api/admin/associations/${assocCode}/documents`, { method: 'POST', body: form })
-      } else {
-        const body = {
-          source:         mode,
-          category,
-          subcategory:    subcategory || null,
-          drive_url:      mode === 'drive_link' ? driveUrl : null,
-          filename:       filename || (mode === 'drive_link' ? 'Drive link' : 'Note'),
-          notes:          notes || null,
-          effective_date: effective || null,
-          expiry_date:    expiry || null,
-        }
-        res = await fetch(`/api/admin/associations/${assocCode}/documents`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify(body),
-        })
-      }
+      if (!file) throw new Error('Pick a PDF to upload')
+      const form = new FormData()
+      form.append('file', file)
+      form.append('category', category)
+      if (notes)     form.append('notes', notes)
+      if (effective) form.append('effective_date', effective)
+      const res = await fetch(`/api/admin/associations/${assocCode}/documents`, { method: 'POST', body: form })
       const data = await res.json()
-      if (!res.ok) throw new Error(data?.error ?? 'Save failed')
-      setOkMsg(mode === 'upload'
-        ? `Uploaded${data.pages ? ` (${data.pages} pages extracted)` : ''}.`
-        : 'Saved.')
+      if (!res.ok) throw new Error(data?.error ?? 'Upload failed')
+      setOkMsg(`Uploaded${data.pages ? ` (${data.pages} pages extracted)` : ''}.`)
       reset()
       onUploaded()
     } catch (e) {
@@ -181,143 +138,67 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
 
   return (
     <form onSubmit={onSubmit} className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
-      <div className="flex items-center gap-1 flex-wrap">
-        {(['upload', 'drive_link', 'note'] as const).map(m => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMode(m)}
-            className={[
-              'text-[10px] font-mono uppercase tracking-wide px-2.5 py-1 rounded transition-colors',
-              mode === m
-                ? 'bg-[#f26a1b] text-white'
-                : 'text-gray-500 hover:text-gray-800 border border-gray-300',
-            ].join(' ')}
-          >
-            {m === 'upload' ? 'Upload PDF' : m === 'drive_link' ? 'Add Drive link' : 'Add note'}
-          </button>
-        ))}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-900">Upload a governing document</h3>
+        <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
+          Applicants see these two documents during the new-tenant / new-buyer flow and must acknowledge them before signing. Uploading a newer version replaces nothing — the most recent file per category is what applicants see.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <label className="block md:col-span-1">
-          <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">Category</span>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <label className="block">
+          <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">Document type</span>
           <select
             value={category}
             onChange={e => setCategory(e.target.value)}
             disabled={busy}
             className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#f26a1b] bg-white"
           >
-            {categoriesByGroup().map(({ group, items }) => (
-              <optgroup key={group} label={group}>
-                {items.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
-              </optgroup>
-            ))}
+            {CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
         </label>
 
-        <label className="block md:col-span-2">
-          <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">Subcategory (optional)</span>
+        <label className="block">
+          <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">Effective date (optional)</span>
           <input
-            type="text"
-            value={subcategory}
-            onChange={e => setSubcategory(e.target.value)}
+            type="date"
+            value={effective}
+            onChange={e => setEffective(e.target.value)}
             disabled={busy}
-            placeholder="e.g. carrier name, vendor name, policy #"
             className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#f26a1b]"
           />
         </label>
       </div>
 
-      {mode === 'upload' && (
-        <label className="block">
-          <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">PDF file</span>
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={e => {
-              const f = e.target.files?.[0] ?? null
-              setFile(f)
-              if (f && !filename) setFilename(f.name)
-            }}
-            disabled={busy}
-            className="mt-1 block text-sm"
-          />
-          <span className="text-[10px] text-gray-500 block mt-0.5">
-            Max 50 MB. PDFs &lt; 20 MB get text-extracted automatically; larger ones upload but staff need to add a notes summary for MAIA.
-          </span>
-        </label>
-      )}
-
-      {mode === 'drive_link' && (
-        <>
-          <label className="block">
-            <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">Drive URL</span>
-            <input
-              type="url"
-              value={driveUrl}
-              onChange={e => setDriveUrl(e.target.value)}
-              disabled={busy}
-              required
-              placeholder="https://drive.google.com/..."
-              className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#f26a1b]"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">Display name (optional)</span>
-            <input
-              type="text"
-              value={filename}
-              onChange={e => setFilename(e.target.value)}
-              disabled={busy}
-              placeholder="e.g. 2026 Wind Policy — Citizens"
-              className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#f26a1b]"
-            />
-          </label>
-        </>
-      )}
+      <label className="block">
+        <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">PDF file</span>
+        <input
+          type="file"
+          accept="application/pdf"
+          onChange={e => {
+            const f = e.target.files?.[0] ?? null
+            setFile(f)
+            if (f && !filename) setFilename(f.name)
+          }}
+          disabled={busy}
+          className="mt-1 block text-sm"
+        />
+        <span className="text-[10px] text-gray-500 block mt-0.5">
+          PDF only. Max 50 MB. Files &lt; 20 MB are auto-extracted so MAIA can also cite from them when owners ask questions.
+        </span>
+      </label>
 
       <label className="block">
-        <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">
-          Notes / summary {mode === 'note' && <span className="text-red-600">(required)</span>}
-        </span>
+        <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">Internal notes (optional)</span>
         <textarea
           value={notes}
           onChange={e => setNotes(e.target.value)}
           disabled={busy}
-          rows={mode === 'note' ? 4 : 2}
-          required={mode === 'note'}
-          placeholder={mode === 'note'
-            ? 'Free-form fact MAIA can cite (e.g. "Pool resurfaced May 2026, 2-year warranty")'
-            : 'One-liner for context (e.g. "Renews Aug 2026, contact agent X")'}
+          rows={2}
+          placeholder='Internal context, e.g. "Adopted at 2026 annual meeting"'
           className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#f26a1b]"
         />
       </label>
-
-      {isDated && (
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">Effective date</span>
-            <input
-              type="date"
-              value={effective}
-              onChange={e => setEffective(e.target.value)}
-              disabled={busy}
-              className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#f26a1b]"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">Expiry date</span>
-            <input
-              type="date"
-              value={expiry}
-              onChange={e => setExpiry(e.target.value)}
-              disabled={busy}
-              className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#f26a1b]"
-            />
-          </label>
-        </div>
-      )}
 
       {error && <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>}
       {okMsg && <div className="text-xs text-green-800 bg-green-50 border border-green-200 rounded px-3 py-2">{okMsg}</div>}
@@ -328,9 +209,7 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
           disabled={busy}
           className="bg-[#f26a1b] hover:bg-[#f58140] disabled:opacity-50 text-white text-xs font-semibold uppercase tracking-wide px-4 py-2 rounded transition-colors [font-family:var(--font-mono)]"
         >
-          {busy
-            ? (mode === 'upload' ? 'Uploading & extracting…' : 'Saving…')
-            : (mode === 'upload' ? 'Upload' : 'Save')}
+          {busy ? 'Uploading & extracting…' : 'Upload'}
         </button>
       </div>
     </form>
@@ -379,7 +258,7 @@ function DocumentRow({ doc, assocCode, onChanged }: { doc: AssociationDocument; 
   }
 
   return (
-    <li className="flex items-start justify-between gap-3 text-xs">
+    <li className="flex items-start justify-between gap-3 text-xs px-4 py-3">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <button
