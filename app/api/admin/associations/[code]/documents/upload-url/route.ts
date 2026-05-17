@@ -30,17 +30,35 @@ interface Body {
 // hitting upload-url on a fresh environment don't fail with "bucket not
 // found". listBuckets() is a cheap call; the create is no-op when the
 // bucket already exists.
+//
+// Critical: we only flip the cached _bucketEnsured flag to true after
+// confirming the bucket actually exists. The previous version flipped
+// the flag unconditionally so a silent failure on createBucket() left
+// every subsequent call thinking the bucket was good — leading to
+// "Storage upload failed: HTTP 404" the first time the user actually
+// tried to upload.
 let _bucketEnsured = false
-async function ensureBucket(): Promise<void> {
-  if (_bucketEnsured) return
-  const { data: buckets } = await supabaseAdmin.storage.listBuckets()
-  if (!buckets?.some(b => b.name === STORAGE_BUCKET)) {
-    await supabaseAdmin.storage.createBucket(STORAGE_BUCKET, {
-      public:        false,
-      fileSizeLimit: 50 * 1024 * 1024,
-    })
+async function ensureBucket(): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (_bucketEnsured) return { ok: true }
+
+  const { data: buckets, error: listErr } = await supabaseAdmin.storage.listBuckets()
+  if (listErr) {
+    return { ok: false, reason: `listBuckets failed: ${listErr.message}` }
+  }
+  if (buckets?.some(b => b.name === STORAGE_BUCKET)) {
+    _bucketEnsured = true
+    return { ok: true }
+  }
+
+  const { error: createErr } = await supabaseAdmin.storage.createBucket(STORAGE_BUCKET, {
+    public:        false,
+    fileSizeLimit: 50 * 1024 * 1024,
+  })
+  if (createErr) {
+    return { ok: false, reason: `createBucket failed: ${createErr.message}` }
   }
   _bucketEnsured = true
+  return { ok: true }
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ code: string }> }) {
@@ -65,7 +83,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
   const category = (body.category ?? '').trim().toLowerCase()
   const safeCategory = CATEGORY_KEYS.has(category) ? category : 'other'
 
-  await ensureBucket()
+  const bucketCheck = await ensureBucket()
+  if (!bucketCheck.ok) {
+    return NextResponse.json(
+      {
+        error: `Storage bucket "${STORAGE_BUCKET}" is not ready: ${bucketCheck.reason}. ` +
+               `Create it manually in Supabase → Storage (NOT public, 50 MB file limit) and retry.`,
+      },
+      { status: 500 },
+    )
+  }
 
   const safeName = filename.replace(/[^\w\-.]/g, '_').slice(0, 120)
   const storagePath = `${upperCode}/${safeCategory}/${Date.now()}_${crypto.randomUUID().slice(0, 8)}_${safeName}`
