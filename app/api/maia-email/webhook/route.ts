@@ -233,6 +233,7 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
         associationCode: assocCode ?? undefined,
         status:          'received',
         sentBy:          account.gmail_address,
+        gmailThreadId:   parsed.threadId,
       })
 
       // Tickets are created only for emails explicitly addressed to
