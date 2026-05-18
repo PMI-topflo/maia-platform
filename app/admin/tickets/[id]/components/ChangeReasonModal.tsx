@@ -80,11 +80,15 @@ export default function ChangeReasonModal({ ticketId, field, fromValue, toValue,
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center pt-20 p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
       onClick={() => !submitting && onClose(false)}
     >
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+      <div
+        className="bg-white rounded-lg shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Sticky header */}
+        <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between shrink-0">
           <h2 className="text-base font-semibold text-gray-900">
             Change {LABELS[field].toLowerCase()}
           </h2>
@@ -97,52 +101,57 @@ export default function ChangeReasonModal({ ticketId, field, fromValue, toValue,
           </button>
         </div>
 
-        <form onSubmit={submit} className="p-5 space-y-4">
-          <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-700">
-            {LABELS[field]}: <span className="font-mono">{fromValue.replace('_', ' ')}</span>
-            <span className="text-gray-400 mx-2">→</span>
-            <span className="font-mono font-semibold">{toValue.replace('_', ' ')}</span>
+        <form onSubmit={submit} className="flex flex-col flex-1 min-h-0">
+          {/* Scrollable middle */}
+          <div className="p-5 space-y-4 overflow-y-auto flex-1">
+            <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-700">
+              {LABELS[field]}: <span className="font-mono">{fromValue.replace('_', ' ')}</span>
+              <span className="text-gray-400 mx-2">→</span>
+              <span className="font-mono font-semibold">{toValue.replace('_', ' ')}</span>
+            </div>
+
+            <Field label="When did this happen? *">
+              <input
+                type="datetime-local"
+                value={happenedAt}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setHappenedAt(e.target.value)}
+                required
+                max={localInputNow()}
+                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-[#f26a1b]"
+              />
+              <p className="text-[11px] text-gray-400 mt-1">
+                Defaults to now. Backdate if you're recording something that already happened.
+              </p>
+            </Field>
+
+            <Field label="Next due date (optional)">
+              <input
+                type="datetime-local"
+                value={nextDueAt}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setNextDueAt(e.target.value)}
+                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-[#f26a1b]"
+              />
+              <p className="text-[11px] text-gray-400 mt-1">
+                When should staff check back on this? Leave blank to keep the current due date.
+              </p>
+            </Field>
+
+            <Field label="Reason (optional)">
+              <textarea
+                value={reason}
+                onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setReason(e.target.value)}
+                rows={3}
+                placeholder="Short note for the audit trail (e.g. vendor confirmed completion, owner reported issue resolved)"
+                className="w-full border border-gray-300 rounded p-2 text-sm focus:outline-none focus:border-[#f26a1b]"
+              />
+            </Field>
+
+            {error && <div className="text-xs text-red-600">{error}</div>}
           </div>
 
-          <Field label="When did this happen? *">
-            <input
-              type="datetime-local"
-              value={happenedAt}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setHappenedAt(e.target.value)}
-              required
-              max={localInputNow()}
-              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-[#f26a1b]"
-            />
-            <p className="text-[11px] text-gray-400 mt-1">
-              Defaults to now. Backdate if you're recording something that already happened.
-            </p>
-          </Field>
-
-          <Field label="Next due date (optional)">
-            <input
-              type="datetime-local"
-              value={nextDueAt}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setNextDueAt(e.target.value)}
-              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-[#f26a1b]"
-            />
-            <p className="text-[11px] text-gray-400 mt-1">
-              When should staff check back on this? Leave blank to keep the current due date.
-            </p>
-          </Field>
-
-          <Field label="Reason (optional)">
-            <textarea
-              value={reason}
-              onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setReason(e.target.value)}
-              rows={3}
-              placeholder="Short note for the audit trail (e.g. vendor confirmed completion, owner reported issue resolved)"
-              className="w-full border border-gray-300 rounded p-2 text-sm focus:outline-none focus:border-[#f26a1b]"
-            />
-          </Field>
-
-          {error && <div className="text-xs text-red-600">{error}</div>}
-
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+          {/* Sticky footer — always visible even if a native date picker
+              popup or long content would otherwise push it off-screen. */}
+          <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-lg shrink-0">
             <button
               type="button"
               onClick={() => onClose(false)}
