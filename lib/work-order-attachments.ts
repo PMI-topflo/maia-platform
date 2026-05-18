@@ -1,0 +1,224 @@
+// =====================================================================
+// lib/work-order-attachments.ts
+//
+// Storage + DB helpers for the `work_order_attachments` table.
+//
+// Today this only covers source='cinc' — the on-first-view mirror of
+// vendor photos attached inside CINC. Source 'email' (task 2) and
+// 'staff_upload' (task 3) will reuse the same bucket + table.
+// =====================================================================
+
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { listWorkOrderAttachments, type CincAttachment } from '@/lib/integrations/cinc'
+
+export const STORAGE_BUCKET = 'work-order-photos'
+const SIGNED_URL_TTL_SECONDS = 60 * 60          // 1 hour
+const FILE_SIZE_LIMIT_BYTES  = 25 * 1024 * 1024 // 25 MB per file
+
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  png:  'image/png',
+  jpg:  'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif:  'image/gif',
+  webp: 'image/webp',
+  heic: 'image/heic',
+  heif: 'image/heif',
+}
+
+function extOf(filename: string): string {
+  const m = /\.([a-zA-Z0-9]+)$/.exec(filename)
+  return m ? m[1].toLowerCase() : ''
+}
+
+function isImage(filename: string): boolean {
+  return extOf(filename) in IMAGE_EXTENSIONS
+}
+
+function mimeFor(filename: string): string {
+  return IMAGE_EXTENSIONS[extOf(filename)] ?? 'application/octet-stream'
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Bucket
+// ─────────────────────────────────────────────────────────────────────
+let _bucketEnsured = false
+async function ensureBucket(): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (_bucketEnsured) return { ok: true }
+
+  const { data: buckets, error: listErr } = await supabaseAdmin.storage.listBuckets()
+  if (listErr) return { ok: false, reason: `listBuckets failed: ${listErr.message}` }
+  if (buckets?.some(b => b.name === STORAGE_BUCKET)) {
+    _bucketEnsured = true
+    return { ok: true }
+  }
+
+  const { error: createErr } = await supabaseAdmin.storage.createBucket(STORAGE_BUCKET, {
+    public:        false,
+    fileSizeLimit: FILE_SIZE_LIMIT_BYTES,
+  })
+  if (createErr) return { ok: false, reason: `createBucket failed: ${createErr.message}` }
+  _bucketEnsured = true
+  return { ok: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────
+export interface WorkOrderAttachmentRow {
+  id:                  string
+  ticket_id:           number
+  cinc_workorder_id:   number | null
+  source:              'cinc' | 'email' | 'staff_upload'
+  storage_path:        string
+  filename:            string
+  mime_type:           string
+  file_size_bytes:     number
+  cinc_filename:       string | null
+  cinc_created_date:   string | null
+  uploaded_by_email:   string | null
+  mirrored_at:         string
+  created_at:          string
+}
+
+export interface WorkOrderAttachmentWithUrl extends WorkOrderAttachmentRow {
+  signed_url: string
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Mirror CINC attachments for one work order
+// ─────────────────────────────────────────────────────────────────────
+export async function mirrorCincWorkOrderPhotos(opts: {
+  ticketId:          number
+  cincWorkOrderId:   number
+}): Promise<{ mirrored: number; skipped: number; errors: string[] }> {
+  const { ticketId, cincWorkOrderId } = opts
+  const errors: string[] = []
+
+  const bucket = await ensureBucket()
+  if (!bucket.ok) {
+    return { mirrored: 0, skipped: 0, errors: [bucket.reason] }
+  }
+
+  // Load CINC's current view of the WO's attachments.
+  let cincAttachments: CincAttachment[]
+  try {
+    cincAttachments = await listWorkOrderAttachments(cincWorkOrderId)
+  } catch (err) {
+    return { mirrored: 0, skipped: 0, errors: [`CINC fetch failed: ${(err as Error).message}`] }
+  }
+
+  // Load what we already have for this ticket so we can skip duplicates
+  // without leaning on the DB's unique-index conflict (cheaper + lets
+  // us emit a clean skip count).
+  const { data: existing, error: existingErr } = await supabaseAdmin
+    .from('work_order_attachments')
+    .select('cinc_filename, cinc_created_date')
+    .eq('ticket_id', ticketId)
+    .eq('source', 'cinc')
+
+  if (existingErr) {
+    return { mirrored: 0, skipped: 0, errors: [`existing fetch failed: ${existingErr.message}`] }
+  }
+
+  const existingKeys = new Set(
+    (existing ?? []).map(r => `${r.cinc_filename}|${r.cinc_created_date}`),
+  )
+
+  let mirrored = 0
+  let skipped  = 0
+
+  for (const att of cincAttachments) {
+    if (!isImage(att.FileName)) { skipped++; continue }
+
+    // Normalize the CINC timestamp into a real ISO-8601 with timezone
+    // so it matches what Postgres stored last time (else dedupe misses).
+    const cincCreatedIso = new Date(att.CreatedDate).toISOString()
+    const dedupeKey      = `${att.FileName}|${cincCreatedIso}`
+    if (existingKeys.has(dedupeKey)) { skipped++; continue }
+
+    // Decode base64 → Buffer → upload
+    let buf: Buffer
+    try {
+      buf = Buffer.from(att.FileContent, 'base64')
+    } catch (err) {
+      errors.push(`decode failed for ${att.FileName}: ${(err as Error).message}`)
+      continue
+    }
+
+    if (buf.byteLength > FILE_SIZE_LIMIT_BYTES) {
+      errors.push(`${att.FileName} exceeds ${FILE_SIZE_LIMIT_BYTES} byte limit (${buf.byteLength})`)
+      continue
+    }
+
+    const id          = globalThis.crypto.randomUUID()
+    const ext         = extOf(att.FileName) || 'bin'
+    const storagePath = `wo-${ticketId}/${id}.${ext}`
+    const mime        = mimeFor(att.FileName)
+
+    const { error: uploadErr } = await supabaseAdmin.storage
+      .from(STORAGE_BUCKET)
+      .upload(storagePath, buf, { contentType: mime, upsert: false })
+
+    if (uploadErr) {
+      errors.push(`upload failed for ${att.FileName}: ${uploadErr.message}`)
+      continue
+    }
+
+    const { error: insertErr } = await supabaseAdmin
+      .from('work_order_attachments')
+      .insert({
+        id,
+        ticket_id:          ticketId,
+        cinc_workorder_id:  cincWorkOrderId,
+        source:             'cinc',
+        storage_path:       storagePath,
+        filename:           att.FileName,
+        mime_type:          mime,
+        file_size_bytes:    buf.byteLength,
+        cinc_filename:      att.FileName,
+        cinc_created_date:  cincCreatedIso,
+      })
+
+    if (insertErr) {
+      // Roll the upload back so we don't leak an orphan object on a
+      // failed insert (e.g. unique-index race with a concurrent mirror).
+      await supabaseAdmin.storage.from(STORAGE_BUCKET).remove([storagePath])
+      errors.push(`insert failed for ${att.FileName}: ${insertErr.message}`)
+      continue
+    }
+
+    mirrored++
+  }
+
+  return { mirrored, skipped, errors }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// List all attachments for a ticket (regardless of source) with
+// signed URLs ready for <img src>.
+// ─────────────────────────────────────────────────────────────────────
+export async function listAttachmentsWithUrls(
+  ticketId: number,
+): Promise<WorkOrderAttachmentWithUrl[]> {
+  const { data, error } = await supabaseAdmin
+    .from('work_order_attachments')
+    .select('*')
+    .eq('ticket_id', ticketId)
+    .order('created_at', { ascending: false })
+
+  if (error || !data) return []
+
+  const rows = data as WorkOrderAttachmentRow[]
+  if (rows.length === 0) return []
+
+  const { data: signed, error: signErr } = await supabaseAdmin.storage
+    .from(STORAGE_BUCKET)
+    .createSignedUrls(rows.map(r => r.storage_path), SIGNED_URL_TTL_SECONDS)
+
+  if (signErr || !signed) return []
+
+  return rows.map((row, i) => ({
+    ...row,
+    signed_url: signed[i]?.signedUrl ?? '',
+  })).filter(r => r.signed_url)
+}
