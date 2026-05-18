@@ -64,10 +64,15 @@ export default async function TicketDetailPage(props: PageProps) {
     associationName,
   }
 
+  // Work-order detail pages share the /admin/tickets/[id] route, so
+  // override the AdminNav highlight to keep "Work Orders" lit when the
+  // ticket type is work_order.
+  const navOverride = ticket.type === 'work_order' ? '/admin/work-orders' : '/admin/tickets'
+
   return (
     <div className="min-h-screen bg-gray-50">
       <SiteHeader subtitle="STAFF DASHBOARD">
-        <AdminNav />
+        <AdminNav activeOverride={navOverride} />
       </SiteHeader>
       <main className="max-w-screen-xl mx-auto px-6 py-6">
         <TicketDetailClient data={data} />
