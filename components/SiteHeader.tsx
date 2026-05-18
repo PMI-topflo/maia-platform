@@ -2,11 +2,14 @@ import Image from 'next/image'
 import UserMenu from './UserMenu'
 
 interface SiteHeaderProps {
-  subtitle: string
+  // Subtitle prop is tolerated but no longer rendered — callers still
+  // pass things like "STAFF DASHBOARD" but the text was redundant with
+  // the Overview/Dashboard nav tab and ate horizontal space.
+  subtitle?: string
   children?: React.ReactNode   // optional right-side slot (e.g. lang tabs on homepage)
 }
 
-export default function SiteHeader({ subtitle, children }: SiteHeaderProps) {
+export default function SiteHeader({ children }: SiteHeaderProps) {
   return (
     <header style={{
       position:       'sticky',
@@ -21,8 +24,9 @@ export default function SiteHeader({ subtitle, children }: SiteHeaderProps) {
       gap:            '1rem',
     }}>
 
-      {/* Left — logo + subtitle */}
-      <a href="/" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', textDecoration: 'none', flexShrink: 0 }}>
+      {/* Left — logo only (subtitle removed; identifying the section
+          is the nav row's job, not duplicated text next to the brand). */}
+      <a href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none', flexShrink: 0 }}>
         <Image
           src="/pmi-logo-white.png"
           alt="PMI Top Florida Properties"
@@ -31,9 +35,6 @@ export default function SiteHeader({ subtitle, children }: SiteHeaderProps) {
           style={{ objectFit: 'contain', objectPosition: 'left center', flexShrink: 0 }}
           priority
         />
-        <div style={{ color: '#6b7280', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.12em', whiteSpace: 'nowrap' }}>
-          {subtitle}
-        </div>
       </a>
 
       {/* Right — optional slot + account menu (phones removed; freed
