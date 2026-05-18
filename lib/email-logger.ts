@@ -24,24 +24,41 @@ export async function logEmail(entry: EmailLogEntry): Promise<void> {
   const preview = entry.bodyPreview
     ?? (entry.fullBody ? entry.fullBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200) : undefined)
 
+  const direction = entry.direction ?? 'outbound'
+  const fromEmail = entry.fromEmail ?? 'maia@pmitop.com'
+  const toEmail   = entry.toEmail
+
+  // Pre-compute auto-dismiss reason for inbound mail so we can stamp
+  // the row at insert time instead of doing a second UPDATE.
+  const autoDismiss = direction === 'inbound'
+    ? await detectAutoDismissReason(fromEmail, toEmail)
+    : null
+
+  const insertRow: Record<string, unknown> = {
+    direction,
+    from_email:         fromEmail,
+    to_email:           toEmail,
+    subject:            entry.subject,
+    body_preview:       preview,
+    full_body:          entry.fullBody,
+    persona:            entry.persona,
+    association_code:   entry.associationCode,
+    status:             entry.status ?? 'sent',
+    resend_message_id:  entry.resendMessageId,
+    sent_by:            entry.sentBy ?? 'maia',
+    sent_by_staff_id:   entry.sentByStaffId ?? null,
+    conversation_id:    entry.conversationId ?? null,
+    gmail_thread_id:    entry.gmailThreadId ?? null,
+  }
+  if (autoDismiss) {
+    insertRow.dismissed_at        = new Date().toISOString()
+    insertRow.dismissed_by_email  = 'system'
+    insertRow.auto_dismiss_reason = autoDismiss
+  }
+
   const { data: inserted, error } = await supabaseAdmin
     .from('email_logs')
-    .insert({
-      direction:          entry.direction ?? 'outbound',
-      from_email:         entry.fromEmail ?? 'maia@pmitop.com',
-      to_email:           entry.toEmail,
-      subject:            entry.subject,
-      body_preview:       preview,
-      full_body:          entry.fullBody,
-      persona:            entry.persona,
-      association_code:   entry.associationCode,
-      status:             entry.status ?? 'sent',
-      resend_message_id:  entry.resendMessageId,
-      sent_by:            entry.sentBy ?? 'maia',
-      sent_by_staff_id:   entry.sentByStaffId ?? null,
-      conversation_id:    entry.conversationId ?? null,
-      gmail_thread_id:    entry.gmailThreadId ?? null,
-    })
+    .insert(insertRow)
     .select('id')
     .single()
 
@@ -53,6 +70,93 @@ export async function logEmail(entry: EmailLogEntry): Promise<void> {
   if (entry.gmailThreadId) {
     void autolinkEmailToThreadTickets(String(inserted.id), entry.gmailThreadId)
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Auto-dismiss detection — runs once per inbound logEmail call.
+// Two caches reduce DB pressure: noise patterns + staff emails. Both
+// expire after a short TTL so the lists stay fresh without restart.
+// ─────────────────────────────────────────────────────────────────────
+const CACHE_TTL_MS = 5 * 60 * 1000  // 5 minutes
+let noisePatternsCache:    { fetched: number; values: string[] } | null = null
+let staffEmailsCache:      { fetched: number; values: Set<string> } | null = null
+let staffInboxesCache:     { fetched: number; values: Set<string> } | null = null
+
+async function getNoisePatterns(): Promise<string[]> {
+  if (noisePatternsCache && Date.now() - noisePatternsCache.fetched < CACHE_TTL_MS) {
+    return noisePatternsCache.values
+  }
+  const { data, error } = await supabaseAdmin
+    .from('email_noise_senders')
+    .select('pattern')
+  if (error) return noisePatternsCache?.values ?? []   // degrade silently pre-migration
+  const values = (data ?? []).map(r => (r.pattern as string).toLowerCase())
+  noisePatternsCache = { fetched: Date.now(), values }
+  return values
+}
+
+async function getStaffEmails(): Promise<Set<string>> {
+  if (staffEmailsCache && Date.now() - staffEmailsCache.fetched < CACHE_TTL_MS) {
+    return staffEmailsCache.values
+  }
+  const { data, error } = await supabaseAdmin
+    .from('pmi_staff')
+    .select('email, personal_email, alt_emails')
+  if (error) return staffEmailsCache?.values ?? new Set()
+  const values = new Set<string>()
+  for (const r of (data ?? []) as Array<{ email: string | null; personal_email: string | null; alt_emails: string[] | null }>) {
+    if (r.email)          values.add(r.email.toLowerCase())
+    if (r.personal_email) values.add(r.personal_email.toLowerCase())
+    for (const a of r.alt_emails ?? []) if (a) values.add(a.toLowerCase())
+  }
+  staffEmailsCache = { fetched: Date.now(), values }
+  return values
+}
+
+async function getStaffInboxes(): Promise<Set<string>> {
+  if (staffInboxesCache && Date.now() - staffInboxesCache.fetched < CACHE_TTL_MS) {
+    return staffInboxesCache.values
+  }
+  const { data, error } = await supabaseAdmin
+    .from('staff_gmail_accounts')
+    .select('gmail_address')
+  if (error) return staffInboxesCache?.values ?? new Set()
+  const values = new Set<string>()
+  for (const r of (data ?? []) as Array<{ gmail_address: string | null }>) {
+    if (r.gmail_address) values.add(r.gmail_address.toLowerCase())
+  }
+  staffInboxesCache = { fetched: Date.now(), values }
+  return values
+}
+
+async function detectAutoDismissReason(
+  fromEmail: string,
+  toEmail:   string,
+): Promise<'noise_sender' | 'internal' | null> {
+  const lcFrom = fromEmail.toLowerCase()
+  const lcTo   = toEmail.toLowerCase()
+
+  // 1. Noise sender — exact email OR @domain pattern match.
+  const patterns = await getNoisePatterns()
+  for (const p of patterns) {
+    if (p.startsWith('@')) {
+      if (lcFrom.endsWith(p)) return 'noise_sender'
+    } else if (lcFrom === p) {
+      return 'noise_sender'
+    }
+  }
+
+  // 2. Internal staff-to-staff — sender is a known staff address AND
+  //    recipient is one of the connected staff Gmail inboxes.
+  const [staffEmails, staffInboxes] = await Promise.all([
+    getStaffEmails(),
+    getStaffInboxes(),
+  ])
+  if (staffEmails.has(lcFrom) && staffInboxes.has(lcTo)) {
+    return 'internal'
+  }
+
+  return null
 }
 
 /** After a new inbound or outbound email is logged, attach it to every
