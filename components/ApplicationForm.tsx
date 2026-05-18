@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import SiteHeader from "@/components/SiteHeader";
 import { loadStripe } from "@stripe/stripe-js";
 import { createClient } from "@supabase/supabase-js";
+import { SignaturePad, WebcamCapture } from "@/components/SignatureEvidence";
 
 // ── Supabase client — used only for Storage uploads (anon key) ────────────────
 const supabase = createClient(
@@ -852,6 +853,17 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   // signature step requires at least one version of EACH category to
   // be in this set before they can sign.
   const [docsViewed, setDocsViewed] = useState<Set<string>>(new Set());
+
+  // Signature evidence captured at sign-time. All optional from a UX
+  // standpoint (we still accept a typed name + viewed docs) but the
+  // drawn signature is strongly encouraged. IP is added server-side
+  // by /api/apply/record-signature-evidence/[id] post-insert.
+  const [drawnSignature, setDrawnSignature] = useState<string | null>(null);
+  const [applicantPhoto, setApplicantPhoto] = useState<string | null>(null);
+  const [geolocation, setGeolocation] = useState<{
+    lat: number; lon: number; accuracy_meters: number; timestamp_ms: number;
+  } | null>(null);
+  const [geoStatus, setGeoStatus] = useState<'idle' | 'asking' | 'granted' | 'denied' | 'unavailable'>('idle');
   // Lazy-fetched extracted text per doc.id, populated when the applicant
   // expands the text panel below the iframe. Cached so toggling doesn't
   // re-fetch.
@@ -1166,6 +1178,23 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         if (insertErr) throw insertErr;
         appId = row.id;
         setApplicationId(appId);
+      }
+
+      // Record signature evidence — IP (server-captured), drawn
+      // signature, photo, geolocation. Fire-and-forget so a failure
+      // here doesn't block the application submission; the typed name
+      // and rules_agreed_at on the row are still legally meaningful
+      // even without these extras.
+      if (appId) {
+        fetch(`/api/apply/record-signature-evidence/${appId}`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({
+            rules_signature_image:    drawnSignature,
+            rules_applicant_photo:    applicantPhoto,
+            rules_signed_geolocation: geolocation,
+          }),
+        }).catch(() => { /* non-fatal */ });
       }
 
       // Primary applicant email
@@ -1885,6 +1914,71 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                     {t.rulesSignatureNote}
                   </div>
                 )}
+
+                {/* Drawn signature pad — applicant draws with mouse,
+                    finger, or stylus. Stored alongside the typed name
+                    as additional evidence of intent. */}
+                <div style={{ marginTop: 14 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#6b7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>
+                    Drawn signature
+                  </label>
+                  <SignaturePad onChange={setDrawnSignature} />
+                </div>
+
+                {/* Webcam photo — optional. Applicant can skip if their
+                    device has no camera or they decline permission.
+                    Captured frame is stored as an inline data URL. */}
+                <div style={{ marginTop: 14 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#6b7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>
+                    Photo verification (optional)
+                  </label>
+                  <WebcamCapture onCapture={setApplicantPhoto} />
+                </div>
+
+                {/* Geolocation — silent on success, shown only when the
+                    user hasn't granted permission yet or denied it. The
+                    button triggers the browser's native permission
+                    prompt. We don't BLOCK signing if they decline. */}
+                <div style={{ marginTop: 14 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#6b7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>
+                    Location stamp (optional)
+                  </label>
+                  {geoStatus === "granted" && geolocation ? (
+                    <div style={{ fontSize: 12, color: "#16a34a", fontFamily: "monospace" }}>
+                      ✓ Captured: {geolocation.lat.toFixed(5)}, {geolocation.lon.toFixed(5)} (±{Math.round(geolocation.accuracy_meters)}m)
+                    </div>
+                  ) : geoStatus === "asking" ? (
+                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "monospace" }}>Asking browser…</div>
+                  ) : geoStatus === "denied" ? (
+                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "monospace" }}>Location declined — not required.</div>
+                  ) : geoStatus === "unavailable" ? (
+                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "monospace" }}>Location not available on this device.</div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!navigator.geolocation) { setGeoStatus("unavailable"); return; }
+                        setGeoStatus("asking");
+                        navigator.geolocation.getCurrentPosition(
+                          (pos) => {
+                            setGeolocation({
+                              lat:              pos.coords.latitude,
+                              lon:              pos.coords.longitude,
+                              accuracy_meters:  pos.coords.accuracy,
+                              timestamp_ms:     pos.timestamp,
+                            });
+                            setGeoStatus("granted");
+                          },
+                          () => setGeoStatus("denied"),
+                          { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
+                        );
+                      }}
+                      style={{ fontSize: 11, fontFamily: "monospace", fontWeight: 700, textTransform: "uppercase", color: "#f26a1b", background: "none", border: "1.5px solid #f26a1b", borderRadius: 3, padding: "8px 14px", cursor: "pointer" }}
+                    >
+                      📍 Share location
+                    </button>
+                  )}
+                </div>
               </div>
               <div style={{ background: "#fafaf9", borderRadius: 4, padding: 18, border: "1px solid #e5e7eb", marginTop: 8 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#0d0d0d", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{t.signature}</div>

@@ -49,6 +49,11 @@ export type Application = {
   rules_signature: string | null;
   rules_agreed_at: string | null;
   acknowledged_document_ids: string[] | null;
+  rules_signature_image:    string | null;
+  rules_applicant_photo:    string | null;
+  rules_signed_ip:          string | null;
+  rules_signed_user_agent:  string | null;
+  rules_signed_geolocation: { lat: number; lon: number; accuracy_meters: number; timestamp_ms: number } | null;
   board_decision: 'approved' | 'rejected' | 'pending' | 'board_review' | null;
   board_decided_at: string | null;
   board_notes: string | null;
@@ -342,6 +347,53 @@ function DetailPanel({
           )}
         </dl>
       </section>
+
+      {/* Signature evidence — drawn signature, photo, IP, geo */}
+      {(app.rules_signature_image || app.rules_applicant_photo || app.rules_signed_ip || app.rules_signed_geolocation) && (
+        <section>
+          <h3 className="text-sm font-semibold text-[#0d0d0d] uppercase tracking-wide mb-3">
+            Signature Evidence
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            {app.rules_signature_image && (
+              <div>
+                <div className="text-gray-500 text-xs uppercase tracking-wide font-mono mb-1">Drawn Signature</div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={app.rules_signature_image} alt="Drawn signature" className="border border-gray-300 rounded bg-white max-w-[320px]" />
+              </div>
+            )}
+            {app.rules_applicant_photo && (
+              <div>
+                <div className="text-gray-500 text-xs uppercase tracking-wide font-mono mb-1">Applicant Photo</div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={app.rules_applicant_photo} alt="Applicant at signature time" className="border border-gray-300 rounded max-w-[240px]" />
+              </div>
+            )}
+            <div className="md:col-span-2 space-y-1 text-xs font-mono">
+              {app.rules_signed_ip && (
+                <div><span className="text-gray-500">IP:</span> <span className="text-gray-900">{app.rules_signed_ip}</span></div>
+              )}
+              {app.rules_signed_geolocation && (
+                <div>
+                  <span className="text-gray-500">Location:</span>{' '}
+                  <a
+                    href={`https://www.google.com/maps?q=${app.rules_signed_geolocation.lat},${app.rules_signed_geolocation.lon}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#f26a1b] hover:underline"
+                  >
+                    {app.rules_signed_geolocation.lat.toFixed(5)}, {app.rules_signed_geolocation.lon.toFixed(5)}
+                  </a>{' '}
+                  <span className="text-gray-400">(±{Math.round(app.rules_signed_geolocation.accuracy_meters)}m, captured {new Date(app.rules_signed_geolocation.timestamp_ms).toLocaleString()})</span>
+                </div>
+              )}
+              {app.rules_signed_user_agent && (
+                <div className="break-all"><span className="text-gray-500">User-Agent:</span> <span className="text-gray-700">{app.rules_signed_user_agent}</span></div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Documents */}
       <section>
