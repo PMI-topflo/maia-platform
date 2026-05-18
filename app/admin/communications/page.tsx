@@ -68,6 +68,26 @@ function emailListForIn(emails: string[]): string {
   return emails.filter(e => /^[a-z0-9._+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/.test(e)).join(',')
 }
 
+/** Probe email_logs for the optional columns we'd like to SELECT.
+ *  Returns a per-column boolean. Cached for the lifetime of the
+ *  request — Next.js re-creates this module's state per request. */
+async function detectOptionalColumns(): Promise<{
+  dismissed_at:        boolean
+  dismissed_by_email:  boolean
+  gmail_thread_id:     boolean
+}> {
+  const probe = async (col: string): Promise<boolean> => {
+    const { error } = await supabaseAdmin.from('email_logs').select(col).limit(0)
+    return !error
+  }
+  const [d1, d2, t] = await Promise.all([
+    probe('dismissed_at'),
+    probe('dismissed_by_email'),
+    probe('gmail_thread_id'),
+  ])
+  return { dismissed_at: d1, dismissed_by_email: d2, gmail_thread_id: t }
+}
+
 async function getData(ctx: AccessContext, showDismissed: boolean) {
   const list = emailListForIn(ctx.staffEmails)
   const hasFilter = !ctx.canSeeAll && list.length > 0
@@ -85,15 +105,29 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
     .order('updated_at', { ascending: false })
     .limit(100)
 
+  // Migration-tolerant column list. Probes each optional column once
+  // and omits it from the SELECT if the migration that adds it hasn't
+  // been applied. Prevents the whole page from rendering 0 emails just
+  // because one column is missing.
+  const optionalCols = await detectOptionalColumns()
+  const emailCols = [
+    'id', 'direction', 'from_email', 'to_email', 'subject', 'body_preview',
+    'persona', 'association_code', 'status', 'resend_message_id', 'sent_by',
+    'created_at',
+    ...(optionalCols.dismissed_at        ? ['dismissed_at']        : []),
+    ...(optionalCols.dismissed_by_email  ? ['dismissed_by_email']  : []),
+    ...(optionalCols.gmail_thread_id     ? ['gmail_thread_id']     : []),
+  ].join(', ')
+
   let emailQuery = supabaseAdmin
     .from('email_logs')
-    .select('id, direction, from_email, to_email, subject, body_preview, persona, association_code, status, resend_message_id, sent_by, created_at, dismissed_at, dismissed_by_email, gmail_thread_id')
+    .select(emailCols)
     .gte('created_at', tenDaysAgo)
     .order('created_at', { ascending: false })
     .limit(1000)
 
   // Default view hides dismissed rows. Show-dismissed toggle includes them.
-  if (!showDismissed) {
+  if (!showDismissed && optionalCols.dismissed_at) {
     emailQuery = emailQuery.is('dismissed_at', null)
   }
 
@@ -207,7 +241,10 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
 
   return {
     conversations:             convRes.data ?? [],
-    emails:                    emailRes.data ?? [],
+    // Cast through any — dynamic .select(string) collapses Supabase's
+    // inferred shape; the dashboard's runtime guards handle missing cols.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    emails:                    (emailRes.data ?? []) as any,
     tickets:                   ticketRes.data ?? [],
     staff:                     staffRes.data ?? [],
     emailCommands:             cmdRes.data ?? [],

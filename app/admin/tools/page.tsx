@@ -37,6 +37,19 @@ export default function AdminToolsPage() {
   const [gmailLoading, setGmailLoading]         = useState(true)
   const [gmailMsg, setGmailMsg]                 = useState<string | null>(null)
 
+  // Migration status
+  interface MigrationRow {
+    key:         string
+    label:       string
+    description: string
+    filename:    string
+    applied:     boolean
+    sql:         string
+  }
+  const [migrations,        setMigrations]        = useState<MigrationRow[]>([])
+  const [migrationsLoading, setMigrationsLoading] = useState(true)
+  const [openedSqlKey,      setOpenedSqlKey]      = useState<string | null>(null)
+
   // Email association code cleanup state
   const [cleanRunning, setCleanRunning] = useState(false)
   const [cleanResult, setCleanResult]   = useState<{ total_tagged: number; kept: number; cleared: number; dry_run: boolean } | null>(null)
@@ -69,6 +82,13 @@ export default function AdminToolsPage() {
       .then(d => setGmailAccounts(d.accounts ?? []))
       .catch(() => setGmailMsg('Failed to load connected accounts'))
       .finally(() => setGmailLoading(false))
+
+    // Fetch migration status
+    fetch('/api/admin/migration-status')
+      .then(r => r.json())
+      .then(d => setMigrations(d.migrations ?? []))
+      .catch(() => { /* keep empty */ })
+      .finally(() => setMigrationsLoading(false))
   }, [])
 
   async function disconnect(gmail_address: string) {
@@ -224,6 +244,85 @@ export default function AdminToolsPage() {
             </span>
           </div>
         </a>
+
+        {/* ── Schema Migrations ─────────────────────────────────────────── */}
+        <section style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', marginBottom: '1.5rem' }}>
+          <div style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb', padding: '1rem 1.25rem' }}>
+            <h2 style={{ fontWeight: 700, margin: 0, fontSize: '1rem' }}>
+              Schema Migrations
+              {!migrationsLoading && (() => {
+                const missing = migrations.filter(m => !m.applied).length
+                return missing > 0 ? (
+                  <span style={{ marginLeft: 8, padding: '2px 8px', background: '#fee2e2', color: '#991b1b', fontSize: '0.7rem', borderRadius: 4, fontWeight: 500 }}>
+                    {missing} MISSING
+                  </span>
+                ) : (
+                  <span style={{ marginLeft: 8, padding: '2px 8px', background: '#dcfce7', color: '#166534', fontSize: '0.7rem', borderRadius: 4, fontWeight: 500 }}>
+                    ALL APPLIED
+                  </span>
+                )
+              })()}
+            </h2>
+            <p style={{ color: '#6b7280', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
+              Tracks which recent migrations are live in Supabase. Click <em>Show SQL</em> on a missing row to grab the script to paste into Supabase → SQL Editor.
+            </p>
+          </div>
+
+          <div style={{ padding: '0.5rem 0' }}>
+            {migrationsLoading ? (
+              <div style={{ padding: '1rem 1.25rem', color: '#9ca3af', fontSize: '0.85rem' }}>Checking…</div>
+            ) : migrations.length === 0 ? (
+              <div style={{ padding: '1rem 1.25rem', color: '#9ca3af', fontSize: '0.85rem' }}>No migrations to track.</div>
+            ) : (
+              migrations.map((m: MigrationRow) => (
+                <div key={m.key} style={{ borderTop: '1px solid #f3f4f6', padding: '0.6rem 1.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{
+                      width: 8, height: 8, borderRadius: '50%',
+                      background: m.applied ? '#16a34a' : '#dc2626', flexShrink: 0,
+                    }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.8rem', color: '#111' }}>
+                        {m.label}
+                        <span style={{ marginLeft: 6, fontWeight: 400, color: '#9ca3af', fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                          ({m.description})
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: '#9ca3af', fontFamily: 'monospace', marginTop: 1 }}>
+                        {m.filename}
+                      </div>
+                    </div>
+                    {!m.applied && (
+                      <button
+                        onClick={() => setOpenedSqlKey(openedSqlKey === m.key ? null : m.key)}
+                        style={{
+                          padding: '0.3rem 0.6rem', border: '1px solid #f26a1b',
+                          borderRadius: 4, background: openedSqlKey === m.key ? '#f26a1b' : '#fff',
+                          color: openedSqlKey === m.key ? '#fff' : '#f26a1b',
+                          fontSize: '0.7rem', cursor: 'pointer', whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {openedSqlKey === m.key ? 'Hide SQL' : 'Show SQL'}
+                      </button>
+                    )}
+                  </div>
+                  {!m.applied && openedSqlKey === m.key && (
+                    <div style={{ marginTop: 6 }}>
+                      <pre style={{
+                        background: '#0d0d0d', color: '#e5e7eb',
+                        padding: '0.75rem', borderRadius: 4, overflow: 'auto',
+                        fontSize: '0.72rem', lineHeight: 1.5, whiteSpace: 'pre-wrap',
+                      }}>{m.sql}</pre>
+                      <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: 4 }}>
+                        Paste into Supabase → SQL Editor → Run. Refresh this page after.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </section>
 
         {/* ── Gmail Account Connections ─────────────────────────────────── */}
         <section style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', marginBottom: '1.5rem' }}>

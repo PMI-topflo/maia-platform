@@ -1,0 +1,246 @@
+// =====================================================================
+// lib/migration-status.ts
+//
+// Snapshot of which recent migrations are applied to the live DB.
+//
+// Each entry lists a key artifact (column or table) we can probe via
+// information_schema, plus the SQL to paste into Supabase if it's
+// missing. Surfaced in /admin/tools so we always know when schema
+// has drifted from code without grepping through logs.
+//
+// To add a new migration: append to MIGRATIONS, include the
+// artifact's column/table name and the ALTER/CREATE SQL inline.
+// =====================================================================
+
+import { supabaseAdmin } from '@/lib/supabase-admin'
+
+export type MigrationArtifact =
+  | { type: 'column'; table: string; column: string }
+  | { type: 'table';  table: string }
+
+export interface MigrationEntry {
+  key:         string
+  label:       string
+  description: string
+  filename:    string
+  artifact:    MigrationArtifact
+  sql:         string  // exact SQL to paste if missing
+}
+
+export interface MigrationCheckResult extends MigrationEntry {
+  applied: boolean
+}
+
+const MIGRATIONS: MigrationEntry[] = [
+  {
+    key:         'pmi_staff_can_see_all',
+    label:       'Comms visibility flag',
+    description: 'pmi_staff.can_see_all_communications',
+    filename:    '20260518_pmi_staff_can_see_all_communications.sql',
+    artifact:    { type: 'column', table: 'pmi_staff', column: 'can_see_all_communications' },
+    sql: `ALTER TABLE public.pmi_staff
+  ADD COLUMN IF NOT EXISTS can_see_all_communications boolean NOT NULL DEFAULT false;`,
+  },
+  {
+    key:         'tickets_archived_at',
+    label:       'Soft-archive tickets',
+    description: 'tickets.archived_at',
+    filename:    '20260518_tickets_archived_at.sql',
+    artifact:    { type: 'column', table: 'tickets', column: 'archived_at' },
+    sql: `ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+
+CREATE INDEX IF NOT EXISTS tickets_active_idx
+  ON public.tickets (updated_at DESC)
+  WHERE archived_at IS NULL;`,
+  },
+  {
+    key:         'ticket_events_happened_at',
+    label:       'Two-timestamp audit events',
+    description: 'ticket_events.happened_at',
+    filename:    '20260518_ticket_events_happened_at.sql',
+    artifact:    { type: 'column', table: 'ticket_events', column: 'happened_at' },
+    sql: `ALTER TABLE public.ticket_events
+  ADD COLUMN IF NOT EXISTS happened_at timestamptz;
+
+UPDATE public.ticket_events SET happened_at = created_at WHERE happened_at IS NULL;
+
+ALTER TABLE public.ticket_events
+  ALTER COLUMN happened_at SET DEFAULT NOW(),
+  ALTER COLUMN happened_at SET NOT NULL;
+
+CREATE INDEX IF NOT EXISTS ticket_events_happened_at_idx
+  ON public.ticket_events (ticket_id, happened_at DESC);`,
+  },
+  {
+    key:         'work_order_attachments',
+    label:       'CINC vendor photos mirror',
+    description: 'work_order_attachments table',
+    filename:    '20260518_work_order_attachments.sql',
+    artifact:    { type: 'table', table: 'work_order_attachments' },
+    sql: `CREATE TABLE IF NOT EXISTS public.work_order_attachments (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_id           bigint      NOT NULL REFERENCES public.tickets(id) ON DELETE CASCADE,
+  cinc_workorder_id   integer,
+  source              text        NOT NULL CHECK (source IN ('cinc', 'email', 'staff_upload')),
+  storage_path        text        NOT NULL,
+  filename            text        NOT NULL,
+  mime_type           text        NOT NULL,
+  file_size_bytes     bigint      NOT NULL,
+  cinc_filename       text,
+  cinc_created_date   timestamptz,
+  uploaded_by_email   text,
+  mirrored_at         timestamptz NOT NULL DEFAULT now(),
+  created_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS woa_ticket_idx
+  ON public.work_order_attachments (ticket_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS woa_cinc_dedupe_idx
+  ON public.work_order_attachments (ticket_id, cinc_filename, cinc_created_date)
+  WHERE source = 'cinc';
+ALTER TABLE public.work_order_attachments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_all_work_order_attachments"
+  ON public.work_order_attachments FOR ALL TO service_role USING (true);`,
+  },
+  {
+    key:         'wo_details_cinc_fields',
+    label:       'CINC unit metadata on WOs',
+    description: 'work_order_details.cinc_ho_id',
+    filename:    '20260518_work_order_details_cinc_fields.sql',
+    artifact:    { type: 'column', table: 'work_order_details', column: 'cinc_ho_id' },
+    sql: `ALTER TABLE public.work_order_details
+  ADD COLUMN IF NOT EXISTS cinc_ho_id          text,
+  ADD COLUMN IF NOT EXISTS cinc_property_id    integer,
+  ADD COLUMN IF NOT EXISTS work_location_name  text,
+  ADD COLUMN IF NOT EXISTS address_line1       text,
+  ADD COLUMN IF NOT EXISTS address_line2       text,
+  ADD COLUMN IF NOT EXISTS city                text,
+  ADD COLUMN IF NOT EXISTS state               text,
+  ADD COLUMN IF NOT EXISTS zip                 text;`,
+  },
+  {
+    key:         'wo_details_cinc_vendor_id',
+    label:       'CINC vendor reassign support',
+    description: 'work_order_details.cinc_vendor_id',
+    filename:    '20260518_work_order_details_cinc_vendor_id.sql',
+    artifact:    { type: 'column', table: 'work_order_details', column: 'cinc_vendor_id' },
+    sql: `ALTER TABLE public.work_order_details
+  ADD COLUMN IF NOT EXISTS cinc_vendor_id integer;`,
+  },
+  {
+    key:         'communication_ticket_links',
+    label:       'Email/conversation ↔ ticket linking',
+    description: 'communication_ticket_links table',
+    filename:    '20260518_communication_ticket_links.sql',
+    artifact:    { type: 'table', table: 'communication_ticket_links' },
+    sql: `CREATE TABLE IF NOT EXISTS public.communication_ticket_links (
+  id                  bigserial   PRIMARY KEY,
+  communication_type  text        NOT NULL CHECK (communication_type IN ('conversation', 'email')),
+  communication_id    text        NOT NULL,
+  ticket_id           bigint      NOT NULL REFERENCES public.tickets(id) ON DELETE CASCADE,
+  linked_by_email     text,
+  linked_at           timestamptz NOT NULL DEFAULT NOW(),
+  UNIQUE (communication_type, communication_id, ticket_id)
+);
+CREATE INDEX IF NOT EXISTS ctl_by_communication_idx
+  ON public.communication_ticket_links (communication_type, communication_id);
+CREATE INDEX IF NOT EXISTS ctl_by_ticket_idx
+  ON public.communication_ticket_links (ticket_id);
+ALTER TABLE public.communication_ticket_links ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_all_communication_ticket_links"
+  ON public.communication_ticket_links FOR ALL TO service_role USING (true);`,
+  },
+  {
+    key:         'email_thread_autolink',
+    label:       'Email thread auto-link',
+    description: 'email_logs.gmail_thread_id',
+    filename:    '20260518_email_thread_autolink.sql',
+    artifact:    { type: 'column', table: 'email_logs', column: 'gmail_thread_id' },
+    sql: `ALTER TABLE public.email_logs
+  ADD COLUMN IF NOT EXISTS gmail_thread_id text;
+CREATE INDEX IF NOT EXISTS email_logs_thread_idx
+  ON public.email_logs (gmail_thread_id)
+  WHERE gmail_thread_id IS NOT NULL;
+ALTER TABLE public.communication_ticket_links
+  ADD COLUMN IF NOT EXISTS gmail_thread_id text;
+CREATE INDEX IF NOT EXISTS ctl_thread_idx
+  ON public.communication_ticket_links (gmail_thread_id)
+  WHERE gmail_thread_id IS NOT NULL;`,
+  },
+  {
+    key:         'email_logs_dismissed',
+    label:       'Email soft-dismiss',
+    description: 'email_logs.dismissed_at',
+    filename:    '20260518_email_logs_dismissed_at.sql',
+    artifact:    { type: 'column', table: 'email_logs', column: 'dismissed_at' },
+    sql: `ALTER TABLE public.email_logs
+  ADD COLUMN IF NOT EXISTS dismissed_at       timestamptz,
+  ADD COLUMN IF NOT EXISTS dismissed_by_email text;
+CREATE INDEX IF NOT EXISTS email_logs_active_idx
+  ON public.email_logs (created_at DESC)
+  WHERE dismissed_at IS NULL;`,
+  },
+  {
+    key:         'email_logs_auto_dismiss',
+    label:       'Auto-dismiss noise + internal',
+    description: 'email_noise_senders table + email_logs.auto_dismiss_reason',
+    filename:    '20260518_email_logs_auto_dismiss.sql',
+    artifact:    { type: 'table', table: 'email_noise_senders' },
+    sql: `CREATE TABLE IF NOT EXISTS public.email_noise_senders (
+  id              bigserial   PRIMARY KEY,
+  pattern         text        NOT NULL UNIQUE,
+  reason          text,
+  added_by_email  text,
+  created_at      timestamptz NOT NULL DEFAULT NOW()
+);
+ALTER TABLE public.email_noise_senders ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_all_email_noise_senders"
+  ON public.email_noise_senders FOR ALL TO service_role USING (true);
+ALTER TABLE public.email_logs
+  ADD COLUMN IF NOT EXISTS auto_dismiss_reason text
+    CHECK (auto_dismiss_reason IS NULL OR auto_dismiss_reason IN ('noise_sender', 'internal'));`,
+  },
+  {
+    key:         'staff_gmail_watch_diag',
+    label:       'Gmail watch diagnostics',
+    description: 'staff_gmail_accounts.last_watch_error',
+    filename:    '20260518_staff_gmail_watch_diagnostics.sql',
+    artifact:    { type: 'column', table: 'staff_gmail_accounts', column: 'last_watch_error' },
+    sql: `ALTER TABLE public.staff_gmail_accounts
+  ADD COLUMN IF NOT EXISTS last_watch_renewed_at  timestamptz,
+  ADD COLUMN IF NOT EXISTS last_watch_error       text,
+  ADD COLUMN IF NOT EXISTS last_watch_error_at    timestamptz;`,
+  },
+]
+
+/** Probe every known migration's artifact in parallel. Each check
+ *  runs a zero-row SELECT against the target table/column — Supabase
+ *  returns an error if the artifact is missing, success otherwise.
+ *  Cheap because LIMIT 0 doesn't scan rows. */
+export async function checkMigrationStatus(): Promise<MigrationCheckResult[]> {
+  const results = await Promise.all(
+    MIGRATIONS.map(async (m): Promise<MigrationCheckResult> => {
+      const applied = m.artifact.type === 'column'
+        ? await columnExists(m.artifact.table, m.artifact.column)
+        : await tableExists(m.artifact.table)
+      return { ...m, applied }
+    }),
+  )
+  return results
+}
+
+async function columnExists(table: string, column: string): Promise<boolean> {
+  const { error } = await supabaseAdmin
+    .from(table)
+    .select(column)
+    .limit(0)
+  return !error
+}
+
+async function tableExists(table: string): Promise<boolean> {
+  const { error } = await supabaseAdmin
+    .from(table)
+    .select('*', { count: 'exact', head: true })
+    .limit(0)
+  return !error
+}
