@@ -88,7 +88,10 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
   const [selOwnerKeys, setSelOwnerKeys] = useState<Set<string>>(new Set())
   const [selBoardIns,  setSelBoardIns]  = useState<Set<number>>(new Set())
   const [selBoardDe,   setSelBoardDe]   = useState<Set<string>>(new Set())
-  const [showMatched, setShowMatched] = useState(false)
+  // Default ON — staff prefer seeing the full roster (synced + drifted)
+  // when they open the page. Toggling off filters down to just the
+  // rows that need attention.
+  const [showMatched, setShowMatched] = useState(true)
   const [applying, setApplying] = useState(false)
   const [result,   setResult]   = useState<ApplyResult | null>(null)
 
@@ -594,7 +597,7 @@ function OwnerSide({ snap, hidden, onEdit, emulateHref }: { snap: OwnerSnap | nu
           <button
             onClick={onEdit}
             title="Edit emails / phones / language (MAIA only — CINC doesn't reliably store international numbers)"
-            className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-mono uppercase tracking-wide text-[#f26a1b] hover:text-[#c14d0a] border border-[#f26a1b]/40 hover:border-[#f26a1b] rounded px-1.5 py-0.5"
+            className="opacity-40 group-hover:opacity-100 transition-opacity text-[10px] font-mono uppercase tracking-wide text-[#f26a1b] hover:text-[#c14d0a] border border-[#f26a1b]/40 hover:border-[#f26a1b] rounded px-1.5 py-0.5"
           >
             Edit
           </button>
@@ -610,7 +613,7 @@ function OwnerSide({ snap, hidden, onEdit, emulateHref }: { snap: OwnerSnap | nu
             target="_blank"
             rel="noopener noreferrer"
             title="Open this owner's portal in a new tab — staff emulation"
-            className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-mono uppercase tracking-wide text-indigo-700 hover:text-indigo-900 border border-indigo-400/50 hover:border-indigo-700 rounded px-1.5 py-0.5"
+            className="opacity-40 group-hover:opacity-100 transition-opacity text-[10px] font-mono uppercase tracking-wide text-indigo-700 hover:text-indigo-900 border border-indigo-400/50 hover:border-indigo-700 rounded px-1.5 py-0.5"
           >
             View as ↗
           </a>
@@ -659,7 +662,7 @@ function BoardSide({ snap, hidden, emulateHref }: { snap: BoardSnap | null; hidd
             target="_blank"
             rel="noopener noreferrer"
             title="Open this board member's portal in a new tab — staff emulation"
-            className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-mono uppercase tracking-wide text-indigo-700 hover:text-indigo-900 border border-indigo-400/50 hover:border-indigo-700 rounded px-1.5 py-0.5"
+            className="opacity-40 group-hover:opacity-100 transition-opacity text-[10px] font-mono uppercase tracking-wide text-indigo-700 hover:text-indigo-900 border border-indigo-400/50 hover:border-indigo-700 rounded px-1.5 py-0.5"
           >
             View as ↗
           </a>
