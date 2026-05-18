@@ -52,6 +52,26 @@ export async function GET(req: NextRequest) {
     })
     const user = await userRes.json() as { email: string; name?: string }
 
+    // Guard against the cross-account mistake: if the caller passed a
+    // specific email via the connected_by state ("reconnect this exact
+    // account") and the user authorized a DIFFERENT Google account, do
+    // not silently overwrite either account. Send them back with an
+    // error explaining what happened.
+    if (
+      connectedBy
+      && connectedBy.includes('@')
+      && connectedBy.toLowerCase() !== user.email.toLowerCase()
+    ) {
+      console.warn(
+        `[gmail-staff/callback] account mismatch: state=${connectedBy} but authorized as ${user.email}`,
+      )
+      return NextResponse.redirect(
+        `${appUrl}/admin/tools?gmail_error=${encodeURIComponent(
+          `Expected ${connectedBy} but you signed in as ${user.email}. Use an incognito window and pick the right account.`,
+        )}`,
+      )
+    }
+
     const tokenExpiry = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
 
     // Save (or update) to staff_gmail_accounts.
