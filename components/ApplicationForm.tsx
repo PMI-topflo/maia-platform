@@ -882,7 +882,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [error, setError]             = useState("");
   const [paying, setPaying]           = useState(false);
   const [langOpen, setLangOpen]       = useState(false);
-  const [applicationId, setApplicationId] = useState(null);
+  const [applicationId, setApplicationId] = useState<string | null>(null);
   const [isMarriedCouple, setIsMarriedCouple] = useState<boolean | null>(null);
   const [occupants, setOccupants] = useState<{name: string; age: string; email: string}[]>([]);
   const [rulesAgreed, setRulesAgreed] = useState(false);
@@ -895,6 +895,69 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const isCommercial = appType === "commercial";
 
   // ── Load associations from the associations table (via API route) ─────────
+  // On mount, if the URL has ?id=<applicationId>, load the saved
+  // draft and re-hydrate all the form state. Lets applicants close
+  // the tab + come back from an emailed link without losing progress.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const resumeId = params.get('id');
+    if (!resumeId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/apply/load-draft/${encodeURIComponent(resumeId)}`);
+        const data = await res.json() as { draft: Record<string, unknown> | null; submitted?: boolean };
+        if (cancelled || !data.draft) return;
+        const d = data.draft as {
+          id?: string
+          association?: string | null
+          app_type?: string | null
+          draft_step?: number | null
+          draft_data?: {
+            selectedDocPerCategory?: Record<string, string>
+            docsViewed?: string[]
+            leaseData?: LeaseData | null
+            hasCert?: boolean
+          } | null
+          applicants?: Record<string, string>[] | null
+          entity_name?: string | null
+          sunbiz_id?: string | null
+          principals?: { name: string; dob: string }[] | null
+          occupants?: { name: string; age: string; email: string }[] | null
+          is_married_couple?: boolean | null
+          couple_has_cert?: boolean | null
+          language?: string | null
+          rules_signature?: string | null
+        }
+        setApplicationId(d.id ?? null);
+        if (d.association)  setAssociation(d.association);
+        if (d.app_type)     setAppType(d.app_type);
+        if (d.applicants?.length) setApplicants(d.applicants);
+        if (d.entity_name)  setEntityName(d.entity_name);
+        if (d.sunbiz_id)    setSunbizId(d.sunbiz_id);
+        if (d.principals?.length) setPrincipals(d.principals);
+        if (d.occupants?.length)  setOccupants(d.occupants);
+        if (typeof d.is_married_couple === 'boolean') setIsMarriedCouple(d.is_married_couple);
+        if (typeof d.couple_has_cert === 'boolean') setCoupleOption(d.couple_has_cert ? 'yes' : 'no');
+        if (d.language)     setLang(d.language);
+        if (d.rules_signature) setRulesSignature(d.rules_signature);
+        if (d.draft_data?.selectedDocPerCategory) setSelectedDocPerCategory(d.draft_data.selectedDocPerCategory);
+        if (Array.isArray(d.draft_data?.docsViewed)) setDocsViewed(new Set(d.draft_data.docsViewed));
+        if (d.draft_data?.leaseData) {
+          setLeaseData(d.draft_data.leaseData);
+          setLeaseConfirmed(true);
+        }
+        if (typeof d.draft_step === 'number') setStep(d.draft_step);
+      } catch { /* keep form fresh if load fails */ }
+    })();
+    return () => { cancelled = true };
+  // Run exactly once on mount — re-loading whenever any field changes
+  // would obliterate the user's edits.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     async function fetchAssociations() {
       setAssocLoading(true);
@@ -1129,8 +1192,80 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
       }
     }
     if (step === 3 && !agreed) { setError(t.consentRequired); return; }
-    setStep((s) => s + 1);
+    const nextStep = step + 1;
+    setStep(nextStep);
+    // Save the in-progress draft so the applicant can resume from
+    // an emailed link if they close the tab here. Fire-and-forget —
+    // a save failure doesn't block their progress.
+    void saveDraft(nextStep);
   };
+
+  // ── Save draft for resume-later ────────────────────────────────────────────
+  // Builds the safe partial-update payload from current state and
+  // POSTs it to /api/apply/save-draft. If applicationId is null
+  // (first save), the endpoint inserts a placeholder row and returns
+  // the new id which we stash.
+  const saveDraft = useCallback(async (stepOverride?: number) => {
+    try {
+      const stepToSave = typeof stepOverride === 'number' ? stepOverride : step;
+      const payload = {
+        applicationId,
+        association:        association || null,
+        app_type:           appType || null,
+        draft_step:         stepToSave,
+        draft_data: {
+          // UI-only intermediate state. Sets serialize as arrays.
+          selectedDocPerCategory,
+          docsViewed: [...docsViewed],
+          leaseData,
+          hasCert,
+          // Don't put base64 signature / photo here — they live in
+          // their dedicated columns via record-signature-evidence.
+        },
+        applicants,
+        entity_name:        entityName || null,
+        sunbiz_id:          sunbizId || null,
+        principals,
+        occupants: occupants.length > 0 ? occupants : null,
+        is_married_couple:  isMarriedCouple,
+        couple_has_cert:    isCouple ? hasCert : null,
+        language:           lang,
+        // Email is captured from the primary applicant if present —
+        // lets us send a resume link without an explicit "save and
+        // continue" button.
+        resume_email:       applicants[0]?.email || null,
+      };
+      const res = await fetch('/api/apply/save-draft', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      const data = await res.json() as { applicationId?: string };
+      const newId = data.applicationId;
+      if (newId && !applicationId) {
+        setApplicationId(newId);
+      }
+      // Opportunistically send the resume link the first time we
+      // know BOTH an applicationId and the applicant's email. The
+      // server endpoint is cooldown-rate-limited (30 min per row +
+      // email), so this is safe to call on every step transition —
+      // duplicates get suppressed there.
+      const idForLink = newId ?? applicationId;
+      const primaryEmail = applicants[0]?.email;
+      if (idForLink && primaryEmail && /@/.test(primaryEmail)) {
+        void fetch('/api/apply/send-resume-link', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ applicationId: idForLink, email: primaryEmail, lang }),
+        });
+      }
+    } catch { /* non-fatal */ }
+  // selectedDocPerCategory, docsViewed, etc. are intentionally
+  // captured by ref via the closure — re-creating the callback on
+  // every state change is fine because saveDraft is only called
+  // imperatively, not registered as a hook dep elsewhere.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applicationId, association, appType, step, selectedDocPerCategory, docsViewed, leaseData, hasCert, applicants, entityName, sunbizId, principals, occupants, isMarriedCouple, isCouple, lang]);
 
   // ── Stripe checkout ────────────────────────────────────────────────────────
   const handlePay = async () => {
