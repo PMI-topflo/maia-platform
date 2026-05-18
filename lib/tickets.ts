@@ -264,10 +264,21 @@ export interface UpdateTicketPatch {
   work_order_type_name?: string | null
 }
 
+/** Optional metadata for the audit row(s) the patch generates. When
+ *  staff back-fills a change ("this actually happened yesterday at
+ *  5pm"), pass `happened_at` so the event timestamps the real-world
+ *  moment, not the moment MAIA wrote the row. `reason` lands in the
+ *  event's JSONB payload and renders in the timeline. */
+export interface UpdateTicketEventMeta {
+  happened_at?: string  // ISO-8601. Defaults to NOW() at the DB layer.
+  reason?:      string  // free-form, optional
+}
+
 export async function updateTicket(
   ticketId:    number,
   patch:       UpdateTicketPatch,
   actorEmail:  string = 'system',
+  eventMeta:   UpdateTicketEventMeta = {},
 ): Promise<Ticket> {
   // Pull previous values so the audit row records the actual change.
   const { data: prev } = await supabaseAdmin
@@ -310,8 +321,16 @@ export async function updateTicket(
   }
 
   if (events.length) {
+    const reason      = eventMeta.reason?.trim() || null
+    const happenedAt  = eventMeta.happened_at ?? null
     await supabaseAdmin.from('ticket_events').insert(
-      events.map(e => ({ ticket_id: ticketId, actor_email: actorEmail, ...e })),
+      events.map(e => ({
+        ticket_id:   ticketId,
+        actor_email: actorEmail,
+        event_type:  e.event_type,
+        payload:     reason ? { ...e.payload, reason } : e.payload,
+        ...(happenedAt ? { happened_at: happenedAt } : {}),
+      })),
     )
   }
 

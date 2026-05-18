@@ -24,6 +24,8 @@ interface PatchBody {
   work_order_type_id?:   number | null
   work_order_type_name?: string | null
   actor_email?:          string
+  happened_at?:          string  // ISO datetime, for backdated audit events
+  reason?:               string  // optional free-form note logged to ticket_events.payload
 }
 
 export async function PATCH(
@@ -52,6 +54,21 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid work_order_type_id' }, { status: 400 })
   }
 
+  // Validate happened_at if provided (must be a parseable date, not in
+  // the future, not absurdly far in the past).
+  let happenedAtIso: string | undefined
+  if (body.happened_at) {
+    const t = new Date(body.happened_at)
+    if (isNaN(t.getTime())) {
+      return NextResponse.json({ error: 'Invalid happened_at' }, { status: 400 })
+    }
+    const now = Date.now()
+    if (t.getTime() > now + 60_000) {  // 60s clock-skew tolerance
+      return NextResponse.json({ error: 'happened_at cannot be in the future' }, { status: 400 })
+    }
+    happenedAtIso = t.toISOString()
+  }
+
   try {
     const ticket = await updateTicket(
       ticketId,
@@ -67,6 +84,7 @@ export async function PATCH(
         work_order_type_name: body.work_order_type_name,
       },
       body.actor_email ?? 'staff',
+      { happened_at: happenedAtIso, reason: body.reason },
     )
     return NextResponse.json({ ticket })
   } catch (err) {

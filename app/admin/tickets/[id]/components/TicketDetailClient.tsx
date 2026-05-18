@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Fragment, useEffect, useState, type ChangeEvent, type ReactNode } from 'react'
 import DueDateModal from './DueDateModal'
+import ChangeReasonModal from './ChangeReasonModal'
 import WorkOrderPhotos from './WorkOrderPhotos'
 
 interface TicketRecord {
@@ -58,6 +59,7 @@ interface EventRecord {
   actor_email: string | null
   event_type:  string
   payload:     Record<string, unknown> | null
+  happened_at: string
   created_at:  string
 }
 
@@ -166,6 +168,12 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
   const [sending,       setSending]       = useState(false)
   const [error,         setError]         = useState<string | null>(null)
   const [showDueModal,  setShowDueModal]  = useState(false)
+  // Pending status/priority change held while ChangeReasonModal collects
+  // the "when did this happen + why" inputs. Submitting the modal runs
+  // the PATCH; cancelling reverts the local select to its prior value.
+  const [pendingChange, setPendingChange] = useState<
+    { field: 'status' | 'priority'; from: string; to: string } | null
+  >(null)
 
   // CINC work-order type catalog — fetched lazily for work_order tickets so
   // staff can re-categorize after creation. Sync to CINC happens server-side
@@ -270,8 +278,10 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
     | { kind: 'message'; at: string; data: MessageRecord }
     | { kind: 'event';   at: string; data: EventRecord  }
   const timeline: TimelineItem[] = [
-    ...messages.map(m => ({ kind: 'message' as const, at: m.created_at, data: m })),
-    ...events  .map(e => ({ kind: 'event'   as const, at: e.created_at, data: e })),
+    ...messages.map(m => ({ kind: 'message' as const, at: m.created_at,  data: m })),
+    // Use happened_at so backdated events slot into the timeline at the
+    // moment they actually happened, not when MAIA logged them.
+    ...events  .map(e => ({ kind: 'event'   as const, at: e.happened_at, data: e })),
   // Newest first — most recent activity is the most useful at-a-glance signal.
   ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
 
@@ -429,7 +439,12 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
         <Card title="Status">
           <select
             value={status}
-            onChange={(e: ChangeEvent<HTMLSelectElement>) => { setStatus(e.target.value); patch('status', e.target.value) }}
+            onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+              const next = e.target.value
+              if (next === status) return
+              setStatus(next)
+              setPendingChange({ field: 'status', from: status, to: next })
+            }}
             disabled={saving === 'status'}
             className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm capitalize"
           >
@@ -440,7 +455,12 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
         <Card title="Priority">
           <select
             value={priority}
-            onChange={(e: ChangeEvent<HTMLSelectElement>) => { setPriority(e.target.value); patch('priority', e.target.value) }}
+            onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+              const next = e.target.value
+              if (next === priority) return
+              setPriority(next)
+              setPendingChange({ field: 'priority', from: priority, to: next })
+            }}
             disabled={saving === 'priority'}
             className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm capitalize"
           >
@@ -534,6 +554,23 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           />
         )}
 
+        {pendingChange && (
+          <ChangeReasonModal
+            ticketId={ticket.id}
+            field={pendingChange.field}
+            fromValue={pendingChange.from}
+            toValue={pendingChange.to}
+            onClose={(committed) => {
+              if (!committed) {
+                // Revert the local select to its pre-change value.
+                if (pendingChange.field === 'status')   setStatus(pendingChange.from)
+                if (pendingChange.field === 'priority') setPriority(pendingChange.from)
+              }
+              setPendingChange(null)
+            }}
+          />
+        )}
+
         {workOrder && (() => {
           const address = fmtAddress(workOrder)
           return (
@@ -608,15 +645,35 @@ function MessageCard({ m }: { m: MessageRecord }) {
 }
 
 function EventRow({ e }: { e: EventRecord }) {
-  const desc = describeEvent(e)
+  const desc        = describeEvent(e)
+  const reason      = typeof e.payload?.reason === 'string' ? e.payload.reason as string : null
+  // Treat anything within 30 s as "logged at the time it happened" — no
+  // backdating to call out. Bigger gaps surface a "recorded at" tag so
+  // the audit trail is honest.
+  const happenedMs  = new Date(e.happened_at).getTime()
+  const recordedMs  = new Date(e.created_at).getTime()
+  const wasBackdated = Math.abs(recordedMs - happenedMs) > 30_000
+
   return (
-    <div className="flex items-center gap-2 px-2 py-1 text-xs text-gray-500">
-      <span className="text-gray-300">●</span>
-      <span>{desc}</span>
-      <span className="text-gray-400">· {fmtAbs(e.created_at)}</span>
-      {e.actor_email && e.actor_email !== 'system' && (
-        <span className="text-gray-400">· by {e.actor_email}</span>
-      )}
+    <div className="flex items-start gap-2 px-2 py-1 text-xs text-gray-500">
+      <span className="text-gray-300 mt-0.5">●</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span>{desc}</span>
+          <span className="text-gray-400">· {fmtAbs(e.happened_at)}</span>
+          {e.actor_email && e.actor_email !== 'system' && (
+            <span className="text-gray-400">· by {e.actor_email}</span>
+          )}
+          {wasBackdated && (
+            <span className="text-gray-400 italic" title={`MAIA recorded this at ${fmtAbs(e.created_at)}`}>
+              · recorded {fmtAbs(e.created_at)}
+            </span>
+          )}
+        </div>
+        {reason && (
+          <div className="mt-0.5 text-gray-600 italic">“{reason}”</div>
+        )}
+      </div>
     </div>
   )
 }
