@@ -40,40 +40,79 @@ export async function GET(req: NextRequest) {
     .eq('active', true)
 
   for (const account of (staffAccounts ?? [])) {
-    try {
-      // Get a valid access token
-      const isExpired = !account.token_expiry || new Date(account.token_expiry).getTime() < Date.now() + 60_000
-      let accessToken = account.access_token as string
-
-      if (isExpired || !accessToken) {
-        const refreshed = await refreshStaffToken(account.refresh_token as string)
-        accessToken = refreshed.access_token
-        await supabaseAdmin
-          .from('staff_gmail_accounts')
-          .update({
-            access_token: accessToken,
-            token_expiry: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
-            updated_at:   new Date().toISOString(),
-          })
-          .eq('gmail_address', account.gmail_address)
-      }
-
-      const watch = await registerGmailWatchWithToken(topic, accessToken)
-      await supabaseAdmin
-        .from('staff_gmail_accounts')
-        .update({
-          watch_expiry: new Date(Number(watch.expiration)).toISOString(),
-          updated_at:   new Date().toISOString(),
-        })
-        .eq('gmail_address', account.gmail_address)
-
-      results[account.gmail_address as string] = `renewed (${watch.historyId})`
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error(`[cron] Staff watch renewal failed for ${account.gmail_address}:`, msg)
-      results[account.gmail_address as string] = `failed: ${msg}`
-    }
+    const result = await renewStaffAccountWatch({
+      gmail_address: account.gmail_address as string,
+      refresh_token: account.refresh_token as string,
+      access_token:  account.access_token as string | null,
+      token_expiry:  account.token_expiry as string | null,
+      topic,
+    })
+    results[account.gmail_address as string] = result.ok
+      ? `renewed (${result.historyId})`
+      : `failed: ${result.error}`
   }
 
   return NextResponse.json({ ok: true, results })
+}
+
+/** Single-account watch renewal with persistent success/error tracking.
+ *  Exported so the on-demand /api/admin/gmail-accounts/[email]/renew-watch
+ *  endpoint can reuse the same logic instead of duplicating the
+ *  refresh-token-then-register dance. */
+export async function renewStaffAccountWatch(opts: {
+  gmail_address: string
+  refresh_token: string
+  access_token:  string | null
+  token_expiry:  string | null
+  topic:         string
+}): Promise<
+  | { ok: true;  historyId: string }
+  | { ok: false; error: string; isInvalidGrant: boolean }
+> {
+  const now = new Date().toISOString()
+  try {
+    // Refresh the access token if expired or missing.
+    const isExpired = !opts.token_expiry || new Date(opts.token_expiry).getTime() < Date.now() + 60_000
+    let accessToken = opts.access_token ?? ''
+
+    if (isExpired || !accessToken) {
+      const refreshed = await refreshStaffToken(opts.refresh_token)
+      accessToken = refreshed.access_token
+      await supabaseAdmin
+        .from('staff_gmail_accounts')
+        .update({
+          access_token: accessToken,
+          token_expiry: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
+          updated_at:   now,
+        })
+        .eq('gmail_address', opts.gmail_address)
+    }
+
+    const watch = await registerGmailWatchWithToken(opts.topic, accessToken)
+    await supabaseAdmin
+      .from('staff_gmail_accounts')
+      .update({
+        watch_expiry:           new Date(Number(watch.expiration)).toISOString(),
+        last_watch_renewed_at:  now,
+        last_watch_error:       null,
+        last_watch_error_at:    null,
+        updated_at:             now,
+      })
+      .eq('gmail_address', opts.gmail_address)
+
+    return { ok: true, historyId: String(watch.historyId) }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    const isInvalidGrant = /invalid_grant/i.test(msg)
+    console.error(`[cron] Staff watch renewal failed for ${opts.gmail_address}:`, msg)
+    await supabaseAdmin
+      .from('staff_gmail_accounts')
+      .update({
+        last_watch_error:     msg.slice(0, 500),
+        last_watch_error_at:  now,
+        updated_at:           now,
+      })
+      .eq('gmail_address', opts.gmail_address)
+    return { ok: false, error: msg, isInvalidGrant }
+  }
 }

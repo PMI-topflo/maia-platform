@@ -5,7 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 export async function GET() {
   const { data, error } = await supabaseAdmin
     .from('staff_gmail_accounts')
-    .select('id, gmail_address, display_name, active, watch_expiry, connected_by, created_at')
+    .select('id, gmail_address, display_name, active, watch_expiry, connected_by, created_at, last_watch_renewed_at, last_watch_error, last_watch_error_at')
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

@@ -19,6 +19,9 @@ interface GmailAccount {
   watch_expiry: string | null
   connected_by: string | null
   created_at: string
+  last_watch_renewed_at?: string | null
+  last_watch_error?:      string | null
+  last_watch_error_at?:   string | null
 }
 
 export default function AdminToolsPage() {
@@ -39,6 +42,7 @@ export default function AdminToolsPage() {
   const [cleanResult, setCleanResult]   = useState<{ total_tagged: number; kept: number; cleared: number; dry_run: boolean } | null>(null)
   const [cleanError, setCleanError]     = useState<string | null>(null)
   const [disconnecting, setDisconnecting]       = useState<string | null>(null)
+  const [renewing,      setRenewing]            = useState<string | null>(null)
 
   useEffect(() => {
     // Read URL params for connect/error feedback
@@ -82,6 +86,26 @@ export default function AdminToolsPage() {
       }
     } finally {
       setDisconnecting(null)
+    }
+  }
+
+  async function renewWatch(gmail_address: string) {
+    setRenewing(gmail_address)
+    try {
+      const res = await fetch(`/api/admin/gmail-accounts/${encodeURIComponent(gmail_address)}/renew-watch`, { method: 'POST' })
+      const data = await res.json() as { ok: boolean; error?: string; historyId?: string; isInvalidGrant?: boolean }
+      if (data.ok) {
+        setGmailMsg(`✅ ${gmail_address} watch renewed`)
+        // Refresh the row in-place — fetch the freshly updated record.
+        const r = await fetch('/api/admin/gmail-accounts').then(x => x.json())
+        setGmailAccounts(r.accounts ?? [])
+      } else {
+        setGmailMsg(`❌ ${gmail_address}: ${data.error ?? 'renewal failed'}${data.isInvalidGrant ? ' — reconnect required' : ''}`)
+      }
+    } catch (err) {
+      setGmailMsg(`❌ ${gmail_address}: ${(err as Error).message}`)
+    } finally {
+      setRenewing(null)
     }
   }
 
@@ -238,7 +262,14 @@ export default function AdminToolsPage() {
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {activeAccounts.map((acct: GmailAccount) => (
+                {activeAccounts.map((acct: GmailAccount) => {
+                  const watchExpired   = !!(acct.watch_expiry && new Date(acct.watch_expiry).getTime() < Date.now())
+                  const isInvalidGrant = /invalid_grant/i.test(acct.last_watch_error ?? '')
+                  const statusColor    = !acct.active ? '#9ca3af'
+                                       : isInvalidGrant ? '#dc2626'
+                                       : watchExpired ? '#f59e0b'
+                                       : '#16a34a'
+                  return (
                   <div key={acct.id} style={{
                     display: 'flex', alignItems: 'center', gap: '0.75rem',
                     padding: '0.75rem', background: '#f9fafb',
@@ -246,7 +277,7 @@ export default function AdminToolsPage() {
                   }}>
                     <div style={{
                       width: 8, height: 8, borderRadius: '50%',
-                      background: acct.active ? '#16a34a' : '#9ca3af', flexShrink: 0,
+                      background: statusColor, flexShrink: 0,
                     }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#111' }}>
@@ -254,27 +285,82 @@ export default function AdminToolsPage() {
                         {acct.display_name && (
                           <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: 6 }}>({acct.display_name})</span>
                         )}
+                        {isInvalidGrant && (
+                          <span style={{ marginLeft: 8, padding: '1px 6px', background: '#fee2e2', color: '#991b1b', fontSize: '0.65rem', borderRadius: 4, fontWeight: 500 }}>
+                            NEEDS RECONNECT
+                          </span>
+                        )}
+                        {!isInvalidGrant && watchExpired && (
+                          <span style={{ marginLeft: 8, padding: '1px 6px', background: '#fef3c7', color: '#92400e', fontSize: '0.65rem', borderRadius: 4, fontWeight: 500 }}>
+                            WATCH EXPIRED
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: 2 }}>
                         {acct.connected_by ? `Connected by ${acct.connected_by} · ` : ''}
                         {acct.watch_expiry
-                          ? `Watch expires ${new Date(acct.watch_expiry).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                          ? `Watch ${watchExpired ? 'expired' : 'expires'} ${new Date(acct.watch_expiry).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
                           : 'Watch not active'}
+                        {acct.last_watch_renewed_at && (
+                          <span> · last renewed {new Date(acct.last_watch_renewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        )}
                       </div>
+                      {acct.last_watch_error && (
+                        <div style={{
+                          marginTop: 6, padding: '6px 8px',
+                          background: '#fef2f2', border: '1px solid #fecaca',
+                          borderRadius: 4, fontSize: '0.72rem', color: '#991b1b',
+                          fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                        }}>
+                          Last error: {acct.last_watch_error}
+                          {acct.last_watch_error_at && (
+                            <span style={{ color: '#7f1d1d', marginLeft: 6 }}>
+                              ({new Date(acct.last_watch_error_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <button
-                      onClick={() => disconnect(acct.gmail_address)}
-                      disabled={disconnecting === acct.gmail_address}
-                      style={{
-                        padding: '0.35rem 0.75rem', border: '1px solid #e5e7eb',
-                        borderRadius: 4, background: '#fff', color: '#6b7280',
-                        fontSize: '0.75rem', cursor: 'pointer', flexShrink: 0,
-                      }}
-                    >
-                      {disconnecting === acct.gmail_address ? 'Disconnecting…' : 'Disconnect'}
-                    </button>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', flexShrink: 0 }}>
+                      {isInvalidGrant ? (
+                        <a
+                          href={`/api/auth/gmail-staff/authorize?connected_by=${encodeURIComponent(acct.gmail_address)}`}
+                          style={{
+                            padding: '0.35rem 0.75rem', border: '1px solid #f26a1b',
+                            borderRadius: 4, background: '#f26a1b', color: '#fff',
+                            fontSize: '0.75rem', textDecoration: 'none', textAlign: 'center', whiteSpace: 'nowrap',
+                          }}
+                        >
+                          Reconnect
+                        </a>
+                      ) : (
+                        <button
+                          onClick={() => renewWatch(acct.gmail_address)}
+                          disabled={renewing === acct.gmail_address}
+                          style={{
+                            padding: '0.35rem 0.75rem', border: '1px solid #e5e7eb',
+                            borderRadius: 4, background: '#fff', color: '#374151',
+                            fontSize: '0.75rem', cursor: 'pointer', whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {renewing === acct.gmail_address ? 'Renewing…' : 'Renew now'}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => disconnect(acct.gmail_address)}
+                        disabled={disconnecting === acct.gmail_address}
+                        style={{
+                          padding: '0.35rem 0.75rem', border: '1px solid #e5e7eb',
+                          borderRadius: 4, background: '#fff', color: '#6b7280',
+                          fontSize: '0.75rem', cursor: 'pointer', whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {disconnecting === acct.gmail_address ? 'Disconnecting…' : 'Disconnect'}
+                      </button>
+                    </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
 
