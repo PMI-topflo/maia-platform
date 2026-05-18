@@ -168,7 +168,33 @@ export default function AdminToolsPage() {
 
       <main style={{ padding: '2rem', maxWidth: 860, margin: '0 auto' }}>
         <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.25rem' }}>Admin Tools</h1>
-        <p style={{ color: '#6b7280', marginBottom: '2rem' }}>Server-side maintenance tasks</p>
+        <p style={{ color: '#6b7280', marginBottom: '2rem' }}>Server-side maintenance tasks + staff configuration</p>
+
+        {/* ── Staff Skills (moved out of the top nav to free space) ─────── */}
+        <a
+          href="/admin/skills"
+          style={{
+            display: 'block', textDecoration: 'none',
+            border: '1px solid #e5e7eb', borderRadius: 8,
+            padding: '1rem 1.25rem', marginBottom: '1.5rem',
+            background: '#fff',
+            transition: 'border-color 0.15s, background 0.15s',
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.borderColor = '#f26a1b' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.borderColor = '#e5e7eb' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+            <div>
+              <h2 style={{ fontWeight: 700, margin: 0, fontSize: '1rem', color: '#111' }}>Staff Skills</h2>
+              <p style={{ color: '#6b7280', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
+                Manage which staff members are tagged for which skills (used by ticket routing + dashboards).
+              </p>
+            </div>
+            <span style={{ color: '#f26a1b', fontWeight: 700, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+              Open →
+            </span>
+          </div>
+        </a>
 
         {/* ── Gmail Account Connections ─────────────────────────────────── */}
         <section style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', marginBottom: '1.5rem' }}>

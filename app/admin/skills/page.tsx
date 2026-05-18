@@ -11,7 +11,9 @@ export default async function SkillsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <SiteHeader subtitle="STAFF DASHBOARD">
-        <AdminNav />
+        {/* Skills lives under Tools now (removed from top nav). Keep
+            Tools highlighted so staff know where to navigate back from. */}
+        <AdminNav activeOverride="/admin/tools" />
       </SiteHeader>
       <main className="max-w-screen-xl mx-auto px-6 py-6">
         <div className="mb-6">
