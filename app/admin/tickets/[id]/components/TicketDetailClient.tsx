@@ -507,6 +507,7 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
 
         {workOrder && (
           <Card title="Work order">
+            <Detail label="CINC #"    value={ticket.cinc_workorder_id ?? '—'} mono />
             <Detail label="Vendor"    value={workOrder.vendor_name  ?? workOrder.vendor_email ?? '—'} />
             <Detail label="Unit"      value={workOrder.unit_id      ?? '—'} />
             <Detail label="Scheduled" value={workOrder.scheduled_at ? fmtAbs(workOrder.scheduled_at) : '—'} />
