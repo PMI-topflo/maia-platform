@@ -134,16 +134,51 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
   // Defensive: if we have no emails AND can't see all, return empty results.
   if (restrictNothing) {
     return {
-      conversations: [],
-      emails:        [],
-      tickets:       [],
-      staff:         [],
-      emailCommands: [],
-      canSeeAll:     false,
+      conversations:             [],
+      emails:                    [],
+      tickets:                   [],
+      staff:                     [],
+      emailCommands:             [],
+      canSeeAll:                 false,
+      emailFromOptions:          [],
+      emailToOptions:            [],
+      conversationSenderOptions: [],
     }
   }
 
-  const [convRes, emailRes, ticketRes, staffRes, cmdRes] = await Promise.all([
+  // Comprehensive dropdown options for the From / To filters. Same
+  // 10-day window as the on-screen list — within that window we want
+  // every distinct sender/recipient even if it happens to fall outside
+  // the 1000-row limit on the main query.
+  let emailOptsQuery = supabaseAdmin
+    .from('email_logs')
+    .select('from_email, to_email')
+    .gte('created_at', tenDaysAgo)
+    .limit(10_000)
+  if (hasFilter) {
+    emailOptsQuery = emailOptsQuery.or(
+      `from_email.in.(${list}),to_email.in.(${list}),sent_by.in.(${list})`,
+    )
+  }
+
+  let convOptsQuery = supabaseAdmin
+    .from('general_conversations')
+    .select('sender_email, contact_email')
+    .gte('updated_at', tenDaysAgo)
+    .limit(10_000)
+  if (hasFilter) {
+    const orConvOpts = [
+      `contact_email.in.(${list})`,
+      `sender_email.in.(${list})`,
+    ]
+    if (ctx.staffId) {
+      orConvOpts.push(`handled_by.eq.${ctx.staffId}`)
+      orConvOpts.push(`assigned_to.eq.${ctx.staffId}`)
+    }
+    convOptsQuery = convOptsQuery.or(orConvOpts.join(','))
+  }
+
+  const [convRes, emailRes, ticketRes, staffRes, cmdRes, emailOptsRes, convOptsRes] = await Promise.all([
     convQuery,
     emailQuery,
     ticketQuery,
@@ -153,15 +188,33 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
       .eq('active', true)
       .order('name'),
     cmdQuery,
+    emailOptsQuery,
+    convOptsQuery,
   ])
 
+  const emailFromSet = new Set<string>()
+  const emailToSet   = new Set<string>()
+  for (const r of (emailOptsRes.data ?? []) as Array<{ from_email: string | null; to_email: string | null }>) {
+    if (r.from_email) emailFromSet.add(r.from_email.toLowerCase())
+    if (r.to_email)   emailToSet  .add(r.to_email  .toLowerCase())
+  }
+
+  const convSenderSet = new Set<string>()
+  for (const r of (convOptsRes.data ?? []) as Array<{ sender_email: string | null; contact_email: string | null }>) {
+    const v = (r.sender_email ?? r.contact_email ?? '').toLowerCase()
+    if (v) convSenderSet.add(v)
+  }
+
   return {
-    conversations: convRes.data ?? [],
-    emails:        emailRes.data ?? [],
-    tickets:       ticketRes.data ?? [],
-    staff:         staffRes.data ?? [],
-    emailCommands: cmdRes.data ?? [],
-    canSeeAll:     ctx.canSeeAll,
+    conversations:             convRes.data ?? [],
+    emails:                    emailRes.data ?? [],
+    tickets:                   ticketRes.data ?? [],
+    staff:                     staffRes.data ?? [],
+    emailCommands:             cmdRes.data ?? [],
+    canSeeAll:                 ctx.canSeeAll,
+    emailFromOptions:          Array.from(emailFromSet).sort(),
+    emailToOptions:            Array.from(emailToSet).sort(),
+    conversationSenderOptions: Array.from(convSenderSet).sort(),
   }
 }
 
