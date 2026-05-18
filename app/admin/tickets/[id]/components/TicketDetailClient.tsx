@@ -36,6 +36,7 @@ interface TicketRecord {
   work_order_type_id:     number | null
   work_order_type_name:   string | null
   sync_status:            Record<string, unknown> | null
+  archived_at:            string | null
   created_at:             string
   updated_at:             string
 }
@@ -174,6 +175,49 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
   const [pendingChange, setPendingChange] = useState<
     { field: 'status' | 'priority'; from: string; to: string } | null
   >(null)
+  // Confirm-delete state. Holds the typed ticket number; only enables
+  // the destructive button when it matches ticket.ticket_number.
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [archiveBusy, setArchiveBusy] = useState(false)
+
+  async function archiveTicket(archive: boolean) {
+    setArchiveBusy(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/admin/tickets/${ticket.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ archive }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error ?? `Archive ${archive ? '' : 'restore '}failed`)
+      }
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setArchiveBusy(false)
+    }
+  }
+
+  async function deleteTicket() {
+    setArchiveBusy(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/admin/tickets/${ticket.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error ?? 'Delete failed')
+      }
+      // Ticket is gone — redirect to the appropriate list.
+      router.push(ticket.type === 'work_order' ? '/admin/work-orders' : '/admin/tickets')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setArchiveBusy(false)
+    }
+  }
 
   // CINC work-order type catalog — fetched lazily for work_order tickets so
   // staff can re-categorize after creation. Sync to CINC happens server-side
@@ -291,6 +335,11 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
       {/* Main column — timeline + reply */}
       <div>
+        {ticket.archived_at && (
+          <div className="mb-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-900">
+            <span className="font-semibold">Archived</span> on {fmtAbs(ticket.archived_at)}. Hidden from the default list. Restore from the Actions card to bring it back.
+          </div>
+        )}
         <div className="mb-4 flex items-center gap-3">
           <Link href={ticket.type === 'work_order' ? '/admin/work-orders' : '/admin/tickets'} className="text-sm text-gray-500 hover:text-gray-900">
             ← Back
@@ -575,13 +624,22 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           const address = fmtAddress(workOrder)
           return (
             <Card title="Work order">
-              <Detail label="CINC #"    value={ticket.cinc_workorder_id ?? '—'} mono />
+              <Detail
+                label="CINC #"
+                value={ticket.cinc_workorder_id ?? '— MAIA only'}
+                mono
+              />
               <Detail label="Unit"      value={fmtUnit(workOrder)} />
               {address && <Detail label="Address" value={address} />}
               <Detail label="Vendor"    value={workOrder.vendor_name  ?? workOrder.vendor_email ?? '—'} />
               <Detail label="Scheduled" value={workOrder.scheduled_at ? fmtAbs(workOrder.scheduled_at) : '—'} />
               <Detail label="Completed" value={workOrder.completed_at ? fmtAbs(workOrder.completed_at) : '—'} />
               <Detail label="Cost"      value={fmtMoney(workOrder.cost_cents)} />
+              {!ticket.cinc_workorder_id && (
+                <div className="mt-2 pt-2 border-t border-gray-100 text-[11px] text-gray-500">
+                  Created in MAIA without a CINC counterpart. New WOs sync automatically going forward; older orphans stay MAIA-only.
+                </div>
+              )}
             </Card>
           )
         })()}
@@ -618,7 +676,88 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
             </Card>
           )
         })()}
+
+        <Card title="Actions">
+          {ticket.archived_at ? (
+            <button
+              type="button"
+              onClick={() => void archiveTicket(false)}
+              disabled={archiveBusy}
+              className="w-full mb-2 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+            >
+              {archiveBusy ? 'Working…' : 'Restore'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void archiveTicket(true)}
+              disabled={archiveBusy}
+              className="w-full mb-2 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+            >
+              {archiveBusy ? 'Working…' : 'Archive'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setConfirmingDelete(true)}
+            disabled={archiveBusy}
+            className="w-full px-3 py-1.5 text-sm border border-red-300 text-red-700 rounded hover:bg-red-50 disabled:opacity-50"
+          >
+            Delete permanently…
+          </button>
+          <p className="mt-2 text-[11px] text-gray-400">
+            Archive hides from the default list (restorable). Delete removes the ticket and all events, messages, and photos forever.
+          </p>
+        </Card>
       </aside>
+
+      {confirmingDelete && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={() => !archiveBusy && setConfirmingDelete(false)}
+        >
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-200">
+              <h2 className="text-base font-semibold text-red-700">Permanently delete ticket</h2>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-gray-700">
+                This will permanently delete <span className="font-mono">{ticket.ticket_number}</span> and all associated events, messages, and photos. <strong>This cannot be undone.</strong>
+              </p>
+              <p className="text-sm text-gray-700">
+                Type <span className="font-mono font-semibold">{ticket.ticket_number}</span> to confirm:
+              </p>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={e => setDeleteConfirmText(e.target.value)}
+                placeholder={ticket.ticket_number}
+                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-red-500"
+                autoFocus
+              />
+              {error && <div className="text-xs text-red-600">{error}</div>}
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-lg">
+              <button
+                type="button"
+                onClick={() => { setConfirmingDelete(false); setDeleteConfirmText('') }}
+                disabled={archiveBusy}
+                className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteTicket()}
+                disabled={archiveBusy || deleteConfirmText !== ticket.ticket_number}
+                className="bg-red-600 text-white px-4 py-1.5 rounded text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+              >
+                {archiveBusy ? 'Deleting…' : 'Delete forever'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -690,6 +829,8 @@ function describeEvent(e: EventRecord): string {
       const cast = p as { from_name?: string | null; to_name?: string | null }
       return `Work order type: ${cast.from_name ?? '—'} → ${cast.to_name ?? '—'}`
     }
+    case 'archived':          return 'Archived'
+    case 'restored':          return 'Restored from archive'
     case 'message_added':     return `New ${(p as { direction?: string }).direction ?? ''} message via ${(p as { channel?: string }).channel ?? ''}`.trim()
     case 'due_changed': {
       const cast = p as { from?: string; to?: string; reason_label?: string; bucket?: string; note?: string }

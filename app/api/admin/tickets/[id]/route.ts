@@ -6,6 +6,7 @@
 
 import { NextResponse } from 'next/server'
 import { updateTicket, type TicketStatus, type TicketPriority, type TicketType } from '@/lib/tickets'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,6 +27,9 @@ interface PatchBody {
   actor_email?:          string
   happened_at?:          string  // ISO datetime, for backdated audit events
   reason?:               string  // optional free-form note logged to ticket_events.payload
+  // Soft archive controls. Sending `archive: true` sets archived_at = NOW();
+  // `archive: false` restores (clears archived_at). Both emit an event.
+  archive?:              boolean
 }
 
 export async function PATCH(
@@ -86,9 +90,67 @@ export async function PATCH(
       body.actor_email ?? 'staff',
       { happened_at: happenedAtIso, reason: body.reason },
     )
+
+    // Archive / restore — handled separately from updateTicket because
+    // it's not a CINC-syncing field and we want a distinct audit event.
+    if (body.archive !== undefined) {
+      const archivedAt = body.archive ? new Date().toISOString() : null
+      const { error: archErr } = await supabaseAdmin
+        .from('tickets')
+        .update({ archived_at: archivedAt })
+        .eq('id', ticketId)
+      if (archErr) {
+        return NextResponse.json({ error: `archive update failed: ${archErr.message}` }, { status: 500 })
+      }
+      await supabaseAdmin.from('ticket_events').insert({
+        ticket_id:   ticketId,
+        actor_email: body.actor_email ?? 'staff',
+        event_type:  body.archive ? 'archived' : 'restored',
+        payload:     body.reason ? { reason: body.reason } : {},
+      })
+    }
+
     return NextResponse.json({ ticket })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
+}
+
+export async function DELETE(
+  _req: Request,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  const { id } = await ctx.params
+  const ticketId = Number(id)
+  if (!Number.isFinite(ticketId)) {
+    return NextResponse.json({ error: 'Invalid ticket id' }, { status: 400 })
+  }
+
+  // Photos in the work-order-photos bucket are NOT cascade-deleted with
+  // their work_order_attachments row, so we have to remove them first
+  // to avoid orphaning blobs in storage.
+  const { data: attachments } = await supabaseAdmin
+    .from('work_order_attachments')
+    .select('storage_path')
+    .eq('ticket_id', ticketId)
+
+  if (attachments && attachments.length > 0) {
+    const paths = attachments.map(a => a.storage_path as string).filter(Boolean)
+    if (paths.length > 0) {
+      await supabaseAdmin.storage.from('work-order-photos').remove(paths)
+    }
+  }
+
+  // CASCADE on the FKs handles ticket_events, ticket_messages,
+  // work_order_details, work_order_attachments rows themselves.
+  const { error } = await supabaseAdmin
+    .from('tickets')
+    .delete()
+    .eq('id', ticketId)
+
+  if (error) {
+    return NextResponse.json({ error: `delete failed: ${error.message}` }, { status: 500 })
+  }
+  return NextResponse.json({ ok: true })
 }

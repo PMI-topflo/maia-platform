@@ -20,6 +20,7 @@ export interface TicketsListSearchParams {
   q?:           string
   type?:        string
   wo_type?:     string  // CINC WorkOrderType filter ("Plumbing", "HVAC", …)
+  archived?:    string  // '1' to include archived rows in results
 }
 
 export async function renderTicketsList(
@@ -28,13 +29,14 @@ export async function renderTicketsList(
 ) {
   let query = supabaseAdmin
     .from('tickets')
-    .select('id, ticket_number, type, status, priority, channel_origin, association_code, persona, contact_name, contact_email, contact_phone, subject, summary, assignee_email, due_at, gmail_thread_id, work_order_type_name, created_at, updated_at')
+    .select('id, ticket_number, type, status, priority, channel_origin, association_code, persona, contact_name, contact_email, contact_phone, subject, summary, assignee_email, due_at, gmail_thread_id, work_order_type_name, cinc_workorder_id, archived_at, created_at, updated_at')
     .order('updated_at', { ascending: false })
     .limit(200)
 
   const typeFilter = sp.type ?? (defaultType === 'all' ? undefined : defaultType)
   if (typeFilter)  query = query.eq('type',                 typeFilter)
   if (sp.wo_type)  query = query.eq('work_order_type_name', sp.wo_type)
+  if (sp.archived !== '1') query = query.is('archived_at', null)
 
   if (sp.status && sp.status !== 'all') {
     if (sp.status === 'open_any') {
@@ -115,6 +117,8 @@ export async function renderTicketsList(
     assignee_email:       t.assignee_email,
     due_at:               t.due_at,
     work_order_type_name: t.work_order_type_name,
+    cinc_workorder_id:    t.cinc_workorder_id,
+    archived_at:          t.archived_at,
     created_at:           t.created_at,
     updated_at:           t.updated_at,
   }))
@@ -143,6 +147,7 @@ export async function renderTicketsList(
             q:           sp.q           ?? '',
             type:        sp.type        ?? '',
             wo_type:     sp.wo_type     ?? '',
+            archived:    sp.archived    ?? '',
           }}
         />
       </main>
