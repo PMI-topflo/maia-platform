@@ -39,6 +39,8 @@ const TRIGGER_PHRASES = [
   '@maia update unit',
   '@maia update db',
   '@maia new owner',
+  '@maia update board members',
+  '@maia update board',
 ]
 
 const MAIA_EMAIL = 'maia@pmitop.com'
@@ -1170,6 +1172,220 @@ async function notifyAssignee(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// @maia update board members — two-step confirmation flow
+//
+// Unlike the other commands, board updates are not applied immediately.
+// MAIA extracts the proposed change, looks up the affected association,
+// stores a pending row, and emails the requester a preview with
+// confirm/cancel magic links. Nothing touches association_board_members
+// until the staff member clicks Confirm.
+// ─────────────────────────────────────────────────────────────────────
+
+interface ExtractedBoardUpdate {
+  association_name: string | null
+  association_code: string | null
+  new_members: Array<{ name: string; role: string | null }>
+  missing_fields: string[]
+}
+
+const BOARD_UPDATE_PROMPT = `You are MAIA, parsing a staff email that asks you to update the board of an association.
+Extract:
+- association_name: the association the email refers to (e.g. "Serenity Place IV", "Abbott Heights"). Pull from subject or body.
+- association_code: optional short code like ABBOTT, VENETIAN1, MACO, PALM, ESSI if mentioned. Uppercase. Null if not present.
+- new_members: an array of every person listed as a new/incoming board member.
+  Each item: { name: string, role: string|null }. Role is the board position
+  (President, Vice President, Treasurer, Secretary, Director, Member, etc.).
+  If only a name is given without a role, set role=null. Do NOT invent roles.
+- missing_fields: list any required field you could not extract.
+    REQUIRED: association_name OR association_code, new_members (at least 1)
+
+Return ONLY valid JSON, no markdown:
+{
+  "association_name": string|null,
+  "association_code": string|null,
+  "new_members": [{ "name": string, "role": string|null }],
+  "missing_fields": string[]
+}`
+
+async function extractBoardUpdate(emailContent: string): Promise<ExtractedBoardUpdate> {
+  const message = await anthropic.messages.create({
+    model:       'claude-haiku-4-5-20251001',
+    max_tokens:  1024,
+    system:      BOARD_UPDATE_PROMPT,
+    messages:    [{ role: 'user', content: emailContent }],
+  })
+  const text = (message.content[0] as { type: string; text: string }).text
+  try {
+    return JSON.parse(text) as ExtractedBoardUpdate
+  } catch {
+    return { association_name: null, association_code: null, new_members: [], missing_fields: ['parse-error'] }
+  }
+}
+
+async function resolveAssociation(
+  ext: ExtractedBoardUpdate,
+): Promise<{ code: string; name: string } | null> {
+  if (ext.association_code) {
+    const code = ext.association_code.toUpperCase()
+    const { data } = await supabaseAdmin
+      .from('associations')
+      .select('association_code, association_name')
+      .eq('association_code', code)
+      .maybeSingle()
+    if (data) return { code: data.association_code, name: data.association_name ?? code }
+  }
+  if (ext.association_name) {
+    // Case-insensitive substring match on association_name.
+    const { data } = await supabaseAdmin
+      .from('associations')
+      .select('association_code, association_name')
+      .ilike('association_name', `%${ext.association_name.trim()}%`)
+      .limit(2)
+    if (data && data.length === 1) return { code: data[0].association_code, name: data[0].association_name }
+    // Multiple matches → require disambiguation (caller will reply asking for the code).
+  }
+  return null
+}
+
+function boardUpdatePreviewHtml(opts: {
+  associationName: string
+  current: Array<{ name: string; role: string | null }>
+  proposed: Array<{ name: string; role: string | null }>
+  confirmUrl: string
+  cancelUrl: string
+  expiresAtIso: string
+}): string {
+  const expires = new Date(opts.expiresAtIso).toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+  })
+  const li = (m: { name: string; role: string | null }) =>
+    `<li style="margin-bottom:4px">${m.name}${m.role ? ` <span style="color:#6b7280">— ${m.role}</span>` : ''}</li>`
+  const currentList  = opts.current.length  > 0 ? `<ul style="margin:6px 0 12px 18px;padding:0">${opts.current.map(li).join('')}</ul>` : `<div style="color:#6b7280;font-style:italic;margin:6px 0 12px 0">(no active members on record)</div>`
+  const proposedList = opts.proposed.length > 0 ? `<ul style="margin:6px 0 12px 18px;padding:0">${opts.proposed.map(li).join('')}</ul>` : `<div style="color:#6b7280;font-style:italic;margin:6px 0 12px 0">(none extracted)</div>`
+  return `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#222;max-width:600px;margin:0 auto;padding:20px">
+<p style="font-size:14px;color:#555;margin-top:0">You asked to update the board for:</p>
+<div style="font-size:18px;font-weight:600;margin-bottom:18px">${opts.associationName}</div>
+
+<div style="font-size:13px;font-weight:600;color:#b91c1c;text-transform:uppercase;letter-spacing:.04em">Will be deactivated</div>
+${currentList}
+
+<div style="font-size:13px;font-weight:600;color:#15803d;text-transform:uppercase;letter-spacing:.04em">Will be added (active)</div>
+${proposedList}
+
+<div style="margin:24px 0 16px 0">
+  <a href="${opts.confirmUrl}" style="background:#15803d;color:#fff;padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:500;margin-right:8px">Confirm and apply</a>
+  <a href="${opts.cancelUrl}" style="background:#fff;color:#b91c1c;border:1px solid #b91c1c;padding:9px 19px;border-radius:4px;text-decoration:none;font-weight:500">Cancel</a>
+</div>
+<p style="color:#6b7280;font-size:12px;margin-top:18px">This request expires ${expires}. If you didn't ask for this, click Cancel — nothing is changed until you confirm.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:32px 0 12px">
+<p style="color:#9ca3af;font-size:11px;margin:0">MAIA · PMI Top Florida Properties</p>
+</body></html>`
+}
+
+function boardUpdateClarificationHtml(reason: string, requesterName: string): string {
+  return `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#222;max-width:600px;margin:0 auto;padding:20px">
+<p style="font-size:14px;margin-top:0">Hi ${requesterName || 'there'},</p>
+<p style="font-size:14px">I couldn't process your board-update request:</p>
+<div style="background:#fef2f2;border-left:3px solid #b91c1c;padding:12px 16px;margin:12px 0;font-size:14px;color:#7f1d1d">${reason}</div>
+<p style="font-size:14px">Reply with the missing info and I'll prepare a preview for you to confirm.</p>
+<p style="font-size:14px;color:#6b7280">Example format:</p>
+<pre style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;padding:12px;font-size:12px;color:#374151;white-space:pre-wrap">@maia update board members
+Association: Serenity Place IV
+New board:
+- Jane Doe — President
+- John Smith — Treasurer
+- Alice Adams — Secretary</pre>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:32px 0 12px">
+<p style="color:#9ca3af;font-size:11px;margin:0">MAIA · PMI Top Florida Properties</p>
+</body></html>`
+}
+
+async function handleBoardMembersUpdate(parsed: ParsedEmail): Promise<void> {
+  const emailContent = `Subject: ${parsed.subject}\nFrom: ${parsed.sender}\n\n${parsed.body}`
+  const ext          = await extractBoardUpdate(emailContent)
+
+  const replyTo       = parsed.senderEmail
+  const replySubject  = parsed.subject.startsWith('Re:') ? parsed.subject : `Re: ${parsed.subject}`
+  const requesterName = parsed.senderName
+
+  // Validation: require association + at least one new member.
+  if (!ext.association_name && !ext.association_code) {
+    await sendEmail({
+      to: replyTo, subject: replySubject,
+      html: boardUpdateClarificationHtml(`I couldn't identify which association this is for. Please include the association name or code.`, requesterName),
+    })
+    return
+  }
+  if (!ext.new_members || ext.new_members.length === 0) {
+    await sendEmail({
+      to: replyTo, subject: replySubject,
+      html: boardUpdateClarificationHtml(`I couldn't find any new board members in your email. List each one on its own line with their position (e.g. "Jane Doe — President").`, requesterName),
+    })
+    return
+  }
+
+  const assoc = await resolveAssociation(ext)
+  if (!assoc) {
+    await sendEmail({
+      to: replyTo, subject: replySubject,
+      html: boardUpdateClarificationHtml(`I couldn't find an association matching "${ext.association_name ?? ext.association_code}" in the database. Please include a more specific name or the short code (e.g. ABBOTT, VENETIAN1).`, requesterName),
+    })
+    return
+  }
+
+  // Fetch CURRENT active board members for the preview.
+  const { data: currentRows } = await supabaseAdmin
+    .from('association_board_members')
+    .select('name, role')
+    .eq('association_code', assoc.code)
+    .eq('active', true)
+    .order('sort_order', { ascending: true })
+  const current = (currentRows ?? []).map(r => ({ name: r.name, role: r.role }))
+
+  // Persist the pending row. confirm_token defaults to a fresh uuid.
+  const { data: pending, error: pErr } = await supabaseAdmin
+    .from('maia_pending_board_updates')
+    .insert({
+      association_code: assoc.code,
+      association_name: assoc.name,
+      requester_email:  parsed.senderEmail,
+      requester_name:   parsed.senderName || null,
+      new_members:      ext.new_members,
+      current_members:  current,
+      gmail_message_id: parsed.messageId,
+      gmail_thread_id:  parsed.threadId,
+      reply_subject:    replySubject,
+    })
+    .select('confirm_token, expires_at')
+    .single()
+  if (pErr || !pending) {
+    console.error('[MAIA board-update] insert pending failed:', pErr?.message)
+    await sendEmail({
+      to: replyTo, subject: replySubject,
+      html: boardUpdateClarificationHtml(`Internal error saving the pending update. Please try again.`, requesterName),
+    })
+    return
+  }
+
+  const confirmUrl = `${APP_URL}/api/maia-email/board-update/confirm/${pending.confirm_token}`
+  const cancelUrl  = `${APP_URL}/api/maia-email/board-update/cancel/${pending.confirm_token}`
+
+  await sendEmail({
+    to:      replyTo,
+    subject: `${replySubject} — confirm board update for ${assoc.name}`,
+    html:    boardUpdatePreviewHtml({
+      associationName: assoc.name,
+      current,
+      proposed:        ext.new_members,
+      confirmUrl,
+      cancelUrl,
+      expiresAtIso:    pending.expires_at,
+    }),
+  })
+}
+
 function makeInboundMessageInput(parsed: ParsedEmail) {
   return {
     direction:   'inbound' as const,
@@ -1478,6 +1694,23 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     // DB command — restricted to authorized staff senders; external senders get freeform chat
     if (!allowed) {
       await handleGeneralEmailQuery(parsed)
+      return
+    }
+
+    // Board updates branch into a two-step confirmation flow instead of
+    // the immediate-write path. The preview email contains confirm/cancel
+    // magic links and nothing is written to association_board_members
+    // until the staff member clicks Confirm.
+    if (trigger === '@maia update board members' || trigger === '@maia update board') {
+      // Dedup against Pub/Sub retries — one pending row per gmail message.
+      const { data: existing } = await supabaseAdmin
+        .from('maia_pending_board_updates')
+        .select('id')
+        .eq('gmail_message_id', parsed.messageId)
+        .limit(1)
+        .maybeSingle()
+      if (existing) return
+      await handleBoardMembersUpdate(parsed)
       return
     }
 
