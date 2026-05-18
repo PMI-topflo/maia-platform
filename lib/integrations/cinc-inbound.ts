@@ -149,12 +149,56 @@ async function upsertWorkOrder(wo: CincWorkOrder): Promise<UpsertCounts> {
     }
   }
 
+  // Mirror the CINC-side WO metadata into work_order_details. Idempotent
+  // upsert keyed on ticket_id (which is the PK). Safe to re-run for
+  // backfill.
+  await upsertWorkOrderDetails(ticketId, wo)
+
   // Sync notes — idempotent via (channel, external_id) unique index.
   for (const note of (wo.Notes ?? [])) {
     counts.notesInserted += await insertNoteIfNew(ticketId, note)
   }
 
   return counts
+}
+
+/** Mirror CINC WorkOrder fields into work_order_details. Creates the
+ *  row on first call, updates it on subsequent calls. Designed so the
+ *  cron's refresh pass keeps the row fresh as CINC-side edits land
+ *  (vendor reassignment, address corrections, EstimateTotal updates).
+ *
+ *  Exported for the one-time backfill in scripts/backfill-cinc-wo-details.ts. */
+export async function upsertWorkOrderDetails(ticketId: number, wo: CincWorkOrder): Promise<void> {
+  // CINC.EstimateTotal is a dollar amount (number). The sample we've
+  // seen is 0. If CINC ever returns fractional cents we'll need to
+  // revisit, but × 100 + round is the conventional dollar→cents move.
+  const cents =
+    typeof wo.EstimateTotal === 'number' && wo.EstimateTotal > 0
+      ? Math.round(wo.EstimateTotal * 100)
+      : null
+
+  const row = {
+    ticket_id:           ticketId,
+    cinc_ho_id:          wo.HoID                 ?? null,
+    cinc_property_id:    wo.PropertyId           ?? null,
+    work_location_name:  wo.WorkLocationName     ?? null,
+    address_line1:       wo.AddressLine1         ?? null,
+    address_line2:       wo.AddressLine2         ?? null,
+    city:                wo.City                 ?? null,
+    state:               wo.State                ?? null,
+    zip:                 wo.Zip                  ?? null,
+    vendor_name:         wo.Vendor               ?? null,
+    scheduled_at:        parseCincTimestamp(wo.IssuedDate),
+    cost_cents:          cents,
+  }
+
+  const { error } = await supabaseAdmin
+    .from('work_order_details')
+    .upsert(row, { onConflict: 'ticket_id' })
+
+  if (error) {
+    throw new Error(`work_order_details upsert failed for ticket_id=${ticketId}: ${error.message}`)
+  }
 }
 
 /** Insert a CINC note as an inbound ticket_message if we haven't seen it

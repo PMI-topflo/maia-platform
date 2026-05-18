@@ -62,14 +62,22 @@ interface EventRecord {
 }
 
 interface WorkOrderRecord {
-  ticket_id:     number
-  vendor_email:  string | null
-  vendor_name:   string | null
-  unit_id:       string | null
-  scheduled_at:  string | null
-  completed_at:  string | null
-  cost_cents:    number | null
-  invoice_url:   string | null
+  ticket_id:           number
+  vendor_email:        string | null
+  vendor_name:         string | null
+  unit_id:             string | null
+  scheduled_at:        string | null
+  completed_at:        string | null
+  cost_cents:          number | null
+  invoice_url:         string | null
+  cinc_ho_id:          string | null
+  cinc_property_id:    number | null
+  work_location_name:  string | null
+  address_line1:       string | null
+  address_line2:       string | null
+  city:                string | null
+  state:               string | null
+  zip:                 string | null
 }
 
 export interface StaffMember {
@@ -116,6 +124,27 @@ function fmtAbs(iso: string): string {
 function fmtMoney(cents: number | null): string {
   if (cents == null) return '—'
   return `$${(cents / 100).toFixed(2)}`
+}
+
+/** Format the unit row. CINC tickets get "WorkLocationName (#HoID)";
+ *  Rentvine falls back to `unit_id`. Either source may be missing. */
+function fmtUnit(wo: WorkOrderRecord): string {
+  if (wo.work_location_name && wo.cinc_ho_id) return `${wo.work_location_name} (#${wo.cinc_ho_id})`
+  if (wo.work_location_name)                  return wo.work_location_name
+  if (wo.cinc_ho_id)                          return `#${wo.cinc_ho_id}`
+  if (wo.unit_id)                             return wo.unit_id
+  return '—'
+}
+
+/** Combine the address parts CINC gives us into one display line.
+ *  Returns null if there's nothing to show. */
+function fmtAddress(wo: WorkOrderRecord): string | null {
+  const parts: string[] = []
+  if (wo.address_line1) parts.push(wo.address_line1)
+  if (wo.address_line2) parts.push(wo.address_line2)
+  const cityStateZip = [wo.city, wo.state, wo.zip].filter(Boolean).join(' ')
+  if (cityStateZip) parts.push(cityStateZip)
+  return parts.length > 0 ? parts.join(', ') : null
 }
 
 export default function TicketDetailClient({ data }: { data: TicketDetailData }) {
@@ -505,15 +534,20 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           />
         )}
 
-        {workOrder && (
-          <Card title="Work order">
-            <Detail label="Vendor"    value={workOrder.vendor_name  ?? workOrder.vendor_email ?? '—'} />
-            <Detail label="Unit"      value={workOrder.unit_id      ?? '—'} />
-            <Detail label="Scheduled" value={workOrder.scheduled_at ? fmtAbs(workOrder.scheduled_at) : '—'} />
-            <Detail label="Completed" value={workOrder.completed_at ? fmtAbs(workOrder.completed_at) : '—'} />
-            <Detail label="Cost"      value={fmtMoney(workOrder.cost_cents)} />
-          </Card>
-        )}
+        {workOrder && (() => {
+          const address = fmtAddress(workOrder)
+          return (
+            <Card title="Work order">
+              <Detail label="CINC #"    value={ticket.cinc_workorder_id ?? '—'} mono />
+              <Detail label="Unit"      value={fmtUnit(workOrder)} />
+              {address && <Detail label="Address" value={address} />}
+              <Detail label="Vendor"    value={workOrder.vendor_name  ?? workOrder.vendor_email ?? '—'} />
+              <Detail label="Scheduled" value={workOrder.scheduled_at ? fmtAbs(workOrder.scheduled_at) : '—'} />
+              <Detail label="Completed" value={workOrder.completed_at ? fmtAbs(workOrder.completed_at) : '—'} />
+              <Detail label="Cost"      value={fmtMoney(workOrder.cost_cents)} />
+            </Card>
+          )
+        })()}
 
         {ticket.type === 'work_order' && (
           <WorkOrderPhotos
