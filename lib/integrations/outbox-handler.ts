@@ -127,9 +127,19 @@ async function handleCincTicketUpdateDetails(ticketId: number): Promise<void> {
   if (error || !t) throw new Error(`ticket ${ticketId} not found`)
   if (!t.cinc_workorder_id) return  // not yet synced upstream — drop silently
 
+  // Also pull scheduled_at + cinc_vendor_id from work_order_details so
+  // staff edits to those fields actually reach CINC.
+  const { data: details } = await supabaseAdmin
+    .from('work_order_details')
+    .select('scheduled_at, cinc_vendor_id')
+    .eq('ticket_id', ticketId)
+    .maybeSingle()
+
   await cinc.updateWorkOrderDetails({
     workOrderId:     Number(t.cinc_workorder_id),
     workOrderTypeId: t.work_order_type_id,
+    issuedDate:      details?.scheduled_at    ?? null,
+    vendorId:        details?.cinc_vendor_id  ?? null,
   })
 
   // Refresh sync_status.cinc with success metadata for the side-panel card.

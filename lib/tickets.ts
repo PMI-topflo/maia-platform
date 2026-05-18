@@ -288,8 +288,11 @@ export async function updateTicket(
     .single()
 
   const update: Record<string, unknown> = { ...patch }
+  const nowIso = new Date().toISOString()
+  const justCompleted = (patch.status === 'resolved' || patch.status === 'closed')
+                     && (prev?.status !== 'resolved' && prev?.status !== 'closed')
   if (patch.status === 'resolved' || patch.status === 'closed') {
-    update.resolved_at = new Date().toISOString()
+    update.resolved_at = nowIso
   }
 
   const { data, error } = await supabaseAdmin
@@ -352,15 +355,40 @@ export async function updateTicket(
     )
   }
 
+  // Auto-bump Scheduled when actual completion outran the original
+  // schedule. Keeps the WO honest: if vendor was scheduled for May 17
+  // but actually finished May 25, the Scheduled date moves to May 25
+  // so the management report reflects reality. CINC gets the same
+  // update via the standard update_details outbox flow below.
+  if (justCompleted && data.type === 'work_order') {
+    const { data: details } = await supabaseAdmin
+      .from('work_order_details')
+      .select('scheduled_at')
+      .eq('ticket_id', ticketId)
+      .maybeSingle()
+
+    if (details?.scheduled_at && new Date(details.scheduled_at).getTime() < new Date(nowIso).getTime()) {
+      await supabaseAdmin
+        .from('work_order_details')
+        .update({ scheduled_at: nowIso })
+        .eq('ticket_id', ticketId)
+      // The CINC update_details enqueue below will pick this up via
+      // the outbox handler, which reads scheduled_at from
+      // work_order_details fresh each invocation.
+    }
+  }
+
   if (data.type === 'work_order') {
     if (process.env.RENTVINE_SYNC_ENABLED === 'true') {
       await enqueueOutbox(ticketId, 'ticket', 'update', 'rentvine')
     }
     if (process.env.CINC_SYNC_ENABLED === 'true') {
-      // PATCH /workOrderDetails to mirror the WorkOrderTypeId we just
-      // set. Only enqueue when the value actually changed AND the ticket
-      // has a CINC work-order id to update.
-      if (woTypeChanged && data.cinc_workorder_id) {
+      // PATCH /workOrderDetails covers WO type, scheduled (IssuedDate),
+      // vendor — anything the standard details PATCH can carry. The
+      // handler pulls fresh state from work_order_details each time, so
+      // we only need to enqueue once when any of those changed.
+      // justCompleted covers the auto-bump scheduled_at case above.
+      if ((woTypeChanged || justCompleted) && data.cinc_workorder_id) {
         await enqueueOutbox(ticketId, 'ticket', 'update_details', 'cinc')
       }
       // PATCH /workOrderStatus to mirror status changes (or
