@@ -84,7 +84,7 @@ async function getData(ctx: AccessContext) {
     .from('email_logs')
     .select('id, direction, from_email, to_email, subject, body_preview, persona, association_code, status, resend_message_id, sent_by, created_at')
     .order('created_at', { ascending: false })
-    .limit(200)
+    .limit(500)
 
   let ticketQuery = supabaseAdmin
     .from('tickets')
@@ -123,16 +123,54 @@ async function getData(ctx: AccessContext) {
   // Defensive: if we have no emails AND can't see all, return empty results.
   if (restrictNothing) {
     return {
-      conversations: [],
-      emails:        [],
-      tickets:       [],
-      staff:         [],
-      emailCommands: [],
-      canSeeAll:     false,
+      conversations:             [],
+      emails:                    [],
+      tickets:                   [],
+      staff:                     [],
+      emailCommands:             [],
+      canSeeAll:                 false,
+      emailFromOptions:          [],
+      emailToOptions:            [],
+      conversationSenderOptions: [],
     }
   }
 
-  const [convRes, emailRes, ticketRes, staffRes, cmdRes] = await Promise.all([
+  // Separate cheap query for the From / To dropdown options. We don't
+  // want the dropdowns to be limited to the 500 most-recent rows when
+  // the user actually has 119k+ across many recipients. Sampling the
+  // last 90 days keeps the query bounded but covers the realistic
+  // working set for filtering.
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 86400 * 1000).toISOString()
+  let optsQuery = supabaseAdmin
+    .from('email_logs')
+    .select('from_email, to_email')
+    .gte('created_at', ninetyDaysAgo)
+    .limit(10_000)
+  if (hasFilter) {
+    optsQuery = optsQuery.or(
+      `from_email.in.(${list}),to_email.in.(${list}),sent_by.in.(${list})`,
+    )
+  }
+
+  // Same idea for conversations' sender dropdown.
+  let convOptsQuery = supabaseAdmin
+    .from('general_conversations')
+    .select('sender_email, contact_email')
+    .gte('updated_at', ninetyDaysAgo)
+    .limit(10_000)
+  if (hasFilter) {
+    const orConvOpts = [
+      `contact_email.in.(${list})`,
+      `sender_email.in.(${list})`,
+    ]
+    if (ctx.staffId) {
+      orConvOpts.push(`handled_by.eq.${ctx.staffId}`)
+      orConvOpts.push(`assigned_to.eq.${ctx.staffId}`)
+    }
+    convOptsQuery = convOptsQuery.or(orConvOpts.join(','))
+  }
+
+  const [convRes, emailRes, ticketRes, staffRes, cmdRes, emailOptsRes, convOptsRes] = await Promise.all([
     convQuery,
     emailQuery,
     ticketQuery,
@@ -142,15 +180,42 @@ async function getData(ctx: AccessContext) {
       .eq('active', true)
       .order('name'),
     cmdQuery,
+    optsQuery,
+    convOptsQuery,
   ])
 
+  const emailOptions = (() => {
+    const fromSet = new Set<string>()
+    const toSet   = new Set<string>()
+    for (const r of (emailOptsRes.data ?? []) as Array<{ from_email: string | null; to_email: string | null }>) {
+      if (r.from_email) fromSet.add(r.from_email.toLowerCase())
+      if (r.to_email)   toSet  .add(r.to_email  .toLowerCase())
+    }
+    return {
+      fromOptions: Array.from(fromSet).sort(),
+      toOptions:   Array.from(toSet)  .sort(),
+    }
+  })()
+
+  const conversationSenderOptions = (() => {
+    const set = new Set<string>()
+    for (const r of (convOptsRes.data ?? []) as Array<{ sender_email: string | null; contact_email: string | null }>) {
+      const v = (r.sender_email ?? r.contact_email ?? '').toLowerCase()
+      if (v) set.add(v)
+    }
+    return Array.from(set).sort()
+  })()
+
   return {
-    conversations: convRes.data ?? [],
-    emails:        emailRes.data ?? [],
-    tickets:       ticketRes.data ?? [],
-    staff:         staffRes.data ?? [],
-    emailCommands: cmdRes.data ?? [],
-    canSeeAll:     ctx.canSeeAll,
+    conversations:           convRes.data ?? [],
+    emails:                  emailRes.data ?? [],
+    tickets:                 ticketRes.data ?? [],
+    staff:                   staffRes.data ?? [],
+    emailCommands:           cmdRes.data ?? [],
+    canSeeAll:               ctx.canSeeAll,
+    emailFromOptions:        emailOptions.fromOptions,
+    emailToOptions:          emailOptions.toOptions,
+    conversationSenderOptions,
   }
 }
 

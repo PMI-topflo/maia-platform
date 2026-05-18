@@ -241,6 +241,11 @@ interface Props {
   staff: Staff[]
   emailCommands: EmailCommand[]
   canSeeAll?:    boolean   // true when the viewer has global access; false = filtered to their own
+  // Comprehensive dropdown options (computed server-side from the
+  // last 90 days, not just the rows currently loaded in the table).
+  emailFromOptions?:          string[]
+  emailToOptions?:            string[]
+  conversationSenderOptions?: string[]
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -312,7 +317,15 @@ function priorityBadge(priority: string | null) {
 
 // ── Tab: Conversations ───────────────────────────────────────────────────────
 
-function ConversationsTab({ conversations, staff }: { conversations: Conversation[]; staff: Staff[] }) {
+function ConversationsTab({
+  conversations,
+  staff,
+  senderOptionsOverride = [],
+}: {
+  conversations:          Conversation[]
+  staff:                  Staff[]
+  senderOptionsOverride?: string[]
+}) {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterChannel, setFilterChannel] = useState('all')
@@ -320,11 +333,14 @@ function ConversationsTab({ conversations, staff }: { conversations: Conversatio
   const [filterFrom, setFilterFrom] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
 
-  // Distinct sender_email values for the "From" dropdown. Computed
-  // from the full prop list so the options don't change as filters narrow.
-  const senderOptions = Array.from(new Set(
-    conversations.map(c => (c.sender_email ?? c.contact_email ?? '').toLowerCase()).filter(Boolean),
-  )).sort()
+  // Prefer server-computed options (covers ALL data, not just the
+  // 100 rows currently loaded). Fall back to in-prop dedupe if the
+  // server didn't pass any (e.g. legacy callers).
+  const senderOptions = senderOptionsOverride.length > 0
+    ? senderOptionsOverride
+    : Array.from(new Set(
+        conversations.map(c => (c.sender_email ?? c.contact_email ?? '').toLowerCase()).filter(Boolean),
+      )).sort()
 
   const filtered = conversations.filter(c => {
     if (filterStatus !== 'all' && (c.status ?? 'open') !== filterStatus) return false
@@ -536,22 +552,41 @@ function ConversationsTab({ conversations, staff }: { conversations: Conversatio
 
 // ── Tab: Emails ──────────────────────────────────────────────────────────────
 
-function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
+function EmailsTab({
+  emails,
+  staff,
+  fromOptionsOverride = [],
+  toOptionsOverride   = [],
+}: {
+  emails:               EmailLog[]
+  staff:                Staff[]
+  fromOptionsOverride?: string[]
+  toOptionsOverride?:   string[]
+}) {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterSentBy, setFilterSentBy] = useState('all')
   const [filterTo, setFilterTo] = useState('all')
+  const [filterFrom, setFilterFrom] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
 
-  // Distinct to_email values for the "To" dropdown. Computed from
-  // the full prop list so options don't change with active filters.
-  const toOptions = Array.from(new Set(
-    emails.map(e => (e.to_email ?? '').toLowerCase()).filter(Boolean),
-  )).sort()
+  // Prefer server-computed options (covers ALL last-90-day data, not
+  // just the 500 rows currently loaded). Fall back to in-prop dedupe.
+  const toOptions = toOptionsOverride.length > 0
+    ? toOptionsOverride
+    : Array.from(new Set(
+        emails.map(e => (e.to_email ?? '').toLowerCase()).filter(Boolean),
+      )).sort()
+  const fromOptions = fromOptionsOverride.length > 0
+    ? fromOptionsOverride
+    : Array.from(new Set(
+        emails.map(e => (e.from_email ?? '').toLowerCase()).filter(Boolean),
+      )).sort()
 
   const filtered = emails.filter(e => {
     if (filterStatus !== 'all' && (e.status ?? 'sent') !== filterStatus) return false
-    if (filterTo !== 'all' && (e.to_email ?? '').toLowerCase() !== filterTo) return false
+    if (filterTo   !== 'all' && (e.to_email   ?? '').toLowerCase() !== filterTo) return false
+    if (filterFrom !== 'all' && (e.from_email ?? '').toLowerCase() !== filterFrom) return false
     if (filterSentBy !== 'all') {
       // sent_by can be either staff.id or staff.email depending on source.
       // Match either; '__unknown' picks anything blank.
@@ -622,6 +657,19 @@ function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
             <option value="all">All recipients</option>
             {toOptions.map(t => (
               <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        )}
+        {fromOptions.length > 0 && (
+          <select
+            value={filterFrom}
+            onChange={e => setFilterFrom(e.target.value)}
+            className="border border-gray-200 rounded px-2 py-1.5 text-sm max-w-[200px]"
+            title="Filter by sender email"
+          >
+            <option value="all">All senders</option>
+            {fromOptions.map(f => (
+              <option key={f} value={f}>{f}</option>
             ))}
           </select>
         )}
@@ -1040,7 +1088,17 @@ function StatCard({ label, value, sub }: { label: string; value: number | string
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
-export default function CommunicationsDashboard({ conversations, emails, tickets, staff, emailCommands, canSeeAll = true }: Props) {
+export default function CommunicationsDashboard({
+  conversations,
+  emails,
+  tickets,
+  staff,
+  emailCommands,
+  canSeeAll = true,
+  emailFromOptions          = [],
+  emailToOptions            = [],
+  conversationSenderOptions = [],
+}: Props) {
   const [tab, setTab] = useState<'conversations' | 'emails' | 'tickets' | 'commands'>('conversations')
 
   const openConvs   = conversations.filter(c => (c.status ?? 'open') === 'open').length
@@ -1086,8 +1144,8 @@ export default function CommunicationsDashboard({ conversations, emails, tickets
         ))}
       </div>
 
-      {tab === 'conversations' && <ConversationsTab conversations={conversations} staff={staff} />}
-      {tab === 'emails'        && <EmailsTab emails={emails} staff={staff} />}
+      {tab === 'conversations' && <ConversationsTab conversations={conversations} staff={staff} senderOptionsOverride={conversationSenderOptions} />}
+      {tab === 'emails'        && <EmailsTab emails={emails} staff={staff} fromOptionsOverride={emailFromOptions} toOptionsOverride={emailToOptions} />}
       {tab === 'tickets'       && <TicketsTab tickets={tickets} staff={staff} />}
       {tab === 'commands'      && <EmailCommandsTab commands={emailCommands} />}
     </div>
