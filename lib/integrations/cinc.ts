@@ -354,6 +354,8 @@ export interface UpdateWorkOrderDetailsInput {
   workOrderTypeId?: number | null
   description?:     string | null
   dueDate?:         string | null
+  issuedDate?:      string | null   // → IssuedDate (Scheduled date)
+  vendorId?:        number | null   // → VendorId   (reassign vendor)
 }
 
 export async function updateWorkOrderDetails(
@@ -379,9 +381,11 @@ export async function updateWorkOrderDetails(
     WorkOrderTypeId:  input.workOrderTypeId ?? current.WorkOrderTypId ?? null,
     Description:      (input.description    ?? current.Description    ?? '').slice(0, 1000),
     EstimateTotal:    current.EstimateTotal ?? 0,
+    IssuedDate:       input.issuedDate      ?? current.IssuedDate     ?? null,
     DueDate:          input.dueDate         ?? current.DueDate        ?? null,
     FollowupDate:     current.FollowUpDate  ?? null,
     PropertyId:       current.PropertyId    ?? null,
+    VendorId:         input.vendorId        ?? current.VendorId       ?? null,
     WorkLocationName: current.WorkLocationName ?? '',
     AddressLine1:     current.AddressLine1  ?? '',
     AddressLine2:     current.AddressLine2  ?? '',
@@ -732,6 +736,43 @@ export async function getWorkOrderById(workOrderId: number): Promise<CincWorkOrd
     throw err
   })
   return list.find(w => w.WorkOrderId === workOrderId) ?? null
+}
+
+/** Minimal vendor summary returned by /vendors and /vendorsBasic.
+ *  The CINC payload has many more fields — we only model what the
+ *  vendor-picker UI needs. */
+export interface CincVendorSummary {
+  VendorId:   number
+  VendorName: string
+}
+
+/** Lists every vendor in the tenant's CINC. Used as the "all vendors"
+ *  bucket of the vendor picker. */
+export async function listVendors(): Promise<CincVendorSummary[]> {
+  return await call<CincVendorSummary[]>('/management/1/vendorsBasic', {
+    method: 'GET',
+    query:  {},
+  }).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincVendorSummary[]
+    }
+    throw err
+  })
+}
+
+/** Active vendors associated with a specific association on the Vendor
+ *  Association Accounts screen in CINC. Used as the "this association"
+ *  bucket of the vendor picker. */
+export async function listVendorsForAssociation(assocCode: string): Promise<CincVendorSummary[]> {
+  return await call<CincVendorSummary[]>('/management/1/vendors/vendorAssociation', {
+    method: 'GET',
+    query:  { assocCode: assocCode.toUpperCase() },
+  }).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincVendorSummary[]
+    }
+    throw err
+  })
 }
 
 /** Lists attachments (vendor photos, files) for a work order. CINC

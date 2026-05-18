@@ -11,6 +11,8 @@ import { useRouter } from 'next/navigation'
 import { Fragment, useEffect, useState, type ChangeEvent, type ReactNode } from 'react'
 import DueDateModal from './DueDateModal'
 import ChangeReasonModal from './ChangeReasonModal'
+import SchedulingModal from './SchedulingModal'
+import VendorPickerModal from './VendorPickerModal'
 import WorkOrderPhotos from './WorkOrderPhotos'
 
 interface TicketRecord {
@@ -75,6 +77,7 @@ interface WorkOrderRecord {
   invoice_url:         string | null
   cinc_ho_id:          string | null
   cinc_property_id:    number | null
+  cinc_vendor_id:      number | null
   work_location_name:  string | null
   address_line1:       string | null
   address_line2:       string | null
@@ -180,6 +183,27 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [archiveBusy, setArchiveBusy] = useState(false)
+
+  const [showSchedulingModal, setShowSchedulingModal] = useState(false)
+  const [showVendorModal,     setShowVendorModal]     = useState(false)
+  const [pushBusy,            setPushBusy]            = useState(false)
+
+  async function pushToCinc() {
+    setPushBusy(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/admin/work-orders/${ticket.id}/push-to-cinc`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? 'Push failed')
+      // The cron will populate cinc_workorder_id within ~1 min; refresh
+      // to pick it up on the next render.
+      setTimeout(() => router.refresh(), 1500)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPushBusy(false)
+    }
+  }
 
   async function archiveTicket(archive: boolean) {
     setArchiveBusy(true)
@@ -620,6 +644,24 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           />
         )}
 
+        {showSchedulingModal && workOrder && (
+          <SchedulingModal
+            ticketId={ticket.id}
+            currentScheduled={workOrder.scheduled_at}
+            onClose={() => setShowSchedulingModal(false)}
+          />
+        )}
+
+        {showVendorModal && workOrder && (
+          <VendorPickerModal
+            ticketId={ticket.id}
+            associationCode={ticket.association_code}
+            currentVendorId={workOrder.cinc_vendor_id}
+            currentVendorName={workOrder.vendor_name}
+            onClose={() => setShowVendorModal(false)}
+          />
+        )}
+
         {workOrder && (() => {
           const address = fmtAddress(workOrder)
           return (
@@ -631,13 +673,43 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
               />
               <Detail label="Unit"      value={fmtUnit(workOrder)} />
               {address && <Detail label="Address" value={address} />}
-              <Detail label="Vendor"    value={workOrder.vendor_name  ?? workOrder.vendor_email ?? '—'} />
-              <Detail label="Scheduled" value={workOrder.scheduled_at ? fmtAbs(workOrder.scheduled_at) : '—'} />
+              <div className="flex items-center justify-between">
+                <Detail label="Vendor"    value={workOrder.vendor_name  ?? workOrder.vendor_email ?? '—'} />
+                <button
+                  type="button"
+                  onClick={() => setShowVendorModal(true)}
+                  className="text-[10px] uppercase tracking-wide text-blue-600 hover:text-blue-800 ml-2"
+                  title="Reassign to another CINC vendor"
+                >
+                  Reassign
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <Detail label="Scheduled" value={workOrder.scheduled_at ? fmtAbs(workOrder.scheduled_at) : '—'} />
+                <button
+                  type="button"
+                  onClick={() => setShowSchedulingModal(true)}
+                  className="text-[10px] uppercase tracking-wide text-blue-600 hover:text-blue-800 ml-2"
+                  title="Edit Scheduled date"
+                >
+                  Edit
+                </button>
+              </div>
               <Detail label="Completed" value={workOrder.completed_at ? fmtAbs(workOrder.completed_at) : '—'} />
               <Detail label="Cost"      value={fmtMoney(workOrder.cost_cents)} />
               {!ticket.cinc_workorder_id && (
-                <div className="mt-2 pt-2 border-t border-gray-100 text-[11px] text-gray-500">
-                  Created in MAIA without a CINC counterpart. New WOs sync automatically going forward; older orphans stay MAIA-only.
+                <div className="mt-2 pt-2 border-t border-gray-100 space-y-2">
+                  <div className="text-[11px] text-gray-500">
+                    Created in MAIA without a CINC counterpart. New WOs sync automatically going forward; older orphans stay MAIA-only.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void pushToCinc()}
+                    disabled={pushBusy}
+                    className="w-full px-2 py-1 text-xs border border-blue-300 text-blue-700 rounded hover:bg-blue-50 disabled:opacity-50"
+                  >
+                    {pushBusy ? 'Queuing…' : 'Push to CINC'}
+                  </button>
                 </div>
               )}
             </Card>
@@ -831,6 +903,15 @@ function describeEvent(e: EventRecord): string {
     }
     case 'archived':          return 'Archived'
     case 'restored':          return 'Restored from archive'
+    case 'scheduled_changed': {
+      const cast = p as { scheduled_at?: string | null }
+      const when = cast.scheduled_at ? new Date(cast.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'cleared'
+      return `Scheduled: ${when}`
+    }
+    case 'vendor_changed': {
+      const cast = p as { vendor_name?: string | null; vendor_id?: number | null }
+      return `Vendor: ${cast.vendor_name ?? `#${cast.vendor_id ?? '?'}`}`
+    }
     case 'message_added':     return `New ${(p as { direction?: string }).direction ?? ''} message via ${(p as { channel?: string }).channel ?? ''}`.trim()
     case 'due_changed': {
       const cast = p as { from?: string; to?: string; reason_label?: string; bucket?: string; note?: string }

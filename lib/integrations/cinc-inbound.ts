@@ -188,6 +188,7 @@ export async function upsertWorkOrderDetails(ticketId: number, wo: CincWorkOrder
     state:               wo.State                ?? null,
     zip:                 wo.Zip                  ?? null,
     vendor_name:         wo.Vendor               ?? null,
+    cinc_vendor_id:      wo.VendorId && wo.VendorId > 0 ? wo.VendorId : null,
     scheduled_at:        parseCincTimestamp(wo.IssuedDate),
     cost_cents:          cents,
   }
