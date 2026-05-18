@@ -94,11 +94,16 @@ export default function AdminToolsPage() {
     try {
       const res = await fetch(`/api/admin/gmail-accounts/${encodeURIComponent(gmail_address)}/renew-watch`, { method: 'POST' })
       const data = await res.json() as { ok: boolean; error?: string; historyId?: string; isInvalidGrant?: boolean }
+      // Refresh the in-memory list on BOTH success and failure so the
+      // row reflects the freshly persisted last_watch_renewed_at /
+      // last_watch_error / last_watch_error_at columns. Without this,
+      // the badge stays WATCH EXPIRED + the button stays "Renew now"
+      // even after the server stamped the invalid_grant error.
+      const r = await fetch('/api/admin/gmail-accounts').then(x => x.json())
+      setGmailAccounts(r.accounts ?? [])
+
       if (data.ok) {
         setGmailMsg(`✅ ${gmail_address} watch renewed`)
-        // Refresh the row in-place — fetch the freshly updated record.
-        const r = await fetch('/api/admin/gmail-accounts').then(x => x.json())
-        setGmailAccounts(r.accounts ?? [])
       } else {
         setGmailMsg(`❌ ${gmail_address}: ${data.error ?? 'renewal failed'}${data.isInvalidGrant ? ' — reconnect required' : ''}`)
       }
