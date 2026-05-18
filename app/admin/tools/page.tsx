@@ -375,16 +375,22 @@ export default function AdminToolsPage() {
               </p>
             )}
 
-            <div style={{
-              marginTop: '1rem', padding: '0.75rem', background: '#fffbeb',
-              border: '1px solid #fde68a', borderRadius: 6, fontSize: '0.78rem', color: '#92400e',
-            }}>
-              <strong>⚠ One-time Google Console step required:</strong> Add{' '}
-              <code style={{ background: '#fef3c7', padding: '1px 4px', borderRadius: 3 }}>
-                {process.env.NEXT_PUBLIC_APP_URL ?? 'https://your-domain.com'}/api/auth/gmail-staff/callback
-              </code>{' '}
-              as an authorized redirect URI in your Google Cloud OAuth credentials before connecting the first account.
-            </div>
+            {/* Setup hint: only shown before the first account is
+                connected. If active accounts exist, the redirect URI
+                is clearly already configured in Google Cloud OAuth
+                or none of them would have completed authorization. */}
+            {activeAccounts.length === 0 && (
+              <div style={{
+                marginTop: '1rem', padding: '0.75rem', background: '#fffbeb',
+                border: '1px solid #fde68a', borderRadius: 6, fontSize: '0.78rem', color: '#92400e',
+              }}>
+                <strong>⚠ One-time Google Console step required:</strong> Add{' '}
+                <code style={{ background: '#fef3c7', padding: '1px 4px', borderRadius: 3 }}>
+                  {process.env.NEXT_PUBLIC_APP_URL ?? 'https://your-domain.com'}/api/auth/gmail-staff/callback
+                </code>{' '}
+                as an authorized redirect URI in your Google Cloud OAuth credentials before connecting the first account.
+              </div>
+            )}
           </div>
         </section>
 
