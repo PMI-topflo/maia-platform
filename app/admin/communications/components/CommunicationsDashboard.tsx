@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import TicketPickerModal from './TicketPickerModal'
 
 // Shape returned by GET /api/admin/communications/links keyed by communication id.
@@ -186,6 +186,7 @@ interface EmailLog {
   created_at: string
   dismissed_at?:        string | null
   dismissed_by_email?:  string | null
+  gmail_thread_id?:     string | null
 }
 
 interface Ticket {
@@ -583,20 +584,27 @@ function EmailsTab({
 
   const [busyDismissId, setBusyDismissId] = useState<string | null>(null)
 
-  async function dismissEmail(id: string) {
-    setBusyDismissId(id)
+  /** Dismiss a thread (or single message if no thread_id). Returns the
+   *  set of email ids that ended up dismissed so the optimistic UI
+   *  can hide them all at once. */
+  async function dismissThread(threadKey: string, ids: string[], threadId: string | null) {
+    setBusyDismissId(threadKey)
     try {
       const res = await fetch('/api/admin/communications/dismiss', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ type: 'email', id }),
+        body:    JSON.stringify(
+          threadId
+            ? { type: 'email', thread_id: threadId }
+            : { type: 'email', id: ids[0] },
+        ),
       })
       if (res.ok) {
+        const idSet = new Set(ids)
         if (showDismissed) {
-          // Toggle is on — keep the row but mark it dismissed for the badge.
-          setEmails(prev => prev.map(e => e.id === id ? { ...e, dismissed_at: new Date().toISOString() } : e))
+          setEmails(prev => prev.map(e => idSet.has(e.id) ? { ...e, dismissed_at: new Date().toISOString() } : e))
         } else {
-          setEmails(prev => prev.filter(e => e.id !== id))
+          setEmails(prev => prev.filter(e => !idSet.has(e.id)))
         }
       }
     } finally {
@@ -604,14 +612,16 @@ function EmailsTab({
     }
   }
 
-  async function restoreEmail(id: string) {
-    setBusyDismissId(id)
+  async function restoreThread(threadKey: string, ids: string[], threadId: string | null) {
+    setBusyDismissId(threadKey)
     try {
-      const res = await fetch(`/api/admin/communications/dismiss?type=email&id=${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      })
+      const qs = threadId
+        ? `?type=email&thread_id=${encodeURIComponent(threadId)}`
+        : `?type=email&id=${encodeURIComponent(ids[0])}`
+      const res = await fetch(`/api/admin/communications/dismiss${qs}`, { method: 'DELETE' })
       if (res.ok) {
-        setEmails(prev => prev.map(e => e.id === id ? { ...e, dismissed_at: null, dismissed_by_email: null } : e))
+        const idSet = new Set(ids)
+        setEmails(prev => prev.map(e => idSet.has(e.id) ? { ...e, dismissed_at: null, dismissed_by_email: null } : e))
       }
     } finally {
       setBusyDismissId(null)
@@ -659,9 +669,46 @@ function EmailsTab({
     return true
   })
 
+  // Group filtered emails into threads. gmail_thread_id is the key
+  // when present; otherwise each row is its own "thread of 1".
+  type EmailThread = {
+    key:       string                   // gmail_thread_id OR `single-${id}`
+    threadId:  string | null            // null when ungrouped (no gmail thread)
+    latest:    EmailLog                 // most recent message — drives the row display
+    count:     number
+    messages:  EmailLog[]               // sorted oldest → newest
+    ids:       string[]                 // all email_log ids in the thread
+  }
+  const threads: EmailThread[] = useMemo(() => {
+    const map = new Map<string, EmailThread>()
+    for (const e of filtered) {
+      const tid = e.gmail_thread_id ?? null
+      const key = tid ?? `single-${e.id}`
+      const existing = map.get(key)
+      if (!existing) {
+        map.set(key, { key, threadId: tid, latest: e, count: 1, messages: [e], ids: [e.id] })
+      } else {
+        existing.count++
+        existing.messages.push(e)
+        existing.ids.push(e.id)
+        if (new Date(e.created_at).getTime() > new Date(existing.latest.created_at).getTime()) {
+          existing.latest = e
+        }
+      }
+    }
+    for (const t of map.values()) {
+      t.messages.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      new Date(b.latest.created_at).getTime() - new Date(a.latest.created_at).getTime(),
+    )
+  }, [filtered])
+
+  // Build the LinkedTicketsPanel against the LATEST message id of each
+  // thread (preserves the existing ticket-link UX without bulk changes).
   const { linksById, pushLink, dropLink } = useCommunicationLinks(
     'email',
-    filtered.map(e => e.id),
+    threads.map(t => t.latest.id),
   )
 
   return (
@@ -735,7 +782,9 @@ function EmailsTab({
         </a>
       </div>
 
-      <div className="text-xs text-gray-400 mb-2">{filtered.length} emails</div>
+      <div className="text-xs text-gray-400 mb-2">
+        {threads.length} thread{threads.length === 1 ? '' : 's'} · {filtered.length} message{filtered.length === 1 ? '' : 's'}
+      </div>
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
@@ -747,14 +796,17 @@ function EmailsTab({
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Subject</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Persona</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Sent</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Last activity</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {filtered.map(e => (
+            {threads.map(t => {
+              const e          = t.latest
+              const allDismissed = t.messages.every(m => !!m.dismissed_at)
+              return (
               <>
-                <tr key={e.id} className={['hover:bg-gray-50', e.dismissed_at ? 'opacity-50' : ''].join(' ')}>
+                <tr key={t.key} className={['hover:bg-gray-50', allDismissed ? 'opacity-50' : ''].join(' ')}>
                   <td className="px-4 py-2.5 text-xs">
                     <span
                       title={e.direction === 'inbound' ? 'Received in a connected inbox' : 'Sent by MAIA or staff'}
@@ -768,7 +820,14 @@ function EmailsTab({
                   </td>
                   <td className="px-4 py-2.5 text-sm text-gray-900 truncate max-w-[200px]">{e.from_email ?? '—'}</td>
                   <td className="px-4 py-2.5 text-sm text-gray-700 truncate max-w-[200px]">{e.to_email ?? '—'}</td>
-                  <td className="px-4 py-2.5 text-sm text-gray-700 truncate max-w-[220px]">{e.subject ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-sm text-gray-700">
+                    <div className="truncate max-w-[260px]">{e.subject ?? '—'}</div>
+                    {t.count > 1 && (
+                      <div className="text-[10px] text-gray-400 mt-0.5">
+                        +{t.count - 1} more in thread
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5">
                     {e.persona && <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] uppercase">{e.persona}</span>}
                   </td>
@@ -776,44 +835,79 @@ function EmailsTab({
                   <td className="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">{fmtDate(e.created_at)}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
-                      {e.body_preview && (
+                      <button
+                        onClick={() => setExpanded(expanded === t.key ? null : t.key)}
+                        className="text-xs text-[#f26a1b] hover:underline"
+                      >
+                        {expanded === t.key ? 'Hide' : t.count > 1 ? `Show all (${t.count})` : 'Preview'}
+                      </button>
+                      {allDismissed ? (
                         <button
-                          onClick={() => setExpanded(expanded === e.id ? null : e.id)}
-                          className="text-xs text-[#f26a1b] hover:underline"
-                        >
-                          {expanded === e.id ? 'Hide' : 'Preview'}
-                        </button>
-                      )}
-                      {e.dismissed_at ? (
-                        <button
-                          onClick={() => void restoreEmail(e.id)}
-                          disabled={busyDismissId === e.id}
-                          title={`Dismissed${e.dismissed_by_email ? ` by ${e.dismissed_by_email}` : ''}. Click to restore.`}
+                          onClick={() => void restoreThread(t.key, t.ids, t.threadId)}
+                          disabled={busyDismissId === t.key}
+                          title="Restore this thread (all messages)"
                           className="text-xs text-gray-500 hover:text-emerald-700 disabled:opacity-40"
                         >
-                          {busyDismissId === e.id ? '…' : 'Restore'}
+                          {busyDismissId === t.key ? '…' : 'Restore'}
                         </button>
                       ) : (
                         <button
-                          onClick={() => void dismissEmail(e.id)}
-                          disabled={busyDismissId === e.id}
-                          title="Dismiss — hide from default queue (audit row kept)"
+                          onClick={() => void dismissThread(t.key, t.ids, t.threadId)}
+                          disabled={busyDismissId === t.key}
+                          title={t.count > 1 ? `Dismiss the entire thread (${t.count} messages)` : 'Dismiss — hide from default queue'}
                           className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-40"
                         >
-                          {busyDismissId === e.id ? '…' : 'Dismiss'}
+                          {busyDismissId === t.key ? '…' : t.count > 1 ? 'Dismiss thread' : 'Dismiss'}
                         </button>
                       )}
                     </div>
                   </td>
                 </tr>
-                {expanded === e.id && (
-                  <tr key={`${e.id}-preview`}>
+                {expanded === t.key && (
+                  <tr key={`${t.key}-preview`}>
                     <td colSpan={8} className="px-4 py-3 bg-amber-50 text-xs text-gray-600 border-b border-amber-100">
-                      <div className="font-semibold text-gray-500 mb-1">Preview</div>
-                      <div className="whitespace-pre-wrap">{e.body_preview}</div>
-                      {e.resend_message_id && (
-                        <div className="mt-2 text-gray-400 font-mono">Resend ID: {e.resend_message_id}</div>
-                      )}
+                      <div className="font-semibold text-gray-500 mb-2">
+                        {t.count > 1 ? `${t.count} messages in this thread (oldest first)` : 'Preview'}
+                      </div>
+                      <div className="space-y-3">
+                        {t.messages.map(m => (
+                          <div
+                            key={m.id}
+                            className={[
+                              'border border-gray-200 rounded bg-white p-2',
+                              m.dismissed_at ? 'opacity-60' : '',
+                            ].join(' ')}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-1 text-[11px] text-gray-500">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={[
+                                  'inline-block px-1 py-0.5 rounded text-[9px] font-medium uppercase',
+                                  m.direction === 'inbound' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800',
+                                ].join(' ')}>
+                                  {m.direction === 'inbound' ? 'In' : 'Out'}
+                                </span>
+                                <span className="text-gray-700">{m.from_email ?? '—'}</span>
+                                <span>→</span>
+                                <span className="text-gray-700">{m.to_email ?? '—'}</span>
+                                {m.dismissed_at && (
+                                  <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[9px] uppercase">
+                                    dismissed
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-gray-400">{fmtDate(m.created_at)}</span>
+                            </div>
+                            {m.subject && m.subject !== e.subject && (
+                              <div className="text-gray-700 font-medium mb-1">{m.subject}</div>
+                            )}
+                            {m.body_preview ? (
+                              <div className="whitespace-pre-wrap text-gray-700">{m.body_preview}</div>
+                            ) : (
+                              <div className="text-gray-300 italic">No body preview.</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                       <LinkedTicketsPanel
                         links={linksById[e.id] ?? []}
                         communicationType="email"
@@ -825,11 +919,12 @@ function EmailsTab({
                   </tr>
                 )}
               </>
-            ))}
+              )
+            })}
           </tbody>
         </table>
 
-        {filtered.length === 0 && (
+        {threads.length === 0 && (
           <div className="text-center py-12 text-gray-400 text-sm">No emails match your filters.</div>
         )}
       </div>

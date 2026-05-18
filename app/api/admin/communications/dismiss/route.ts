@@ -32,8 +32,9 @@ async function requireStaff(): Promise<{ ok: true; email: string } | { ok: false
 }
 
 interface DismissBody {
-  type: 'email'
-  id:   string
+  type:       'email'
+  id?:        string  // dismiss one row
+  thread_id?: string  // dismiss every row in the Gmail thread
 }
 
 export async function POST(req: Request) {
@@ -50,18 +51,22 @@ export async function POST(req: Request) {
   if (body.type !== 'email') {
     return NextResponse.json({ error: 'Only "email" supported' }, { status: 400 })
   }
-  if (!body.id || typeof body.id !== 'string') {
-    return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
+  if (!body.id && !body.thread_id) {
+    return NextResponse.json({ error: 'Provide id or thread_id' }, { status: 400 })
   }
 
-  const { error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('email_logs')
     .update({
       dismissed_at:       new Date().toISOString(),
       dismissed_by_email: guard.email,
     })
-    .eq('id', body.id)
 
+  query = body.thread_id
+    ? query.eq('gmail_thread_id', body.thread_id)
+    : query.eq('id',              body.id!)
+
+  const { error } = await query
   if (error) {
     return NextResponse.json({ error: `dismiss failed: ${error.message}` }, { status: 500 })
   }
@@ -72,24 +77,29 @@ export async function DELETE(req: Request) {
   const guard = await requireStaff()
   if (!guard.ok) return guard.res
 
-  const url = new URL(req.url)
-  const type = url.searchParams.get('type')
-  const id   = url.searchParams.get('id')
+  const url       = new URL(req.url)
+  const type      = url.searchParams.get('type')
+  const id        = url.searchParams.get('id')
+  const threadId  = url.searchParams.get('thread_id')
   if (type !== 'email') {
     return NextResponse.json({ error: 'Only "email" supported' }, { status: 400 })
   }
-  if (!id) {
-    return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
+  if (!id && !threadId) {
+    return NextResponse.json({ error: 'Provide id or thread_id' }, { status: 400 })
   }
 
-  const { error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('email_logs')
     .update({
       dismissed_at:       null,
       dismissed_by_email: null,
     })
-    .eq('id', id)
 
+  query = threadId
+    ? query.eq('gmail_thread_id', threadId)
+    : query.eq('id',              id!)
+
+  const { error } = await query
   if (error) {
     return NextResponse.json({ error: `restore failed: ${error.message}` }, { status: 500 })
   }
