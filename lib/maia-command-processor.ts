@@ -1052,6 +1052,7 @@ ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join(
       status:    'sent',
       resendMessageId: replyMsgId,
       sentBy:    'maia-general',
+      gmailThreadId: parsed.threadId,
     })
 
     // Append the AI's outbound reply to the same ticket so the dashboard
@@ -1652,6 +1653,7 @@ export async function processEmailCommand(messageId: string): Promise<void> {
       persona:         allowed ? 'staff' : 'external',
       associationCode: assocCode ?? undefined,
       status:          'received',
+      gmailThreadId:   parsed.threadId,
     })
 
     // Tickets are created only when staff initiate them via an explicit
@@ -1851,6 +1853,7 @@ export async function processEmailCommand(messageId: string): Promise<void> {
       status:          'sent',
       resendMessageId: replyMsgId,
       sentBy:          'maia-command',
+      gmailThreadId:   parsed.threadId,
     })
 
     await supabaseAdmin

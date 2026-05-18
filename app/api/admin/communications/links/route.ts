@@ -57,6 +57,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid ticket_id' }, { status: 400 })
   }
 
+  // Capture the source thread id so logEmail() can auto-link future
+  // replies in this thread to the same ticket. Only meaningful for
+  // email-typed links; conversations are session-stable already.
+  let gmailThreadId: string | null = null
+  if (body.communication_type === 'email') {
+    const { data: srcEmail } = await supabaseAdmin
+      .from('email_logs')
+      .select('gmail_thread_id')
+      .eq('id', body.communication_id)
+      .maybeSingle()
+    if (srcEmail && typeof (srcEmail as { gmail_thread_id?: string | null }).gmail_thread_id === 'string') {
+      gmailThreadId = (srcEmail as { gmail_thread_id: string }).gmail_thread_id
+    }
+  }
+
   const { data, error } = await supabaseAdmin
     .from('communication_ticket_links')
     .insert({
@@ -64,6 +79,7 @@ export async function POST(req: Request) {
       communication_id:   body.communication_id,
       ticket_id:          body.ticket_id,
       linked_by_email:    guard.email,
+      gmail_thread_id:    gmailThreadId,
     })
     .select('id, ticket_id, linked_at')
     .single()

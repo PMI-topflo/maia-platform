@@ -112,6 +112,7 @@ export async function POST(
       status:          'sent',
       resendMessageId: externalId ?? undefined,
       sentBy:          'staff-dashboard',
+      gmailThreadId:   ticket.gmail_thread_id ?? undefined,
     })
 
     const message = await appendMessage(ticketId, {
