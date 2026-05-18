@@ -33,9 +33,9 @@ export default async function TicketDetailPage(props: PageProps) {
       .order('created_at', { ascending: true }),
     supabaseAdmin
       .from('ticket_events')
-      .select('id, actor_email, event_type, payload, created_at')
+      .select('id, actor_email, event_type, payload, happened_at, created_at')
       .eq('ticket_id', ticketId)
-      .order('created_at', { ascending: true }),
+      .order('happened_at', { ascending: true }),
     fetchStaffList(),
   ])
 
