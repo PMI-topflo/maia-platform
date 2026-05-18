@@ -566,6 +566,7 @@ function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
     if (search) {
       const q = search.toLowerCase()
       return (
+        e.from_email?.toLowerCase().includes(q) ||
         e.to_email?.toLowerCase().includes(q) ||
         e.subject?.toLowerCase().includes(q) ||
         e.persona?.toLowerCase().includes(q) ||
@@ -585,7 +586,7 @@ function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
       <div className="flex flex-wrap gap-3 mb-4">
         <input
           type="text"
-          placeholder="Search recipient, subject, association…"
+          placeholder="Search sender, recipient, subject, association…"
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="flex-1 min-w-[200px] border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-[#f26a1b]"
@@ -632,6 +633,8 @@ function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Dir</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">From</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">To</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Subject</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Persona</th>
@@ -644,7 +647,19 @@ function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
             {filtered.map(e => (
               <>
                 <tr key={e.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-2.5 text-sm text-gray-900 truncate max-w-[160px]">{e.to_email ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-xs">
+                    <span
+                      title={e.direction === 'inbound' ? 'Received in a connected inbox' : 'Sent by MAIA or staff'}
+                      className={[
+                        'inline-block px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide',
+                        e.direction === 'inbound' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800',
+                      ].join(' ')}
+                    >
+                      {e.direction === 'inbound' ? 'In' : 'Out'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-sm text-gray-900 truncate max-w-[200px]">{e.from_email ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-sm text-gray-700 truncate max-w-[200px]">{e.to_email ?? '—'}</td>
                   <td className="px-4 py-2.5 text-sm text-gray-700 truncate max-w-[220px]">{e.subject ?? '—'}</td>
                   <td className="px-4 py-2.5">
                     {e.persona && <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] uppercase">{e.persona}</span>}
@@ -664,7 +679,7 @@ function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
                 </tr>
                 {expanded === e.id && (
                   <tr key={`${e.id}-preview`}>
-                    <td colSpan={6} className="px-4 py-3 bg-amber-50 text-xs text-gray-600 border-b border-amber-100">
+                    <td colSpan={8} className="px-4 py-3 bg-amber-50 text-xs text-gray-600 border-b border-amber-100">
                       <div className="font-semibold text-gray-500 mb-1">Preview</div>
                       <div className="whitespace-pre-wrap">{e.body_preview}</div>
                       {e.resend_message_id && (
