@@ -28,6 +28,8 @@ export interface TicketRow {
   assignee_email:       string | null
   due_at:               string | null
   work_order_type_name: string | null
+  cinc_workorder_id:    string | null
+  archived_at:          string | null
   created_at:           string
   updated_at:           string
 }
@@ -46,6 +48,7 @@ interface ActiveFilters {
   q:           string
   type:        string
   wo_type:     string
+  archived:    string  // '1' = include archived
 }
 
 interface StaffMember {
@@ -162,7 +165,8 @@ export default function TicketListClient(props: Props) {
     (props.activeFilters.assignee    ? 1 : 0) +
     (props.activeFilters.q           ? 1 : 0) +
     (props.activeFilters.type        ? 1 : 0) +
-    (props.activeFilters.wo_type     ? 1 : 0)
+    (props.activeFilters.wo_type     ? 1 : 0) +
+    (props.activeFilters.archived    ? 1 : 0)
   )
 
   const title = props.lockTypeTo === 'work_order' ? 'Work Orders' : 'Tickets'
@@ -278,6 +282,15 @@ export default function TicketListClient(props: Props) {
             options={props.woTypes.map(n => ({ value: n, label: n }))}
           />
         )}
+        <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 ml-1 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={props.activeFilters.archived === '1'}
+            onChange={e => updateFilter('archived', e.target.checked ? '1' : '')}
+            className="rounded"
+          />
+          Show archived
+        </label>
         <input
           type="text"
           placeholder="Assignee email"
@@ -313,12 +326,29 @@ export default function TicketListClient(props: Props) {
                 </td>
               </tr>
             )}
-            {props.rows.map(t => (
-              <tr key={t.id} className="border-t border-gray-100 hover:bg-gray-50">
+            {props.rows.map(t => {
+              const isOrphan = t.type === 'work_order' && !t.cinc_workorder_id
+              const isArchived = !!t.archived_at
+              return (
+              <tr key={t.id} className={['border-t border-gray-100 hover:bg-gray-50', isArchived ? 'opacity-60' : ''].join(' ')}>
                 <td className="px-3 py-2.5 align-top">
                   <Link href={`${props.baseHref}/${t.id}`} className="font-mono text-xs text-[#f26a1b] hover:underline">
                     {t.ticket_number}
                   </Link>
+                  {isOrphan && (
+                    <div className="mt-0.5">
+                      <span className="inline-block px-1 py-0.5 text-[9px] font-medium uppercase bg-gray-100 text-gray-600 rounded" title="Work order has no CINC counterpart">
+                        MAIA only
+                      </span>
+                    </div>
+                  )}
+                  {isArchived && (
+                    <div className="mt-0.5">
+                      <span className="inline-block px-1 py-0.5 text-[9px] font-medium uppercase bg-amber-100 text-amber-800 rounded">
+                        Archived
+                      </span>
+                    </div>
+                  )}
                 </td>
                 <td className="px-3 py-2.5 align-top">
                   <Link href={`${props.baseHref}/${t.id}`} className="block">
@@ -365,7 +395,8 @@ export default function TicketListClient(props: Props) {
                   )}
                 </td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>
