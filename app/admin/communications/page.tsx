@@ -87,7 +87,7 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
 
   let emailQuery = supabaseAdmin
     .from('email_logs')
-    .select('id, direction, from_email, to_email, subject, body_preview, persona, association_code, status, resend_message_id, sent_by, created_at, dismissed_at, dismissed_by_email')
+    .select('id, direction, from_email, to_email, subject, body_preview, persona, association_code, status, resend_message_id, sent_by, created_at, dismissed_at, dismissed_by_email, gmail_thread_id')
     .gte('created_at', tenDaysAgo)
     .order('created_at', { ascending: false })
     .limit(1000)
