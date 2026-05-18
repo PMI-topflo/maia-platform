@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Fragment, useEffect, useState, type ChangeEvent, type ReactNode } from 'react'
 import DueDateModal from './DueDateModal'
+import WorkOrderPhotos from './WorkOrderPhotos'
 
 interface TicketRecord {
   id:                     number
@@ -512,6 +513,13 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
             <Detail label="Completed" value={workOrder.completed_at ? fmtAbs(workOrder.completed_at) : '—'} />
             <Detail label="Cost"      value={fmtMoney(workOrder.cost_cents)} />
           </Card>
+        )}
+
+        {ticket.type === 'work_order' && (
+          <WorkOrderPhotos
+            ticketId={ticket.id}
+            hasCincWorkOrderId={!!ticket.cinc_workorder_id}
+          />
         )}
 
         {ticket.type === 'work_order' && (() => {
