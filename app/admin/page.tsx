@@ -153,7 +153,7 @@ export default async function OverviewPage() {
   const sections = [
     { label: 'Tickets',          href: '/admin/tickets',          badge: totalTickets || null, stats: [`${totalTickets ?? 0} open tickets`] },
     { label: 'Work Orders',      href: '/admin/work-orders',      badge: null,                 stats: [`${workOrders.length} active`] },
-    { label: 'Owners',           href: '/admin/owners',           badge: null,                 stats: [`${ownerCount ?? 0} active owners`] },
+    { label: 'Owners',           href: '/admin/cinc-sync',        badge: null,                 stats: [`${ownerCount ?? 0} active owners · pick an association`] },
     { label: 'Applications',     href: '/admin/applications',     badge: pendingApps || null,  stats: [`${pendingApps ?? 0} pending board vote`] },
     { label: 'Registrations',    href: '/admin/registrations',    badge: pendingReg || null,   stats: [`${pendingAgents ?? 0} agents · ${pendingVendors ?? 0} vendors pending`] },
     { label: 'Pending Approvals',href: '/admin/pending-approvals',badge: unidentified || null, stats: [`${unidentified ?? 0} unidentified visitors`] },

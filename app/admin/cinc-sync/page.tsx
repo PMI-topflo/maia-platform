@@ -179,8 +179,9 @@ export default async function CincSyncIndexPage() {
                     <Link
                       href={`/admin/cinc-sync/${a.association_code}`}
                       className="text-[#f26a1b] hover:underline text-xs font-mono uppercase tracking-wide"
+                      title="View owners + board for this association, with edit + view-as actions"
                     >
-                      Compare →
+                      👤 Owners →
                     </Link>
                   </td>
                 </tr>
