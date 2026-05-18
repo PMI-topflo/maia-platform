@@ -283,7 +283,7 @@ export async function updateTicket(
   // Pull previous values so the audit row records the actual change.
   const { data: prev } = await supabaseAdmin
     .from('tickets')
-    .select('status, priority, assignee_email, type, work_order_type_id, work_order_type_name')
+    .select('status, priority, assignee_email, due_at, type, work_order_type_id, work_order_type_name')
     .eq('id', ticketId)
     .single()
 
@@ -316,6 +316,24 @@ export async function updateTicket(
         from_name: prev?.work_order_type_name ?? null,
         to_id:     patch.work_order_type_id   ?? null,
         to_name:   patch.work_order_type_name ?? null,
+      },
+    })
+  }
+
+  // Due-at changes through the standard PATCH path (e.g. when staff
+  // sets a "next due date" in the status-change modal). The structured
+  // DueDateModal endpoint stays the one that captures reason_code +
+  // bucket for KPIs; this is for the lightweight case where staff just
+  // wants to nudge the date alongside a status flip.
+  if (patch.due_at !== undefined && patch.due_at !== prev?.due_at) {
+    events.push({
+      event_type: 'due_changed',
+      payload: {
+        from: prev?.due_at ?? null,
+        to:   patch.due_at ?? null,
+        // Intentionally no reason_label/bucket — describeEvent renders
+        // "no reason" which honestly reflects the lightweight path.
+        // The free-form `reason` (if any) is appended to payload below.
       },
     })
   }
