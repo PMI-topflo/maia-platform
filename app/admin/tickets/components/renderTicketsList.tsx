@@ -19,6 +19,7 @@ export interface TicketsListSearchParams {
   assignee?:    string
   q?:           string
   type?:        string
+  wo_type?:     string  // CINC WorkOrderType filter ("Plumbing", "HVAC", …)
 }
 
 export async function renderTicketsList(
@@ -27,12 +28,13 @@ export async function renderTicketsList(
 ) {
   let query = supabaseAdmin
     .from('tickets')
-    .select('id, ticket_number, type, status, priority, channel_origin, association_code, persona, contact_name, contact_email, contact_phone, subject, summary, assignee_email, due_at, gmail_thread_id, created_at, updated_at')
+    .select('id, ticket_number, type, status, priority, channel_origin, association_code, persona, contact_name, contact_email, contact_phone, subject, summary, assignee_email, due_at, gmail_thread_id, work_order_type_name, created_at, updated_at')
     .order('updated_at', { ascending: false })
     .limit(200)
 
   const typeFilter = sp.type ?? (defaultType === 'all' ? undefined : defaultType)
-  if (typeFilter) query = query.eq('type', typeFilter)
+  if (typeFilter)  query = query.eq('type',                 typeFilter)
+  if (sp.wo_type)  query = query.eq('work_order_type_name', sp.wo_type)
 
   if (sp.status && sp.status !== 'all') {
     if (sp.status === 'open_any') {
@@ -53,7 +55,19 @@ export async function renderTicketsList(
     query = query.or(`subject.ilike.%${needle}%,summary.ilike.%${needle}%,contact_name.ilike.%${needle}%,contact_email.ilike.%${needle}%,ticket_number.ilike.%${needle}%`)
   }
 
-  const [{ data: tickets }, { data: associations }, { data: counts }, staff] = await Promise.all([
+  // Distinct WorkOrderType names across CINC tickets — drives the
+  // Motive filter dropdown. Cheap (limit 500, only when we'd actually
+  // render the filter). null values + non-WO rows are skipped.
+  const woTypesQuery = (defaultType === 'work_order' || defaultType === 'all')
+    ? supabaseAdmin
+        .from('tickets')
+        .select('work_order_type_name')
+        .eq('type', 'work_order')
+        .not('work_order_type_name', 'is', null)
+        .limit(500)
+    : Promise.resolve({ data: [] as Array<{ work_order_type_name: string | null }> })
+
+  const [{ data: tickets }, { data: associations }, { data: counts }, staff, { data: woTypeRows }] = await Promise.all([
     query,
     supabaseAdmin
       .from('associations')
@@ -64,7 +78,14 @@ export async function renderTicketsList(
       .from('tickets')
       .select('status, type'),
     fetchStaffList(),
+    woTypesQuery,
   ])
+
+  const woTypes = Array.from(new Set(
+    ((woTypeRows ?? []) as Array<{ work_order_type_name: string | null }>)
+      .map(r => r.work_order_type_name)
+      .filter((n): n is string => !!n)
+  )).sort()
 
   const countsByStatus: Record<string, number> = {
     open_any: 0, open: 0, pending: 0, waiting_external: 0, resolved: 0, closed: 0,
@@ -78,23 +99,24 @@ export async function renderTicketsList(
   }
 
   const rows: TicketRow[] = ((tickets ?? []) as TicketRow[]).map(t => ({
-    id:                 t.id,
-    ticket_number:      t.ticket_number,
-    type:               t.type,
-    status:             t.status,
-    priority:           t.priority,
-    channel_origin:     t.channel_origin,
-    association_code:   t.association_code,
-    persona:            t.persona,
-    contact_name:       t.contact_name,
-    contact_email:      t.contact_email,
-    contact_phone:      t.contact_phone,
-    subject:            t.subject,
-    summary:            t.summary,
-    assignee_email:     t.assignee_email,
-    due_at:             t.due_at,
-    created_at:         t.created_at,
-    updated_at:         t.updated_at,
+    id:                   t.id,
+    ticket_number:        t.ticket_number,
+    type:                 t.type,
+    status:               t.status,
+    priority:             t.priority,
+    channel_origin:       t.channel_origin,
+    association_code:     t.association_code,
+    persona:              t.persona,
+    contact_name:         t.contact_name,
+    contact_email:        t.contact_email,
+    contact_phone:        t.contact_phone,
+    subject:              t.subject,
+    summary:              t.summary,
+    assignee_email:       t.assignee_email,
+    due_at:               t.due_at,
+    work_order_type_name: t.work_order_type_name,
+    created_at:           t.created_at,
+    updated_at:           t.updated_at,
   }))
 
   return (
@@ -111,6 +133,7 @@ export async function renderTicketsList(
           baseHref={'/admin/tickets'}
           showWorkOrderColumns={defaultType === 'work_order'}
           lockTypeTo={defaultType === 'all' ? null : defaultType}
+          woTypes={woTypes}
           activeFilters={{
             status:      sp.status      ?? 'open_any',
             priority:    sp.priority    ?? '',
@@ -119,6 +142,7 @@ export async function renderTicketsList(
             assignee:    sp.assignee    ?? '',
             q:           sp.q           ?? '',
             type:        sp.type        ?? '',
+            wo_type:     sp.wo_type     ?? '',
           }}
         />
       </main>

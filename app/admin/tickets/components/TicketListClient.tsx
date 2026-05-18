@@ -12,23 +12,24 @@ import Link from 'next/link'
 import NewTicketModal from './NewTicketModal'
 
 export interface TicketRow {
-  id:               number
-  ticket_number:    string
-  type:             string
-  status:           string
-  priority:         string
-  channel_origin:   string
-  association_code: string | null
-  persona:          string | null
-  contact_name:     string | null
-  contact_email:    string | null
-  contact_phone:    string | null
-  subject:          string | null
-  summary:          string | null
-  assignee_email:   string | null
-  due_at:           string | null
-  created_at:       string
-  updated_at:       string
+  id:                   number
+  ticket_number:        string
+  type:                 string
+  status:               string
+  priority:             string
+  channel_origin:       string
+  association_code:     string | null
+  persona:              string | null
+  contact_name:         string | null
+  contact_email:        string | null
+  contact_phone:        string | null
+  subject:              string | null
+  summary:              string | null
+  assignee_email:       string | null
+  due_at:               string | null
+  work_order_type_name: string | null
+  created_at:           string
+  updated_at:           string
 }
 
 interface Association {
@@ -44,6 +45,7 @@ interface ActiveFilters {
   assignee:    string
   q:           string
   type:        string
+  wo_type:     string
 }
 
 interface StaffMember {
@@ -60,6 +62,7 @@ interface Props {
   baseHref:              string
   showWorkOrderColumns:  boolean
   lockTypeTo:            'ticket' | 'work_order' | null
+  woTypes:               string[]
   activeFilters:         ActiveFilters
 }
 
@@ -158,7 +161,8 @@ export default function TicketListClient(props: Props) {
     (props.activeFilters.association ? 1 : 0) +
     (props.activeFilters.assignee    ? 1 : 0) +
     (props.activeFilters.q           ? 1 : 0) +
-    (props.activeFilters.type        ? 1 : 0)
+    (props.activeFilters.type        ? 1 : 0) +
+    (props.activeFilters.wo_type     ? 1 : 0)
   )
 
   const title = props.lockTypeTo === 'work_order' ? 'Work Orders' : 'Tickets'
@@ -266,6 +270,14 @@ export default function TicketListClient(props: Props) {
             ]}
           />
         )}
+        {props.showWorkOrderColumns && props.woTypes.length > 0 && (
+          <FilterSelect
+            value={props.activeFilters.wo_type}
+            onChange={v => updateFilter('wo_type', v)}
+            placeholder="Motive"
+            options={props.woTypes.map(n => ({ value: n, label: n }))}
+          />
+        )}
         <input
           type="text"
           placeholder="Assignee email"
@@ -310,6 +322,11 @@ export default function TicketListClient(props: Props) {
                 </td>
                 <td className="px-3 py-2.5 align-top">
                   <Link href={`${props.baseHref}/${t.id}`} className="block">
+                    {t.work_order_type_name && (
+                      <span className="inline-block mb-1 px-1.5 py-0.5 text-[10px] font-medium uppercase bg-indigo-100 text-indigo-800 rounded">
+                        {t.work_order_type_name}
+                      </span>
+                    )}
                     <div className="font-medium text-gray-900 line-clamp-1">{t.subject ?? '—'}</div>
                     {t.summary && (
                       <div className="text-xs text-gray-500 line-clamp-1 mt-0.5">{t.summary}</div>
