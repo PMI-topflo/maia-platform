@@ -36,15 +36,13 @@ export async function GET(req: NextRequest) {
 
   const wanted = [...APPLICATION_REQUIRED_CATEGORIES]
   // Pull just the columns the applicant page needs — no notes,
-  // extracted_text, etc. Newest first per category.
+  // extracted_text, etc. Newest first per category. We grab ALL
+  // languages here; the applicant picks which one to read + sign.
   const { data, error } = await supabaseAdmin
     .from('association_documents')
-    .select('id, category, filename, storage_path, drive_url, source, effective_date, created_at')
+    .select('id, category, language, filename, storage_path, drive_url, source, effective_date, created_at')
     .eq('association_code', code)
     .in('category', wanted)
-    // Only current (non-archived) versions are eligible to surface to
-    // applicants. Older uploads stay in the table for audit history
-    // but new applicants should always sign the latest version.
     .is('archived_at', null)
     .order('created_at', { ascending: false })
 
@@ -52,37 +50,68 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ documents: [], error: error.message }, { status: 500 })
   }
 
-  // Keep only the newest row per category. The DB has multiple versions
-  // over time (each upload appends); applicants should only see / sign
-  // the current one. Older versions stay in the DB for audit history.
-  const latestByCategory = new Map<string, NonNullable<typeof data>[number]>()
+  // Keep the newest row per (category, language) pair. Each category
+  // can have one current row per uploaded language; the apply form
+  // shows a language picker when there's more than one.
+  const latestByKey = new Map<string, NonNullable<typeof data>[number]>()
   for (const row of data ?? []) {
-    if (!latestByCategory.has(row.category)) latestByCategory.set(row.category, row)
+    const key = `${row.category}|${row.language ?? 'en'}`
+    if (!latestByKey.has(key)) latestByKey.set(key, row)
   }
 
-  // Build signed URLs in parallel. Drive-link rows (source='drive_link')
-  // just echo back the URL — no signing needed.
+  // Build signed URLs in parallel.
   const docs = await Promise.all(
-    [...latestByCategory.values()].map(async row => {
+    [...latestByKey.values()].map(async row => {
       let downloadUrl: string | null = null
       if (row.source === 'drive_link' && row.drive_url) {
         downloadUrl = row.drive_url
       } else if (row.storage_path) {
         const { data: signed } = await supabaseAdmin.storage
           .from(STORAGE_BUCKET)
-          .createSignedUrl(row.storage_path, SIGNED_URL_TTL_SECONDS, { download: row.filename })
+          // download=false keeps the PDF inline in the iframe rather
+          // than forcing a Save-as. Applicants still get a download
+          // button via the original signed URL.
+          .createSignedUrl(row.storage_path, SIGNED_URL_TTL_SECONDS)
         downloadUrl = signed?.signedUrl ?? null
       }
       return {
         id:             row.id,
         category:       row.category,
         category_label: categoryLabel(row.category),
+        language:       row.language ?? 'en',
         filename:       row.filename,
         effective_date: row.effective_date,
-        download_url:   downloadUrl,
+        view_url:       downloadUrl,
       }
     }),
   )
 
-  return NextResponse.json({ documents: docs.filter(d => !!d.download_url) })
+  // Group by category for the apply form. Each group lists every
+  // available language; the form picks the applicant's UI language
+  // when available and falls back to English (or the first lang) when
+  // not.
+  const byCategory = new Map<string, ReturnType<() => typeof docs[number]>[]>()
+  for (const d of docs.filter(d => !!d.view_url)) {
+    const arr = byCategory.get(d.category) ?? []
+    arr.push(d)
+    byCategory.set(d.category, arr)
+  }
+
+  return NextResponse.json({
+    // Flat list — kept for backwards-compatibility with anything that
+    // already consumes the endpoint. Lists ONE doc per (cat, lang).
+    documents: [...byCategory.values()].flat(),
+    // Grouped shape — what the new apply form uses.
+    by_category: [...byCategory.entries()].map(([category, items]) => ({
+      category,
+      category_label: items[0]?.category_label ?? category,
+      languages:      items.map(i => ({
+        id:             i.id,
+        language:       i.language,
+        filename:       i.filename,
+        effective_date: i.effective_date,
+        view_url:       i.view_url,
+      })),
+    })),
+  })
 }

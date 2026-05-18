@@ -76,23 +76,31 @@ function normalizeCategory(raw: string | null | undefined): string {
   return CATEGORY_KEYS.has(c) ? c : 'other'
 }
 
+// Normalize language code from upload form. Defaults to 'en' on
+// missing / unrecognized values so legacy clients keep working without
+// the field. Keep the allowed set tiny and aligned with the apply
+// form's translation blocks.
+const ALLOWED_LANGUAGES = new Set(['en', 'es', 'pt', 'fr', 'he', 'ru'])
+function normalizeLanguage(raw: string | null | undefined): string {
+  const l = (raw ?? '').trim().toLowerCase()
+  return ALLOWED_LANGUAGES.has(l) ? l : 'en'
+}
+
 function actorEmail(session: { userId: string | number }): string | null {
   return typeof session.userId === 'string' && session.userId.includes('@')
     ? session.userId.toLowerCase()
     : null
 }
 
-/** After a fresh upload for (assocCode, category), archive every other
- *  active row in the same bucket so the new file is unambiguously the
- *  current version. The just-inserted row's id is excluded so it
- *  doesn't get archived along with the prior versions.
- *
- *  Called inline from POST. We don't roll back on failure — leaving a
- *  duplicate-active row is recoverable (staff can archive it from the
- *  UI), losing the just-uploaded file would not be. */
+/** After a fresh upload for (assocCode, category, language), archive
+ *  every other active row in the same (cat, lang) bucket so the new
+ *  file is unambiguously the current version for that language.
+ *  Different-language rows of the same category are LEFT ALONE — a
+ *  Spanish Rules PDF doesn't supersede an English one. */
 async function archivePriorActiveVersions(
   assocCode:    string,
   category:     string,
+  language:     string,
   excludeId:    string,
   actorEmail:   string | null,
 ): Promise<void> {
@@ -104,6 +112,7 @@ async function archivePriorActiveVersions(
     })
     .eq('association_code', assocCode)
     .eq('category', category)
+    .eq('language', language)
     .is('archived_at', null)
     .neq('id', excludeId)
 }
@@ -166,6 +175,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     }
 
     const category    = normalizeCategory(form.get('category')?.toString())
+    const language    = normalizeLanguage(form.get('language')?.toString())
     const subcategory = form.get('subcategory')?.toString().trim() || null
     const notes       = form.get('notes')?.toString().trim() || null
     const effective   = form.get('effective_date')?.toString().trim() || null
@@ -205,6 +215,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     const insertRow = {
       association_code:  upperCode,
       category,
+      language,
       subcategory,
       source:            'upload' as DocumentSource,
       storage_path:      storagePath,
@@ -237,7 +248,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     // no category (defensive — should always have one but the column
     // is text-typed, not enum).
     if (inserted?.id && category) {
-      await archivePriorActiveVersions(upperCode, category, inserted.id, actorEmail(session))
+      await archivePriorActiveVersions(upperCode, category, language, inserted.id, actorEmail(session))
     }
 
     // Don't echo extracted_text back — same rationale as GET.
@@ -257,6 +268,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
   let body: {
     source?:           DocumentSource | 'upload_complete'
     category?:         string
+    language?:         string
     subcategory?:      string | null
     drive_url?:        string | null
     filename?:         string
@@ -287,6 +299,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     }
 
     const category = normalizeCategory(body.category)
+    const language = normalizeLanguage(body.language)
     const mime     = body.mime_type ?? null
 
     // Fetch the file from storage to extract text. This bypasses
@@ -314,6 +327,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
       .insert({
         association_code:  upperCode,
         category,
+        language,
         subcategory:       body.subcategory?.trim() || null,
         source:            'upload',
         storage_path:      storagePath,
@@ -339,7 +353,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     }
 
     if (inserted?.id && category) {
-      await archivePriorActiveVersions(upperCode, category, inserted.id, actorEmail(session))
+      await archivePriorActiveVersions(upperCode, category, language, inserted.id, actorEmail(session))
     }
     return NextResponse.json({
       ok:       true,
@@ -356,11 +370,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     }
   }
 
+  const linkCategory = normalizeCategory(body.category)
+  const linkLanguage = normalizeLanguage(body.language)
   const { data: inserted, error } = await supabaseAdmin
     .from('association_documents')
     .insert({
       association_code:  upperCode,
-      category:          normalizeCategory(body.category),
+      category:          linkCategory,
+      language:          linkLanguage,
       subcategory:       body.subcategory?.trim() || null,
       source,
       storage_path:      null,
@@ -386,7 +403,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
 
   // Same auto-archive behavior on the JSON path (drive link / note).
   if (inserted?.id && inserted?.category) {
-    await archivePriorActiveVersions(upperCode, inserted.category, inserted.id, actorEmail(session))
+    await archivePriorActiveVersions(upperCode, inserted.category, linkLanguage, inserted.id, actorEmail(session))
   }
   return NextResponse.json({ ok: true, document: { ...inserted, extracted_text: null } })
 }

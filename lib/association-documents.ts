@@ -109,8 +109,30 @@ export interface AssociationDocument {
    *  doesn't require re-uploading the file. */
   archived_at:        string | null
   archived_by_email:  string | null
+  /** ISO 639-1 language code of the document content (en/es/pt/...).
+   *  Defaults to 'en' for legacy rows. Lets the same association have
+   *  multiple language versions of the same category — applicant picks
+   *  which one to read + sign. */
+  language:           string
   created_at:         string
   updated_at:         string
+}
+
+/** Languages MAIA's apply flow supports. Keep aligned with the
+ *  translations in components/ApplicationForm.tsx — adding a new
+ *  language requires updating both this list and the translation
+ *  blocks. */
+export const SUPPORTED_LANGUAGES: ReadonlyArray<{ code: string; label: string }> = [
+  { code: 'en', label: 'English' },
+  { code: 'es', label: 'Español' },
+  { code: 'pt', label: 'Português' },
+  { code: 'fr', label: 'Français' },
+  { code: 'he', label: 'עברית' },
+  { code: 'ru', label: 'Русский' },
+]
+
+export function languageLabel(code: string): string {
+  return SUPPORTED_LANGUAGES.find(l => l.code === code)?.label ?? code.toUpperCase()
 }
 
 /** Returns true when the file's mime + extension suggest we can pull

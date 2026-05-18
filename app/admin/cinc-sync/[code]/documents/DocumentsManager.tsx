@@ -16,7 +16,9 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   CATEGORIES,
+  SUPPORTED_LANGUAGES,
   categoryLabel,
+  languageLabel,
   type AssociationDocument,
 } from '@/lib/association-documents'
 
@@ -50,18 +52,29 @@ export default function DocumentsManager({ assocCode }: Props) {
 
   function refresh() { setReloadKey(k => k + 1) }
 
-  // Partition by category, then by current/archived. Each category
-  // gets one "current" (newest non-archived) and N "previous" rows
-  // (every other row in the same bucket, regardless of archive flag —
-  // a stray active row would also surface in history so staff can
-  // spot the anomaly).
-  const byCategory: Record<string, { current: AssociationDocument | null; previous: AssociationDocument[] }> = {}
+  // Partition by category, then by language, then current/archived.
+  // Each (category, language) pair has its own current version + its
+  // own history — so English Rules and Spanish Rules don't interact.
+  type LangBucket = { current: AssociationDocument | null; previous: AssociationDocument[] }
+  type CatBuckets = { perLanguage: Map<string, LangBucket>; allLanguages: string[] }
+  const byCategory: Record<string, CatBuckets> = {}
   for (const cat of CATEGORIES) {
     const all = docs.filter(d => d.category === cat.key)
       .sort((a, b) => (a.created_at > b.created_at ? -1 : 1))
-    const current = all.find(d => !d.archived_at) ?? null
-    const previous = all.filter(d => d.id !== current?.id)
-    byCategory[cat.key] = { current, previous }
+    const perLanguage = new Map<string, LangBucket>()
+    for (const d of all) {
+      const lang = d.language || 'en'
+      const bucket = perLanguage.get(lang) ?? { current: null, previous: [] }
+      if (!bucket.current && !d.archived_at) bucket.current = d
+      else bucket.previous.push(d)
+      perLanguage.set(lang, bucket)
+    }
+    // Sort languages by code so the listing is stable; English first
+    // since it's the default + the only one applicants are guaranteed
+    // to see (the apply step falls back to English when their lang
+    // doesn't have a version).
+    const allLanguages = [...perLanguage.keys()].sort((a, b) => a === 'en' ? -1 : b === 'en' ? 1 : a.localeCompare(b))
+    byCategory[cat.key] = { perLanguage, allLanguages }
   }
 
   return (
@@ -75,47 +88,62 @@ export default function DocumentsManager({ assocCode }: Props) {
       {loading && <div className="text-sm text-gray-500">Loading documents…</div>}
 
       {!loading && CATEGORIES.map(cat => {
-        const { current, previous } = byCategory[cat.key]
-        const historyOpen = !!showHistory[cat.key]
+        const { perLanguage, allLanguages } = byCategory[cat.key]
         return (
           <section key={cat.key} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 border-b border-gray-100 px-4 py-2.5 flex items-baseline justify-between">
               <h2 className="text-sm font-semibold text-gray-700 [font-family:var(--font-mono)]">{cat.label}</h2>
               <span className="text-[10px] text-gray-400 uppercase font-mono">
-                {!current
-                  ? 'No current version'
-                  : `Current + ${previous.length} previous version${previous.length === 1 ? '' : 's'}`}
+                {allLanguages.length === 0
+                  ? 'No file yet'
+                  : `${allLanguages.length} language${allLanguages.length === 1 ? '' : 's'} uploaded`}
               </span>
             </div>
-            {current
-              ? (
-                <ul className="divide-y divide-gray-50">
-                  <DocumentRow doc={current} assocCode={assocCode} variant="current" onChanged={refresh} />
-                </ul>
-              )
-              : (
-                <div className="px-4 py-6 text-center text-xs text-gray-400">
-                  Upload the current {cat.label.toLowerCase()} PDF above. Applicants will be required to acknowledge it before signing.
-                </div>
-              )}
-            {previous.length > 0 && (
-              <div className="border-t border-gray-100 bg-gray-50/40">
-                <button
-                  type="button"
-                  onClick={() => setShowHistory(prev => ({ ...prev, [cat.key]: !historyOpen }))}
-                  className="w-full px-4 py-2 text-[11px] font-mono uppercase tracking-wide text-gray-500 hover:text-gray-800 text-left"
-                >
-                  {historyOpen ? '▾' : '▸'} {previous.length} previous version{previous.length === 1 ? '' : 's'}
-                </button>
-                {historyOpen && (
-                  <ul className="divide-y divide-gray-100">
-                    {previous.map(d => (
-                      <DocumentRow key={d.id} doc={d} assocCode={assocCode} variant="archived" onChanged={refresh} />
-                    ))}
-                  </ul>
-                )}
+            {allLanguages.length === 0 && (
+              <div className="px-4 py-6 text-center text-xs text-gray-400">
+                Upload the current {cat.label.toLowerCase()} PDF above. Applicants will be required to acknowledge it before signing.
               </div>
             )}
+            {allLanguages.map(lang => {
+              const bucket = perLanguage.get(lang)!
+              const historyKey = `${cat.key}:${lang}`
+              const historyOpen = !!showHistory[historyKey]
+              return (
+                <div key={lang} className="border-t border-gray-100 first:border-t-0">
+                  <div className="px-4 py-1.5 bg-indigo-50/50 flex items-baseline justify-between">
+                    <span className="text-[11px] font-mono uppercase tracking-wide text-indigo-700">
+                      🌐 {languageLabel(lang)}{lang === 'en' ? ' (default)' : ''}
+                    </span>
+                    <span className="text-[10px] font-mono uppercase text-indigo-500">
+                      {bucket.current ? 'Current' : 'No current'}{bucket.previous.length > 0 ? ` · ${bucket.previous.length} prev` : ''}
+                    </span>
+                  </div>
+                  {bucket.current && (
+                    <ul className="divide-y divide-gray-50">
+                      <DocumentRow doc={bucket.current} assocCode={assocCode} variant="current" onChanged={refresh} />
+                    </ul>
+                  )}
+                  {bucket.previous.length > 0 && (
+                    <div className="bg-gray-50/40">
+                      <button
+                        type="button"
+                        onClick={() => setShowHistory(prev => ({ ...prev, [historyKey]: !historyOpen }))}
+                        className="w-full px-4 py-2 text-[11px] font-mono uppercase tracking-wide text-gray-500 hover:text-gray-800 text-left"
+                      >
+                        {historyOpen ? '▾' : '▸'} {bucket.previous.length} previous {languageLabel(lang)} version{bucket.previous.length === 1 ? '' : 's'}
+                      </button>
+                      {historyOpen && (
+                        <ul className="divide-y divide-gray-100">
+                          {bucket.previous.map(d => (
+                            <DocumentRow key={d.id} doc={d} assocCode={assocCode} variant="archived" onChanged={refresh} />
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </section>
         )
       })}
@@ -131,6 +159,7 @@ export default function DocumentsManager({ assocCode }: Props) {
 
 function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: () => void }) {
   const [category, setCategory] = useState<string>(CATEGORIES[0].key)
+  const [language, setLanguage] = useState<string>('en')
   const [notes, setNotes] = useState('')
   const [effective, setEffective] = useState('')
   const [filename, setFilename] = useState('')
@@ -183,7 +212,7 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
       const urlRes = await fetch(`/api/admin/associations/${assocCode}/documents/upload-url`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ filename: file.name, category }),
+        body:    JSON.stringify({ filename: file.name, category, language }),
       })
       const urlData = await urlRes.json()
       if (!urlRes.ok) throw new Error(urlData?.error ?? 'Could not get upload URL')
@@ -235,6 +264,7 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
           mime_type:        file.type || 'application/pdf',
           file_size_bytes:  file.size,
           category,
+          language,
           notes:            notes || null,
           effective_date:   effective || null,
         }),
@@ -261,7 +291,7 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <label className="block">
           <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">Document type</span>
           <select
@@ -272,6 +302,21 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
           >
             {CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
+        </label>
+
+        <label className="block">
+          <span className="text-[10px] font-mono uppercase tracking-wide text-gray-600">Language</span>
+          <select
+            value={language}
+            onChange={e => setLanguage(e.target.value)}
+            disabled={busy}
+            className="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-[#f26a1b] bg-white"
+          >
+            {SUPPORTED_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+          </select>
+          <span className="text-[10px] text-gray-500 block mt-0.5">
+            Uploading a Spanish version of Rules doesn&apos;t archive the English one. Each language has its own version line.
+          </span>
         </label>
 
         <label className="block">
