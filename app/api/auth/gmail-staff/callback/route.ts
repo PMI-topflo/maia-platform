@@ -54,18 +54,23 @@ export async function GET(req: NextRequest) {
 
     const tokenExpiry = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
 
-    // Save (or update) to staff_gmail_accounts
+    // Save (or update) to staff_gmail_accounts.
+    // Re-connection also clears the stale diagnostic fields so the
+    // /admin/tools row immediately drops the NEEDS RECONNECT badge.
+    const nowIso = new Date().toISOString()
     const { error: upsertErr } = await supabaseAdmin
       .from('staff_gmail_accounts')
       .upsert({
-        gmail_address: user.email,
-        display_name:  user.name ?? null,
-        refresh_token: tokens.refresh_token,
-        access_token:  tokens.access_token,
-        token_expiry:  tokenExpiry,
-        connected_by:  connectedBy,
-        active:        true,
-        updated_at:    new Date().toISOString(),
+        gmail_address:        user.email,
+        display_name:         user.name ?? null,
+        refresh_token:        tokens.refresh_token,
+        access_token:         tokens.access_token,
+        token_expiry:         tokenExpiry,
+        connected_by:         connectedBy,
+        active:               true,
+        last_watch_error:     null,
+        last_watch_error_at:  null,
+        updated_at:           nowIso,
       }, { onConflict: 'gmail_address' })
 
     if (upsertErr) {
@@ -81,14 +86,25 @@ export async function GET(req: NextRequest) {
         await supabaseAdmin
           .from('staff_gmail_accounts')
           .update({
-            history_id:  watch.historyId,
-            watch_expiry: new Date(Number(watch.expiration)).toISOString(),
-            updated_at:  new Date().toISOString(),
+            history_id:             watch.historyId,
+            watch_expiry:           new Date(Number(watch.expiration)).toISOString(),
+            last_watch_renewed_at:  nowIso,
+            updated_at:             nowIso,
           })
           .eq('gmail_address', user.email)
       } catch (watchErr) {
         // Watch setup failure is non-fatal — emails still appear if watch is set up manually
-        console.error('[gmail-staff/callback] Watch setup failed:', watchErr)
+        const msg = watchErr instanceof Error ? watchErr.message : String(watchErr)
+        console.error('[gmail-staff/callback] Watch setup failed:', msg)
+        // Re-stamp the error so the UI surfaces it instead of silently
+        // showing green when the watch wasn't actually registered.
+        await supabaseAdmin
+          .from('staff_gmail_accounts')
+          .update({
+            last_watch_error:     msg.slice(0, 500),
+            last_watch_error_at:  nowIso,
+          })
+          .eq('gmail_address', user.email)
       }
     }
 
