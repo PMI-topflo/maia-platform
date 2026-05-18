@@ -41,6 +41,10 @@ export default function ChangeReasonModal({ ticketId, field, fromValue, toValue,
   const [error,       setError]       = useState<string | null>(null)
   const [happenedAt,  setHappenedAt]  = useState(localInputNow())
   const [reason,      setReason]      = useState('')
+  // Optional "next due date" — when staff moves a ticket to pending /
+  // waiting_external they often want to schedule when to check back.
+  // Empty = no change to due_at.
+  const [nextDueAt,   setNextDueAt]   = useState('')
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -51,14 +55,17 @@ export default function ChangeReasonModal({ ticketId, field, fromValue, toValue,
     setSubmitting(true)
     setError(null)
     try {
+      const body: Record<string, unknown> = {
+        [field]:     toValue,
+        happened_at: new Date(happenedAt).toISOString(),
+        reason:      reason.trim() || undefined,
+      }
+      if (nextDueAt) body.due_at = new Date(nextDueAt).toISOString()
+
       const res = await fetch(`/api/admin/tickets/${ticketId}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          [field]:     toValue,
-          happened_at: new Date(happenedAt).toISOString(),
-          reason:      reason.trim() || undefined,
-        }),
+        body:    JSON.stringify(body),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? 'Update failed')
@@ -108,6 +115,18 @@ export default function ChangeReasonModal({ ticketId, field, fromValue, toValue,
             />
             <p className="text-[11px] text-gray-400 mt-1">
               Defaults to now. Backdate if you're recording something that already happened.
+            </p>
+          </Field>
+
+          <Field label="Next due date (optional)">
+            <input
+              type="datetime-local"
+              value={nextDueAt}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setNextDueAt(e.target.value)}
+              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-[#f26a1b]"
+            />
+            <p className="text-[11px] text-gray-400 mt-1">
+              When should staff check back on this? Leave blank to keep the current due date.
             </p>
           </Field>
 
