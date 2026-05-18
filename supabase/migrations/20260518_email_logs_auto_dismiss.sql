@@ -47,9 +47,11 @@ COMMENT ON COLUMN public.email_logs.auto_dismiss_reason IS
   'When set, dismissed_at was set by the system (not by staff). noise_sender = matched email_noise_senders. internal = both sender + recipient are PMI staff.';
 
 -- 3. Seed the denylist with the top noisy senders from production.
+--    Only exact-email entries — domain patterns are risky because
+--    real people (e.g. shemaiah.eddy@cincsystems.com, the controller)
+--    share domains with automated noise.
 INSERT INTO public.email_noise_senders (pattern, reason, added_by_email) VALUES
   ('donotreply@cincsystems.net',             'CINC automated notifications',     'system'),
-  ('@cincsystems.com',                       'CINC support team auto-notifications', 'system'),
   ('videorequest@enverasystems.com',         'Envera video / access alerts',     'system'),
   ('listingalert@propertyblasthomes.com',    'Real estate listing alerts',       'system'),
   ('reminders@facebookmail.com',             'Facebook notification emails',     'system'),
