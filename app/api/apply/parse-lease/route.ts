@@ -28,10 +28,12 @@ Extract the following and return STRICT JSON only — no markdown, no prose:
   "unit": "<unit/apt/suite number only (e.g. '203', 'A', '14B') — or null>",
   "moveIn": "<lease start date or closing date in YYYY-MM-DD format — or null>",
   "entity": "<if the tenant or buyer is a company, LLC, Inc, Corp, Trust, LP, LLP, Foundation, or any legal entity — return its exact legal name; otherwise null>",
-  "tenants": ["<full legal name of each individual tenant or buyer listed — exclude entity names>"]
+  "tenants": ["<full legal name of each individual tenant or buyer listed — exclude entity names>"],
+  "landlord": "<full legal name of the LANDLORD / LESSOR / SELLER / OWNER as written on the document — include company suffix (LLC, Inc, Trust, etc.) — null if not stated>"
 }
 If a field cannot be determined, use null. For tenants use an empty array if none found.
 If the buyer/tenant is an entity, put its name in 'entity' and leave 'tenants' empty or with any individual co-signers listed separately.
+The landlord is the party RENTING OUT or SELLING the property — often labeled "Lessor", "Landlord", "Seller", "Owner", or "Grantor". This is critical for matching the property to its owner record.
 Do NOT include any text outside the JSON object.`
 
 export async function POST(req: NextRequest) {
@@ -87,9 +89,10 @@ export async function POST(req: NextRequest) {
     moveIn: string | null
     entity: string | null
     tenants: string[]
+    landlord: string | null
   }
 
-  let extracted: Extracted = { association: null, address: null, unit: null, moveIn: null, entity: null, tenants: [] }
+  let extracted: Extracted = { association: null, address: null, unit: null, moveIn: null, entity: null, tenants: [], landlord: null }
 
   // Normalise MIME type to what Gemini accepts
   const geminiMime = mimeType.includes('pdf') ? 'application/pdf'
@@ -119,6 +122,19 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Match extracted association to known associations ─────────────
+  // Strategy (in order of trust):
+  //   1. Name match — Gemini sometimes pulls a clean HOA name like
+  //      "7636 Abbott Avenue Condominium Association, Inc.".
+  //   2. Address match — most leases just list the property address;
+  //      we look up owners.address + city + zip + street_number to find
+  //      which association owns that unit.
+  //   3. Landlord name match — the lessor named on the lease should be
+  //      the unit owner in MAIA. Match owners.first_name + last_name
+  //      + entity_name fuzzy.
+  //
+  // We try ALL signals and keep the best confidence score. If multiple
+  // signals agree, that's a strong match. If they conflict, we tip
+  // toward the user's dropdown selection (passed as selected_assoc_code).
   const { data: assocs } = await supabaseAdmin
     .from('associations')
     .select('association_code, association_name, principal_address, city, state, zip')
@@ -127,16 +143,41 @@ export async function POST(req: NextRequest) {
   type AssocRow = { association_code: string; association_name: string; principal_address: string; city: string; state: string; zip: string }
   let matched: AssocRow | null = null
 
-  // The caller (the apply form) optionally passes the association code
-  // the applicant pre-selected from the dropdown. We use it as a
-  // tiebreaker: if the lease scrubs to a borderline match AND the
-  // candidate is the one the applicant picked, we accept it.
   const userSelectedCode = (form.get('selected_assoc_code')?.toString() ?? '').toUpperCase().trim()
 
+  // Signal 1: name match
+  let nameMatchedCode: string | null = null
   if (assocs && extracted.association) {
-    // AssocRow has stricter required fields than the generic AssocRowMatchable
-    // the matcher works with; cast back since we know the shape lines up.
-    matched = matchAssociation(extracted.association, extracted.address, assocs as AssocRow[], userSelectedCode || null) as AssocRow | null
+    const r = matchAssociation(extracted.association, extracted.address, assocs as AssocRow[], null) as AssocRow | null
+    if (r) nameMatchedCode = r.association_code
+  }
+
+  // Signal 2: address match — query owners by extracted address signals
+  let addressMatchedCode: string | null = null
+  if (extracted.address) {
+    addressMatchedCode = await findAssociationByAddress(extracted.address)
+  }
+
+  // Signal 3: landlord match — look up owner by the lessor name on the
+  // lease. Skips when the landlord is one of OUR management entities
+  // (PMI, the management company itself) since those won't be in the
+  // owners table.
+  let landlordMatchedCode: string | null = null
+  if (extracted.landlord && !looksLikeManagementCompany(extracted.landlord)) {
+    landlordMatchedCode = await findAssociationByOwnerName(extracted.landlord)
+  }
+
+  // Pick the winning code: prefer signals that AGREE, fall back to
+  // the user's dropdown when ambiguous.
+  const winningCode = resolveWinningCode({
+    nameMatchedCode,
+    addressMatchedCode,
+    landlordMatchedCode,
+    userSelectedCode: userSelectedCode || null,
+  })
+
+  if (winningCode && assocs) {
+    matched = (assocs as AssocRow[]).find(a => a.association_code === winningCode) ?? null
   }
 
   // ── Save to Google Drive (non-fatal if not configured) ────────────
@@ -422,4 +463,161 @@ function matchAssociation(
   }
 
   return best.row
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Address-based matching
+//
+// Many leases don't name the HOA at all — they only carry the property
+// address. We look up owners whose address fields are consistent with
+// the extracted address, then return the association_code that owner
+// belongs to. Most-frequent code among matching owner rows wins, so
+// a stray duplicate doesn't pull the match the wrong way.
+// ─────────────────────────────────────────────────────────────────────
+async function findAssociationByAddress(extractedAddress: string): Promise<string | null> {
+  const addr = extractedAddress.toLowerCase().trim()
+  if (!addr) return null
+
+  // Pull out the strong signals: ZIP, leading street number, and the
+  // street name word (e.g. "abbott"). All three combined are nearly
+  // unique even across associations.
+  const zip = addr.match(/\b(\d{5})(?:-\d{4})?\b/)?.[1] ?? null
+  const streetNo = addr.match(/\b(\d{3,6})\s+([a-z]+)/)?.[1] ?? null
+  const streetName = addr.match(/\b\d{3,6}\s+([a-z]+)/)?.[1] ?? null
+
+  // No usable signal at all — bail.
+  if (!zip && !streetNo) return null
+
+  // Cast wide on initial query then filter in memory. We're already
+  // hitting the row LIMIT, so a couple of dozen-row pull is cheap and
+  // saves us building complex OR clauses.
+  const { data: owners } = await supabaseAdmin
+    .from('owners')
+    .select('association_code, address, street_number, city, state, zip_code')
+    .or('status.neq.previous,status.is.null')
+    .limit(2000)
+
+  if (!owners?.length) return null
+
+  const tally = new Map<string, number>()
+  for (const o of owners as Array<{
+    association_code: string | null
+    address: string | null
+    street_number: string | number | null
+    city: string | null
+    state: string | null
+    zip_code: string | null
+  }>) {
+    if (!o.association_code) continue
+    let hits = 0
+    if (zip && o.zip_code === zip) hits++
+    if (streetNo && String(o.street_number ?? '') === streetNo) hits++
+    if (streetName && (o.address ?? '').toLowerCase().includes(streetName)) hits++
+    // Need at least TWO signals lining up to count, so a stray owner
+    // with a matching ZIP doesn't pull the association the wrong way.
+    if (hits >= 2) tally.set(o.association_code, (tally.get(o.association_code) ?? 0) + 1)
+  }
+
+  if (tally.size === 0) return null
+  // Pick the association_code that the most owner rows agreed on.
+  let bestCode: string | null = null
+  let bestCount = 0
+  for (const [code, count] of tally) {
+    if (count > bestCount) { bestCount = count; bestCode = code }
+  }
+  return bestCode
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Landlord-based matching
+//
+// The lessor named on the lease should be one of our unit owners.
+// Match across first_name + last_name + entity_name with the same
+// normalize-and-token-overlap strategy used for assoc names.
+// ─────────────────────────────────────────────────────────────────────
+async function findAssociationByOwnerName(landlord: string): Promise<string | null> {
+  const target = normalizeName(landlord)
+  if (target.tokens.length === 0) return null
+
+  const { data: owners } = await supabaseAdmin
+    .from('owners')
+    .select('association_code, first_name, last_name, entity_name')
+    .or('status.neq.previous,status.is.null')
+    .limit(5000)
+
+  if (!owners?.length) return null
+
+  type OwnerLite = {
+    association_code: string | null
+    first_name: string | null
+    last_name: string | null
+    entity_name: string | null
+  }
+
+  let best: { code: string; score: number } | null = null
+  for (const o of owners as OwnerLite[]) {
+    if (!o.association_code) continue
+    const candidate = [o.entity_name, o.first_name, o.last_name].filter(Boolean).join(' ').trim()
+    if (!candidate) continue
+    const sc = scoreName(landlord, candidate)
+    if (sc < 55) continue
+    if (!best || sc > best.score) best = { code: o.association_code, score: sc }
+  }
+  return best?.code ?? null
+}
+
+// PMI itself, its property management LLCs, and similar agent names
+// shouldn't be looked up in the owners table — they're the management
+// company on behalf of the owner, not the owner.
+function looksLikeManagementCompany(name: string): boolean {
+  const n = name.toLowerCase()
+  return (
+    n.includes('pmi') ||
+    n.includes('property management') ||
+    n.includes('management company') ||
+    n.includes('top florida properties')
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Combine signals
+//
+// Truth table priority:
+//   - All three signals agree → that code (highest confidence)
+//   - Two signals agree → that code
+//   - Only one signal fired → that code
+//   - Signals conflict → user-selected code wins if it matches at
+//     least one signal; otherwise the name-matched code wins; otherwise
+//     null (and the UI will show "not recognized")
+// ─────────────────────────────────────────────────────────────────────
+function resolveWinningCode(signals: {
+  nameMatchedCode:     string | null
+  addressMatchedCode:  string | null
+  landlordMatchedCode: string | null
+  userSelectedCode:    string | null
+}): string | null {
+  const present = [signals.nameMatchedCode, signals.addressMatchedCode, signals.landlordMatchedCode]
+    .filter((c): c is string => c !== null)
+
+  if (present.length === 0) return signals.userSelectedCode
+
+  const tally = new Map<string, number>()
+  for (const code of present) tally.set(code, (tally.get(code) ?? 0) + 1)
+
+  const sorted = [...tally.entries()].sort((a, b) => b[1] - a[1])
+  const [topCode, topCount] = sorted[0]
+
+  // Clear winner — at least one signal pointing at this code with no
+  // disagreement at the top.
+  if (sorted.length === 1) return topCode
+  if (topCount > sorted[1][1]) return topCode
+
+  // Conflict between two equally-supported codes. Prefer the user's
+  // dropdown selection if it's one of them.
+  if (signals.userSelectedCode) {
+    const upper = signals.userSelectedCode.toUpperCase()
+    if (sorted.some(([c]) => c.toUpperCase() === upper)) return signals.userSelectedCode
+  }
+  // Otherwise lean toward the name signal — it's the most specific.
+  return signals.nameMatchedCode ?? topCode
 }
