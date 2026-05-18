@@ -24,7 +24,10 @@ export const dynamic = 'force-dynamic'
 interface Body {
   filename?:  string
   category?:  string
+  language?:  string
 }
+
+const ALLOWED_LANGUAGES = new Set(['en', 'es', 'pt', 'fr', 'he', 'ru'])
 
 // Mirrors the bucket bootstrap in the main documents route so callers
 // hitting upload-url on a fresh environment don't fail with "bucket not
@@ -82,6 +85,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
   }
   const category = (body.category ?? '').trim().toLowerCase()
   const safeCategory = CATEGORY_KEYS.has(category) ? category : 'other'
+  const lang = (body.language ?? '').trim().toLowerCase()
+  const safeLanguage = ALLOWED_LANGUAGES.has(lang) ? lang : 'en'
 
   const bucketCheck = await ensureBucket()
   if (!bucketCheck.ok) {
@@ -95,7 +100,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
   }
 
   const safeName = filename.replace(/[^\w\-.]/g, '_').slice(0, 120)
-  const storagePath = `${upperCode}/${safeCategory}/${Date.now()}_${crypto.randomUUID().slice(0, 8)}_${safeName}`
+  // Language is encoded into the path too so staff browsing the bucket
+  // directly can tell at a glance which file belongs to which lang.
+  const storagePath = `${upperCode}/${safeCategory}/${safeLanguage}/${Date.now()}_${crypto.randomUUID().slice(0, 8)}_${safeName}`
 
   const { data, error } = await supabaseAdmin.storage
     .from(STORAGE_BUCKET)

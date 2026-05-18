@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import SiteHeader from "@/components/SiteHeader";
 import { loadStripe } from "@stripe/stripe-js";
 import { createClient } from "@supabase/supabase-js";
+import { SignaturePad, WebcamCapture } from "@/components/SignatureEvidence";
 
 // ── Supabase client — used only for Storage uploads (anon key) ────────────────
 const supabase = createClient(
@@ -826,23 +827,48 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [leaseConfirmed, setLeaseConfirmed] = useState(!!preselectedAssociation);
   const [leaseParseError, setLeaseParseError] = useState("");
   const [rulesSections, setRulesSections] = useState<string[]>([]);
-  // Governing documents the applicant must download + acknowledge
-  // before signing the rules step. Populated by /api/apply/
-  // association-documents once an association is locked in. Each row
-  // is the CURRENT version per category (condo_docs, rules_regs).
-  const [governingDocs, setGoverningDocs] = useState<Array<{
+  // Governing documents required for the rules acknowledgment step.
+  // The endpoint groups by category and lists EVERY uploaded language
+  // version per category (English Rules, Spanish Rules, etc.) so the
+  // applicant can pick which one to read + sign.
+  interface DocLangVersion {
     id:             string
+    language:       string
+    filename:       string
+    effective_date: string | null
+    view_url:       string
+  }
+  interface DocCategory {
     category:       string
     category_label: string
-    filename:       string
-    download_url:   string
-    effective_date: string | null
-  }>>([]);
-  // Track which doc IDs the applicant clicked to download — used to
-  // make the signature field require they've at least opened each one
-  // and to record exactly which document versions were acknowledged
-  // when the application was submitted (audit trail).
+    languages:      DocLangVersion[]
+  }
+  const [governingDocCategories, setGoverningDocCategories] = useState<DocCategory[]>([]);
+  // Which language version the applicant is currently looking at per
+  // category (category key → doc.id). Defaults to the applicant's UI
+  // language when a version exists, else falls back to English, else
+  // the first available language.
+  const [selectedDocPerCategory, setSelectedDocPerCategory] = useState<Record<string, string>>({});
+  // doc.ids the applicant has explicitly confirmed they've read. The
+  // signature step requires at least one version of EACH category to
+  // be in this set before they can sign.
   const [docsViewed, setDocsViewed] = useState<Set<string>>(new Set());
+
+  // Signature evidence captured at sign-time. All optional from a UX
+  // standpoint (we still accept a typed name + viewed docs) but the
+  // drawn signature is strongly encouraged. IP is added server-side
+  // by /api/apply/record-signature-evidence/[id] post-insert.
+  const [drawnSignature, setDrawnSignature] = useState<string | null>(null);
+  const [applicantPhoto, setApplicantPhoto] = useState<string | null>(null);
+  const [geolocation, setGeolocation] = useState<{
+    lat: number; lon: number; accuracy_meters: number; timestamp_ms: number;
+  } | null>(null);
+  const [geoStatus, setGeoStatus] = useState<'idle' | 'asking' | 'granted' | 'denied' | 'unavailable'>('idle');
+  // Lazy-fetched extracted text per doc.id, populated when the applicant
+  // expands the text panel below the iframe. Cached so toggling doesn't
+  // re-fetch.
+  const [extractedTextById, setExtractedTextById] = useState<Record<string, string>>({});
+  const [textPanelOpenById, setTextPanelOpenById] = useState<Record<string, boolean>>({});
   const [appType, setAppType]         = useState("");
   const [coupleOption, setCoupleOption] = useState("");
   const [applicants, setApplicants]   = useState<Record<string, string>[]>([{}]);
@@ -856,7 +882,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [error, setError]             = useState("");
   const [paying, setPaying]           = useState(false);
   const [langOpen, setLangOpen]       = useState(false);
-  const [applicationId, setApplicationId] = useState(null);
+  const [applicationId, setApplicationId] = useState<string | null>(null);
   const [isMarriedCouple, setIsMarriedCouple] = useState<boolean | null>(null);
   const [occupants, setOccupants] = useState<{name: string; age: string; email: string}[]>([]);
   const [rulesAgreed, setRulesAgreed] = useState(false);
@@ -869,6 +895,69 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const isCommercial = appType === "commercial";
 
   // ── Load associations from the associations table (via API route) ─────────
+  // On mount, if the URL has ?id=<applicationId>, load the saved
+  // draft and re-hydrate all the form state. Lets applicants close
+  // the tab + come back from an emailed link without losing progress.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const resumeId = params.get('id');
+    if (!resumeId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/apply/load-draft/${encodeURIComponent(resumeId)}`);
+        const data = await res.json() as { draft: Record<string, unknown> | null; submitted?: boolean };
+        if (cancelled || !data.draft) return;
+        const d = data.draft as {
+          id?: string
+          association?: string | null
+          app_type?: string | null
+          draft_step?: number | null
+          draft_data?: {
+            selectedDocPerCategory?: Record<string, string>
+            docsViewed?: string[]
+            leaseData?: LeaseData | null
+            hasCert?: boolean
+          } | null
+          applicants?: Record<string, string>[] | null
+          entity_name?: string | null
+          sunbiz_id?: string | null
+          principals?: { name: string; dob: string }[] | null
+          occupants?: { name: string; age: string; email: string }[] | null
+          is_married_couple?: boolean | null
+          couple_has_cert?: boolean | null
+          language?: string | null
+          rules_signature?: string | null
+        }
+        setApplicationId(d.id ?? null);
+        if (d.association)  setAssociation(d.association);
+        if (d.app_type)     setAppType(d.app_type);
+        if (d.applicants?.length) setApplicants(d.applicants);
+        if (d.entity_name)  setEntityName(d.entity_name);
+        if (d.sunbiz_id)    setSunbizId(d.sunbiz_id);
+        if (d.principals?.length) setPrincipals(d.principals);
+        if (d.occupants?.length)  setOccupants(d.occupants);
+        if (typeof d.is_married_couple === 'boolean') setIsMarriedCouple(d.is_married_couple);
+        if (typeof d.couple_has_cert === 'boolean') setCoupleOption(d.couple_has_cert ? 'yes' : 'no');
+        if (d.language)     setLang(d.language);
+        if (d.rules_signature) setRulesSignature(d.rules_signature);
+        if (d.draft_data?.selectedDocPerCategory) setSelectedDocPerCategory(d.draft_data.selectedDocPerCategory);
+        if (Array.isArray(d.draft_data?.docsViewed)) setDocsViewed(new Set(d.draft_data.docsViewed));
+        if (d.draft_data?.leaseData) {
+          setLeaseData(d.draft_data.leaseData);
+          setLeaseConfirmed(true);
+        }
+        if (typeof d.draft_step === 'number') setStep(d.draft_step);
+      } catch { /* keep form fresh if load fails */ }
+    })();
+    return () => { cancelled = true };
+  // Run exactly once on mount — re-loading whenever any field changes
+  // would obliterate the user's edits.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     async function fetchAssociations() {
       setAssocLoading(true);
@@ -951,15 +1040,33 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         .then((r) => r.json())
         .then(({ sections }: { sections: string[] }) => setRulesSections(sections))
         .catch(() => setRulesSections([]));
-      // Pull the current Condo Docs + Rules PDFs (with short-lived
-      // signed URLs) so the rules step can show download buttons. If
-      // the call fails or returns an empty array we fall back to the
-      // legacy text-only "Topics covered" list above.
+      // Pull the current Condo Docs + Rules versions for every
+      // uploaded language. The new endpoint groups them so the rules
+      // step can show a language picker per category.
       fetch(`/api/apply/association-documents?code=${encodeURIComponent(code)}`)
         .then((r) => r.json())
-        .then(({ documents }: { documents: typeof governingDocs }) => setGoverningDocs(documents ?? []))
-        .catch(() => setGoverningDocs([]));
+        .then((data: { by_category?: DocCategory[] }) => {
+          const cats = data.by_category ?? [];
+          setGoverningDocCategories(cats);
+          // Pick the applicant's UI language when available per
+          // category, else fall back to English, else the first
+          // uploaded language.
+          const initialSelection: Record<string, string> = {};
+          for (const cat of cats) {
+            const prefer = cat.languages.find(l => l.language === lang)
+              ?? cat.languages.find(l => l.language === 'en')
+              ?? cat.languages[0];
+            if (prefer) initialSelection[cat.category] = prefer.id;
+          }
+          setSelectedDocPerCategory(initialSelection);
+        })
+        .catch(() => {
+          setGoverningDocCategories([]);
+          setSelectedDocPerCategory({});
+        });
       setDocsViewed(new Set());
+      setExtractedTextById({});
+      setTextPanelOpenById({});
     }
     // Auto-select application type based on extracted data
     if (leaseData.extracted.entity) {
@@ -1068,20 +1175,97 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     // Block signature submission until every governing document has
     // been opened. Hardcoded English message — i18n keys live with the
     // other rules-step strings and can be added once the UX is locked.
-    if (step === 3 && governingDocs.length > 0 && docsViewed.size < governingDocs.length) {
-      // The doc-required strings include {n} for the count and {s} for
-      // the plural marker so translators can position them naturally
-      // (Spanish/Portuguese "documento(s)", French "document(s)", etc).
-      setError(
-        t.docsRequiredError
-          .replace("{n}", String(governingDocs.length))
-          .replace("{s}", governingDocs.length === 1 ? "" : "s")
-      )
-      return
+    if (step === 3 && governingDocCategories.length > 0) {
+      // Every required category must have its currently-selected doc
+      // version marked viewed before the applicant can sign.
+      const unread = governingDocCategories.filter(cat => {
+        const selId = selectedDocPerCategory[cat.category]
+        return !selId || !docsViewed.has(selId)
+      })
+      if (unread.length > 0) {
+        setError(
+          t.docsRequiredError
+            .replace("{n}", String(unread.length))
+            .replace("{s}", unread.length === 1 ? "" : "s")
+        )
+        return
+      }
     }
     if (step === 3 && !agreed) { setError(t.consentRequired); return; }
-    setStep((s) => s + 1);
+    const nextStep = step + 1;
+    setStep(nextStep);
+    // Save the in-progress draft so the applicant can resume from
+    // an emailed link if they close the tab here. Fire-and-forget —
+    // a save failure doesn't block their progress.
+    void saveDraft(nextStep);
   };
+
+  // ── Save draft for resume-later ────────────────────────────────────────────
+  // Builds the safe partial-update payload from current state and
+  // POSTs it to /api/apply/save-draft. If applicationId is null
+  // (first save), the endpoint inserts a placeholder row and returns
+  // the new id which we stash.
+  const saveDraft = useCallback(async (stepOverride?: number) => {
+    try {
+      const stepToSave = typeof stepOverride === 'number' ? stepOverride : step;
+      const payload = {
+        applicationId,
+        association:        association || null,
+        app_type:           appType || null,
+        draft_step:         stepToSave,
+        draft_data: {
+          // UI-only intermediate state. Sets serialize as arrays.
+          selectedDocPerCategory,
+          docsViewed: [...docsViewed],
+          leaseData,
+          hasCert,
+          // Don't put base64 signature / photo here — they live in
+          // their dedicated columns via record-signature-evidence.
+        },
+        applicants,
+        entity_name:        entityName || null,
+        sunbiz_id:          sunbizId || null,
+        principals,
+        occupants: occupants.length > 0 ? occupants : null,
+        is_married_couple:  isMarriedCouple,
+        couple_has_cert:    isCouple ? hasCert : null,
+        language:           lang,
+        // Email is captured from the primary applicant if present —
+        // lets us send a resume link without an explicit "save and
+        // continue" button.
+        resume_email:       applicants[0]?.email || null,
+      };
+      const res = await fetch('/api/apply/save-draft', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      const data = await res.json() as { applicationId?: string };
+      const newId = data.applicationId;
+      if (newId && !applicationId) {
+        setApplicationId(newId);
+      }
+      // Opportunistically send the resume link the first time we
+      // know BOTH an applicationId and the applicant's email. The
+      // server endpoint is cooldown-rate-limited (30 min per row +
+      // email), so this is safe to call on every step transition —
+      // duplicates get suppressed there.
+      const idForLink = newId ?? applicationId;
+      const primaryEmail = applicants[0]?.email;
+      if (idForLink && primaryEmail && /@/.test(primaryEmail)) {
+        void fetch('/api/apply/send-resume-link', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ applicationId: idForLink, email: primaryEmail, lang }),
+        });
+      }
+    } catch { /* non-fatal */ }
+  // selectedDocPerCategory, docsViewed, etc. are intentionally
+  // captured by ref via the closure — re-creating the callback on
+  // every state change is fine because saveDraft is only called
+  // imperatively, not registered as a hook dep elsewhere.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applicationId, association, appType, step, selectedDocPerCategory, docsViewed, leaseData, hasCert, applicants, entityName, sunbizId, principals, occupants, isMarriedCouple, isCouple, lang]);
 
   // ── Stripe checkout ────────────────────────────────────────────────────────
   const handlePay = async () => {
@@ -1109,12 +1293,15 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         rules_agreed_at: rulesSignature.trim() ? new Date().toISOString() : null,
         rules_signature: rulesSignature.trim() || null,
         // Audit-trail field: exact association_documents.id of every
-        // governing doc the applicant opened before signing. When staff
-        // upload a new version of the Rules later, we can answer "what
-        // version did this person agree to?" by looking these up.
-        acknowledged_document_ids: governingDocs.length > 0
-          ? governingDocs.filter(d => docsViewed.has(d.id)).map(d => d.id)
-          : [],
+        // governing doc the applicant marked as read before signing.
+        // When staff upload a new version of the Rules later, we can
+        // answer "what version did this person agree to?" by looking
+        // these up. Stores the SELECTED-AND-VIEWED versions across all
+        // required categories so the trail captures both which
+        // language they signed and which generation of the doc.
+        acknowledged_document_ids: governingDocCategories
+          .map(cat => selectedDocPerCategory[cat.category])
+          .filter((id): id is string => !!id && docsViewed.has(id)),
       };
 
       let appId = applicationId;
@@ -1126,6 +1313,23 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         if (insertErr) throw insertErr;
         appId = row.id;
         setApplicationId(appId);
+      }
+
+      // Record signature evidence — IP (server-captured), drawn
+      // signature, photo, geolocation. Fire-and-forget so a failure
+      // here doesn't block the application submission; the typed name
+      // and rules_agreed_at on the row are still legally meaningful
+      // even without these extras.
+      if (appId) {
+        fetch(`/api/apply/record-signature-evidence/${appId}`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({
+            rules_signature_image:    drawnSignature,
+            rules_applicant_photo:    applicantPhoto,
+            rules_signed_geolocation: geolocation,
+          }),
+        }).catch(() => { /* non-fatal */ });
       }
 
       // Primary applicant email
@@ -1634,54 +1838,149 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                     Records exactly which document version was viewed
                     so the audit trail later can answer "what rules
                     were on file when this person signed?". */}
-                {governingDocs.length > 0 && (
-                  <div style={{ background: "#fff", border: "1px solid #fed7aa", borderRadius: 3, padding: "12px 14px", marginBottom: 16 }}>
+                {governingDocCategories.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: "#9a3412", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace", marginBottom: 10 }}>
                       {t.docsReviewTitle}
                     </div>
-                    {governingDocs.map(d => {
-                      const viewed = docsViewed.has(d.id)
+                    {governingDocCategories.map(cat => {
+                      const selId = selectedDocPerCategory[cat.category]
+                      const sel = cat.languages.find(l => l.id === selId) ?? cat.languages[0]
+                      if (!sel) return null
+                      const viewed = docsViewed.has(sel.id)
+                      const textOpen = !!textPanelOpenById[sel.id]
+                      const textBody = extractedTextById[sel.id]
+
+                      const openTextPanel = async () => {
+                        // Toggle the panel. On first open, fetch
+                        // extracted text (lazy — keeps initial form
+                        // payload small).
+                        const willOpen = !textOpen
+                        setTextPanelOpenById(p => ({ ...p, [sel.id]: willOpen }))
+                        if (willOpen && textBody === undefined) {
+                          try {
+                            const r = await fetch(`/api/apply/document-text?id=${encodeURIComponent(sel.id)}`)
+                            const d = await r.json() as { text?: string }
+                            setExtractedTextById(p => ({ ...p, [sel.id]: d?.text ?? "" }))
+                          } catch {
+                            setExtractedTextById(p => ({ ...p, [sel.id]: "" }))
+                          }
+                        }
+                      }
+
                       return (
-                        <a
-                          key={d.id}
-                          href={d.download_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={() => setDocsViewed(prev => new Set(prev).add(d.id))}
-                          style={{
-                            display:        "flex",
-                            alignItems:     "center",
-                            justifyContent: "space-between",
-                            gap:            8,
-                            padding:        "10px 12px",
-                            marginBottom:   6,
-                            borderRadius:   3,
-                            border:         viewed ? "1.5px solid #16a34a" : "1.5px solid #fed7aa",
-                            background:     viewed ? "#f0fdf4" : "#fff",
-                            color:          "#0d0d0d",
-                            textDecoration: "none",
-                            fontSize:       13,
-                          }}
-                        >
-                          <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                            <span style={{ fontWeight: 600 }}>📄 {d.category_label}</span>
-                            <span style={{ fontSize: 11, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {d.filename}{d.effective_date ? ` · effective ${d.effective_date}` : ""}
-                            </span>
-                          </span>
-                          <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "monospace", textTransform: "uppercase", color: viewed ? "#16a34a" : "#f26a1b" }}>
-                            {viewed ? t.docsOpenedLabel : t.docsDownloadLabel}
-                          </span>
-                        </a>
+                        <div key={cat.category} style={{ background: "#fff", border: viewed ? "1.5px solid #16a34a" : "1px solid #fed7aa", borderRadius: 3, padding: 12, marginBottom: 10 }}>
+                          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13, color: "#0d0d0d" }}>
+                              📄 {cat.category_label}
+                              {sel.effective_date && (
+                                <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 8, fontWeight: 400 }}>
+                                  effective {sel.effective_date}
+                                </span>
+                              )}
+                            </div>
+                            {cat.languages.length > 1 && (
+                              <div style={{ display: "flex", gap: 4 }}>
+                                {cat.languages.map(l => (
+                                  <button
+                                    key={l.id}
+                                    type="button"
+                                    onClick={() => setSelectedDocPerCategory(prev => ({ ...prev, [cat.category]: l.id }))}
+                                    style={{
+                                      fontSize:   10,
+                                      fontFamily: "monospace",
+                                      fontWeight: 700,
+                                      textTransform: "uppercase",
+                                      padding:    "4px 8px",
+                                      borderRadius: 3,
+                                      border:     l.id === sel.id ? "1.5px solid #f26a1b" : "1px solid #e5e7eb",
+                                      background: l.id === sel.id ? "#fff7f0" : "#fff",
+                                      color:      l.id === sel.id ? "#f26a1b" : "#6b7280",
+                                      cursor:     "pointer",
+                                    }}
+                                  >
+                                    {l.language.toUpperCase()}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Embedded PDF viewer — browser native PDF
+                              renderer handles scroll + zoom; no extra
+                              dependency. Set ~520 px so applicants on
+                              laptops see ~1 page at a time. */}
+                          <iframe
+                            src={sel.view_url}
+                            title={`${cat.category_label} (${sel.language})`}
+                            style={{ width: "100%", height: 520, border: "1px solid #e5e7eb", borderRadius: 3, background: "#f9fafb" }}
+                          />
+
+                          {/* Text panel — collapsible. Helpful for
+                              screen readers, copy-paste, and applicants
+                              on devices where PDF rendering is buggy. */}
+                          <div style={{ marginTop: 8 }}>
+                            <button
+                              type="button"
+                              onClick={openTextPanel}
+                              style={{ background: "none", border: "none", padding: 0, fontSize: 11, fontFamily: "monospace", textTransform: "uppercase", color: "#6b7280", cursor: "pointer", textDecoration: "underline" }}
+                            >
+                              {textOpen ? "▾ Hide text" : "▸ Show text version"}
+                            </button>
+                            {textOpen && (
+                              <div style={{ marginTop: 6, background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 3, padding: 12, fontSize: 12, lineHeight: 1.6, color: "#0d0d0d", maxHeight: 260, overflowY: "auto", whiteSpace: "pre-wrap" }}>
+                                {textBody === undefined ? "Loading…" : textBody || "(No extracted text available for this document.)"}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Open-as-new-tab + Mark-as-read controls */}
+                          <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                            <a
+                              href={sel.view_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ fontSize: 11, fontFamily: "monospace", textTransform: "uppercase", color: "#f26a1b", textDecoration: "none" }}
+                            >
+                              ↗ Open in new tab
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => setDocsViewed(p => new Set(p).add(sel.id))}
+                              disabled={viewed}
+                              style={{
+                                fontSize:   11,
+                                fontFamily: "monospace",
+                                fontWeight: 700,
+                                textTransform: "uppercase",
+                                padding:    "8px 12px",
+                                borderRadius: 3,
+                                border:     viewed ? "1.5px solid #16a34a" : "1.5px solid #f26a1b",
+                                background: viewed ? "#f0fdf4" : "#f26a1b",
+                                color:      viewed ? "#16a34a" : "#fff",
+                                cursor:     viewed ? "default" : "pointer",
+                              }}
+                            >
+                              {viewed ? `✓ ${t.docsOpenedLabel}` : "I have read this document"}
+                            </button>
+                          </div>
+                        </div>
                       )
                     })}
-                    {governingDocs.length > 0 && docsViewed.size < governingDocs.length && (
-                      <div style={{ fontSize: 11, color: "#9a3412", marginTop: 6 }}>
-                        {t.docsOpenAllPrompt
-                          .replace("{n}", String(governingDocs.length))
-                          .replace("{s}", governingDocs.length === 1 ? "" : "s")}
-                      </div>
-                    )}
+                    {/* Outstanding-count reminder. */}
+                    {(() => {
+                      const unread = governingDocCategories.filter(cat => {
+                        const id = selectedDocPerCategory[cat.category]
+                        return !id || !docsViewed.has(id)
+                      })
+                      return unread.length > 0 ? (
+                        <div style={{ fontSize: 11, color: "#9a3412", marginTop: 6 }}>
+                          {t.docsOpenAllPrompt
+                            .replace("{n}", String(unread.length))
+                            .replace("{s}", unread.length === 1 ? "" : "s")}
+                        </div>
+                      ) : null
+                    })()}
                   </div>
                 )}
                 {rulesSections.length > 0 && (
@@ -1750,6 +2049,71 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                     {t.rulesSignatureNote}
                   </div>
                 )}
+
+                {/* Drawn signature pad — applicant draws with mouse,
+                    finger, or stylus. Stored alongside the typed name
+                    as additional evidence of intent. */}
+                <div style={{ marginTop: 14 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#6b7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>
+                    Drawn signature
+                  </label>
+                  <SignaturePad onChange={setDrawnSignature} />
+                </div>
+
+                {/* Webcam photo — optional. Applicant can skip if their
+                    device has no camera or they decline permission.
+                    Captured frame is stored as an inline data URL. */}
+                <div style={{ marginTop: 14 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#6b7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>
+                    Photo verification (optional)
+                  </label>
+                  <WebcamCapture onCapture={setApplicantPhoto} />
+                </div>
+
+                {/* Geolocation — silent on success, shown only when the
+                    user hasn't granted permission yet or denied it. The
+                    button triggers the browser's native permission
+                    prompt. We don't BLOCK signing if they decline. */}
+                <div style={{ marginTop: 14 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#6b7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>
+                    Location stamp (optional)
+                  </label>
+                  {geoStatus === "granted" && geolocation ? (
+                    <div style={{ fontSize: 12, color: "#16a34a", fontFamily: "monospace" }}>
+                      ✓ Captured: {geolocation.lat.toFixed(5)}, {geolocation.lon.toFixed(5)} (±{Math.round(geolocation.accuracy_meters)}m)
+                    </div>
+                  ) : geoStatus === "asking" ? (
+                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "monospace" }}>Asking browser…</div>
+                  ) : geoStatus === "denied" ? (
+                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "monospace" }}>Location declined — not required.</div>
+                  ) : geoStatus === "unavailable" ? (
+                    <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "monospace" }}>Location not available on this device.</div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!navigator.geolocation) { setGeoStatus("unavailable"); return; }
+                        setGeoStatus("asking");
+                        navigator.geolocation.getCurrentPosition(
+                          (pos) => {
+                            setGeolocation({
+                              lat:              pos.coords.latitude,
+                              lon:              pos.coords.longitude,
+                              accuracy_meters:  pos.coords.accuracy,
+                              timestamp_ms:     pos.timestamp,
+                            });
+                            setGeoStatus("granted");
+                          },
+                          () => setGeoStatus("denied"),
+                          { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
+                        );
+                      }}
+                      style={{ fontSize: 11, fontFamily: "monospace", fontWeight: 700, textTransform: "uppercase", color: "#f26a1b", background: "none", border: "1.5px solid #f26a1b", borderRadius: 3, padding: "8px 14px", cursor: "pointer" }}
+                    >
+                      📍 Share location
+                    </button>
+                  )}
+                </div>
               </div>
               <div style={{ background: "#fafaf9", borderRadius: 4, padding: 18, border: "1px solid #e5e7eb", marginTop: 8 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#0d0d0d", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{t.signature}</div>
