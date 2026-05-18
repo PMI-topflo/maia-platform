@@ -1,6 +1,149 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import TicketPickerModal from './TicketPickerModal'
+
+// Shape returned by GET /api/admin/communications/links keyed by communication id.
+interface LinkedTicket {
+  id:               number  // link row id (used for DELETE)
+  ticket_id:        number
+  ticket_number:    string
+  subject:          string | null
+  type:             string
+  status:           string
+  linked_at:        string
+  linked_by_email:  string | null
+}
+
+/** Shared inline UI for the expanded preview: linked tickets list +
+ *  link button + unlink. Caller manages its own links state to share
+ *  the fetch across rows. */
+function LinkedTicketsPanel({
+  links,
+  communicationType,
+  communicationId,
+  onLinked,
+  onUnlinked,
+}: {
+  links:             LinkedTicket[]
+  communicationType: 'conversation' | 'email'
+  communicationId:   string
+  onLinked:          (link: LinkedTicket) => void
+  onUnlinked:        (linkId: number) => void
+}) {
+  const [showPicker, setShowPicker] = useState(false)
+  const [busyUnlink, setBusyUnlink] = useState<number | null>(null)
+
+  async function unlink(linkId: number) {
+    setBusyUnlink(linkId)
+    try {
+      const res = await fetch(`/api/admin/communications/links?id=${linkId}`, { method: 'DELETE' })
+      if (res.ok) onUnlinked(linkId)
+    } finally {
+      setBusyUnlink(null)
+    }
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-gray-100">
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-gray-400 font-semibold text-xs">Linked tickets / work orders</div>
+        <button
+          onClick={() => setShowPicker(true)}
+          className="text-xs text-[#f26a1b] hover:text-[#d85a14]"
+        >
+          + Link to ticket
+        </button>
+      </div>
+      {links.length === 0 ? (
+        <div className="text-xs text-gray-300 italic">None yet.</div>
+      ) : (
+        <div className="space-y-1">
+          {links.map(l => (
+            <div key={l.id} className="flex items-center gap-2 text-xs">
+              <a
+                href={`/admin/tickets/${l.ticket_id}`}
+                className="font-mono text-[#f26a1b] hover:underline"
+              >
+                {l.ticket_number}
+              </a>
+              <span className={[
+                'inline-flex rounded px-1.5 py-0.5 text-[9px] font-medium uppercase',
+                l.type === 'work_order' ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-700',
+              ].join(' ')}>
+                {l.type === 'work_order' ? 'WO' : 'Ticket'}
+              </span>
+              <span className="text-gray-700 line-clamp-1 flex-1">{l.subject ?? '—'}</span>
+              <button
+                onClick={() => void unlink(l.id)}
+                disabled={busyUnlink === l.id}
+                title="Unlink"
+                className="text-gray-400 hover:text-red-600 px-1 disabled:opacity-40"
+              >
+                {busyUnlink === l.id ? '…' : '×'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showPicker && (
+        <TicketPickerModal
+          title="Link to ticket or work order"
+          onClose={() => setShowPicker(false)}
+          onConfirm={async (ticketId) => {
+            const res = await fetch('/api/admin/communications/links', {
+              method:  'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body:    JSON.stringify({
+                communication_type: communicationType,
+                communication_id:   communicationId,
+                ticket_id:          ticketId,
+              }),
+            })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data?.error ?? 'Link failed')
+            // Server returns a partial; fetch the full row by re-querying.
+            const full = await fetch(
+              `/api/admin/communications/links?type=${communicationType}&ids=${encodeURIComponent(communicationId)}`,
+              { cache: 'no-store' },
+            ).then(r => r.json())
+            const fetched = (full?.links?.[communicationId] ?? []) as LinkedTicket[]
+            const fresh = fetched.find(l => l.ticket_id === ticketId)
+            if (fresh) onLinked(fresh)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+/** Bulk-fetch linked tickets for a list of communication ids. Returns
+ *  a stateful map indexed by communication id + helpers to mutate it
+ *  in place when a link/unlink happens. */
+function useCommunicationLinks(type: 'conversation' | 'email', ids: string[]) {
+  const [linksById, setLinksById] = useState<Record<string, LinkedTicket[]>>({})
+  const idsKey = ids.slice().sort().join(',')
+
+  useEffect(() => {
+    if (ids.length === 0) { setLinksById({}); return }
+    let cancelled = false
+    fetch(`/api/admin/communications/links?type=${type}&ids=${encodeURIComponent(ids.join(','))}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setLinksById(d.links ?? {}) })
+      .catch(() => { /* swallow; the inline UI degrades gracefully */ })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, idsKey])
+
+  function pushLink(commId: string, link: LinkedTicket) {
+    setLinksById(prev => ({ ...prev, [commId]: [...(prev[commId] ?? []), link] }))
+  }
+  function dropLink(commId: string, linkId: number) {
+    setLinksById(prev => ({ ...prev, [commId]: (prev[commId] ?? []).filter(l => l.id !== linkId) }))
+  }
+  return { linksById, pushLink, dropLink }
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -172,11 +315,15 @@ function ConversationsTab({ conversations, staff }: { conversations: Conversatio
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterChannel, setFilterChannel] = useState('all')
+  const [filterAssignedTo, setFilterAssignedTo] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
 
   const filtered = conversations.filter(c => {
     if (filterStatus !== 'all' && (c.status ?? 'open') !== filterStatus) return false
     if (filterChannel !== 'all' && c.channel !== filterChannel) return false
+    if (filterAssignedTo !== 'all') {
+      if (filterAssignedTo === '__unassigned' ? c.assigned_to : c.assigned_to !== filterAssignedTo) return false
+    }
     if (search) {
       const q = search.toLowerCase()
       return (
@@ -191,6 +338,10 @@ function ConversationsTab({ conversations, staff }: { conversations: Conversatio
   })
 
   const staffById = Object.fromEntries(staff.map(s => [s.id, s.name]))
+  const { linksById, pushLink, dropLink } = useCommunicationLinks(
+    'conversation',
+    filtered.map(c => c.id),
+  )
 
   return (
     <div>
@@ -215,6 +366,17 @@ function ConversationsTab({ conversations, staff }: { conversations: Conversatio
           <option value="whatsapp">WhatsApp</option>
           <option value="voice">Voice</option>
           <option value="web">Web chat</option>
+        </select>
+        <select
+          value={filterAssignedTo}
+          onChange={e => setFilterAssignedTo(e.target.value)}
+          className="border border-gray-200 rounded px-2 py-1.5 text-sm"
+        >
+          <option value="all">All assignees</option>
+          <option value="__unassigned">— Unassigned</option>
+          {staff.map(s => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
         </select>
       </div>
 
@@ -326,6 +488,14 @@ function ConversationsTab({ conversations, staff }: { conversations: Conversatio
                     ))}
                   </div>
                 )}
+
+                <LinkedTicketsPanel
+                  links={linksById[c.id] ?? []}
+                  communicationType="conversation"
+                  communicationId={c.id}
+                  onLinked={(link) => pushLink(c.id, link)}
+                  onUnlinked={(linkId) => dropLink(c.id, linkId)}
+                />
               </div>
             )}
           </div>
@@ -341,13 +511,25 @@ function ConversationsTab({ conversations, staff }: { conversations: Conversatio
 
 // ── Tab: Emails ──────────────────────────────────────────────────────────────
 
-function EmailsTab({ emails }: { emails: EmailLog[] }) {
+function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
+  const [filterSentBy, setFilterSentBy] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
 
   const filtered = emails.filter(e => {
     if (filterStatus !== 'all' && (e.status ?? 'sent') !== filterStatus) return false
+    if (filterSentBy !== 'all') {
+      // sent_by can be either staff.id or staff.email depending on source.
+      // Match either; '__unknown' picks anything blank.
+      if (filterSentBy === '__unknown') {
+        if (e.sent_by) return false
+      } else {
+        const staffRec = staff.find(s => s.id === filterSentBy)
+        const emailLower = staffRec?.email?.toLowerCase() ?? ''
+        if (e.sent_by !== filterSentBy && (e.sent_by ?? '').toLowerCase() !== emailLower) return false
+      }
+    }
     if (search) {
       const q = search.toLowerCase()
       return (
@@ -359,6 +541,11 @@ function EmailsTab({ emails }: { emails: EmailLog[] }) {
     }
     return true
   })
+
+  const { linksById, pushLink, dropLink } = useCommunicationLinks(
+    'email',
+    filtered.map(e => e.id),
+  )
 
   return (
     <div>
@@ -379,6 +566,17 @@ function EmailsTab({ emails }: { emails: EmailLog[] }) {
           <option value="bounced">Bounced</option>
           <option value="complained">Complained</option>
           <option value="delayed">Delayed</option>
+        </select>
+        <select
+          value={filterSentBy}
+          onChange={e => setFilterSentBy(e.target.value)}
+          className="border border-gray-200 rounded px-2 py-1.5 text-sm"
+        >
+          <option value="all">All staff</option>
+          <option value="__unknown">— Unknown sender</option>
+          {staff.map(s => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
         </select>
       </div>
 
@@ -426,6 +624,13 @@ function EmailsTab({ emails }: { emails: EmailLog[] }) {
                       {e.resend_message_id && (
                         <div className="mt-2 text-gray-400 font-mono">Resend ID: {e.resend_message_id}</div>
                       )}
+                      <LinkedTicketsPanel
+                        links={linksById[e.id] ?? []}
+                        communicationType="email"
+                        communicationId={e.id}
+                        onLinked={(link) => pushLink(e.id, link)}
+                        onUnlinked={(linkId) => dropLink(e.id, linkId)}
+                      />
                     </td>
                   </tr>
                 )}
@@ -815,7 +1020,7 @@ export default function CommunicationsDashboard({ conversations, emails, tickets
       </div>
 
       {tab === 'conversations' && <ConversationsTab conversations={conversations} staff={staff} />}
-      {tab === 'emails'        && <EmailsTab emails={emails} />}
+      {tab === 'emails'        && <EmailsTab emails={emails} staff={staff} />}
       {tab === 'tickets'       && <TicketsTab tickets={tickets} staff={staff} />}
       {tab === 'commands'      && <EmailCommandsTab commands={emailCommands} />}
     </div>
