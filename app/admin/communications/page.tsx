@@ -68,11 +68,16 @@ function emailListForIn(emails: string[]): string {
   return emails.filter(e => /^[a-z0-9._+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/.test(e)).join(',')
 }
 
-async function getData(ctx: AccessContext) {
+async function getData(ctx: AccessContext, showDismissed: boolean) {
   const list = emailListForIn(ctx.staffEmails)
   const hasFilter = !ctx.canSeeAll && list.length > 0
   // If filtering is on and we somehow have no emails, return empty — fail safe.
   const restrictNothing = !ctx.canSeeAll && list.length === 0
+
+  // 10-day window for the working set — staff catch up daily, so older
+  // mail just clutters the queue. Past data is still in email_logs and
+  // can be queried directly if needed.
+  const tenDaysAgo = new Date(Date.now() - 10 * 86400 * 1000).toISOString()
 
   let convQuery = supabaseAdmin
     .from('general_conversations')
@@ -82,9 +87,15 @@ async function getData(ctx: AccessContext) {
 
   let emailQuery = supabaseAdmin
     .from('email_logs')
-    .select('id, direction, from_email, to_email, subject, body_preview, persona, association_code, status, resend_message_id, sent_by, created_at')
+    .select('id, direction, from_email, to_email, subject, body_preview, persona, association_code, status, resend_message_id, sent_by, created_at, dismissed_at, dismissed_by_email')
+    .gte('created_at', tenDaysAgo)
     .order('created_at', { ascending: false })
-    .limit(200)
+    .limit(1000)
+
+  // Default view hides dismissed rows. Show-dismissed toggle includes them.
+  if (!showDismissed) {
+    emailQuery = emailQuery.is('dismissed_at', null)
+  }
 
   let ticketQuery = supabaseAdmin
     .from('tickets')
@@ -154,9 +165,15 @@ async function getData(ctx: AccessContext) {
   }
 }
 
-export default async function CommunicationsPage() {
+export default async function CommunicationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ dismissed?: string }>
+}) {
+  const sp = await searchParams
+  const showDismissed = sp.dismissed === '1'
   const ctx  = await getAccessContext()
-  const data = await getData(ctx)
+  const data = await getData(ctx, showDismissed)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -165,7 +182,7 @@ export default async function CommunicationsPage() {
       </SiteHeader>
 
       <main className="max-w-screen-xl mx-auto px-6 py-6">
-        <CommunicationsDashboard {...data} />
+        <CommunicationsDashboard {...data} showDismissed={showDismissed} />
       </main>
     </div>
   )

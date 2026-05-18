@@ -184,6 +184,8 @@ interface EmailLog {
   resend_message_id: string | null
   sent_by: string | null
   created_at: string
+  dismissed_at?:        string | null
+  dismissed_by_email?:  string | null
 }
 
 interface Ticket {
@@ -241,6 +243,7 @@ interface Props {
   staff: Staff[]
   emailCommands: EmailCommand[]
   canSeeAll?:    boolean   // true when the viewer has global access; false = filtered to their own
+  showDismissed?: boolean  // URL flag — when true, dismissed rows are included
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -536,12 +539,63 @@ function ConversationsTab({ conversations, staff }: { conversations: Conversatio
 
 // ── Tab: Emails ──────────────────────────────────────────────────────────────
 
-function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
+function EmailsTab({
+  emails: emailsProp,
+  staff,
+  showDismissed,
+}: {
+  emails:         EmailLog[]
+  staff:          Staff[]
+  showDismissed:  boolean
+}) {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterSentBy, setFilterSentBy] = useState('all')
   const [filterTo, setFilterTo] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
+  // Local mirror so dismissing hides instantly (optimistic) and
+  // restoring brings the row back without a page refresh.
+  const [emails, setEmails] = useState<EmailLog[]>(emailsProp)
+  // Keep in sync when the server returns a fresh batch (e.g. user
+  // toggled "Show dismissed" which re-renders the page).
+  useEffect(() => { setEmails(emailsProp) }, [emailsProp])
+
+  const [busyDismissId, setBusyDismissId] = useState<string | null>(null)
+
+  async function dismissEmail(id: string) {
+    setBusyDismissId(id)
+    try {
+      const res = await fetch('/api/admin/communications/dismiss', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ type: 'email', id }),
+      })
+      if (res.ok) {
+        if (showDismissed) {
+          // Toggle is on — keep the row but mark it dismissed for the badge.
+          setEmails(prev => prev.map(e => e.id === id ? { ...e, dismissed_at: new Date().toISOString() } : e))
+        } else {
+          setEmails(prev => prev.filter(e => e.id !== id))
+        }
+      }
+    } finally {
+      setBusyDismissId(null)
+    }
+  }
+
+  async function restoreEmail(id: string) {
+    setBusyDismissId(id)
+    try {
+      const res = await fetch(`/api/admin/communications/dismiss?type=email&id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      })
+      if (res.ok) {
+        setEmails(prev => prev.map(e => e.id === id ? { ...e, dismissed_at: null, dismissed_by_email: null } : e))
+      }
+    } finally {
+      setBusyDismissId(null)
+    }
+  }
 
   // Distinct to_email values for the "To" dropdown. Computed from
   // the full prop list so options don't change with active filters.
@@ -625,6 +679,18 @@ function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
             ))}
           </select>
         )}
+        <a
+          href={showDismissed ? '?' : '?dismissed=1'}
+          className={[
+            'inline-flex items-center gap-1.5 text-xs px-2 py-1.5 rounded border transition-colors',
+            showDismissed
+              ? 'bg-amber-100 text-amber-900 border-amber-300'
+              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400',
+          ].join(' ')}
+          title="Toggle visibility of dismissed emails"
+        >
+          {showDismissed ? '✓ Show dismissed' : 'Show dismissed'}
+        </a>
       </div>
 
       <div className="text-xs text-gray-400 mb-2">{filtered.length} emails</div>
@@ -646,7 +712,7 @@ function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
           <tbody className="divide-y divide-gray-50">
             {filtered.map(e => (
               <>
-                <tr key={e.id} className="hover:bg-gray-50">
+                <tr key={e.id} className={['hover:bg-gray-50', e.dismissed_at ? 'opacity-50' : ''].join(' ')}>
                   <td className="px-4 py-2.5 text-xs">
                     <span
                       title={e.direction === 'inbound' ? 'Received in a connected inbox' : 'Sent by MAIA or staff'}
@@ -667,14 +733,35 @@ function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
                   <td className="px-4 py-2.5">{emailStatusBadge(e.status)}</td>
                   <td className="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">{fmtDate(e.created_at)}</td>
                   <td className="px-4 py-2.5">
-                    {e.body_preview && (
-                      <button
-                        onClick={() => setExpanded(expanded === e.id ? null : e.id)}
-                        className="text-xs text-[#f26a1b] hover:underline"
-                      >
-                        {expanded === e.id ? 'Hide' : 'Preview'}
-                      </button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {e.body_preview && (
+                        <button
+                          onClick={() => setExpanded(expanded === e.id ? null : e.id)}
+                          className="text-xs text-[#f26a1b] hover:underline"
+                        >
+                          {expanded === e.id ? 'Hide' : 'Preview'}
+                        </button>
+                      )}
+                      {e.dismissed_at ? (
+                        <button
+                          onClick={() => void restoreEmail(e.id)}
+                          disabled={busyDismissId === e.id}
+                          title={`Dismissed${e.dismissed_by_email ? ` by ${e.dismissed_by_email}` : ''}. Click to restore.`}
+                          className="text-xs text-gray-500 hover:text-emerald-700 disabled:opacity-40"
+                        >
+                          {busyDismissId === e.id ? '…' : 'Restore'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => void dismissEmail(e.id)}
+                          disabled={busyDismissId === e.id}
+                          title="Dismiss — hide from default queue (audit row kept)"
+                          className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-40"
+                        >
+                          {busyDismissId === e.id ? '…' : 'Dismiss'}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
                 {expanded === e.id && (
@@ -1040,7 +1127,7 @@ function StatCard({ label, value, sub }: { label: string; value: number | string
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
-export default function CommunicationsDashboard({ conversations, emails, tickets, staff, emailCommands, canSeeAll = true }: Props) {
+export default function CommunicationsDashboard({ conversations, emails, tickets, staff, emailCommands, canSeeAll = true, showDismissed = false }: Props) {
   const [tab, setTab] = useState<'conversations' | 'emails' | 'tickets' | 'commands'>('conversations')
 
   const openConvs   = conversations.filter(c => (c.status ?? 'open') === 'open').length
@@ -1087,7 +1174,7 @@ export default function CommunicationsDashboard({ conversations, emails, tickets
       </div>
 
       {tab === 'conversations' && <ConversationsTab conversations={conversations} staff={staff} />}
-      {tab === 'emails'        && <EmailsTab emails={emails} staff={staff} />}
+      {tab === 'emails'        && <EmailsTab emails={emails} staff={staff} showDismissed={showDismissed} />}
       {tab === 'tickets'       && <TicketsTab tickets={tickets} staff={staff} />}
       {tab === 'commands'      && <EmailCommandsTab commands={emailCommands} />}
     </div>
