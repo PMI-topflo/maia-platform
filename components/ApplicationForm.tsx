@@ -897,6 +897,11 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     try {
       const fd = new FormData();
       fd.append("lease", file);
+      // Pass the dropdown-selected association code so the matcher
+      // on the server has a tiebreaker for borderline name mismatches
+      // (e.g. lease says "Abbott Ave Condo" but DB says "Abbott Avenue
+      // Condominium"). Empty string = no preselection.
+      if (assocCode) fd.append("selected_assoc_code", assocCode);
       const res = await fetch("/api/apply/parse-lease", { method: "POST", body: fd });
       const json = await res.json();
       if (!res.ok) {

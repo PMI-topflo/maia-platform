@@ -127,16 +127,16 @@ export async function POST(req: NextRequest) {
   type AssocRow = { association_code: string; association_name: string; principal_address: string; city: string; state: string; zip: string }
   let matched: AssocRow | null = null
 
+  // The caller (the apply form) optionally passes the association code
+  // the applicant pre-selected from the dropdown. We use it as a
+  // tiebreaker: if the lease scrubs to a borderline match AND the
+  // candidate is the one the applicant picked, we accept it.
+  const userSelectedCode = (form.get('selected_assoc_code')?.toString() ?? '').toUpperCase().trim()
+
   if (assocs && extracted.association) {
-    const q = extracted.association.toLowerCase().trim()
-    matched =
-      (assocs as AssocRow[]).find((a) => a.association_name.toLowerCase() === q) ??
-      (assocs as AssocRow[]).find(
-        (a) =>
-          a.association_name.toLowerCase().includes(q) ||
-          q.includes(a.association_name.toLowerCase())
-      ) ??
-      null
+    // AssocRow has stricter required fields than the generic AssocRowMatchable
+    // the matcher works with; cast back since we know the shape lines up.
+    matched = matchAssociation(extracted.association, extracted.address, assocs as AssocRow[], userSelectedCode || null) as AssocRow | null
   }
 
   // ── Save to Google Drive (non-fatal if not configured) ────────────
@@ -222,12 +222,13 @@ async function saveLeaseToDrive(
       .limit(1)
       .maybeSingle()
     if (hw?.account_number) {
-      accountNumber = hw.account_number
+      const acct: string = hw.account_number
+      accountNumber = acct
       const propertyAddress = [hw.street_number, hw.address].filter(Boolean).join(' ').trim()
       unitFolderLabel = propertyAddress
-        ? `${accountNumber} - ${propertyAddress}`
-        : accountNumber
-    } else {
+        ? `${acct} - ${propertyAddress}`
+        : acct
+    } else if (unitNumber) {
       unitFolderLabel = unitNumber
     }
   }
@@ -276,4 +277,149 @@ async function findOrCreateFolder(
     fields: 'id',
   })
   return created.data.id!
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Association matcher
+//
+// Real-world data is messy: a lease might say "7636 Abbott Ave Condo"
+// while MAIA stores it as "7636 Abbott Avenue Condominium Association,
+// Inc.". The naive substring matcher missed those cases.
+//
+// Strategy here, in priority order:
+//   1. Exact normalized-string equality
+//   2. Substring containment (either direction)
+//   3. Token overlap on normalized tokens (abbreviations expanded,
+//      generic suffix words like "inc"/"association" stripped) —
+//      requires the SHORTER token set to be a high-percentage subset
+//      of the longer set
+//   4. ZIP code match between extracted address + association zip,
+//      used only when no name match cleared the threshold
+//   5. User-selected tiebreaker: if the applicant chose a code in the
+//      dropdown before uploading, ANY ambiguous match for that code
+//      wins over higher-scoring matches for other codes
+//
+// Returns the best AssocRow at or above SCORE_THRESHOLD, or null.
+// ─────────────────────────────────────────────────────────────────────
+
+type AssocRowMatchable = {
+  association_code: string
+  association_name: string
+  principal_address?: string
+  city?: string
+  state?: string
+  zip?: string
+}
+
+const STREET_ABBREVS: Record<string, string> = {
+  ave: 'avenue',    av:  'avenue',    avenue:  'avenue',
+  blvd: 'boulevard', boulevard: 'boulevard',
+  rd:  'road',      road: 'road',
+  st:  'street',    street: 'street',
+  ct:  'court',     court: 'court',
+  dr:  'drive',     drive: 'drive',
+  ln:  'lane',      lane: 'lane',
+  pl:  'place',     place: 'place',
+  pkwy: 'parkway',  parkway: 'parkway',
+  ter: 'terrace',   terr: 'terrace', terrace: 'terrace',
+  cir: 'circle',    circle: 'circle',
+  hwy: 'highway',   highway: 'highway',
+  // Property-type abbreviations
+  condo: 'condominium', cdo: 'condominium', condominium: 'condominium',
+  coop:  'cooperative', cooperative: 'cooperative',
+  apts:  'apartments',  apt: 'apartments',  apartments: 'apartments',
+  hoa:   'homeowners',
+}
+
+// Generic entity-suffix and noise words that don't help disambiguate.
+const STOP_WORDS = new Set([
+  'inc', 'incorporated', 'llc', 'ltd', 'corp', 'corporation', 'co',
+  'the', 'a', 'an', 'of', 'and', '&',
+  'association', 'associations', 'community',
+])
+
+function normalizeName(s: string): { raw: string; tokens: string[] } {
+  const cleaned = (s ?? '')
+    .toLowerCase()
+    .replace(/[.,'"()/]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const tokens = cleaned.split(/\s+/)
+    .map(t => STREET_ABBREVS[t] ?? t)
+    .filter(t => t && !STOP_WORDS.has(t))
+  return { raw: cleaned, tokens }
+}
+
+const SCORE_THRESHOLD = 50
+
+function scoreName(extracted: string, assocName: string): number {
+  const a = normalizeName(extracted)
+  const b = normalizeName(assocName)
+  if (!a.raw || !b.raw) return 0
+  if (a.raw === b.raw) return 100
+  if (a.raw.includes(b.raw) || b.raw.includes(a.raw)) return 90
+
+  // Token overlap. Compare in the direction of the SHORTER set so a
+  // very short extracted name like "Abbott Condo" can still match the
+  // longer official name when its tokens are all subset.
+  const setA = new Set(a.tokens)
+  const setB = new Set(b.tokens)
+  if (setA.size === 0 || setB.size === 0) return 0
+  const [shorter, longer] = setA.size <= setB.size ? [setA, setB] : [setB, setA]
+  let common = 0
+  for (const t of shorter) if (longer.has(t)) common++
+  const pct = common / shorter.size
+  // A near-complete subset (≥ 2 tokens in common AND ≥ 75% of the
+  // shorter set present) is a strong signal — typical for cases like
+  // "7636 abbott ave condo" → "7636 abbott avenue condominium".
+  if (pct >= 0.75 && common >= 2) return 75
+  if (pct >= 0.6  && common >= 2) return 55
+  return 0
+}
+
+function matchAssociation(
+  extractedName:    string,
+  extractedAddress: string | null,
+  candidates:       AssocRowMatchable[],
+  userSelectedCode: string | null,
+): AssocRowMatchable | null {
+  // Score every candidate on name + a small bonus for matching ZIP /
+  // address tokens when the lease address is available.
+  const extractedAddrLower = (extractedAddress ?? '').toLowerCase()
+  const extractedZip = extractedAddrLower.match(/\b(\d{5})(?:-\d{4})?\b/)?.[1] ?? null
+
+  type Scored = { row: AssocRowMatchable; score: number }
+  const scored: Scored[] = candidates.map(row => {
+    let score = scoreName(extractedName, row.association_name)
+    if (extractedZip && row.zip === extractedZip) score += 15
+    if (extractedAddrLower && row.principal_address && extractedAddrLower.includes(row.principal_address.toLowerCase())) {
+      score += 20
+    }
+    return { row, score }
+  })
+
+  scored.sort((a, b) => b.score - a.score)
+  const best = scored[0]
+  if (!best || best.score < SCORE_THRESHOLD) {
+    // Last-resort tiebreaker: applicant explicitly picked an assoc
+    // from the dropdown. Trust them when there's no confident name
+    // match — better to confirm-by-asking than block the application
+    // outright with "Association not recognized".
+    if (userSelectedCode) {
+      const picked = candidates.find(c => c.association_code.toUpperCase() === userSelectedCode)
+      if (picked) return picked
+    }
+    return null
+  }
+
+  // Borderline name match (50-74) AND the user pre-picked one of the
+  // top candidates: lean toward what they picked. Avoids the case
+  // where two associations have overlapping names and the matcher
+  // picked the wrong one.
+  if (best.score < 80 && userSelectedCode) {
+    const userPick = scored.find(s => s.row.association_code.toUpperCase() === userSelectedCode && s.score >= SCORE_THRESHOLD - 20)
+    if (userPick) return userPick.row
+  }
+
+  return best.row
 }
