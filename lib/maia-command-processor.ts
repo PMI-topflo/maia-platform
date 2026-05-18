@@ -1602,6 +1602,24 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     const msg    = await fetchGmailMessage(messageId)
     const parsed = parseGmailMessage(msg)
 
+    // Hard guard against the maia@→maia@ loop.
+    //
+    // Production diagnostic showed 11,152 emails in 10 days with
+    // from=maia@pmitop.com and to=maia@pmitop.com. They came from a
+    // mix of forward rules, auto-responder loops, and Resend bounces
+    // that route MAIA's own outbound back into the inbox. Without
+    // this check, processEmailCommand re-triggers a reply on each one
+    // and we feedback ourselves forever.
+    //
+    // The staff-account webhook (processStaffAccountEmails) has had
+    // an equivalent skip since day 1; this is just the same guard for
+    // the main maia@ path.
+    const senderLc = parsed.senderEmail.toLowerCase()
+    if (senderLc === 'maia@pmitop.com' || senderLc === 'no-reply@pmitop.com' || senderLc === 'noreply@pmitop.com') {
+      console.log(`[MAIA] skipping self-sent message ${messageId} (from=${senderLc}) — would loop`)
+      return
+    }
+
     const bodyNorm     = parsed.body.toLowerCase().replace(/\s+/g, ' ')
     const subjectNorm  = parsed.subject.toLowerCase()
     // Subject: match either "@maia" or "Maia" by name (most customers
