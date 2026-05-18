@@ -240,6 +240,7 @@ interface Props {
   tickets: Ticket[]
   staff: Staff[]
   emailCommands: EmailCommand[]
+  canSeeAll?:    boolean   // true when the viewer has global access; false = filtered to their own
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -316,13 +317,24 @@ function ConversationsTab({ conversations, staff }: { conversations: Conversatio
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterChannel, setFilterChannel] = useState('all')
   const [filterAssignedTo, setFilterAssignedTo] = useState('all')
+  const [filterFrom, setFilterFrom] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
+
+  // Distinct sender_email values for the "From" dropdown. Computed
+  // from the full prop list so the options don't change as filters narrow.
+  const senderOptions = Array.from(new Set(
+    conversations.map(c => (c.sender_email ?? c.contact_email ?? '').toLowerCase()).filter(Boolean),
+  )).sort()
 
   const filtered = conversations.filter(c => {
     if (filterStatus !== 'all' && (c.status ?? 'open') !== filterStatus) return false
     if (filterChannel !== 'all' && c.channel !== filterChannel) return false
     if (filterAssignedTo !== 'all') {
       if (filterAssignedTo === '__unassigned' ? c.assigned_to : c.assigned_to !== filterAssignedTo) return false
+    }
+    if (filterFrom !== 'all') {
+      const sender = (c.sender_email ?? c.contact_email ?? '').toLowerCase()
+      if (sender !== filterFrom) return false
     }
     if (search) {
       const q = search.toLowerCase()
@@ -378,6 +390,19 @@ function ConversationsTab({ conversations, staff }: { conversations: Conversatio
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
+        {senderOptions.length > 0 && (
+          <select
+            value={filterFrom}
+            onChange={e => setFilterFrom(e.target.value)}
+            className="border border-gray-200 rounded px-2 py-1.5 text-sm max-w-[200px]"
+            title="Filter by sender email"
+          >
+            <option value="all">All senders</option>
+            {senderOptions.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div className="text-xs text-gray-400 mb-2">{filtered.length} conversations</div>
@@ -515,10 +540,18 @@ function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterSentBy, setFilterSentBy] = useState('all')
+  const [filterTo, setFilterTo] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
+
+  // Distinct to_email values for the "To" dropdown. Computed from
+  // the full prop list so options don't change with active filters.
+  const toOptions = Array.from(new Set(
+    emails.map(e => (e.to_email ?? '').toLowerCase()).filter(Boolean),
+  )).sort()
 
   const filtered = emails.filter(e => {
     if (filterStatus !== 'all' && (e.status ?? 'sent') !== filterStatus) return false
+    if (filterTo !== 'all' && (e.to_email ?? '').toLowerCase() !== filterTo) return false
     if (filterSentBy !== 'all') {
       // sent_by can be either staff.id or staff.email depending on source.
       // Match either; '__unknown' picks anything blank.
@@ -578,6 +611,19 @@ function EmailsTab({ emails, staff }: { emails: EmailLog[]; staff: Staff[] }) {
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
+        {toOptions.length > 0 && (
+          <select
+            value={filterTo}
+            onChange={e => setFilterTo(e.target.value)}
+            className="border border-gray-200 rounded px-2 py-1.5 text-sm max-w-[200px]"
+            title="Filter by recipient email"
+          >
+            <option value="all">All recipients</option>
+            {toOptions.map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div className="text-xs text-gray-400 mb-2">{filtered.length} emails</div>
@@ -979,7 +1025,7 @@ function StatCard({ label, value, sub }: { label: string; value: number | string
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
-export default function CommunicationsDashboard({ conversations, emails, tickets, staff, emailCommands }: Props) {
+export default function CommunicationsDashboard({ conversations, emails, tickets, staff, emailCommands, canSeeAll = true }: Props) {
   const [tab, setTab] = useState<'conversations' | 'emails' | 'tickets' | 'commands'>('conversations')
 
   const openConvs   = conversations.filter(c => (c.status ?? 'open') === 'open').length
@@ -989,6 +1035,12 @@ export default function CommunicationsDashboard({ conversations, emails, tickets
 
   return (
     <div>
+      {!canSeeAll && (
+        <div className="mb-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-900">
+          <span className="font-semibold">Restricted view:</span> showing only communications where you are the sender, recipient, or assignee. Owners and billing leads see the full company view.
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         <StatCard label="Open Conversations" value={openConvs} sub={`of ${conversations.length} total`} />
