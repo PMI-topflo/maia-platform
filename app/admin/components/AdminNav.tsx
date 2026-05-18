@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { label: 'Tenancy',           href: '/admin/tenancy-history' },
   { label: 'Logins',            href: '/admin/login-history' },
   { label: 'Skills',            href: '/admin/skills' },
+  { label: 'Performance',       href: '/admin/staff-performance' },
   { label: 'CINC Sync',         href: '/admin/cinc-sync' },
   { label: 'Tools',             href: '/admin/tools' },
 ]
