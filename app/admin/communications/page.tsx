@@ -147,13 +147,14 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
   }
 
   // Comprehensive dropdown options for the From / To filters. Same
-  // 10-day window as the on-screen list — within that window we want
-  // every distinct sender/recipient even if it happens to fall outside
-  // the 1000-row limit on the main query.
+  // 10-day window as the on-screen list. ORDER BY created_at DESC
+  // ensures the 10k sample skews to recent rows (so every actively-
+  // used inbox is represented), instead of an arbitrary slice.
   let emailOptsQuery = supabaseAdmin
     .from('email_logs')
     .select('from_email, to_email')
     .gte('created_at', tenDaysAgo)
+    .order('created_at', { ascending: false })
     .limit(10_000)
   if (hasFilter) {
     emailOptsQuery = emailOptsQuery.or(
@@ -165,6 +166,7 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
     .from('general_conversations')
     .select('sender_email, contact_email')
     .gte('updated_at', tenDaysAgo)
+    .order('updated_at', { ascending: false })
     .limit(10_000)
   if (hasFilter) {
     const orConvOpts = [
@@ -178,7 +180,15 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
     convOptsQuery = convOptsQuery.or(orConvOpts.join(','))
   }
 
-  const [convRes, emailRes, ticketRes, staffRes, cmdRes, emailOptsRes, convOptsRes] = await Promise.all([
+  // Connected staff inboxes — guaranteed to appear in the recipient
+  // dropdown even if their 10-day traffic is sparse enough to fall
+  // outside the 10k email_logs sample.
+  const staffInboxesQuery = supabaseAdmin
+    .from('staff_gmail_accounts')
+    .select('gmail_address')
+    .eq('active', true)
+
+  const [convRes, emailRes, ticketRes, staffRes, cmdRes, emailOptsRes, convOptsRes, staffInboxesRes] = await Promise.all([
     convQuery,
     emailQuery,
     ticketQuery,
@@ -190,6 +200,7 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
     cmdQuery,
     emailOptsQuery,
     convOptsQuery,
+    staffInboxesQuery,
   ])
 
   const emailFromSet = new Set<string>()
@@ -197,6 +208,13 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
   for (const r of (emailOptsRes.data ?? []) as Array<{ from_email: string | null; to_email: string | null }>) {
     if (r.from_email) emailFromSet.add(r.from_email.toLowerCase())
     if (r.to_email)   emailToSet  .add(r.to_email  .toLowerCase())
+  }
+  // Guarantee every active staff inbox appears as a To-option even
+  // if it didn't show up in the 10k email_logs sample (which can
+  // happen when a high-volume sender like maia@ dominates recent
+  // traffic and crowds out lower-volume inboxes).
+  for (const inbox of (staffInboxesRes.data ?? []) as Array<{ gmail_address: string | null }>) {
+    if (inbox.gmail_address) emailToSet.add(inbox.gmail_address.toLowerCase())
   }
 
   const convSenderSet = new Set<string>()
