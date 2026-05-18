@@ -21,16 +21,25 @@ const NAV_ITEMS = [
   { label: 'Tools',             href: '/admin/tools' },
 ]
 
-export default function AdminNav() {
+/** Optional override so pages whose URL doesn't naturally match the
+ *  intended nav item can still highlight the right link. Example: the
+ *  ticket detail page lives at /admin/tickets/[id] regardless of type,
+ *  so work-order tickets pass `activeOverride='/admin/work-orders'`. */
+interface Props {
+  activeOverride?: string
+}
+
+export default function AdminNav({ activeOverride }: Props = {}) {
   const pathname = usePathname()
-  const helpActive = pathname.startsWith('/admin/help')
+  const matchTarget = activeOverride ?? pathname
+  const helpActive = matchTarget.startsWith('/admin/help')
 
   return (
     <div className="flex items-center gap-1 flex-wrap">
       {NAV_ITEMS.map(item => {
         const active = item.href === '/admin'
-          ? pathname === '/admin'
-          : pathname.startsWith(item.href)
+          ? matchTarget === '/admin'
+          : matchTarget.startsWith(item.href)
         return (
           <Link
             key={item.href}
