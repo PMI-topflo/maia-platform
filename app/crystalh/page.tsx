@@ -1,5 +1,6 @@
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import AssociationStatsWidget from '@/components/AssociationStatsWidget'
 
 export default function PageCrystalh() {
   return (
@@ -14,6 +15,8 @@ export default function PageCrystalh() {
       <SiteHeader subtitle="ASSOCIATION PORTAL · Crystal Hills V, Inc." />
 
       <AssociationPortalGate assocCode="CHV" assocName="Crystal Hills V">
+
+      <AssociationStatsWidget associationCode="CHV" />
 
       {/* Quick Actions */}
       <section className="section">

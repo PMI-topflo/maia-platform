@@ -1,5 +1,6 @@
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import AssociationStatsWidget from '@/components/AssociationStatsWidget'
 
 export default function PageMaco() {
   return (
@@ -14,6 +15,8 @@ export default function PageMaco() {
       <SiteHeader subtitle="ASSOCIATION PORTAL · Maco Commerce Center Condominium Association, Inc." />
 
       <AssociationPortalGate assocCode="MACO" assocName="Maco Commerce Center Condominium">
+
+      <AssociationStatsWidget associationCode="MACO" />
 
       {/* Quick Actions */}
       <section className="section">

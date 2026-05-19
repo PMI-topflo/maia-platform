@@ -1,5 +1,6 @@
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import AssociationStatsWidget from '@/components/AssociationStatsWidget'
 
 export default function PageGalleriav() {
   return (
@@ -14,6 +15,8 @@ export default function PageGalleriav() {
       <SiteHeader subtitle="ASSOCIATION PORTAL · Galleria Village Homeowners Association, Inc." />
 
       <AssociationPortalGate assocCode="GVH" assocName="Galleria Village Homeowners Association">
+
+      <AssociationStatsWidget associationCode="GVH" />
 
       {/* Quick Actions */}
       <section className="section">

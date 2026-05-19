@@ -1,5 +1,6 @@
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import AssociationStatsWidget from '@/components/AssociationStatsWidget'
 
 export default function PageVenetian2() {
   return (
@@ -14,6 +15,8 @@ export default function PageVenetian2() {
       <SiteHeader subtitle="ASSOCIATION PORTAL · Venetian Park Condominium II Association, Inc." />
 
       <AssociationPortalGate assocCode="VPCII" assocName="Venetian Park Condominium II">
+
+      <AssociationStatsWidget associationCode="VPCII" />
 
       {/* Quick Actions */}
       <section className="section">

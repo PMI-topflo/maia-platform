@@ -1,5 +1,6 @@
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import AssociationStatsWidget from '@/components/AssociationStatsWidget'
 
 export default function PageLafarms() {
   return (
@@ -14,6 +15,8 @@ export default function PageLafarms() {
       <SiteHeader subtitle="ASSOCIATION PORTAL · Lafayette Arms Inc." />
 
       <AssociationPortalGate assocCode="LFA" assocName="Lafayette Arms">
+
+      <AssociationStatsWidget associationCode="LFA" />
 
       {/* Quick Actions */}
       <section className="section">

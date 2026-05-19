@@ -1,5 +1,6 @@
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import AssociationStatsWidget from '@/components/AssociationStatsWidget'
 
 export default function PageIslandhouse() {
   return (
@@ -14,6 +15,8 @@ export default function PageIslandhouse() {
       <SiteHeader subtitle="ASSOCIATION PORTAL · Island House North Condominium Association, Inc." />
 
       <AssociationPortalGate assocCode="ISLAND" assocName="Island House North Condominium Association">
+
+      <AssociationStatsWidget associationCode="ISLAND" />
 
       {/* Quick Actions */}
       <section className="section">

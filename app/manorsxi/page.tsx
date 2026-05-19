@@ -1,5 +1,6 @@
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import AssociationStatsWidget from '@/components/AssociationStatsWidget'
 
 export default function PageManorsxi() {
   return (
@@ -14,6 +15,8 @@ export default function PageManorsxi() {
       <SiteHeader subtitle="ASSOCIATION PORTAL · The Manors of Inverrary XI Association, Inc." />
 
       <AssociationPortalGate assocCode="MANXI" assocName="The Manors of Inverrary XI">
+
+      <AssociationStatsWidget associationCode="MANXI" />
 
       {/* Quick Actions */}
       <section className="section">
