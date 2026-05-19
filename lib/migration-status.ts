@@ -212,6 +212,30 @@ ALTER TABLE public.email_logs
   ADD COLUMN IF NOT EXISTS last_watch_error_at    timestamptz;`,
   },
   {
+    key:         'sms_consents',
+    label:       'A2P 10DLC consent ledger',
+    description: 'sms_consents table',
+    filename:    '20260519_sms_consents.sql',
+    artifact:    { type: 'table', table: 'sms_consents' },
+    sql: `CREATE TABLE IF NOT EXISTS public.sms_consents (
+  id            bigserial    PRIMARY KEY,
+  phone         text         NOT NULL,
+  opt_in_text   text         NOT NULL,
+  source_url    text         NOT NULL,
+  ip_address    text,
+  user_agent    text,
+  language      text,
+  persona       text,
+  consented_at  timestamptz  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_sms_consents_phone
+  ON public.sms_consents (phone, consented_at DESC);
+ALTER TABLE public.sms_consents ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_sms_consents" ON public.sms_consents;
+CREATE POLICY "service_role_all_sms_consents"
+  ON public.sms_consents FOR ALL TO service_role USING (true);`,
+  },
+  {
     key:         'dialpad_ingest',
     label:       'Dialpad ingest (SMS + calls)',
     description: 'dialpad_webhook_config table + general_conversations.external_id',
