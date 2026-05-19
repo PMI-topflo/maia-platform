@@ -211,6 +211,62 @@ ALTER TABLE public.email_logs
   ADD COLUMN IF NOT EXISTS last_watch_error       text,
   ADD COLUMN IF NOT EXISTS last_watch_error_at    timestamptz;`,
   },
+  {
+    key:         'dialpad_ingest',
+    label:       'Dialpad ingest (SMS + calls)',
+    description: 'dialpad_webhook_config table + general_conversations.external_id',
+    filename:    '20260519_dialpad_ingest.sql',
+    artifact:    { type: 'table', table: 'dialpad_webhook_config' },
+    sql: `CREATE TABLE IF NOT EXISTS public.staff_dialpad_lines (
+  id                   bigserial    PRIMARY KEY,
+  staff_id             uuid         REFERENCES public.pmi_staff(id) ON DELETE CASCADE,
+  dialpad_user_id      text         NOT NULL UNIQUE,
+  dialpad_email        text,
+  dialpad_phone        text,
+  dialpad_display_name text,
+  active               boolean      NOT NULL DEFAULT true,
+  created_at           timestamptz  NOT NULL DEFAULT NOW(),
+  updated_at           timestamptz  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_sdl_staff ON public.staff_dialpad_lines (staff_id);
+CREATE INDEX IF NOT EXISTS idx_sdl_phone ON public.staff_dialpad_lines (dialpad_phone);
+
+CREATE TABLE IF NOT EXISTS public.dialpad_numbers (
+  id           bigserial    PRIMARY KEY,
+  phone_number text         NOT NULL UNIQUE,
+  status       text,
+  target_type  text,
+  target_id    text,
+  label        text,
+  created_at   timestamptz  NOT NULL DEFAULT NOW(),
+  updated_at   timestamptz  NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.dialpad_webhook_config (
+  id                   smallint     PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  webhook_id           text,
+  webhook_url          text,
+  webhook_secret       text,
+  sms_subscription_id  text,
+  call_subscription_id text,
+  created_at           timestamptz  NOT NULL DEFAULT NOW(),
+  updated_at           timestamptz  NOT NULL DEFAULT NOW()
+);
+INSERT INTO public.dialpad_webhook_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE public.general_conversations ADD COLUMN IF NOT EXISTS external_id text;
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_gc_external_id ON public.general_conversations (external_id) WHERE external_id IS NOT NULL;
+
+ALTER TABLE public.staff_dialpad_lines    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.dialpad_numbers        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.dialpad_webhook_config ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_sdl" ON public.staff_dialpad_lines;
+DROP POLICY IF EXISTS "service_role_all_dn"  ON public.dialpad_numbers;
+DROP POLICY IF EXISTS "service_role_all_dwc" ON public.dialpad_webhook_config;
+CREATE POLICY "service_role_all_sdl" ON public.staff_dialpad_lines    FOR ALL TO service_role USING (true);
+CREATE POLICY "service_role_all_dn"  ON public.dialpad_numbers        FOR ALL TO service_role USING (true);
+CREATE POLICY "service_role_all_dwc" ON public.dialpad_webhook_config FOR ALL TO service_role USING (true);`,
+  },
 ]
 
 /** Probe every known migration's artifact in parallel. Each check
