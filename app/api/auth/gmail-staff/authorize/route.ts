@@ -20,5 +20,14 @@ export async function GET(req: NextRequest) {
   url.searchParams.set('prompt',        'consent')      // forces refresh_token to be issued
   url.searchParams.set('state',         connectedBy)
 
+  // login_hint pre-selects the right Google account in the picker when
+  // the caller passed a specific email (i.e. clicking "Reconnect" on a
+  // specific row). Without this, browsers signed into multiple Google
+  // accounts pick the wrong one and the callback silently writes to
+  // a different account than the one being reconnected.
+  if (connectedBy && connectedBy.includes('@')) {
+    url.searchParams.set('login_hint', connectedBy)
+  }
+
   return NextResponse.redirect(url.toString())
 }
