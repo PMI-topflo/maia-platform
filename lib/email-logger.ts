@@ -129,12 +129,19 @@ async function getStaffInboxes(): Promise<Set<string>> {
   return values
 }
 
+// Gmail sometimes stores from/to as the bare address ("foo@bar.com")
+// and sometimes wraps it in angle brackets ("<foo@bar.com>"). Strip the
+// brackets so denylist + staff-set lookups work regardless of form.
+function normalizeAddress(addr: string): string {
+  return addr.toLowerCase().replace(/^<|>$/g, '').trim()
+}
+
 async function detectAutoDismissReason(
   fromEmail: string,
   toEmail:   string,
 ): Promise<'noise_sender' | 'internal' | null> {
-  const lcFrom = fromEmail.toLowerCase()
-  const lcTo   = toEmail.toLowerCase()
+  const lcFrom = normalizeAddress(fromEmail)
+  const lcTo   = normalizeAddress(toEmail)
 
   // 1. Noise sender — exact email OR @domain pattern match.
   const patterns = await getNoisePatterns()
@@ -146,13 +153,16 @@ async function detectAutoDismissReason(
     }
   }
 
-  // 2. Internal staff-to-staff — sender is a known staff address AND
-  //    recipient is one of the connected staff Gmail inboxes.
+  // 2. Internal staff-to-staff — both ends are known staff addresses
+  //    (any combination of pmi_staff, alt_emails, or a connected
+  //    Gmail inbox counts).
   const [staffEmails, staffInboxes] = await Promise.all([
     getStaffEmails(),
     getStaffInboxes(),
   ])
-  if (staffEmails.has(lcFrom) && staffInboxes.has(lcTo)) {
+  const fromIsStaff = staffEmails.has(lcFrom) || staffInboxes.has(lcFrom)
+  const toIsStaff   = staffEmails.has(lcTo)   || staffInboxes.has(lcTo)
+  if (fromIsStaff && toIsStaff) {
     return 'internal'
   }
 
