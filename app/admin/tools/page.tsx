@@ -57,6 +57,87 @@ export default function AdminToolsPage() {
   const [disconnecting, setDisconnecting]       = useState<string | null>(null)
   const [renewing,      setRenewing]            = useState<string | null>(null)
 
+  // Dialpad integration state
+  interface DialpadStatus {
+    ok:                 boolean
+    missingMigration?:  boolean
+    connected?:         boolean
+    hookUrl?:           string | null
+    smsSubscriptionId?: string | null
+    callSubscriptionId?: string | null
+    updatedAt?:         string | null
+    staffLinesCount?:   number
+    numbersCount?:      number
+    error?:             string
+  }
+  const [dialpadStatus,      setDialpadStatus]     = useState<DialpadStatus | null>(null)
+  const [dialpadLoading,     setDialpadLoading]    = useState(true)
+  const [dialpadBusy,        setDialpadBusy]       = useState<null | 'setup' | 'sync' | 'backfill'>(null)
+  const [dialpadMsg,         setDialpadMsg]        = useState<string | null>(null)
+  const [dialpadDaysBack,    setDialpadDaysBack]   = useState(30)
+
+  async function refreshDialpadStatus() {
+    try {
+      const r = await fetch('/api/admin/dialpad/status')
+      const j = await r.json() as DialpadStatus
+      setDialpadStatus(j)
+    } catch (err) {
+      setDialpadStatus({ ok: false, error: (err as Error).message })
+    } finally {
+      setDialpadLoading(false)
+    }
+  }
+
+  async function runDialpadSetup() {
+    if (!confirm('Create Dialpad webhook + SMS/call subscriptions now? This calls the Dialpad API.')) return
+    setDialpadBusy('setup'); setDialpadMsg(null)
+    try {
+      const r = await fetch('/api/admin/dialpad/setup', { method: 'POST' })
+      const j = await r.json()
+      if (!r.ok || !j.ok) throw new Error(j.error ?? 'setup failed')
+      setDialpadMsg(`Connected — webhook ${j.webhookId}`)
+      await refreshDialpadStatus()
+    } catch (err) {
+      setDialpadMsg(`Error: ${(err as Error).message}`)
+    } finally {
+      setDialpadBusy(null)
+    }
+  }
+
+  async function runDialpadSyncStaff() {
+    setDialpadBusy('sync'); setDialpadMsg(null)
+    try {
+      const r = await fetch('/api/admin/dialpad/sync-staff', { method: 'POST' })
+      const j = await r.json()
+      if (!r.ok || !j.ok) throw new Error(j.error ?? 'sync failed')
+      setDialpadMsg(`Sync done — ${j.usersFound} users, ${j.usersMapped} mapped to staff, ${j.numbersFound} numbers`)
+      await refreshDialpadStatus()
+    } catch (err) {
+      setDialpadMsg(`Error: ${(err as Error).message}`)
+    } finally {
+      setDialpadBusy(null)
+    }
+  }
+
+  async function runDialpadBackfill() {
+    if (!confirm(`Backfill the last ${dialpadDaysBack} days of Dialpad calls into general_conversations?`)) return
+    setDialpadBusy('backfill'); setDialpadMsg(null)
+    try {
+      const r = await fetch('/api/admin/dialpad/backfill-calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ daysBack: dialpadDaysBack }),
+      })
+      const j = await r.json()
+      if (!r.ok || !j.ok) throw new Error(j.error ?? 'backfill failed')
+      setDialpadMsg(`Backfill — found ${j.found}, inserted ${j.inserted}, skipped ${j.skipped}`)
+    } catch (err) {
+      setDialpadMsg(`Error: ${(err as Error).message}`)
+    } finally {
+      setDialpadBusy(null)
+    }
+  }
+
   useEffect(() => {
     // Read URL params for connect/error feedback
     const params = new URLSearchParams(window.location.search)
@@ -89,6 +170,10 @@ export default function AdminToolsPage() {
       .then(d => setMigrations(d.migrations ?? []))
       .catch(() => { /* keep empty */ })
       .finally(() => setMigrationsLoading(false))
+
+    // Fetch Dialpad integration status
+    refreshDialpadStatus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function disconnect(gmail_address: string) {
@@ -489,6 +574,122 @@ export default function AdminToolsPage() {
                 </code>{' '}
                 as an authorized redirect URI in your Google Cloud OAuth credentials before connecting the first account.
               </div>
+            )}
+          </div>
+        </section>
+
+        {/* ── Dialpad Integration ───────────────────────────────────────── */}
+        <section style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', marginBottom: '1.5rem' }}>
+          <div style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+            <div>
+              <h2 style={{ fontWeight: 700, margin: 0, fontSize: '1rem' }}>Dialpad integration</h2>
+              <p style={{ color: '#6b7280', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
+                Ingest Dialpad calls + SMS into the unified communications view. Requires{' '}
+                <code style={{ background: '#f3f4f6', padding: '0 3px', borderRadius: 3, fontSize: '0.75rem' }}>DIALPAD_API_KEY</code> on the server.
+              </p>
+            </div>
+            {dialpadLoading ? (
+              <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>Loading…</span>
+            ) : dialpadStatus?.missingMigration ? (
+              <span style={{ padding: '2px 8px', background: '#fef3c7', color: '#92400e', fontSize: '0.7rem', borderRadius: 4, fontWeight: 600 }}>
+                MIGRATION NEEDED
+              </span>
+            ) : dialpadStatus?.connected ? (
+              <span style={{ padding: '2px 8px', background: '#dcfce7', color: '#166534', fontSize: '0.7rem', borderRadius: 4, fontWeight: 600 }}>
+                CONNECTED
+              </span>
+            ) : (
+              <span style={{ padding: '2px 8px', background: '#fee2e2', color: '#991b1b', fontSize: '0.7rem', borderRadius: 4, fontWeight: 600 }}>
+                NOT CONNECTED
+              </span>
+            )}
+          </div>
+
+          {dialpadMsg && (
+            <div style={{
+              padding: '0.75rem 1.25rem',
+              background: dialpadMsg.startsWith('Error') ? '#fef2f2' : '#f0fdf4',
+              borderBottom: '1px solid #e5e7eb',
+              fontSize: '0.85rem',
+              color: dialpadMsg.startsWith('Error') ? '#dc2626' : '#15803d',
+            }}>
+              {dialpadMsg}
+            </div>
+          )}
+
+          <div style={{ padding: '1rem 1.25rem' }}>
+            {dialpadStatus?.missingMigration ? (
+              <p style={{ color: '#92400e', fontSize: '0.85rem', margin: 0 }}>
+                Apply the <code>20260519_dialpad_ingest.sql</code> migration before using this section.
+              </p>
+            ) : (
+              <>
+                {dialpadStatus?.connected && dialpadStatus.hookUrl && (
+                  <div style={{ fontSize: '0.78rem', color: '#6b7280', marginBottom: '0.75rem', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    Hook: {dialpadStatus.hookUrl}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '1rem', fontSize: '0.8rem', color: '#374151' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '1.1rem', color: '#111' }}>{dialpadStatus?.staffLinesCount ?? 0}</div>
+                    <div style={{ color: '#6b7280' }}>staff lines mapped</div>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '1.1rem', color: '#111' }}>{dialpadStatus?.numbersCount ?? 0}</div>
+                    <div style={{ color: '#6b7280' }}>company numbers</div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button
+                    onClick={runDialpadSetup}
+                    disabled={dialpadBusy !== null || dialpadStatus?.connected}
+                    style={{
+                      padding: '0.5rem 1rem', borderRadius: 6, fontWeight: 600, fontSize: '0.8rem',
+                      border: 'none', background: dialpadStatus?.connected ? '#9ca3af' : '#f26a1b',
+                      color: '#fff',
+                      cursor: dialpadBusy !== null || dialpadStatus?.connected ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {dialpadBusy === 'setup' ? 'Setting up…' : '1. Setup webhook'}
+                  </button>
+                  <button
+                    onClick={runDialpadSyncStaff}
+                    disabled={dialpadBusy !== null}
+                    style={{
+                      padding: '0.5rem 1rem', borderRadius: 6, fontWeight: 600, fontSize: '0.8rem',
+                      border: '1px solid #d1d5db', background: '#fff', color: '#374151',
+                      cursor: dialpadBusy !== null ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {dialpadBusy === 'sync' ? 'Syncing…' : '2. Sync staff + numbers'}
+                  </button>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: '#374151' }}>
+                    Backfill days:
+                    <input
+                      type="number" min={1} max={365}
+                      value={dialpadDaysBack}
+                      onChange={e => setDialpadDaysBack(Math.max(1, Math.min(365, Number(e.target.value) || 30)))}
+                      style={{ width: 60, padding: '0.25rem 0.4rem', border: '1px solid #d1d5db', borderRadius: 4, fontSize: '0.78rem' }}
+                    />
+                  </label>
+                  <button
+                    onClick={runDialpadBackfill}
+                    disabled={dialpadBusy !== null}
+                    style={{
+                      padding: '0.5rem 1rem', borderRadius: 6, fontWeight: 600, fontSize: '0.8rem',
+                      border: '1px solid #d1d5db', background: '#fff', color: '#374151',
+                      cursor: dialpadBusy !== null ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {dialpadBusy === 'backfill' ? 'Backfilling…' : '3. Backfill calls'}
+                  </button>
+                </div>
+
+                <p style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: '0.75rem', marginBottom: 0 }}>
+                  SMS history is webhook-only going forward — Dialpad does not expose a list endpoint for past SMS.
+                </p>
+              </>
             )}
           </div>
         </section>
