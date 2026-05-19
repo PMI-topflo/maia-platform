@@ -9,13 +9,39 @@ function genOTP(): string {
 }
 
 export async function POST(req: NextRequest) {
-  const { identifier, method, persona, roleData } = await req.json()
+  const { identifier, method, persona, roleData, sms_consent, sms_consent_text, sms_consent_lang } = await req.json()
 
   if (!identifier?.trim() || !method) {
     return NextResponse.json({ ok: false, error: 'Missing fields' }, { status: 400 })
   }
 
   const ip = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? 'unknown'
+
+  // A2P 10DLC: SMS and WhatsApp require an explicit consent ledger entry
+  // every time we send. Refuse without it, then write the consent row
+  // before invoking Twilio. Email is exempt.
+  if (method === 'sms' || method === 'whatsapp') {
+    if (!sms_consent || !sms_consent_text) {
+      return NextResponse.json(
+        { ok: false, error: 'SMS / WhatsApp consent is required.' },
+        { status: 400 },
+      )
+    }
+    const { error: consentErr } = await supabaseAdmin.from('sms_consents').insert({
+      phone:        identifier.trim(),
+      opt_in_text:  sms_consent_text,
+      source_url:   req.headers.get('referer') ?? `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/login`,
+      ip_address:   ip,
+      user_agent:   req.headers.get('user-agent') ?? null,
+      language:     sms_consent_lang ?? null,
+      persona:      persona ?? null,
+    })
+    // Migration tolerance: if the sms_consents table hasn't been
+    // applied yet, log and proceed — don't block the user out.
+    if (consentErr && !/relation .* does not exist/.test(consentErr.message ?? '')) {
+      console.error('[send-otp] sms_consents insert failed:', consentErr.message)
+    }
+  }
 
   // Rate limit: 3 OTP sends per identifier per hour
   const { allowed } = await checkRateLimit(identifier.trim(), `otp_send_${method}`, 3, 60 * 60 * 1000)

@@ -22,13 +22,13 @@ interface Props {
   onBack:     () => void
 }
 
-const LABELS: Record<string, { title: string; subtitle: string; chooseMethod: string; codeSent: string; enterCode: string; verify: string; verifying: string; resend: string; tryAnother: string; success: string; sms: string; whatsapp: string; emailMethod: string }> = {
-  en: { title: 'Verify It\'s You', subtitle: 'Choose how you\'d like to receive your verification code.', chooseMethod: 'How should we send your code?', codeSent: 'Code sent! Check your', enterCode: 'Enter the 6-digit code', verify: 'Verify Code', verifying: 'Verifying…', resend: 'Resend code', tryAnother: 'Try another method', success: 'Identity Verified!', sms: 'Text message (SMS)', whatsapp: 'WhatsApp message', emailMethod: 'Email' },
-  es: { title: 'Verifica Tu Identidad', subtitle: 'Elige cómo recibir tu código de verificación.', chooseMethod: '¿Cómo enviamos tu código?', codeSent: 'Código enviado. Revisa tu', enterCode: 'Ingresa el código de 6 dígitos', verify: 'Verificar Código', verifying: 'Verificando…', resend: 'Reenviar código', tryAnother: 'Probar otro método', success: '¡Identidad Verificada!', sms: 'Mensaje de texto (SMS)', whatsapp: 'WhatsApp', emailMethod: 'Correo electrónico' },
-  pt: { title: 'Verifique Sua Identidade', subtitle: 'Escolha como receber seu código de verificação.', chooseMethod: 'Como devemos enviar seu código?', codeSent: 'Código enviado. Verifique seu', enterCode: 'Digite o código de 6 dígitos', verify: 'Verificar Código', verifying: 'Verificando…', resend: 'Reenviar código', tryAnother: 'Tentar outro método', success: 'Identidade Verificada!', sms: 'Mensagem de texto (SMS)', whatsapp: 'WhatsApp', emailMethod: 'E-mail' },
-  fr: { title: 'Vérifiez Votre Identité', subtitle: 'Choisissez comment recevoir votre code de vérification.', chooseMethod: 'Comment envoyer votre code ?', codeSent: 'Code envoyé ! Vérifiez votre', enterCode: 'Entrez le code à 6 chiffres', verify: 'Vérifier le code', verifying: 'Vérification…', resend: 'Renvoyer le code', tryAnother: 'Essayer une autre méthode', success: 'Identité Vérifiée !', sms: 'SMS', whatsapp: 'WhatsApp', emailMethod: 'E-mail' },
-  he: { title: 'אמת את זהותך', subtitle: 'בחר כיצד לקבל את קוד האימות.', chooseMethod: 'כיצד נשלח את הקוד?', codeSent: 'הקוד נשלח. בדוק את ה', enterCode: 'הזן את הקוד בן 6 ספרות', verify: 'אמת קוד', verifying: 'מאמת…', resend: 'שלח קוד מחדש', tryAnother: 'נסה שיטה אחרת', success: 'הזהות אומתה!', sms: 'הודעת SMS', whatsapp: 'WhatsApp', emailMethod: 'מייל' },
-  ru: { title: 'Подтвердите Личность', subtitle: 'Выберите способ получения кода.', chooseMethod: 'Как отправить код?', codeSent: 'Код отправлен! Проверьте ваш', enterCode: 'Введите 6-значный код', verify: 'Подтвердить код', verifying: 'Проверка…', resend: 'Отправить снова', tryAnother: 'Попробовать другой способ', success: 'Личность подтверждена!', sms: 'SMS', whatsapp: 'WhatsApp', emailMethod: 'Эл. почта' },
+const LABELS: Record<string, { title: string; subtitle: string; chooseMethod: string; codeSent: string; enterCode: string; verify: string; verifying: string; resend: string; tryAnother: string; success: string; sms: string; whatsapp: string; emailMethod: string; smsConsent: string; smsConsentRequired: string }> = {
+  en: { title: 'Verify It\'s You', subtitle: 'Choose how you\'d like to receive your verification code.', chooseMethod: 'How should we send your code?', codeSent: 'Code sent! Check your', enterCode: 'Enter the 6-digit code', verify: 'Verify Code', verifying: 'Verifying…', resend: 'Resend code', tryAnother: 'Try another method', success: 'Identity Verified!', sms: 'Text message (SMS)', whatsapp: 'WhatsApp message', emailMethod: 'Email', smsConsent: 'I agree to receive text messages from PMI Top Florida Properties about my account — verification codes, maintenance updates, payment reminders, board notifications, and service responses. Message frequency varies. Msg & data rates may apply. Reply STOP to opt out, HELP for help.', smsConsentRequired: 'Please agree to receive text messages before continuing with SMS or WhatsApp.' },
+  es: { title: 'Verifica Tu Identidad', subtitle: 'Elige cómo recibir tu código de verificación.', chooseMethod: '¿Cómo enviamos tu código?', codeSent: 'Código enviado. Revisa tu', enterCode: 'Ingresa el código de 6 dígitos', verify: 'Verificar Código', verifying: 'Verificando…', resend: 'Reenviar código', tryAnother: 'Probar otro método', success: '¡Identidad Verificada!', sms: 'Mensaje de texto (SMS)', whatsapp: 'WhatsApp', emailMethod: 'Correo electrónico', smsConsent: 'Acepto recibir mensajes de texto de PMI Top Florida Properties sobre mi cuenta — códigos de verificación, mantenimiento, pagos, notificaciones de junta y respuestas. La frecuencia varía. Pueden aplicar tarifas. Responde STOP para cancelar, HELP para ayuda.', smsConsentRequired: 'Por favor acepta recibir mensajes de texto antes de continuar con SMS o WhatsApp.' },
+  pt: { title: 'Verifique Sua Identidade', subtitle: 'Escolha como receber seu código de verificação.', chooseMethod: 'Como devemos enviar seu código?', codeSent: 'Código enviado. Verifique seu', enterCode: 'Digite o código de 6 dígitos', verify: 'Verificar Código', verifying: 'Verificando…', resend: 'Reenviar código', tryAnother: 'Tentar outro método', success: 'Identidade Verificada!', sms: 'Mensagem de texto (SMS)', whatsapp: 'WhatsApp', emailMethod: 'E-mail', smsConsent: 'Concordo em receber mensagens de texto da PMI Top Florida Properties sobre minha conta — códigos, manutenção, pagamentos, avisos do conselho e respostas. Frequência varia. Taxas podem se aplicar. Responda STOP para cancelar, HELP para ajuda.', smsConsentRequired: 'Por favor concorde em receber mensagens de texto antes de continuar com SMS ou WhatsApp.' },
+  fr: { title: 'Vérifiez Votre Identité', subtitle: 'Choisissez comment recevoir votre code de vérification.', chooseMethod: 'Comment envoyer votre code ?', codeSent: 'Code envoyé ! Vérifiez votre', enterCode: 'Entrez le code à 6 chiffres', verify: 'Vérifier le code', verifying: 'Vérification…', resend: 'Renvoyer le code', tryAnother: 'Essayer une autre méthode', success: 'Identité Vérifiée !', sms: 'SMS', whatsapp: 'WhatsApp', emailMethod: 'E-mail', smsConsent: 'J\'accepte de recevoir des SMS de PMI Top Florida Properties concernant mon compte — codes, maintenance, paiements, avis du conseil et réponses. La fréquence varie. Des frais peuvent s\'appliquer. Répondez STOP pour vous désabonner, HELP pour aide.', smsConsentRequired: 'Veuillez accepter de recevoir des SMS avant de continuer avec SMS ou WhatsApp.' },
+  he: { title: 'אמת את זהותך', subtitle: 'בחר כיצד לקבל את קוד האימות.', chooseMethod: 'כיצד נשלח את הקוד?', codeSent: 'הקוד נשלח. בדוק את ה', enterCode: 'הזן את הקוד בן 6 ספרות', verify: 'אמת קוד', verifying: 'מאמת…', resend: 'שלח קוד מחדש', tryAnother: 'נסה שיטה אחרת', success: 'הזהות אומתה!', sms: 'הודעת SMS', whatsapp: 'WhatsApp', emailMethod: 'מייל', smsConsent: 'אני מסכים/ה לקבל הודעות SMS מ-PMI Top Florida Properties על חשבוני — קודי אימות, תחזוקה, תזכורות תשלום, הודעות ועד ותגובות. תדירות משתנה. עשויות לחול עמלות. השב STOP לביטול, HELP לעזרה.', smsConsentRequired: 'אנא הסכם/י לקבל הודעות SMS לפני המשך עם SMS או WhatsApp.' },
+  ru: { title: 'Подтвердите Личность', subtitle: 'Выберите способ получения кода.', chooseMethod: 'Как отправить код?', codeSent: 'Код отправлен! Проверьте ваш', enterCode: 'Введите 6-значный код', verify: 'Подтвердить код', verifying: 'Проверка…', resend: 'Отправить снова', tryAnother: 'Попробовать другой способ', success: 'Личность подтверждена!', sms: 'SMS', whatsapp: 'WhatsApp', emailMethod: 'Эл. почта', smsConsent: 'Я соглашаюсь получать SMS от PMI Top Florida Properties о моём аккаунте — коды, обслуживание, платежи, уведомления и ответы. Частота варьируется. Могут применяться тарифы. STOP для отказа, HELP для помощи.', smsConsentRequired: 'Пожалуйста, согласитесь получать SMS перед продолжением с SMS или WhatsApp.' },
 }
 
 const inputCls = 'w-full px-3 py-2.5 border border-[#333] rounded-[2px] text-sm focus:outline-none focus:border-[#f26a1b] focus:shadow-[0_0_0_3px_rgba(242,106,27,.18)] bg-[#1a1a1a] text-white placeholder:text-[#555] transition-shadow'
@@ -37,13 +37,14 @@ const labelCls = 'block mb-1 text-[0.62rem] font-medium uppercase tracking-[0.1e
 export default function TwoFactorAuth({ role, email, phone, lang, onVerified, onBack }: Props) {
   const l = LABELS[lang] ?? LABELS.en
 
-  const [step,      setStep]      = useState<Step>('method')
-  const [method,    setMethod]    = useState<Method | null>(null)
-  const [contact,   setContact]   = useState('')
-  const [code,      setCode]      = useState('')
-  const [busy,      setBusy]      = useState(false)
-  const [error,     setError]     = useState('')
-  const [cooldown,  setCooldown]  = useState(0)
+  const [step,        setStep]        = useState<Step>('method')
+  const [method,      setMethod]      = useState<Method | null>(null)
+  const [contact,     setContact]     = useState('')
+  const [code,        setCode]        = useState('')
+  const [busy,        setBusy]        = useState(false)
+  const [error,       setError]       = useState('')
+  const [cooldown,    setCooldown]    = useState(0)
+  const [smsConsent,  setSmsConsent]  = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Build available methods
@@ -71,11 +72,29 @@ export default function TwoFactorAuth({ role, email, phone, lang, onVerified, on
   }, [cooldown])
 
   async function sendOTP(m: Method, c: string) {
+    // SMS / WhatsApp require explicit A2P 10DLC consent. Block the
+    // attempt if the user hasn't checked the box. Email is exempt.
+    if ((m === 'sms' || m === 'whatsapp') && !smsConsent) {
+      setError(l.smsConsentRequired)
+      return
+    }
     setBusy(true); setError('')
     try {
       const res  = await fetch('/api/auth/send-otp', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: c, method: m, persona: role.type, roleData: role }),
+        body: JSON.stringify({
+          identifier: c,
+          method:     m,
+          persona:    role.type,
+          roleData:   role,
+          // Pass the consent flag + the literal text shown to the user
+          // so the server can write an auditable consent ledger row.
+          ...((m === 'sms' || m === 'whatsapp') && {
+            sms_consent:      true,
+            sms_consent_text: l.smsConsent,
+            sms_consent_lang: lang,
+          }),
+        }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Failed to send code.'); return }
@@ -186,11 +205,43 @@ export default function TwoFactorAuth({ role, email, phone, lang, onVerified, on
             </button>
           )}
           {!contact.includes('@') && contact.length > 6 && (
-            <button onClick={() => sendOTP('sms', contact)} disabled={busy} className="w-full bg-[#f26a1b] hover:bg-[#f58140] disabled:opacity-50 text-white [font-family:var(--font-mono)] text-[0.62rem] font-medium uppercase tracking-[0.08em] py-2.5 rounded-[2px] transition-colors">
-              {busy ? 'Sending…' : 'Send Code by SMS'}
-            </button>
+            <>
+              <label className="flex items-start gap-2 p-3 rounded-lg cursor-pointer" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.09)' }}>
+                <input
+                  type="checkbox"
+                  checked={smsConsent}
+                  onChange={e => { setSmsConsent(e.target.checked); if (e.target.checked) setError('') }}
+                  className="mt-0.5 flex-shrink-0 accent-[#f26a1b]"
+                />
+                <span className="text-[0.72rem] text-[#9ca3af] leading-snug">
+                  {l.smsConsent}{' '}
+                  <a href="/sms-consent" target="_blank" rel="noreferrer" className="text-[#f26a1b] hover:underline">
+                    SMS terms
+                  </a>
+                </span>
+              </label>
+              <button onClick={() => sendOTP('sms', contact)} disabled={busy || !smsConsent} className="w-full bg-[#f26a1b] hover:bg-[#f58140] disabled:opacity-50 text-white [font-family:var(--font-mono)] text-[0.62rem] font-medium uppercase tracking-[0.08em] py-2.5 rounded-[2px] transition-colors">
+                {busy ? 'Sending…' : 'Send Code by SMS'}
+              </button>
+            </>
           )}
         </div>
+      )}
+      {methods.length > 0 && hasPhone && (
+        <label className="flex items-start gap-2 p-3 rounded-lg cursor-pointer transition-colors" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.09)' }}>
+          <input
+            type="checkbox"
+            checked={smsConsent}
+            onChange={e => { setSmsConsent(e.target.checked); if (e.target.checked) setError('') }}
+            className="mt-0.5 flex-shrink-0 accent-[#f26a1b]"
+          />
+          <span className="text-[0.72rem] text-[#9ca3af] leading-snug">
+            {l.smsConsent}{' '}
+            <a href="/sms-consent" target="_blank" rel="noreferrer" className="text-[#f26a1b] hover:underline">
+              SMS terms
+            </a>
+          </span>
+        </label>
       )}
       {methods.length > 0 && (
         <div className="space-y-2">
@@ -199,7 +250,7 @@ export default function TwoFactorAuth({ role, email, phone, lang, onVerified, on
             <button
               key={m.key}
               onClick={() => sendOTP(m.key, m.contact)}
-              disabled={busy}
+              disabled={busy || ((m.key === 'sms' || m.key === 'whatsapp') && !smsConsent)}
               className="w-full text-left p-3.5 rounded-lg transition-all disabled:opacity-50"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.09)' }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(242,106,27,0.45)'; e.currentTarget.style.boxShadow = '0 0 14px rgba(242,106,27,0.14)' }}
