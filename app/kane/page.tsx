@@ -1,5 +1,6 @@
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import AssociationStatsWidget from '@/components/AssociationStatsWidget'
 
 export default function PageKane() {
   return (
@@ -14,6 +15,8 @@ export default function PageKane() {
       <SiteHeader subtitle="ASSOCIATION PORTAL · 1080-1090 Kane Concourse Condominium Association, Inc." />
 
       <AssociationPortalGate assocCode="KANE" assocName="1080-1090 Kane Concourse Condominium">
+
+      <AssociationStatsWidget associationCode="KANE" />
 
       {/* Quick Actions */}
       <section className="section">

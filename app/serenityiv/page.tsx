@@ -1,5 +1,6 @@
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import AssociationStatsWidget from '@/components/AssociationStatsWidget'
 
 export default function PageSerenityiv() {
   return (
@@ -14,6 +15,8 @@ export default function PageSerenityiv() {
       <SiteHeader subtitle="ASSOCIATION PORTAL · Serenity Place IV" />
 
       <AssociationPortalGate assocCode="SP" assocName="Serenity Place IV">
+
+      <AssociationStatsWidget associationCode="SP" />
 
       {/* Quick Actions */}
       <section className="section">

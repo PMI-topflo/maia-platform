@@ -1,5 +1,6 @@
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import AssociationStatsWidget from '@/components/AssociationStatsWidget'
 
 export default function PageWedgewoodansin() {
   return (
@@ -14,6 +15,8 @@ export default function PageWedgewoodansin() {
       <SiteHeader subtitle="ASSOCIATION PORTAL · Wedgewood Business Park Ansin Condominium Association, Inc." />
 
       <AssociationPortalGate assocCode="WBPA" assocName="Wedgewood Business Park Ansin">
+
+      <AssociationStatsWidget associationCode="WBPA" />
 
       {/* Quick Actions */}
       <section className="section">

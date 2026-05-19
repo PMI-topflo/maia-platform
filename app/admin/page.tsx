@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveStaffByLoginEmail, staffCandidateEmails } from '@/lib/staff-lookup'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from './components/AdminNav'
+import StaffStatsPanel from './components/StaffStatsPanel'
 import Link from 'next/link'
 
 export const metadata = { title: 'Overview — PMI Top Florida' }
@@ -180,6 +181,8 @@ export default async function OverviewPage() {
             </p>
           </div>
         </div>
+
+        <StaffStatsPanel />
 
         {/* My tasks for the day */}
         <div className="mb-6 bg-white border border-gray-200 rounded-lg overflow-hidden">

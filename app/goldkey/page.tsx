@@ -1,5 +1,6 @@
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import AssociationStatsWidget from '@/components/AssociationStatsWidget'
 
 export default function PageGoldkey() {
   return (
@@ -14,6 +15,8 @@ export default function PageGoldkey() {
       <SiteHeader subtitle="ASSOCIATION PORTAL · Gold Key Villas #7 Association Inc." />
 
       <AssociationPortalGate assocCode="GK7" assocName="Gold Key Villas #7 Association">
+
+      <AssociationStatsWidget associationCode="GK7" />
 
       {/* Quick Actions */}
       <section className="section">

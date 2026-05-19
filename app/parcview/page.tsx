@@ -1,5 +1,6 @@
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import AssociationStatsWidget from '@/components/AssociationStatsWidget'
 
 export default function PageParcview() {
   return (
@@ -14,6 +15,8 @@ export default function PageParcview() {
       <SiteHeader subtitle="ASSOCIATION PORTAL · Parcview Villas" />
 
       <AssociationPortalGate assocCode="PVV" assocName="Parcview Villas">
+
+      <AssociationStatsWidget associationCode="PVV" />
 
       {/* Quick Actions */}
       <section className="section">

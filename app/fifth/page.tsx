@@ -1,5 +1,6 @@
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import AssociationStatsWidget from '@/components/AssociationStatsWidget'
 
 export default function PageFifth() {
   return (
@@ -14,6 +15,8 @@ export default function PageFifth() {
       <SiteHeader subtitle="ASSOCIATION PORTAL · Fifth Miramar Condominium, Inc." />
 
       <AssociationPortalGate assocCode="FIFTH" assocName="Fifth Miramar Condominium">
+
+      <AssociationStatsWidget associationCode="FIFTH" />
 
       {/* Quick Actions */}
       <section className="section">
