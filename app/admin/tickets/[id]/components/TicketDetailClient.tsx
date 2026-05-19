@@ -14,6 +14,7 @@ import ChangeReasonModal from './ChangeReasonModal'
 import SchedulingModal from './SchedulingModal'
 import VendorPickerModal from './VendorPickerModal'
 import WorkOrderPhotos from './WorkOrderPhotos'
+import LogMessageModal from './LogMessageModal'
 
 interface TicketRecord {
   id:                     number
@@ -170,6 +171,7 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
   const [replyChannel,  setReplyChannel]  = useState<ReplyChannel>(initialReplyChannel)
   const [replyBody,     setReplyBody]     = useState('')
   const [sending,       setSending]       = useState(false)
+  const [logModalOpen,  setLogModalOpen]  = useState(false)
   const [error,         setError]         = useState<string | null>(null)
   const [showDueModal,  setShowDueModal]  = useState(false)
   // Pending status/priority change held while ChangeReasonModal collects
@@ -425,6 +427,20 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           ))}
         </div>
 
+        {/* Log past message — opens a modal that records a message
+            that happened outside the platform (e.g. an SMS on a Dialpad
+            line) into this ticket's timeline without sending anything. */}
+        <div className="flex justify-end mb-2">
+          <button
+            type="button"
+            onClick={() => setLogModalOpen(true)}
+            className="text-xs text-gray-600 hover:text-[#f26a1b] underline"
+            title="Record an SMS / call / WhatsApp that happened outside the platform"
+          >
+            📋 Log past message
+          </button>
+        </div>
+
         {/* Reply box */}
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -662,6 +678,13 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           />
         )}
 
+        <LogMessageModal
+          ticketId={ticket.id}
+          open={logModalOpen}
+          onClose={() => setLogModalOpen(false)}
+          onSaved={() => router.refresh()}
+        />
+
         {workOrder && (() => {
           const address = fmtAddress(workOrder)
           return (
@@ -837,6 +860,7 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
 function MessageCard({ m }: { m: MessageRecord }) {
   const isInbound  = m.direction === 'inbound'
   const isInternal = m.direction === 'internal_note'
+  const isLogged   = typeof m.external_id === 'string' && m.external_id.startsWith('logged-')
   const bg         = isInternal ? 'bg-yellow-50 border-yellow-200' : (isInbound ? 'bg-white border-gray-200' : 'bg-blue-50 border-blue-100')
   const labelLeft  = isInternal ? 'Internal note' : (isInbound ? `${m.from_addr ?? 'External'} →` : `→ ${m.to_addr ?? 'External'}`)
 
@@ -846,6 +870,14 @@ function MessageCard({ m }: { m: MessageRecord }) {
         <div className="flex items-center gap-2 text-xs text-gray-600">
           <span className="font-medium">{labelLeft}</span>
           <span className="text-gray-400">via {m.channel}</span>
+          {isLogged && (
+            <span
+              className="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase"
+              title="Manually logged — happened outside the platform"
+            >
+              📋 Logged
+            </span>
+          )}
           {m.subject && <span className="text-gray-400 line-clamp-1 max-w-md">· {m.subject}</span>}
         </div>
         <span className="text-xs text-gray-400">{fmtAbs(m.created_at)}</span>
