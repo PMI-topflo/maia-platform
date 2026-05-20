@@ -291,6 +291,19 @@ CREATE POLICY "service_role_all_sdl" ON public.staff_dialpad_lines    FOR ALL TO
 CREATE POLICY "service_role_all_dn"  ON public.dialpad_numbers        FOR ALL TO service_role USING (true);
 CREATE POLICY "service_role_all_dwc" ON public.dialpad_webhook_config FOR ALL TO service_role USING (true);`,
   },
+  {
+    key:         'conversations_archive',
+    label:       'Conversation soft-archive',
+    description: 'general_conversations.archived_at',
+    filename:    '20260520_conversations_archive.sql',
+    artifact:    { type: 'column', table: 'general_conversations', column: 'archived_at' },
+    sql: `ALTER TABLE public.general_conversations
+  ADD COLUMN IF NOT EXISTS archived_at       timestamptz,
+  ADD COLUMN IF NOT EXISTS archived_by_email text;
+CREATE INDEX IF NOT EXISTS general_conversations_active_idx
+  ON public.general_conversations (updated_at DESC)
+  WHERE archived_at IS NULL;`,
+  },
 ]
 
 /** Probe every known migration's artifact in parallel. Each check

@@ -112,6 +112,7 @@ async function getData(
   ctx: AccessContext,
   showDismissed: boolean,
   emailFilters: { to: string; from: string },
+  showConvArchived: boolean,
 ) {
   const list = emailListForIn(ctx.staffEmails)
   // Email queries also include MAIA's own addresses so a non-owner
@@ -130,11 +131,27 @@ async function getData(
   // can be queried directly if needed.
   const tenDaysAgo = new Date(Date.now() - 10 * 86400 * 1000).toISOString()
 
+  // Migration-tolerant probe for the soft-archive column. When absent
+  // (migration not applied) we just skip the archive filter + column.
+  const convArchivedExists = await (async () => {
+    const { error } = await supabaseAdmin.from('general_conversations').select('archived_at').limit(0)
+    return !error
+  })()
+
+  const convCols =
+    'id, session_id, persona, language, association_code, topic, status, channel, contact_name, contact_phone, contact_email, assigned_to, handled_by, summary, message, response, subject, sender_email, created_at, updated_at, messages'
+    + (convArchivedExists ? ', archived_at' : '')
+
   let convQuery = supabaseAdmin
     .from('general_conversations')
-    .select('id, session_id, persona, language, association_code, topic, status, channel, contact_name, contact_phone, contact_email, assigned_to, handled_by, summary, message, response, subject, sender_email, created_at, updated_at, messages')
+    .select(convCols)
     .order('updated_at', { ascending: false })
     .limit(100)
+
+  // Default view hides archived conversations; the toggle includes them.
+  if (convArchivedExists && !showConvArchived) {
+    convQuery = convQuery.is('archived_at', null)
+  }
 
   // Migration-tolerant column list. Probes each optional column once
   // and omits it from the SELECT if the migration that adds it hasn't
@@ -305,9 +322,10 @@ async function getData(
   }
 
   return {
-    conversations:             convRes.data ?? [],
     // Cast through any — dynamic .select(string) collapses Supabase's
     // inferred shape; the dashboard's runtime guards handle missing cols.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    conversations:             (convRes.data ?? []) as any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     emails:                    (emailRes.data ?? []) as any,
     tickets:                   ticketRes.data ?? [],
@@ -323,10 +341,11 @@ async function getData(
 export default async function CommunicationsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ dismissed?: string; emailTo?: string; emailFrom?: string }>
+  searchParams: Promise<{ dismissed?: string; emailTo?: string; emailFrom?: string; convArchived?: string }>
 }) {
   const sp = await searchParams
-  const showDismissed = sp.dismissed === '1'
+  const showDismissed    = sp.dismissed    === '1'
+  const showConvArchived = sp.convArchived === '1'
   // Validate the From/To filter params — they drive a server query, so
   // only accept well-formed email addresses; anything else → no filter.
   const asEmail = (v: string | undefined): string => {
@@ -335,7 +354,7 @@ export default async function CommunicationsPage({
   }
   const emailFilters = { to: asEmail(sp.emailTo), from: asEmail(sp.emailFrom) }
   const ctx  = await getAccessContext()
-  const data = await getData(ctx, showDismissed, emailFilters)
+  const data = await getData(ctx, showDismissed, emailFilters, showConvArchived)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -349,6 +368,7 @@ export default async function CommunicationsPage({
           showDismissed={showDismissed}
           emailTo={emailFilters.to}
           emailFrom={emailFilters.from}
+          showConvArchived={showConvArchived}
         />
       </main>
     </div>
