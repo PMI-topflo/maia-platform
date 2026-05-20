@@ -17,6 +17,14 @@ import {
 } from '@/lib/maia-command-processor'
 import { logEmail } from '@/lib/email-logger'
 
+// A normal Gmail Pub/Sub notification covers a handful of new messages.
+// A history batch larger than this means the stored historyId was far
+// behind real time (a watch that sat dead for days) — treat it as a
+// stale-cursor replay, not real traffic, and resync recent inbox only
+// instead of re-logging the whole backlog with today's timestamps.
+const BACKLOG_REPLAY_CAP  = 100
+const RECENT_RESYNC_LIMIT = 20
+
 // POST /api/maia-email/webhook
 // Receives Gmail push notifications via Google Cloud Pub/Sub.
 // Handles both the main PMI account (env var tokens) and connected
@@ -106,15 +114,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'history_fetch_failed' }, { status: 500 })
   }
 
-  // Recovery path: 404s and other "history purged / out of range" cases come
-  // back from fetchGmailHistory as []. Falling back to listing recent inbox
-  // messages directly catches the message that prompted the notification.
-  // Idempotency in processEmailCommand (UNIQUE on gmail_message_id) and in
-  // ticket_messages.external_id makes this safe to re-run.
-  if (messageIds.length === 0) {
+  // Stale-historyId guard: a batch this large means lastHistoryId was far
+  // behind real time. Replaying it would re-log hundreds of old messages
+  // with today's timestamp — resync only the recent inbox instead.
+  if (messageIds.length > BACKLOG_REPLAY_CAP) {
+    console.warn(`[maia-webhook] history returned ${messageIds.length} messages (cap ${BACKLOG_REPLAY_CAP}) — stale historyId, resyncing recent inbox only`)
+    try {
+      messageIds = await listRecentInboxMessages(RECENT_RESYNC_LIMIT)
+    } catch (err) {
+      console.error('[maia-webhook] recent resync error:', err)
+      return NextResponse.json({ ok: false, error: 'inbox_scan_failed' }, { status: 500 })
+    }
+  } else if (messageIds.length === 0) {
+    // Recovery path: 404s and other "history purged / out of range" cases come
+    // back from fetchGmailHistory as []. Falling back to listing recent inbox
+    // messages directly catches the message that prompted the notification.
+    // Idempotency in processEmailCommand (UNIQUE on gmail_message_id) and in
+    // ticket_messages.external_id makes this safe to re-run.
     console.log('[maia-webhook] history fetch returned empty — falling back to direct inbox scan')
     try {
-      messageIds = await listRecentInboxMessages(20)
+      messageIds = await listRecentInboxMessages(RECENT_RESYNC_LIMIT)
     } catch (err) {
       console.error('[maia-webhook] inbox scan fallback error:', err)
       return NextResponse.json({ ok: false, error: 'inbox_scan_failed' }, { status: 500 })
@@ -190,13 +209,24 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
     return
   }
 
-  // Recovery path: empty history (404 / out of range) → fall back to recent
-  // inbox scan so we don't silently lose messages when Gmail's history
-  // index is stale.
-  if (messageIds.length === 0) {
+  // Stale-historyId guard — see the main-account path above. A batch this
+  // large means the stored history_id was far behind; replaying it would
+  // re-log a backlog of old mail. Resync recent inbox only.
+  if (messageIds.length > BACKLOG_REPLAY_CAP) {
+    console.warn(`[staff-gmail] history returned ${messageIds.length} messages for ${account.gmail_address} (cap ${BACKLOG_REPLAY_CAP}) — stale historyId, resyncing recent inbox only`)
+    try {
+      messageIds = await listRecentInboxMessagesWithToken(accessToken, RECENT_RESYNC_LIMIT)
+    } catch (err) {
+      console.error(`[staff-gmail] recent resync error for ${account.gmail_address}:`, err)
+      return
+    }
+  } else if (messageIds.length === 0) {
+    // Recovery path: empty history (404 / out of range) → fall back to recent
+    // inbox scan so we don't silently lose messages when Gmail's history
+    // index is stale.
     console.log(`[staff-gmail] history empty for ${account.gmail_address} — falling back to direct inbox scan`)
     try {
-      messageIds = await listRecentInboxMessagesWithToken(accessToken, 20)
+      messageIds = await listRecentInboxMessagesWithToken(accessToken, RECENT_RESYNC_LIMIT)
     } catch (err) {
       console.error(`[staff-gmail] inbox scan fallback error for ${account.gmail_address}:`, err)
       return
