@@ -299,6 +299,24 @@ export async function listRecentInboxMessagesWithToken(accessToken: string, limi
   return (data.messages ?? []).map(m => m.id)
 }
 
+export interface GmailProfile {
+  emailAddress:  string
+  messagesTotal: number
+  threadsTotal:  number
+  historyId:     string
+}
+
+/** Gmail users.getProfile — the mailbox's own view of itself: total
+ *  message count and the current (live) historyId. Used by the account
+ *  diagnostics to compare what Gmail sees against what MAIA stored. */
+export async function fetchGmailProfileWithToken(accessToken: string): Promise<GmailProfile> {
+  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!res.ok) throw new Error(`[Gmail staff] Profile fetch failed (${res.status}): ${await res.text()}`)
+  return res.json() as Promise<GmailProfile>
+}
+
 export async function registerGmailWatchWithToken(topicName: string, accessToken: string): Promise<{ historyId: string; expiration: string }> {
   const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/watch', {
     method:  'POST',
