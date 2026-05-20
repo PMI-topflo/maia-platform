@@ -16,8 +16,14 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import {
   refreshStaffToken,
   fetchGmailProfileWithToken,
+  fetchGmailProfile,
   listRecentInboxMessagesWithToken,
+  listRecentInboxMessages,
 } from '@/lib/gmail'
+
+// The main MAIA inbox — env-var credentials, not a connected staff
+// account. Diagnosed via a dedicated branch below.
+const MAIN_ACCOUNT = 'maia@pmitop.com'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -90,6 +96,59 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid email' }, { status: 400 })
   }
 
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400 * 1000).toISOString()
+
+  // Main MAIA inbox — env-var credentials + maia_watch_state cursor,
+  // not a connected staff account. Diagnosed with the env-token helpers.
+  if (addr === MAIN_ACCOUNT) {
+    const { data: ws } = await supabaseAdmin
+      .from('maia_watch_state')
+      .select('last_history_id, watch_expiry')
+      .eq('id', 1)
+      .maybeSingle()
+
+    const report: DiagnoseReport = {
+      account:          MAIN_ACCOUNT,
+      storedHistoryId:  (ws?.last_history_id as string | null) ?? null,
+      watchExpiry:      (ws?.watch_expiry as string | null) ?? null,
+      watchExpired:     !!(ws?.watch_expiry && new Date(ws.watch_expiry as string).getTime() < Date.now()),
+      lastWatchError:   null,
+      tokenOk:          false,
+      tokenError:       null,
+      liveHistoryId:    null,
+      messagesTotal:    null,
+      recentInboxCount: null,
+      emailLogs30d:     0,
+      verdict:          '',
+    }
+
+    const { count } = await supabaseAdmin
+      .from('email_logs')
+      .select('id', { count: 'exact', head: true })
+      .eq('direction', 'inbound')
+      .gte('created_at', thirtyDaysAgo)
+      .ilike('to_email', `%${escapeLike(MAIN_ACCOUNT)}%`)
+    report.emailLogs30d = count ?? 0
+
+    try {
+      const profile        = await fetchGmailProfile()
+      report.tokenOk       = true
+      report.liveHistoryId = String(profile.historyId)
+      report.messagesTotal = profile.messagesTotal
+    } catch (err) {
+      report.tokenError = err instanceof Error ? err.message : String(err)
+    }
+    if (report.tokenOk) {
+      try {
+        const recent            = await listRecentInboxMessages(20)
+        report.recentInboxCount = recent.length
+      } catch { /* leave recentInboxCount null */ }
+    }
+
+    report.verdict = buildVerdict(report)
+    return NextResponse.json({ ok: true, report })
+  }
+
   // Load the connected account (case-insensitive — see the webhook).
   const { data: accounts } = await supabaseAdmin
     .from('staff_gmail_accounts')
@@ -119,7 +178,6 @@ export async function POST(
 
   // How many INBOUND emails has MAIA captured for this inbox in the last
   // 30 days? Inbound-only so the number reflects ingest, not replies.
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400 * 1000).toISOString()
   const { count: logCount } = await supabaseAdmin
     .from('email_logs')
     .select('id', { count: 'exact', head: true })

@@ -577,6 +577,61 @@ export default function AdminToolsPage() {
           )}
 
           <div style={{ padding: '1rem 1.25rem' }}>
+            {/* Main MAIA inbox — runs on the app's own Gmail credentials,
+                not a connected staff account, so it is shown separately. */}
+            <div style={{ padding: '0.75rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, marginBottom: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#16a34a', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#111' }}>
+                    maia@pmitop.com
+                    <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: 6 }}>(Main MAIA inbox)</span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: 2 }}>
+                    The @maia command channel — separate from the connected staff inboxes below.
+                  </div>
+                  {diagnosis['maia@pmitop.com'] && (() => {
+                    const d    = diagnosis['maia@pmitop.com']
+                    const bad  = !!d.error || /BREAK FOUND|FAILED/.test(d.verdict)
+                    const good = /^Healthy/.test(d.verdict)
+                    const bg   = bad ? '#fef2f2' : good ? '#f0fdf4' : '#fffbeb'
+                    const bd   = bad ? '#fecaca' : good ? '#bbf7d0' : '#fde68a'
+                    const fg   = bad ? '#991b1b' : good ? '#15803d' : '#92400e'
+                    return (
+                      <div style={{ marginTop: 6, padding: '8px 10px', background: bg, border: `1px solid ${bd}`, borderRadius: 4 }}>
+                        <div style={{ fontSize: '0.75rem', color: fg, fontWeight: 600 }}>{d.verdict}</div>
+                        {!d.error && (
+                          <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: 4, fontFamily: 'monospace', wordBreak: 'break-word' }}>
+                            token {d.tokenOk ? 'OK' : 'FAILED'}
+                            {' · '}recent inbox: {d.recentInboxCount ?? '—'}
+                            {' · '}logged 30d: {d.emailLogs30d ?? '—'}
+                            {' · '}mailbox total: {d.messagesTotal ?? '—'}
+                            {' · '}historyId stored {d.storedHistoryId ?? '—'} / live {d.liveHistoryId ?? '—'}
+                          </div>
+                        )}
+                        {d.tokenError && (
+                          <div style={{ fontSize: '0.68rem', color: '#991b1b', marginTop: 3, fontFamily: 'monospace', wordBreak: 'break-word' }}>
+                            {d.tokenError}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
+                </div>
+                <button
+                  onClick={() => diagnose('maia@pmitop.com')}
+                  disabled={diagnosing === 'maia@pmitop.com'}
+                  style={{
+                    padding: '0.35rem 0.75rem', border: '1px solid #2563eb',
+                    borderRadius: 4, background: '#fff', color: '#2563eb',
+                    fontSize: '0.75rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                  }}
+                >
+                  {diagnosing === 'maia@pmitop.com' ? 'Diagnosing…' : 'Diagnose'}
+                </button>
+              </div>
+            </div>
+
             {gmailLoading ? (
               <p style={{ color: '#9ca3af', fontSize: '0.85rem', margin: 0 }}>Loading…</p>
             ) : activeAccounts.length === 0 ? (

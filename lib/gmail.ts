@@ -317,6 +317,13 @@ export async function fetchGmailProfileWithToken(accessToken: string): Promise<G
   return res.json() as Promise<GmailProfile>
 }
 
+/** users.getProfile for the main MAIA account (env-var credentials) —
+ *  used to diagnose the maia@ inbox the same way connected staff inboxes
+ *  are diagnosed. */
+export async function fetchGmailProfile(): Promise<GmailProfile> {
+  return fetchGmailProfileWithToken(await getAccessToken())
+}
+
 export async function registerGmailWatchWithToken(topicName: string, accessToken: string): Promise<{ historyId: string; expiration: string }> {
   const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/watch', {
     method:  'POST',
