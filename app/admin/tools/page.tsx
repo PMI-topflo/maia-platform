@@ -62,6 +62,23 @@ export default function AdminToolsPage() {
   const [disconnecting, setDisconnecting]       = useState<string | null>(null)
   const [renewing,      setRenewing]            = useState<string | null>(null)
 
+  // Gmail account diagnostics
+  interface DiagnoseReport {
+    account?:          string
+    verdict:           string
+    error?:            boolean
+    tokenOk?:          boolean
+    tokenError?:       string | null
+    liveHistoryId?:    string | null
+    storedHistoryId?:  string | null
+    messagesTotal?:    number | null
+    recentInboxCount?: number | null
+    emailLogs30d?:     number
+    watchExpired?:     boolean
+  }
+  const [diagnosing, setDiagnosing] = useState<string | null>(null)
+  const [diagnosis,  setDiagnosis]  = useState<Record<string, DiagnoseReport>>({})
+
   // Dialpad integration state
   interface DialpadStatus {
     ok:                 boolean
@@ -261,6 +278,23 @@ export default function AdminToolsPage() {
       setGmailMsg(`❌ ${gmail_address}: ${(err as Error).message}`)
     } finally {
       setRenewing(null)
+    }
+  }
+
+  async function diagnose(gmail_address: string) {
+    setDiagnosing(gmail_address)
+    try {
+      const res  = await fetch(`/api/admin/gmail-accounts/${encodeURIComponent(gmail_address)}/diagnose`, { method: 'POST' })
+      const data = await res.json()
+      if (data.ok && data.report) {
+        setDiagnosis(prev => ({ ...prev, [gmail_address]: data.report }))
+      } else {
+        setDiagnosis(prev => ({ ...prev, [gmail_address]: { verdict: data.error || 'Diagnosis failed.', error: true } }))
+      }
+    } catch (err) {
+      setDiagnosis(prev => ({ ...prev, [gmail_address]: { verdict: (err as Error).message, error: true } }))
+    } finally {
+      setDiagnosing(null)
     }
   }
 
@@ -609,6 +643,33 @@ export default function AdminToolsPage() {
                           )}
                         </div>
                       )}
+                      {diagnosis[acct.gmail_address] && (() => {
+                        const d    = diagnosis[acct.gmail_address]
+                        const bad  = !!d.error || /BREAK FOUND|FAILED/.test(d.verdict)
+                        const good = /^Healthy/.test(d.verdict)
+                        const bg   = bad ? '#fef2f2' : good ? '#f0fdf4' : '#fffbeb'
+                        const bd   = bad ? '#fecaca' : good ? '#bbf7d0' : '#fde68a'
+                        const fg   = bad ? '#991b1b' : good ? '#15803d' : '#92400e'
+                        return (
+                          <div style={{ marginTop: 6, padding: '8px 10px', background: bg, border: `1px solid ${bd}`, borderRadius: 4 }}>
+                            <div style={{ fontSize: '0.75rem', color: fg, fontWeight: 600 }}>{d.verdict}</div>
+                            {!d.error && (
+                              <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: 4, fontFamily: 'monospace', wordBreak: 'break-word' }}>
+                                token {d.tokenOk ? 'OK' : 'FAILED'}
+                                {' · '}recent inbox: {d.recentInboxCount ?? '—'}
+                                {' · '}logged 30d: {d.emailLogs30d ?? '—'}
+                                {' · '}mailbox total: {d.messagesTotal ?? '—'}
+                                {' · '}historyId stored {d.storedHistoryId ?? '—'} / live {d.liveHistoryId ?? '—'}
+                              </div>
+                            )}
+                            {d.tokenError && (
+                              <div style={{ fontSize: '0.68rem', color: '#991b1b', marginTop: 3, fontFamily: 'monospace', wordBreak: 'break-word' }}>
+                                {d.tokenError}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', flexShrink: 0 }}>
                       {isInvalidGrant ? (
@@ -635,6 +696,17 @@ export default function AdminToolsPage() {
                           {renewing === acct.gmail_address ? 'Renewing…' : 'Renew now'}
                         </button>
                       )}
+                      <button
+                        onClick={() => diagnose(acct.gmail_address)}
+                        disabled={diagnosing === acct.gmail_address}
+                        style={{
+                          padding: '0.35rem 0.75rem', border: '1px solid #2563eb',
+                          borderRadius: 4, background: '#fff', color: '#2563eb',
+                          fontSize: '0.75rem', cursor: 'pointer', whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {diagnosing === acct.gmail_address ? 'Diagnosing…' : 'Diagnose'}
+                      </button>
                       <button
                         onClick={() => disconnect(acct.gmail_address)}
                         disabled={disconnecting === acct.gmail_address}

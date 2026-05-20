@@ -103,15 +103,21 @@ export async function POST(req: NextRequest) {
   const newHistoryId = String(notification.historyId ?? '')
   if (!newHistoryId) return NextResponse.json({ ok: true })
 
-  const emailAddress = notification.emailAddress ?? ''
+  const emailAddress = (notification.emailAddress ?? '').toLowerCase()
 
-  // Check if this notification is for a connected staff account
-  const { data: staffAccount } = await supabaseAdmin
+  // Check if this notification is for a connected staff account. Match
+  // case-insensitively: Gmail can deliver the address in a different
+  // case than it was stored, and an exact .eq() would silently miss —
+  // mis-routing the notification to the main-account path so the staff
+  // inbox captures nothing. The connected-account set is tiny, so a
+  // fetch-then-find in JS is cheap and avoids ilike wildcard pitfalls.
+  const { data: staffAccounts } = await supabaseAdmin
     .from('staff_gmail_accounts')
     .select('gmail_address, refresh_token, access_token, token_expiry, history_id')
-    .eq('gmail_address', emailAddress)
     .eq('active', true)
-    .maybeSingle()
+  const staffAccount = (staffAccounts ?? []).find(
+    a => typeof a.gmail_address === 'string' && a.gmail_address.toLowerCase() === emailAddress,
+  ) ?? null
 
   if (staffAccount) {
     await processStaffAccountEmails(staffAccount, newHistoryId)
