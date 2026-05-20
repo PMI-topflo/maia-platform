@@ -215,10 +215,41 @@ npx tsc --noEmit 2>&1 | grep -E "YOUR_NEW_FILE_PATH" | head
 
 ---
 
+## STATUS UPDATE — 2026-05-20 (READ THIS — the 9 tasks below are partly done)
+
+Sessions on 2026-05-19/20 worked through much of this list plus a large
+Communications + messaging overhaul. Current status of the original 9:
+
+| # | Task | Status |
+|---|------|--------|
+| 1 | CINC work-order pictures | ✅ DONE — CINC WO metadata sync + photo display shipped |
+| 2 | Upload photos from MAIA emails → work orders | 🟡 PARTIAL — `work_order_attachments` table exists (source supports `email`); verify the email→WO ingestion path is actually wired |
+| 3 | Upload pictures in work orders directly | ✅ DONE — `WorkOrderPhotos.tsx` + `work_order_attachments` (source `staff_upload`) |
+| 4 | Application payment + Applycheck | ❌ NOT STARTED — note: `app/api/webhooks/stripe/route.ts` still has the `getSupabase` undefined bug |
+| 5 | Mark work orders for monthly report | ❌ NOT STARTED — related but different: PR #112 shipped an association stats widget |
+| 6 | Marketing posts + association reports structure | ❌ NOT STARTED |
+| 7 | CINC ledgers via text/WhatsApp/email | ❌ NOT STARTED — partly blocked on SMS working (task 8) |
+| 8 | Fix broken text messages | 🟡 IN PROGRESS — root cause found: Twilio **A2P 10DLC campaign was REJECTED**. Consent checkbox shipped on the OTP login (PR #116). Pending: user resubmits the Twilio campaign; webhook-crash fix; emergency-regex fix |
+| 9 | Compliance tracking (leases / insurance / Cert of Use) | ❌ NOT STARTED |
+
+### New work this session, NOT in the original 9
+
+- Communications overhaul — per-staff triage view, server-side email filters, accurate counts, conversation archive (PRs #112, #113, #117, #118, #119)
+- Dialpad ingest shipped **dormant** (PR #114 — no Dialpad API access on current plan)
+- Manual SMS log on tickets (PR #115)
+- **TOP NEXT PRIORITY: Gmail ingest hardening** — stale-historyId backlog replay + Gmail deletion sync.
+
+### Two roadmap sources now exist — read BOTH at session start
+- **This file** (`NEXT_SESSION.md`) — the original 9-task product backlog (status above)
+- **Memory `next_session_priorities.md`** — this session's operational follow-ups (8 items, open PRs)
+- **Memory `migration_workflow.md`** — migrations MUST be idempotent; the user applies them by hand and it keeps breaking
+
+---
+
 # 9 follow-up tasks
 
 The user listed these in priority order. Each below has enough context
-to start.
+to start. **See the STATUS UPDATE above — several are already done.**
 
 ## 1. CINC work-order pictures aren't pulling
 

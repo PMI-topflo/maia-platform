@@ -273,6 +273,9 @@ interface Props {
   emailFrom?: string
   // URL flag — when true, archived conversations are included.
   showConvArchived?: boolean
+  // True count of emails matching the active server filter — may
+  // exceed the 1000 rows actually loaded into the table.
+  emailTotal?: number
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -704,6 +707,7 @@ function EmailsTab({
   toOptionsOverride   = [],
   serverEmailTo       = '',
   serverEmailFrom     = '',
+  emailTotal          = 0,
 }: {
   emails:               EmailLog[]
   staff:                Staff[]
@@ -712,6 +716,7 @@ function EmailsTab({
   toOptionsOverride?:   string[]
   serverEmailTo?:       string
   serverEmailFrom?:     string
+  emailTotal?:          number
 }) {
   const router       = useRouter()
   const searchParams = useSearchParams()
@@ -942,6 +947,11 @@ function EmailsTab({
 
       <div className="text-xs text-gray-400 mb-2">
         {threads.length} thread{threads.length === 1 ? '' : 's'} · {filtered.length} message{filtered.length === 1 ? '' : 's'}
+        {emailTotal > emails.length && (
+          <span className="text-amber-700">
+            {' '}· showing the most recent {emails.length.toLocaleString()} of {emailTotal.toLocaleString()} matching
+          </span>
+        )}
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -1436,6 +1446,7 @@ export default function CommunicationsDashboard({
   emailTo                   = '',
   emailFrom                 = '',
   showConvArchived          = false,
+  emailTotal                = 0,
 }: Props) {
   const [tab, setTab] = useState<'conversations' | 'emails' | 'tickets' | 'commands'>('conversations')
 
@@ -1455,7 +1466,11 @@ export default function CommunicationsDashboard({
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         <StatCard label="Open Conversations" value={openConvs} sub={`of ${conversations.length} total`} />
-        <StatCard label="Emails Sent" value={emails.length} sub={bouncedEmails ? `${bouncedEmails} bounced` : 'all delivered'} />
+        <StatCard
+          label="Emails"
+          value={emailTotal}
+          sub={emailTotal > emails.length ? `first ${emails.length} loaded` : (bouncedEmails ? `${bouncedEmails} bounced` : 'all delivered')}
+        />
         <StatCard label="Open Tickets" value={openTickets} sub={`of ${tickets.length} total`} />
         <StatCard label="Urgent Tickets" value={urgentTickets} sub={urgentTickets > 0 ? 'needs attention' : 'none'} />
       </div>
@@ -1464,7 +1479,7 @@ export default function CommunicationsDashboard({
       <div className="flex border-b border-gray-200 mb-5">
         {([
           { key: 'conversations', label: `Conversations (${conversations.length})` },
-          { key: 'emails',        label: `Emails (${emails.length})` },
+          { key: 'emails',        label: `Emails (${emailTotal})` },
           { key: 'tickets',       label: `Board Tickets (${tickets.length})` },
           { key: 'commands',      label: `Email Commands (${emailCommands.length})` },
         ] as const).map(t => (
@@ -1483,7 +1498,7 @@ export default function CommunicationsDashboard({
       </div>
 
       {tab === 'conversations' && <ConversationsTab conversations={conversations} staff={staff} senderOptionsOverride={conversationSenderOptions} showArchived={showConvArchived} />}
-      {tab === 'emails'        && <EmailsTab emails={emails} staff={staff} showDismissed={showDismissed} fromOptionsOverride={emailFromOptions} toOptionsOverride={emailToOptions} serverEmailTo={emailTo} serverEmailFrom={emailFrom} />}
+      {tab === 'emails'        && <EmailsTab emails={emails} staff={staff} showDismissed={showDismissed} fromOptionsOverride={emailFromOptions} toOptionsOverride={emailToOptions} serverEmailTo={emailTo} serverEmailFrom={emailFrom} emailTotal={emailTotal} />}
       {tab === 'tickets'       && <TicketsTab tickets={tickets} staff={staff} />}
       {tab === 'commands'      && <EmailCommandsTab commands={emailCommands} />}
     </div>
