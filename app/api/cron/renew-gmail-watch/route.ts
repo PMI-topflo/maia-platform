@@ -89,9 +89,16 @@ export async function renewStaffAccountWatch(opts: {
     }
 
     const watch = await registerGmailWatchWithToken(opts.topic, accessToken)
+    // Advance the stored history_id to the watch's fresh value. Without
+    // this, a watch that sat dead for days keeps its months-old
+    // history_id — and the next notification replays the entire backlog
+    // (old, already-deleted spam re-logged with today's timestamp).
+    // registerGmailWatch's historyId is monotonic, so this only ever
+    // moves the cursor forward.
     await supabaseAdmin
       .from('staff_gmail_accounts')
       .update({
+        history_id:             String(watch.historyId),
         watch_expiry:           new Date(Number(watch.expiration)).toISOString(),
         last_watch_renewed_at:  now,
         last_watch_error:       null,
