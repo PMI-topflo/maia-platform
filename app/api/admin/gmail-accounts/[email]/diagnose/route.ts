@@ -43,6 +43,12 @@ function escapeLike(s: string): string {
   return s.replace(/[%_\\]/g, c => `\\${c}`)
 }
 
+// A processing cursor more than this far behind the live mailbox means
+// notifications have stopped being processed. Healthy inboxes sit within
+// a few dozen of live (notifications are near-real-time); a gap in the
+// thousands is a stuck cursor, not normal lag.
+const CURSOR_GAP_ALERT = 1000
+
 function buildVerdict(r: DiagnoseReport): string {
   if (!r.tokenOk) {
     return 'Token refresh FAILED — this account must be reconnected before it can capture any mail.'
@@ -53,10 +59,18 @@ function buildVerdict(r: DiagnoseReport): string {
   if ((r.recentInboxCount ?? 0) > 0 && r.emailLogs30d === 0) {
     return 'BREAK FOUND: Gmail has recent inbox mail but MAIA logged nothing in the last 30 days. The token works, so the Gmail watch / Pub-Sub notifications are not reaching MAIA. Try "Renew now"; if it stays at zero, the Pub/Sub push subscription needs checking.'
   }
-  if (r.watchExpired) {
-    return `MAIA has logged ${r.emailLogs30d} emails, but the Gmail watch is expired — new mail will stop arriving until it is renewed.`
+  // Cursor far behind the live mailbox: notifications aren't being
+  // processed even though some mail was logged at some point.
+  const gap = (r.liveHistoryId && r.storedHistoryId)
+    ? Number(r.liveHistoryId) - Number(r.storedHistoryId)
+    : 0
+  if (Number.isFinite(gap) && gap > CURSOR_GAP_ALERT) {
+    return `BREAK FOUND: MAIA's processing cursor is ${gap.toLocaleString()} history events behind this mailbox — notifications stopped being processed, so it is capturing little or no new mail (only ${r.emailLogs30d} inbound emails logged in 30 days, vs. thousands on a healthy inbox). Re-check after the next inbound email; if the gap doesn't close, the watch is mis-routed.`
   }
-  return `Healthy — MAIA has logged ${r.emailLogs30d} emails for this inbox in the last 30 days.`
+  if (r.watchExpired) {
+    return `MAIA has logged ${r.emailLogs30d} inbound emails, but the Gmail watch is expired — new mail will stop arriving until it is renewed.`
+  }
+  return `Healthy — MAIA has logged ${r.emailLogs30d} inbound emails for this inbox in the last 30 days.`
 }
 
 export async function POST(
@@ -103,11 +117,13 @@ export async function POST(
     verdict:          '',
   }
 
-  // How many email_logs rows exist for this inbox in the last 30 days?
+  // How many INBOUND emails has MAIA captured for this inbox in the last
+  // 30 days? Inbound-only so the number reflects ingest, not replies.
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400 * 1000).toISOString()
   const { count: logCount } = await supabaseAdmin
     .from('email_logs')
     .select('id', { count: 'exact', head: true })
+    .eq('direction', 'inbound')
     .gte('created_at', thirtyDaysAgo)
     .ilike('to_email', `%${escapeLike(addr)}%`)
   report.emailLogs30d = logCount ?? 0
