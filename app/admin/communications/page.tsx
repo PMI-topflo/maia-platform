@@ -319,14 +319,14 @@ async function getData(
   for (const inbox of (staffInboxesRes.data ?? []) as Array<{ gmail_address: string | null }>) {
     for (const a of extractEmailAddrs(inbox.gmail_address)) emailToSet.add(a)
   }
-  // MAIA's own addresses are always offered as From/To options. Mail to
-  // maia@ is now auto-dismissed (it's the @maia command channel), so it
-  // can fall out of the visible-traffic sample — but staff still need to
-  // be able to filter to it on demand (with "Show dismissed").
-  for (const a of MAIA_EMAILS) {
-    emailFromSet.add(a)
-    emailToSet.add(a)
-  }
+  // Always offer maia@ itself as a From/To option. Its inbound is now
+  // auto-dismissed (the @maia command channel), so it can fall out of
+  // the visible-traffic sample — but staff still need to filter to it on
+  // demand (with "Show dismissed"). The noreply@/no-reply@ variants are
+  // send-only system addresses — not seeded, so they only appear as
+  // filter options if they organically have traffic in the sample.
+  emailFromSet.add('maia@pmitop.com')
+  emailToSet.add('maia@pmitop.com')
 
   const convSenderSet = new Set<string>()
   for (const r of (convOptsRes.data ?? []) as Array<{ sender_email: string | null; contact_email: string | null }>) {
