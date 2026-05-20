@@ -271,6 +271,8 @@ interface Props {
   // just reflect/drive these.
   emailTo?:   string
   emailFrom?: string
+  // URL flag — when true, archived conversations are included.
+  showConvArchived?: boolean
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -346,17 +348,63 @@ function ConversationsTab({
   conversations,
   staff,
   senderOptionsOverride = [],
+  showArchived = false,
 }: {
   conversations:          Conversation[]
   staff:                  Staff[]
   senderOptionsOverride?: string[]
+  showArchived?:          boolean
 }) {
+  const router       = useRouter()
+  const searchParams = useSearchParams()
+
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterChannel, setFilterChannel] = useState('all')
   const [filterAssignedTo, setFilterAssignedTo] = useState('all')
   const [filterFrom, setFilterFrom] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [archiving, setArchiving] = useState(false)
+
+  function toggleSelect(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else              next.add(id)
+      return next
+    })
+  }
+
+  function toggleArchivedView() {
+    const params = new URLSearchParams(searchParams.toString())
+    if (showArchived) params.delete('convArchived')
+    else              params.set('convArchived', '1')
+    const qs = params.toString()
+    router.push(qs ? `?${qs}` : '?')
+  }
+
+  async function archiveConversations(ids: string[], action: 'archive' | 'restore') {
+    if (ids.length === 0 || archiving) return
+    setArchiving(true)
+    try {
+      const res = await fetch('/api/admin/communications/archive-conversations', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ ids, action }),
+      })
+      if (!res.ok) {
+        alert((await res.json())?.error ?? `${action} failed`)
+        return
+      }
+      setSelected(new Set())
+      router.refresh()
+    } catch {
+      alert('Network error — please try again.')
+    } finally {
+      setArchiving(false)
+    }
+  }
 
   // Prefer server-computed options (covers ALL last-10-day data, not
   // just the rows currently loaded). Fall back to in-prop dedupe so
@@ -444,17 +492,78 @@ function ConversationsTab({
             ))}
           </select>
         )}
+        <button
+          type="button"
+          onClick={toggleArchivedView}
+          className={[
+            'inline-flex items-center gap-1.5 text-xs px-2 py-1.5 rounded border transition-colors',
+            showArchived
+              ? 'bg-amber-100 text-amber-900 border-amber-300'
+              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400',
+          ].join(' ')}
+          title="Toggle visibility of archived conversations"
+        >
+          {showArchived ? '✓ Show archived' : 'Show archived'}
+        </button>
       </div>
 
-      <div className="text-xs text-gray-400 mb-2">{filtered.length} conversations</div>
+      {/* Bulk action bar — appears once rows are selected. */}
+      <div className="flex items-center justify-between mb-2 min-h-[28px]">
+        <div className="text-xs text-gray-400">
+          {filtered.length} conversation{filtered.length === 1 ? '' : 's'}
+          {showArchived && <span className="text-amber-700"> · archived</span>}
+        </div>
+        {selected.size > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">{selected.size} selected</span>
+            <button
+              type="button"
+              onClick={() => archiveConversations([...selected], showArchived ? 'restore' : 'archive')}
+              disabled={archiving}
+              className="text-xs px-2.5 py-1 rounded bg-[#f26a1b] text-white font-medium hover:bg-[#d85a14] disabled:opacity-50"
+            >
+              {archiving
+                ? 'Working…'
+                : showArchived
+                  ? `Restore ${selected.size}`
+                  : `Archive ${selected.size}`}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="text-xs text-gray-500 hover:text-gray-800"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+        {selected.size === 0 && filtered.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setSelected(new Set(filtered.map(c => c.id)))}
+            className="text-xs text-gray-500 hover:text-[#f26a1b]"
+          >
+            Select all
+          </button>
+        )}
+      </div>
 
       <div className="space-y-2">
         {filtered.map(c => (
           <div key={c.id} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <button
-              onClick={() => setExpanded(expanded === c.id ? null : c.id)}
-              className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
-            >
+            <div className="flex items-stretch">
+              <label className="flex items-center pl-3 pr-1">
+                <input
+                  type="checkbox"
+                  checked={selected.has(c.id)}
+                  onChange={() => toggleSelect(c.id)}
+                  className="w-4 h-4 accent-[#f26a1b] cursor-pointer"
+                />
+              </label>
+              <button
+                onClick={() => setExpanded(expanded === c.id ? null : c.id)}
+                className="flex-1 min-w-0 text-left px-3 py-3 hover:bg-gray-50 transition-colors"
+              >
               <div className="flex items-start gap-3">
                 <span className="text-lg mt-0.5">{channelIcon(c.channel)}</span>
                 <div className="flex-1 min-w-0">
@@ -509,7 +618,17 @@ function ConversationsTab({
                   )}
                 </div>
               </div>
-            </button>
+              </button>
+              <button
+                type="button"
+                onClick={() => archiveConversations([c.id], showArchived ? 'restore' : 'archive')}
+                disabled={archiving}
+                className="px-3 text-gray-300 hover:text-[#f26a1b] hover:bg-gray-50 transition-colors disabled:opacity-40"
+                title={showArchived ? 'Restore conversation' : 'Archive conversation'}
+              >
+                {showArchived ? '↺' : '✕'}
+              </button>
+            </div>
 
             {expanded === c.id && (
               <div className="border-t border-gray-100 px-4 py-3 bg-gray-50">
@@ -1316,6 +1435,7 @@ export default function CommunicationsDashboard({
   conversationSenderOptions = [],
   emailTo                   = '',
   emailFrom                 = '',
+  showConvArchived          = false,
 }: Props) {
   const [tab, setTab] = useState<'conversations' | 'emails' | 'tickets' | 'commands'>('conversations')
 
@@ -1362,7 +1482,7 @@ export default function CommunicationsDashboard({
         ))}
       </div>
 
-      {tab === 'conversations' && <ConversationsTab conversations={conversations} staff={staff} senderOptionsOverride={conversationSenderOptions} />}
+      {tab === 'conversations' && <ConversationsTab conversations={conversations} staff={staff} senderOptionsOverride={conversationSenderOptions} showArchived={showConvArchived} />}
       {tab === 'emails'        && <EmailsTab emails={emails} staff={staff} showDismissed={showDismissed} fromOptionsOverride={emailFromOptions} toOptionsOverride={emailToOptions} serverEmailTo={emailTo} serverEmailFrom={emailFrom} />}
       {tab === 'tickets'       && <TicketsTab tickets={tickets} staff={staff} />}
       {tab === 'commands'      && <EmailCommandsTab commands={emailCommands} />}
