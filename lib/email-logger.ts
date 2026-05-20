@@ -44,6 +44,22 @@ export async function logEmail(entry: EmailLogEntry): Promise<void> {
   const fromEmail = entry.fromEmail ?? 'maia@pmitop.com'
   const toEmail   = entry.toEmail
 
+  // Idempotency guard. The same inbound message can reach logEmail more
+  // than once — Pub/Sub redelivery, a stale-cursor backlog replay, the
+  // recovery rescan. email_logs has no unique constraint on
+  // gmail_message_id, so each re-log would insert a duplicate row, and
+  // the Communications view would group N identical copies into one
+  // bogus "N-message thread". Skip if this message is already logged.
+  if (direction === 'inbound' && entry.gmailMessageId) {
+    const { data: existing, error: dupErr } = await supabaseAdmin
+      .from('email_logs')
+      .select('id')
+      .eq('gmail_message_id', entry.gmailMessageId)
+      .limit(1)
+      .maybeSingle()
+    if (!dupErr && existing) return   // already logged — drop the duplicate
+  }
+
   // Pre-compute auto-dismiss reason for inbound mail so we can stamp
   // the row at insert time instead of doing a second UPDATE.
   const autoDismiss = direction === 'inbound'
@@ -78,11 +94,17 @@ export async function logEmail(entry: EmailLogEntry): Promise<void> {
   const isStaleReplay = Number.isFinite(staleEpoch)
     && Date.now() - staleEpoch > STALE_INBOUND_REPLAY_DAYS * 86_400_000
 
+  // Inbound mail to maia@ is MAIA's own command channel — @maia traffic
+  // and bot replies, not customer correspondence staff triage. It still
+  // gets logged + processed into tickets, but stays off the Emails tab.
+  const isMaiaInbox = direction === 'inbound'
+    && normalizeAddress(toEmail) === 'maia@pmitop.com'
+
   if (autoDismiss) {
     insertRow.dismissed_at        = new Date().toISOString()
     insertRow.dismissed_by_email  = 'system'
     insertRow.auto_dismiss_reason = autoDismiss
-  } else if (isStaleReplay) {
+  } else if (isStaleReplay || isMaiaInbox) {
     insertRow.dismissed_at        = new Date().toISOString()
     insertRow.dismissed_by_email  = 'system'
   }
