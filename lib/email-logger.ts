@@ -18,6 +18,10 @@ export interface EmailLogEntry {
    *  existing communication_ticket_links for the same thread (so a
    *  ticket linked once auto-extends to every future reply). */
   gmailThreadId?: string
+  /** Gmail messageId of the source inbound email. Recorded so the
+   *  Gmail-watch webhook can dismiss this row when the message is later
+   *  deleted / trashed / archived in Gmail. */
+  gmailMessageId?: string
 }
 
 export async function logEmail(entry: EmailLogEntry): Promise<void> {
@@ -50,26 +54,41 @@ export async function logEmail(entry: EmailLogEntry): Promise<void> {
     conversation_id:    entry.conversationId ?? null,
     gmail_thread_id:    entry.gmailThreadId ?? null,
   }
+  if (entry.gmailMessageId) {
+    insertRow.gmail_message_id = entry.gmailMessageId
+  }
   if (autoDismiss) {
     insertRow.dismissed_at        = new Date().toISOString()
     insertRow.dismissed_by_email  = 'system'
     insertRow.auto_dismiss_reason = autoDismiss
   }
 
-  const { data: inserted, error } = await supabaseAdmin
-    .from('email_logs')
-    .insert(insertRow)
-    .select('id')
-    .single()
-
-  if (error || !inserted) {
-    console.error('[email-logger] Failed to log email:', error?.message)
-    return
-  }
+  const inserted = await insertEmailLog(insertRow)
+  if (!inserted) return
 
   if (entry.gmailThreadId) {
-    void autolinkEmailToThreadTickets(String(inserted.id), entry.gmailThreadId)
+    void autolinkEmailToThreadTickets(inserted.id, entry.gmailThreadId)
   }
+}
+
+/** Insert an email_logs row, tolerating a not-yet-migrated
+ *  gmail_message_id column: if the insert fails because that column is
+ *  missing, retry once without it so logging still succeeds. */
+async function insertEmailLog(row: Record<string, unknown>): Promise<{ id: string } | null> {
+  const first = await supabaseAdmin.from('email_logs').insert(row).select('id').single()
+  if (!first.error && first.data) return { id: String(first.data.id) }
+
+  if (first.error && 'gmail_message_id' in row && /gmail_message_id/i.test(first.error.message)) {
+    const rest = { ...row }
+    delete rest.gmail_message_id
+    const retry = await supabaseAdmin.from('email_logs').insert(rest).select('id').single()
+    if (!retry.error && retry.data) return { id: String(retry.data.id) }
+    console.error('[email-logger] Failed to log email (retry without gmail_message_id):', retry.error?.message)
+    return null
+  }
+
+  console.error('[email-logger] Failed to log email:', first.error?.message)
+  return null
 }
 
 // ─────────────────────────────────────────────────────────────────────
