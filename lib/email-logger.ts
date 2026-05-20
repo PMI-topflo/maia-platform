@@ -44,6 +44,22 @@ export async function logEmail(entry: EmailLogEntry): Promise<void> {
   const fromEmail = entry.fromEmail ?? 'maia@pmitop.com'
   const toEmail   = entry.toEmail
 
+  // Idempotency guard. The same inbound message can reach logEmail more
+  // than once — Pub/Sub redelivery, a stale-cursor backlog replay, the
+  // recovery rescan. email_logs has no unique constraint on
+  // gmail_message_id, so each re-log would insert a duplicate row, and
+  // the Communications view would group N identical copies into one
+  // bogus "N-message thread". Skip if this message is already logged.
+  if (direction === 'inbound' && entry.gmailMessageId) {
+    const { data: existing, error: dupErr } = await supabaseAdmin
+      .from('email_logs')
+      .select('id')
+      .eq('gmail_message_id', entry.gmailMessageId)
+      .limit(1)
+      .maybeSingle()
+    if (!dupErr && existing) return   // already logged — drop the duplicate
+  }
+
   // Pre-compute auto-dismiss reason for inbound mail so we can stamp
   // the row at insert time instead of doing a second UPDATE.
   const autoDismiss = direction === 'inbound'
