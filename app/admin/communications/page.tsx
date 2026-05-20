@@ -167,9 +167,12 @@ async function getData(
     ...(optionalCols.gmail_thread_id     ? ['gmail_thread_id']     : []),
   ].join(', ')
 
+  // count: 'exact' returns the TRUE number of matching rows even though
+  // .limit() caps the loaded set at 1000 — so the on-screen count is
+  // accurate (e.g. "13,300 emails") instead of always showing 1000.
   let emailQuery = supabaseAdmin
     .from('email_logs')
-    .select(emailCols)
+    .select(emailCols, { count: 'exact' })
     .gte('created_at', tenDaysAgo)
     .order('created_at', { ascending: false })
     .limit(1000)
@@ -241,6 +244,7 @@ async function getData(
       emailFromOptions:          [],
       emailToOptions:            [],
       conversationSenderOptions: [],
+      emailTotal:                0,
     }
   }
 
@@ -335,6 +339,8 @@ async function getData(
     emailFromOptions:          Array.from(emailFromSet).sort(),
     emailToOptions:            Array.from(emailToSet).sort(),
     conversationSenderOptions: Array.from(convSenderSet).sort(),
+    // True total of matching emails (may exceed the 1000 loaded rows).
+    emailTotal:                emailRes.count ?? (emailRes.data?.length ?? 0),
   }
 }
 
