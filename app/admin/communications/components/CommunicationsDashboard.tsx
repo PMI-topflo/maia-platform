@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import TicketPickerModal from './TicketPickerModal'
 
 /** Extract bare lowercase email addresses from a raw header value that
@@ -265,6 +266,11 @@ interface Props {
   emailFromOptions?:          string[]
   emailToOptions?:            string[]
   conversationSenderOptions?: string[]
+  // Active server-side email filters (mirrored from the URL). When set,
+  // the email list is already filtered by the server — the dropdowns
+  // just reflect/drive these.
+  emailTo?:   string
+  emailFrom?: string
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -577,18 +583,35 @@ function EmailsTab({
   showDismissed,
   fromOptionsOverride = [],
   toOptionsOverride   = [],
+  serverEmailTo       = '',
+  serverEmailFrom     = '',
 }: {
   emails:               EmailLog[]
   staff:                Staff[]
   showDismissed:        boolean
   fromOptionsOverride?: string[]
   toOptionsOverride?:   string[]
+  serverEmailTo?:       string
+  serverEmailFrom?:     string
 }) {
+  const router       = useRouter()
+  const searchParams = useSearchParams()
+
+  // The From/To filters run server-side (they search the whole 10-day
+  // window, not just the loaded rows). Changing one navigates with a
+  // new URL param; the server re-queries and returns the right set +
+  // an accurate count. Other params (e.g. dismissed) are preserved.
+  function setEmailFilterParam(key: 'emailTo' | 'emailFrom', value: string) {
+    const params = new URLSearchParams(searchParams.toString())
+    if (!value || value === 'all') params.delete(key)
+    else                          params.set(key, value)
+    const qs = params.toString()
+    router.push(qs ? `?${qs}` : '?')
+  }
+
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterSentBy, setFilterSentBy] = useState('all')
-  const [filterTo, setFilterTo] = useState('all')
-  const [filterFrom, setFilterFrom] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
   // Local mirror so dismissing hides instantly (optimistic) and
   // restoring brings the row back without a page refresh.
@@ -656,12 +679,11 @@ function EmailsTab({
         emails.flatMap(e => extractEmailAddrs(e.from_email)),
       )).sort()
 
+  // Note: From/To filtering happens server-side (see page.tsx) so it
+  // searches the whole window, not just loaded rows. Only the instant
+  // client-side filters (status, sentBy, search) run here.
   const filtered = emails.filter(e => {
     if (filterStatus !== 'all' && (e.status ?? 'sent') !== filterStatus) return false
-    // Match against every address parsed out of the header — handles
-    // bracket-wrapped (<a@b>), display-name, and multi-recipient values.
-    if (filterTo   !== 'all' && !extractEmailAddrs(e.to_email).includes(filterTo))     return false
-    if (filterFrom !== 'all' && !extractEmailAddrs(e.from_email).includes(filterFrom)) return false
     if (filterSentBy !== 'all') {
       // sent_by can be either staff.id or staff.email depending on source.
       // Match either; '__unknown' picks anything blank.
@@ -761,10 +783,10 @@ function EmailsTab({
         </select>
         {toOptions.length > 0 && (
           <select
-            value={filterTo}
-            onChange={e => setFilterTo(e.target.value)}
+            value={serverEmailTo || 'all'}
+            onChange={e => setEmailFilterParam('emailTo', e.target.value)}
             className="border border-gray-200 rounded px-2 py-1.5 text-sm max-w-[200px]"
-            title="Filter by recipient email"
+            title="Filter by recipient email (searches the whole 10-day window)"
           >
             <option value="all">All recipients</option>
             {toOptions.map(t => (
@@ -774,10 +796,10 @@ function EmailsTab({
         )}
         {fromOptions.length > 0 && (
           <select
-            value={filterFrom}
-            onChange={e => setFilterFrom(e.target.value)}
+            value={serverEmailFrom || 'all'}
+            onChange={e => setEmailFilterParam('emailFrom', e.target.value)}
             className="border border-gray-200 rounded px-2 py-1.5 text-sm max-w-[200px]"
-            title="Filter by sender email"
+            title="Filter by sender email (searches the whole 10-day window)"
           >
             <option value="all">All senders</option>
             {fromOptions.map(f => (
@@ -1292,6 +1314,8 @@ export default function CommunicationsDashboard({
   emailFromOptions          = [],
   emailToOptions            = [],
   conversationSenderOptions = [],
+  emailTo                   = '',
+  emailFrom                 = '',
 }: Props) {
   const [tab, setTab] = useState<'conversations' | 'emails' | 'tickets' | 'commands'>('conversations')
 
@@ -1339,7 +1363,7 @@ export default function CommunicationsDashboard({
       </div>
 
       {tab === 'conversations' && <ConversationsTab conversations={conversations} staff={staff} senderOptionsOverride={conversationSenderOptions} />}
-      {tab === 'emails'        && <EmailsTab emails={emails} staff={staff} showDismissed={showDismissed} fromOptionsOverride={emailFromOptions} toOptionsOverride={emailToOptions} />}
+      {tab === 'emails'        && <EmailsTab emails={emails} staff={staff} showDismissed={showDismissed} fromOptionsOverride={emailFromOptions} toOptionsOverride={emailToOptions} serverEmailTo={emailTo} serverEmailFrom={emailFrom} />}
       {tab === 'tickets'       && <TicketsTab tickets={tickets} staff={staff} />}
       {tab === 'commands'      && <EmailCommandsTab commands={emailCommands} />}
     </div>
