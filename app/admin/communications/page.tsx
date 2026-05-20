@@ -68,6 +68,26 @@ function emailListForIn(emails: string[]): string {
   return emails.filter(e => /^[a-z0-9._+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/.test(e)).join(',')
 }
 
+// MAIA's own sending addresses. Non-owner staff see emails to/from
+// these in addition to their own, so the MAIA-handled mail stream is
+// visible alongside their personal correspondence.
+const MAIA_EMAILS = ['maia@pmitop.com', 'noreply@pmitop.com', 'no-reply@pmitop.com']
+
+/** Extract bare lowercase email addresses from a raw header value that
+ *  may be "Name <addr>", "<addr>", or a comma/semicolon-separated list.
+ *  The From/To dropdown options must be bare addresses so the client
+ *  filter (which also normalizes) matches them exactly. */
+function extractEmailAddrs(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  return raw
+    .split(/[,;]/)
+    .map(part => {
+      const m = part.match(/<([^>]+)>/)
+      return (m ? m[1] : part).trim().toLowerCase()
+    })
+    .filter(a => a.includes('@'))
+}
+
 /** Probe email_logs for the optional columns we'd like to SELECT.
  *  Returns a per-column boolean. Cached for the lifetime of the
  *  request — Next.js re-creates this module's state per request. */
@@ -90,9 +110,16 @@ async function detectOptionalColumns(): Promise<{
 
 async function getData(ctx: AccessContext, showDismissed: boolean) {
   const list = emailListForIn(ctx.staffEmails)
+  // Email queries also include MAIA's own addresses so a non-owner
+  // staffer sees the MAIA mail stream, not just their personal mail.
+  const emailList = emailListForIn([...ctx.staffEmails, ...MAIA_EMAILS])
   const hasFilter = !ctx.canSeeAll && list.length > 0
   // If filtering is on and we somehow have no emails, return empty — fail safe.
   const restrictNothing = !ctx.canSeeAll && list.length === 0
+  // Conversations/tickets: a row with no handler AND no assignee is an
+  // unclaimed MAIA-handled item — every staffer sees the shared queue
+  // so they can pick items up and attach them to tickets.
+  const convUnclaimed   = 'and(handled_by.is.null,assigned_to.is.null)'
 
   // 10-day window for the working set — staff catch up daily, so older
   // mail just clutters the queue. Past data is still in email_logs and
@@ -144,10 +171,12 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
     .limit(200)
 
   if (hasFilter) {
-    // Conversations: contact_email / sender_email / handled_by (staff id) / assigned_to (staff id)
+    // Conversations: own (contact / sender / handler / assignee) PLUS
+    // the unclaimed MAIA queue.
     const orConv = [
       `contact_email.in.(${list})`,
       `sender_email.in.(${list})`,
+      convUnclaimed,
     ]
     if (ctx.staffId) {
       orConv.push(`handled_by.eq.${ctx.staffId}`)
@@ -155,15 +184,17 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
     }
     convQuery = convQuery.or(orConv.join(','))
 
+    // Emails: own + MAIA's own addresses.
     emailQuery = emailQuery.or(
-      `from_email.in.(${list}),to_email.in.(${list}),sent_by.in.(${list})`,
+      `from_email.in.(${emailList}),to_email.in.(${emailList}),sent_by.in.(${emailList})`,
     )
 
+    // Tickets: own (contact / assignee) PLUS unassigned MAIA-created tickets.
     ticketQuery = ticketQuery.or(
-      `contact_email.in.(${list}),assignee_email.in.(${list})`,
+      `contact_email.in.(${list}),assignee_email.in.(${list}),assignee_email.is.null`,
     )
 
-    cmdQuery = cmdQuery.or(`sender_email.in.(${list})`)
+    cmdQuery = cmdQuery.or(`sender_email.in.(${emailList})`)
   }
   // Defensive: if we have no emails AND can't see all, return empty results.
   if (restrictNothing) {
@@ -192,7 +223,7 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
     .limit(10_000)
   if (hasFilter) {
     emailOptsQuery = emailOptsQuery.or(
-      `from_email.in.(${list}),to_email.in.(${list}),sent_by.in.(${list})`,
+      `from_email.in.(${emailList}),to_email.in.(${emailList}),sent_by.in.(${emailList})`,
     )
   }
 
@@ -206,6 +237,7 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
     const orConvOpts = [
       `contact_email.in.(${list})`,
       `sender_email.in.(${list})`,
+      convUnclaimed,
     ]
     if (ctx.staffId) {
       orConvOpts.push(`handled_by.eq.${ctx.staffId}`)
@@ -240,21 +272,20 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
   const emailFromSet = new Set<string>()
   const emailToSet   = new Set<string>()
   for (const r of (emailOptsRes.data ?? []) as Array<{ from_email: string | null; to_email: string | null }>) {
-    if (r.from_email) emailFromSet.add(r.from_email.toLowerCase())
-    if (r.to_email)   emailToSet  .add(r.to_email  .toLowerCase())
+    for (const a of extractEmailAddrs(r.from_email)) emailFromSet.add(a)
+    for (const a of extractEmailAddrs(r.to_email))   emailToSet  .add(a)
   }
   // Guarantee every active staff inbox appears as a To-option even
   // if it didn't show up in the 10k email_logs sample (which can
   // happen when a high-volume sender like maia@ dominates recent
   // traffic and crowds out lower-volume inboxes).
   for (const inbox of (staffInboxesRes.data ?? []) as Array<{ gmail_address: string | null }>) {
-    if (inbox.gmail_address) emailToSet.add(inbox.gmail_address.toLowerCase())
+    for (const a of extractEmailAddrs(inbox.gmail_address)) emailToSet.add(a)
   }
 
   const convSenderSet = new Set<string>()
   for (const r of (convOptsRes.data ?? []) as Array<{ sender_email: string | null; contact_email: string | null }>) {
-    const v = (r.sender_email ?? r.contact_email ?? '').toLowerCase()
-    if (v) convSenderSet.add(v)
+    for (const a of extractEmailAddrs(r.sender_email ?? r.contact_email)) convSenderSet.add(a)
   }
 
   return {
