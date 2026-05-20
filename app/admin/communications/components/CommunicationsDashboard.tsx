@@ -3,6 +3,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import TicketPickerModal from './TicketPickerModal'
 
+/** Extract bare lowercase email addresses from a raw header value that
+ *  may be "Name <addr>", "<addr>", or a comma/semicolon-separated list
+ *  of recipients. Used so the From/To filters match regardless of how
+ *  the address was stored (bracket-wrapped, with display name, etc.). */
+function extractEmailAddrs(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  return raw
+    .split(/[,;]/)
+    .map(part => {
+      const m = part.match(/<([^>]+)>/)
+      return (m ? m[1] : part).trim().toLowerCase()
+    })
+    .filter(a => a.includes('@'))
+}
+
 // Shape returned by GET /api/admin/communications/links keyed by communication id.
 interface LinkedTicket {
   id:               number  // link row id (used for DELETE)
@@ -633,18 +648,20 @@ function EmailsTab({
   const toOptions = toOptionsOverride.length > 0
     ? toOptionsOverride
     : Array.from(new Set(
-        emails.map(e => (e.to_email ?? '').toLowerCase()).filter(Boolean),
+        emails.flatMap(e => extractEmailAddrs(e.to_email)),
       )).sort()
   const fromOptions = fromOptionsOverride.length > 0
     ? fromOptionsOverride
     : Array.from(new Set(
-        emails.map(e => (e.from_email ?? '').toLowerCase()).filter(Boolean),
+        emails.flatMap(e => extractEmailAddrs(e.from_email)),
       )).sort()
 
   const filtered = emails.filter(e => {
     if (filterStatus !== 'all' && (e.status ?? 'sent') !== filterStatus) return false
-    if (filterTo   !== 'all' && (e.to_email   ?? '').toLowerCase() !== filterTo) return false
-    if (filterFrom !== 'all' && (e.from_email ?? '').toLowerCase() !== filterFrom) return false
+    // Match against every address parsed out of the header — handles
+    // bracket-wrapped (<a@b>), display-name, and multi-recipient values.
+    if (filterTo   !== 'all' && !extractEmailAddrs(e.to_email).includes(filterTo))     return false
+    if (filterFrom !== 'all' && !extractEmailAddrs(e.from_email).includes(filterFrom)) return false
     if (filterSentBy !== 'all') {
       // sent_by can be either staff.id or staff.email depending on source.
       // Match either; '__unknown' picks anything blank.

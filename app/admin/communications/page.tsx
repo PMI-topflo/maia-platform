@@ -68,6 +68,21 @@ function emailListForIn(emails: string[]): string {
   return emails.filter(e => /^[a-z0-9._+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/.test(e)).join(',')
 }
 
+/** Extract bare lowercase email addresses from a raw header value that
+ *  may be "Name <addr>", "<addr>", or a comma/semicolon-separated list.
+ *  The From/To dropdown options must be bare addresses so the client
+ *  filter (which also normalizes) matches them exactly. */
+function extractEmailAddrs(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  return raw
+    .split(/[,;]/)
+    .map(part => {
+      const m = part.match(/<([^>]+)>/)
+      return (m ? m[1] : part).trim().toLowerCase()
+    })
+    .filter(a => a.includes('@'))
+}
+
 /** Probe email_logs for the optional columns we'd like to SELECT.
  *  Returns a per-column boolean. Cached for the lifetime of the
  *  request — Next.js re-creates this module's state per request. */
@@ -240,21 +255,20 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
   const emailFromSet = new Set<string>()
   const emailToSet   = new Set<string>()
   for (const r of (emailOptsRes.data ?? []) as Array<{ from_email: string | null; to_email: string | null }>) {
-    if (r.from_email) emailFromSet.add(r.from_email.toLowerCase())
-    if (r.to_email)   emailToSet  .add(r.to_email  .toLowerCase())
+    for (const a of extractEmailAddrs(r.from_email)) emailFromSet.add(a)
+    for (const a of extractEmailAddrs(r.to_email))   emailToSet  .add(a)
   }
   // Guarantee every active staff inbox appears as a To-option even
   // if it didn't show up in the 10k email_logs sample (which can
   // happen when a high-volume sender like maia@ dominates recent
   // traffic and crowds out lower-volume inboxes).
   for (const inbox of (staffInboxesRes.data ?? []) as Array<{ gmail_address: string | null }>) {
-    if (inbox.gmail_address) emailToSet.add(inbox.gmail_address.toLowerCase())
+    for (const a of extractEmailAddrs(inbox.gmail_address)) emailToSet.add(a)
   }
 
   const convSenderSet = new Set<string>()
   for (const r of (convOptsRes.data ?? []) as Array<{ sender_email: string | null; contact_email: string | null }>) {
-    const v = (r.sender_email ?? r.contact_email ?? '').toLowerCase()
-    if (v) convSenderSet.add(v)
+    for (const a of extractEmailAddrs(r.sender_email ?? r.contact_email)) convSenderSet.add(a)
   }
 
   return {
