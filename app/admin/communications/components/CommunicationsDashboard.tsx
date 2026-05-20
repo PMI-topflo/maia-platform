@@ -1304,7 +1304,7 @@ export default function CommunicationsDashboard({
     <div>
       {!canSeeAll && (
         <div className="mb-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-900">
-          <span className="font-semibold">Restricted view:</span> showing only communications where you are the sender, recipient, or assignee. Owners and billing leads see the full company view.
+          <span className="font-semibold">Your view:</span> your own communications plus MAIA&apos;s mail and the unclaimed MAIA queue — pick up an item and attach it to a ticket. Owners see the full company view.
         </div>
       )}
 
