@@ -80,6 +80,10 @@ interface ParsedEmail {
   messageId:    string
   threadId:     string
   rfcMessageId: string
+  /** Gmail internalDate — epoch milliseconds as a string. When the
+   *  message was received by the mailbox, regardless of when MAIA
+   *  processed it. Used to spot a backlog replay of genuinely-old mail. */
+  internalDate: string
   sender:       string
   senderEmail:  string
   senderName:   string
@@ -179,6 +183,7 @@ export function parseGmailMessage(msg: GmailFullMessage): ParsedEmail {
     messageId:    msg.id,
     threadId:     msg.threadId,
     rfcMessageId: hdr(headers, 'Message-ID'),
+    internalDate: msg.internalDate ?? '',
     sender,
     senderEmail:  parsed.email,
     senderName:   parsed.name,
@@ -1673,6 +1678,7 @@ export async function processEmailCommand(messageId: string): Promise<void> {
       status:          'received',
       gmailThreadId:   parsed.threadId,
       gmailMessageId:  parsed.messageId,
+      emailDate:       parsed.internalDate,
     })
 
     // Tickets are created only when staff initiate them via an explicit

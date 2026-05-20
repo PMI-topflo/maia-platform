@@ -319,6 +319,7 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
         sentBy:          account.gmail_address,
         gmailThreadId:   parsed.threadId,
         gmailMessageId:  parsed.messageId,
+        emailDate:       parsed.internalDate,
       })
 
       // Tickets are created only for emails explicitly addressed to

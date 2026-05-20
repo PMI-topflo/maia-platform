@@ -22,7 +22,19 @@ export interface EmailLogEntry {
    *  Gmail-watch webhook can dismiss this row when the message is later
    *  deleted / trashed / archived in Gmail. */
   gmailMessageId?: string
+  /** Gmail internalDate (epoch milliseconds as a string) of an inbound
+   *  email. When the message is genuinely old, it's a backlog replay,
+   *  not live mail — the row is logged pre-dismissed so it never floods
+   *  the Communications queue. */
+  emailDate?: string
 }
+
+// An inbound email whose own date is older than this is treated as a
+// backlog replay (a stale Gmail cursor re-feeding mail MAIA already saw,
+// or never should). It is still logged for audit, but pre-dismissed so
+// it stays off the working queue. Generous enough to let a genuine
+// short watch outage (a day or two of real unhandled mail) through.
+const STALE_INBOUND_REPLAY_DAYS = 5
 
 export async function logEmail(entry: EmailLogEntry): Promise<void> {
   const preview = entry.bodyPreview
@@ -57,10 +69,22 @@ export async function logEmail(entry: EmailLogEntry): Promise<void> {
   if (entry.gmailMessageId) {
     insertRow.gmail_message_id = entry.gmailMessageId
   }
+
+  // A genuinely-old inbound email arriving now is a backlog replay, not
+  // live mail — keep it off the working queue.
+  const staleEpoch = direction === 'inbound' && entry.emailDate
+    ? Number(entry.emailDate)
+    : NaN
+  const isStaleReplay = Number.isFinite(staleEpoch)
+    && Date.now() - staleEpoch > STALE_INBOUND_REPLAY_DAYS * 86_400_000
+
   if (autoDismiss) {
     insertRow.dismissed_at        = new Date().toISOString()
     insertRow.dismissed_by_email  = 'system'
     insertRow.auto_dismiss_reason = autoDismiss
+  } else if (isStaleReplay) {
+    insertRow.dismissed_at        = new Date().toISOString()
+    insertRow.dismissed_by_email  = 'system'
   }
 
   const inserted = await insertEmailLog(insertRow)
