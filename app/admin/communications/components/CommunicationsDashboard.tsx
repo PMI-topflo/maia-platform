@@ -31,6 +31,33 @@ interface LinkedTicket {
   linked_by_email:  string | null
 }
 
+/** Link a communication (email/conversation) to a ticket, then return
+ *  the freshly-created LinkedTicket row. The POST returns only a partial,
+ *  so we re-query the full row. Throws on failure (the picker shows it). */
+async function createTicketLink(
+  communicationType: 'conversation' | 'email',
+  communicationId:   string,
+  ticketId:          number,
+): Promise<LinkedTicket | null> {
+  const res = await fetch('/api/admin/communications/links', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      communication_type: communicationType,
+      communication_id:   communicationId,
+      ticket_id:          ticketId,
+    }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data?.error ?? 'Link failed')
+  const full = await fetch(
+    `/api/admin/communications/links?type=${communicationType}&ids=${encodeURIComponent(communicationId)}`,
+    { cache: 'no-store' },
+  ).then(r => r.json())
+  const fetched = (full?.links?.[communicationId] ?? []) as LinkedTicket[]
+  return fetched.find(l => l.ticket_id === ticketId) ?? null
+}
+
 /** Shared inline UI for the expanded preview: linked tickets list +
  *  link button + unlink. Caller manages its own links state to share
  *  the fetch across rows. */
@@ -108,24 +135,7 @@ function LinkedTicketsPanel({
           title="Link to ticket or work order"
           onClose={() => setShowPicker(false)}
           onConfirm={async (ticketId) => {
-            const res = await fetch('/api/admin/communications/links', {
-              method:  'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body:    JSON.stringify({
-                communication_type: communicationType,
-                communication_id:   communicationId,
-                ticket_id:          ticketId,
-              }),
-            })
-            const data = await res.json()
-            if (!res.ok) throw new Error(data?.error ?? 'Link failed')
-            // Server returns a partial; fetch the full row by re-querying.
-            const full = await fetch(
-              `/api/admin/communications/links?type=${communicationType}&ids=${encodeURIComponent(communicationId)}`,
-              { cache: 'no-store' },
-            ).then(r => r.json())
-            const fetched = (full?.links?.[communicationId] ?? []) as LinkedTicket[]
-            const fresh = fetched.find(l => l.ticket_id === ticketId)
+            const fresh = await createTicketLink(communicationType, communicationId, ticketId)
             if (fresh) onLinked(fresh)
           }}
         />
@@ -874,6 +884,11 @@ function EmailsTab({
     threads.map(t => t.latest.id),
   )
 
+  // Communication id whose ticket-link picker is open. Driven by the
+  // per-row "+ Ticket" button so linking doesn't require expanding the
+  // thread and scrolling past every message to reach the panel.
+  const [linkPickerCommId, setLinkPickerCommId] = useState<string | null>(null)
+
   return (
     <div>
       <div className="flex flex-wrap gap-3 mb-4">
@@ -1009,6 +1024,13 @@ function EmailsTab({
                       >
                         {expanded === t.key ? 'Hide' : t.count > 1 ? `Show all (${t.count})` : 'Preview'}
                       </button>
+                      <button
+                        onClick={() => setLinkPickerCommId(e.id)}
+                        title="Link this thread to a ticket or work order"
+                        className="text-xs text-[#f26a1b] hover:underline"
+                      >
+                        + Ticket
+                      </button>
                       {allDismissed ? (
                         <button
                           onClick={() => void restoreThread(t.key, t.ids, t.threadId)}
@@ -1096,6 +1118,17 @@ function EmailsTab({
           <div className="text-center py-12 text-gray-400 text-sm">No emails match your filters.</div>
         )}
       </div>
+
+      {linkPickerCommId && (
+        <TicketPickerModal
+          title="Link to ticket or work order"
+          onClose={() => setLinkPickerCommId(null)}
+          onConfirm={async (ticketId) => {
+            const fresh = await createTicketLink('email', linkPickerCommId, ticketId)
+            if (fresh) pushLink(linkPickerCommId, fresh)
+          }}
+        />
+      )}
     </div>
   )
 }
