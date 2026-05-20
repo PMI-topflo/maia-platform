@@ -7,6 +7,7 @@ import {
   listRecentInboxMessages,
   listRecentInboxMessagesWithToken,
   refreshStaffToken,
+  type GmailHistoryChanges,
 } from '@/lib/gmail'
 import {
   processEmailCommand,
@@ -24,6 +25,36 @@ import { logEmail } from '@/lib/email-logger'
 // instead of re-logging the whole backlog with today's timestamps.
 const BACKLOG_REPLAY_CAP  = 100
 const RECENT_RESYNC_LIMIT = 20
+
+// Gmail deletion sync marks email_logs rows dismissed in batches. Kept
+// small so the `.in()` filter URL stays well under any length limit.
+const DISMISS_CHUNK = 100
+
+/** Mark email_logs rows dismissed when their Gmail message was deleted,
+ *  trashed, or archived out of INBOX. Matches by gmail_message_id (unique
+ *  per mailbox). Only rows not already dismissed are touched, so a manual
+ *  dismissal or auto-dismiss flag is never overwritten. Degrades silently
+ *  if the gmail_message_id column hasn't been migrated yet. */
+async function dismissEmailsDeletedInGmail(messageIds: string[]): Promise<number> {
+  let dismissed = 0
+  for (let i = 0; i < messageIds.length; i += DISMISS_CHUNK) {
+    const chunk = messageIds.slice(i, i + DISMISS_CHUNK)
+    const { data, error } = await supabaseAdmin
+      .from('email_logs')
+      .update({ dismissed_at: new Date().toISOString(), dismissed_by_email: 'system' })
+      .in('gmail_message_id', chunk)
+      .is('dismissed_at', null)
+      .select('id')
+    if (error) {
+      // Pre-migration: gmail_message_id column not added yet → no-op.
+      if (/gmail_message_id/i.test(error.message)) return dismissed
+      console.error('[maia-webhook] deletion sync update failed:', error.message)
+      return dismissed
+    }
+    dismissed += data?.length ?? 0
+  }
+  return dismissed
+}
 
 // POST /api/maia-email/webhook
 // Receives Gmail push notifications via Google Cloud Pub/Sub.
@@ -104,9 +135,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, baseline: true })
   }
 
-  let messageIds: string[]
+  let changes: GmailHistoryChanges
   try {
-    messageIds = await fetchGmailHistory(lastHistoryId)
+    changes = await fetchGmailHistory(lastHistoryId)
   } catch (err) {
     // Transient Gmail API error — return non-200 so Pub/Sub retries with the
     // same notification (and our cursor stays put).
@@ -114,10 +145,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'history_fetch_failed' }, { status: 500 })
   }
 
+  let messageIds  = changes.added
+  let staleReplay = false
+
   // Stale-historyId guard: a batch this large means lastHistoryId was far
   // behind real time. Replaying it would re-log hundreds of old messages
   // with today's timestamp — resync only the recent inbox instead.
   if (messageIds.length > BACKLOG_REPLAY_CAP) {
+    staleReplay = true
     console.warn(`[maia-webhook] history returned ${messageIds.length} messages (cap ${BACKLOG_REPLAY_CAP}) — stale historyId, resyncing recent inbox only`)
     try {
       messageIds = await listRecentInboxMessages(RECENT_RESYNC_LIMIT)
@@ -127,7 +162,7 @@ export async function POST(req: NextRequest) {
     }
   } else if (messageIds.length === 0) {
     // Recovery path: 404s and other "history purged / out of range" cases come
-    // back from fetchGmailHistory as []. Falling back to listing recent inbox
+    // back from fetchGmailHistory empty. Falling back to listing recent inbox
     // messages directly catches the message that prompted the notification.
     // Idempotency in processEmailCommand (UNIQUE on gmail_message_id) and in
     // ticket_messages.external_id makes this safe to re-run.
@@ -148,13 +183,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Gmail deletion sync: dismiss the email_logs row for any message that
+  // was deleted / trashed / archived out of INBOX, so the Communications
+  // view mirrors the inbox. Skipped on a stale replay — that batch can
+  // carry months of removals and isn't worth the webhook's time.
+  let dismissed = 0
+  if (!staleReplay && changes.removed.length > 0) {
+    dismissed = await dismissEmailsDeletedInGmail(changes.removed)
+  }
+
   // Advance the cursor only after we got the messages back. If the request
   // above 500'd, we never reach here, so Pub/Sub retries with the same start.
   await supabaseAdmin
     .from('maia_watch_state')
     .upsert({ id: 1, last_history_id: newHistoryId, updated_at: new Date().toISOString() })
 
-  return NextResponse.json({ ok: true, processed: messageIds.length })
+  return NextResponse.json({ ok: true, processed: messageIds.length, dismissed })
 }
 
 // ── Staff account email processing ───────────────────────────────────────────
@@ -201,18 +245,22 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
     return
   }
 
-  let messageIds: string[]
+  let changes: GmailHistoryChanges
   try {
-    messageIds = await fetchGmailHistoryWithToken(lastHistoryId, accessToken)
+    changes = await fetchGmailHistoryWithToken(lastHistoryId, accessToken)
   } catch (err) {
     console.error(`[staff-gmail] History API error for ${account.gmail_address}:`, err)
     return
   }
 
+  let messageIds  = changes.added
+  let staleReplay = false
+
   // Stale-historyId guard — see the main-account path above. A batch this
   // large means the stored history_id was far behind; replaying it would
   // re-log a backlog of old mail. Resync recent inbox only.
   if (messageIds.length > BACKLOG_REPLAY_CAP) {
+    staleReplay = true
     console.warn(`[staff-gmail] history returned ${messageIds.length} messages for ${account.gmail_address} (cap ${BACKLOG_REPLAY_CAP}) — stale historyId, resyncing recent inbox only`)
     try {
       messageIds = await listRecentInboxMessagesWithToken(accessToken, RECENT_RESYNC_LIMIT)
@@ -264,6 +312,7 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
         status:          'received',
         sentBy:          account.gmail_address,
         gmailThreadId:   parsed.threadId,
+        gmailMessageId:  parsed.messageId,
       })
 
       // Tickets are created only for emails explicitly addressed to
@@ -282,6 +331,12 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
     } catch (err) {
       console.error(`[staff-gmail] Failed to process message ${id} for ${account.gmail_address}:`, err)
     }
+  }
+
+  // Gmail deletion sync: dismiss email_logs rows for messages deleted /
+  // trashed / archived out of this staff inbox. Skipped on a stale replay.
+  if (!staleReplay && changes.removed.length > 0) {
+    await dismissEmailsDeletedInGmail(changes.removed)
   }
 
   // Advance the staff account cursor only after processing finished — if

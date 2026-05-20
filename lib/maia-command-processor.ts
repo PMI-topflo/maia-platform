@@ -1672,6 +1672,7 @@ export async function processEmailCommand(messageId: string): Promise<void> {
       associationCode: assocCode ?? undefined,
       status:          'received',
       gmailThreadId:   parsed.threadId,
+      gmailMessageId:  parsed.messageId,
     })
 
     // Tickets are created only when staff initiate them via an explicit
