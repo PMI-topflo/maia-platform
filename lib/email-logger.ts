@@ -78,11 +78,17 @@ export async function logEmail(entry: EmailLogEntry): Promise<void> {
   const isStaleReplay = Number.isFinite(staleEpoch)
     && Date.now() - staleEpoch > STALE_INBOUND_REPLAY_DAYS * 86_400_000
 
+  // Inbound mail to maia@ is MAIA's own command channel — @maia traffic
+  // and bot replies, not customer correspondence staff triage. It still
+  // gets logged + processed into tickets, but stays off the Emails tab.
+  const isMaiaInbox = direction === 'inbound'
+    && normalizeAddress(toEmail) === 'maia@pmitop.com'
+
   if (autoDismiss) {
     insertRow.dismissed_at        = new Date().toISOString()
     insertRow.dismissed_by_email  = 'system'
     insertRow.auto_dismiss_reason = autoDismiss
-  } else if (isStaleReplay) {
+  } else if (isStaleReplay || isMaiaInbox) {
     insertRow.dismissed_at        = new Date().toISOString()
     insertRow.dismissed_by_email  = 'system'
   }
