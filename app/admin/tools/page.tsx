@@ -49,6 +49,11 @@ export default function AdminToolsPage() {
   const [migrations,        setMigrations]        = useState<MigrationRow[]>([])
   const [migrationsLoading, setMigrationsLoading] = useState(true)
   const [openedSqlKey,      setOpenedSqlKey]      = useState<string | null>(null)
+  const [canAutoApply,      setCanAutoApply]      = useState(false)
+  const [setupSql,          setSetupSql]          = useState('')
+  const [setupSqlOpen,      setSetupSqlOpen]      = useState(false)
+  const [applyingKey,       setApplyingKey]       = useState<string | null>(null)
+  const [applyErrors,       setApplyErrors]       = useState<Record<string, string>>({})
 
   // Email association code cleanup state
   const [cleanRunning, setCleanRunning] = useState(false)
@@ -85,6 +90,50 @@ export default function AdminToolsPage() {
       setDialpadStatus({ ok: false, error: (err as Error).message })
     } finally {
       setDialpadLoading(false)
+    }
+  }
+
+  async function refreshMigrations() {
+    try {
+      const r = await fetch('/api/admin/migration-status')
+      const d = await r.json()
+      setMigrations(d.migrations ?? [])
+      setCanAutoApply(!!d.canAutoApply)
+      setSetupSql(d.setupSql ?? '')
+    } catch {
+      /* keep whatever we have */
+    } finally {
+      setMigrationsLoading(false)
+    }
+  }
+
+  async function applyMigration(key: string) {
+    setApplyingKey(key)
+    setApplyErrors(prev => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+    try {
+      const r = await fetch('/api/admin/migrations/apply', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ key }),
+      })
+      const d = await r.json()
+      if (d.ok && d.applied) {
+        await refreshMigrations()
+      } else if (d.needsSetup) {
+        setCanAutoApply(false)
+        setSetupSqlOpen(true)
+        setApplyErrors(prev => ({ ...prev, [key]: 'Install the one-time helper above first, then try again.' }))
+      } else {
+        setApplyErrors(prev => ({ ...prev, [key]: d.error || 'Migration did not apply — check the SQL in Supabase.' }))
+      }
+    } catch (err) {
+      setApplyErrors(prev => ({ ...prev, [key]: (err as Error).message }))
+    } finally {
+      setApplyingKey(null)
     }
   }
 
@@ -165,11 +214,7 @@ export default function AdminToolsPage() {
       .finally(() => setGmailLoading(false))
 
     // Fetch migration status
-    fetch('/api/admin/migration-status')
-      .then(r => r.json())
-      .then(d => setMigrations(d.migrations ?? []))
-      .catch(() => { /* keep empty */ })
-      .finally(() => setMigrationsLoading(false))
+    refreshMigrations()
 
     // Fetch Dialpad integration status
     refreshDialpadStatus()
@@ -349,9 +394,38 @@ export default function AdminToolsPage() {
               })()}
             </h2>
             <p style={{ color: '#6b7280', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
-              Tracks which recent migrations are live in Supabase. Click <em>Show SQL</em> on a missing row to grab the script to paste into Supabase → SQL Editor.
+              Tracks which recent migrations are live in Supabase. Click <em>Apply</em> to run a missing one server-side, or <em>Show SQL</em> to copy it for the Supabase SQL Editor.
             </p>
           </div>
+
+          {!migrationsLoading && !canAutoApply && migrations.some(m => !m.applied) && (
+            <div style={{ background: '#fffbeb', borderBottom: '1px solid #e5e7eb', padding: '0.85rem 1.25rem' }}>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem', color: '#92400e' }}>
+                One-time setup — enable the Apply button
+              </div>
+              <p style={{ fontSize: '0.75rem', color: '#92400e', margin: '0.3rem 0 0.5rem' }}>
+                The Apply button needs a helper function in the database. Paste this once into
+                Supabase → SQL Editor → Run. After that, every migration below applies with one click.
+              </p>
+              <button
+                onClick={() => setSetupSqlOpen(o => !o)}
+                style={{
+                  padding: '0.3rem 0.6rem', border: '1px solid #d97706', borderRadius: 4,
+                  background: setupSqlOpen ? '#d97706' : '#fff', color: setupSqlOpen ? '#fff' : '#d97706',
+                  fontSize: '0.7rem', cursor: 'pointer',
+                }}
+              >
+                {setupSqlOpen ? 'Hide setup SQL' : 'Show setup SQL'}
+              </button>
+              {setupSqlOpen && (
+                <pre style={{
+                  background: '#0d0d0d', color: '#e5e7eb', marginTop: 6,
+                  padding: '0.75rem', borderRadius: 4, overflow: 'auto',
+                  fontSize: '0.72rem', lineHeight: 1.5, whiteSpace: 'pre-wrap',
+                }}>{setupSql}</pre>
+              )}
+            </div>
+          )}
 
           <div style={{ padding: '0.5rem 0' }}>
             {migrationsLoading ? (
@@ -378,17 +452,34 @@ export default function AdminToolsPage() {
                       </div>
                     </div>
                     {!m.applied && (
-                      <button
-                        onClick={() => setOpenedSqlKey(openedSqlKey === m.key ? null : m.key)}
-                        style={{
-                          padding: '0.3rem 0.6rem', border: '1px solid #f26a1b',
-                          borderRadius: 4, background: openedSqlKey === m.key ? '#f26a1b' : '#fff',
-                          color: openedSqlKey === m.key ? '#fff' : '#f26a1b',
-                          fontSize: '0.7rem', cursor: 'pointer', whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {openedSqlKey === m.key ? 'Hide SQL' : 'Show SQL'}
-                      </button>
+                      <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
+                        {canAutoApply && (
+                          <button
+                            onClick={() => applyMigration(m.key)}
+                            disabled={applyingKey !== null}
+                            style={{
+                              padding: '0.3rem 0.8rem', border: '1px solid #16a34a',
+                              borderRadius: 4, background: '#16a34a', color: '#fff',
+                              fontSize: '0.7rem', whiteSpace: 'nowrap',
+                              cursor: applyingKey !== null ? 'default' : 'pointer',
+                              opacity: applyingKey !== null && applyingKey !== m.key ? 0.5 : 1,
+                            }}
+                          >
+                            {applyingKey === m.key ? 'Applying…' : 'Apply'}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setOpenedSqlKey(openedSqlKey === m.key ? null : m.key)}
+                          style={{
+                            padding: '0.3rem 0.6rem', border: '1px solid #f26a1b',
+                            borderRadius: 4, background: openedSqlKey === m.key ? '#f26a1b' : '#fff',
+                            color: openedSqlKey === m.key ? '#fff' : '#f26a1b',
+                            fontSize: '0.7rem', cursor: 'pointer', whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {openedSqlKey === m.key ? 'Hide SQL' : 'Show SQL'}
+                        </button>
+                      </div>
                     )}
                   </div>
                   {!m.applied && openedSqlKey === m.key && (
@@ -401,6 +492,15 @@ export default function AdminToolsPage() {
                       <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: 4 }}>
                         Paste into Supabase → SQL Editor → Run. Refresh this page after.
                       </div>
+                    </div>
+                  )}
+                  {applyErrors[m.key] && (
+                    <div style={{
+                      marginTop: 6, padding: '0.4rem 0.6rem', background: '#fef2f2',
+                      border: '1px solid #fecaca', borderRadius: 4,
+                      fontSize: '0.72rem', color: '#991b1b',
+                    }}>
+                      {applyErrors[m.key]}
                     </div>
                   )}
                 </div>

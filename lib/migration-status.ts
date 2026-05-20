@@ -31,7 +31,7 @@ export interface MigrationCheckResult extends MigrationEntry {
   applied: boolean
 }
 
-const MIGRATIONS: MigrationEntry[] = [
+export const MIGRATIONS: MigrationEntry[] = [
   {
     key:         'pmi_staff_can_see_all',
     label:       'Comms visibility flag',
@@ -318,6 +318,39 @@ CREATE INDEX IF NOT EXISTS email_logs_gmail_message_id_idx
   WHERE gmail_message_id IS NOT NULL;`,
   },
 ]
+
+// The one-time bootstrap function that the /admin/tools "Apply" button
+// depends on. It must be pasted into the Supabase SQL editor by hand
+// once — a function cannot install the function that installs functions.
+// Kept in sync with supabase/migrations/20260520_exec_migration_function.sql.
+export const EXEC_MIGRATION_FUNCTION_SQL = `CREATE OR REPLACE FUNCTION public.exec_migration(sql text)
+  RETURNS void
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+BEGIN
+  EXECUTE sql;
+END;
+$$;
+
+REVOKE ALL    ON FUNCTION public.exec_migration(text) FROM PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.exec_migration(text) TO service_role;`
+
+/** True when the exec_migration helper is installed and callable by the
+ *  service role. Probed by running a harmless no-op through it — a
+ *  missing function comes back as a PostgREST "could not find the
+ *  function" error; any other outcome means it exists. */
+export async function execMigrationFunctionExists(): Promise<boolean> {
+  const { error } = await supabaseAdmin.rpc('exec_migration', { sql: 'SELECT 1' })
+  if (!error) return true
+  return !/could not find the function|function .* does not exist/i.test(error.message)
+}
+
+/** Look up a registered migration by its key. */
+export function getMigrationByKey(key: string): MigrationEntry | undefined {
+  return MIGRATIONS.find(m => m.key === key)
+}
 
 /** Probe every known migration's artifact in parallel. Each check
  *  runs a zero-row SELECT against the target table/column — Supabase

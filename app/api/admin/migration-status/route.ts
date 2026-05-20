@@ -10,7 +10,11 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
-import { checkMigrationStatus } from '@/lib/migration-status'
+import {
+  checkMigrationStatus,
+  execMigrationFunctionExists,
+  EXEC_MIGRATION_FUNCTION_SQL,
+} from '@/lib/migration-status'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -23,6 +27,13 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const status = await checkMigrationStatus()
-  return NextResponse.json({ migrations: status })
+  const [migrations, canAutoApply] = await Promise.all([
+    checkMigrationStatus(),
+    execMigrationFunctionExists(),
+  ])
+  return NextResponse.json({
+    migrations,
+    canAutoApply,
+    setupSql: EXEC_MIGRATION_FUNCTION_SQL,
+  })
 }
