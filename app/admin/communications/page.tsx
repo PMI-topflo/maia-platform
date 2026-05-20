@@ -108,7 +108,11 @@ async function detectOptionalColumns(): Promise<{
   return { dismissed_at: d1, dismissed_by_email: d2, gmail_thread_id: t }
 }
 
-async function getData(ctx: AccessContext, showDismissed: boolean) {
+async function getData(
+  ctx: AccessContext,
+  showDismissed: boolean,
+  emailFilters: { to: string; from: string },
+) {
   const list = emailListForIn(ctx.staffEmails)
   // Email queries also include MAIA's own addresses so a non-owner
   // staffer sees the MAIA mail stream, not just their personal mail.
@@ -196,6 +200,18 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
 
     cmdQuery = cmdQuery.or(`sender_email.in.(${emailList})`)
   }
+
+  // Server-side recipient / sender filter. Applied as a substring
+  // (ilike) match so it tolerates bracket-wrapped + multi-recipient
+  // header values — and, crucially, it searches the whole 10-day
+  // window instead of only the 1000 rows that load into the table.
+  // Without this, picking a low-volume inbox (billing@, pmi@) from
+  // the dropdown returned nothing because its mail fell outside the
+  // 1000 most-recent rows.
+  const likeEscape = (s: string) => s.replace(/[%_\\]/g, c => `\\${c}`)
+  if (emailFilters.to)   emailQuery = emailQuery.ilike('to_email',   `%${likeEscape(emailFilters.to)}%`)
+  if (emailFilters.from) emailQuery = emailQuery.ilike('from_email', `%${likeEscape(emailFilters.from)}%`)
+
   // Defensive: if we have no emails AND can't see all, return empty results.
   if (restrictNothing) {
     return {
@@ -307,12 +323,19 @@ async function getData(ctx: AccessContext, showDismissed: boolean) {
 export default async function CommunicationsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ dismissed?: string }>
+  searchParams: Promise<{ dismissed?: string; emailTo?: string; emailFrom?: string }>
 }) {
   const sp = await searchParams
   const showDismissed = sp.dismissed === '1'
+  // Validate the From/To filter params — they drive a server query, so
+  // only accept well-formed email addresses; anything else → no filter.
+  const asEmail = (v: string | undefined): string => {
+    const lc = (v ?? '').toLowerCase().trim()
+    return /^[a-z0-9._+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/.test(lc) ? lc : ''
+  }
+  const emailFilters = { to: asEmail(sp.emailTo), from: asEmail(sp.emailFrom) }
   const ctx  = await getAccessContext()
-  const data = await getData(ctx, showDismissed)
+  const data = await getData(ctx, showDismissed, emailFilters)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -321,7 +344,12 @@ export default async function CommunicationsPage({
       </SiteHeader>
 
       <main className="max-w-screen-xl mx-auto px-6 py-6">
-        <CommunicationsDashboard {...data} showDismissed={showDismissed} />
+        <CommunicationsDashboard
+          {...data}
+          showDismissed={showDismissed}
+          emailTo={emailFilters.to}
+          emailFrom={emailFilters.from}
+        />
       </main>
     </div>
   )
