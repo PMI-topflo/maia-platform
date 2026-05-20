@@ -178,7 +178,12 @@ async function getData(
     .limit(1000)
 
   // Default view hides dismissed rows. Show-dismissed toggle includes them.
-  if (!showDismissed && optionalCols.dismissed_at) {
+  // Exception: when the recipient filter is explicitly set to maia@, show
+  // its mail even though inbound to maia@ is auto-dismissed (the @maia
+  // command channel) — filtering To=maia@ is a deliberate "show me maia@"
+  // action, and otherwise the filter always returns zero.
+  const toIsMaia = emailFilters.to === 'maia@pmitop.com'
+  if (!showDismissed && !toIsMaia && optionalCols.dismissed_at) {
     emailQuery = emailQuery.is('dismissed_at', null)
   }
 
