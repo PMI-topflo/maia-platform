@@ -304,6 +304,19 @@ CREATE INDEX IF NOT EXISTS general_conversations_active_idx
   ON public.general_conversations (updated_at DESC)
   WHERE archived_at IS NULL;`,
   },
+  {
+    key:         'email_logs_gmail_message_id',
+    label:       'Gmail deletion sync',
+    description: 'email_logs.gmail_message_id',
+    filename:    '20260520_email_logs_gmail_message_id.sql',
+    artifact:    { type: 'column', table: 'email_logs', column: 'gmail_message_id' },
+    sql: `ALTER TABLE public.email_logs
+  ADD COLUMN IF NOT EXISTS gmail_message_id text;
+
+CREATE INDEX IF NOT EXISTS email_logs_gmail_message_id_idx
+  ON public.email_logs (gmail_message_id)
+  WHERE gmail_message_id IS NOT NULL;`,
+  },
 ]
 
 /** Probe every known migration's artifact in parallel. Each check

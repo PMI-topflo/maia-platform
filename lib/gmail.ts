@@ -150,24 +150,61 @@ export async function fetchGmailMessage(messageId: string): Promise<GmailFullMes
   return res.json() as Promise<GmailFullMessage>
 }
 
-export async function fetchGmailHistory(startHistoryId: string): Promise<string[]> {
-  const token = await getAccessToken()
-  const url   = `https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${startHistoryId}&historyTypes=messageAdded&labelId=INBOX`
-  const res   = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-  if (!res.ok) {
-    if (res.status === 404) return []   // history purged — caller can re-sync
-    throw new Error(`[Gmail] History API failed (${res.status}): ${await res.text()}`)
-  }
-  const data = await res.json() as {
-    history?: Array<{ messagesAdded?: Array<{ message: { id: string } }> }>
-  }
-  const ids: string[] = []
-  for (const h of (data.history ?? [])) {
-    for (const ma of (h.messagesAdded ?? [])) {
-      if (ma.message?.id && !ids.includes(ma.message.id)) ids.push(ma.message.id)
+export interface GmailHistoryChanges {
+  /** Ids of messages newly added to INBOX. */
+  added:   string[]
+  /** Ids of messages deleted, trashed, or archived out of INBOX. */
+  removed: string[]
+}
+
+interface GmailHistoryMessageRef { id?: string; labelIds?: string[] }
+interface GmailHistoryRecord {
+  messagesAdded?:   Array<{ message?: GmailHistoryMessageRef }>
+  messagesDeleted?: Array<{ message?: GmailHistoryMessageRef }>
+  labelsRemoved?:   Array<{ message?: GmailHistoryMessageRef; labelIds?: string[] }>
+}
+
+// We ask Gmail for three history types: new INBOX arrivals (added) plus
+// permanent deletes and label removals (removed). labelId=INBOX is NOT
+// passed — it would filter out the very labelRemoved/messageDeleted
+// records we need; INBOX scoping for additions is applied client-side.
+const HISTORY_TYPES =
+  'historyTypes=messageAdded&historyTypes=messageDeleted&historyTypes=labelRemoved'
+
+/** Fold a Gmail history.list response into added / removed message ids.
+ *  - added:   messageAdded events where the message landed in INBOX
+ *  - removed: messageDeleted (permanent delete) + labelRemoved events
+ *             that took INBOX off (trash or archive)
+ *  A message added then removed inside the same window counts as removed. */
+function collectHistoryChanges(history: GmailHistoryRecord[] | undefined): GmailHistoryChanges {
+  const added   = new Set<string>()
+  const removed = new Set<string>()
+  for (const h of history ?? []) {
+    for (const ma of h.messagesAdded ?? []) {
+      const m = ma.message
+      if (m?.id && (m.labelIds ?? []).includes('INBOX')) added.add(m.id)
+    }
+    for (const md of h.messagesDeleted ?? []) {
+      if (md.message?.id) removed.add(md.message.id)
+    }
+    for (const lr of h.labelsRemoved ?? []) {
+      if (lr.message?.id && (lr.labelIds ?? []).includes('INBOX')) removed.add(lr.message.id)
     }
   }
-  return ids
+  for (const id of removed) added.delete(id)
+  return { added: [...added], removed: [...removed] }
+}
+
+export async function fetchGmailHistory(startHistoryId: string): Promise<GmailHistoryChanges> {
+  const token = await getAccessToken()
+  const url   = `https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${startHistoryId}&${HISTORY_TYPES}`
+  const res   = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+  if (!res.ok) {
+    if (res.status === 404) return { added: [], removed: [] }   // history purged — caller can re-sync
+    throw new Error(`[Gmail] History API failed (${res.status}): ${await res.text()}`)
+  }
+  const data = await res.json() as { history?: GmailHistoryRecord[] }
+  return collectHistoryChanges(data.history)
 }
 
 /** Recovery helper used when fetchGmailHistory returns empty (404 or
@@ -239,21 +276,15 @@ export async function fetchGmailMessageWithToken(messageId: string, accessToken:
   return res.json() as Promise<GmailFullMessage>
 }
 
-export async function fetchGmailHistoryWithToken(startHistoryId: string, accessToken: string): Promise<string[]> {
-  const url = `https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${startHistoryId}&historyTypes=messageAdded&labelId=INBOX`
+export async function fetchGmailHistoryWithToken(startHistoryId: string, accessToken: string): Promise<GmailHistoryChanges> {
+  const url = `https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${startHistoryId}&${HISTORY_TYPES}`
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
   if (!res.ok) {
-    if (res.status === 404) return []
+    if (res.status === 404) return { added: [], removed: [] }
     throw new Error(`[Gmail staff] History API failed (${res.status}): ${await res.text()}`)
   }
-  const data = await res.json() as { history?: Array<{ messagesAdded?: Array<{ message: { id: string } }> }> }
-  const ids: string[] = []
-  for (const h of (data.history ?? [])) {
-    for (const ma of (h.messagesAdded ?? [])) {
-      if (ma.message?.id && !ids.includes(ma.message.id)) ids.push(ma.message.id)
-    }
-  }
-  return ids
+  const data = await res.json() as { history?: GmailHistoryRecord[] }
+  return collectHistoryChanges(data.history)
 }
 
 /** Staff-account variant of listRecentInboxMessages — used as recovery
