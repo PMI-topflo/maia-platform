@@ -75,9 +75,12 @@ export async function POST(req: Request) {
     `work orders ${t.workOrdersReceived} received / ${t.workOrdersClosed} closed · ` +
     `${t.emailThreadsReceived} email threads received`
 
-  const flaggedLines = data.flaggedItems.length === 0
-    ? '(staff did not flag any specific items for this report)'
-    : data.flaggedItems.slice(0, 80).map(f => {
+  // The report covers every item created this month except the ones
+  // staff unticked in the preview.
+  const includedItems = data.reportItems.filter(i => !i.excluded)
+  const flaggedLines = includedItems.length === 0
+    ? '(no tickets or work orders to detail for this month)'
+    : includedItems.slice(0, 100).map(f => {
         const kind = f.type === 'work_order' ? 'Work order' : 'Ticket'
         const head = `- [${f.ticket_number}] ${kind} · ${f.association_code ?? 'no association'} · ` +
                      `status ${f.status ?? 'open'}${f.priority ? ` · ${f.priority} priority` : ''}`
@@ -94,7 +97,7 @@ ${activityLines}
 
 ${totalsLine}
 
-ITEMS STAFF FLAGGED FOR THIS REPORT:
+TICKETS & WORK ORDERS THIS MONTH (staff already removed anything not for the board):
 ${flaggedLines}
 
 Write the complete report in clean markdown, following the "Monthly board report

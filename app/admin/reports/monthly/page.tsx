@@ -3,9 +3,9 @@
 //
 // Monthly management report. Shows the month's activity (tickets and
 // work orders received vs closed, email threads received) per
-// association, the tickets + work orders staff flagged for the report,
-// and a one-click MAIA-generated board report. Filter by association
-// and month.
+// association, a preview of every ticket / work order created that
+// month — all included by default, untick to leave one out — and a
+// one-click MAIA-generated board report. Filter by association + month.
 // =====================================================================
 
 import Link from 'next/link'
@@ -15,13 +15,10 @@ import AdminNav from '../../components/AdminNav'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { gatherMonthlyReportData, currentMonth, monthLabel } from '@/lib/monthly-report'
 import MonthlyReportGenerator from './MonthlyReportGenerator'
+import ReportItemsPreview from './ReportItemsPreview'
 
 export const metadata = { title: 'Monthly Management Report — PMI Top Florida' }
 export const dynamic = 'force-dynamic'
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
 
 /** The last 12 calendar months as { value: 'YYYY-MM', label: 'Month YYYY' }. */
 function recentMonths(): Array<{ value: string; label: string }> {
@@ -48,25 +45,14 @@ export default async function MonthlyReportPage({
 
   const data = await gatherMonthlyReportData(assoc, month)
 
-  // Association names for the dropdown — every association with a flagged
-  // item OR activity this month.
   const { data: assocRows } = await supabaseAdmin
     .from('associations')
     .select('association_code, association_name')
     .order('association_name', { ascending: true })
   const assocOptions = ((assocRows ?? []) as Array<{ association_code: string; association_name: string }>)
     .filter(a => a.association_code)
-
-  // Group flagged items by association.
-  const groups = new Map<string, typeof data.flaggedItems>()
-  for (const item of data.flaggedItems) {
-    const key  = item.association_code ?? '—'
-    const list = groups.get(key)
-    if (list) list.push(item)
-    else      groups.set(key, [item])
-  }
-  const nameOf = (code: string) =>
-    assocOptions.find(a => a.association_code === code)?.association_name ?? code
+  const assocNames: Record<string, string> = {}
+  for (const a of assocOptions) assocNames[a.association_code] = a.association_name
 
   const t = data.totals
 
@@ -80,8 +66,8 @@ export default async function MonthlyReportPage({
         <div className="mb-5">
           <h1 className="text-xl font-semibold text-gray-900">Monthly Management Report</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Activity for {monthLabel(month)}, the items staff flagged for the report, and a
-            one-click board report MAIA writes from the data.
+            Activity for {monthLabel(month)}, every ticket and work order from the month
+            (untick what to leave out), and a one-click board report MAIA writes from it.
           </p>
         </div>
 
@@ -161,55 +147,11 @@ export default async function MonthlyReportPage({
           </table>
         </div>
 
-        {/* ── Flagged items ───────────────────────────────────────── */}
+        {/* ── Report items (opt-out preview) ──────────────────────── */}
         <h2 className="text-sm font-semibold text-gray-900 mb-2">
-          Flagged for the report ({data.flaggedItems.length})
+          In the report ({data.reportItems.length} item{data.reportItems.length === 1 ? '' : 's'})
         </h2>
-        {data.flaggedItems.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-lg py-8 text-center text-sm text-gray-400 mb-6">
-            Nothing flagged yet. Tick &ldquo;Include in monthly management report&rdquo; on a
-            ticket or work order to add it here.
-          </div>
-        ) : (
-          <div className="space-y-4 mb-6">
-            {Array.from(groups.entries()).map(([code, list]) => (
-              <section key={code} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-gray-900">
-                    {nameOf(code)}{nameOf(code) !== code && <span className="text-gray-400 font-normal"> · {code}</span>}
-                  </h3>
-                  <span className="text-xs text-gray-500">{list.length} item{list.length === 1 ? '' : 's'}</span>
-                </div>
-                <table className="w-full text-sm">
-                  <tbody className="divide-y divide-gray-50">
-                    {list.map(item => (
-                      <tr key={item.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 whitespace-nowrap">
-                          <Link href={`/admin/tickets/${item.id}`} className="font-mono text-[#f26a1b] hover:underline">
-                            {item.ticket_number}
-                          </Link>
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className={[
-                            'inline-block px-1.5 py-0.5 rounded text-[9px] font-medium uppercase',
-                            item.type === 'work_order' ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-700',
-                          ].join(' ')}>
-                            {item.type === 'work_order' ? 'WO' : 'Ticket'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-gray-700">
-                          <div className="line-clamp-1 max-w-[360px]">{item.subject ?? '—'}</div>
-                        </td>
-                        <td className="px-4 py-2 text-gray-600 capitalize whitespace-nowrap">{item.status ?? '—'}</td>
-                        <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{fmtDate(item.created_at)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </section>
-            ))}
-          </div>
-        )}
+        <ReportItemsPreview items={data.reportItems} assocNames={assocNames} />
 
         {/* ── AI board report ─────────────────────────────────────── */}
         <MonthlyReportGenerator assoc={assoc} month={month} monthLabel={monthLabel(month)} />

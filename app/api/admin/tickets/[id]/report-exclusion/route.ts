@@ -1,11 +1,10 @@
 // =====================================================================
-// PATCH /api/admin/work-orders/[id]/monthly-report
+// PATCH /api/admin/tickets/[id]/report-exclusion
 //
-// Sets tickets.marked_for_monthly_report for one work order — the flag
-// that decides whether it shows up in /admin/reports/monthly. Toggled
-// from the work-order detail page.
-//
-// Body: { marked: boolean }
+// Sets tickets.excluded_from_monthly_report for one ticket or work
+// order. The monthly report covers every item for the month by default;
+// staff untick the ones to leave out in the report preview, which calls
+// this. Body: { excluded: boolean }
 // =====================================================================
 
 import { NextResponse } from 'next/server'
@@ -31,33 +30,25 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ error: 'Invalid ticket id' }, { status: 400 })
   }
 
-  let body: { marked?: unknown }
+  let body: { excluded?: unknown }
   try { body = await req.json() }
   catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }) }
 
-  if (typeof body.marked !== 'boolean') {
-    return NextResponse.json({ error: 'marked (boolean) is required' }, { status: 400 })
+  if (typeof body.excluded !== 'boolean') {
+    return NextResponse.json({ error: 'excluded (boolean) is required' }, { status: 400 })
   }
-  const marked = body.marked
 
-  const { data: ticket, error: ticketErr } = await supabaseAdmin
+  const { data: updated, error } = await supabaseAdmin
     .from('tickets')
-    .select('id, type')
+    .update({ excluded_from_monthly_report: body.excluded })
     .eq('id', ticketId)
-    .maybeSingle()
-  if (ticketErr) {
-    return NextResponse.json({ error: `Ticket lookup failed: ${ticketErr.message}` }, { status: 500 })
+    .select('id')
+  if (error) {
+    return NextResponse.json({ error: `Update failed: ${error.message}` }, { status: 500 })
   }
-  // Both tickets and work orders can be flagged for the monthly report.
-  if (!ticket) return NextResponse.json({ error: 'Ticket not found' }, { status: 404 })
-
-  const { error: updErr } = await supabaseAdmin
-    .from('tickets')
-    .update({ marked_for_monthly_report: marked })
-    .eq('id', ticketId)
-  if (updErr) {
-    return NextResponse.json({ error: `Update failed: ${updErr.message}` }, { status: 500 })
+  if (!updated || updated.length === 0) {
+    return NextResponse.json({ error: 'Ticket not found' }, { status: 404 })
   }
 
-  return NextResponse.json({ ok: true, marked })
+  return NextResponse.json({ ok: true, excluded: body.excluded })
 }

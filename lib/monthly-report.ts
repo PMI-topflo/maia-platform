@@ -21,7 +21,10 @@ export interface AssociationActivity {
 
 export type ActivityTotals = Omit<AssociationActivity, 'code' | 'name'>
 
-export interface FlaggedItem {
+// One ticket or work order created in the report month. The report
+// covers them all by default (opt-out); `excluded` is set when staff
+// untick it in the report preview.
+export interface ReportItem {
   id:               number
   ticket_number:    string
   type:             string          // 'ticket' | 'work_order'
@@ -31,6 +34,7 @@ export interface FlaggedItem {
   priority:         string | null
   association_code: string | null
   created_at:       string
+  excluded:         boolean
 }
 
 export interface MonthlyReportData {
@@ -39,7 +43,7 @@ export interface MonthlyReportData {
   assoc:        string                // association code or '' for all
   activity:     AssociationActivity[] // one row per association with any activity
   totals:       ActivityTotals
-  flaggedItems: FlaggedItem[]
+  reportItems:  ReportItem[]          // every ticket/WO created this month
 }
 
 /** Closed = resolved or closed. */
@@ -90,19 +94,29 @@ export async function gatherMonthlyReportData(
   const { start, end } = monthWindow(mon)
 
   // ── Tickets / work orders received this month (created_at in window) ──
-  type TRow = { type: string | null; association_code: string | null }
-  const received = await fetchAll<TRow>((from, to) => {
+  //    These rows ARE the report items — every one created in the month;
+  //    the report covers them all unless staff exclude them.
+  type RawItem = {
+    id: number; ticket_number: string; type: string | null
+    subject: string | null; summary: string | null; status: string | null
+    priority: string | null; association_code: string | null
+    created_at: string; excluded_from_monthly_report: boolean | null
+  }
+  const received = await fetchAll<RawItem>((from, to) => {
     let q = supabaseAdmin
       .from('tickets')
-      .select('type, association_code')
+      .select('id, ticket_number, type, subject, summary, status, priority, association_code, created_at, excluded_from_monthly_report')
       .gte('created_at', start).lt('created_at', end)
+      .order('association_code', { ascending: true })
+      .order('created_at', { ascending: false })
       .range(from, to)
     if (code) q = q.eq('association_code', code)
     return q
   })
 
   // ── Tickets / work orders closed this month (resolved_at in window) ──
-  const closed = await fetchAll<TRow>((from, to) => {
+  type ClosedRow = { type: string | null; association_code: string | null }
+  const closed = await fetchAll<ClosedRow>((from, to) => {
     let q = supabaseAdmin
       .from('tickets')
       .select('type, association_code')
@@ -183,16 +197,21 @@ export async function gatherMonthlyReportData(
     emailThreadsReceived: activity.reduce((s, r) => s + r.emailThreadsReceived, 0),
   }
 
-  // ── Flagged items (tickets + work orders) — the flag IS the selector,
-  //    so these are NOT month-scoped; the association filter still applies. ──
-  let flagQuery = supabaseAdmin
-    .from('tickets')
-    .select('id, ticket_number, type, subject, summary, status, priority, association_code, created_at')
-    .eq('marked_for_monthly_report', true)
-    .order('association_code', { ascending: true })
-    .order('created_at', { ascending: false })
-  if (code) flagQuery = flagQuery.eq('association_code', code)
-  const { data: flaggedRows } = await flagQuery
+  // ── Report items — every ticket / work order created this month. The
+  //    report covers them all; `excluded` rows are the ones staff
+  //    unticked in the report preview. ──
+  const reportItems: ReportItem[] = received.map(r => ({
+    id:               r.id,
+    ticket_number:    r.ticket_number,
+    type:             r.type ?? 'ticket',
+    subject:          r.subject,
+    summary:          r.summary,
+    status:           r.status,
+    priority:         r.priority,
+    association_code: r.association_code,
+    created_at:       r.created_at,
+    excluded:         r.excluded_from_monthly_report === true,
+  }))
 
   return {
     month:        mon,
@@ -200,6 +219,6 @@ export async function gatherMonthlyReportData(
     assoc:        code,
     activity,
     totals,
-    flaggedItems: (flaggedRows ?? []) as FlaggedItem[],
+    reportItems,
   }
 }
