@@ -24,9 +24,14 @@ export interface ParsedSkill {
 }
 
 // Total characters of skill content we will inline into a single system prompt.
-// At ~4 chars/token this is roughly 6k tokens — comfortably under model limits
-// while leaving room for FAQ context and conversation history.
-const MAX_SKILL_CHARS_PER_PROMPT = 24_000
+// At ~4 chars/token this is roughly 14k tokens — still a small fraction of the
+// model's context, with room for FAQ context and conversation history. When the
+// total exceeds this, whole skills (lowest priority by name order) are dropped,
+// so the cap must comfortably fit every enabled skill for an audience or one of
+// them silently disappears from MAIA's behaviour. The previous 24k value was
+// already below the combined size of the seeded skills, silently dropping the
+// last ones; this fits all of them with headroom.
+const MAX_SKILL_CHARS_PER_PROMPT = 55_000
 
 // Parse a SKILL.md file with YAML-style frontmatter:
 //   ---
