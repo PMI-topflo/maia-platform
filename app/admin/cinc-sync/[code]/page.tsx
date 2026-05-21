@@ -50,12 +50,20 @@ export default async function CincSyncDetailPage(props: { params: Promise<{ code
         <header className="mb-6 border-l-4 border-[#f26a1b] pl-4 mt-3">
           <div className="flex items-baseline justify-between gap-4 flex-wrap">
             <h1 className="text-xl font-semibold text-gray-900">{assocRow.association_name}</h1>
-            <Link
-              href={`/admin/cinc-sync/${assocRow.association_code}/documents`}
-              className="text-xs font-mono uppercase tracking-wide text-[#f26a1b] hover:text-white hover:bg-[#f26a1b] border border-[#f26a1b] px-2.5 py-1 rounded transition-colors"
-            >
-              📄 Documents →
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/admin/reports/monthly?assoc=${assocRow.association_code}`}
+                className="text-xs font-mono uppercase tracking-wide text-[#f26a1b] hover:text-white hover:bg-[#f26a1b] border border-[#f26a1b] px-2.5 py-1 rounded transition-colors"
+              >
+                📊 Monthly report →
+              </Link>
+              <Link
+                href={`/admin/cinc-sync/${assocRow.association_code}/documents`}
+                className="text-xs font-mono uppercase tracking-wide text-[#f26a1b] hover:text-white hover:bg-[#f26a1b] border border-[#f26a1b] px-2.5 py-1 rounded transition-colors"
+              >
+                📄 Documents →
+              </Link>
+            </div>
           </div>
           <p className="text-sm text-gray-500 mt-1">
             Code <span className="font-mono">{assocRow.association_code}</span>. Diff against CINC&apos;s homeowner + board endpoints. Pick rows to apply.

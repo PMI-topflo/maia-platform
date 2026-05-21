@@ -134,8 +134,33 @@ in one short line rather than omitting the section. Do not invent figures.`
     return NextResponse.json({ error: 'The model returned an empty report' }, { status: 502 })
   }
 
+  // Persist the report so it has a stable, shareable URL. One row per
+  // (association, month) — re-generating overwrites it.
+  const generatedBy = typeof session.userId === 'string' && session.userId.includes('@')
+    ? session.userId.toLowerCase()
+    : null
+  let reportId: string | null = null
+  const { data: saved, error: saveErr } = await supabaseAdmin
+    .from('monthly_reports')
+    .upsert({
+      association_code:   data.assoc || 'ALL',
+      month:              data.month,
+      report_markdown:    reportMarkdown,
+      generated_by_email: generatedBy,
+      generated_at:       new Date().toISOString(),
+    }, { onConflict: 'association_code,month' })
+    .select('id')
+    .single()
+  if (saveErr) {
+    // The report still generated — return it, just without a saved link.
+    console.error('[monthly-report] save failed:', saveErr.message)
+  } else {
+    reportId = saved?.id as string ?? null
+  }
+
   return NextResponse.json({
     ok:         true,
+    id:         reportId,
     report:     reportMarkdown,
     month:      data.month,
     monthLabel: data.monthLabel,
