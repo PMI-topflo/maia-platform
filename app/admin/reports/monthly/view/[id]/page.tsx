@@ -36,7 +36,7 @@ const PRINT_CSS = `
   print-color-adjust: exact;
 }
 @media print {
-  @page { margin: 14mm; }
+  @page { margin: 16mm; }
   html, body { background: #ffffff !important; }
   .report-article { box-shadow: none !important; border-radius: 0 !important; }
   .report-section, .report-block, .report-gallery, .report-footer { break-inside: avoid; }
