@@ -254,13 +254,14 @@ async function getData(
     }
   }
 
-  // Comprehensive dropdown options for the From / To filters. Same
-  // 10-day window as the on-screen list. ORDER BY created_at DESC
-  // ensures the 10k sample skews to recent rows (so every actively-
-  // used inbox is represented), instead of an arbitrary slice.
+  // Comprehensive option list for the From (sender) filter. Same 10-day
+  // window as the on-screen list. ORDER BY created_at DESC ensures the
+  // 10k sample skews to recent rows (so every actively-used sender is
+  // represented), instead of an arbitrary slice. The To filter no
+  // longer samples here — it is the curated "Staff" inbox list below.
   let emailOptsQuery = supabaseAdmin
     .from('email_logs')
-    .select('from_email, to_email')
+    .select('from_email')
     .gte('created_at', tenDaysAgo)
     .order('created_at', { ascending: false })
     .limit(10_000)
@@ -289,9 +290,10 @@ async function getData(
     convOptsQuery = convOptsQuery.or(orConvOpts.join(','))
   }
 
-  // Connected staff inboxes — guaranteed to appear in the recipient
-  // dropdown even if their 10-day traffic is sparse enough to fall
-  // outside the 10k email_logs sample.
+  // Connected staff inboxes — these ARE the "Staff" filter options
+  // (a curated list of the team's mailboxes, not every address ever
+  // seen). maia@ is added on top since it runs on the app's own
+  // credentials and isn't a staff_gmail_accounts row.
   const staffInboxesQuery = supabaseAdmin
     .from('staff_gmail_accounts')
     .select('gmail_address')
@@ -303,7 +305,7 @@ async function getData(
     ticketQuery,
     supabaseAdmin
       .from('pmi_staff')
-      .select('id, name, email, role, department, personal_email, business_email, alt_emails')
+      .select('id, name, email, role, department')
       .eq('active', true)
       .order('name'),
     cmdQuery,
@@ -312,52 +314,26 @@ async function getData(
     staffInboxesQuery,
   ])
 
+  // From (sender) filter options — sampled from real traffic.
   const emailFromSet = new Set<string>()
-  const emailToSet   = new Set<string>()
-  for (const r of (emailOptsRes.data ?? []) as Array<{ from_email: string | null; to_email: string | null }>) {
+  for (const r of (emailOptsRes.data ?? []) as Array<{ from_email: string | null }>) {
     for (const a of extractEmailAddrs(r.from_email)) emailFromSet.add(a)
-    for (const a of extractEmailAddrs(r.to_email))   emailToSet  .add(a)
   }
-  // Guarantee every active staff inbox appears as a To-option even
-  // if it didn't show up in the 10k email_logs sample (which can
-  // happen when a high-volume sender like maia@ dominates recent
-  // traffic and crowds out lower-volume inboxes).
+  emailFromSet.add('maia@pmitop.com')
+
+  // "Staff" filter options — the curated set of team mailboxes: every
+  // active connected inbox plus maia@. This is intentionally NOT every
+  // recipient address ever seen; picking one filters to that inbox.
+  const emailToSet = new Set<string>()
   for (const inbox of (staffInboxesRes.data ?? []) as Array<{ gmail_address: string | null }>) {
     for (const a of extractEmailAddrs(inbox.gmail_address)) emailToSet.add(a)
   }
-  // Always offer maia@ itself as a From/To option. Its inbound is now
-  // auto-dismissed (the @maia command channel), so it can fall out of
-  // the visible-traffic sample — but staff still need to filter to it on
-  // demand (with "Show dismissed"). The noreply@/no-reply@ variants are
-  // send-only system addresses — not seeded, so they only appear as
-  // filter options if they organically have traffic in the sample.
-  emailFromSet.add('maia@pmitop.com')
   emailToSet.add('maia@pmitop.com')
 
   const convSenderSet = new Set<string>()
   for (const r of (convOptsRes.data ?? []) as Array<{ sender_email: string | null; contact_email: string | null }>) {
     for (const a of extractEmailAddrs(r.sender_email ?? r.contact_email)) convSenderSet.add(a)
   }
-
-  // Enrich each staff member with their FULL set of known addresses
-  // (login email + business / personal email + alt_emails). The Emails
-  // tab's "All staff" filter matches against this set so it works for
-  // inbound mail too — inbound rows store the inbox address (which can
-  // differ from the staff login email, e.g. pmi@topfloridaproperties.com
-  // vs the pmi@pmitop.com login) rather than the staff identity.
-  const staff = ((staffRes.data ?? []) as Array<{
-    id: string; name: string; email: string | null; role: string | null; department: string | null
-    personal_email: string | null; business_email: string | null; alt_emails: string[] | null
-  }>).map(s => {
-    const emails = new Set<string>()
-    for (const a of [s.email, s.personal_email, s.business_email, ...(s.alt_emails ?? [])]) {
-      if (a) emails.add(a.toLowerCase())
-    }
-    return {
-      id: s.id, name: s.name, email: s.email, role: s.role, department: s.department,
-      emails: Array.from(emails),
-    }
-  })
 
   return {
     // Cast through any — dynamic .select(string) collapses Supabase's
@@ -367,7 +343,7 @@ async function getData(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     emails:                    (emailRes.data ?? []) as any,
     tickets:                   ticketRes.data ?? [],
-    staff,
+    staff:                     staffRes.data ?? [],
     emailCommands:             cmdRes.data ?? [],
     canSeeAll:                 ctx.canSeeAll,
     emailFromOptions:          Array.from(emailFromSet).sort(),
