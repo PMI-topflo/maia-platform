@@ -310,8 +310,9 @@ export default function AdminToolsPage() {
         const missingNote = d.missingFromLog > 0
           ? ` — ${d.missingFromLog} inbox message${d.missingFromLog === 1 ? '' : 's'} never logged (ingest gap)`
           : ''
+        const datedNote = d.datesStamped > 0 ? `, re-dated ${d.datesStamped}` : ''
         setSyncResult(prev => ({ ...prev, [gmail_address]:
-          `✓ Mirrored to inbox — restored ${d.restored}, hid ${d.dismissed}; ${d.visibleAfter} now showing (inbox has ${d.inboxSize})${missingNote}.` }))
+          `✓ Mirrored to inbox — restored ${d.restored}, hid ${d.dismissed}${datedNote}; ${d.visibleAfter} now showing (inbox has ${d.inboxSize})${missingNote}.` }))
       } else {
         setSyncResult(prev => ({ ...prev, [gmail_address]: `✗ ${d.error || 'Sync failed.'}` }))
       }

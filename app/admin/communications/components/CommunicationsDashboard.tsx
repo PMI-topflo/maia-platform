@@ -213,6 +213,15 @@ interface EmailLog {
   dismissed_at?:        string | null
   dismissed_by_email?:  string | null
   gmail_thread_id?:     string | null
+  /** The email's TRUE date (Gmail internalDate / send time). Display
+   *  and sort use this; created_at is only the log time. */
+  email_date?:          string | null
+}
+
+/** When the email actually happened — its real date, falling back to
+ *  the log time for rows logged before the email_date migration. */
+function emailWhen(e: { email_date?: string | null; created_at: string }): string {
+  return e.email_date ?? e.created_at
 }
 
 interface Ticket {
@@ -851,16 +860,16 @@ function EmailsTab({
         existing.count++
         existing.messages.push(e)
         existing.ids.push(e.id)
-        if (new Date(e.created_at).getTime() > new Date(existing.latest.created_at).getTime()) {
+        if (new Date(emailWhen(e)).getTime() > new Date(emailWhen(existing.latest)).getTime()) {
           existing.latest = e
         }
       }
     }
     for (const t of map.values()) {
-      t.messages.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      t.messages.sort((a, b) => new Date(emailWhen(a)).getTime() - new Date(emailWhen(b)).getTime())
     }
     return Array.from(map.values()).sort((a, b) =>
-      new Date(b.latest.created_at).getTime() - new Date(a.latest.created_at).getTime(),
+      new Date(emailWhen(b.latest)).getTime() - new Date(emailWhen(a.latest)).getTime(),
     )
   }, [filtered])
 
@@ -991,7 +1000,7 @@ function EmailsTab({
                     {e.persona && <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] uppercase">{e.persona}</span>}
                   </td>
                   <td className="px-4 py-2.5">{emailStatusBadge(e.status)}</td>
-                  <td className="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">{fmtDate(e.created_at)}</td>
+                  <td className="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">{fmtDate(emailWhen(e))}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
                       <button
@@ -1061,7 +1070,7 @@ function EmailsTab({
                                   </span>
                                 )}
                               </div>
-                              <span className="text-gray-400">{fmtDate(m.created_at)}</span>
+                              <span className="text-gray-400">{fmtDate(emailWhen(m))}</span>
                             </div>
                             {m.subject && m.subject !== e.subject && (
                               <div className="text-gray-700 font-medium mb-1">{m.subject}</div>

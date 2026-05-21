@@ -95,17 +95,19 @@ async function detectOptionalColumns(): Promise<{
   dismissed_at:        boolean
   dismissed_by_email:  boolean
   gmail_thread_id:     boolean
+  email_date:          boolean
 }> {
   const probe = async (col: string): Promise<boolean> => {
     const { error } = await supabaseAdmin.from('email_logs').select(col).limit(0)
     return !error
   }
-  const [d1, d2, t] = await Promise.all([
+  const [d1, d2, t, ed] = await Promise.all([
     probe('dismissed_at'),
     probe('dismissed_by_email'),
     probe('gmail_thread_id'),
+    probe('email_date'),
   ])
-  return { dismissed_at: d1, dismissed_by_email: d2, gmail_thread_id: t }
+  return { dismissed_at: d1, dismissed_by_email: d2, gmail_thread_id: t, email_date: ed }
 }
 
 async function getData(
@@ -165,7 +167,19 @@ async function getData(
     ...(optionalCols.dismissed_at        ? ['dismissed_at']        : []),
     ...(optionalCols.dismissed_by_email  ? ['dismissed_by_email']  : []),
     ...(optionalCols.gmail_thread_id     ? ['gmail_thread_id']     : []),
+    ...(optionalCols.email_date          ? ['email_date']          : []),
   ].join(', ')
+
+  // Sort + window by the email's TRUE date (email_date) once the
+  // migration is applied, so re-ingested backlog mail sits in real
+  // chronological order instead of jumping to the top by log time.
+  const sortCol = optionalCols.email_date ? 'email_date' : 'created_at'
+
+  // The 10-day working window applies to the DEFAULT (unfiltered) view
+  // only. Once a Staff inbox or sender is picked, the whole history is
+  // shown so the view mirrors the entire Gmail inbox — including mail
+  // older than 10 days.
+  const inboxFilterActive = !!(emailFilters.to || emailFilters.from)
 
   // count: 'exact' returns the TRUE number of matching rows even though
   // .limit() caps the loaded set at 1000 — so the on-screen count is
@@ -173,9 +187,11 @@ async function getData(
   let emailQuery = supabaseAdmin
     .from('email_logs')
     .select(emailCols, { count: 'exact' })
-    .gte('created_at', tenDaysAgo)
-    .order('created_at', { ascending: false })
+    .order(sortCol, { ascending: false, nullsFirst: false })
     .limit(1000)
+  if (!inboxFilterActive) {
+    emailQuery = emailQuery.gte(sortCol, tenDaysAgo)
+  }
 
   // Default view hides dismissed rows. Show-dismissed toggle includes them.
   // maia@ is a normal inbox — its inbound mail is filtered by the same

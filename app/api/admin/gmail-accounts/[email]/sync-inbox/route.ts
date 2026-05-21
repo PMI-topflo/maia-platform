@@ -12,6 +12,10 @@
 //   • a previously auto-dismissed message that is still in the inbox
 //     (noise-sender, internal staff-to-staff, stale-replay) → restored
 //
+// It also stamps each in-inbox row with the message's TRUE Gmail date
+// (internalDate) so the Communications view sorts like the real inbox
+// instead of by log time.
+//
 // Runs server-side because the Gmail credentials are sensitive and only
 // exist in the deployment environment. Re-runnable.
 // =====================================================================
@@ -23,8 +27,8 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import {
   refreshStaffToken,
-  listAllInboxMessageIds,
-  listAllInboxMessageIdsWithToken,
+  listInboxMessageIdsAndDates,
+  listInboxMessageIdsAndDatesWithToken,
 } from '@/lib/gmail'
 
 export const runtime = 'nodejs'
@@ -56,11 +60,14 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid email' }, { status: 400 })
   }
 
-  // 1. The live set of message ids currently in this account's INBOX.
-  let inboxIds: Set<string>
+  // 1. The live INBOX: message ids (authoritative) plus a best-effort
+  //    id → internalDate map used to stamp each row's true date.
+  let inboxIds:   Set<string>
+  let inboxDates: Map<string, string>
   try {
     if (addr === MAIN_ACCOUNT) {
-      inboxIds = new Set(await listAllInboxMessageIds())
+      const live = await listInboxMessageIdsAndDates()
+      inboxIds = new Set(live.ids); inboxDates = live.dates
     } else {
       const { data: accounts } = await supabaseAdmin
         .from('staff_gmail_accounts')
@@ -73,7 +80,8 @@ export async function POST(
         return NextResponse.json({ error: 'No active connected account for that address' }, { status: 404 })
       }
       const refreshed = await refreshStaffToken(account.refresh_token as string)
-      inboxIds = new Set(await listAllInboxMessageIdsWithToken(refreshed.access_token))
+      const live = await listInboxMessageIdsAndDatesWithToken(refreshed.access_token)
+      inboxIds = new Set(live.ids); inboxDates = live.dates
     }
   } catch (err) {
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : String(err) })
@@ -174,6 +182,32 @@ export async function POST(
     dismissed += chunk.length
   }
 
+  // 5. Stamp each in-inbox message's rows with its TRUE Gmail date so
+  //    the Communications view sorts like the real inbox instead of by
+  //    log time. Best-effort: a message whose date we couldn't fetch is
+  //    left unchanged, and a missing email_date column (migration not
+  //    yet applied) is tolerated — the per-update error is ignored.
+  const dateJobs: Array<{ msgId: string; iso: string }> = []
+  for (const msgId of byMsgId.keys()) {
+    if (!inboxIds.has(msgId)) continue
+    const epoch = Number(inboxDates.get(msgId))
+    if (Number.isFinite(epoch)) {
+      dateJobs.push({ msgId, iso: new Date(epoch).toISOString() })
+    }
+  }
+  let datesStamped = 0
+  for (let i = 0; i < dateJobs.length; i += 15) {
+    const chunk   = dateJobs.slice(i, i + 15)
+    const results = await Promise.all(chunk.map(j =>
+      supabaseAdmin
+        .from('email_logs')
+        .update({ email_date: j.iso })
+        .eq('gmail_message_id', j.msgId)
+        .select('id'),
+    ))
+    for (const r of results) if (!r.error) datesStamped += r.data?.length ?? 0
+  }
+
   // After the reconcile, the visible set is exactly one row per inbox
   // message that we have a log row for.
   let visibleAfter = 0
@@ -186,6 +220,7 @@ export async function POST(
     visibleBefore,
     restored,
     dismissed,
+    datesStamped,
     missingFromLog,
     visibleAfter,
   })
