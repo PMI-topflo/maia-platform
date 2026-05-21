@@ -996,7 +996,7 @@ function EmailsTab({
       )}
 
       <div className="text-xs text-gray-400 mb-2">
-        {threads.length} thread{threads.length === 1 ? '' : 's'} · {filtered.length} message{filtered.length === 1 ? '' : 's'}
+        {filtered.length} email{filtered.length === 1 ? '' : 's'} inside {threads.length} email thread{threads.length === 1 ? '' : 's'}
         {emailTotal > emails.length && (
           <span className="text-amber-700">
             {' '}· showing the most recent {emails.length.toLocaleString()} of {emailTotal.toLocaleString()} matching
