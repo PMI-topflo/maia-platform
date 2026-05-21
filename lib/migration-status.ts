@@ -326,13 +326,8 @@ CREATE INDEX IF NOT EXISTS email_logs_gmail_message_id_idx
     sql: `ALTER TABLE public.email_logs
   ADD COLUMN IF NOT EXISTS email_date timestamptz;
 
-UPDATE public.email_logs SET email_date = created_at WHERE email_date IS NULL;
-
 ALTER TABLE public.email_logs
-  ALTER COLUMN email_date SET DEFAULT NOW();
-
-CREATE INDEX IF NOT EXISTS email_logs_email_date_idx
-  ON public.email_logs (email_date DESC);`,
+  ALTER COLUMN email_date SET DEFAULT NOW();`,
   },
 ]
 
