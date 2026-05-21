@@ -94,6 +94,14 @@ export async function logEmail(entry: EmailLogEntry): Promise<void> {
   const isStaleReplay = Number.isFinite(staleEpoch)
     && Date.now() - staleEpoch > STALE_INBOUND_REPLAY_DAYS * 86_400_000
 
+  // The row's TRUE date — Gmail internalDate for inbound mail, send
+  // time for everything else. created_at stays the log time; the
+  // Communications view sorts/windows by email_date so a re-ingested
+  // backlog email doesn't jump to the top dated "today".
+  insertRow.email_date = Number.isFinite(staleEpoch)
+    ? new Date(staleEpoch).toISOString()
+    : new Date().toISOString()
+
   // Note: inbound mail to maia@ is NOT blanket-dismissed. maia@ is a
   // normal inbox — its marketing noise is filtered by the same
   // email_noise_senders denylist as every other account (autoDismiss
@@ -116,23 +124,30 @@ export async function logEmail(entry: EmailLogEntry): Promise<void> {
   }
 }
 
-/** Insert an email_logs row, tolerating a not-yet-migrated
- *  gmail_message_id column: if the insert fails because that column is
- *  missing, retry once without it so logging still succeeds. */
+// Columns added by recent migrations. If a migration hasn't been
+// applied yet the insert fails naming the missing column — we strip it
+// and retry so logging still succeeds (just without that field).
+const OPTIONAL_COLUMNS = ['gmail_message_id', 'email_date']
+
+/** Insert an email_logs row, tolerating not-yet-migrated optional
+ *  columns: on a "column does not exist" error, drop the offending
+ *  column and retry. */
 async function insertEmailLog(row: Record<string, unknown>): Promise<{ id: string } | null> {
-  const first = await supabaseAdmin.from('email_logs').insert(row).select('id').single()
-  if (!first.error && first.data) return { id: String(first.data.id) }
+  const attempt = { ...row }
+  for (let i = 0; i <= OPTIONAL_COLUMNS.length; i++) {
+    const res = await supabaseAdmin.from('email_logs').insert(attempt).select('id').single()
+    if (!res.error && res.data) return { id: String(res.data.id) }
 
-  if (first.error && 'gmail_message_id' in row && /gmail_message_id/i.test(first.error.message)) {
-    const rest = { ...row }
-    delete rest.gmail_message_id
-    const retry = await supabaseAdmin.from('email_logs').insert(rest).select('id').single()
-    if (!retry.error && retry.data) return { id: String(retry.data.id) }
-    console.error('[email-logger] Failed to log email (retry without gmail_message_id):', retry.error?.message)
-    return null
+    const culprit = res.error
+      ? OPTIONAL_COLUMNS.find(c => c in attempt && new RegExp(c, 'i').test(res.error!.message))
+      : undefined
+    if (!culprit) {
+      console.error('[email-logger] Failed to log email:', res.error?.message)
+      return null
+    }
+    delete attempt[culprit]
+    console.warn(`[email-logger] retrying insert without not-yet-migrated column "${culprit}"`)
   }
-
-  console.error('[email-logger] Failed to log email:', first.error?.message)
   return null
 }
 

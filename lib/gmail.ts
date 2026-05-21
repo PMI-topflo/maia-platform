@@ -321,6 +321,42 @@ export async function listAllInboxMessageIds(): Promise<string[]> {
   return listAllInboxMessageIdsWithToken(await getAccessToken())
 }
 
+/** The INBOX message ids plus a best-effort map of id → Gmail
+ *  internalDate (epoch ms as a string). The id list is authoritative;
+ *  the dates map may omit a message whose metadata fetch failed (the
+ *  caller treats a missing date as "leave it unchanged"). Used by the
+ *  inbox reconcile to stamp each row with its message's TRUE date so
+ *  the Communications view sorts like Gmail. */
+export async function listInboxMessageIdsAndDatesWithToken(
+  accessToken: string,
+): Promise<{ ids: string[]; dates: Map<string, string> }> {
+  const ids   = await listAllInboxMessageIdsWithToken(accessToken)
+  const dates = new Map<string, string>()
+  const BATCH = 12
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const chunk = ids.slice(i, i + BATCH)
+    await Promise.all(chunk.map(async id => {
+      try {
+        const res = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=minimal`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+        )
+        if (!res.ok) return
+        const m = await res.json() as { id?: string; internalDate?: string }
+        if (m.id && m.internalDate) dates.set(m.id, m.internalDate)
+      } catch {
+        /* best-effort — a missing date just leaves the row unchanged */
+      }
+    }))
+  }
+  return { ids, dates }
+}
+
+/** Env-credentials variant — for the main MAIA inbox. */
+export async function listInboxMessageIdsAndDates(): Promise<{ ids: string[]; dates: Map<string, string> }> {
+  return listInboxMessageIdsAndDatesWithToken(await getAccessToken())
+}
+
 export interface GmailProfile {
   emailAddress:  string
   messagesTotal: number

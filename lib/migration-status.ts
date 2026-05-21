@@ -317,6 +317,23 @@ CREATE INDEX IF NOT EXISTS email_logs_gmail_message_id_idx
   ON public.email_logs (gmail_message_id)
   WHERE gmail_message_id IS NOT NULL;`,
   },
+  {
+    key:         'email_logs_email_date',
+    label:       'True email date (sort like Gmail)',
+    description: 'email_logs.email_date',
+    filename:    '20260521_email_logs_email_date.sql',
+    artifact:    { type: 'column', table: 'email_logs', column: 'email_date' },
+    sql: `ALTER TABLE public.email_logs
+  ADD COLUMN IF NOT EXISTS email_date timestamptz;
+
+UPDATE public.email_logs SET email_date = created_at WHERE email_date IS NULL;
+
+ALTER TABLE public.email_logs
+  ALTER COLUMN email_date SET DEFAULT NOW();
+
+CREATE INDEX IF NOT EXISTS email_logs_email_date_idx
+  ON public.email_logs (email_date DESC);`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
