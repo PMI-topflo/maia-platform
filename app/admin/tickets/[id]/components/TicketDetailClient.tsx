@@ -15,6 +15,7 @@ import SchedulingModal from './SchedulingModal'
 import VendorPickerModal from './VendorPickerModal'
 import WorkOrderPhotos from './WorkOrderPhotos'
 import LogMessageModal from './LogMessageModal'
+import RelatedTicketsCard from './RelatedTicketsCard'
 
 interface TicketRecord {
   id:                     number
@@ -634,6 +635,8 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           </div>
           <Detail label="Updated"     value={fmtAbs(ticket.updated_at)} />
         </Card>
+
+        <RelatedTicketsCard ticketId={ticket.id} />
 
         {showDueModal && (
           <DueDateModal
