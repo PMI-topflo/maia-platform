@@ -250,6 +250,23 @@ export async function fetchGmailAttachmentData(
   return Buffer.from(data.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64')
 }
 
+/** Per-account variant of fetchGmailAttachmentData — for messages in a
+ *  connected staff Gmail inbox. The env-credential version above only
+ *  sees the main maia@ mailbox. */
+export async function fetchGmailAttachmentDataWithToken(
+  messageId:    string,
+  attachmentId: string,
+  accessToken:  string,
+): Promise<Buffer> {
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${attachmentId}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  )
+  if (!res.ok) throw new Error(`[Gmail] Attachment fetch failed (${res.status}): ${await res.text()}`)
+  const data = await res.json() as { data: string }
+  return Buffer.from(data.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64')
+}
+
 // ── Per-account functions (staff Gmail OAuth) ────────────────────────────────
 
 export async function refreshStaffToken(refreshToken: string): Promise<{ access_token: string; expires_in: number }> {

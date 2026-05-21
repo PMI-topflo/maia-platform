@@ -4,6 +4,7 @@ import {
   fetchGmailHistory,
   fetchGmailHistoryWithToken,
   fetchGmailMessageWithToken,
+  fetchGmailAttachmentDataWithToken,
   listRecentInboxMessages,
   listRecentInboxMessagesWithToken,
   refreshStaffToken,
@@ -334,7 +335,10 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
       // gmail-thread reply matching, subject-match dedupe, trigger phrase
       // detection, modifier parsing (@assign / @priority / @workorder), and
       // assignee notification. Same call as the main maia@pmitop.com path.
-      await ingestInboundEmailToTicket(parsed, isAllowedSender(parsed.senderEmail), assocCode)
+      await ingestInboundEmailToTicket(
+        parsed, isAllowedSender(parsed.senderEmail), assocCode,
+        (attId) => fetchGmailAttachmentDataWithToken(parsed.messageId, attId, accessToken),
+      )
     } catch (err) {
       console.error(`[staff-gmail] Failed to process message ${id} for ${account.gmail_address}:`, err)
     }

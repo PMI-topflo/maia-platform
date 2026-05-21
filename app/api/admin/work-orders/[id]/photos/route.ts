@@ -20,9 +20,26 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import {
   mirrorCincWorkOrderPhotos,
   listAttachmentsWithUrls,
+  recordWorkOrderAttachment,
+  deleteWorkOrderAttachment,
+  isImageFilename,
+  WO_FILE_SIZE_LIMIT_BYTES,
 } from '@/lib/work-order-attachments'
 
 export const runtime = 'nodejs'
+
+/** Look up a ticket and confirm it is a work order. */
+async function loadWorkOrder(ticketId: number) {
+  const { data, error } = await supabaseAdmin
+    .from('tickets')
+    .select('id, type, cinc_workorder_id')
+    .eq('id', ticketId)
+    .maybeSingle()
+  if (error)  return { error: `Ticket lookup failed: ${error.message}`, status: 500 as const }
+  if (!data)  return { error: 'Ticket not found', status: 404 as const }
+  if (data.type !== 'work_order') return { error: 'Not a work order', status: 400 as const }
+  return { ticket: data }
+}
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const cookieStore = await cookies()
@@ -85,4 +102,103 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     sync:        syncResult,                       // null if we didn't sync this call
     has_cinc_id: cincId !== null,
   })
+}
+
+// ---------------------------------------------------------------------
+// POST — record a staff-uploaded photo. The bytes are already in the
+// work-order-photos bucket (the browser PUT them directly via the
+// signed URL from /photos/upload-url); this just inserts the row.
+// ---------------------------------------------------------------------
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const cookieStore = await cookies()
+  const token       = cookieStore.get(SESSION_COOKIE)?.value
+  const session     = token ? await verifySession(token) : null
+  if (!session || session.persona !== 'staff') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const { id: idParam } = await ctx.params
+  const ticketId = Number(idParam)
+  if (!Number.isFinite(ticketId) || ticketId <= 0) {
+    return NextResponse.json({ error: 'Invalid ticket id' }, { status: 400 })
+  }
+
+  const wo = await loadWorkOrder(ticketId)
+  if ('error' in wo) return NextResponse.json({ error: wo.error }, { status: wo.status })
+
+  let body: { storage_path?: string; filename?: string; mime_type?: string; file_size_bytes?: number }
+  try { body = await req.json() }
+  catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }) }
+
+  const storagePath = (body.storage_path ?? '').trim()
+  const filename    = (body.filename ?? '').trim()
+  const fileSize    = Number(body.file_size_bytes)
+
+  if (!filename || !isImageFilename(filename)) {
+    return NextResponse.json({ error: 'A valid image filename is required' }, { status: 400 })
+  }
+  // The path must be the one our upload-url route minted for THIS work
+  // order — reject anything pointing elsewhere in the bucket.
+  if (!storagePath.startsWith(`wo-${ticketId}/`)) {
+    return NextResponse.json({ error: 'storage_path does not belong to this work order' }, { status: 400 })
+  }
+  if (!Number.isFinite(fileSize) || fileSize <= 0) {
+    return NextResponse.json({ error: 'file_size_bytes is required' }, { status: 400 })
+  }
+  if (fileSize > WO_FILE_SIZE_LIMIT_BYTES) {
+    return NextResponse.json({ error: `File exceeds the ${WO_FILE_SIZE_LIMIT_BYTES}-byte limit` }, { status: 400 })
+  }
+
+  const uploadedBy = typeof session.userId === 'string' && session.userId.includes('@')
+    ? session.userId.toLowerCase()
+    : null
+
+  const rec = await recordWorkOrderAttachment({
+    ticketId,
+    source:          'staff_upload',
+    storagePath,
+    filename,
+    mimeType:        (body.mime_type ?? '').trim() || undefined,
+    fileSizeBytes:   fileSize,
+    uploadedByEmail: uploadedBy,
+  })
+  if (!rec.ok) {
+    return NextResponse.json({ error: rec.error }, { status: 500 })
+  }
+
+  const attachments = await listAttachmentsWithUrls(ticketId)
+  return NextResponse.json({ ok: true, attachments })
+}
+
+// ---------------------------------------------------------------------
+// DELETE /api/admin/work-orders/[id]/photos?attachmentId=<uuid>
+// Removes a staff-uploaded or emailed photo. CINC-mirrored photos are
+// protected (they re-mirror from CINC anyway).
+// ---------------------------------------------------------------------
+export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const cookieStore = await cookies()
+  const token       = cookieStore.get(SESSION_COOKIE)?.value
+  const session     = token ? await verifySession(token) : null
+  if (!session || session.persona !== 'staff') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const { id: idParam } = await ctx.params
+  const ticketId = Number(idParam)
+  if (!Number.isFinite(ticketId) || ticketId <= 0) {
+    return NextResponse.json({ error: 'Invalid ticket id' }, { status: 400 })
+  }
+
+  const attachmentId = new URL(req.url).searchParams.get('attachmentId') ?? ''
+  if (!attachmentId) {
+    return NextResponse.json({ error: 'attachmentId is required' }, { status: 400 })
+  }
+
+  const result = await deleteWorkOrderAttachment(ticketId, attachmentId)
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status })
+  }
+
+  const attachments = await listAttachmentsWithUrls(ticketId)
+  return NextResponse.json({ ok: true, attachments })
 }

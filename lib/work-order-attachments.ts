@@ -194,6 +194,126 @@ export async function mirrorCincWorkOrderPhotos(opts: {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Email + staff-upload attachments (sources 'email' and 'staff_upload')
+// ─────────────────────────────────────────────────────────────────────
+
+/** Public wrapper around the private bucket bootstrap. */
+export async function ensureWorkOrderBucket(): Promise<{ ok: true } | { ok: false; reason: string }> {
+  return ensureBucket()
+}
+
+/** Whether a filename looks like an image we accept. */
+export function isImageFilename(filename: string): boolean {
+  return isImage(filename)
+}
+
+export const WO_FILE_SIZE_LIMIT_BYTES = FILE_SIZE_LIMIT_BYTES
+
+/** Storage object key for a new attachment: wo-<ticketId>/<uuid>.<ext>. */
+export function workOrderStoragePath(ticketId: number, filename: string): string {
+  const ext = extOf(filename) || 'bin'
+  return `wo-${ticketId}/${globalThis.crypto.randomUUID()}.${ext}`
+}
+
+/** Insert a work_order_attachments row for an object already uploaded to
+ *  the work-order-photos bucket (source 'email' or 'staff_upload'). */
+export async function recordWorkOrderAttachment(opts: {
+  ticketId:         number
+  source:           'email' | 'staff_upload'
+  storagePath:      string
+  filename:         string
+  mimeType?:        string
+  fileSizeBytes:    number
+  uploadedByEmail?: string | null
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const id = globalThis.crypto.randomUUID()
+  const { error } = await supabaseAdmin.from('work_order_attachments').insert({
+    id,
+    ticket_id:         opts.ticketId,
+    source:            opts.source,
+    storage_path:      opts.storagePath,
+    filename:          opts.filename,
+    mime_type:         opts.mimeType || mimeFor(opts.filename),
+    file_size_bytes:   opts.fileSizeBytes,
+    uploaded_by_email: opts.uploadedByEmail ?? null,
+  })
+  if (error) return { ok: false, error: error.message }
+  return { ok: true, id }
+}
+
+/** Upload image bytes to the bucket and record the row in one step —
+ *  used by the email ingestion path, which has the bytes server-side.
+ *  CINC-sourced photos are NOT routed here (see mirrorCincWorkOrderPhotos). */
+export async function saveWorkOrderAttachmentBytes(opts: {
+  ticketId:         number
+  source:           'email' | 'staff_upload'
+  bytes:            Buffer
+  filename:         string
+  uploadedByEmail?: string | null
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  if (!isImage(opts.filename)) {
+    return { ok: false, error: `not an image: ${opts.filename}` }
+  }
+  if (opts.bytes.byteLength > FILE_SIZE_LIMIT_BYTES) {
+    return { ok: false, error: `${opts.filename} exceeds the ${FILE_SIZE_LIMIT_BYTES}-byte limit` }
+  }
+  const bucket = await ensureBucket()
+  if (!bucket.ok) return { ok: false, error: bucket.reason }
+
+  const storagePath = workOrderStoragePath(opts.ticketId, opts.filename)
+  const mime        = mimeFor(opts.filename)
+  const { error: uploadErr } = await supabaseAdmin.storage
+    .from(STORAGE_BUCKET)
+    .upload(storagePath, opts.bytes, { contentType: mime, upsert: false })
+  if (uploadErr) return { ok: false, error: `upload failed: ${uploadErr.message}` }
+
+  const rec = await recordWorkOrderAttachment({
+    ticketId:        opts.ticketId,
+    source:          opts.source,
+    storagePath,
+    filename:        opts.filename,
+    mimeType:        mime,
+    fileSizeBytes:   opts.bytes.byteLength,
+    uploadedByEmail: opts.uploadedByEmail ?? null,
+  })
+  if (!rec.ok) {
+    // Roll back the orphaned object so a failed insert leaves no leak.
+    await supabaseAdmin.storage.from(STORAGE_BUCKET).remove([storagePath])
+    return { ok: false, error: rec.error }
+  }
+  return rec
+}
+
+/** Delete one non-CINC attachment (its row + its storage object). CINC
+ *  rows are left alone — they re-mirror from CINC and aren't ours to drop. */
+export async function deleteWorkOrderAttachment(
+  ticketId: number,
+  attachmentId: string,
+): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
+  const { data: row, error: lookupErr } = await supabaseAdmin
+    .from('work_order_attachments')
+    .select('id, ticket_id, source, storage_path')
+    .eq('id', attachmentId)
+    .maybeSingle()
+  if (lookupErr)  return { ok: false, error: lookupErr.message, status: 500 }
+  if (!row)       return { ok: false, error: 'Attachment not found', status: 404 }
+  if (row.ticket_id !== ticketId) {
+    return { ok: false, error: 'Attachment does not belong to this work order', status: 400 }
+  }
+  if (row.source === 'cinc') {
+    return { ok: false, error: 'CINC-sourced photos cannot be deleted here', status: 400 }
+  }
+
+  await supabaseAdmin.storage.from(STORAGE_BUCKET).remove([row.storage_path as string])
+  const { error: delErr } = await supabaseAdmin
+    .from('work_order_attachments')
+    .delete()
+    .eq('id', attachmentId)
+  if (delErr) return { ok: false, error: delErr.message, status: 500 }
+  return { ok: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // List all attachments for a ticket (regardless of source) with
 // signed URLs ready for <img src>.
 // ─────────────────────────────────────────────────────────────────────
