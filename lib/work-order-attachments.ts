@@ -342,3 +342,34 @@ export async function listAttachmentsWithUrls(
     signed_url: signed[i]?.signedUrl ?? '',
   })).filter(r => r.signed_url)
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Photos across many tickets — for the monthly-report photo gallery.
+// Returns at most `limit` image attachments, newest first, each with a
+// signed URL.
+// ─────────────────────────────────────────────────────────────────────
+export async function listAttachmentsForTickets(
+  ticketIds: number[],
+  limit = 9,
+): Promise<WorkOrderAttachmentWithUrl[]> {
+  if (ticketIds.length === 0) return []
+
+  const { data, error } = await supabaseAdmin
+    .from('work_order_attachments')
+    .select('*')
+    .in('ticket_id', ticketIds)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error || !data || data.length === 0) return []
+
+  const rows = data as WorkOrderAttachmentRow[]
+  const { data: signed, error: signErr } = await supabaseAdmin.storage
+    .from(STORAGE_BUCKET)
+    .createSignedUrls(rows.map(r => r.storage_path), SIGNED_URL_TTL_SECONDS)
+  if (signErr || !signed) return []
+
+  return rows.map((row, i) => ({
+    ...row,
+    signed_url: signed[i]?.signedUrl ?? '',
+  })).filter(r => r.signed_url)
+}
