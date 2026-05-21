@@ -35,6 +35,10 @@ export default function TicketPickerModal({ title = 'Link to ticket', onClose, o
   const [error,      setError]      = useState<string | null>(null)
   const [selected,   setSelected]   = useState<TicketHit | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  // Create-new path — for when no existing ticket / work order fits.
+  const [showCreate, setShowCreate] = useState(false)
+  const [newType,    setNewType]    = useState<'ticket' | 'work_order'>('ticket')
+  const [newSubject, setNewSubject] = useState('')
 
   const fetchResults = useCallback(async (q: string) => {
     setLoading(true)
@@ -65,6 +69,30 @@ export default function TicketPickerModal({ title = 'Link to ticket', onClose, o
     try {
       await onConfirm(selected.id)
       onClose(selected.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  /** Create a brand-new ticket / work order, then link to it. */
+  async function createAndLink() {
+    if (!newSubject.trim()) { setError('Enter a subject for the new item.'); return }
+    setSubmitting(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/admin/tickets', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ type: newType, subject: newSubject.trim(), channel_origin: 'internal' }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? 'Could not create the item')
+      const newId = data.ticket?.id as number
+      if (!newId) throw new Error('Create succeeded but no id was returned')
+      await onConfirm(newId)
+      onClose(newId)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -105,8 +133,8 @@ export default function TicketPickerModal({ title = 'Link to ticket', onClose, o
             {error && <div className="text-xs text-red-600">{error}</div>}
 
             {!loading && results.length === 0 && (
-              <div className="text-xs text-gray-400 italic px-2 py-3">
-                No matching tickets. Try a different search.
+              <div className="text-xs text-gray-400 italic px-2 py-2">
+                No matching tickets. Search again, or create a new one below.
               </div>
             )}
 
@@ -140,6 +168,57 @@ export default function TicketPickerModal({ title = 'Link to ticket', onClose, o
                 ))}
               </div>
             )}
+
+            {/* Create-new path — when nothing existing fits. */}
+            <div className="border-t border-gray-100 pt-3">
+              {!showCreate ? (
+                <button
+                  type="button"
+                  onClick={() => setShowCreate(true)}
+                  className="text-xs font-medium text-[#f26a1b] hover:text-[#d85a14]"
+                >
+                  + Create a new ticket or work order instead
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">New ticket / work order</div>
+                  <div className="flex gap-4 text-sm">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" checked={newType === 'ticket'} onChange={() => setNewType('ticket')} className="accent-[#f26a1b]" />
+                      Ticket
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" checked={newType === 'work_order'} onChange={() => setNewType('work_order')} className="accent-[#f26a1b]" />
+                      Work order
+                    </label>
+                  </div>
+                  <input
+                    type="text"
+                    value={newSubject}
+                    onChange={e => setNewSubject(e.target.value)}
+                    placeholder="Subject for the new item…"
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-[#f26a1b]"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void createAndLink()}
+                      disabled={submitting || !newSubject.trim()}
+                      className="bg-[#f26a1b] text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-[#d85a14] disabled:opacity-50"
+                    >
+                      {submitting ? 'Creating…' : `Create & link ${newType === 'work_order' ? 'work order' : 'ticket'}`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowCreate(false); setNewSubject('') }}
+                      className="text-xs text-gray-500 hover:text-gray-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-lg shrink-0">

@@ -365,6 +365,30 @@ ALTER TABLE public.monthly_reports ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "service_role_all_monthly_reports"
   ON public.monthly_reports FOR ALL TO service_role USING (true);`,
   },
+  {
+    key:         'ticket_links',
+    label:       'Ticket-to-ticket links',
+    description: 'ticket_links table',
+    filename:    '20260521_ticket_links.sql',
+    artifact:    { type: 'table', table: 'ticket_links' },
+    sql: `CREATE TABLE IF NOT EXISTS public.ticket_links (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_id          bigint NOT NULL REFERENCES public.tickets(id) ON DELETE CASCADE,
+  related_ticket_id  bigint NOT NULL REFERENCES public.tickets(id) ON DELETE CASCADE,
+  created_by_email   text,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ticket_links_distinct CHECK (ticket_id <> related_ticket_id),
+  UNIQUE (ticket_id, related_ticket_id)
+);
+
+CREATE INDEX IF NOT EXISTS ticket_links_ticket_idx  ON public.ticket_links (ticket_id);
+CREATE INDEX IF NOT EXISTS ticket_links_related_idx ON public.ticket_links (related_ticket_id);
+
+ALTER TABLE public.ticket_links ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "service_role_all_ticket_links"
+  ON public.ticket_links FOR ALL TO service_role USING (true);`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
