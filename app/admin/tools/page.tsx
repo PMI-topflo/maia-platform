@@ -78,6 +78,8 @@ export default function AdminToolsPage() {
   }
   const [diagnosing, setDiagnosing] = useState<string | null>(null)
   const [diagnosis,  setDiagnosis]  = useState<Record<string, DiagnoseReport>>({})
+  const [syncing,    setSyncing]    = useState<string | null>(null)
+  const [syncResult, setSyncResult] = useState<Record<string, string>>({})
 
   // Dialpad integration state
   interface DialpadStatus {
@@ -295,6 +297,25 @@ export default function AdminToolsPage() {
       setDiagnosis(prev => ({ ...prev, [gmail_address]: { verdict: (err as Error).message, error: true } }))
     } finally {
       setDiagnosing(null)
+    }
+  }
+
+  async function syncInbox(gmail_address: string) {
+    setSyncing(gmail_address)
+    setSyncResult(prev => { const n = { ...prev }; delete n[gmail_address]; return n })
+    try {
+      const res  = await fetch(`/api/admin/gmail-accounts/${encodeURIComponent(gmail_address)}/sync-inbox`, { method: 'POST' })
+      const d    = await res.json()
+      if (d.ok) {
+        setSyncResult(prev => ({ ...prev, [gmail_address]:
+          `✓ Synced to inbox — hid ${d.dismissed} email${d.dismissed === 1 ? '' : 's'} no longer in the inbox; ${d.visibleAfter} now showing (inbox has ${d.inboxSize}).` }))
+      } else {
+        setSyncResult(prev => ({ ...prev, [gmail_address]: `✗ ${d.error || 'Sync failed.'}` }))
+      }
+    } catch (err) {
+      setSyncResult(prev => ({ ...prev, [gmail_address]: `✗ ${(err as Error).message}` }))
+    } finally {
+      setSyncing(null)
     }
   }
 
@@ -617,18 +638,42 @@ export default function AdminToolsPage() {
                       </div>
                     )
                   })()}
+                  {syncResult['maia@pmitop.com'] && (
+                    <div style={{
+                      marginTop: 6, padding: '6px 9px', borderRadius: 4, fontSize: '0.72rem',
+                      background: syncResult['maia@pmitop.com'].startsWith('✓') ? '#f0fdf4' : '#fef2f2',
+                      border: `1px solid ${syncResult['maia@pmitop.com'].startsWith('✓') ? '#bbf7d0' : '#fecaca'}`,
+                      color: syncResult['maia@pmitop.com'].startsWith('✓') ? '#15803d' : '#991b1b',
+                    }}>
+                      {syncResult['maia@pmitop.com']}
+                    </div>
+                  )}
                 </div>
-                <button
-                  onClick={() => diagnose('maia@pmitop.com')}
-                  disabled={diagnosing === 'maia@pmitop.com'}
-                  style={{
-                    padding: '0.35rem 0.75rem', border: '1px solid #2563eb',
-                    borderRadius: 4, background: '#fff', color: '#2563eb',
-                    fontSize: '0.75rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
-                  }}
-                >
-                  {diagnosing === 'maia@pmitop.com' ? 'Diagnosing…' : 'Diagnose'}
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', flexShrink: 0 }}>
+                  <button
+                    onClick={() => diagnose('maia@pmitop.com')}
+                    disabled={diagnosing === 'maia@pmitop.com'}
+                    style={{
+                      padding: '0.35rem 0.75rem', border: '1px solid #2563eb',
+                      borderRadius: 4, background: '#fff', color: '#2563eb',
+                      fontSize: '0.75rem', cursor: 'pointer', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {diagnosing === 'maia@pmitop.com' ? 'Diagnosing…' : 'Diagnose'}
+                  </button>
+                  <button
+                    onClick={() => syncInbox('maia@pmitop.com')}
+                    disabled={syncing === 'maia@pmitop.com'}
+                    style={{
+                      padding: '0.35rem 0.75rem', border: '1px solid #16a34a',
+                      borderRadius: 4, background: '#16a34a', color: '#fff',
+                      fontSize: '0.75rem', whiteSpace: 'nowrap',
+                      cursor: syncing === 'maia@pmitop.com' ? 'default' : 'pointer',
+                    }}
+                  >
+                    {syncing === 'maia@pmitop.com' ? 'Syncing…' : 'Sync inbox'}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -725,6 +770,16 @@ export default function AdminToolsPage() {
                           </div>
                         )
                       })()}
+                      {syncResult[acct.gmail_address] && (
+                        <div style={{
+                          marginTop: 6, padding: '6px 9px', borderRadius: 4, fontSize: '0.72rem',
+                          background: syncResult[acct.gmail_address].startsWith('✓') ? '#f0fdf4' : '#fef2f2',
+                          border: `1px solid ${syncResult[acct.gmail_address].startsWith('✓') ? '#bbf7d0' : '#fecaca'}`,
+                          color: syncResult[acct.gmail_address].startsWith('✓') ? '#15803d' : '#991b1b',
+                        }}>
+                          {syncResult[acct.gmail_address]}
+                        </div>
+                      )}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', flexShrink: 0 }}>
                       {isInvalidGrant ? (
@@ -761,6 +816,18 @@ export default function AdminToolsPage() {
                         }}
                       >
                         {diagnosing === acct.gmail_address ? 'Diagnosing…' : 'Diagnose'}
+                      </button>
+                      <button
+                        onClick={() => syncInbox(acct.gmail_address)}
+                        disabled={syncing === acct.gmail_address}
+                        style={{
+                          padding: '0.35rem 0.75rem', border: '1px solid #16a34a',
+                          borderRadius: 4, background: '#16a34a', color: '#fff',
+                          fontSize: '0.75rem', whiteSpace: 'nowrap',
+                          cursor: syncing === acct.gmail_address ? 'default' : 'pointer',
+                        }}
+                      >
+                        {syncing === acct.gmail_address ? 'Syncing…' : 'Sync inbox'}
                       </button>
                       <button
                         onClick={() => disconnect(acct.gmail_address)}

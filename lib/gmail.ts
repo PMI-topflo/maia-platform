@@ -299,6 +299,28 @@ export async function listRecentInboxMessagesWithToken(accessToken: string, limi
   return (data.messages ?? []).map(m => m.id)
 }
 
+/** Every message id currently in INBOX (fully paginated). Used by the
+ *  inbox reconcile to mirror MAIA's Emails view to the live inbox. */
+export async function listAllInboxMessageIdsWithToken(accessToken: string): Promise<string[]> {
+  const ids: string[] = []
+  let pageToken = ''
+  do {
+    const url = 'https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=INBOX&maxResults=500'
+      + (pageToken ? `&pageToken=${pageToken}` : '')
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+    if (!res.ok) throw new Error(`[Gmail] inbox list failed (${res.status}): ${await res.text()}`)
+    const data = await res.json() as { messages?: Array<{ id: string }>; nextPageToken?: string }
+    for (const m of (data.messages ?? [])) ids.push(m.id)
+    pageToken = data.nextPageToken ?? ''
+  } while (pageToken)
+  return ids
+}
+
+/** Env-credentials variant — for the main MAIA inbox. */
+export async function listAllInboxMessageIds(): Promise<string[]> {
+  return listAllInboxMessageIdsWithToken(await getAccessToken())
+}
+
 export interface GmailProfile {
   emailAddress:  string
   messagesTotal: number
