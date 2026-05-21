@@ -663,6 +663,19 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
             </button>
           </div>
           <Detail label="Updated"     value={fmtAbs(ticket.updated_at)} />
+          <div className="mt-2 pt-2 border-t border-gray-100">
+            <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={monthlyReport}
+                disabled={savingMonthlyReport}
+                onChange={(e) => void toggleMonthlyReport(e.target.checked)}
+                className="h-4 w-4 accent-[#f26a1b]"
+              />
+              <span>Include in monthly management report</span>
+              {savingMonthlyReport && <span className="text-gray-400">saving…</span>}
+            </label>
+          </div>
         </Card>
 
         {showDueModal && (
@@ -750,19 +763,6 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
               </div>
               <Detail label="Completed" value={workOrder.completed_at ? fmtAbs(workOrder.completed_at) : '—'} />
               <Detail label="Cost"      value={fmtMoney(workOrder.cost_cents)} />
-              <div className="mt-2 pt-2 border-t border-gray-100">
-                <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={monthlyReport}
-                    disabled={savingMonthlyReport}
-                    onChange={(e) => void toggleMonthlyReport(e.target.checked)}
-                    className="h-4 w-4 accent-[#f26a1b]"
-                  />
-                  <span>Include in monthly management report</span>
-                  {savingMonthlyReport && <span className="text-gray-400">saving…</span>}
-                </label>
-              </div>
               {!ticket.cinc_workorder_id && (
                 <div className="mt-2 pt-2 border-t border-gray-100 space-y-2">
                   <div className="text-[11px] text-gray-500">

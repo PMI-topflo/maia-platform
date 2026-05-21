@@ -48,8 +48,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (ticketErr) {
     return NextResponse.json({ error: `Ticket lookup failed: ${ticketErr.message}` }, { status: 500 })
   }
-  if (!ticket)                      return NextResponse.json({ error: 'Ticket not found' }, { status: 404 })
-  if (ticket.type !== 'work_order') return NextResponse.json({ error: 'Not a work order' }, { status: 400 })
+  // Both tickets and work orders can be flagged for the monthly report.
+  if (!ticket) return NextResponse.json({ error: 'Ticket not found' }, { status: 404 })
 
   const { error: updErr } = await supabaseAdmin
     .from('tickets')
