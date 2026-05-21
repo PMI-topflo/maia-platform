@@ -242,6 +242,10 @@ interface Staff {
   email: string | null
   role: string | null
   department: string | null
+  /** Every address known for this staff member (login email + business /
+   *  personal email + alt_emails), lowercased. Drives the "All staff"
+   *  email filter so it matches inbound mail to the person's inbox. */
+  emails?: string[]
 }
 
 interface EmailCommand {
@@ -819,14 +823,24 @@ function EmailsTab({
   const filtered = emails.filter(e => {
     if (filterStatus !== 'all' && (e.status ?? 'sent') !== filterStatus) return false
     if (filterSentBy !== 'all') {
-      // sent_by can be either staff.id or staff.email depending on source.
-      // Match either; '__unknown' picks anything blank.
       if (filterSentBy === '__unknown') {
         if (e.sent_by) return false
       } else {
+        // Treat the picked staff member as a mailbox: match an email if
+        // ANY of from / to / sent_by hits one of that person's known
+        // addresses. This covers inbound mail too — inbound rows store
+        // the inbox address (or the literal "maia"), not the staff
+        // identity, so a plain sent_by===id check missed them entirely.
         const staffRec = staff.find(s => s.id === filterSentBy)
-        const emailLower = staffRec?.email?.toLowerCase() ?? ''
-        if (e.sent_by !== filterSentBy && (e.sent_by ?? '').toLowerCase() !== emailLower) return false
+        const addrs = new Set((staffRec?.emails ?? []).map(a => a.toLowerCase()))
+        if (staffRec?.email) addrs.add(staffRec.email.toLowerCase())
+        const sentBy = (e.sent_by ?? '').toLowerCase()
+        const hit =
+          e.sent_by === filterSentBy ||
+          addrs.has(sentBy) ||
+          extractEmailAddrs(e.from_email).some(a => addrs.has(a)) ||
+          extractEmailAddrs(e.to_email).some(a => addrs.has(a))
+        if (!hit) return false
       }
     }
     if (search) {

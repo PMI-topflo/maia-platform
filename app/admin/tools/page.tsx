@@ -307,8 +307,11 @@ export default function AdminToolsPage() {
       const res  = await fetch(`/api/admin/gmail-accounts/${encodeURIComponent(gmail_address)}/sync-inbox`, { method: 'POST' })
       const d    = await res.json()
       if (d.ok) {
+        const missingNote = d.missingFromLog > 0
+          ? ` — ${d.missingFromLog} inbox message${d.missingFromLog === 1 ? '' : 's'} never logged (ingest gap)`
+          : ''
         setSyncResult(prev => ({ ...prev, [gmail_address]:
-          `✓ Synced to inbox — hid ${d.dismissed} email${d.dismissed === 1 ? '' : 's'} no longer in the inbox; ${d.visibleAfter} now showing (inbox has ${d.inboxSize}).` }))
+          `✓ Mirrored to inbox — restored ${d.restored}, hid ${d.dismissed}; ${d.visibleAfter} now showing (inbox has ${d.inboxSize})${missingNote}.` }))
       } else {
         setSyncResult(prev => ({ ...prev, [gmail_address]: `✗ ${d.error || 'Sync failed.'}` }))
       }

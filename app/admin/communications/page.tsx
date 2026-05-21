@@ -178,12 +178,13 @@ async function getData(
     .limit(1000)
 
   // Default view hides dismissed rows. Show-dismissed toggle includes them.
-  // Exception: when the recipient filter is explicitly set to maia@, show
-  // its mail even though inbound to maia@ is auto-dismissed (the @maia
-  // command channel) — filtering To=maia@ is a deliberate "show me maia@"
-  // action, and otherwise the filter always returns zero.
-  const toIsMaia = emailFilters.to === 'maia@pmitop.com'
-  if (!showDismissed && !toIsMaia && optionalCols.dismissed_at) {
+  // maia@ is a normal inbox — its inbound mail is filtered by the same
+  // noise denylist as every other account, so the standard dismissed
+  // filter applies to it too. (An earlier maia@-only exception existed
+  // while maia@ inbound was blanket-hidden; that hide was removed in
+  // #134, so the exception is gone — it would otherwise surface tens
+  // of thousands of dismissed noise rows whenever To=maia@ was picked.)
+  if (!showDismissed && optionalCols.dismissed_at) {
     emailQuery = emailQuery.is('dismissed_at', null)
   }
 
@@ -302,7 +303,7 @@ async function getData(
     ticketQuery,
     supabaseAdmin
       .from('pmi_staff')
-      .select('id, name, email, role, department')
+      .select('id, name, email, role, department, personal_email, business_email, alt_emails')
       .eq('active', true)
       .order('name'),
     cmdQuery,
@@ -338,6 +339,26 @@ async function getData(
     for (const a of extractEmailAddrs(r.sender_email ?? r.contact_email)) convSenderSet.add(a)
   }
 
+  // Enrich each staff member with their FULL set of known addresses
+  // (login email + business / personal email + alt_emails). The Emails
+  // tab's "All staff" filter matches against this set so it works for
+  // inbound mail too — inbound rows store the inbox address (which can
+  // differ from the staff login email, e.g. pmi@topfloridaproperties.com
+  // vs the pmi@pmitop.com login) rather than the staff identity.
+  const staff = ((staffRes.data ?? []) as Array<{
+    id: string; name: string; email: string | null; role: string | null; department: string | null
+    personal_email: string | null; business_email: string | null; alt_emails: string[] | null
+  }>).map(s => {
+    const emails = new Set<string>()
+    for (const a of [s.email, s.personal_email, s.business_email, ...(s.alt_emails ?? [])]) {
+      if (a) emails.add(a.toLowerCase())
+    }
+    return {
+      id: s.id, name: s.name, email: s.email, role: s.role, department: s.department,
+      emails: Array.from(emails),
+    }
+  })
+
   return {
     // Cast through any — dynamic .select(string) collapses Supabase's
     // inferred shape; the dashboard's runtime guards handle missing cols.
@@ -346,7 +367,7 @@ async function getData(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     emails:                    (emailRes.data ?? []) as any,
     tickets:                   ticketRes.data ?? [],
-    staff:                     staffRes.data ?? [],
+    staff,
     emailCommands:             cmdRes.data ?? [],
     canSeeAll:                 ctx.canSeeAll,
     emailFromOptions:          Array.from(emailFromSet).sort(),
