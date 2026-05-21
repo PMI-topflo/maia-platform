@@ -242,10 +242,6 @@ interface Staff {
   email: string | null
   role: string | null
   department: string | null
-  /** Every address known for this staff member (login email + business /
-   *  personal email + alt_emails), lowercased. Drives the "All staff"
-   *  email filter so it matches inbound mail to the person's inbox. */
-  emails?: string[]
 }
 
 interface EmailCommand {
@@ -715,7 +711,6 @@ function ConversationsTab({
 
 function EmailsTab({
   emails: emailsProp,
-  staff,
   showDismissed,
   fromOptionsOverride = [],
   toOptionsOverride   = [],
@@ -724,7 +719,6 @@ function EmailsTab({
   emailTotal          = 0,
 }: {
   emails:               EmailLog[]
-  staff:                Staff[]
   showDismissed:        boolean
   fromOptionsOverride?: string[]
   toOptionsOverride?:   string[]
@@ -749,7 +743,6 @@ function EmailsTab({
 
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
-  const [filterSentBy, setFilterSentBy] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
   // Local mirror so dismissing hides instantly (optimistic) and
   // restoring brings the row back without a page refresh.
@@ -817,32 +810,12 @@ function EmailsTab({
         emails.flatMap(e => extractEmailAddrs(e.from_email)),
       )).sort()
 
-  // Note: From/To filtering happens server-side (see page.tsx) so it
-  // searches the whole window, not just loaded rows. Only the instant
-  // client-side filters (status, sentBy, search) run here.
+  // Note: the Staff (recipient) and From (sender) filters happen
+  // server-side (see page.tsx) so they search the whole window, not
+  // just loaded rows. Only the instant client-side filters (status,
+  // search) run here.
   const filtered = emails.filter(e => {
     if (filterStatus !== 'all' && (e.status ?? 'sent') !== filterStatus) return false
-    if (filterSentBy !== 'all') {
-      if (filterSentBy === '__unknown') {
-        if (e.sent_by) return false
-      } else {
-        // Treat the picked staff member as a mailbox: match an email if
-        // ANY of from / to / sent_by hits one of that person's known
-        // addresses. This covers inbound mail too — inbound rows store
-        // the inbox address (or the literal "maia"), not the staff
-        // identity, so a plain sent_by===id check missed them entirely.
-        const staffRec = staff.find(s => s.id === filterSentBy)
-        const addrs = new Set((staffRec?.emails ?? []).map(a => a.toLowerCase()))
-        if (staffRec?.email) addrs.add(staffRec.email.toLowerCase())
-        const sentBy = (e.sent_by ?? '').toLowerCase()
-        const hit =
-          e.sent_by === filterSentBy ||
-          addrs.has(sentBy) ||
-          extractEmailAddrs(e.from_email).some(a => addrs.has(a)) ||
-          extractEmailAddrs(e.to_email).some(a => addrs.has(a))
-        if (!hit) return false
-      }
-    }
     if (search) {
       const q = search.toLowerCase()
       return (
@@ -923,25 +896,14 @@ function EmailsTab({
           <option value="complained">Complained</option>
           <option value="delayed">Delayed</option>
         </select>
-        <select
-          value={filterSentBy}
-          onChange={e => setFilterSentBy(e.target.value)}
-          className="border border-gray-200 rounded px-2 py-1.5 text-sm"
-        >
-          <option value="all">All staff</option>
-          <option value="__unknown">— Unknown sender</option>
-          {staff.map(s => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </select>
         {toOptions.length > 0 && (
           <select
             value={serverEmailTo || 'all'}
             onChange={e => setEmailFilterParam('emailTo', e.target.value)}
-            className="border border-gray-200 rounded px-2 py-1.5 text-sm max-w-[200px]"
-            title="Filter by recipient email (searches the whole 10-day window)"
+            className="border border-gray-200 rounded px-2 py-1.5 text-sm max-w-[220px]"
+            title="Filter by staff inbox (searches the whole 10-day window)"
           >
-            <option value="all">All recipients</option>
+            <option value="all">All staff</option>
             {toOptions.map(t => (
               <option key={t} value={t}>{t}</option>
             ))}
@@ -1545,7 +1507,7 @@ export default function CommunicationsDashboard({
       </div>
 
       {tab === 'conversations' && <ConversationsTab conversations={conversations} staff={staff} senderOptionsOverride={conversationSenderOptions} showArchived={showConvArchived} />}
-      {tab === 'emails'        && <EmailsTab emails={emails} staff={staff} showDismissed={showDismissed} fromOptionsOverride={emailFromOptions} toOptionsOverride={emailToOptions} serverEmailTo={emailTo} serverEmailFrom={emailFrom} emailTotal={emailTotal} />}
+      {tab === 'emails'        && <EmailsTab emails={emails} showDismissed={showDismissed} fromOptionsOverride={emailFromOptions} toOptionsOverride={emailToOptions} serverEmailTo={emailTo} serverEmailFrom={emailFrom} emailTotal={emailTotal} />}
       {tab === 'tickets'       && <TicketsTab tickets={tickets} staff={staff} />}
       {tab === 'commands'      && <EmailCommandsTab commands={emailCommands} />}
     </div>
