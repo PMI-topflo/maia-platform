@@ -341,6 +341,30 @@ ALTER TABLE public.email_logs
 ALTER TABLE public.tickets
   ADD COLUMN IF NOT EXISTS excluded_from_monthly_report boolean NOT NULL DEFAULT false;`,
   },
+  {
+    key:         'monthly_reports',
+    label:       'Saved monthly reports',
+    description: 'monthly_reports table',
+    filename:    '20260521_monthly_reports.sql',
+    artifact:    { type: 'table', table: 'monthly_reports' },
+    sql: `CREATE TABLE IF NOT EXISTS public.monthly_reports (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code    text        NOT NULL DEFAULT 'ALL',
+  month               text        NOT NULL,
+  report_markdown     text        NOT NULL,
+  generated_by_email  text,
+  generated_at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (association_code, month)
+);
+
+CREATE INDEX IF NOT EXISTS monthly_reports_assoc_idx
+  ON public.monthly_reports (association_code, month DESC);
+
+ALTER TABLE public.monthly_reports ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "service_role_all_monthly_reports"
+  ON public.monthly_reports FOR ALL TO service_role USING (true);`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
