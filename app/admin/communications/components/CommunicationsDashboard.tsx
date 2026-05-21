@@ -753,6 +753,34 @@ function EmailsTab({
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
+
+  // "Sync inbox" — reconciles this staff inbox's Emails view to the live
+  // Gmail inbox (back-fills missing mail, restores / hides, re-dates).
+  // Only meaningful once a Staff inbox is picked (serverEmailTo set).
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
+  async function syncInbox() {
+    if (!serverEmailTo || syncing) return
+    setSyncing(true)
+    setSyncMsg(null)
+    try {
+      const res = await fetch(
+        `/api/admin/gmail-accounts/${encodeURIComponent(serverEmailTo)}/sync-inbox`,
+        { method: 'POST' },
+      )
+      const d = await res.json()
+      if (d.ok) {
+        setSyncMsg(`✓ Synced — added ${d.backfilled}, restored ${d.restored}, hid ${d.dismissed}; ${d.visibleAfter} of ${d.inboxSize} showing.`)
+        router.refresh()
+      } else {
+        setSyncMsg(`✗ ${d.error || 'Sync failed.'}`)
+      }
+    } catch (err) {
+      setSyncMsg(`✗ ${(err as Error).message}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
   // Local mirror so dismissing hides instantly (optimistic) and
   // restoring brings the row back without a page refresh.
   const [emails, setEmails] = useState<EmailLog[]>(emailsProp)
@@ -943,7 +971,29 @@ function EmailsTab({
         >
           {showDismissed ? '✓ Show dismissed' : 'Show dismissed'}
         </a>
+        {serverEmailTo && (
+          <button
+            type="button"
+            onClick={() => void syncInbox()}
+            disabled={syncing}
+            title={`Reconcile this view to the live Gmail inbox for ${serverEmailTo} — back-fills missing mail, hides what was removed, fixes the order`}
+            className="inline-flex items-center gap-1.5 text-xs px-2 py-1.5 rounded border border-[#f26a1b] bg-[#f26a1b] text-white hover:bg-[#d85a14] disabled:opacity-50"
+          >
+            {syncing ? 'Syncing…' : '↻ Sync inbox'}
+          </button>
+        )}
       </div>
+
+      {syncMsg && (
+        <div className={[
+          'mb-3 text-xs px-3 py-2 rounded border',
+          syncMsg.startsWith('✓')
+            ? 'bg-green-50 border-green-200 text-green-800'
+            : 'bg-red-50 border-red-200 text-red-800',
+        ].join(' ')}>
+          {syncMsg}
+        </div>
+      )}
 
       <div className="text-xs text-gray-400 mb-2">
         {threads.length} thread{threads.length === 1 ? '' : 's'} · {filtered.length} message{filtered.length === 1 ? '' : 's'}

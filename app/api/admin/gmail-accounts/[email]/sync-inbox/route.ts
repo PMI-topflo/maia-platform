@@ -5,6 +5,8 @@
 // After this runs, the account's visible inbound mail in Communications
 // is EXACTLY the set of messages currently in the Gmail INBOX:
 //
+//   • a message in the inbox with NO log row → fetched and logged now
+//     (back-fills anything the Gmail webhook never ingested)
 //   • a message in the inbox  → exactly one visible email_logs row
 //                               (extra duplicate rows are dismissed)
 //   • a message NOT in the inbox (archived / trashed / deleted, or a
@@ -25,8 +27,12 @@ import { cookies } from 'next/headers'
 
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { logEmail } from '@/lib/email-logger'
+import { parseGmailMessage } from '@/lib/maia-command-processor'
 import {
   refreshStaffToken,
+  fetchGmailMessage,
+  fetchGmailMessageWithToken,
   listInboxMessageIdsAndDates,
   listInboxMessageIdsAndDatesWithToken,
 } from '@/lib/gmail'
@@ -36,6 +42,10 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 const MAIN_ACCOUNT = 'maia@pmitop.com'
+
+// Most inbox messages we'll fetch-and-log in one sync. The real ingest
+// gap is small; this just bounds a pathological run.
+const BACKFILL_CAP = 300
 
 interface InboundRow {
   id:               string
@@ -62,8 +72,9 @@ export async function POST(
 
   // 1. The live INBOX: message ids (authoritative) plus a best-effort
   //    id → internalDate map used to stamp each row's true date.
-  let inboxIds:   Set<string>
-  let inboxDates: Map<string, string>
+  let inboxIds:    Set<string>
+  let inboxDates:  Map<string, string>
+  let accessToken: string | null = null   // null = main account (env creds)
   try {
     if (addr === MAIN_ACCOUNT) {
       const live = await listInboxMessageIdsAndDates()
@@ -80,42 +91,91 @@ export async function POST(
         return NextResponse.json({ error: 'No active connected account for that address' }, { status: 404 })
       }
       const refreshed = await refreshStaffToken(account.refresh_token as string)
-      const live = await listInboxMessageIdsAndDatesWithToken(refreshed.access_token)
+      accessToken = refreshed.access_token
+      const live = await listInboxMessageIdsAndDatesWithToken(accessToken)
       inboxIds = new Set(live.ids); inboxDates = live.dates
     }
   } catch (err) {
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : String(err) })
   }
 
-  // 2. EVERY inbound row logged for this inbox — visible AND dismissed.
-  //    The `to_email` match is a substring (ilike %addr%) so it tolerates
-  //    bracket-wrapped + display-name + multi-recipient header values,
-  //    exactly like the Communications page query.
-  const allRows: InboundRow[] = []
-  for (let start = 0; ; start += 1000) {
-    const { data, error } = await supabaseAdmin
-      .from('email_logs')
-      .select('id, gmail_message_id, dismissed_at')
-      .eq('direction', 'inbound')
-      .ilike('to_email', `%${addr}%`)
-      .order('id', { ascending: true })
-      .range(start, start + 999)
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message })
+  const fetchMsg = (id: string) =>
+    addr === MAIN_ACCOUNT
+      ? fetchGmailMessage(id)
+      : fetchGmailMessageWithToken(id, accessToken as string)
+
+  // Load EVERY inbound row logged for this inbox — visible AND dismissed.
+  // The `to_email` match is a substring (ilike %addr%) so it tolerates
+  // bracket-wrapped + display-name + multi-recipient header values,
+  // exactly like the Communications page query.
+  const loadInboundRows = async (): Promise<{ rows: InboundRow[]; error: string | null }> => {
+    const rows: InboundRow[] = []
+    for (let start = 0; ; start += 1000) {
+      const { data, error } = await supabaseAdmin
+        .from('email_logs')
+        .select('id, gmail_message_id, dismissed_at')
+        .eq('direction', 'inbound')
+        .ilike('to_email', `%${addr}%`)
+        .order('id', { ascending: true })
+        .range(start, start + 999)
+      if (error) return { rows, error: error.message }
+      const page = (data ?? []) as InboundRow[]
+      rows.push(...page)
+      if (page.length < 1000) break
     }
-    const rows = (data ?? []) as InboundRow[]
-    allRows.push(...rows)
-    if (rows.length < 1000) break
+    return { rows, error: null }
   }
 
-  const visibleBefore = allRows.filter(r => !r.dismissed_at).length
+  // 2. Existing rows (before back-fill).
+  let load = await loadInboundRows()
+  if (load.error) return NextResponse.json({ ok: false, error: load.error })
+  const visibleBefore = load.rows.filter(r => !r.dismissed_at).length
 
-  // 3. Reconcile against the live inbox.
-  //    Group rows by gmail_message_id; rows with no message id can't be
-  //    confirmed against the inbox, so they are always dismissed.
-  const byMsgId        = new Map<string, InboundRow[]>()
-  const toDismiss      = new Set<string>()   // row ids to dismiss
-  const toRestore      = new Set<string>()   // row ids to un-dismiss
+  // 3. Back-fill: every inbox message with no log row gets fetched and
+  //    logged now. This is what recovers mail the Gmail webhook never
+  //    ingested (it skips no-reply senders, automated subjects, etc.).
+  const loggedIds = new Set(
+    load.rows.map(r => r.gmail_message_id).filter((v): v is string => !!v),
+  )
+  const missingIds     = [...inboxIds].filter(id => !loggedIds.has(id))
+  const backfillCapped = missingIds.length > BACKFILL_CAP
+  let backfilled     = 0
+  let backfillFailed = 0
+  for (const id of missingIds.slice(0, BACKFILL_CAP)) {
+    try {
+      const parsed = parseGmailMessage(await fetchMsg(id))
+      await logEmail({
+        direction:      'inbound',
+        fromEmail:      parsed.senderEmail,
+        toEmail:        addr,
+        subject:        parsed.subject,
+        fullBody:       parsed.body,
+        persona:        'staff',
+        status:         'received',
+        sentBy:         addr,
+        gmailThreadId:  parsed.threadId,
+        gmailMessageId: parsed.messageId,
+        emailDate:      parsed.internalDate,
+      })
+      backfilled++
+    } catch (err) {
+      backfillFailed++
+      console.error(`[sync-inbox] back-fill failed for ${id} (${addr}):`, err)
+    }
+  }
+
+  // Reload so the reconcile sees the rows we just logged.
+  if (backfilled > 0) {
+    load = await loadInboundRows()
+    if (load.error) return NextResponse.json({ ok: false, error: load.error, backfilled })
+  }
+  const allRows = load.rows
+
+  // 4. Reconcile against the live inbox. Group rows by gmail_message_id;
+  //    rows with no message id can't be confirmed, so they're dismissed.
+  const byMsgId   = new Map<string, InboundRow[]>()
+  const toDismiss = new Set<string>()
+  const toRestore = new Set<string>()
 
   for (const r of allRows) {
     if (!r.gmail_message_id) {
@@ -130,7 +190,6 @@ export async function POST(
   for (const [msgId, rows] of byMsgId) {
     if (inboxIds.has(msgId)) {
       // Message is live in the inbox → keep exactly ONE row visible.
-      // Prefer a row that is already visible to minimise churn.
       const keeper = rows.find(r => !r.dismissed_at) ?? rows[0]
       for (const r of rows) {
         if (r.id === keeper.id) {
@@ -140,23 +199,21 @@ export async function POST(
         }
       }
     } else {
-      // Message is no longer in the inbox → dismiss every visible copy.
+      // Message no longer in the inbox → dismiss every visible copy.
       for (const r of rows) if (!r.dismissed_at) toDismiss.add(r.id)
     }
   }
 
-  // Inbox messages that have NO email_logs row at all — never ingested
-  // (e.g. arrived during a watch outage). Reported so we can tell a
-  // genuine ingest gap apart from an auto-dismiss mismatch.
+  // Inbox messages still with no log row — a back-fill fetch that failed.
   let missingFromLog = 0
   for (const id of inboxIds) if (!byMsgId.has(id)) missingFromLog++
 
-  // 4. Apply — restore first so a row never ends up in both sets.
-  const nowIso = new Date().toISOString()
+  // 5. Apply — restore first so a row never ends up in both sets.
+  const nowIso     = new Date().toISOString()
   const restoreIds = [...toRestore]
   const dismissIds = [...toDismiss].filter(id => !toRestore.has(id))
 
-  let restored  = 0
+  let restored = 0
   for (let i = 0; i < restoreIds.length; i += 500) {
     const chunk = restoreIds.slice(i, i + 500)
     const { error } = await supabaseAdmin
@@ -164,7 +221,7 @@ export async function POST(
       .update({ dismissed_at: null, dismissed_by_email: null, auto_dismiss_reason: null })
       .in('id', chunk)
     if (error) {
-      return NextResponse.json({ ok: false, error: error.message, restored, dismissed: 0 })
+      return NextResponse.json({ ok: false, error: error.message, backfilled, restored, dismissed: 0 })
     }
     restored += chunk.length
   }
@@ -177,16 +234,15 @@ export async function POST(
       .update({ dismissed_at: nowIso, dismissed_by_email: 'system' })
       .in('id', chunk)
     if (error) {
-      return NextResponse.json({ ok: false, error: error.message, restored, dismissed })
+      return NextResponse.json({ ok: false, error: error.message, backfilled, restored, dismissed })
     }
     dismissed += chunk.length
   }
 
-  // 5. Stamp each in-inbox message's rows with its TRUE Gmail date so
+  // 6. Stamp each in-inbox message's rows with its TRUE Gmail date so
   //    the Communications view sorts like the real inbox instead of by
-  //    log time. Best-effort: a message whose date we couldn't fetch is
-  //    left unchanged, and a missing email_date column (migration not
-  //    yet applied) is tolerated — the per-update error is ignored.
+  //    log time. Best-effort: a missing date or a not-yet-migrated
+  //    email_date column is tolerated (the per-update error is ignored).
   const dateJobs: Array<{ msgId: string; iso: string }> = []
   for (const msgId of byMsgId.keys()) {
     if (!inboxIds.has(msgId)) continue
@@ -214,10 +270,13 @@ export async function POST(
   for (const id of inboxIds) if (byMsgId.has(id)) visibleAfter++
 
   return NextResponse.json({
-    ok:            true,
-    inboxSize:     inboxIds.size,
-    loggedRows:    allRows.length,
+    ok:             true,
+    inboxSize:      inboxIds.size,
+    loggedRows:     allRows.length,
     visibleBefore,
+    backfilled,
+    backfillFailed,
+    backfillCapped,
     restored,
     dismissed,
     datesStamped,
