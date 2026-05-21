@@ -20,6 +20,7 @@ import {
 } from '@/lib/gmail'
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
+import { saveWorkOrderAttachmentBytes, isImageFilename } from '@/lib/work-order-attachments'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -1407,6 +1408,56 @@ function makeInboundMessageInput(parsed: ParsedEmail) {
   }
 }
 
+// A bare ticket / work-order number (TKT-YYYY-NNNN) mentioned anywhere
+// in the subject or body — no command keyword required. Used to auto-
+// route an emailed photo onto a work order.
+const TICKET_NUMBER_REGEX = /\bTKT-\d{4}-\d{4,}\b/i
+function detectTicketNumberMention(text: string): string | null {
+  const m = text.match(TICKET_NUMBER_REGEX)
+  return m ? m[0].toUpperCase() : null
+}
+
+/** When an inbound email is linked to a WORK ORDER, copy its image
+ *  attachments into work_order_attachments (source 'email') so they show
+ *  up in the work order's Photos widget. No-op for regular tickets, for
+ *  emails with no images, or when no attachment fetcher was supplied
+ *  (the fetcher needs the right Gmail account's credentials). */
+async function attachEmailPhotosToWorkOrder(
+  ticketId:         number,
+  parsed:           ParsedEmail,
+  fetchAttachment?: (attachmentId: string) => Promise<Buffer>,
+): Promise<void> {
+  if (!fetchAttachment) return
+  const images = parsed.attachments.filter(a => isImageFilename(a.filename))
+  if (images.length === 0) return
+
+  const { data: ticket } = await supabaseAdmin
+    .from('tickets')
+    .select('type')
+    .eq('id', ticketId)
+    .maybeSingle()
+  if (!ticket || ticket.type !== 'work_order') return
+
+  for (const att of images) {
+    try {
+      const bytes  = await fetchAttachment(att.attachmentId)
+      const result = await saveWorkOrderAttachmentBytes({
+        ticketId,
+        source:          'email',
+        bytes,
+        filename:        att.filename,
+        uploadedByEmail: parsed.senderEmail,
+      })
+      if (!result.ok) {
+        console.error(`[wo-photos] email photo "${att.filename}" → WO ${ticketId} failed: ${result.error}`)
+      }
+    } catch (err) {
+      console.error(`[wo-photos] email photo "${att.filename}" → WO ${ticketId} error:`,
+        err instanceof Error ? err.message : err)
+    }
+  }
+}
+
 /** Email-to-ticket ingest. Called by both the main MAIA webhook and the
  *  staff-Gmail webhook so logic stays in one place.
  *
@@ -1427,6 +1478,11 @@ export async function ingestInboundEmailToTicket(
   parsed:    ParsedEmail,
   allowed:   boolean,
   assocCode: string | null,
+  // Downloads one of `parsed`'s attachments by id. Supplied by the
+  // caller because it needs the right Gmail account's credentials
+  // (env creds for maia@, a per-account token for staff inboxes).
+  // When omitted, emailed work-order photos are simply not ingested.
+  fetchAttachment?: (attachmentId: string) => Promise<Buffer>,
 ): Promise<void> {
   if (!allowed) return
 
@@ -1452,6 +1508,7 @@ export async function ingestInboundEmailToTicket(
         return
       }
       await appendMessage(target.id, makeInboundMessageInput(parsed))
+      await attachEmailPhotosToWorkOrder(target.id, parsed, fetchAttachment)
       return
     }
 
@@ -1460,6 +1517,26 @@ export async function ingestInboundEmailToTicket(
       const existing = await findOpenTicketByGmailThread(parsed.threadId)
       if (existing) {
         await appendMessage(existing.id, makeInboundMessageInput(parsed))
+        await attachEmailPhotosToWorkOrder(existing.id, parsed, fetchAttachment)
+        return
+      }
+    }
+
+    // 1.5 Auto-route by a bare TKT-YYYY-NNNN mentioned in the subject or
+    //     body — only when it resolves to a WORK ORDER. Lets a vendor's
+    //     photo email land on the work order without the @maia command,
+    //     as long as the WO number appears somewhere (MAIA puts it in the
+    //     subject of every work-order email it sends).
+    const mentioned = detectTicketNumberMention(`${parsed.subject} ${parsed.body}`)
+    if (mentioned) {
+      const { data: woTarget } = await supabaseAdmin
+        .from('tickets')
+        .select('id, type')
+        .eq('ticket_number', mentioned)
+        .maybeSingle()
+      if (woTarget && woTarget.type === 'work_order') {
+        await appendMessage(woTarget.id, makeInboundMessageInput(parsed))
+        await attachEmailPhotosToWorkOrder(woTarget.id, parsed, fetchAttachment)
         return
       }
     }
@@ -1471,6 +1548,7 @@ export async function ingestInboundEmailToTicket(
     const existingBySubject = await findOpenTicketBySubject(parsed.subject, parsed.senderEmail)
     if (existingBySubject) {
       await appendMessage(existingBySubject.id, makeInboundMessageInput(parsed))
+      await attachEmailPhotosToWorkOrder(existingBySubject.id, parsed, fetchAttachment)
       return
     }
 
@@ -1498,6 +1576,7 @@ export async function ingestInboundEmailToTicket(
       assignee_email:   mods.assignee,
     })
     await appendMessage(ticket.id, makeInboundMessageInput(parsed))
+    await attachEmailPhotosToWorkOrder(ticket.id, parsed, fetchAttachment)
 
     if (mods.assignee) {
       await notifyAssignee(ticket, mods.assignee, parsed.senderEmail)
@@ -1685,7 +1764,10 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     // trigger phrase (@maia ticket, @ticket, etc.). The helper itself
     // gates on `allowed` and on trigger presence; replies in existing
     // ticket threads are always appended.
-    await ingestInboundEmailToTicket(parsed, allowed, assocCode)
+    await ingestInboundEmailToTicket(
+      parsed, allowed, assocCode,
+      (attId) => fetchGmailAttachmentData(parsed.messageId, attId),
+    )
 
     // Ticket-creation and ticket-append emails are handled by the ticket
     // pipeline above — skip the structured-record extraction pipeline
