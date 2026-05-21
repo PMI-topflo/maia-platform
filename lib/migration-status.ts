@@ -330,17 +330,16 @@ ALTER TABLE public.email_logs
   ALTER COLUMN email_date SET DEFAULT NOW();`,
   },
   {
-    key:         'tickets_monthly_report',
-    label:       'Monthly report flag',
-    description: 'tickets.marked_for_monthly_report',
-    filename:    '20260521_tickets_monthly_report_flag.sql',
-    artifact:    { type: 'column', table: 'tickets', column: 'marked_for_monthly_report' },
+    key:         'tickets_report_exclusion',
+    label:       'Monthly report exclusion flag',
+    description: 'tickets.excluded_from_monthly_report',
+    filename:    '20260521_tickets_report_exclusion.sql',
+    artifact:    { type: 'column', table: 'tickets', column: 'excluded_from_monthly_report' },
     sql: `ALTER TABLE public.tickets
-  ADD COLUMN IF NOT EXISTS marked_for_monthly_report boolean NOT NULL DEFAULT false;
+  DROP COLUMN IF EXISTS marked_for_monthly_report;
 
-CREATE INDEX IF NOT EXISTS tickets_monthly_report_idx
-  ON public.tickets (association_code, created_at DESC)
-  WHERE marked_for_monthly_report = true;`,
+ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS excluded_from_monthly_report boolean NOT NULL DEFAULT false;`,
   },
 ]
 

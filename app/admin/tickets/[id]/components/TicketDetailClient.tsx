@@ -40,7 +40,6 @@ interface TicketRecord {
   work_order_type_name:   string | null
   sync_status:            Record<string, unknown> | null
   archived_at:            string | null
-  marked_for_monthly_report: boolean | null
   created_at:             string
   updated_at:             string
 }
@@ -253,35 +252,6 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
   const [woTypes,        setWoTypes]        = useState<Array<{ id: number; name: string }>>([])
   const [woTypesLoading, setWoTypesLoading] = useState(false)
   const [woTypesError,   setWoTypesError]   = useState<string | null>(null)
-
-  // "Include in monthly management report" flag — staff tick the work
-  // orders they want to appear in the next monthly report (see
-  // /admin/reports/monthly).
-  const [monthlyReport, setMonthlyReport] = useState<boolean>(ticket.marked_for_monthly_report ?? false)
-  const [savingMonthlyReport, setSavingMonthlyReport] = useState(false)
-
-  async function toggleMonthlyReport(next: boolean) {
-    setSavingMonthlyReport(true)
-    const prev = monthlyReport
-    setMonthlyReport(next)   // optimistic
-    try {
-      const res = await fetch(`/api/admin/work-orders/${ticket.id}/monthly-report`, {
-        method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ marked: next }),
-      })
-      if (!res.ok) {
-        setMonthlyReport(prev)
-        const j = await res.json().catch(() => ({}))
-        alert(j?.error ?? 'Could not update the monthly-report flag')
-      }
-    } catch {
-      setMonthlyReport(prev)
-      alert('Network error — please try again.')
-    } finally {
-      setSavingMonthlyReport(false)
-    }
-  }
 
   useEffect(() => {
     if (ticket.type !== 'work_order' || woTypes.length > 0 || woTypesLoading) return
@@ -750,19 +720,6 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
               </div>
               <Detail label="Completed" value={workOrder.completed_at ? fmtAbs(workOrder.completed_at) : '—'} />
               <Detail label="Cost"      value={fmtMoney(workOrder.cost_cents)} />
-              <div className="mt-2 pt-2 border-t border-gray-100">
-                <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={monthlyReport}
-                    disabled={savingMonthlyReport}
-                    onChange={(e) => void toggleMonthlyReport(e.target.checked)}
-                    className="h-4 w-4 accent-[#f26a1b]"
-                  />
-                  <span>Include in monthly management report</span>
-                  {savingMonthlyReport && <span className="text-gray-400">saving…</span>}
-                </label>
-              </div>
               {!ticket.cinc_workorder_id && (
                 <div className="mt-2 pt-2 border-t border-gray-100 space-y-2">
                   <div className="text-[11px] text-gray-500">
