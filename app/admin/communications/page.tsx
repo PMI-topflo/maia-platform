@@ -170,16 +170,18 @@ async function getData(
     ...(optionalCols.email_date          ? ['email_date']          : []),
   ].join(', ')
 
-  // Sort + window by the email's TRUE date (email_date) once the
-  // migration is applied, so re-ingested backlog mail sits in real
-  // chronological order instead of jumping to the top by log time.
-  const sortCol = optionalCols.email_date ? 'email_date' : 'created_at'
-
   // The 10-day working window applies to the DEFAULT (unfiltered) view
   // only. Once a Staff inbox or sender is picked, the whole history is
   // shown so the view mirrors the entire Gmail inbox — including mail
   // older than 10 days.
   const inboxFilterActive = !!(emailFilters.to || emailFilters.from)
+
+  // The server query orders + windows by created_at (always present,
+  // never null). The DISPLAYED order is then re-sorted client-side by
+  // the email's true date (email_date ?? created_at) — see emailWhen()
+  // in CommunicationsDashboard. This avoids a column-wide email_date
+  // backfill (146k rows): a brand-new email_date column is simply NULL
+  // for old rows and the client falls back to created_at for those.
 
   // count: 'exact' returns the TRUE number of matching rows even though
   // .limit() caps the loaded set at 1000 — so the on-screen count is
@@ -187,10 +189,10 @@ async function getData(
   let emailQuery = supabaseAdmin
     .from('email_logs')
     .select(emailCols, { count: 'exact' })
-    .order(sortCol, { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
     .limit(1000)
   if (!inboxFilterActive) {
-    emailQuery = emailQuery.gte(sortCol, tenDaysAgo)
+    emailQuery = emailQuery.gte('created_at', tenDaysAgo)
   }
 
   // Default view hides dismissed rows. Show-dismissed toggle includes them.
