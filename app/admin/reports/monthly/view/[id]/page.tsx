@@ -13,7 +13,6 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { gatherMonthlyReportData, monthLabel } from '@/lib/monthly-report'
 import { renderNewsletterMarkdown } from '@/lib/render-report-markdown'
 import { listAttachmentsForTickets } from '@/lib/work-order-attachments'
-import PrintButton from './PrintButton'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Monthly Report — PMI Top Florida' }
@@ -107,7 +106,12 @@ export default async function ReportViewPage({
           <Link href={builderHref} className="text-sm text-gray-500 hover:text-gray-900">
             ← Report builder
           </Link>
-          <PrintButton />
+          <a
+            href={`/api/admin/reports/monthly/${report.id}/pdf`}
+            className="rounded bg-[#f26a1b] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#d85a14]"
+          >
+            Download PDF
+          </a>
         </div>
       </div>
 
