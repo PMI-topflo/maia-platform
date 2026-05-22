@@ -11,7 +11,8 @@
 import { NextResponse } from 'next/server'
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { SMS_OPTIN_TEXT } from '@/lib/sms-optin'
+import { SMS_OPTIN_TEXT, SMS_OPTIN_CONFIRMATION } from '@/lib/sms-optin'
+import { sendSMS } from '@/lib/twilio-send'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -40,8 +41,9 @@ export async function POST(req: Request) {
 
   // Only record an opt-in when the user actually ticked the box.
   if (body.sms_consent === true) {
+    const e164 = toE164(phone)
     const { error } = await supabaseAdmin.from('sms_consents').insert({
-      phone:        toE164(phone),
+      phone:        e164,
       opt_in_text:  SMS_OPTIN_TEXT,
       source_url:   '/sms-opt-in',
       ip_address:   req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
@@ -51,6 +53,13 @@ export async function POST(req: Request) {
     if (error) {
       return NextResponse.json({ error: `Could not record your opt-in: ${error.message}` }, { status: 500 })
     }
+
+    // Send the confirmation SMS as the user's first message — the
+    // Twilio-preferred "double opt-in". Best-effort: sendSMS swallows its
+    // own errors, so a Twilio failure can never fail this request (the
+    // consent is already recorded). This is a silent no-op until the
+    // A2P 10DLC campaign is approved, then it begins delivering.
+    await sendSMS(e164, SMS_OPTIN_CONFIRMATION)
   }
 
   return NextResponse.json({ ok: true, consented: body.sms_consent === true })

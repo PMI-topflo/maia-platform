@@ -124,8 +124,12 @@ function Policy() {
           <a href="tel:+13059005077" style={{ color: 'var(--gold)' }}>305.900.5077</a>.
         </P>
         <P>
-          We do not sell or share your phone number with third parties for their marketing purposes.
-          Message content is not shared with unaffiliated third parties.
+          <strong>
+            We do not sell, rent, trade, or share your mobile phone number or your SMS/WhatsApp opt-in
+            consent with any third parties or affiliates for marketing or promotional purposes.
+          </strong>{' '}
+          Text messaging originator opt-in data and consent are not shared with any third parties for any
+          purpose. Message content is not shared with unaffiliated third parties.
         </P>
       </Section>
 
@@ -150,6 +154,10 @@ function Policy() {
           <LI><strong>Technology partners:</strong> Supabase (database), Resend (email delivery), Twilio (SMS/WhatsApp), and Anthropic (AI assistant) — each under confidentiality obligations</LI>
           <LI><strong>Legal or regulatory authorities:</strong> When required by law or to protect rights and safety</LI>
         </UL>
+        <P>
+          The categories above <strong>exclude SMS and WhatsApp opt-in data and consent</strong>. Your
+          mobile opt-in information and consent are never shared with any third parties.
+        </P>
       </Section>
 
       <Section title="6. Data Retention">
