@@ -131,6 +131,13 @@ function Policy() {
           Text messaging originator opt-in data and consent are not shared with any third parties for any
           purpose. Message content is not shared with unaffiliated third parties.
         </P>
+        <P>
+          <strong>Keeping your number current:</strong> If you change, cancel, sell, transfer, or
+          relinquish your phone number, it is your responsibility to notify PMI Top Florida Properties
+          promptly so we can update or remove it from our records. If you do not, PMI Top Florida
+          Properties is not responsible or liable for any damages, or for any personal information
+          disclosed to a subsequent holder of a phone number you no longer control.
+        </P>
       </Section>
 
       <Section title="4. How We Use Your Information">
