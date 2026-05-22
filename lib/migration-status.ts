@@ -389,6 +389,34 @@ ALTER TABLE public.ticket_links ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "service_role_all_ticket_links"
   ON public.ticket_links FOR ALL TO service_role USING (true);`,
   },
+  {
+    key:         'board_messages',
+    label:       'Board message for the monthly report',
+    description: 'board_messages table',
+    filename:    '20260521_board_messages.sql',
+    artifact:    { type: 'table', table: 'board_messages' },
+    sql: `CREATE TABLE IF NOT EXISTS public.board_messages (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code    text        NOT NULL,
+  month               text        NOT NULL,
+  token               text        NOT NULL UNIQUE,
+  message             text,
+  author_email        text,
+  author_name         text,
+  author_role         text,
+  requested_by_email  text,
+  requested_at        timestamptz NOT NULL DEFAULT now(),
+  submitted_at        timestamptz,
+  UNIQUE (association_code, month)
+);
+
+CREATE INDEX IF NOT EXISTS board_messages_token_idx ON public.board_messages (token);
+
+ALTER TABLE public.board_messages ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "service_role_all_board_messages"
+  ON public.board_messages FOR ALL TO service_role USING (true);`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

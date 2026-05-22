@@ -16,6 +16,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { gatherMonthlyReportData, currentMonth, monthLabel } from '@/lib/monthly-report'
 import MonthlyReportGenerator from './MonthlyReportGenerator'
 import ReportItemsPreview from './ReportItemsPreview'
+import BoardMessagePanel from './BoardMessagePanel'
 
 export const metadata = { title: 'Monthly Management Report — PMI Top Florida' }
 export const dynamic = 'force-dynamic'
@@ -53,6 +54,24 @@ export default async function MonthlyReportPage({
     .filter(a => a.association_code)
   const assocNames: Record<string, string> = {}
   for (const a of assocOptions) assocNames[a.association_code] = a.association_name
+
+  // Board-message status for the selected association + month.
+  let boardStatus: { submitted: boolean; authorName: string | null; message: string | null } | null = null
+  if (assoc) {
+    const { data: bm } = await supabaseAdmin
+      .from('board_messages')
+      .select('message, author_name, submitted_at')
+      .eq('association_code', assoc)
+      .eq('month', month)
+      .maybeSingle()
+    if (bm) {
+      boardStatus = {
+        submitted:  !!bm.submitted_at,
+        authorName: (bm.author_name as string | null) ?? null,
+        message:    (bm.message as string | null) ?? null,
+      }
+    }
+  }
 
   const t = data.totals
 
@@ -152,6 +171,9 @@ export default async function MonthlyReportPage({
           In the report ({data.reportItems.length} item{data.reportItems.length === 1 ? '' : 's'})
         </h2>
         <ReportItemsPreview items={data.reportItems} assocNames={assocNames} />
+
+        {/* ── Message from the Board (optional pre-generation step) ── */}
+        <BoardMessagePanel assoc={assoc} month={month} status={boardStatus} />
 
         {/* ── AI board report ─────────────────────────────────────── */}
         <MonthlyReportGenerator assoc={assoc} month={month} monthLabel={monthLabel(month)} />

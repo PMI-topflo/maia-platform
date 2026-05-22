@@ -134,6 +134,24 @@ in one short line rather than omitting the section. Do not invent figures.`
     return NextResponse.json({ error: 'The model returned an empty report' }, { status: 502 })
   }
 
+  // If a board member submitted a "Message from the Board" for this
+  // association + month, prepend it verbatim as the first section.
+  if (data.assoc) {
+    const { data: bm } = await supabaseAdmin
+      .from('board_messages')
+      .select('message, author_name, author_role')
+      .eq('association_code', data.assoc)
+      .eq('month', data.month)
+      .not('message', 'is', null)
+      .maybeSingle()
+    if (bm?.message) {
+      const signoff = bm.author_name
+        ? `\n\n— ${bm.author_name}${bm.author_role ? `, ${bm.author_role}` : ''}`
+        : ''
+      reportMarkdown = `## Message from the Board\n\n${bm.message}${signoff}\n\n${reportMarkdown}`
+    }
+  }
+
   // Persist the report so it has a stable, shareable URL. One row per
   // (association, month) — re-generating overwrites it.
   const generatedBy = typeof session.userId === 'string' && session.userId.includes('@')
