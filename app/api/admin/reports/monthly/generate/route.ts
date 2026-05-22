@@ -16,6 +16,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { gatherMonthlyReportData } from '@/lib/monthly-report'
+import { getFinancials, financialsPromptBlock } from '@/lib/report-financials'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -47,6 +48,10 @@ export async function POST(req: Request) {
   }
 
   const data = await gatherMonthlyReportData(body.assoc ?? '', body.month ?? '')
+
+  // Financial figures from the uploaded CINC statement (per-association).
+  const financials      = data.assoc ? await getFinancials(data.assoc, data.month) : null
+  const financialsBlock = financialsPromptBlock(financials?.figures ?? null)
 
   // The report layout + brand voice live in the skill.
   const { data: skill } = await supabaseAdmin
@@ -96,13 +101,15 @@ ACTIVITY THIS MONTH (per association):
 ${activityLines}
 
 ${totalsLine}
-
+${financialsBlock ? `\n${financialsBlock}\n` : ''}
 TICKETS & WORK ORDERS THIS MONTH (staff already removed anything not for the board):
 ${flaggedLines}
 
 Write the complete report in clean markdown, following the "Monthly board report
 layout" exactly. Use the real numbers above. Where a section has no data, say so
-in one short line rather than omitting the section. Do not invent figures.`
+in one short line rather than omitting the section. Do not invent figures. ${financialsBlock
+  ? 'In the financial section, reference the financial statement figures above for context — they are also shown to the board as a separate summary.'
+  : ''}`
 
   const anthropic = new Anthropic()
   let reportMarkdown: string

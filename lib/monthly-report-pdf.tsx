@@ -12,6 +12,8 @@ import {
 } from '@react-pdf/renderer'
 import type { ReactNode } from 'react'
 
+import type { FinancialFigures } from '@/lib/report-financials'
+
 const NAVY   = '#1f2a44'
 const ORANGE = '#f26a1b'
 const INK    = '#2b2f38'
@@ -65,6 +67,17 @@ const s = StyleSheet.create({
 
   footer: { marginTop: 22, paddingTop: 8, borderTopWidth: 1, borderTopColor: LINE },
   footerText: { fontSize: 7.5, color: MUTED },
+
+  // Financial summary
+  finBlock: { marginTop: 16 },
+  finTitle: { fontSize: 12, fontFamily: 'Helvetica-Bold', color: NAVY },
+  finRule:  { borderBottomWidth: 1.5, borderBottomColor: ORANGE, marginTop: 4 },
+  finGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  finCard:  { width: '32%', borderWidth: 1, borderColor: LINE, borderRadius: 5, paddingVertical: 7, paddingHorizontal: 8 },
+  finValue: { fontSize: 11.5, fontFamily: 'Helvetica-Bold', color: NAVY },
+  finLabel: { fontSize: 6, color: MUTED, marginTop: 2, textTransform: 'uppercase' },
+  finNote:  { fontSize: 5.5, color: MUTED, marginTop: 1 },
+  finNotes: { fontSize: 8, color: MUTED, marginTop: 7 },
 })
 
 /** Inline **bold** within a line. */
@@ -141,6 +154,7 @@ export interface MonthlyReportPdfProps {
     workOrdersReceived: number; workOrdersClosed: number
     emailThreadsReceived: number
   }
+  financials?:   FinancialFigures | null
 }
 
 /** The PMI logo, or a text fallback if the image couldn't be loaded. */
@@ -159,6 +173,29 @@ function Stat({ n, label }: { n: number; label: string }) {
     <View style={s.stat}>
       <Text style={s.statN}>{n}</Text>
       <Text style={s.statL}>{label}</Text>
+    </View>
+  )
+}
+
+/** The "Financial Summary" block — figures extracted from the uploaded
+ *  CINC statement. Renders nothing when there are no figures. */
+function Financials({ figures }: { figures: FinancialFigures }) {
+  if (figures.headline.length === 0) return null
+  const title = `Financial Summary${figures.period_label ? ` — ${figures.period_label}` : ''}`
+  return (
+    <View style={s.finBlock} minPresenceAhead={80}>
+      <Text style={s.finTitle}>{title}</Text>
+      <View style={s.finRule} />
+      <View style={s.finGrid}>
+        {figures.headline.map((f, i) => (
+          <View key={i} style={s.finCard} wrap={false}>
+            <Text style={s.finValue}>{f.value}</Text>
+            <Text style={s.finLabel}>{f.label}</Text>
+            {f.note ? <Text style={s.finNote}>{f.note}</Text> : null}
+          </View>
+        ))}
+      </View>
+      {figures.notes ? <Text style={s.finNotes}>{figures.notes}</Text> : null}
     </View>
   )
 }
@@ -196,6 +233,9 @@ export function MonthlyReportPdf(p: MonthlyReportPdfProps) {
             <Stat n={p.totals.workOrdersClosed}     label="WOs completed" />
             <Stat n={p.totals.emailThreadsReceived} label="Email threads" />
           </View>
+
+          {/* Financial summary — figures from the uploaded statement */}
+          {p.financials ? <Financials figures={p.financials} /> : null}
 
           {/* Narrative */}
           {renderNarrative(p.markdown)}
