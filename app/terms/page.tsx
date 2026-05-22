@@ -1,3 +1,5 @@
+import Link from 'next/link'
+
 import SiteHeader from '@/components/SiteHeader'
 
 export const metadata = {
@@ -228,7 +230,7 @@ function TermsContent() {
           <LI>Mail: PMI Top Florida Properties · 1031 Ives Dairy Road Suite 228, Miami, FL 33179</LI>
         </UL>
         <P>
-          See also our <a href="/privacy-policy" style={{ color: 'var(--gold)' }}>Privacy Policy</a> for
+          See also our <Link href="/privacy-policy" style={{ color: 'var(--gold)' }}>Privacy Policy</Link> for
           information on how we handle your personal data.
         </P>
       </Section>
