@@ -1,3 +1,5 @@
+import Link from 'next/link'
+
 import SiteHeader from '@/components/SiteHeader'
 
 export const metadata = {
@@ -29,7 +31,7 @@ export default function SmsConsent() {
           {/* ── Who is sending ── */}
           <Section title="Who is sending these messages?">
             <P>
-              <strong>PMI Top Florida Properties</strong> ("PMI," "we," "our") sends SMS text messages
+              <strong>PMI Top Florida Properties</strong> (&quot;PMI,&quot; &quot;we,&quot; &quot;our&quot;) sends SMS text messages
               to property owners, tenants, vendors, and real estate agents who have provided their
               phone number and consented to receive communications from us.
             </P>
@@ -46,8 +48,8 @@ export default function SmsConsent() {
               <LI>
                 <strong>Online portal:</strong> When you create or access your account on our owner,
                 tenant, or board portal, you provide your mobile number and agree to our{' '}
-                <a href="/terms" style={{ color: 'var(--gold)' }}>Terms &amp; Conditions</a> and{' '}
-                <a href="/privacy-policy" style={{ color: 'var(--gold)' }}>Privacy Policy</a>, which
+                <Link href="/terms" style={{ color: 'var(--gold)' }}>Terms &amp; Conditions</Link> and{' '}
+                <Link href="/privacy-policy" style={{ color: 'var(--gold)' }}>Privacy Policy</Link>, which
                 include SMS communication consent.
               </LI>
               <LI>
@@ -105,7 +107,7 @@ export default function SmsConsent() {
             <UL>
               <LI>Phone: <a href="tel:+13059005077" style={{ color: 'var(--gold)' }}>305.900.5077</a></LI>
               <LI>Phone: <a href="tel:+17866863223" style={{ color: 'var(--gold)' }}>(786) 686-3223</a></LI>
-              <LI>Email: <a href="mailto:maia@pmitop.com" style={{ color: 'var(--gold)' }}>maia@pmitop.com</a></LI>
+              <LI>Email: <a href="mailto:pmi@pmitop.com" style={{ color: 'var(--gold)' }}>pmi@pmitop.com</a></LI>
             </UL>
           </Section>
 
@@ -114,7 +116,7 @@ export default function SmsConsent() {
             <P>
               We do not sell or share your phone number with third parties for their marketing
               purposes. Your number is used solely to send the messages described above.
-              See our full <a href="/privacy-policy" style={{ color: 'var(--gold)' }}>Privacy Policy</a> for
+              See our full <Link href="/privacy-policy" style={{ color: 'var(--gold)' }}>Privacy Policy</Link> for
               details on data retention and your rights.
             </P>
           </Section>
