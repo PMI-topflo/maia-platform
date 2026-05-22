@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      const { data: app, error } = await getSupabase()
+      const { data: app, error } = await supabase
         .from("applications")
         .update({
           stripe_session_id: session.id,
