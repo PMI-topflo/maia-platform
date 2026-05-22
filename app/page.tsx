@@ -1596,20 +1596,27 @@ export default function Home() {
 
         {/* ── Bottom bar ─────────────────────────────────────────────────── */}
         <div
-          className="flex-shrink-0 flex items-center justify-between px-5 py-2"
+          className="flex-shrink-0 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-2"
           style={{
             borderTop: '1px solid rgba(255,255,255,0.04)',
             opacity: phase >= 2 ? 1 : 0,
             transition: 'opacity 0.6s ease 0.5s',
           }}
         >
-          <div className="flex items-center gap-3 text-[0.6rem] text-white/25 [font-family:var(--font-mono)]">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6rem] text-white/25 [font-family:var(--font-mono)]">
             <a href="mailto:maia@pmitop.com" className="hover:text-white/50 transition-colors">maia@pmitop.com</a>
             <span className="text-white/15">·</span>
             <a href="https://www.pmitop.com" target="_blank" rel="noreferrer" className="hover:text-white/50 transition-colors">www.pmitop.com</a>
+            <span className="text-white/15">·</span>
+            <Link href="/privacy-policy" className="hover:text-white/50 transition-colors">Privacy Policy</Link>
+            <span className="text-white/15">·</span>
+            <Link href="/terms" className="hover:text-white/50 transition-colors">Terms of Service</Link>
+            <span className="text-white/15">·</span>
+            <Link href="/sms-consent" className="hover:text-white/50 transition-colors">SMS Terms</Link>
           </div>
-          <div className="text-[0.6rem] text-white/20 [font-family:var(--font-mono)]">
-            © 2026 PMI Top Florida Properties
+          <div className="text-right text-[0.6rem] text-white/20 [font-family:var(--font-mono)] leading-relaxed">
+            <div>© 2026 PMI Top Florida Properties</div>
+            <div>Operated by Dawnus LLC dba: PMI Top Florida Properties</div>
           </div>
         </div>
 
