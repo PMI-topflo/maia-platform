@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import SiteHeader from '@/components/SiteHeader'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { getGoverningDocsForPortal } from '@/lib/governing-docs-for-portal'
+import { listPublishedReportsFor, monthLabel } from '@/lib/monthly-report'
 
 export default async function MyAccountPage(props: {
   searchParams: Promise<{ id?: string; assoc?: string }>
@@ -50,6 +51,9 @@ export default async function MyAccountPage(props: {
   // Rules) so owners can re-read at any time. Quietly returns [] when
   // nothing is uploaded yet — the section just won't render.
   const governingDocs = await getGoverningDocsForPortal(owner.association_code)
+
+  // Monthly management reports published to owners for this association.
+  const publishedReports = await listPublishedReportsFor(owner.association_code, 'owner')
 
   const fullAddress = [owner.address, owner.city, owner.state, owner.zip_code]
     .filter(Boolean)
@@ -238,6 +242,29 @@ export default async function MyAccountPage(props: {
         </a>
 
       </div>
+
+      {/* Management Reports — monthly reports published to owners */}
+      {publishedReports.length > 0 && (
+        <>
+          <div className="section" style={{ paddingTop: '1.5rem' }}>
+            <h2 className="section-title">Management Reports</h2>
+          </div>
+          <div className="prow-grid" style={{ marginTop: 0 }}>
+            {publishedReports.map(r => (
+              <Link key={r.id} href={`/report/${r.id}`} className="prow">
+                <div className="prow-orb">📰</div>
+                <div className="prow-info">
+                  <div className="prow-t">Monthly Report — {monthLabel(r.month)}</div>
+                  <div className="prow-d">
+                    Published {new Date(r.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </div>
+                </div>
+                <div className="prow-btn">View</div>
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* HOA balance note */}
       <div className="section" style={{ paddingTop: '1.25rem', paddingBottom: '2rem' }}>

@@ -9,6 +9,74 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 
+// ─────────────────────────────────────────────────────────────────────
+// Publish state
+// ─────────────────────────────────────────────────────────────────────
+export type ReportAudience = 'board' | 'owners' | 'both'
+
+export interface PublishedReportSummary {
+  id:                 string
+  association_code:   string
+  month:              string                // 'YYYY-MM'
+  published_at:       string
+  published_audience: ReportAudience
+}
+
+/** Minimal report shape `canViewPublishedReport` needs. */
+export interface ReportAccessSlice {
+  association_code:   string
+  published_at:       string | null
+  published_audience: ReportAudience | null
+}
+
+/** Minimal session shape `canViewPublishedReport` needs. Accepts a real
+ *  `SessionData` from lib/session, but lets us avoid an import cycle. */
+export interface ReportViewerSession {
+  persona:         string
+  associationCode: string
+}
+
+/** True when the logged-in viewer is allowed to see this report.
+ *  - staff: always.
+ *  - board: report must be published with audience 'board' or 'both'
+ *    AND the viewer's association must match the report's.
+ *  - owner: same, audience 'owners' or 'both'. */
+export function canViewPublishedReport(
+  session: ReportViewerSession | null,
+  report:  ReportAccessSlice,
+): boolean {
+  if (!session) return false
+  if (session.persona === 'staff') return true
+  if (!report.published_at || !report.published_audience) return false
+  const viewerAssoc = (session.associationCode ?? '').toUpperCase()
+  const reportAssoc = (report.association_code   ?? '').toUpperCase()
+  if (!viewerAssoc || viewerAssoc !== reportAssoc) return false
+  if (session.persona === 'board')  return report.published_audience === 'board'  || report.published_audience === 'both'
+  if (session.persona === 'owner')  return report.published_audience === 'owners' || report.published_audience === 'both'
+  return false
+}
+
+/** Published reports visible to a persona on an association portal —
+ *  used by /board (persona='board') and /my-account (persona='owner'). */
+export async function listPublishedReportsFor(
+  associationCode: string,
+  persona:         'board' | 'owner',
+): Promise<PublishedReportSummary[]> {
+  const code = (associationCode ?? '').toUpperCase()
+  if (!code) return []
+  const audiences = persona === 'board' ? ['board', 'both'] : ['owners', 'both']
+  const { data, error } = await supabaseAdmin
+    .from('monthly_reports')
+    .select('id, association_code, month, published_at, published_audience')
+    .eq('association_code', code)
+    .in('published_audience', audiences)
+    .not('published_at', 'is', null)
+    .order('month', { ascending: false })
+    .limit(24)
+  if (error || !data) return []
+  return data as PublishedReportSummary[]
+}
+
 export interface AssociationActivity {
   code:                 string
   name:                 string
