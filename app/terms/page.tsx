@@ -1,3 +1,5 @@
+import Link from 'next/link'
+
 import SiteHeader from '@/components/SiteHeader'
 
 export const metadata = {
@@ -121,6 +123,15 @@ function TermsContent() {
           Message and data rates may apply. Message frequency depends on your account activity and inquiries.
           Carriers are not liable for delayed or undelivered messages.
         </P>
+        <P>
+          <strong>Keeping your phone number current:</strong> You are responsible for keeping the phone
+          number on file with us accurate and up to date. If you change, cancel, sell, transfer, port, or
+          otherwise relinquish your phone number, you must promptly notify PMI Top Florida Properties so we
+          can update or remove it from our records. If you fail to notify us, PMI Top Florida Properties is
+          not responsible or liable for any damages, and you release and hold us harmless from any claim,
+          arising from messages or information sent to a number you no longer control, including any
+          information disclosed to a subsequent holder of that number.
+        </P>
       </Section>
 
       <Section title="4. MAIA AI Assistant">
@@ -201,10 +212,22 @@ function TermsContent() {
         </P>
       </Section>
 
-      <Section title="11. Governing Law">
+      <Section title="11. Governing Law & Dispute Resolution">
         <P>
-          These terms are governed by the laws of the State of Florida. Any disputes shall be resolved in
-          the courts of Miami-Dade County, Florida, and you consent to personal jurisdiction there.
+          <strong>Formal complaints:</strong> Before initiating arbitration, you agree to first submit a
+          written formal complaint describing the dispute, and the resolution you are seeking, to PMI Top
+          Florida Properties at{' '}
+          <a href="mailto:pmi@pmitop.com" style={{ color: 'var(--gold)' }}>pmi@pmitop.com</a>. The parties
+          will attempt in good faith to resolve the matter informally for at least thirty (30) days from
+          the date the complaint is received.
+        </P>
+        <P>
+          These terms are governed by the laws of the State of Florida, without regard to its
+          conflict-of-law rules. If a dispute, claim, or controversy arising out of or relating to these
+          terms or our services is not resolved through the formal complaint process above, it shall be
+          resolved by final and binding arbitration administered by the American Arbitration Association
+          under its applicable rules, with the arbitration conducted in Miami-Dade County, Florida.
+          Judgment on the arbitration award may be entered in any court of competent jurisdiction.
         </P>
       </Section>
 
@@ -224,7 +247,7 @@ function TermsContent() {
           <LI>Mail: PMI Top Florida Properties · 1031 Ives Dairy Road Suite 228, Miami, FL 33179</LI>
         </UL>
         <P>
-          See also our <a href="/privacy-policy" style={{ color: 'var(--gold)' }}>Privacy Policy</a> for
+          See also our <Link href="/privacy-policy" style={{ color: 'var(--gold)' }}>Privacy Policy</Link> for
           information on how we handle your personal data.
         </P>
       </Section>
