@@ -446,6 +446,27 @@ DROP POLICY IF EXISTS "service_role_all_report_financials" ON public.report_fina
 CREATE POLICY "service_role_all_report_financials"
   ON public.report_financials FOR ALL TO service_role USING (true);`,
   },
+  {
+    key:         'monthly_reports_publish',
+    label:       'Publish state for monthly reports',
+    description: 'monthly_reports.published_at',
+    filename:    '20260522_monthly_reports_publish.sql',
+    artifact:    { type: 'column', table: 'monthly_reports', column: 'published_at' },
+    sql: `ALTER TABLE public.monthly_reports
+  ADD COLUMN IF NOT EXISTS published_at        timestamptz,
+  ADD COLUMN IF NOT EXISTS published_audience  text,
+  ADD COLUMN IF NOT EXISTS published_by_email  text;
+
+ALTER TABLE public.monthly_reports
+  DROP CONSTRAINT IF EXISTS monthly_reports_published_audience_chk;
+ALTER TABLE public.monthly_reports
+  ADD CONSTRAINT monthly_reports_published_audience_chk
+  CHECK (published_audience IS NULL OR published_audience IN ('board', 'owners', 'both'));
+
+CREATE INDEX IF NOT EXISTS monthly_reports_published_idx
+  ON public.monthly_reports (association_code, published_at DESC)
+  WHERE published_at IS NOT NULL;`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

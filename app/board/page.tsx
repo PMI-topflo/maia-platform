@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import SiteHeader from '@/components/SiteHeader'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { getGoverningDocsForPortal } from '@/lib/governing-docs-for-portal'
+import { listPublishedReportsFor, monthLabel } from '@/lib/monthly-report'
 
 interface BoardMemberView {
   first_name: string | null
@@ -103,6 +104,9 @@ export default async function BoardPage(props: {
     .select('id', { count: 'exact', head: true })
     .eq('association', assocName)
     .eq('board_approval_status', 'pending')
+
+  // Monthly management reports published to the board for this association.
+  const publishedReports = await listPublishedReportsFor(assoc, 'board')
 
   const displayName = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'Board Member'
 
@@ -313,6 +317,29 @@ export default async function BoardPage(props: {
         </a>
 
       </div>
+
+      {/* Management Reports — monthly reports staff have published to the board */}
+      {publishedReports.length > 0 && (
+        <>
+          <div className="section" style={{ paddingTop: '1.5rem' }}>
+            <h2 className="section-title">Management Reports</h2>
+          </div>
+          <div className="prow-grid" style={{ marginTop: 0 }}>
+            {publishedReports.map(r => (
+              <Link key={r.id} href={`/report/${r.id}`} className="prow">
+                <div className="prow-orb">📰</div>
+                <div className="prow-info">
+                  <div className="prow-t">Monthly Report — {monthLabel(r.month)}</div>
+                  <div className="prow-d">
+                    Published {new Date(r.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </div>
+                </div>
+                <div className="prow-btn">View</div>
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Drive documents */}
       {driveFolders && driveFolders.length > 0 && (
