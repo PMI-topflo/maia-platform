@@ -201,10 +201,14 @@ function TermsContent() {
         </P>
       </Section>
 
-      <Section title="11. Governing Law">
+      <Section title="11. Governing Law & Dispute Resolution">
         <P>
-          These terms are governed by the laws of the State of Florida. Any disputes shall be resolved in
-          the courts of Miami-Dade County, Florida, and you consent to personal jurisdiction there.
+          These terms are governed by the laws of the State of Florida, without regard to its
+          conflict-of-law rules. Any dispute, claim, or controversy arising out of or relating to these
+          terms or our services shall be resolved by final and binding arbitration administered by the
+          American Arbitration Association under its applicable rules, with the arbitration conducted in
+          Miami-Dade County, Florida. Judgment on the arbitration award may be entered in any court of
+          competent jurisdiction.
         </P>
       </Section>
 
