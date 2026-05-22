@@ -83,6 +83,15 @@ export default function OptInForm() {
         <span className="text-xs leading-relaxed text-gray-600">{SMS_OPTIN_TEXT}</span>
       </label>
 
+      {/* Scannable SMS disclosures — mirrors the consent wording so an A2P
+          10DLC reviewer can verify frequency / rates / HELP-STOP at a glance. */}
+      <p className="rounded-md bg-gray-50 px-3 py-2 text-[11px] leading-relaxed text-gray-500">
+        <strong className="font-semibold text-gray-700">Message frequency varies.</strong>{' '}
+        Message &amp; data rates may apply. Reply{' '}
+        <strong className="font-semibold text-gray-700">HELP</strong> for help,{' '}
+        <strong className="font-semibold text-gray-700">STOP</strong> to cancel.
+      </p>
+
       {/* Terms / Privacy — also optional. */}
       <label className="flex items-start gap-2.5 cursor-pointer">
         <input
