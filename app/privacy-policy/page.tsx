@@ -220,7 +220,7 @@ function Policy() {
           For questions about this privacy policy or your personal information:
         </P>
         <UL>
-          <LI>Email: <a href="mailto:maia@pmitop.com" style={{ color: 'var(--gold)' }}>maia@pmitop.com</a></LI>
+          <LI>Email: <a href="mailto:pmi@pmitop.com" style={{ color: 'var(--gold)' }}>pmi@pmitop.com</a></LI>
           <LI>Phone: <a href="tel:+13059005077" style={{ color: 'var(--gold)' }}>305.900.5077</a></LI>
           <LI>Mail: PMI Top Florida Properties · 1031 Ives Dairy Road Suite 228, Miami, FL 33179</LI>
         </UL>
