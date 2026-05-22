@@ -13,6 +13,8 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { gatherMonthlyReportData, monthLabel } from '@/lib/monthly-report'
 import { renderNewsletterMarkdown } from '@/lib/render-report-markdown'
 import { listAttachmentsForTickets } from '@/lib/work-order-attachments'
+import { getFinancials } from '@/lib/report-financials'
+import { FinancialSummarySection } from '@/lib/render-report-financials'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Monthly Report — PMI Top Florida' }
@@ -91,6 +93,12 @@ export default async function ReportViewPage({
     .map(i => i.id)
   const photos = await listAttachmentsForTickets(woItemIds, 9)
 
+  // Financial statement for this association + month (per-association only).
+  const financials = code !== 'ALL' ? await getFinancials(code, report.month) : null
+  const financialsPdfHref = financials
+    ? `/api/admin/reports/monthly/financials/pdf?assoc=${encodeURIComponent(code)}&month=${encodeURIComponent(report.month)}`
+    : null
+
   const builderHref =
     `/admin/reports/monthly?month=${report.month}` +
     (code === 'ALL' ? '' : `&assoc=${code}`)
@@ -139,6 +147,11 @@ export default async function ReportViewPage({
               <StatCard n={t.workOrdersClosed}     label="WOs completed" />
               <StatCard n={t.emailThreadsReceived} label="Email threads" />
             </div>
+
+            {/* Financial summary — figures from the uploaded CINC statement */}
+            {financials?.figures && (
+              <FinancialSummarySection figures={financials.figures} pdfHref={financialsPdfHref} />
+            )}
 
             {/* The MAIA narrative, rendered as numbered newsletter sections */}
             <div className="mt-2">

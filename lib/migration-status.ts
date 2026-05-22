@@ -417,6 +417,35 @@ ALTER TABLE public.board_messages ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "service_role_all_board_messages"
   ON public.board_messages FOR ALL TO service_role USING (true);`,
   },
+  {
+    key:         'report_financials',
+    label:       'Monthly report financials',
+    description: 'report_financials table',
+    filename:    '20260522_report_financials.sql',
+    artifact:    { type: 'table', table: 'report_financials' },
+    sql: `CREATE TABLE IF NOT EXISTS public.report_financials (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code   text        NOT NULL DEFAULT 'ALL',
+  month              text        NOT NULL,
+  storage_path       text        NOT NULL,
+  pdf_filename       text        NOT NULL,
+  pdf_size_bytes     bigint      NOT NULL,
+  figures            jsonb,
+  extract_status     text        NOT NULL DEFAULT 'pending'
+                       CHECK (extract_status IN ('pending', 'extracted', 'failed')),
+  extract_error      text,
+  uploaded_by_email  text,
+  uploaded_at        timestamptz NOT NULL DEFAULT now(),
+  extracted_at       timestamptz,
+  UNIQUE (association_code, month)
+);
+CREATE INDEX IF NOT EXISTS report_financials_assoc_idx
+  ON public.report_financials (association_code, month DESC);
+ALTER TABLE public.report_financials ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_report_financials" ON public.report_financials;
+CREATE POLICY "service_role_all_report_financials"
+  ON public.report_financials FOR ALL TO service_role USING (true);`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

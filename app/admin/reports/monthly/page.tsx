@@ -17,6 +17,8 @@ import { gatherMonthlyReportData, currentMonth, monthLabel } from '@/lib/monthly
 import MonthlyReportGenerator from './MonthlyReportGenerator'
 import ReportItemsPreview from './ReportItemsPreview'
 import BoardMessagePanel from './BoardMessagePanel'
+import FinancialPanel from './FinancialPanel'
+import { getFinancials } from '@/lib/report-financials'
 
 export const metadata = { title: 'Monthly Management Report — PMI Top Florida' }
 export const dynamic = 'force-dynamic'
@@ -72,6 +74,9 @@ export default async function MonthlyReportPage({
       }
     }
   }
+
+  // Financial statement on file for the selected association + month.
+  const financials = assoc ? await getFinancials(assoc, month) : null
 
   const t = data.totals
 
@@ -174,6 +179,18 @@ export default async function MonthlyReportPage({
 
         {/* ── Message from the Board (optional pre-generation step) ── */}
         <BoardMessagePanel assoc={assoc} month={month} status={boardStatus} />
+
+        {/* ── Financial statement (optional pre-generation step) ───── */}
+        <FinancialPanel
+          assoc={assoc}
+          month={month}
+          existing={financials ? {
+            figures:        financials.figures,
+            pdf_filename:   financials.pdf_filename,
+            extract_status: financials.extract_status,
+            extract_error:  financials.extract_error,
+          } : null}
+        />
 
         {/* ── AI board report ─────────────────────────────────────── */}
         <MonthlyReportGenerator assoc={assoc} month={month} monthLabel={monthLabel(month)} />
