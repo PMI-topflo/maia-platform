@@ -519,15 +519,7 @@ export default function Home() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
-  function logPersona(key: string) {
-    void fetch('/api/log-persona', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ persona: key, channel: 'web' }),
-    })
-  }
-
   function handlePersona(key: string) {
-    logPersona(key)
     if (key === 'homeowner') { setView('homeowner-form'); return }
     if (key === 'applicant') { router.push('/apply'); return }
     if (key === 'agent')     { setView('agent-form'); return }
