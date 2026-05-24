@@ -810,6 +810,95 @@ function incompleteHtml(ext: ExtractedRecord, ref: string): string {
 
 // ── General AI responder ──────────────────────────────────────────────────────
 
+// ---------------------------------------------------------------------
+// Escalation routing — when MAIA can't fully resolve a request itself
+// and instead forwards it to a human, this maps the department it picks
+// to the assignee that owns the queue + whether to open a work order
+// rather than a plain ticket. Overridable per env so PMI can re-route
+// without redeploying.
+// ---------------------------------------------------------------------
+type EscalationDepartment = 'maintenance' | 'ap' | 'ar' | 'financial'
+
+interface EscalationRoute {
+  assignee:    string
+  isWorkOrder: boolean
+  teamLabel:   string   // shown back to the sender ("our maintenance team")
+}
+
+const ESCALATION_ROUTING: Record<EscalationDepartment, EscalationRoute> = {
+  maintenance: {
+    assignee:    process.env.MAIA_ROUTE_MAINTENANCE ?? 'service@topfloridaproperties.com',
+    isWorkOrder: true,
+    teamLabel:   'maintenance team',
+  },
+  ap: {
+    assignee:    process.env.MAIA_ROUTE_AP ?? 'ap@topfloridaproperties.com',
+    isWorkOrder: false,
+    teamLabel:   'accounts-payable team',
+  },
+  ar: {
+    assignee:    process.env.MAIA_ROUTE_AR ?? 'ar@topfloridaproperties.com',
+    isWorkOrder: false,
+    teamLabel:   'accounts-receivable team',
+  },
+  financial: {
+    assignee:    process.env.MAIA_ROUTE_FINANCIAL ?? 'ar@topfloridaproperties.com',
+    isWorkOrder: false,
+    teamLabel:   'finance team',
+  },
+}
+
+/** What MAIA returns from a freeform conversation — the structured
+ *  decision plus the reply body to email back. */
+interface MaiaDecision {
+  action:     'resolved' | 'escalate'
+  department: EscalationDepartment | null
+  reply:      string
+}
+
+/** Parse MAIA's structured JSON. Falls back to {action:'resolved'} on
+ *  any malformed output so a brittle JSON pass never breaks the email
+ *  reply path — we just lose the routing signal for that one message. */
+function parseMaiaResponse(raw: string): MaiaDecision {
+  const text = (raw ?? '').trim()
+  // Strip ```json … ``` fences if the model wrapped them.
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+  try {
+    const obj = JSON.parse(cleaned) as Partial<MaiaDecision>
+    const action: 'resolved' | 'escalate' = obj.action === 'escalate' ? 'escalate' : 'resolved'
+    const dept = obj.department && obj.department in ESCALATION_ROUTING
+      ? (obj.department as EscalationDepartment)
+      : null
+    const reply = typeof obj.reply === 'string' && obj.reply.trim().length > 0
+      ? obj.reply.trim()
+      : text
+    return { action, department: action === 'escalate' ? dept : null, reply }
+  } catch {
+    return { action: 'resolved', department: null, reply: text }
+  }
+}
+
+const ESCALATION_INSTRUCTION = `
+
+RESPONSE FORMAT — IMPORTANT:
+You MUST respond with a single JSON object and nothing else. No prose around it, no markdown fences. The schema:
+{
+  "action": "resolved" | "escalate",
+  "department": "maintenance" | "ap" | "ar" | "financial" | null,
+  "reply": "the full email body to send back to the sender (plain text or simple HTML, ready to be wrapped in <p> tags)"
+}
+
+Use "resolved" when you can fully answer from the FAQ / company info. The reply is the answer.
+Use "escalate" when the request needs a human:
+  - Maintenance / repair / work order (leak, broken AC, common-area issue) → "maintenance"
+  - Vendor invoice, payment to a vendor, W-9, ACH form, vendor onboarding → "ap"
+  - Owner balance, missed payment, payment plan, ledger, late fees, owner refund → "ar"
+  - Budget question, reserve study, assessment / special-assessment, audited financials → "financial"
+  - Anything else needing a human decision → department: null
+
+When escalating, the reply should briefly tell the sender we have received the request, we are forwarding it to our {team}, and they will respond within one business day. Keep it warm and one short paragraph.
+Never invent figures, dates, or balances. Default to escalation when in doubt.`
+
 const GENERAL_SYSTEM_PROMPT = `You are Maia, the AI assistant for PMI Top Florida Properties, a professional HOA and residential property management company serving South Florida.
 
 COMPANY INFO:
@@ -1027,11 +1116,16 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
     const message = await anthropic.messages.create({
       model:      'claude-sonnet-4-20250514',
       max_tokens: 1024,
-      system:     GENERAL_SYSTEM_PROMPT + assocBlock + officeBlock + skillsBlock,
+      system:     GENERAL_SYSTEM_PROMPT + assocBlock + officeBlock + skillsBlock + ESCALATION_INSTRUCTION,
       messages,
     })
 
-    const aiText  = message.content.find(b => b.type === 'text')?.text ?? ''
+    // Parse the structured response. action tells us whether to mark
+    // the auto-ticket resolved or open it for the routed department;
+    // reply is what we actually email the sender.
+    const rawText  = message.content.find(b => b.type === 'text')?.text ?? ''
+    const decision = parseMaiaResponse(rawText)
+    const aiText   = decision.reply
     const replyHtml = `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#222;max-width:600px;margin:0 auto;padding:20px">
 ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join('')}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
@@ -1083,51 +1177,71 @@ ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join(
       })
       .eq('id', convRow.id)
 
-    // Auto-open a ticket for this MAIA-handled conversation and close
-    // it as 'resolved' in one shot — so the monthly report can count
-    // it under "resolved by MAIA AI". Only when MAIA actually finished
-    // (the catch branch below skips this entirely on failure, so the
-    // metric stays a real signal of AI value, not retries). Best-effort:
-    // a ticket insert failure must not undo the email reply that
-    // already went out.
+    // Auto-create a MAIA ticket for this conversation. Two flavors:
+    //   - action='resolved'  → status='resolved', assignee=maia, low priority.
+    //                          Counts in "Resolved by MAIA" on the monthly report.
+    //   - action='escalate'  → status='open', routed to the department's queue,
+    //                          normal priority. Maintenance escalations are
+    //                          opened as type='work_order' (per Paola's flow).
     //
-    // Thread-dedup: one MAIA ticket per Gmail thread. If MAIA has
-    // already auto-resolved a ticket for this thread, bump its
-    // resolved_at instead of inserting another — otherwise a long
-    // thread (e.g. a forwarded transfer-doc exchange) would inflate
-    // both the dashboard and the "Resolved by MAIA" metric by an order
-    // of magnitude.
+    // Best-effort + thread-deduped: one MAIA ticket per Gmail thread. If
+    // MAIA has already auto-ticketed this thread, UPDATE that row (the
+    // newest message reflects the current state) instead of inserting a
+    // second. A long thread that flips resolved → escalate (or vice
+    // versa) updates the same ticket rather than littering the queue.
     try {
-      const resolvedAt = new Date().toISOString()
+      const nowIso  = new Date().toISOString()
+      const routing = decision.action === 'escalate' && decision.department
+        ? ESCALATION_ROUTING[decision.department]
+        : null
+
+      const ticketStatus    = decision.action === 'resolved' ? 'resolved' : 'open'
+      const ticketType      = routing?.isWorkOrder           ? 'work_order' : 'ticket'
+      const ticketAssignee  = routing?.assignee              ?? 'maia@pmitop.com'
+      const ticketPriority  = decision.action === 'resolved' ? 'low'        : 'normal'
+      const ticketResolvedAt = decision.action === 'resolved' ? nowIso       : null
+
       const existing = parsed.threadId
         ? (await supabaseAdmin
             .from('tickets')
-            .select('id')
+            .select('id, type')
             .eq('gmail_thread_id', parsed.threadId)
             .eq('created_by_maia', true)
-            .maybeSingle()).data
+            .maybeSingle()).data as { id: number; type: string } | null
         : null
 
       if (existing) {
+        // Don't downgrade a work_order back to a ticket on update — once
+        // staff (or MAIA) decided it was a WO, that classification
+        // stays. Everything else reflects MAIA's latest read of the
+        // thread.
+        const preserveType = existing.type === 'work_order'
         await supabaseAdmin
           .from('tickets')
-          .update({ resolved_at: resolvedAt, updated_at: resolvedAt })
-          .eq('id', (existing as { id: number }).id)
+          .update({
+            status:         ticketStatus,
+            priority:       ticketPriority,
+            assignee_email: ticketAssignee,
+            resolved_at:    ticketResolvedAt,
+            updated_at:     nowIso,
+            ...(preserveType ? {} : { type: ticketType }),
+          })
+          .eq('id', existing.id)
       } else {
         await supabaseAdmin.from('tickets').insert({
-          type:             'ticket',
-          status:           'resolved',
-          priority:         'low',
+          type:             ticketType,
+          status:           ticketStatus,
+          priority:         ticketPriority,
           channel_origin:   'email',
           association_code: detectedAssocCode,
           contact_name:     parsed.senderName,
           contact_email:    parsed.senderEmail?.toLowerCase() ?? null,
           subject:          parsed.subject,
           summary:          (parsed.body ?? '').slice(0, 800),
-          assignee_email:   'maia@pmitop.com',
+          assignee_email:   ticketAssignee,
           gmail_thread_id:  parsed.threadId,
           created_by_maia:  true,
-          resolved_at:      resolvedAt,
+          resolved_at:      ticketResolvedAt,
         })
       }
     } catch (tErr) {
