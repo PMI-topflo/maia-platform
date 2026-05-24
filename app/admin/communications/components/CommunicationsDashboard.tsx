@@ -296,6 +296,11 @@ interface Props {
   // True count of emails matching the active server filter — may
   // exceed the 1000 rows actually loaded into the table.
   emailTotal?: number
+  // gmail_thread_id → total email_logs rows in that thread (counts every
+  // direction + cc, not just MAIA-handled conversations). Drives the
+  // "✉ N in thread" badge on the conversations tab so it matches Gmail's
+  // own thread count.
+  emailThreadCounts?: Record<string, number>
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -372,11 +377,17 @@ function ConversationsTab({
   staff,
   senderOptionsOverride = [],
   showArchived = false,
+  emailThreadCounts = {},
 }: {
   conversations:          Conversation[]
   staff:                  Staff[]
   senderOptionsOverride?: string[]
   showArchived?:          boolean
+  /** Server-supplied count of TOTAL email_logs rows per gmail_thread_id —
+   *  inbound + outbound + every cc. Used for the "✉ N in thread" badge so
+   *  it matches what Gmail shows. Falls back to conversation count when
+   *  the thread isn't in the map (e.g. older data). */
+  emailThreadCounts?:     Record<string, number>
 }) {
   const router       = useRouter()
   const searchParams = useSearchParams()
@@ -453,10 +464,15 @@ function ConversationsTab({
   })
 
   // Thread grouping: collapse rows that share a gmail_thread_id into one
-  // displayed card (the latest), and surface "+N in thread" so staff can
+  // displayed card (the latest), and surface "✉ N in thread" so staff can
   // see the volume without 12 near-identical rows clogging the queue.
   // Rows with no thread_id (web/SMS/WhatsApp, or email without a thread)
   // remain individual.
+  //
+  // threadCount = TOTAL email_logs in this gmail thread (from
+  // emailThreadCounts) when known — so the badge matches what the user
+  // sees in Gmail. Falls back to the conversation count for threads not
+  // in the email_logs map (e.g. older data outside the email window).
   const grouped: Array<{ latest: Conversation; threadCount: number; threadIds: string[] }> = (() => {
     const byThread = new Map<string, Conversation[]>()
     const standalone: Conversation[] = []
@@ -469,11 +485,14 @@ function ConversationsTab({
       }
     }
     const groups: Array<{ latest: Conversation; threadCount: number; threadIds: string[] }> = []
-    for (const arr of byThread.values()) {
-      // Latest = max updated_at; falls back to created_at when updated_at
-      // is missing or equal.
+    for (const [tid, arr] of byThread.entries()) {
       const latest = arr.reduce((a, b) => (a.updated_at >= b.updated_at ? a : b))
-      groups.push({ latest, threadCount: arr.length, threadIds: arr.map(c => c.id) })
+      const realEmailCount = emailThreadCounts[tid]
+      groups.push({
+        latest,
+        threadCount: realEmailCount && realEmailCount > arr.length ? realEmailCount : arr.length,
+        threadIds:   arr.map(c => c.id),
+      })
     }
     for (const c of standalone) {
       groups.push({ latest: c, threadCount: 1, threadIds: [c.id] })
@@ -1567,6 +1586,7 @@ export default function CommunicationsDashboard({
   emailFrom                 = '',
   showConvArchived          = false,
   emailTotal                = 0,
+  emailThreadCounts         = {},
 }: Props) {
   const [tab, setTab] = useState<'conversations' | 'emails' | 'tickets' | 'commands'>('conversations')
 
@@ -1617,7 +1637,7 @@ export default function CommunicationsDashboard({
         ))}
       </div>
 
-      {tab === 'conversations' && <ConversationsTab conversations={conversations} staff={staff} senderOptionsOverride={conversationSenderOptions} showArchived={showConvArchived} />}
+      {tab === 'conversations' && <ConversationsTab conversations={conversations} staff={staff} senderOptionsOverride={conversationSenderOptions} showArchived={showConvArchived} emailThreadCounts={emailThreadCounts} />}
       {tab === 'emails'        && <EmailsTab emails={emails} showDismissed={showDismissed} fromOptionsOverride={emailFromOptions} toOptionsOverride={emailToOptions} serverEmailTo={emailTo} serverEmailFrom={emailFrom} emailTotal={emailTotal} />}
       {tab === 'tickets'       && <TicketsTab tickets={tickets} staff={staff} />}
       {tab === 'commands'      && <EmailCommandsTab commands={emailCommands} />}

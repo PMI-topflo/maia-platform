@@ -353,6 +353,35 @@ async function getData(
     for (const a of extractEmailAddrs(r.sender_email ?? r.contact_email)) convSenderSet.add(a)
   }
 
+  // True email-thread sizes for every Gmail thread that appears on the
+  // Conversations tab — so the "✉ N in thread" badge reflects the FULL
+  // Gmail thread (inbound + outbound, every recipient), not just the
+  // subset that hit MAIA. Queries email_logs directly so the count is
+  // not bounded by the 10-day window or the 1000-row email load cap.
+  const convThreadIds = Array.from(
+    new Set(
+      ((convRes.data ?? []) as unknown as Array<{ gmail_thread_id: string | null }>)
+        .map(c => c.gmail_thread_id)
+        .filter((t): t is string => !!t),
+    ),
+  )
+  const emailThreadCounts: Record<string, number> = {}
+  if (convThreadIds.length > 0 && optionalCols.gmail_thread_id) {
+    // Fetch all email_logs rows for these threads; counted client-side
+    // because PostgREST has no group-by. The rows are tiny (id only) so
+    // this stays fast even for hundreds of threads.
+    const { data: threadEmails } = await supabaseAdmin
+      .from('email_logs')
+      .select('gmail_thread_id')
+      .in('gmail_thread_id', convThreadIds)
+      .limit(10_000)
+    for (const r of (threadEmails ?? []) as Array<{ gmail_thread_id: string | null }>) {
+      const t = r.gmail_thread_id
+      if (!t) continue
+      emailThreadCounts[t] = (emailThreadCounts[t] ?? 0) + 1
+    }
+  }
+
   return {
     // Cast through any — dynamic .select(string) collapses Supabase's
     // inferred shape; the dashboard's runtime guards handle missing cols.
@@ -369,6 +398,7 @@ async function getData(
     conversationSenderOptions: Array.from(convSenderSet).sort(),
     // True total of matching emails (may exceed the 1000 loaded rows).
     emailTotal:                emailRes.count ?? (emailRes.data?.length ?? 0),
+    emailThreadCounts,
   }
 }
 
