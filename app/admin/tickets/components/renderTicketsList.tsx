@@ -20,6 +20,7 @@ export interface TicketsListSearchParams {
   q?:           string
   type?:        string
   wo_type?:     string  // CINC WorkOrderType filter ("Plumbing", "HVAC", …)
+  category?:    string  // ticket_category filter — the 17 staff buckets
   archived?:    string  // '1' to include archived rows in results
 }
 
@@ -29,7 +30,7 @@ export async function renderTicketsList(
 ) {
   let query = supabaseAdmin
     .from('tickets')
-    .select('id, ticket_number, type, status, priority, channel_origin, association_code, persona, contact_name, contact_email, contact_phone, subject, summary, assignee_email, due_at, gmail_thread_id, work_order_type_name, cinc_workorder_id, archived_at, created_at, updated_at')
+    .select('id, ticket_number, type, status, priority, channel_origin, association_code, persona, contact_name, contact_email, contact_phone, subject, summary, assignee_email, due_at, gmail_thread_id, work_order_type_name, ticket_category, cinc_workorder_id, archived_at, created_at, updated_at')
     .order('updated_at', { ascending: false })
     .limit(200)
 
@@ -52,6 +53,7 @@ export async function renderTicketsList(
   if (sp.channel)     query = query.eq('channel_origin',   sp.channel)
   if (sp.association) query = query.eq('association_code', sp.association)
   if (sp.assignee)    query = query.eq('assignee_email',   sp.assignee.toLowerCase())
+  if (sp.category)    query = query.eq('ticket_category',  sp.category)
   if (sp.q) {
     const needle = sp.q.replace(/[%_]/g, ch => `\\${ch}`)
     query = query.or(`subject.ilike.%${needle}%,summary.ilike.%${needle}%,contact_name.ilike.%${needle}%,contact_email.ilike.%${needle}%,ticket_number.ilike.%${needle}%`)
@@ -117,6 +119,7 @@ export async function renderTicketsList(
     assignee_email:       t.assignee_email,
     due_at:               t.due_at,
     work_order_type_name: t.work_order_type_name,
+    ticket_category:      t.ticket_category,
     cinc_workorder_id:    t.cinc_workorder_id,
     archived_at:          t.archived_at,
     created_at:           t.created_at,
@@ -147,6 +150,7 @@ export async function renderTicketsList(
             q:           sp.q           ?? '',
             type:        sp.type        ?? '',
             wo_type:     sp.wo_type     ?? '',
+            category:    sp.category    ?? '',
             archived:    sp.archived    ?? '',
           }}
         />
