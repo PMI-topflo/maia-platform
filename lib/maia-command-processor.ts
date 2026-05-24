@@ -21,6 +21,7 @@ import {
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
 import { saveWorkOrderAttachmentBytes, isImageFilename } from '@/lib/work-order-attachments'
+import { isValidTicketCategory } from '@/lib/ticket-categories'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -853,6 +854,11 @@ const ESCALATION_ROUTING: Record<EscalationDepartment, EscalationRoute> = {
 interface MaiaDecision {
   action:     'resolved' | 'escalate'
   department: EscalationDepartment | null
+  /** One of the labels in TICKET_CATEGORIES (lib/ticket-categories.ts).
+   *  Only meaningful when action='escalate' AND department !== 'maintenance'
+   *  (maintenance escalations become work orders, which carry a CINC
+   *  work_order_type_name rather than a ticket_category). */
+  category:   string | null
   reply:      string
 }
 
@@ -869,12 +875,20 @@ function parseMaiaResponse(raw: string): MaiaDecision {
     const dept = obj.department && obj.department in ESCALATION_ROUTING
       ? (obj.department as EscalationDepartment)
       : null
+    const category = typeof obj.category === 'string' && isValidTicketCategory(obj.category)
+      ? obj.category
+      : null
     const reply = typeof obj.reply === 'string' && obj.reply.trim().length > 0
       ? obj.reply.trim()
       : text
-    return { action, department: action === 'escalate' ? dept : null, reply }
+    return {
+      action,
+      department: action === 'escalate' ? dept : null,
+      category:   action === 'escalate' ? category : null,
+      reply,
+    }
   } catch {
-    return { action: 'resolved', department: null, reply: text }
+    return { action: 'resolved', department: null, category: null, reply: text }
   }
 }
 
@@ -885,16 +899,37 @@ You MUST respond with a single JSON object and nothing else. No prose around it,
 {
   "action": "resolved" | "escalate",
   "department": "maintenance" | "ap" | "ar" | "financial" | null,
+  "category": "<one of the staff categories below>" | null,
   "reply": "the full email body to send back to the sender (plain text or simple HTML, ready to be wrapped in <p> tags)"
 }
 
-Use "resolved" when you can fully answer from the FAQ / company info. The reply is the answer.
+Use "resolved" when you can fully answer from the FAQ / company info. The reply is the answer. (department + category null)
 Use "escalate" when the request needs a human:
-  - Maintenance / repair / work order (leak, broken AC, common-area issue) → "maintenance"
+  - Maintenance / repair / work order (leak, broken AC, common-area issue) → "maintenance" (a work order will be opened; leave category null)
   - Vendor invoice, payment to a vendor, W-9, ACH form, vendor onboarding → "ap"
   - Owner balance, missed payment, payment plan, ledger, late fees, owner refund → "ar"
   - Budget question, reserve study, assessment / special-assessment, audited financials → "financial"
   - Anything else needing a human decision → department: null
+
+When escalating to a TICKET (any department except "maintenance"), also pick the staff category that best routes the ticket. Use exactly one of these label strings, copied verbatim:
+  - "Resident Support"                 (Resident assistance)
+  - "Violations & Compliance"          (Rule enforcement)
+  - "Architectural Review (ARC/ACC)"   (Modification approvals)
+  - "Financial & Billing"              (Accounting matters)
+  - "Security & Safety"                (Security incidents)
+  - "Vendor Management"                (Vendor coordination)
+  - "Insurance & Claims"               (Claims/issues)
+  - "Legal & Collections"              (Attorney/legal matters)
+  - "Communications"                   (Notices & announcements)
+  - "Amenity Reservations"             (Clubhouse/pool/etc)
+  - "Move-In / Move-Out"               (Tenant/owner logistics)
+  - "Parking & Towing"                 (Vehicle issues)
+  - "Access Control"                   (Gate/cards/fobs)
+  - "Utilities"                        (Utility-related concerns)
+  - "Emergency Incidents"              (Critical escalations)
+  - "Technology / Systems"             (Software, internet, cameras)
+  - "Concierge / Front Desk"           (Hospitality-type requests)
+If no category clearly fits, set category to null.
 
 When escalating, the reply should briefly tell the sender we have received the request, we are forwarding it to our {team}, and they will respond within one business day. Keep it warm and one short paragraph.
 Never invent figures, dates, or balances. Default to escalation when in doubt.`
@@ -1200,21 +1235,26 @@ ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join(
       const ticketAssignee  = routing?.assignee              ?? 'maia@pmitop.com'
       const ticketPriority  = decision.action === 'resolved' ? 'low'        : 'normal'
       const ticketResolvedAt = decision.action === 'resolved' ? nowIso       : null
+      // Categories only apply to plain tickets — work orders carry
+      // work_order_type_name (from CINC) instead. So drop the category
+      // for the maintenance branch even if MAIA picked one.
+      const ticketCategory   = ticketType === 'work_order' ? null : (decision.category ?? null)
 
       const existing = parsed.threadId
         ? (await supabaseAdmin
             .from('tickets')
-            .select('id, type')
+            .select('id, type, ticket_category')
             .eq('gmail_thread_id', parsed.threadId)
             .eq('created_by_maia', true)
-            .maybeSingle()).data as { id: number; type: string } | null
+            .maybeSingle()).data as { id: number; type: string; ticket_category: string | null } | null
         : null
 
       if (existing) {
         // Don't downgrade a work_order back to a ticket on update — once
         // staff (or MAIA) decided it was a WO, that classification
         // stays. Everything else reflects MAIA's latest read of the
-        // thread.
+        // thread. For ticket_category, only OVERWRITE when MAIA actually
+        // picked one — never clobber a staff-set category with null.
         const preserveType = existing.type === 'work_order'
         await supabaseAdmin
           .from('tickets')
@@ -1225,6 +1265,7 @@ ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join(
             resolved_at:    ticketResolvedAt,
             updated_at:     nowIso,
             ...(preserveType ? {} : { type: ticketType }),
+            ...(ticketCategory && existing.type !== 'work_order' ? { ticket_category: ticketCategory } : {}),
           })
           .eq('id', existing.id)
       } else {
@@ -1242,6 +1283,7 @@ ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join(
           gmail_thread_id:  parsed.threadId,
           created_by_maia:  true,
           resolved_at:      ticketResolvedAt,
+          ticket_category:  ticketCategory,
         })
       }
     } catch (tErr) {
