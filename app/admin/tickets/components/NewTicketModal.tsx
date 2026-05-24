@@ -10,6 +10,8 @@
 import { useRouter } from 'next/navigation'
 import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
 
+import { TICKET_CATEGORIES } from '@/lib/ticket-categories'
+
 interface Association {
   association_code: string
   association_name: string
@@ -52,6 +54,7 @@ export default function NewTicketModal({ associations, staff, defaultType, onClo
   const [workOrderTypes,   setWorkOrderTypes]   = useState<Array<{ id: number; name: string }>>([])
   const [typesLoading,     setTypesLoading]     = useState(false)
   const [typesError,       setTypesError]       = useState<string | null>(null)
+  const [ticketCategory,   setTicketCategory]   = useState<string>('')
 
   // Fetch CINC work-order types lazily the first time type=work_order.
   // Cached in lib/integrations/cinc.ts so subsequent fetches don't hit CINC.
@@ -96,6 +99,7 @@ export default function NewTicketModal({ associations, staff, defaultType, onClo
           initial_note:         initialNote.trim()  || null,
           work_order_type_id:   type === 'work_order' && chosenWoType ? chosenWoType.id   : null,
           work_order_type_name: type === 'work_order' && chosenWoType ? chosenWoType.name : null,
+          ticket_category:      type === 'ticket' && ticketCategory ? ticketCategory : null,
         }),
       })
       const data = await res.json()
@@ -188,6 +192,25 @@ export default function NewTicketModal({ associations, staff, defaultType, onClo
                   Could not load CINC types: {typesError}
                 </span>
               )}
+            </Field>
+          )}
+
+          {/* Ticket category — plain tickets only. Routes the ticket to
+              the right team (Resident Support / Violations / Financial / etc.). */}
+          {type === 'ticket' && (
+            <Field label="Category">
+              <select
+                value={ticketCategory}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setTicketCategory(e.target.value)}
+                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white"
+              >
+                <option value="">— Uncategorised</option>
+                {TICKET_CATEGORIES.map(c => (
+                  <option key={c.label} value={c.label}>
+                    {c.label} — {c.hint}
+                  </option>
+                ))}
+              </select>
             </Field>
           )}
 

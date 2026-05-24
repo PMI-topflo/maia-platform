@@ -16,6 +16,7 @@ import {
   type TicketChannel,
   type TicketPriority,
 } from '@/lib/tickets'
+import { isValidTicketCategory } from '@/lib/ticket-categories'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,6 +38,7 @@ interface CreateBody {
   assignee_email?:       string | null
   work_order_type_id?:   number | null
   work_order_type_name?: string | null
+  ticket_category?:      string | null
   initial_note?:         string                // optional — seeds the timeline
   actor_email?:          string                // who is creating it
 }
@@ -57,6 +59,11 @@ export async function POST(req: Request) {
   if (body.channel_origin && !VALID_CHANNEL.includes(body.channel_origin)) {
     return NextResponse.json({ error: 'Invalid channel_origin' }, { status: 400 })
   }
+  if (body.ticket_category !== undefined
+      && body.ticket_category !== null
+      && !isValidTicketCategory(body.ticket_category)) {
+    return NextResponse.json({ error: 'Invalid ticket_category' }, { status: 400 })
+  }
 
   try {
     const ticket = await createTicket({
@@ -73,6 +80,7 @@ export async function POST(req: Request) {
       assignee_email:       body.assignee_email,
       work_order_type_id:   body.work_order_type_id,
       work_order_type_name: body.work_order_type_name,
+      ticket_category:      body.ticket_category,
     })
 
     if (body.initial_note?.trim()) {

@@ -528,6 +528,19 @@ DROP POLICY IF EXISTS "service_role_all_report_feedback" ON public.report_feedba
 CREATE POLICY "service_role_all_report_feedback"
   ON public.report_feedback FOR ALL TO service_role USING (true);`,
   },
+  {
+    key:         'tickets_category',
+    label:       'Ticket category field',
+    description: 'tickets.ticket_category',
+    filename:    '20260525_tickets_category.sql',
+    artifact:    { type: 'column', table: 'tickets', column: 'ticket_category' },
+    sql: `ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS ticket_category text;
+
+CREATE INDEX IF NOT EXISTS tickets_category_idx
+  ON public.tickets (ticket_category, updated_at DESC)
+  WHERE ticket_category IS NOT NULL;`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
