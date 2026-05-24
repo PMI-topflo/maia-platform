@@ -7,6 +7,7 @@
 import { NextResponse } from 'next/server'
 import { updateTicket, type TicketStatus, type TicketPriority, type TicketType } from '@/lib/tickets'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { isValidTicketCategory } from '@/lib/ticket-categories'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,6 +29,7 @@ interface PatchBody {
   unit_number?:          string | null
   is_board_request?:     boolean
   requested_by?:         string | null
+  ticket_category?:      string | null
   actor_email?:          string
   happened_at?:          string  // ISO datetime, for backdated audit events
   reason?:               string  // optional free-form note logged to ticket_events.payload
@@ -60,6 +62,11 @@ export async function PATCH(
       && body.work_order_type_id !== null
       && !(Number.isInteger(body.work_order_type_id) && body.work_order_type_id > 0)) {
     return NextResponse.json({ error: 'Invalid work_order_type_id' }, { status: 400 })
+  }
+  if (body.ticket_category !== undefined
+      && body.ticket_category !== null
+      && !isValidTicketCategory(body.ticket_category)) {
+    return NextResponse.json({ error: 'Invalid ticket_category' }, { status: 400 })
   }
 
   // Validate happened_at if provided (must be a parseable date, not in
@@ -94,6 +101,7 @@ export async function PATCH(
         unit_number:          body.unit_number,
         is_board_request:     body.is_board_request,
         requested_by:         body.requested_by,
+        ticket_category:      body.ticket_category,
       },
       body.actor_email ?? 'staff',
       { happened_at: happenedAtIso, reason: body.reason },

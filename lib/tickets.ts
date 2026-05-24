@@ -201,6 +201,7 @@ export interface CreateTicketInput {
   assignee_email?:       string | null
   work_order_type_id?:   number | null
   work_order_type_name?: string | null
+  ticket_category?:      string | null
 }
 
 export async function createTicket(input: CreateTicketInput): Promise<Ticket> {
@@ -222,6 +223,7 @@ export async function createTicket(input: CreateTicketInput): Promise<Ticket> {
     due_at:               dueAtFor(priority),
     work_order_type_id:   input.work_order_type_id   ?? null,
     work_order_type_name: input.work_order_type_name ?? null,
+    ticket_category:      input.ticket_category      ?? null,
   }
   const { data, error } = await supabaseAdmin
     .from('tickets')
@@ -266,6 +268,7 @@ export interface UpdateTicketPatch {
   unit_number?:          string | null
   is_board_request?:     boolean
   requested_by?:         string | null
+  ticket_category?:      string | null
 }
 
 /** Optional metadata for the audit row(s) the patch generates. When
@@ -287,7 +290,7 @@ export async function updateTicket(
   // Pull previous values so the audit row records the actual change.
   const { data: prev } = await supabaseAdmin
     .from('tickets')
-    .select('status, priority, assignee_email, due_at, type, work_order_type_id, work_order_type_name, association_code, unit_number, is_board_request, requested_by')
+    .select('status, priority, assignee_email, due_at, type, work_order_type_id, work_order_type_name, association_code, unit_number, is_board_request, requested_by, ticket_category')
     .eq('id', ticketId)
     .single()
 
@@ -317,6 +320,7 @@ export async function updateTicket(
   if (patch.unit_number       !== undefined && patch.unit_number       !== prev?.unit_number)       events.push({ event_type: 'unit_changed',        payload: { from: prev?.unit_number       ?? null, to: patch.unit_number       ?? null } })
   if (patch.is_board_request  !== undefined && patch.is_board_request  !== prev?.is_board_request)  events.push({ event_type: 'board_request_changed', payload: { from: prev?.is_board_request ?? false, to: patch.is_board_request ?? false } })
   if (patch.requested_by      !== undefined && patch.requested_by      !== prev?.requested_by)      events.push({ event_type: 'requested_by_changed', payload: { from: prev?.requested_by      ?? null,  to: patch.requested_by      ?? null  } })
+  if (patch.ticket_category   !== undefined && patch.ticket_category   !== prev?.ticket_category)   events.push({ event_type: 'category_changed',     payload: { from: prev?.ticket_category   ?? null,  to: patch.ticket_category   ?? null  } })
 
   const woTypeChanged = patch.work_order_type_id !== undefined && patch.work_order_type_id !== prev?.work_order_type_id
   if (woTypeChanged) {

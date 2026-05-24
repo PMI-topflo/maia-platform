@@ -43,6 +43,7 @@ interface TicketRecord {
   unit_number:            string | null
   is_board_request:       boolean
   requested_by:           string | null
+  ticket_category:        string | null
   sync_status:            Record<string, unknown> | null
   archived_at:            string | null
   created_at:             string
@@ -645,6 +646,9 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           />
           <Detail label="Unit"         value={ticket.unit_number ?? '—'} />
           <Detail label="Requested by" value={ticket.requested_by ?? '—'} />
+          {ticket.type !== 'work_order' && (
+            <Detail label="Category"   value={ticket.ticket_category ?? '—'} />
+          )}
           {ticket.is_board_request && (
             <div className="flex items-baseline justify-between py-1 text-xs">
               <span className="text-gray-400">Origin</span>
@@ -672,12 +676,14 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
         {showEditDetails && (
           <EditDetailsModal
             ticketId={ticket.id}
+            ticketType={ticket.type}
             associations={associations}
             initial={{
               association_code: ticket.association_code,
               unit_number:      ticket.unit_number,
               is_board_request: ticket.is_board_request,
               requested_by:     ticket.requested_by,
+              ticket_category:  ticket.ticket_category,
             }}
             onClose={() => setShowEditDetails(false)}
           />
