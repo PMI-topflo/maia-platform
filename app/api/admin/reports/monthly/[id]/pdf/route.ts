@@ -13,7 +13,12 @@ import { renderToBuffer } from '@react-pdf/renderer'
 
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { gatherMonthlyReportData, monthLabel } from '@/lib/monthly-report'
+import {
+  gatherMonthlyReportData,
+  monthLabel,
+  canViewPublishedReport,
+  type ReportAudience,
+} from '@/lib/monthly-report'
 import { MonthlyReportPdf } from '@/lib/monthly-report-pdf'
 import { getFinancials } from '@/lib/report-financials'
 
@@ -38,7 +43,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const cookieStore = await cookies()
   const token       = cookieStore.get(SESSION_COOKIE)?.value
   const session     = token ? await verifySession(token) : null
-  if (!session || session.persona !== 'staff') {
+  if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -46,11 +51,21 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const { data, error } = await supabaseAdmin
     .from('monthly_reports')
-    .select('id, association_code, month, report_markdown, generated_by_email, generated_at')
+    .select('id, association_code, month, report_markdown, generated_by_email, generated_at, published_at, published_audience')
     .eq('id', id)
     .maybeSingle()
   if (error || !data) {
     return NextResponse.json({ error: 'Report not found' }, { status: 404 })
+  }
+
+  // Staff always; board/owner if the report is published to them and
+  // their session's association matches.
+  if (!canViewPublishedReport(session, {
+    association_code:   data.association_code as string,
+    published_at:       (data.published_at as string | null) ?? null,
+    published_audience: (data.published_audience as ReportAudience | null) ?? null,
+  })) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const code = data.association_code as string
