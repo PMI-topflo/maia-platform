@@ -12,8 +12,11 @@ import Link from 'next/link'
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import type { ReportAudience } from '@/lib/monthly-report'
+import { getFeedbackForReport, aggregateByAudience } from '@/lib/report-feedback'
 import MonthlyReportArticle from '@/components/MonthlyReportArticle'
 import PublishPanel from '../../PublishPanel'
+import SendReportPanel from './SendReportPanel'
+import FeedbackPanel from './FeedbackPanel'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Monthly Report — PMI Top Florida' }
@@ -45,6 +48,10 @@ export default async function ReportViewPage({
   if (error || !data) notFound()
   const report = data as ReportRow
 
+  // Audience feedback (per-recipient rating + comment).
+  const feedbackRows = await getFeedbackForReport(report.id)
+  const audienceStat = aggregateByAudience(feedbackRows)
+
   const builderHref =
     `/admin/reports/monthly?month=${report.month}` +
     (report.association_code === 'ALL' ? '' : `&assoc=${report.association_code}`)
@@ -75,6 +82,19 @@ export default async function ReportViewPage({
           </div>
         </div>
       </div>
+
+      {/* Distribution + feedback band — staff metadata, hidden in print. */}
+      {report.association_code !== 'ALL' && (
+        <div className="print:hidden mx-auto max-w-[820px] space-y-3 px-6 pt-5">
+          <SendReportPanel
+            reportId={report.id}
+            publishedAudience={report.published_audience}
+            boardStat={audienceStat.board}
+            ownersStat={audienceStat.owners}
+          />
+          <FeedbackPanel rows={feedbackRows} />
+        </div>
+      )}
 
       <MonthlyReportArticle report={report} showStatementPdfLink />
     </div>
