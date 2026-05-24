@@ -456,6 +456,15 @@ CREATE POLICY "service_role_all_report_financials"
   ADD COLUMN IF NOT EXISTS unit_number      text,
   ADD COLUMN IF NOT EXISTS is_board_request boolean NOT NULL DEFAULT false;`,
   },
+  {
+    key:         'tickets_requested_by',
+    label:       'Ticket "requested by"',
+    description: 'tickets.requested_by',
+    filename:    '20260523_tickets_requested_by.sql',
+    artifact:    { type: 'column', table: 'tickets', column: 'requested_by' },
+    sql: `ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS requested_by text;`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
