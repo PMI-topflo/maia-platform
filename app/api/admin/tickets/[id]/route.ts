@@ -24,6 +24,9 @@ interface PatchBody {
   summary?:              string | null
   work_order_type_id?:   number | null
   work_order_type_name?: string | null
+  association_code?:     string | null
+  unit_number?:          string | null
+  is_board_request?:     boolean
   actor_email?:          string
   happened_at?:          string  // ISO datetime, for backdated audit events
   reason?:               string  // optional free-form note logged to ticket_events.payload
@@ -86,6 +89,9 @@ export async function PATCH(
         summary:              body.summary,
         work_order_type_id:   body.work_order_type_id,
         work_order_type_name: body.work_order_type_name,
+        association_code:     body.association_code,
+        unit_number:          body.unit_number,
+        is_board_request:     body.is_board_request,
       },
       body.actor_email ?? 'staff',
       { happened_at: happenedAtIso, reason: body.reason },

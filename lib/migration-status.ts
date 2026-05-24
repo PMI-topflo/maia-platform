@@ -509,6 +509,16 @@ CREATE INDEX IF NOT EXISTS tickets_created_by_maia_idx
   ON public.tickets (association_code, resolved_at DESC)
   WHERE created_by_maia = true;`,
   },
+  {
+    key:         'tickets_unit_board_request',
+    label:       'Ticket unit + board-request fields',
+    description: 'tickets.unit_number',
+    filename:    '20260523_tickets_unit_board_request.sql',
+    artifact:    { type: 'column', table: 'tickets', column: 'unit_number' },
+    sql: `ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS unit_number      text,
+  ADD COLUMN IF NOT EXISTS is_board_request boolean NOT NULL DEFAULT false;`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
