@@ -153,6 +153,7 @@ export interface MonthlyReportPdfProps {
     ticketsReceived: number; ticketsClosed: number
     workOrdersReceived: number; workOrdersClosed: number
     emailThreadsReceived: number
+    maiaResolved: number
   }
   financials?:   FinancialFigures | null
 }
@@ -232,6 +233,7 @@ export function MonthlyReportPdf(p: MonthlyReportPdfProps) {
             <Stat n={p.totals.workOrdersReceived}   label="Work orders" />
             <Stat n={p.totals.workOrdersClosed}     label="WOs completed" />
             <Stat n={p.totals.emailThreadsReceived} label="Email threads" />
+            <Stat n={p.totals.maiaResolved}         label="MAIA resolved" />
           </View>
 
           {/* Financial summary — figures from the uploaded statement */}
