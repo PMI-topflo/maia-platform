@@ -1083,6 +1083,57 @@ ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join(
       })
       .eq('id', convRow.id)
 
+    // Auto-open a ticket for this MAIA-handled conversation and close
+    // it as 'resolved' in one shot — so the monthly report can count
+    // it under "resolved by MAIA AI". Only when MAIA actually finished
+    // (the catch branch below skips this entirely on failure, so the
+    // metric stays a real signal of AI value, not retries). Best-effort:
+    // a ticket insert failure must not undo the email reply that
+    // already went out.
+    //
+    // Thread-dedup: one MAIA ticket per Gmail thread. If MAIA has
+    // already auto-resolved a ticket for this thread, bump its
+    // resolved_at instead of inserting another — otherwise a long
+    // thread (e.g. a forwarded transfer-doc exchange) would inflate
+    // both the dashboard and the "Resolved by MAIA" metric by an order
+    // of magnitude.
+    try {
+      const resolvedAt = new Date().toISOString()
+      const existing = parsed.threadId
+        ? (await supabaseAdmin
+            .from('tickets')
+            .select('id')
+            .eq('gmail_thread_id', parsed.threadId)
+            .eq('created_by_maia', true)
+            .maybeSingle()).data
+        : null
+
+      if (existing) {
+        await supabaseAdmin
+          .from('tickets')
+          .update({ resolved_at: resolvedAt, updated_at: resolvedAt })
+          .eq('id', (existing as { id: number }).id)
+      } else {
+        await supabaseAdmin.from('tickets').insert({
+          type:             'ticket',
+          status:           'resolved',
+          priority:         'low',
+          channel_origin:   'email',
+          association_code: detectedAssocCode,
+          contact_name:     parsed.senderName,
+          contact_email:    parsed.senderEmail?.toLowerCase() ?? null,
+          subject:          parsed.subject,
+          summary:          (parsed.body ?? '').slice(0, 800),
+          assignee_email:   'maia@pmitop.com',
+          gmail_thread_id:  parsed.threadId,
+          created_by_maia:  true,
+          resolved_at:      resolvedAt,
+        })
+      }
+    } catch (tErr) {
+      console.error('[MAIA general] auto-ticket insert failed:', tErr instanceof Error ? tErr.message : String(tErr))
+    }
+
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[MAIA general] error:', msg)
@@ -1090,6 +1141,9 @@ ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join(
       .from('general_conversations')
       .update({ status: 'failed', error_message: msg, updated_at: new Date().toISOString() })
       .eq('id', convRow.id)
+    // Deliberately no ticket created on failure — only successful MAIA
+    // resolutions become tickets, so "resolved by MAIA" is a clean
+    // measure of value.
   }
 }
 
