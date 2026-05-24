@@ -192,6 +192,7 @@ interface Conversation {
   response: string | null
   subject: string | null
   sender_email: string | null
+  gmail_thread_id: string | null
   created_at: string
   updated_at: string
   messages: Array<{ role: string; content: string }> | null
@@ -389,15 +390,6 @@ function ConversationsTab({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [archiving, setArchiving] = useState(false)
 
-  function toggleSelect(id: string) {
-    setSelected(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else              next.add(id)
-      return next
-    })
-  }
-
   function toggleArchivedView() {
     const params = new URLSearchParams(searchParams.toString())
     if (showArchived) params.delete('convArchived')
@@ -460,10 +452,39 @@ function ConversationsTab({
     return true
   })
 
+  // Thread grouping: collapse rows that share a gmail_thread_id into one
+  // displayed card (the latest), and surface "+N in thread" so staff can
+  // see the volume without 12 near-identical rows clogging the queue.
+  // Rows with no thread_id (web/SMS/WhatsApp, or email without a thread)
+  // remain individual.
+  const grouped: Array<{ latest: Conversation; threadCount: number; threadIds: string[] }> = (() => {
+    const byThread = new Map<string, Conversation[]>()
+    const standalone: Conversation[] = []
+    for (const c of filtered) {
+      if (c.gmail_thread_id) {
+        const arr = byThread.get(c.gmail_thread_id)
+        if (arr) arr.push(c); else byThread.set(c.gmail_thread_id, [c])
+      } else {
+        standalone.push(c)
+      }
+    }
+    const groups: Array<{ latest: Conversation; threadCount: number; threadIds: string[] }> = []
+    for (const arr of byThread.values()) {
+      // Latest = max updated_at; falls back to created_at when updated_at
+      // is missing or equal.
+      const latest = arr.reduce((a, b) => (a.updated_at >= b.updated_at ? a : b))
+      groups.push({ latest, threadCount: arr.length, threadIds: arr.map(c => c.id) })
+    }
+    for (const c of standalone) {
+      groups.push({ latest: c, threadCount: 1, threadIds: [c.id] })
+    }
+    return groups.sort((x, y) => y.latest.updated_at.localeCompare(x.latest.updated_at))
+  })()
+
   const staffById = Object.fromEntries(staff.map(s => [s.id, s.name]))
   const { linksById, pushLink, dropLink } = useCommunicationLinks(
     'conversation',
-    filtered.map(c => c.id),
+    grouped.map(g => g.latest.id),
   )
 
   return (
@@ -532,7 +553,10 @@ function ConversationsTab({
       {/* Bulk action bar — appears once rows are selected. */}
       <div className="flex items-center justify-between mb-2 min-h-[28px]">
         <div className="text-xs text-gray-400">
-          {filtered.length} conversation{filtered.length === 1 ? '' : 's'}
+          {grouped.length} thread{grouped.length === 1 ? '' : 's'}
+          {filtered.length !== grouped.length && (
+            <span className="text-gray-300"> · {filtered.length} message{filtered.length === 1 ? '' : 's'}</span>
+          )}
           {showArchived && <span className="text-amber-700"> · archived</span>}
         </div>
         {selected.size > 0 && (
@@ -559,10 +583,10 @@ function ConversationsTab({
             </button>
           </div>
         )}
-        {selected.size === 0 && filtered.length > 0 && (
+        {selected.size === 0 && grouped.length > 0 && (
           <button
             type="button"
-            onClick={() => setSelected(new Set(filtered.map(c => c.id)))}
+            onClick={() => setSelected(new Set(grouped.flatMap(g => g.threadIds)))}
             className="text-xs text-gray-500 hover:text-[#f26a1b]"
           >
             Select all
@@ -571,15 +595,30 @@ function ConversationsTab({
       </div>
 
       <div className="space-y-2">
-        {filtered.map(c => (
+        {grouped.map(g => {
+          const c = g.latest
+          const threadAllSelected = g.threadIds.every(id => selected.has(id))
+          const toggleThread = () => {
+            setSelected(prev => {
+              const next = new Set(prev)
+              if (threadAllSelected) {
+                for (const id of g.threadIds) next.delete(id)
+              } else {
+                for (const id of g.threadIds) next.add(id)
+              }
+              return next
+            })
+          }
+          return (
           <div key={c.id} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="flex items-stretch">
               <label className="flex items-center pl-3 pr-1">
                 <input
                   type="checkbox"
-                  checked={selected.has(c.id)}
-                  onChange={() => toggleSelect(c.id)}
+                  checked={threadAllSelected}
+                  onChange={toggleThread}
                   className="w-4 h-4 accent-[#f26a1b] cursor-pointer"
+                  title={g.threadCount > 1 ? `Select all ${g.threadCount} messages in this thread` : undefined}
                 />
               </label>
               <button
@@ -595,6 +634,14 @@ function ConversationsTab({
                     </span>
                     {c.contact_phone && <span className="text-xs text-gray-400">{c.contact_phone}</span>}
                     {statusBadge(c.status)}
+                    {g.threadCount > 1 && (
+                      <span
+                        className="bg-orange-50 text-[#d85a14] px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide"
+                        title={`${g.threadCount} messages in this email thread`}
+                      >
+                        ✉ {g.threadCount} in thread
+                      </span>
+                    )}
                     {c.persona && (
                       <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] uppercase">
                         {c.persona.replace(/_/g, ' ')}
@@ -643,10 +690,14 @@ function ConversationsTab({
               </button>
               <button
                 type="button"
-                onClick={() => archiveConversations([c.id], showArchived ? 'restore' : 'archive')}
+                onClick={() => archiveConversations(g.threadIds, showArchived ? 'restore' : 'archive')}
                 disabled={archiving}
                 className="px-3 text-gray-300 hover:text-[#f26a1b] hover:bg-gray-50 transition-colors disabled:opacity-40"
-                title={showArchived ? 'Restore conversation' : 'Archive conversation'}
+                title={
+                  showArchived
+                    ? (g.threadCount > 1 ? `Restore all ${g.threadCount} thread messages` : 'Restore conversation')
+                    : (g.threadCount > 1 ? `Archive all ${g.threadCount} thread messages` : 'Archive conversation')
+                }
               >
                 {showArchived ? '↺' : '✕'}
               </button>
@@ -706,9 +757,10 @@ function ConversationsTab({
               </div>
             )}
           </div>
-        ))}
+          )
+        })}
 
-        {filtered.length === 0 && (
+        {grouped.length === 0 && (
           <div className="text-center py-12 text-gray-400 text-sm">No conversations match your filters.</div>
         )}
       </div>

@@ -141,7 +141,7 @@ async function getData(
   })()
 
   const convCols =
-    'id, session_id, persona, language, association_code, topic, status, channel, contact_name, contact_phone, contact_email, assigned_to, handled_by, summary, message, response, subject, sender_email, created_at, updated_at, messages'
+    'id, session_id, persona, language, association_code, topic, status, channel, contact_name, contact_phone, contact_email, assigned_to, handled_by, summary, message, response, subject, sender_email, gmail_thread_id, created_at, updated_at, messages'
     + (convArchivedExists ? ', archived_at' : '')
 
   let convQuery = supabaseAdmin
