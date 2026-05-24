@@ -109,12 +109,13 @@ export default async function MonthlyReportArticle({
 
           <div className="px-9 pb-2 pt-7">
             {/* The month at a glance */}
-            <div className="report-block grid grid-cols-5 gap-2.5">
+            <div className="report-block grid grid-cols-3 gap-2.5 sm:grid-cols-6">
               <StatCard n={t.ticketsReceived}      label="Tickets received" />
               <StatCard n={t.ticketsClosed}        label="Tickets closed" />
               <StatCard n={t.workOrdersReceived}   label="Work orders" />
               <StatCard n={t.workOrdersClosed}     label="WOs completed" />
               <StatCard n={t.emailThreadsReceived} label="Email threads" />
+              <StatCard n={t.maiaResolved}         label="Resolved by MAIA" />
             </div>
 
             {/* Financial summary — figures from the uploaded CINC statement */}

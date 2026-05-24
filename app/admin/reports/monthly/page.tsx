@@ -138,6 +138,7 @@ export default async function MonthlyReportPage({
                 <th className="px-4 py-2 font-semibold text-right">WOs received</th>
                 <th className="px-4 py-2 font-semibold text-right">WOs closed</th>
                 <th className="px-4 py-2 font-semibold text-right">Email threads</th>
+                <th className="px-4 py-2 font-semibold text-right" title="Subset of closed tickets MAIA auto-resolved (freeform @maia conversations).">Resolved by MAIA</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -153,6 +154,7 @@ export default async function MonthlyReportPage({
                   <td className="px-4 py-2 text-right text-gray-700">{a.workOrdersReceived}</td>
                   <td className="px-4 py-2 text-right text-gray-700">{a.workOrdersClosed}</td>
                   <td className="px-4 py-2 text-right text-gray-700">{a.emailThreadsReceived}</td>
+                  <td className="px-4 py-2 text-right font-medium text-[#f26a1b]">{a.maiaResolved}</td>
                 </tr>
               ))}
             </tbody>
@@ -165,6 +167,7 @@ export default async function MonthlyReportPage({
                   <td className="px-4 py-2 text-right">{t.workOrdersReceived}</td>
                   <td className="px-4 py-2 text-right">{t.workOrdersClosed}</td>
                   <td className="px-4 py-2 text-right">{t.emailThreadsReceived}</td>
+                  <td className="px-4 py-2 text-right text-[#f26a1b]">{t.maiaResolved}</td>
                 </tr>
               </tfoot>
             )}

@@ -486,6 +486,19 @@ CREATE INDEX IF NOT EXISTS monthly_reports_published_idx
   ON public.monthly_reports (association_code, published_at DESC)
   WHERE published_at IS NOT NULL;`,
   },
+  {
+    key:         'tickets_created_by_maia',
+    label:       'MAIA AI auto-resolution flag',
+    description: 'tickets.created_by_maia',
+    filename:    '20260523_tickets_created_by_maia.sql',
+    artifact:    { type: 'column', table: 'tickets', column: 'created_by_maia' },
+    sql: `ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS created_by_maia boolean NOT NULL DEFAULT false;
+
+CREATE INDEX IF NOT EXISTS tickets_created_by_maia_idx
+  ON public.tickets (association_code, resolved_at DESC)
+  WHERE created_by_maia = true;`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

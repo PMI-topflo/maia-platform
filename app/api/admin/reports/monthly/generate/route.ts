@@ -71,14 +71,16 @@ export async function POST(req: Request) {
     : data.activity.map(a =>
         `- ${a.name} (${a.code}): tickets ${a.ticketsReceived} received / ${a.ticketsClosed} closed · ` +
         `work orders ${a.workOrdersReceived} received / ${a.workOrdersClosed} closed · ` +
-        `${a.emailThreadsReceived} email threads received`,
+        `${a.emailThreadsReceived} email threads received · ` +
+        `${a.maiaResolved} resolved automatically by MAIA AI`,
       ).join('\n')
 
   const t = data.totals
   const totalsLine =
     `TOTALS: tickets ${t.ticketsReceived} received / ${t.ticketsClosed} closed · ` +
     `work orders ${t.workOrdersReceived} received / ${t.workOrdersClosed} closed · ` +
-    `${t.emailThreadsReceived} email threads received`
+    `${t.emailThreadsReceived} email threads received · ` +
+    `${t.maiaResolved} resolved automatically by MAIA AI (subset of tickets closed — answered by the AI assistant)`
 
   // The report covers every item created this month except the ones
   // staff unticked in the preview.
