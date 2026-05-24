@@ -16,6 +16,7 @@ import VendorPickerModal from './VendorPickerModal'
 import WorkOrderPhotos from './WorkOrderPhotos'
 import LogMessageModal from './LogMessageModal'
 import RelatedTicketsCard from './RelatedTicketsCard'
+import EditDetailsModal from './EditDetailsModal'
 
 interface TicketRecord {
   id:                     number
@@ -39,10 +40,18 @@ interface TicketRecord {
   cinc_workorder_id:      string | null
   work_order_type_id:     number | null
   work_order_type_name:   string | null
+  unit_number:            string | null
+  is_board_request:       boolean
+  requested_by:           string | null
   sync_status:            Record<string, unknown> | null
   archived_at:            string | null
   created_at:             string
   updated_at:             string
+}
+
+export interface AssociationOption {
+  association_code: string
+  association_name: string
 }
 
 interface MessageRecord {
@@ -101,6 +110,7 @@ export interface TicketDetailData {
   workOrder:        WorkOrderRecord | null
   staff:            StaffMember[]
   associationName:  string | null
+  associations:     AssociationOption[]
 }
 
 const STATUS_OPTIONS   = ['open', 'pending', 'waiting_external', 'resolved', 'closed']
@@ -157,7 +167,7 @@ function fmtAddress(wo: WorkOrderRecord): string | null {
 
 export default function TicketDetailClient({ data }: { data: TicketDetailData }) {
   const router = useRouter()
-  const { ticket, messages, events, workOrder, staff, associationName } = data
+  const { ticket, messages, events, workOrder, staff, associationName, associations } = data
 
   const [status,        setStatus]        = useState(ticket.status)
   const [priority,      setPriority]      = useState(ticket.priority)
@@ -189,6 +199,7 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
 
   const [showSchedulingModal, setShowSchedulingModal] = useState(false)
   const [showVendorModal,     setShowVendorModal]     = useState(false)
+  const [showEditDetails,     setShowEditDetails]     = useState(false)
   const [pushBusy,            setPushBusy]            = useState(false)
 
   async function pushToCinc() {
@@ -610,7 +621,19 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           </Card>
         )}
 
-        <Card title="Details">
+        <Card
+          title="Details"
+          action={
+            <button
+              type="button"
+              onClick={() => setShowEditDetails(true)}
+              className="text-[10px] uppercase tracking-wide text-blue-600 hover:text-blue-800"
+              title="Edit association, unit, and board-request flag"
+            >
+              Edit
+            </button>
+          }
+        >
           <Detail label="Channel"     value={CHANNEL_LABELS[ticket.channel_origin] ?? ticket.channel_origin} />
           <Detail
             label="Association"
@@ -620,6 +643,16 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
                 : (associationName ?? ticket.association_code ?? '—')
             }
           />
+          <Detail label="Unit"         value={ticket.unit_number ?? '—'} />
+          <Detail label="Requested by" value={ticket.requested_by ?? '—'} />
+          {ticket.is_board_request && (
+            <div className="flex items-baseline justify-between py-1 text-xs">
+              <span className="text-gray-400">Origin</span>
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800">
+                Board request
+              </span>
+            </div>
+          )}
           <Detail label="Email"       value={ticket.contact_email   ?? '—'} mono />
           <Detail label="Phone"       value={ticket.contact_phone   ?? '—'} mono />
           <div className="flex items-baseline justify-between text-xs py-1">
@@ -635,6 +668,20 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           </div>
           <Detail label="Updated"     value={fmtAbs(ticket.updated_at)} />
         </Card>
+
+        {showEditDetails && (
+          <EditDetailsModal
+            ticketId={ticket.id}
+            associations={associations}
+            initial={{
+              association_code: ticket.association_code,
+              unit_number:      ticket.unit_number,
+              is_board_request: ticket.is_board_request,
+              requested_by:     ticket.requested_by,
+            }}
+            onClose={() => setShowEditDetails(false)}
+          />
+        )}
 
         <RelatedTicketsCard ticketId={ticket.id} />
 
@@ -986,10 +1033,15 @@ function ReplyTab(props: {
   )
 }
 
-function Card({ title, children }: { title: string; children: ReactNode }) {
+function Card({
+  title, children, action,
+}: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-3">
-      <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">{title}</div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{title}</div>
+        {action}
+      </div>
       {children}
     </div>
   )

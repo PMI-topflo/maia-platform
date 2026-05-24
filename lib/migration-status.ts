@@ -446,6 +446,25 @@ DROP POLICY IF EXISTS "service_role_all_report_financials" ON public.report_fina
 CREATE POLICY "service_role_all_report_financials"
   ON public.report_financials FOR ALL TO service_role USING (true);`,
   },
+  {
+    key:         'tickets_unit_board_request',
+    label:       'Ticket unit + board-request fields',
+    description: 'tickets.unit_number',
+    filename:    '20260523_tickets_unit_board_request.sql',
+    artifact:    { type: 'column', table: 'tickets', column: 'unit_number' },
+    sql: `ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS unit_number      text,
+  ADD COLUMN IF NOT EXISTS is_board_request boolean NOT NULL DEFAULT false;`,
+  },
+  {
+    key:         'tickets_requested_by',
+    label:       'Ticket "requested by"',
+    description: 'tickets.requested_by',
+    filename:    '20260523_tickets_requested_by.sql',
+    artifact:    { type: 'column', table: 'tickets', column: 'requested_by' },
+    sql: `ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS requested_by text;`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

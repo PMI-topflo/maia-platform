@@ -262,6 +262,10 @@ export interface UpdateTicketPatch {
   type?:                 TicketType
   work_order_type_id?:   number | null
   work_order_type_name?: string | null
+  association_code?:     string | null
+  unit_number?:          string | null
+  is_board_request?:     boolean
+  requested_by?:         string | null
 }
 
 /** Optional metadata for the audit row(s) the patch generates. When
@@ -283,7 +287,7 @@ export async function updateTicket(
   // Pull previous values so the audit row records the actual change.
   const { data: prev } = await supabaseAdmin
     .from('tickets')
-    .select('status, priority, assignee_email, due_at, type, work_order_type_id, work_order_type_name')
+    .select('status, priority, assignee_email, due_at, type, work_order_type_id, work_order_type_name, association_code, unit_number, is_board_request, requested_by')
     .eq('id', ticketId)
     .single()
 
@@ -309,6 +313,10 @@ export async function updateTicket(
   if (patch.priority       && patch.priority       !== prev?.priority)       events.push({ event_type: 'priority_changed',   payload: { from: prev?.priority,       to: patch.priority       } })
   if (patch.assignee_email !== undefined && patch.assignee_email !== prev?.assignee_email) events.push({ event_type: 'assigned', payload: { from: prev?.assignee_email, to: patch.assignee_email } })
   if (patch.type           && patch.type           !== prev?.type)           events.push({ event_type: 'type_changed',       payload: { from: prev?.type,           to: patch.type           } })
+  if (patch.association_code  !== undefined && patch.association_code  !== prev?.association_code)  events.push({ event_type: 'association_changed', payload: { from: prev?.association_code  ?? null, to: patch.association_code  ?? null } })
+  if (patch.unit_number       !== undefined && patch.unit_number       !== prev?.unit_number)       events.push({ event_type: 'unit_changed',        payload: { from: prev?.unit_number       ?? null, to: patch.unit_number       ?? null } })
+  if (patch.is_board_request  !== undefined && patch.is_board_request  !== prev?.is_board_request)  events.push({ event_type: 'board_request_changed', payload: { from: prev?.is_board_request ?? false, to: patch.is_board_request ?? false } })
+  if (patch.requested_by      !== undefined && patch.requested_by      !== prev?.requested_by)      events.push({ event_type: 'requested_by_changed', payload: { from: prev?.requested_by      ?? null,  to: patch.requested_by      ?? null  } })
 
   const woTypeChanged = patch.work_order_type_id !== undefined && patch.work_order_type_id !== prev?.work_order_type_id
   if (woTypeChanged) {

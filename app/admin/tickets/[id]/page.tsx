@@ -24,7 +24,7 @@ export default async function TicketDetailPage(props: PageProps) {
   const ticketId = Number(id)
   if (!Number.isFinite(ticketId)) notFound()
 
-  const [{ data: ticket }, { data: messages }, { data: events }, staff] = await Promise.all([
+  const [{ data: ticket }, { data: messages }, { data: events }, staff, { data: assocList }] = await Promise.all([
     supabaseAdmin.from('tickets').select('*').eq('id', ticketId).single(),
     supabaseAdmin
       .from('ticket_messages')
@@ -37,6 +37,10 @@ export default async function TicketDetailPage(props: PageProps) {
       .eq('ticket_id', ticketId)
       .order('happened_at', { ascending: true }),
     fetchStaffList(),
+    supabaseAdmin
+      .from('associations')
+      .select('association_code, association_name')
+      .order('association_name', { ascending: true }),
   ])
 
   if (!ticket) notFound()
@@ -62,6 +66,8 @@ export default async function TicketDetailPage(props: PageProps) {
     workOrder,
     staff,
     associationName,
+    associations: ((assocList ?? []) as Array<{ association_code: string; association_name: string }>)
+      .filter(a => a.association_code && a.association_name),
   }
 
   // Work-order detail pages share the /admin/tickets/[id] route, so
