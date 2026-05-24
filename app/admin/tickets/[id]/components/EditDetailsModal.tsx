@@ -12,6 +12,7 @@ interface Props {
     association_code: string | null
     unit_number:      string | null
     is_board_request: boolean
+    requested_by:     string | null
   }
   onClose: () => void
 }
@@ -24,6 +25,7 @@ export default function EditDetailsModal({ ticketId, associations, initial, onCl
   const [assoc, setAssoc]               = useState<string>(initial.association_code ?? '')
   const [unit, setUnit]                 = useState<string>(initial.unit_number ?? '')
   const [isBoardRequest, setIsBoardReq] = useState<boolean>(initial.is_board_request)
+  const [requestedBy, setRequestedBy]   = useState<string>(initial.requested_by ?? '')
   const [busy, setBusy]                 = useState(false)
   const [err,  setErr]                  = useState<string | null>(null)
 
@@ -35,12 +37,15 @@ export default function EditDetailsModal({ ticketId, associations, initial, onCl
   }, [onClose])
 
   async function save() {
-    const trimmedUnit = unit.trim()
+    const trimmedUnit  = unit.trim()
+    const trimmedReqBy = requestedBy.trim()
     const patch: Record<string, unknown> = {}
     const initialAssoc = initial.association_code ?? ''
     const initialUnit  = initial.unit_number ?? ''
+    const initialReqBy = initial.requested_by ?? ''
     if (assoc !== initialAssoc)              patch.association_code = assoc || null
     if (trimmedUnit !== initialUnit)         patch.unit_number      = trimmedUnit || null
+    if (trimmedReqBy !== initialReqBy)       patch.requested_by     = trimmedReqBy || null
     if (isBoardRequest !== initial.is_board_request) patch.is_board_request = isBoardRequest
     if (Object.keys(patch).length === 0) { onClose(); return }
 
@@ -102,6 +107,20 @@ export default function EditDetailsModal({ ticketId, associations, initial, onCl
               placeholder="e.g. 305, PH-2, Townhouse 14"
               className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-[#f26a1b] focus:outline-none"
             />
+          </label>
+
+          <label className="block">
+            <span className="block text-[11px] font-medium uppercase tracking-wide text-gray-500">Requested by</span>
+            <input
+              type="text"
+              value={requestedBy}
+              onChange={e => setRequestedBy(e.target.value)}
+              placeholder="Who asked for this — owner name, board member, etc."
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-[#f26a1b] focus:outline-none"
+            />
+            <span className="mt-1 block text-[10px] text-gray-400">
+              The person who actually requested the work, when different from the contact above.
+            </span>
           </label>
 
           <label className="flex cursor-pointer items-start gap-2 pt-1">
