@@ -85,6 +85,9 @@ export interface AssociationActivity {
   workOrdersReceived:   number
   workOrdersClosed:     number
   emailThreadsReceived: number
+  // Subset of ticketsClosed + workOrdersClosed where created_by_maia=true.
+  // Counts every freeform @maia conversation MAIA finished this month.
+  maiaResolved:         number
 }
 
 export type ActivityTotals = Omit<AssociationActivity, 'code' | 'name'>
@@ -183,11 +186,15 @@ export async function gatherMonthlyReportData(
   })
 
   // ── Tickets / work orders closed this month (resolved_at in window) ──
-  type ClosedRow = { type: string | null; association_code: string | null }
+  type ClosedRow = {
+    type:             string | null
+    association_code: string | null
+    created_by_maia:  boolean | null
+  }
   const closed = await fetchAll<ClosedRow>((from, to) => {
     let q = supabaseAdmin
       .from('tickets')
-      .select('type, association_code')
+      .select('type, association_code, created_by_maia')
       .in('status', CLOSED_STATUSES)
       .gte('resolved_at', start).lt('resolved_at', end)
       .range(from, to)
@@ -219,6 +226,7 @@ export async function gatherMonthlyReportData(
         ticketsReceived: 0, ticketsClosed: 0,
         workOrdersReceived: 0, workOrdersClosed: 0,
         emailThreadsReceived: 0,
+        maiaResolved: 0,
       }
       byCode.set(c, r)
     }
@@ -234,6 +242,7 @@ export async function gatherMonthlyReportData(
     const r = row(t.association_code ?? '—')
     if (t.type === 'work_order') r.workOrdersClosed++
     else                        r.ticketsClosed++
+    if (t.created_by_maia)      r.maiaResolved++
   }
   // Distinct gmail threads per association (a null thread id = its own).
   const seenThreads = new Map<string, Set<string>>()
@@ -263,6 +272,7 @@ export async function gatherMonthlyReportData(
     workOrdersReceived:   activity.reduce((s, r) => s + r.workOrdersReceived, 0),
     workOrdersClosed:     activity.reduce((s, r) => s + r.workOrdersClosed, 0),
     emailThreadsReceived: activity.reduce((s, r) => s + r.emailThreadsReceived, 0),
+    maiaResolved:         activity.reduce((s, r) => s + r.maiaResolved, 0),
   }
 
   // ── Report items — every ticket / work order created this month. The
