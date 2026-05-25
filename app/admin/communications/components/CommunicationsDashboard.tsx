@@ -1225,16 +1225,30 @@ function EmailsTab({
         )}
       </div>
 
-      {linkPickerCommId && (
-        <TicketPickerModal
-          title="Link to ticket or work order"
-          onClose={() => setLinkPickerCommId(null)}
-          onConfirm={async (ticketId) => {
-            const fresh = await createTicketLink('email', linkPickerCommId, ticketId)
-            if (fresh) pushLink(linkPickerCommId, fresh)
-          }}
-        />
-      )}
+      {linkPickerCommId && (() => {
+        // Locate the email row so we can pre-fill the create-new form
+        // (subject, sender name/email, association) — saves staff a
+        // round-trip when no existing ticket fits.
+        const seed = threads
+          .flatMap(t => t.messages)
+          .find(m => m.id === linkPickerCommId)
+        return (
+          <TicketPickerModal
+            title="Link to ticket or work order"
+            onClose={() => setLinkPickerCommId(null)}
+            initialCreate={seed ? {
+              subject:          seed.subject ?? '',
+              contact_name:     seed.from_email?.split('@')[0] ?? null,
+              contact_email:    seed.from_email ?? null,
+              association_code: seed.association_code,
+            } : undefined}
+            onConfirm={async (ticketId) => {
+              const fresh = await createTicketLink('email', linkPickerCommId, ticketId)
+              if (fresh) pushLink(linkPickerCommId, fresh)
+            }}
+          />
+        )
+      })()}
     </div>
   )
 }

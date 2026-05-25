@@ -202,6 +202,9 @@ export interface CreateTicketInput {
   work_order_type_id?:   number | null
   work_order_type_name?: string | null
   ticket_category?:      string | null
+  unit_number?:          string | null
+  requested_by?:         string | null
+  is_board_request?:     boolean
 }
 
 export async function createTicket(input: CreateTicketInput): Promise<Ticket> {
@@ -224,6 +227,9 @@ export async function createTicket(input: CreateTicketInput): Promise<Ticket> {
     work_order_type_id:   input.work_order_type_id   ?? null,
     work_order_type_name: input.work_order_type_name ?? null,
     ticket_category:      input.ticket_category      ?? null,
+    unit_number:          input.unit_number          ?? null,
+    requested_by:         input.requested_by         ?? null,
+    is_board_request:     input.is_board_request     ?? false,
   }
   const { data, error } = await supabaseAdmin
     .from('tickets')
