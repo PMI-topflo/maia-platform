@@ -801,6 +801,10 @@ export async function listWorkOrderAttachments(workOrderId: number): Promise<Cin
 export interface CincVendorFull {
   VendorId:      number
   VendorName:    string
+  /** Doing-Business-As. Many vendors invoice under the DBA while CINC
+   *  carries the legal name (or vice versa) — the fuzzy matcher checks
+   *  this alongside VendorName + CheckName. */
+  DBA?:          string  | null
   CheckName?:    string  | null
   Email?:        string  | null
   Phone?:        string  | null
@@ -856,14 +860,23 @@ export async function updateVendorShortName(vendorId: number, shortName: string)
 }
 
 /** Fuzzy-match an extracted vendor name against the CINC catalog.
- *  Score = token-overlap ratio after normalisation (drops LLC/Inc/&,
- *  punctuation, etc.). Returns the best candidate above 0.6, or null.
- *  Cheap — no Levenshtein dep. */
+ *  For each vendor we score the extracted name against THREE candidate
+ *  fields — VendorName, DBA, and CheckName — and keep the best score
+ *  per vendor. Invoices commonly use the DBA while CINC carries the
+ *  legal name (e.g. "Smith Plumbing Services" on the invoice for
+ *  vendor "John Smith Holdings LLC, DBA Smith Plumbing Services").
+ *  Score = token-overlap ratio after normalisation. Returns the best
+ *  candidate above 0.6, or null. Cheap — no Levenshtein dep. */
 export function fuzzyMatchVendor(extractedName: string, catalog: CincVendorFull[]): CincVendorFull | null {
   const target = normalizeVendorName(extractedName)
   if (!target || target.length < 3) return null
 
-  const exact = catalog.find(v => normalizeVendorName(v.VendorName ?? '') === target)
+  // Exact match (normalized) on any of the three fields wins outright.
+  const exact = catalog.find(v =>
+    normalizeVendorName(v.VendorName ?? '') === target ||
+    normalizeVendorName(v.DBA        ?? '') === target ||
+    normalizeVendorName(v.CheckName  ?? '') === target,
+  )
   if (exact) return exact
 
   const targetTokens = new Set(target.split(' ').filter(t => t.length >= 3))
@@ -871,17 +884,26 @@ export function fuzzyMatchVendor(extractedName: string, catalog: CincVendorFull[
 
   let best: { vendor: CincVendorFull; score: number } | null = null
   for (const v of catalog) {
-    const norm   = normalizeVendorName(v.VendorName ?? '')
-    const tokens = new Set(norm.split(' ').filter(t => t.length >= 3))
-    if (tokens.size === 0) continue
-    let overlap = 0
-    for (const t of targetTokens) if (tokens.has(t)) overlap++
-    const score = overlap / Math.max(targetTokens.size, tokens.size)
+    const score = Math.max(
+      scoreAgainstField(targetTokens, v.VendorName),
+      scoreAgainstField(targetTokens, v.DBA),
+      scoreAgainstField(targetTokens, v.CheckName),
+    )
     if (score >= 0.6 && (!best || score > best.score)) {
       best = { vendor: v, score }
     }
   }
   return best?.vendor ?? null
+}
+
+function scoreAgainstField(targetTokens: Set<string>, candidate: string | null | undefined): number {
+  if (!candidate) return 0
+  const norm   = normalizeVendorName(candidate)
+  const tokens = new Set(norm.split(' ').filter(t => t.length >= 3))
+  if (tokens.size === 0) return 0
+  let overlap = 0
+  for (const t of targetTokens) if (tokens.has(t)) overlap++
+  return overlap / Math.max(targetTokens.size, tokens.size)
 }
 
 function normalizeVendorName(s: string): string {
