@@ -28,6 +28,8 @@ interface Draft {
   extracted_invoice_date:      string | null
   gl_account_id:               string | null
   gl_account_name:             string | null
+  pay_by_type:                 string | null
+  observation_note:            string | null
   extraction_confidence:       number | null
   status:                      string
   rejected_reason:             string | null
@@ -38,6 +40,8 @@ interface Draft {
   created_at:                  string
   updated_at:                  string
 }
+
+interface PayByOption { value: string; label: string }
 
 interface BudgetGlOption {
   id:        string
@@ -241,6 +245,8 @@ function DraftCard(props: {
   const [invDate, setInvDate]     = useState<string>(draft.extracted_invoice_date ?? '')
   const [glId, setGlId]           = useState<string>(draft.gl_account_id   ?? '')
   const [glName, setGlName]       = useState<string>(draft.gl_account_name ?? '')
+  const [payBy, setPayBy]         = useState<string>(draft.pay_by_type     ?? '')
+  const [note, setNote]           = useState<string>(draft.observation_note ?? '')
 
   // GL options for the selected association — fetched on demand the
   // first time edit mode + assoc are both set, then memoised. Refresh
@@ -250,6 +256,13 @@ function DraftCard(props: {
   const [glLoading, setGlLoading] = useState(false)
   const [glError, setGlError]     = useState<string | null>(null)
   const [glLoadedFor, setGlLoadedFor] = useState<string>('')
+
+  // Payment-method options for the selected association — same lazy
+  // pattern as the GL list. CINC returns assoc-specific PayByType
+  // values (check, ACH, etc.) we have to send verbatim on createInvoice.
+  const [payByOptions, setPayByOptions] = useState<PayByOption[]>([])
+  const [payByLoading, setPayByLoading] = useState(false)
+  const [payByLoadedFor, setPayByLoadedFor] = useState<string>('')
 
   // Mode toggle. Cards open in view mode so the data is presented as
   // information first, with Edit as the explicit affordance to change
@@ -275,6 +288,37 @@ function DraftCard(props: {
       .catch(err => setGlError(err instanceof Error ? err.message : String(err)))
       .finally(() => setGlLoading(false))
   }, [mode, assoc, glLoadedFor, glLoading])
+
+  // Lazy-load payByTypes for the assoc, same pattern.
+  useEffect(() => {
+    if (mode !== 'edit' || !assoc || payByLoadedFor === assoc || payByLoading) return
+    setPayByLoading(true)
+    fetch(`/api/admin/cinc/pay-by-types?assoc=${encodeURIComponent(assoc)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        if (!data?.error) setPayByOptions(data.types ?? [])
+        setPayByLoadedFor(assoc)
+      })
+      .catch(() => { /* swallow — fall back to the manual text input */ })
+      .finally(() => setPayByLoading(false))
+  }, [mode, assoc, payByLoadedFor, payByLoading])
+
+  // Auto-suggest an observation note when Karen picks a payment method
+  // and hasn't typed her own. Karen can always overwrite. Format follows
+  // what the CINC team needs to see when processing payment.
+  useEffect(() => {
+    if (mode !== 'edit' || !payBy) return
+    const vendorLabel = matchedVendor?.name ?? draft.matched_vendor_name ?? draft.extracted_vendor_name ?? 'vendor'
+    const isCheck    = /check/i.test(payBy)
+    const suggested = isCheck
+      ? `${payBy.toUpperCase()} — Pay to: ${vendorLabel}`
+      : `${payBy.toUpperCase()} — Use vendor's on-file ${payBy} account`
+    // Only fill if currently blank or matches a previous auto-suggestion shape.
+    if (!note.trim() || /^[A-Z][A-Z ]+ — /.test(note)) {
+      setNote(suggested)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payBy])
 
   const matchedVendor = useMemo(
     () => vendors.find(v => String(v.id) === vendorId) ?? null,
@@ -302,6 +346,8 @@ function DraftCard(props: {
     setInvDate  (draft.extracted_invoice_date     ?? '')
     setGlId     (draft.gl_account_id   ?? '')
     setGlName   (draft.gl_account_name ?? '')
+    setPayBy    (draft.pay_by_type     ?? '')
+    setNote     (draft.observation_note ?? '')
     setMode('view')
     setMsg(null)
   }
@@ -323,6 +369,8 @@ function DraftCard(props: {
           extracted_invoice_date:      invDate || null,
           gl_account_id:               glId   || null,
           gl_account_name:             glName || null,
+          pay_by_type:                 payBy  || null,
+          observation_note:            note   || null,
         }),
       })
       const data = await res.json()
@@ -560,6 +608,60 @@ function DraftCard(props: {
               value={invDate ? new Date(invDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
               placeholder="—"
             />
+          )}
+        </Field>
+
+        {/* Payment method — CINC's PayByType values per association.
+            Falls back to a free-text input if CINC returns no options
+            (mis-configured assoc — Karen can still type something the
+            CINC team will accept). */}
+        <Field label="Payment method">
+          {mode === 'edit' ? (
+            payByOptions.length > 0 ? (
+              <select
+                value={payBy}
+                onChange={e => setPayBy(e.target.value)}
+                disabled={readOnly}
+                style={{ width: '100%', padding: 6 }}
+              >
+                <option value="">
+                  {payByLoading ? 'Loading payment methods…' : '— pick payment method —'}
+                </option>
+                {payByOptions.map(p => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={payBy}
+                onChange={e => setPayBy(e.target.value)}
+                disabled={readOnly}
+                placeholder={payByLoading ? 'Loading…' : 'e.g. Check / ACH'}
+                style={{ width: '100%', padding: 6 }}
+              />
+            )
+          ) : (
+            <ReadOnlyValue value={payBy} placeholder="— not set —" />
+          )}
+        </Field>
+
+        {/* Observation — free text Karen edits. Maps to CINC's
+            NoteDescription so the CINC processor sees it when viewing
+            the invoice. Auto-suggested from the payment method. */}
+        <Field label="Observation (CINC NoteDescription)">
+          {mode === 'edit' ? (
+            <input
+              type="text"
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              disabled={readOnly}
+              placeholder="Tell the CINC team how to process this invoice"
+              maxLength={1000}
+              style={{ width: '100%', padding: 6 }}
+            />
+          ) : (
+            <ReadOnlyValue value={note} placeholder="— none —" />
           )}
         </Field>
 

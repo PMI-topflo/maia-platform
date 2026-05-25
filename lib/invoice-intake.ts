@@ -170,7 +170,7 @@ async function processOnePdf(opts: {
       })
       if (dups.length > 0) {
         status     = 'duplicate_in_cinc'
-        cincDupId  = String(dups[0].InvoiceId)
+        cincDupId  = String(dups[0].InvoiceID)
       }
     } catch (err) {
       console.warn(`[invoice-intake] duplicate pre-check failed: ${(err as Error).message}`)
