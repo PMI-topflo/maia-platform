@@ -916,15 +916,84 @@ function normalizeVendorName(s: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Invoice statuses + pay-by types — small reference catalogs cached
+// per process. Status is required on createInvoice; pay-by drives the
+// dropdown so Karen only picks values CINC accepts for the assoc.
+// ─────────────────────────────────────────────────────────────────────
+export interface CincInvoiceStatus {
+  StatusID?:          number
+  InvoiceStatusID?:   number
+  StatusDescription?: string | null
+  Description?:       string | null
+  Name?:              string | null
+}
+let _invoiceStatusesCache: CincInvoiceStatus[] | null = null
+
+export async function listInvoiceStatuses(): Promise<CincInvoiceStatus[]> {
+  if (_invoiceStatusesCache) return _invoiceStatusesCache
+  const data = await call<CincInvoiceStatus[]>('/management/associations/1/invoiceStatuses', { method: 'GET' })
+    .catch(() => [] as CincInvoiceStatus[])
+  _invoiceStatusesCache = data
+  return data
+}
+
+/** Look up the numeric StatusID for a status by name (e.g. "PENDING
+ *  APPROVAL"). Tries every plausible field name on the response since
+ *  CINC's casing is inconsistent. Returns null when not found so the
+ *  caller can throw a useful error. */
+export async function getInvoiceStatusIdByName(name: string): Promise<number | null> {
+  const target = name.toUpperCase().replace(/\s+/g, ' ').trim()
+  for (const s of await listInvoiceStatuses()) {
+    const desc = (s.StatusDescription ?? s.Description ?? s.Name ?? '').toUpperCase().replace(/\s+/g, ' ').trim()
+    if (desc === target) return s.StatusID ?? s.InvoiceStatusID ?? null
+  }
+  return null
+}
+
+export interface CincPayByType {
+  PayByTypeID?:    number | string | null
+  PayByTypeName?:  string | null
+  Description?:    string | null
+  Name?:           string | null
+  /** What the createInvoice body's PayByType field actually wants —
+   *  often the name string ("Check", "ACH"). When it differs from the
+   *  display label we expose both. */
+  PayByType?:      string | null
+}
+
+const _payByCache = new Map<string, CincPayByType[]>()
+
+/** GET /management/associations/1/payByTypes — valid pay-by options
+ *  for an association. Cached per assoc for the container lifetime
+ *  (rarely changes). */
+export async function listPayByTypes(assocCode: string): Promise<CincPayByType[]> {
+  const key = assocCode.toUpperCase()
+  if (_payByCache.has(key)) return _payByCache.get(key)!
+  const data = await call<CincPayByType[]>('/management/associations/1/payByTypes', {
+    method: 'GET',
+    query:  { assocCode: key },
+  }).catch(() => [] as CincPayByType[])
+  _payByCache.set(key, data)
+  return data
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Invoice CRUD — used by the intake-queue push flow
+//
+// All field names below follow CINC's actual Swagger shape (PascalCase
+// with capital ID, AssociationCode as a STRING — not the numeric
+// AssocId we look up for work orders). Earlier Phase-1 code guessed
+// the shape from prose docs and got every name wrong; this is the fix.
 // ─────────────────────────────────────────────────────────────────────
 export interface CincInvoiceMatch {
-  InvoiceId:      number
-  InvoiceNumber?: string | null
-  InvoiceDate?:   string | null
-  InvoiceTotal?:  number | null
-  VendorId?:      number | null
-  AssocCode?:     string | null
+  InvoiceID:           number
+  InvoiceNumber?:      string | null
+  InvoiceDate?:        string | null
+  TotalInvoiceAmount?: number | null
+  VendorID?:           number | null
+  AssocCode?:          string | null
+  InvoiceStatus?:      string | null
+  CheckNo?:            number | null
 }
 
 /** GET /accounting/duplicateInvoices — CINC's built-in dup detection
@@ -939,7 +1008,7 @@ export async function checkDuplicateInvoice(opts: {
     method: 'GET',
     query:  {
       assocCode:     opts.associationCode.toUpperCase(),
-      vendorId:      opts.vendorId,
+      vendorID:      opts.vendorId,       // CINC uses capital D
       invoiceNumber: opts.invoiceNumber,
     },
   }).catch(err => {
@@ -951,13 +1020,23 @@ export async function checkDuplicateInvoice(opts: {
 }
 
 export interface CreateInvoiceInput {
-  associationCode: string
-  vendorId:        number
-  invoiceNumber:   string
-  invoiceDate:     string       // ISO date (YYYY-MM-DD)
-  amount:          number
-  description?:    string | null
-  dueDate?:        string | null
+  associationCode:      string
+  vendorId:             number
+  invoiceNumber:        string
+  invoiceDate:          string       // ISO date (YYYY-MM-DD)
+  amount:               number
+  dueDate?:             string | null
+  noteDescription?:     string | null    // appears as "observations" in CINC UI
+  memo?:                string | null    // prints on check
+  payByType?:           string | null    // e.g. "Check", "ACH" — from listPayByTypes
+  workOrderNumber?:     number | null
+  vendorAccountNumber?: string | null
+  payFromBankAccountId?: number | null
+  /** Status to create the invoice in. Defaults to PENDING APPROVAL —
+   *  the only status appropriate for board-approval-required invoices,
+   *  per CINC's create-time restriction (PAID / VOID / READY FOR
+   *  PAYMENT are explicitly disallowed on create). */
+  statusName?:          string
 }
 
 export interface CreateInvoiceResult {
@@ -965,32 +1044,60 @@ export interface CreateInvoiceResult {
 }
 
 /** POST /accounting/invoice — creates the invoice header. Caller
- *  follows up with attachInvoicePdf to upload the file. */
+ *  follows up with attachInvoicePdf to upload the file. Status defaults
+ *  to PENDING APPROVAL so the board can approve in WebAxis. */
 export async function createInvoice(input: CreateInvoiceInput): Promise<CreateInvoiceResult> {
-  const assocId = await findAssocIdByCode(input.associationCode)
-  if (!assocId) {
+  const statusName = input.statusName ?? 'PENDING APPROVAL'
+  const statusId   = await getInvoiceStatusIdByName(statusName)
+  if (statusId == null) {
     throw new CincApiError(
-      `Cannot resolve CINC AssocId for association_code="${input.associationCode}". ` +
-      `findAssocIdByCode derives this from existing work orders — create one in CINC ` +
-      `for this association first to populate the cache, then retry the invoice push.`,
+      `Cannot resolve CINC StatusID for "${statusName}". ` +
+      `Check /management/associations/1/invoiceStatuses returns this name.`,
     )
   }
+
   const body = {
-    assocId,
-    vendorId:      input.vendorId,
-    invoiceNumber: input.invoiceNumber,
-    invoiceDate:   input.invoiceDate,
-    invoiceTotal:  input.amount,
-    description:   input.description?.slice(0, 1000) ?? '',
-    dueDate:       input.dueDate ?? undefined,
+    AssociationCode:      input.associationCode.toUpperCase(),
+    VendorID:             input.vendorId,
+    TotalInvoiceAmount:   input.amount,
+    Date:                 input.invoiceDate,
+    DueDate:              input.dueDate ?? input.invoiceDate,
+    VendorAccountNumber:  input.vendorAccountNumber ?? '',
+    StatusID:             statusId,
+    WorkOrderNumber:      input.workOrderNumber ?? 0,
+    InvoiceNumber:        input.invoiceNumber,
+    NoteDescription:      (input.noteDescription ?? '').slice(0, 1000),
+    PayFromBankAccountID: input.payFromBankAccountId ?? 0,
+    Memo:                 (input.memo ?? '').slice(0, 1000),
+    PayByType:            input.payByType ?? '',
   }
-  const result = await call<{ InvoiceId?: number; invoiceId?: number }>(
+  const result = await call<{ InvoiceID?: number; InvoiceId?: number; Invoice?: { InvoiceID?: number } }>(
     '/management/1/accounting/invoice',
     { method: 'POST', json: body },
   )
-  const invoiceId = result.InvoiceId ?? result.invoiceId
-  if (!invoiceId) throw new CincApiError('createInvoice succeeded but response had no InvoiceId')
+  const invoiceId = result.InvoiceID ?? result.Invoice?.InvoiceID ?? result.InvoiceId
+  if (!invoiceId) throw new CincApiError('createInvoice succeeded but response had no InvoiceID')
   return { invoiceId }
+}
+
+/** POST /accounting/invoiceNotes — add a note (audit trail) to an
+ *  existing invoice. Used right after every MAIA push to record
+ *  provenance ("Auto-ingested from <sender> on <date>") so anyone
+ *  viewing the invoice in CINC sees where it came from. Best-effort:
+ *  callers should swallow failures. */
+export async function createInvoiceNote(opts: {
+  invoiceId: number
+  content:   string
+}): Promise<void> {
+  await call<number[]>('/management/1/accounting/invoiceNotes', {
+    method: 'POST',
+    json:   {
+      InvoiceID:   opts.invoiceId,
+      NoteDate:    new Date().toISOString(),
+      NoteContent: opts.content.slice(0, 2000),
+      DeletedFlag: false,
+    },
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1088,20 +1195,22 @@ export function invalidateBudgetCache(assocCode?: string): void {
 }
 
 /** PUT /associations/InvoiceAttachmentsBase64 — attach a single PDF
- *  to a CINC invoice. CINC's hard limit is 25 MB pre-conversion. */
+ *  to a CINC invoice. CINC's hard limit is 25 MB pre-conversion.
+ *  Body uses InvoiceID / FileName / FileContent (PascalCase to match
+ *  the rest of CINC's invoice endpoints). */
 export async function attachInvoicePdf(opts: {
   invoiceId: number
   pdfBase64: string
   filename:  string
 }): Promise<{ imageId: number }> {
-  const result = await call<{ ImageId?: number; imageId?: number }>(
+  const result = await call<{ ImageID?: number; ImageId?: number }>(
     '/management/1/associations/InvoiceAttachmentsBase64',
     {
       method: 'PUT',
-      json:   { InvoiceId: opts.invoiceId, FileName: opts.filename, FileContent: opts.pdfBase64 },
+      json:   { InvoiceID: opts.invoiceId, FileName: opts.filename, FileContent: opts.pdfBase64 },
     },
   )
-  const imageId = result.ImageId ?? result.imageId
-  if (!imageId) throw new CincApiError('attachInvoicePdf succeeded but response had no ImageId')
+  const imageId = result.ImageID ?? result.ImageId
+  if (!imageId) throw new CincApiError('attachInvoicePdf succeeded but response had no ImageID')
   return { imageId }
 }

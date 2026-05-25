@@ -19,6 +19,7 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import {
   createInvoice,
   attachInvoicePdf,
+  createInvoiceNote,
   CincApiError,
 } from '@/lib/integrations/cinc'
 import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
@@ -57,7 +58,7 @@ export async function POST(
 
   const { data: draft, error: loadErr } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('id, status, pdf_storage_key, matched_cinc_vendor_id, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date')
+    .select('id, status, pdf_storage_key, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, pay_by_type, observation_note, extraction_confidence, gmail_message_id')
     .eq('id', id)
     .single()
   if (loadErr || !draft) return NextResponse.json({ error: loadErr?.message ?? 'not found' }, { status: 404 })
@@ -96,15 +97,20 @@ export async function POST(
   const buf = Buffer.from(await blob.arrayBuffer())
   const pdfBase64 = buf.toString('base64')
 
-  // Push to CINC.
+  // Push to CINC. createInvoice defaults StatusID to PENDING APPROVAL
+  // (board approves in WebAxis afterward). Sends Karen's observation as
+  // NoteDescription so the CINC team sees processing instructions when
+  // they open the invoice.
   let cincInvoiceId: number
   try {
     const created = await createInvoice({
-      associationCode: draft.extracted_association_code as string,
-      vendorId:        parseInt(draft.matched_cinc_vendor_id as string, 10),
-      invoiceNumber:   draft.extracted_invoice_number as string,
-      invoiceDate:     draft.extracted_invoice_date as string,
-      amount:          draft.extracted_amount as number,
+      associationCode:  draft.extracted_association_code as string,
+      vendorId:         parseInt(draft.matched_cinc_vendor_id as string, 10),
+      invoiceNumber:    draft.extracted_invoice_number    as string,
+      invoiceDate:      draft.extracted_invoice_date      as string,
+      amount:           draft.extracted_amount            as number,
+      payByType:        (draft.pay_by_type      ?? null) as string | null,
+      noteDescription:  (draft.observation_note ?? null) as string | null,
     })
     cincInvoiceId = created.invoiceId
   } catch (err) {
@@ -141,6 +147,21 @@ export async function POST(
       warning: `Invoice header created (CINC id ${cincInvoiceId}) but PDF attachment failed: ${message}. Attach manually in CINC.`,
       cincInvoiceId,
     }, { status: 207 })
+  }
+
+  // Provenance note — gives anyone viewing the invoice in CINC the
+  // origin story (MAIA pulled it from <sender> with X% confidence).
+  // Best-effort: failure logged but doesn't fail the push.
+  try {
+    const conf = draft.extraction_confidence != null
+      ? `${Math.round((draft.extraction_confidence as number) * 100)}% extraction confidence`
+      : 'extraction confidence unavailable'
+    await createInvoiceNote({
+      invoiceId: cincInvoiceId,
+      content:   `Auto-ingested by MAIA on ${new Date().toISOString().slice(0, 10)} (${conf}). Pushed by ${pushedBy}. Filename: ${filename}.`,
+    })
+  } catch (err) {
+    console.warn(`[invoice-push] provenance note failed: ${(err as Error).message}`)
   }
 
   // Drive mirror — best-effort. Failure is non-fatal: the CINC push

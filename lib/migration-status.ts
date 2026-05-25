@@ -618,6 +618,18 @@ NOTIFY pgrst, 'reload schema';`,
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'invoice_intake_pay_observation',
+    label:       'Invoice intake — payment + observation',
+    description: 'invoice_intake_drafts.pay_by_type + observation_note — payment method (ACH/Check) per invoice, and a free-text observation that maps to CINC NoteDescription so the CINC team sees processing instructions',
+    filename:    '20260525_invoice_intake_pay_observation.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'pay_by_type' },
+    sql: `ALTER TABLE public.invoice_intake_drafts
+  ADD COLUMN IF NOT EXISTS pay_by_type      text,
+  ADD COLUMN IF NOT EXISTS observation_note text;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
