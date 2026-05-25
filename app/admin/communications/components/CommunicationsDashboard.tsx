@@ -813,10 +813,17 @@ function EmailsTab({
   // window, not just the loaded rows). Changing one navigates with a
   // new URL param; the server re-queries and returns the right set +
   // an accurate count. Other params (e.g. dismissed) are preserved.
+  //
+  // For emailTo we PRESERVE the literal value 'all' in the URL — the
+  // server falls back to the logged-in staff member's inbox when the
+  // param is missing, so 'all' is an explicit override that survives
+  // navigation. For emailFrom the missing-vs-all distinction doesn't
+  // exist, so we still delete it on 'all'.
   function setEmailFilterParam(key: 'emailTo' | 'emailFrom', value: string) {
     const params = new URLSearchParams(searchParams.toString())
-    if (!value || value === 'all') params.delete(key)
-    else                          params.set(key, value)
+    if (!value)                                  params.delete(key)
+    else if (key === 'emailFrom' && value === 'all') params.delete(key)
+    else                                         params.set(key, value)
     const qs = params.toString()
     router.push(qs ? `?${qs}` : '?')
   }
@@ -1602,7 +1609,7 @@ export default function CommunicationsDashboard({
   emailTotal                = 0,
   emailThreadCounts         = {},
 }: Props) {
-  const [tab, setTab] = useState<'conversations' | 'emails' | 'tickets' | 'commands'>('conversations')
+  const [tab, setTab] = useState<'conversations' | 'emails' | 'tickets' | 'commands'>('emails')
 
   const openConvs   = conversations.filter(c => (c.status ?? 'open') === 'open').length
   const bouncedEmails = emails.filter(e => e.status === 'bounced').length
@@ -1632,8 +1639,10 @@ export default function CommunicationsDashboard({
       {/* Tabs */}
       <div className="flex border-b border-gray-200 mb-5">
         {([
-          { key: 'conversations', label: `Conversations (${conversations.length})` },
+          // Emails leads — most staff start here. Conversations sits
+          // second since it shares the MAIA queue concepts.
           { key: 'emails',        label: `Emails (${emailTotal})` },
+          { key: 'conversations', label: `Conversations (${conversations.length})` },
           { key: 'tickets',       label: `Board Tickets (${tickets.length})` },
           { key: 'commands',      label: `Email Commands (${emailCommands.length})` },
         ] as const).map(t => (
