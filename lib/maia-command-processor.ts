@@ -14,6 +14,7 @@ import {
 } from '@/lib/tickets'
 import {
   fetchGmailMessage,
+  fetchGmailThread,
   fetchGmailAttachmentData,
   type GmailFullMessage,
   type GmailMessagePart,
@@ -1107,27 +1108,34 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
   }
 
   try {
-    // Fetch up to last 5 exchanges in this thread for context
-    const { data: history } = await supabaseAdmin
-      .from('general_conversations')
-      .select('message, response')
-      .eq('gmail_thread_id', parsed.threadId)
-      .not('response', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(5)
+    // Pull the actual Gmail thread so Claude sees every prior turn —
+    // staff replies, customer follow-ups, and exchanges from before MAIA
+    // was wired up. The old general_conversations lookup only surfaced
+    // MAIA's *own* prior replies, so human turns and pre-MAIA history
+    // were invisible. Empty array on missing threadId or fetch failure →
+    // single-message behaviour.
+    const PRIOR_CAP    = 10
+    const BODY_CAP     = 2000
+    const threadMsgs   = parsed.threadId ? await fetchGmailThread(parsed.threadId) : []
+    const priorParsed  = threadMsgs
+      .filter(m => m.id !== parsed.messageId)
+      .map(parseGmailMessage)
+      .slice(-PRIOR_CAP)
+
+    const priorBlock = priorParsed.length === 0 ? '' :
+      '<conversation_history>\n' +
+      priorParsed.map(p => {
+        const isMaia = p.senderEmail === 'maia@pmitop.com'
+        const who    = isMaia ? 'MAIA (you, previous reply)' : `${p.senderName || p.senderEmail}`
+        return `--- ${who} ---\n${p.body.slice(0, BODY_CAP)}`
+      }).join('\n\n') +
+      '\n</conversation_history>\n\n'
 
     type MsgPair = { role: 'user' | 'assistant'; content: string }
-    const historyMessages: MsgPair[] = (history ?? [])
-      .reverse()
-      .flatMap(h => [
-        { role: 'user'      as const, content: h.message  ?? '' },
-        { role: 'assistant' as const, content: h.response ?? '' },
-      ])
-      .filter(m => m.content)
-
-    const currentMessage = `From: ${parsed.senderName} <${parsed.senderEmail}>\nSubject: ${parsed.subject}\n\n${parsed.body}`
+    const currentMessage = priorBlock +
+      `From: ${parsed.senderName} <${parsed.senderEmail}>\n` +
+      `Subject: ${parsed.subject}\n\n${parsed.body}`
     const messages: MsgPair[] = [
-      ...historyMessages,
       { role: 'user', content: currentMessage },
     ]
 

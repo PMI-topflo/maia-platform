@@ -150,6 +150,52 @@ export async function fetchGmailMessage(messageId: string): Promise<GmailFullMes
   return res.json() as Promise<GmailFullMessage>
 }
 
+/** Fetch every message in a Gmail thread (chronological order). Lets MAIA
+ *  reason over the conversation instead of just the triggering message.
+ *  Returns [] on error so callers can degrade to single-message behaviour. */
+export async function fetchGmailThread(threadId: string): Promise<GmailFullMessage[]> {
+  if (!threadId) return []
+  try {
+    const token = await getAccessToken()
+    const res   = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=full`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+    if (!res.ok) {
+      console.warn(`[Gmail] threads.get failed (${res.status}) for ${threadId}`)
+      return []
+    }
+    const data = await res.json() as { messages?: GmailFullMessage[] }
+    return data.messages ?? []
+  } catch (err) {
+    console.warn('[Gmail] fetchGmailThread error:', err instanceof Error ? err.message : err)
+    return []
+  }
+}
+
+/** Per-account variant of fetchGmailThread for connected staff inboxes. */
+export async function fetchGmailThreadWithToken(
+  threadId:    string,
+  accessToken: string,
+): Promise<GmailFullMessage[]> {
+  if (!threadId) return []
+  try {
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=full`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    )
+    if (!res.ok) {
+      console.warn(`[Gmail staff] threads.get failed (${res.status}) for ${threadId}`)
+      return []
+    }
+    const data = await res.json() as { messages?: GmailFullMessage[] }
+    return data.messages ?? []
+  } catch (err) {
+    console.warn('[Gmail staff] fetchGmailThreadWithToken error:', err instanceof Error ? err.message : err)
+    return []
+  }
+}
+
 export interface GmailHistoryChanges {
   /** Ids of messages newly added to INBOX. */
   added:   string[]
