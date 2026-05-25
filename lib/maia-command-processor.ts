@@ -1762,6 +1762,53 @@ async function attachEmailPhotosToWorkOrder(
   }
 }
 
+function mentionsMaiaInBody(body: string): boolean {
+  const norm = body.toLowerCase()
+  return norm.includes('@maia') || norm.includes('maia@pmitop.com')
+}
+
+/** Brief one-line "got it — appended to TKT-XXXX" reply. Sent after we
+ *  silently fold an inbound email into an existing ticket so the sender
+ *  knows where their message went instead of staring at an empty inbox.
+ *  Caller decides whether to invoke — vendor reply-threads should stay
+ *  silent (their original reason for silent-append). */
+async function sendAppendAck(
+  ticket: { id: number; ticket_number: string; type: string },
+  parsed: ParsedEmail,
+): Promise<void> {
+  try {
+    const label   = ticket.type === 'work_order' ? 'work order' : 'ticket'
+    const subject = parsed.subject.startsWith('Re:') ? parsed.subject : `Re: ${parsed.subject}`
+    const html    = `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#222;max-width:600px;margin:0 auto;padding:20px">
+<p style="margin-top:0">Got it — appended to <a href="${APP_URL}/admin/tickets/${ticket.id}" style="color:#f26a1b;text-decoration:none;font-family:ui-monospace,monospace">${ticket.ticket_number}</a>.</p>
+<p style="color:#6b7280;font-size:12px;margin:6px 0 0">This ${label} already existed for this email thread, so your message was added to it rather than opening a duplicate.</p>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0 12px">
+<p style="color:#9ca3af;font-size:11px;margin:0">MAIA · PMI Top Florida Properties</p>
+</body></html>`
+    const { messageId } = await sendEmail({
+      to:      parsed.senderEmail,
+      subject,
+      html,
+      ...(parsed.rfcMessageId && {
+        headers: { 'In-Reply-To': parsed.rfcMessageId, References: parsed.rfcMessageId },
+      }),
+    })
+    void logEmail({
+      direction:       'outbound',
+      toEmail:         parsed.senderEmail,
+      subject,
+      fullBody:        html,
+      persona:         'staff',
+      status:          'sent',
+      resendMessageId: messageId,
+      sentBy:          'maia-append-ack',
+      gmailThreadId:   parsed.threadId,
+    })
+  } catch (err) {
+    console.warn('[tickets] sendAppendAck failed:', err instanceof Error ? err.message : err)
+  }
+}
+
 /** Email-to-ticket ingest. Called by both the main MAIA webhook and the
  *  staff-Gmail webhook so logic stays in one place.
  *
@@ -1800,7 +1847,7 @@ export async function ingestInboundEmailToTicket(
     if (appendTo) {
       const { data: target } = await supabaseAdmin
         .from('tickets')
-        .select('id, ticket_number')
+        .select('id, ticket_number, type')
         .eq('ticket_number', appendTo)
         .maybeSingle()
       if (!target) {
@@ -1813,6 +1860,8 @@ export async function ingestInboundEmailToTicket(
       }
       await appendMessage(target.id, makeInboundMessageInput(parsed))
       await attachEmailPhotosToWorkOrder(target.id, parsed, fetchAttachment)
+      // Explicit @maia append → staff intent is unambiguous, always ack.
+      await sendAppendAck(target, parsed)
       return
     }
 
@@ -1822,6 +1871,12 @@ export async function ingestInboundEmailToTicket(
       if (existing) {
         await appendMessage(existing.id, makeInboundMessageInput(parsed))
         await attachEmailPhotosToWorkOrder(existing.id, parsed, fetchAttachment)
+        // Only ack when staff explicitly invoked @maia — a bare vendor
+        // reply on the thread should stay silent so we don't auto-ack
+        // back at the vendor on every email.
+        if (mentionsMaiaInBody(parsed.body)) {
+          await sendAppendAck(existing, parsed)
+        }
         return
       }
     }
@@ -1853,6 +1908,8 @@ export async function ingestInboundEmailToTicket(
     if (existingBySubject) {
       await appendMessage(existingBySubject.id, makeInboundMessageInput(parsed))
       await attachEmailPhotosToWorkOrder(existingBySubject.id, parsed, fetchAttachment)
+      // detectTicketTrigger required above → staff intent confirmed; always ack.
+      await sendAppendAck(existingBySubject, parsed)
       return
     }
 
