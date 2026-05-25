@@ -17,7 +17,10 @@ import {
   isAllowedSender,
   ingestInboundEmailToTicket,
 } from '@/lib/maia-command-processor'
+import { handleInvoiceIntake } from '@/lib/invoice-intake'
 import { logEmail } from '@/lib/email-logger'
+
+const BILLING_INBOX = 'billing@topfloridaproperties.com'
 
 // A normal Gmail Pub/Sub notification covers a handful of new messages.
 // A history batch larger than this means the stored historyId was far
@@ -322,6 +325,20 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
         gmailMessageId:  parsed.messageId,
         emailDate:       parsed.internalDate,
       })
+
+      // Invoice intake: anything landing in billing@ with a PDF goes
+      // through the intake pipeline instead of the ticket pipeline. By
+      // convention this inbox is for invoices; vendors don't know
+      // about MAIA syntax. Karen reviews the extracted draft in
+      // /admin/invoices and clicks Push to CINC.
+      if (account.gmail_address.toLowerCase() === BILLING_INBOX
+          && parsed.attachments.some(a => a.mimeType.toLowerCase() === 'application/pdf')) {
+        await handleInvoiceIntake(
+          parsed,
+          (attId) => fetchGmailAttachmentDataWithToken(parsed.messageId, attId, accessToken),
+        )
+        continue
+      }
 
       // Tickets are created only for emails explicitly addressed to
       // maia@pmitop.com (To / CC / BCC). Internal staff-to-staff or

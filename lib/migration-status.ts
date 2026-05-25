@@ -541,6 +541,60 @@ CREATE INDEX IF NOT EXISTS tickets_category_idx
   ON public.tickets (ticket_category, updated_at DESC)
   WHERE ticket_category IS NOT NULL;`,
   },
+  {
+    key:         'invoice_intake_drafts',
+    label:       'Invoice intake queue',
+    description: 'invoice_intake_drafts table — Karen reviews each inbound invoice PDF before pushing to CINC',
+    filename:    '20260525_invoice_intake_drafts.sql',
+    artifact:    { type: 'table', table: 'invoice_intake_drafts' },
+    sql: `CREATE TABLE IF NOT EXISTS public.invoice_intake_drafts (
+  id                         bigserial PRIMARY KEY,
+  -- Dedupe key (Pub/Sub retries): the Gmail message id of the
+  -- inbound email, available at intake time before logEmail runs.
+  gmail_message_id           text,
+  -- Optional FK cross-link to email_logs (populated by a backfill or
+  -- later code path; not required for dedupe).
+  source_email_id            uuid REFERENCES public.email_logs(id) ON DELETE SET NULL,
+  ticket_id                  bigint REFERENCES public.tickets(id) ON DELETE SET NULL,
+  pdf_storage_key            text,
+  -- What MAIA extracted (Karen-editable):
+  extracted_vendor_name      text,
+  matched_cinc_vendor_id     text,
+  matched_vendor_name        text,
+  matched_vendor_short_name  text,
+  extracted_invoice_number   text,
+  extracted_amount           numeric(12,2),
+  extracted_association_code text,
+  extracted_invoice_date     date,
+  extraction_confidence      real,
+  -- State machine:
+  status                     text NOT NULL CHECK (status IN
+                               ('pending_review','needs_vendor','duplicate_in_cinc',
+                                'pushed_to_cinc','rejected')),
+  rejected_reason            text,
+  -- Post-push:
+  cinc_invoice_id            text,
+  cinc_dup_invoice_id        text,
+  pushed_at                  timestamptz,
+  pushed_by                  text,
+  created_at                 timestamptz NOT NULL DEFAULT now(),
+  updated_at                 timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS invoice_intake_drafts_status_idx
+  ON public.invoice_intake_drafts (status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS invoice_intake_drafts_created_idx
+  ON public.invoice_intake_drafts (created_at DESC);
+
+-- Idempotency on the Gmail message id so Pub/Sub retries don't create
+-- duplicate drafts. Same lesson as the append-ack spam fix (PR #179).
+CREATE UNIQUE INDEX IF NOT EXISTS invoice_intake_drafts_gmail_msg_uniq
+  ON public.invoice_intake_drafts (gmail_message_id)
+  WHERE gmail_message_id IS NOT NULL;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
