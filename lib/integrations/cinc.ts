@@ -998,22 +998,30 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<CreateIn
 // form so Karen can only pick codes the association actually budgets
 // for. Keeps expenses lining up with budget categories in reports.
 // ─────────────────────────────────────────────────────────────────────
+/** Actual CINC budget-line shape, per Swagger
+ *  /management/1/accounting/budget/association/{assocCode}:
+ *    { ChartID, GLAccountNumber, GLAccountDescription, AnnualBudget,
+ *      Actual, Remaining }
+ *  (Note CINC uses "GL" with capital L, ChartID — not GlAccountId.) */
 export interface CincBudgetLine {
-  GlAccountId?:     number | string | null
-  GlAccountNumber?: string | null
-  GlAccountName?:   string | null
-  GlAccountDesc?:   string | null
-  BudgetAmount?:    number | null
-  AnnualBudget?:    number | null
+  ChartID?:              number | string | null
+  GLAccountNumber?:      string | null
+  GLAccountDescription?: string | null
+  AnnualBudget?:         number | null
+  Actual?:               number | null
+  Remaining?:            number | null
 }
 
-/** Normalised shape we feed the dropdown. id/name guaranteed; amount
- *  optional (just informational, helps Karen pick the most likely line). */
+/** Normalised shape we feed the dropdown. id/name guaranteed; budget
+ *  fields optional but very useful — surfacing "actual / remaining"
+ *  on the dropdown lets Karen pick the line with budget still left. */
 export interface BudgetGlOption {
-  id:     string
-  number: string | null   // e.g. "5000"
-  name:   string          // e.g. "Repairs and Maintenance"
-  budget: number | null   // annual budget for this line, if known
+  id:        string
+  number:    string | null   // e.g. "5000"
+  name:      string          // e.g. "Repairs and Maintenance"
+  budget:    number | null   // annual budget for this line
+  actual:    number | null   // spent year-to-date
+  remaining: number | null   // budget - actual
 }
 
 interface CachedBudget { lines: BudgetGlOption[]; expiresAt: number }
@@ -1046,18 +1054,21 @@ export async function getAssociationBudget(
   const seen  = new Set<string>()
   const lines: BudgetGlOption[] = []
   for (const r of raw) {
-    const id = r.GlAccountId != null ? String(r.GlAccountId) : null
+    // ChartID is the unique CINC handle (despite the GL-* naming on the
+    // sibling fields). Treat 0 as null because that's the Swagger default.
+    const idRaw = r.ChartID
+    const id    = idRaw != null && idRaw !== 0 ? String(idRaw) : null
     if (!id || seen.has(id)) continue
-    const name = (r.GlAccountName ?? r.GlAccountDesc ?? '').trim()
+    const name = (r.GLAccountDescription ?? '').trim()
     if (!name) continue
     seen.add(id)
     lines.push({
       id,
-      number: r.GlAccountNumber ?? null,
+      number:    r.GLAccountNumber ?? null,
       name,
-      budget: typeof r.AnnualBudget === 'number'
-        ? r.AnnualBudget
-        : (typeof r.BudgetAmount === 'number' ? r.BudgetAmount : null),
+      budget:    typeof r.AnnualBudget === 'number' ? r.AnnualBudget : null,
+      actual:    typeof r.Actual      === 'number' ? r.Actual      : null,
+      remaining: typeof r.Remaining   === 'number' ? r.Remaining   : null,
     })
   }
   // Sort by GL number when available (typical accounting expectation),

@@ -40,10 +40,12 @@ interface Draft {
 }
 
 interface BudgetGlOption {
-  id:     string
-  number: string | null
-  name:   string
-  budget: number | null
+  id:        string
+  number:    string | null
+  name:      string
+  budget:    number | null
+  actual:    number | null
+  remaining: number | null
 }
 
 const TABS: Array<{ key: string; label: string }> = [
@@ -585,12 +587,19 @@ function DraftCard(props: {
                       ? (glError ? '(failed to load — pick anyway is not allowed)' : 'No budgeted GL lines for this association')
                       : '— pick GL line —'}
                   </option>
-                  {glOptions.map(o => (
-                    <option key={o.id} value={o.id}>
-                      {o.number ? `${o.number} — ` : ''}{o.name}
-                      {o.budget != null ? `  ·  $${o.budget.toLocaleString('en-US', { maximumFractionDigits: 0 })}/yr` : ''}
-                    </option>
-                  ))}
+                  {glOptions.map(o => {
+                    // Surface budget context so Karen picks lines that
+                    // still have room. Format: "5000 — Repairs  ·  $5,400 left of $20,000"
+                    const parts: string[] = []
+                    if (o.remaining != null) parts.push(`$${o.remaining.toLocaleString('en-US', { maximumFractionDigits: 0 })} left`)
+                    if (o.budget    != null) parts.push(`of $${o.budget.toLocaleString('en-US', { maximumFractionDigits: 0 })}`)
+                    const ctx = parts.length > 0 ? `  ·  ${parts.join(' ')}` : ''
+                    return (
+                      <option key={o.id} value={o.id}>
+                        {o.number ? `${o.number} — ` : ''}{o.name}{ctx}
+                      </option>
+                    )
+                  })}
                 </select>
                 {glError && (
                   <div style={{ marginTop: 4, color: '#b91c1c', fontSize: 11 }}>
