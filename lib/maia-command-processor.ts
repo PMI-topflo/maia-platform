@@ -932,7 +932,12 @@ When escalating to a TICKET (any department except "maintenance"), also pick the
   - "Concierge / Front Desk"           (Hospitality-type requests)
 If no category clearly fits, set category to null.
 
-When escalating, the reply should briefly tell the sender we have received the request, we are forwarding it to our {team}, and they will respond within one business day. Keep it warm and one short paragraph.
+When escalating, the "reply" field is a WARM HUMAN ACKNOWLEDGEMENT ONLY — thank the sender, confirm you have the details, that's it. ONE short paragraph.
+Do NOT use action verbs like "forwarded", "routed", "sent", "opened", "logged", "filed", "assigned", "escalated", or "passed along" — they imply you took an action you cannot actually take.
+Do NOT mention which team will handle it, do NOT promise a response time, do NOT invent a ticket number.
+The SYSTEM appends a verifiable footer to your reply with the real ticket number, the routed team, and the response-time SLA — duplicating that information in your text is wrong.
+Example of a GOOD escalation reply: "Hi Ron — thanks for sending the Atlas invoice across. I have all the details I need from here."
+Example of a BAD escalation reply: "Hi Ron — I've forwarded this to our AP team and they'll respond within one business day." (uses forbidden verbs AND duplicates the system footer).
 Never invent figures, dates, or balances. Default to escalation when in doubt.`
 
 const GENERAL_SYSTEM_PROMPT = `You are Maia, the AI assistant for PMI Top Florida Properties, a professional HOA and residential property management company serving South Florida.
@@ -969,9 +974,10 @@ RULES:
 - Always sign as: Maia | PMI Top Florida Properties AI Assistant
 
 TICKET & WORK ORDER RULES — STRICT, DO NOT BREAK:
-- You CANNOT create tickets or work orders by writing about them in a reply. They are only created by a separate code path that fires when the sender includes an exact trigger phrase at the start of the body — for example "@maia open ticket <details>" or "@maia open work order <details>".
-- NEVER tell the sender that a ticket or work order has been created, opened, updated, logged, or filed. NEVER write phrases like "Work Order Created Successfully", "Ticket has been logged", "I've opened a work order", or anything implying you took the action.
-- NEVER invent or echo a ticket / work-order number. Real ones look like "TKT-2026-NNNN" (created by the system, not by you) and are delivered by a separate system email when creation succeeds. If you reference a number you saw in the conversation, only do so when quoting the sender — never as a confirmation.
+- You CANNOT create, open, update, or close tickets or work orders by writing about them in a reply. They are only created by a separate code path that fires when the sender includes an exact trigger phrase at the start of the body — for example "@maia open ticket <details>" or "@maia open work order <details>".
+- You CANNOT forward, route, send, escalate, hand off, or pass along email either. The system performs the actual routing (assigning a ticket to a team) on its own; your text must never claim you did so.
+- NEVER write phrases that imply YOU took an action — "Work Order Created Successfully", "Ticket has been logged", "I've opened a work order", "I've forwarded this to our AP team", "I've routed your request", "I've sent this to maintenance", "I've passed it along", "I've assigned this to ...", "I've escalated this", etc. The SYSTEM appends a verifiable footer to your reply when a ticket actually gets opened (with the real number, the routed team, and the SLA). Your reply contains the human-facing acknowledgement ONLY.
+- NEVER invent or echo a ticket / work-order number. Real ones look like "TKT-2026-NNNN" (created by the system, not by you). If you reference a number you saw in the conversation, only do so when quoting the sender — never as a confirmation of your own action.
 - If a staff member asks you to create / open / log a ticket or work order but did NOT include the exact trigger phrase, your job is to instruct them to resend with one of these exact phrases at the top of the body:
     @maia open ticket <brief description>
     @maia open work order <brief description>
@@ -1238,8 +1244,102 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
     const rawText  = message.content.find(b => b.type === 'text')?.text ?? ''
     const decision = parseMaiaResponse(rawText)
     const aiText   = decision.reply
+
+    // ── Phase 1: create or update the MAIA-owned ticket FIRST ───────────
+    // The reply needs to cite the real TKT-YYYY-NNNN, and the assignee
+    // needs a notifyAssignee email, so we resolve the ticket BEFORE
+    // composing the outbound text. Best-effort: if the ticket op throws,
+    // we still send the reply (just without the ticket footer) instead
+    // of stranding the sender with no acknowledgement.
+    const routing = decision.action === 'escalate' && decision.department
+      ? ESCALATION_ROUTING[decision.department]
+      : null
+    type ResolvedTicket = { id: number; ticket_number: string; type: string; subject: string | null }
+    let resolvedTicket: ResolvedTicket | null = null
+    let ticketIsNew = false
+    try {
+      const nowIso          = new Date().toISOString()
+      const ticketStatus    = decision.action === 'resolved' ? 'resolved' : 'open'
+      const ticketType      = routing?.isWorkOrder           ? 'work_order' : 'ticket'
+      const ticketAssignee  = routing?.assignee              ?? 'maia@pmitop.com'
+      const ticketPriority  = decision.action === 'resolved' ? 'low'        : 'normal'
+      const ticketResolvedAt = decision.action === 'resolved' ? nowIso       : null
+      // Categories only apply to plain tickets — work orders carry
+      // work_order_type_name (from CINC) instead. So drop the category
+      // for the maintenance branch even if MAIA picked one.
+      const ticketCategory   = ticketType === 'work_order' ? null : (decision.category ?? null)
+
+      const existing = parsed.threadId
+        ? (await supabaseAdmin
+            .from('tickets')
+            .select('id, ticket_number, type, subject, ticket_category')
+            .eq('gmail_thread_id', parsed.threadId)
+            .eq('created_by_maia', true)
+            .maybeSingle()).data as (ResolvedTicket & { ticket_category: string | null }) | null
+        : null
+
+      if (existing) {
+        // Don't downgrade a work_order back to a ticket on update — once
+        // staff (or MAIA) decided it was a WO, that classification
+        // stays. Everything else reflects MAIA's latest read of the
+        // thread. For ticket_category, only OVERWRITE when MAIA actually
+        // picked one — never clobber a staff-set category with null.
+        const preserveType = existing.type === 'work_order'
+        const { data: updated } = await supabaseAdmin
+          .from('tickets')
+          .update({
+            status:         ticketStatus,
+            priority:       ticketPriority,
+            assignee_email: ticketAssignee,
+            resolved_at:    ticketResolvedAt,
+            updated_at:     nowIso,
+            ...(preserveType ? {} : { type: ticketType }),
+            ...(ticketCategory && existing.type !== 'work_order' ? { ticket_category: ticketCategory } : {}),
+          })
+          .eq('id', existing.id)
+          .select('id, ticket_number, type, subject')
+          .single()
+        resolvedTicket = (updated as ResolvedTicket | null) ?? existing
+        ticketIsNew    = false
+      } else {
+        const { data: inserted } = await supabaseAdmin.from('tickets').insert({
+          type:             ticketType,
+          status:           ticketStatus,
+          priority:         ticketPriority,
+          channel_origin:   'email',
+          association_code: detectedAssocCode,
+          contact_name:     parsed.senderName,
+          contact_email:    parsed.senderEmail?.toLowerCase() ?? null,
+          subject:          parsed.subject,
+          summary:          (parsed.body ?? '').slice(0, 800),
+          assignee_email:   ticketAssignee,
+          gmail_thread_id:  parsed.threadId,
+          created_by_maia:  true,
+          resolved_at:      ticketResolvedAt,
+          ticket_category:  ticketCategory,
+        }).select('id, ticket_number, type, subject').single()
+        resolvedTicket = (inserted as ResolvedTicket | null)
+        ticketIsNew    = true
+      }
+    } catch (tErr) {
+      console.error('[MAIA general] auto-ticket insert failed:', tErr instanceof Error ? tErr.message : String(tErr))
+    }
+
+    // ── Phase 2: build the reply, with a verifiable footer on escalation ──
+    // Escalations get a structured footer naming the ticket + team so the
+    // sender can verify the action actually happened. Resolved replies
+    // don't — the AI's reply already IS the answer.
+    const isEscalation  = decision.action === 'escalate' && routing && resolvedTicket
+    const ticketLabel   = resolvedTicket?.type === 'work_order' ? 'work order' : 'ticket'
+    const ticketFooter  = isEscalation
+      ? `<div style="margin:24px 0 0;padding:12px 16px;background:#f9fafb;border-left:3px solid #f26a1b">
+<p style="margin:0 0 6px;color:#111827">I've opened ${ticketLabel} <a href="${APP_URL}/admin/tickets/${resolvedTicket!.id}" style="color:#f26a1b;text-decoration:none;font-family:ui-monospace,monospace;font-weight:600">${resolvedTicket!.ticket_number}</a> and routed it to our ${routing!.teamLabel}.</p>
+<p style="margin:0;color:#6b7280;font-size:13px">They'll respond within one business day.</p>
+</div>`
+      : ''
     const replyHtml = `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#222;max-width:600px;margin:0 auto;padding:20px">
 ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join('')}
+${ticketFooter}
 <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
 <p style="color:#6b7280;font-size:11px">This response was generated by AI. For urgent matters please call 305.900.5077.</p>
 </body></html>`
@@ -1289,82 +1389,14 @@ ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join(
       })
       .eq('id', convRow.id)
 
-    // Auto-create a MAIA ticket for this conversation. Two flavors:
-    //   - action='resolved'  → status='resolved', assignee=maia, low priority.
-    //                          Counts in "Resolved by MAIA" on the monthly report.
-    //   - action='escalate'  → status='open', routed to the department's queue,
-    //                          normal priority. Maintenance escalations are
-    //                          opened as type='work_order' (per Paola's flow).
-    //
-    // Best-effort + thread-deduped: one MAIA ticket per Gmail thread. If
-    // MAIA has already auto-ticketed this thread, UPDATE that row (the
-    // newest message reflects the current state) instead of inserting a
-    // second. A long thread that flips resolved → escalate (or vice
-    // versa) updates the same ticket rather than littering the queue.
-    try {
-      const nowIso  = new Date().toISOString()
-      const routing = decision.action === 'escalate' && decision.department
-        ? ESCALATION_ROUTING[decision.department]
-        : null
-
-      const ticketStatus    = decision.action === 'resolved' ? 'resolved' : 'open'
-      const ticketType      = routing?.isWorkOrder           ? 'work_order' : 'ticket'
-      const ticketAssignee  = routing?.assignee              ?? 'maia@pmitop.com'
-      const ticketPriority  = decision.action === 'resolved' ? 'low'        : 'normal'
-      const ticketResolvedAt = decision.action === 'resolved' ? nowIso       : null
-      // Categories only apply to plain tickets — work orders carry
-      // work_order_type_name (from CINC) instead. So drop the category
-      // for the maintenance branch even if MAIA picked one.
-      const ticketCategory   = ticketType === 'work_order' ? null : (decision.category ?? null)
-
-      const existing = parsed.threadId
-        ? (await supabaseAdmin
-            .from('tickets')
-            .select('id, type, ticket_category')
-            .eq('gmail_thread_id', parsed.threadId)
-            .eq('created_by_maia', true)
-            .maybeSingle()).data as { id: number; type: string; ticket_category: string | null } | null
-        : null
-
-      if (existing) {
-        // Don't downgrade a work_order back to a ticket on update — once
-        // staff (or MAIA) decided it was a WO, that classification
-        // stays. Everything else reflects MAIA's latest read of the
-        // thread. For ticket_category, only OVERWRITE when MAIA actually
-        // picked one — never clobber a staff-set category with null.
-        const preserveType = existing.type === 'work_order'
-        await supabaseAdmin
-          .from('tickets')
-          .update({
-            status:         ticketStatus,
-            priority:       ticketPriority,
-            assignee_email: ticketAssignee,
-            resolved_at:    ticketResolvedAt,
-            updated_at:     nowIso,
-            ...(preserveType ? {} : { type: ticketType }),
-            ...(ticketCategory && existing.type !== 'work_order' ? { ticket_category: ticketCategory } : {}),
-          })
-          .eq('id', existing.id)
-      } else {
-        await supabaseAdmin.from('tickets').insert({
-          type:             ticketType,
-          status:           ticketStatus,
-          priority:         ticketPriority,
-          channel_origin:   'email',
-          association_code: detectedAssocCode,
-          contact_name:     parsed.senderName,
-          contact_email:    parsed.senderEmail?.toLowerCase() ?? null,
-          subject:          parsed.subject,
-          summary:          (parsed.body ?? '').slice(0, 800),
-          assignee_email:   ticketAssignee,
-          gmail_thread_id:  parsed.threadId,
-          created_by_maia:  true,
-          resolved_at:      ticketResolvedAt,
-          ticket_category:  ticketCategory,
-        })
-      }
-    } catch (tErr) {
-      console.error('[MAIA general] auto-ticket insert failed:', tErr instanceof Error ? tErr.message : String(tErr))
+    // ── Phase 3: notify the assignee, but only on a NEW ticket ────────
+    // Long threads that re-escalate (or flip resolved → escalate) update
+    // the same MAIA-owned ticket row instead of inserting a second one;
+    // we deliberately DON'T re-ping the assignee in that case — they
+    // already know about the ticket and the new message is visible on
+    // the dashboard's activity log.
+    if (isEscalation && ticketIsNew && resolvedTicket) {
+      await notifyAssignee(resolvedTicket, routing!.assignee, 'maia@pmitop.com')
     }
 
   } catch (err) {
