@@ -993,6 +993,89 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<CreateIn
   return { invoiceId }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Budget / GL lookup — drives the GL dropdown on the invoice intake
+// form so Karen can only pick codes the association actually budgets
+// for. Keeps expenses lining up with budget categories in reports.
+// ─────────────────────────────────────────────────────────────────────
+export interface CincBudgetLine {
+  GlAccountId?:     number | string | null
+  GlAccountNumber?: string | null
+  GlAccountName?:   string | null
+  GlAccountDesc?:   string | null
+  BudgetAmount?:    number | null
+  AnnualBudget?:    number | null
+}
+
+/** Normalised shape we feed the dropdown. id/name guaranteed; amount
+ *  optional (just informational, helps Karen pick the most likely line). */
+export interface BudgetGlOption {
+  id:     string
+  number: string | null   // e.g. "5000"
+  name:   string          // e.g. "Repairs and Maintenance"
+  budget: number | null   // annual budget for this line, if known
+}
+
+interface CachedBudget { lines: BudgetGlOption[]; expiresAt: number }
+const _budgetCache  = new Map<string, CachedBudget>()
+const BUDGET_TTL_MS = 30 * 60_000  // 30 min — budgets change infrequently
+
+/** Fetch the budget for an association and reduce it to a clean list
+ *  of GL options. Cached for 30 min per assoc code. Returns [] on a
+ *  4xx (so callers can render an empty dropdown gracefully). */
+export async function getAssociationBudget(
+  assocCode: string,
+  opts?:     { forceRefresh?: boolean },
+): Promise<BudgetGlOption[]> {
+  const key = assocCode.toUpperCase()
+  if (!opts?.forceRefresh) {
+    const hit = _budgetCache.get(key)
+    if (hit && hit.expiresAt > Date.now()) return hit.lines
+  }
+
+  const raw = await call<CincBudgetLine[]>(
+    `/management/1/accounting/budget/association/${encodeURIComponent(key)}`,
+    { method: 'GET' },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincBudgetLine[]
+    }
+    throw err
+  })
+
+  const seen  = new Set<string>()
+  const lines: BudgetGlOption[] = []
+  for (const r of raw) {
+    const id = r.GlAccountId != null ? String(r.GlAccountId) : null
+    if (!id || seen.has(id)) continue
+    const name = (r.GlAccountName ?? r.GlAccountDesc ?? '').trim()
+    if (!name) continue
+    seen.add(id)
+    lines.push({
+      id,
+      number: r.GlAccountNumber ?? null,
+      name,
+      budget: typeof r.AnnualBudget === 'number'
+        ? r.AnnualBudget
+        : (typeof r.BudgetAmount === 'number' ? r.BudgetAmount : null),
+    })
+  }
+  // Sort by GL number when available (typical accounting expectation),
+  // falling back to name.
+  lines.sort((a, b) => {
+    if (a.number && b.number) return a.number.localeCompare(b.number, undefined, { numeric: true })
+    return a.name.localeCompare(b.name)
+  })
+
+  _budgetCache.set(key, { lines, expiresAt: Date.now() + BUDGET_TTL_MS })
+  return lines
+}
+
+export function invalidateBudgetCache(assocCode?: string): void {
+  if (assocCode) _budgetCache.delete(assocCode.toUpperCase())
+  else           _budgetCache.clear()
+}
+
 /** PUT /associations/InvoiceAttachmentsBase64 — attach a single PDF
  *  to a CINC invoice. CINC's hard limit is 25 MB pre-conversion. */
 export async function attachInvoicePdf(opts: {
