@@ -789,3 +789,203 @@ export async function listWorkOrderAttachments(workOrderId: number): Promise<Cin
     throw err
   })
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Vendor catalog (rich shape) — for invoice intake matching
+//
+// CincVendorSummary (above) is the minimal shape the existing picker
+// UIs use. CincVendorFull exposes the four UserDefined slots — we use
+// UserDefined1 to store our internal "short name" for invoice file
+// renaming (e.g. "Atlas" for "Atlas Electrical Performance LLC").
+// ─────────────────────────────────────────────────────────────────────
+export interface CincVendorFull {
+  VendorId:      number
+  VendorName:    string
+  CheckName?:    string  | null
+  Email?:        string  | null
+  Phone?:        string  | null
+  AddressLine1?: string  | null
+  City?:         string  | null
+  State?:        string  | null
+  Zip?:          string  | null
+  TaxId?:        string  | null
+  UserDefined1?: string  | null  // our short_name
+  UserDefined2?: string  | null
+  UserDefined3?: string  | null
+  UserDefined4?: string  | null
+  Status?:       string  | null
+  VendorType?:   string  | null
+}
+
+interface CachedVendorList { vendors: CincVendorFull[]; expiresAt: number }
+let _vendorsFullCache: CachedVendorList | null = null
+const VENDOR_CACHE_TTL_MS = 60 * 60_000  // 1 hour
+
+/** Full vendor catalog (one container process holds it for an hour).
+ *  Used by the invoice intake pipeline to fuzzy-match an extracted
+ *  vendor name to a CINC VendorId before pushing the invoice. */
+export async function listVendorsFull(opts?: { forceRefresh?: boolean }): Promise<CincVendorFull[]> {
+  if (!opts?.forceRefresh && _vendorsFullCache && _vendorsFullCache.expiresAt > Date.now()) {
+    return _vendorsFullCache.vendors
+  }
+  const vendors = await call<CincVendorFull[]>('/management/1/vendors', { method: 'GET', query: {} })
+    .catch(err => {
+      if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+        return [] as CincVendorFull[]
+      }
+      throw err
+    })
+  _vendorsFullCache = { vendors, expiresAt: Date.now() + VENDOR_CACHE_TTL_MS }
+  return vendors
+}
+
+/** Force a refresh of the vendor cache — call after writing a new
+ *  UserDefined1 (short name) or after Karen creates a vendor in CINC. */
+export function invalidateVendorCache(): void {
+  _vendorsFullCache = null
+}
+
+/** Write the short name into CINC's UserDefined1 field on the vendor
+ *  record. Other fields untouched. */
+export async function updateVendorShortName(vendorId: number, shortName: string): Promise<void> {
+  await call<unknown>('/management/1/vendors/vendor', {
+    method: 'PATCH',
+    json:   { VendorId: vendorId, UserDefined1: shortName },
+  })
+  invalidateVendorCache()
+}
+
+/** Fuzzy-match an extracted vendor name against the CINC catalog.
+ *  Score = token-overlap ratio after normalisation (drops LLC/Inc/&,
+ *  punctuation, etc.). Returns the best candidate above 0.6, or null.
+ *  Cheap — no Levenshtein dep. */
+export function fuzzyMatchVendor(extractedName: string, catalog: CincVendorFull[]): CincVendorFull | null {
+  const target = normalizeVendorName(extractedName)
+  if (!target || target.length < 3) return null
+
+  const exact = catalog.find(v => normalizeVendorName(v.VendorName ?? '') === target)
+  if (exact) return exact
+
+  const targetTokens = new Set(target.split(' ').filter(t => t.length >= 3))
+  if (targetTokens.size === 0) return null
+
+  let best: { vendor: CincVendorFull; score: number } | null = null
+  for (const v of catalog) {
+    const norm   = normalizeVendorName(v.VendorName ?? '')
+    const tokens = new Set(norm.split(' ').filter(t => t.length >= 3))
+    if (tokens.size === 0) continue
+    let overlap = 0
+    for (const t of targetTokens) if (tokens.has(t)) overlap++
+    const score = overlap / Math.max(targetTokens.size, tokens.size)
+    if (score >= 0.6 && (!best || score > best.score)) {
+      best = { vendor: v, score }
+    }
+  }
+  return best?.vendor ?? null
+}
+
+function normalizeVendorName(s: string): string {
+  return (s ?? '')
+    .toLowerCase()
+    .replace(/\b(llc|inc|corp|co|ltd|company|services?|of|the|and)\b/g, ' ')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Invoice CRUD — used by the intake-queue push flow
+// ─────────────────────────────────────────────────────────────────────
+export interface CincInvoiceMatch {
+  InvoiceId:      number
+  InvoiceNumber?: string | null
+  InvoiceDate?:   string | null
+  InvoiceTotal?:  number | null
+  VendorId?:      number | null
+  AssocCode?:     string | null
+}
+
+/** GET /accounting/duplicateInvoices — CINC's built-in dup detection
+ *  for a specific (assoc, vendor, invoice#) combo. Returns [] if none
+ *  or on 4xx (treat as "no known duplicate"). */
+export async function checkDuplicateInvoice(opts: {
+  associationCode: string
+  vendorId:        number
+  invoiceNumber:   string
+}): Promise<CincInvoiceMatch[]> {
+  return await call<CincInvoiceMatch[]>('/management/1/accounting/duplicateInvoices', {
+    method: 'GET',
+    query:  {
+      assocCode:     opts.associationCode.toUpperCase(),
+      vendorId:      opts.vendorId,
+      invoiceNumber: opts.invoiceNumber,
+    },
+  }).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincInvoiceMatch[]
+    }
+    throw err
+  })
+}
+
+export interface CreateInvoiceInput {
+  associationCode: string
+  vendorId:        number
+  invoiceNumber:   string
+  invoiceDate:     string       // ISO date (YYYY-MM-DD)
+  amount:          number
+  description?:    string | null
+  dueDate?:        string | null
+}
+
+export interface CreateInvoiceResult {
+  invoiceId: number
+}
+
+/** POST /accounting/invoice — creates the invoice header. Caller
+ *  follows up with attachInvoicePdf to upload the file. */
+export async function createInvoice(input: CreateInvoiceInput): Promise<CreateInvoiceResult> {
+  const assocId = await findAssocIdByCode(input.associationCode)
+  if (!assocId) {
+    throw new CincApiError(
+      `Cannot resolve CINC AssocId for association_code="${input.associationCode}". ` +
+      `findAssocIdByCode derives this from existing work orders — create one in CINC ` +
+      `for this association first to populate the cache, then retry the invoice push.`,
+    )
+  }
+  const body = {
+    assocId,
+    vendorId:      input.vendorId,
+    invoiceNumber: input.invoiceNumber,
+    invoiceDate:   input.invoiceDate,
+    invoiceTotal:  input.amount,
+    description:   input.description?.slice(0, 1000) ?? '',
+    dueDate:       input.dueDate ?? undefined,
+  }
+  const result = await call<{ InvoiceId?: number; invoiceId?: number }>(
+    '/management/1/accounting/invoice',
+    { method: 'POST', json: body },
+  )
+  const invoiceId = result.InvoiceId ?? result.invoiceId
+  if (!invoiceId) throw new CincApiError('createInvoice succeeded but response had no InvoiceId')
+  return { invoiceId }
+}
+
+/** PUT /associations/InvoiceAttachmentsBase64 — attach a single PDF
+ *  to a CINC invoice. CINC's hard limit is 25 MB pre-conversion. */
+export async function attachInvoicePdf(opts: {
+  invoiceId: number
+  pdfBase64: string
+  filename:  string
+}): Promise<{ imageId: number }> {
+  const result = await call<{ ImageId?: number; imageId?: number }>(
+    '/management/1/associations/InvoiceAttachmentsBase64',
+    {
+      method: 'PUT',
+      json:   { InvoiceId: opts.invoiceId, FileName: opts.filename, FileContent: opts.pdfBase64 },
+    },
+  )
+  const imageId = result.ImageId ?? result.imageId
+  if (!imageId) throw new CincApiError('attachInvoicePdf succeeded but response had no ImageId')
+  return { imageId }
+}

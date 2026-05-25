@@ -79,7 +79,7 @@ interface UpsertResult {
   hasActiveTenants?: boolean
 }
 
-interface ParsedEmail {
+export interface ParsedEmail {
   messageId:    string
   threadId:     string
   rfcMessageId: string
