@@ -52,6 +52,29 @@ interface TicketRow {
   contact_name:     string | null
 }
 
+interface InvoiceDraftRow {
+  id:                          number
+  matched_vendor_name:         string | null
+  matched_vendor_short_name:   string | null
+  extracted_vendor_name:       string | null
+  extracted_amount:            number | null
+  extracted_association_code:  string | null
+  extracted_invoice_number:    string | null
+  status:                      string
+  created_at:                  string
+}
+
+function ageLabel(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  const min = Math.round(ms / 60_000)
+  if (min < 1)  return 'just now'
+  if (min < 60) return `${min}m ago`
+  const hr = Math.round(min / 60)
+  if (hr < 24) return `${hr}h ago`
+  const d = Math.round(hr / 24)
+  return `${d}d ago`
+}
+
 export default async function OverviewPage() {
   // ── Auth: only staff. Middleware will normally redirect non-staff,
   //    but pulling the session here gives us the email to filter "my
@@ -100,6 +123,8 @@ export default async function OverviewPage() {
     { data: recentCommands },
     { data: myTasksRaw },
     { data: workOrdersRaw },
+    { data: invoiceDraftsRaw },
+    { count: pendingInvoiceCount },
   ] = await Promise.all([
     supabaseAdmin.from('general_conversations').select('id', { count: 'exact', head: true }).eq('status', 'unidentified'),
     supabaseAdmin.from('applications').select('id', { count: 'exact', head: true }).eq('board_approval_status', 'pending').eq('stripe_payment_status', 'paid'),
@@ -131,10 +156,27 @@ export default async function OverviewPage() {
       .not('status', 'in', '("resolved","closed")')
       .order('due_at', { ascending: true, nullsFirst: false })
       .limit(15),
+    // Pending invoice drafts — Karen reviews these in /admin/invoices
+    // before pushing to CINC. Wrapped in catch so the dashboard stays
+    // up if the table hasn't been migrated yet on this environment.
+    supabaseAdmin
+      .from('invoice_intake_drafts')
+      .select('id, matched_vendor_name, matched_vendor_short_name, extracted_vendor_name, extracted_amount, extracted_association_code, extracted_invoice_number, status, created_at')
+      .in('status', ['pending_review', 'needs_vendor', 'duplicate_in_cinc'])
+      .order('created_at', { ascending: false })
+      .limit(10)
+      .then(r => r, () => ({ data: [] as InvoiceDraftRow[], error: null })),
+    supabaseAdmin
+      .from('invoice_intake_drafts')
+      .select('id', { count: 'exact', head: true })
+      .in('status', ['pending_review', 'needs_vendor', 'duplicate_in_cinc'])
+      .then(r => r, () => ({ count: 0, error: null })),
   ])
 
-  const myTasks    = (myTasksRaw    ?? []) as TicketRow[]
-  const workOrders = (workOrdersRaw ?? []) as TicketRow[]
+  const myTasks        = (myTasksRaw        ?? []) as TicketRow[]
+  const workOrders     = (workOrdersRaw     ?? []) as TicketRow[]
+  const invoiceDrafts  = (invoiceDraftsRaw  ?? []) as InvoiceDraftRow[]
+  const invoicesCount  = pendingInvoiceCount ?? invoiceDrafts.length
 
   const pendingReg = (pendingAgents ?? 0) + (pendingVendors ?? 0)
   // Server component renders once per request; "current time" is the
@@ -154,6 +196,7 @@ export default async function OverviewPage() {
   const sections = [
     { label: 'Tickets',          href: '/admin/tickets',          badge: totalTickets || null, stats: [`${totalTickets ?? 0} open tickets`] },
     { label: 'Work Orders',      href: '/admin/work-orders',      badge: null,                 stats: [`${workOrders.length} active`] },
+    { label: 'Invoices',         href: '/admin/invoices',         badge: invoicesCount || null, stats: [`${invoicesCount} pending review`] },
     { label: 'Owners',           href: '/admin/cinc-sync',        badge: null,                 stats: [`${ownerCount ?? 0} active owners · pick an association`] },
     { label: 'Applications',     href: '/admin/applications',     badge: pendingApps || null,  stats: [`${pendingApps ?? 0} pending board vote`] },
     { label: 'Registrations',    href: '/admin/registrations',    badge: pendingReg || null,   stats: [`${pendingAgents ?? 0} agents · ${pendingVendors ?? 0} vendors pending`] },
@@ -297,6 +340,57 @@ export default async function OverviewPage() {
                       <span className="text-[10px] font-mono text-gray-300 shrink-0 hidden md:inline">unassigned</span>
                     )}
                     <span className={`text-[10px] shrink-0 ${dueClass} hidden sm:inline`}>{due.text}</span>
+                    <span className="text-gray-300 group-hover:text-[#f26a1b] shrink-0">→</span>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Pending Invoice Review — Karen's queue, time-sensitive (vendors
+            are waiting on payment, board approval blocks on the push). */}
+        <div className="mb-6 bg-white border border-gray-200 rounded-lg overflow-hidden">
+          <div className="bg-emerald-50 border-b border-emerald-100 px-4 py-2.5 flex items-center justify-between">
+            <span className="text-xs font-semibold text-emerald-800 uppercase tracking-wide [font-family:var(--font-mono)]">
+              Pending Invoice Review <span className="text-emerald-600">· {invoicesCount}</span>
+            </span>
+            <Link href="/admin/invoices" className="text-[0.6rem] font-mono text-gray-400 hover:text-gray-600 uppercase tracking-wide">View all →</Link>
+          </div>
+          {invoiceDrafts.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-gray-400">
+              No invoices waiting for review. New ones land here when forwarded to <span className="font-mono">billing@</span>.
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {invoiceDrafts.map(d => {
+                const vendor = d.matched_vendor_short_name || d.matched_vendor_name || d.extracted_vendor_name || '(unknown vendor)'
+                const amount = d.extracted_amount != null
+                  ? `$${d.extracted_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  : '—'
+                const statusBadge =
+                  d.status === 'needs_vendor'      ? { label: 'Needs vendor',   cls: 'bg-amber-100 text-amber-800' } :
+                  d.status === 'duplicate_in_cinc' ? { label: 'Duplicate',      cls: 'bg-red-100 text-red-800'     } :
+                                                     { label: 'Pending review', cls: 'bg-emerald-100 text-emerald-800' }
+                return (
+                  <Link
+                    key={d.id}
+                    href="/admin/invoices"
+                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 group"
+                  >
+                    <span className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium uppercase shrink-0 ${statusBadge.cls}`}>
+                      {statusBadge.label}
+                    </span>
+                    <span className="text-sm text-gray-800 truncate font-medium shrink-0 max-w-[200px]">{vendor}</span>
+                    <span className="text-sm text-gray-700 shrink-0 font-mono">{amount}</span>
+                    {d.extracted_invoice_number && (
+                      <span className="text-[11px] text-gray-400 font-mono shrink-0 hidden md:inline">#{d.extracted_invoice_number}</span>
+                    )}
+                    <span className="flex-1" />
+                    {d.extracted_association_code && (
+                      <span className="text-[10px] font-mono text-gray-400 shrink-0 hidden md:inline">{d.extracted_association_code}</span>
+                    )}
+                    <span className="text-[10px] text-gray-400 shrink-0 hidden sm:inline">{ageLabel(d.created_at)}</span>
                     <span className="text-gray-300 group-hover:text-[#f26a1b] shrink-0">→</span>
                   </Link>
                 )
