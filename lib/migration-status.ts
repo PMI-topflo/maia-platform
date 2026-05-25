@@ -595,6 +595,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS invoice_intake_drafts_gmail_msg_uniq
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'invoice_intake_drive_file_id',
+    label:       'Invoice intake — Drive mirror',
+    description: 'invoice_intake_drafts.drive_file_id — Google Drive file id of the renamed copy mirrored into INVOICE TO INPUT folder on Push to CINC',
+    filename:    '20260525_invoice_intake_drive_file_id.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'drive_file_id' },
+    sql: `ALTER TABLE public.invoice_intake_drafts
+  ADD COLUMN IF NOT EXISTS drive_file_id text;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

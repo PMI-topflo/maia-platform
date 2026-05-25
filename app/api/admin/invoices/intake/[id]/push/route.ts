@@ -21,6 +21,7 @@ import {
   attachInvoicePdf,
   CincApiError,
 } from '@/lib/integrations/cinc'
+import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
 
 export const dynamic = 'force-dynamic'
 
@@ -142,12 +143,28 @@ export async function POST(
     }, { status: 207 })
   }
 
+  // Drive mirror — best-effort. Failure is non-fatal: the CINC push
+  // is the source of truth; Drive is a convenience copy so Isabela's
+  // existing folder-move + spreadsheet workflow keeps working. If the
+  // SA doesn't have access to the folder yet (one-time share step),
+  // every push will warn but CINC stays correct.
+  let driveFileId: string | null = null
+  let driveWarning: string | null = null
+  try {
+    const mirror = await uploadInvoiceToDrive({ filename, pdfBuffer: buf })
+    driveFileId = mirror.driveFileId
+  } catch (err) {
+    driveWarning = `Drive mirror failed: ${(err as Error).message}`
+    console.warn(`[invoice-push] ${driveWarning}`)
+  }
+
   // Mark pushed.
   const { error: updErr } = await supabaseAdmin
     .from('invoice_intake_drafts')
     .update({
       status:          'pushed_to_cinc',
       cinc_invoice_id: String(cincInvoiceId),
+      drive_file_id:   driveFileId,
       pushed_at:       new Date().toISOString(),
       pushed_by:       pushedBy,
       updated_at:      new Date().toISOString(),
@@ -157,10 +174,19 @@ export async function POST(
     return NextResponse.json({
       warning: `Pushed to CINC (id ${cincInvoiceId}) but failed to update draft state: ${updErr.message}`,
       cincInvoiceId,
+      driveFileId,
     }, { status: 207 })
   }
 
-  return NextResponse.json({ ok: true, cincInvoiceId })
+  if (driveWarning) {
+    return NextResponse.json({
+      ok:       true,
+      warning:  driveWarning,
+      cincInvoiceId,
+    }, { status: 207 })
+  }
+
+  return NextResponse.json({ ok: true, cincInvoiceId, driveFileId })
 }
 
 function canonicalInvoiceFilename(opts: {
