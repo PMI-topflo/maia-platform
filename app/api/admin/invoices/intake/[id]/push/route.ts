@@ -24,6 +24,10 @@ import {
 } from '@/lib/integrations/cinc'
 import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
 
+// Karen's inbox — the assignee + author for every auto-resolved
+// "invoice processed" ticket. Same env as the needs-vendor alert.
+const KAREN_EMAIL = process.env.MAIA_BILLING_ALERT_TO ?? 'billing@topfloridaproperties.com'
+
 export const dynamic = 'force-dynamic'
 
 const STORAGE_BUCKET = 'invoice-intake-pdfs'
@@ -58,7 +62,7 @@ export async function POST(
 
   const { data: draft, error: loadErr } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('id, status, pdf_storage_key, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, pay_by_type, observation_note, extraction_confidence, gmail_message_id')
+    .select('id, status, pdf_storage_key, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, pay_by_type, observation_note, work_order_number, extraction_confidence, gmail_message_id')
     .eq('id', id)
     .single()
   if (loadErr || !draft) return NextResponse.json({ error: loadErr?.message ?? 'not found' }, { status: 404 })
@@ -111,6 +115,7 @@ export async function POST(
       amount:           draft.extracted_amount            as number,
       payByType:        (draft.pay_by_type      ?? null) as string | null,
       noteDescription:  (draft.observation_note ?? null) as string | null,
+      workOrderNumber:  (draft.work_order_number ?? null) as number | null,
     })
     cincInvoiceId = created.invoiceId
   } catch (err) {
@@ -199,6 +204,22 @@ export async function POST(
     }, { status: 207 })
   }
 
+  // Monthly-report ticket. We auto-create + immediately resolve a
+  // ticket under the "Financial & Billing" category, assigned to
+  // Karen, so each invoice she processes counts in her monthly stats
+  // without her having to file one manually. Best-effort — failure
+  // logged but doesn't fail the push.
+  await createResolvedInvoiceTicket({
+    draftAssoc:   draft.extracted_association_code as string | null,
+    vendorName:   (draft.matched_vendor_name ?? draft.matched_vendor_short_name) as string | null,
+    invoiceNum:   draft.extracted_invoice_number as string,
+    amount:       draft.extracted_amount as number,
+    cincInvoiceId,
+    pushedBy,
+  }).catch(err => {
+    console.warn(`[invoice-push] auto-ticket failed: ${(err as Error).message}`)
+  })
+
   if (driveWarning) {
     return NextResponse.json({
       ok:       true,
@@ -208,6 +229,56 @@ export async function POST(
   }
 
   return NextResponse.json({ ok: true, cincInvoiceId, driveFileId })
+}
+
+/** Insert a resolved ticket so the invoice push counts in Karen's
+ *  monthly "Financial & Billing" totals. Direct insert (vs. going
+ *  through createTicket) because we want it born resolved — saves an
+ *  open→resolved patch and the ticket_events for it. */
+async function createResolvedInvoiceTicket(opts: {
+  draftAssoc:    string | null
+  vendorName:    string | null
+  invoiceNum:    string
+  amount:        number
+  cincInvoiceId: number
+  pushedBy:      string
+}): Promise<void> {
+  const subject = `Invoice processed — ${opts.vendorName ?? 'vendor'} #${opts.invoiceNum} · $${opts.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const summary = `Pushed to CINC as invoice ${opts.cincInvoiceId} by ${opts.pushedBy} on ${new Date().toISOString().slice(0, 10)}.`
+  const nowIso  = new Date().toISOString()
+
+  const { data: inserted, error } = await supabaseAdmin
+    .from('tickets')
+    .insert({
+      type:             'ticket',
+      status:           'resolved',
+      priority:         'low',
+      channel_origin:   'email',
+      association_code: opts.draftAssoc,
+      persona:          'staff',
+      contact_name:     opts.vendorName,
+      subject,
+      summary,
+      assignee_email:   KAREN_EMAIL.toLowerCase(),
+      ticket_category:  'Financial & Billing',
+      created_by_maia:  true,
+      resolved_at:      nowIso,
+    })
+    .select('id')
+    .single()
+
+  if (error || !inserted) {
+    console.warn(`[invoice-push] auto-ticket insert failed: ${error?.message}`)
+    return
+  }
+
+  // Audit trail so the monthly report sees a creation event.
+  await supabaseAdmin.from('ticket_events').insert({
+    ticket_id:   inserted.id,
+    actor_email: 'maia-invoice-intake',
+    event_type:  'created',
+    payload:     { channel_origin: 'email', type: 'ticket', auto_resolved: true, cinc_invoice_id: opts.cincInvoiceId },
+  })
 }
 
 function canonicalInvoiceFilename(opts: {

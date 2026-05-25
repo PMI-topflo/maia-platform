@@ -30,6 +30,7 @@ interface Draft {
   gl_account_name:             string | null
   pay_by_type:                 string | null
   observation_note:            string | null
+  work_order_number:           number | null
   extraction_confidence:       number | null
   status:                      string
   rejected_reason:             string | null
@@ -42,6 +43,13 @@ interface Draft {
 }
 
 interface PayByOption { value: string; label: string }
+interface WorkOrderOption {
+  number:      number
+  description: string
+  vendor:      string | null
+  createdDate: string | null
+  status:      string | null
+}
 
 interface BudgetGlOption {
   id:        string
@@ -247,6 +255,7 @@ function DraftCard(props: {
   const [glName, setGlName]       = useState<string>(draft.gl_account_name ?? '')
   const [payBy, setPayBy]         = useState<string>(draft.pay_by_type     ?? '')
   const [note, setNote]           = useState<string>(draft.observation_note ?? '')
+  const [woNumber, setWoNumber]   = useState<string>(draft.work_order_number != null ? String(draft.work_order_number) : '')
 
   // GL options for the selected association — fetched on demand the
   // first time edit mode + assoc are both set, then memoised. Refresh
@@ -263,6 +272,13 @@ function DraftCard(props: {
   const [payByOptions, setPayByOptions] = useState<PayByOption[]>([])
   const [payByLoading, setPayByLoading] = useState(false)
   const [payByLoadedFor, setPayByLoadedFor] = useState<string>('')
+
+  // Open CINC work orders for the (assoc, vendor) pair — Karen links
+  // a maintenance invoice to an existing WO so it shows up under that
+  // WO instead of standalone. Lazy-loaded when both keys are set.
+  const [woOptions, setWoOptions] = useState<WorkOrderOption[]>([])
+  const [woLoading, setWoLoading] = useState(false)
+  const [woLoadedKey, setWoLoadedKey] = useState<string>('')
 
   // Mode toggle. Cards open in view mode so the data is presented as
   // information first, with Edit as the explicit affordance to change
@@ -288,6 +304,23 @@ function DraftCard(props: {
       .catch(err => setGlError(err instanceof Error ? err.message : String(err)))
       .finally(() => setGlLoading(false))
   }, [mode, assoc, glLoadedFor, glLoading])
+
+  // Lazy-load open WOs for (assoc, vendor) pair. Refetch when either
+  // changes — Karen might switch vendor or assoc mid-edit.
+  useEffect(() => {
+    if (mode !== 'edit' || !assoc || !vendorId) return
+    const key = `${assoc}::${vendorId}`
+    if (woLoadedKey === key || woLoading) return
+    setWoLoading(true)
+    fetch(`/api/admin/cinc/work-orders?assoc=${encodeURIComponent(assoc)}&vendor=${encodeURIComponent(vendorId)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        if (!data?.error) setWoOptions(data.workOrders ?? [])
+        setWoLoadedKey(key)
+      })
+      .catch(() => { /* keep empty — dropdown stays manual */ })
+      .finally(() => setWoLoading(false))
+  }, [mode, assoc, vendorId, woLoadedKey, woLoading])
 
   // Lazy-load payByTypes for the assoc, same pattern.
   useEffect(() => {
@@ -348,6 +381,7 @@ function DraftCard(props: {
     setGlName   (draft.gl_account_name ?? '')
     setPayBy    (draft.pay_by_type     ?? '')
     setNote     (draft.observation_note ?? '')
+    setWoNumber (draft.work_order_number != null ? String(draft.work_order_number) : '')
     setMode('view')
     setMsg(null)
   }
@@ -371,6 +405,7 @@ function DraftCard(props: {
           gl_account_name:             glName || null,
           pay_by_type:                 payBy  || null,
           observation_note:            note   || null,
+          work_order_number:           woNumber ? parseInt(woNumber, 10) : null,
         }),
       })
       const data = await res.json()
@@ -664,6 +699,46 @@ function DraftCard(props: {
             <ReadOnlyValue value={note} placeholder="— none —" />
           )}
         </Field>
+
+        {/* Work-order link (optional) — Karen ties a maintenance invoice
+            to an existing CINC work order so the WO history shows the
+            spend. Loaded from CINC when vendor + assoc are both set;
+            otherwise the dropdown is disabled. Spans both columns
+            because WO descriptions can be long. */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <Field label="Link to work order (optional)">
+            {mode === 'edit' ? (
+              <select
+                value={woNumber}
+                onChange={e => setWoNumber(e.target.value)}
+                disabled={readOnly || !vendorId || !assoc}
+                style={{ width: '100%', padding: 6 }}
+              >
+                <option value="">
+                  {!vendorId || !assoc ? '— pick vendor + association first —'
+                  : woLoading           ? 'Loading open work orders from CINC…'
+                  : woOptions.length === 0
+                    ? 'No open work orders for this vendor at this association'
+                    : '— no work order (standalone invoice) —'}
+                </option>
+                {woOptions.map(wo => {
+                  const desc = wo.description ? ` · ${wo.description.slice(0, 60)}` : ''
+                  const when = wo.createdDate ? ` · ${new Date(wo.createdDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''
+                  return (
+                    <option key={wo.number} value={String(wo.number)}>
+                      WO-{wo.number}{desc}{when}
+                    </option>
+                  )
+                })}
+              </select>
+            ) : (
+              <ReadOnlyValue
+                value={woNumber ? `WO-${woNumber}` : ''}
+                placeholder="— none (standalone invoice) —"
+              />
+            )}
+          </Field>
+        </div>
 
         {/* GL — spans both columns so long account names fit. Source is
             the association's CINC budget, fetched lazily on first edit. */}
