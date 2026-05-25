@@ -606,6 +606,18 @@ NOTIFY pgrst, 'reload schema';`,
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'invoice_intake_gl_account',
+    label:       'Invoice intake — GL line',
+    description: 'invoice_intake_drafts.gl_account_id + gl_account_name — Karen picks the GL line from the association budget so reports match expenses-vs-budget',
+    filename:    '20260525_invoice_intake_gl_account.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'gl_account_id' },
+    sql: `ALTER TABLE public.invoice_intake_drafts
+  ADD COLUMN IF NOT EXISTS gl_account_id   text,
+  ADD COLUMN IF NOT EXISTS gl_account_name text;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

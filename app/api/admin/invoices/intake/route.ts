@@ -25,6 +25,7 @@ const SELECT_COLUMNS = `
   id, gmail_message_id, pdf_storage_key, ticket_id,
   extracted_vendor_name, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name,
   extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date,
+  gl_account_id, gl_account_name,
   extraction_confidence, status, rejected_reason,
   cinc_invoice_id, cinc_dup_invoice_id, pushed_at, pushed_by,
   created_at, updated_at
@@ -72,6 +73,8 @@ interface PatchBody {
   extracted_amount?:           number | null
   extracted_association_code?: string | null
   extracted_invoice_date?:     string | null
+  gl_account_id?:              string | null
+  gl_account_name?:            string | null
 }
 
 export async function PATCH(req: Request) {
@@ -87,6 +90,7 @@ export async function PATCH(req: Request) {
     'matched_cinc_vendor_id', 'matched_vendor_name', 'matched_vendor_short_name',
     'extracted_invoice_number', 'extracted_amount',
     'extracted_association_code', 'extracted_invoice_date',
+    'gl_account_id', 'gl_account_name',
   ]
   for (const k of writable) {
     if (k in body) patch[k as string] = body[k] ?? null

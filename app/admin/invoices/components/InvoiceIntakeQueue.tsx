@@ -17,6 +17,7 @@ interface Draft {
   id:                          number
   gmail_message_id:            string | null
   pdf_storage_key:             string | null
+  pdf_signed_url:              string | null
   extracted_vendor_name:       string | null
   matched_cinc_vendor_id:      string | null
   matched_vendor_name:         string | null
@@ -25,6 +26,8 @@ interface Draft {
   extracted_amount:            number | null
   extracted_association_code:  string | null
   extracted_invoice_date:      string | null
+  gl_account_id:               string | null
+  gl_account_name:             string | null
   extraction_confidence:       number | null
   status:                      string
   rejected_reason:             string | null
@@ -34,6 +37,13 @@ interface Draft {
   pushed_by:                   string | null
   created_at:                  string
   updated_at:                  string
+}
+
+interface BudgetGlOption {
+  id:     string
+  number: string | null
+  name:   string
+  budget: number | null
 }
 
 const TABS: Array<{ key: string; label: string }> = [
@@ -227,6 +237,17 @@ function DraftCard(props: {
   const [invNo, setInvNo]         = useState<string>(draft.extracted_invoice_number ?? '')
   const [amount, setAmount]       = useState<string>(draft.extracted_amount != null ? String(draft.extracted_amount) : '')
   const [invDate, setInvDate]     = useState<string>(draft.extracted_invoice_date ?? '')
+  const [glId, setGlId]           = useState<string>(draft.gl_account_id   ?? '')
+  const [glName, setGlName]       = useState<string>(draft.gl_account_name ?? '')
+
+  // GL options for the selected association — fetched on demand the
+  // first time edit mode + assoc are both set, then memoised. Refresh
+  // bypasses the server cache for cases where Karen just added a
+  // budget line in CINC.
+  const [glOptions, setGlOptions] = useState<BudgetGlOption[]>([])
+  const [glLoading, setGlLoading] = useState(false)
+  const [glError, setGlError]     = useState<string | null>(null)
+  const [glLoadedFor, setGlLoadedFor] = useState<string>('')
 
   // Mode toggle. Cards open in view mode so the data is presented as
   // information first, with Edit as the explicit affordance to change
@@ -235,6 +256,23 @@ function DraftCard(props: {
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg]   = useState<string | null>(null)
+
+  // Lazy-load the GL list when we enter edit mode for an assoc we
+  // haven't fetched yet. Keeps the page-load fast — we only hit CINC
+  // for budgets Karen actually opens.
+  useEffect(() => {
+    if (mode !== 'edit' || !assoc || glLoadedFor === assoc || glLoading) return
+    setGlLoading(true); setGlError(null)
+    fetch(`/api/admin/cinc/budget?assoc=${encodeURIComponent(assoc)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        if (data?.error) throw new Error(data.error)
+        setGlOptions(data.lines ?? [])
+        setGlLoadedFor(assoc)
+      })
+      .catch(err => setGlError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setGlLoading(false))
+  }, [mode, assoc, glLoadedFor, glLoading])
 
   const matchedVendor = useMemo(
     () => vendors.find(v => String(v.id) === vendorId) ?? null,
@@ -260,6 +298,8 @@ function DraftCard(props: {
     setInvNo    (draft.extracted_invoice_number   ?? '')
     setAmount   (draft.extracted_amount != null ? String(draft.extracted_amount) : '')
     setInvDate  (draft.extracted_invoice_date     ?? '')
+    setGlId     (draft.gl_account_id   ?? '')
+    setGlName   (draft.gl_account_name ?? '')
     setMode('view')
     setMsg(null)
   }
@@ -279,6 +319,8 @@ function DraftCard(props: {
           extracted_amount:            amount ? parseFloat(amount) : null,
           extracted_association_code:  assoc || null,
           extracted_invoice_date:      invDate || null,
+          gl_account_id:               glId   || null,
+          gl_account_name:             glName || null,
         }),
       })
       const data = await res.json()
@@ -379,7 +421,32 @@ function DraftCard(props: {
         </div>
       )}
 
-      {/* Form / display grid — same six fields in both modes. */}
+      {/* PDF preview — inline so Karen can visually verify the invoice
+          before reviewing extracted fields. Iframe is the simplest
+          embed that handles every browser's PDF viewer; fixed height
+          keeps the card scannable. Falls back to a download link if
+          the signed URL is missing (storage upload failed at intake). */}
+      {draft.pdf_signed_url ? (
+        <div style={{ marginBottom: 14 }}>
+          <iframe
+            src={draft.pdf_signed_url}
+            title={`Invoice ${draft.id}`}
+            style={{ width: '100%', height: 480, border: '1px solid #e5e7eb', borderRadius: 4, background: '#f9fafb' }}
+          />
+          <div style={{ marginTop: 4, textAlign: 'right' }}>
+            <a href={draft.pdf_signed_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#6b7280', textDecoration: 'none' }}>
+              Open in new tab ↗
+            </a>
+          </div>
+        </div>
+      ) : (
+        <div style={{ marginBottom: 14, padding: 12, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 4, fontSize: 12, color: '#991b1b' }}>
+          PDF preview not available — the original upload to storage failed at intake.
+          The data below was extracted from the email body, not the PDF.
+        </div>
+      )}
+
+      {/* Form / display grid — same fields in both modes. */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
         <Field label="Vendor (CINC)">
           {mode === 'edit' ? (
@@ -493,6 +560,49 @@ function DraftCard(props: {
             />
           )}
         </Field>
+
+        {/* GL — spans both columns so long account names fit. Source is
+            the association's CINC budget, fetched lazily on first edit. */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <Field label="GL line (from association budget)">
+            {mode === 'edit' ? (
+              <>
+                <select
+                  value={glId}
+                  onChange={e => {
+                    const id = e.target.value
+                    setGlId(id)
+                    const hit = glOptions.find(o => o.id === id)
+                    setGlName(hit?.name ?? '')
+                  }}
+                  disabled={readOnly || !assoc}
+                  style={{ width: '100%', padding: 6 }}
+                >
+                  <option value="">
+                    {!assoc          ? '— pick an association first —'
+                    : glLoading      ? 'Loading budget from CINC…'
+                    : glOptions.length === 0
+                      ? (glError ? '(failed to load — pick anyway is not allowed)' : 'No budgeted GL lines for this association')
+                      : '— pick GL line —'}
+                  </option>
+                  {glOptions.map(o => (
+                    <option key={o.id} value={o.id}>
+                      {o.number ? `${o.number} — ` : ''}{o.name}
+                      {o.budget != null ? `  ·  $${o.budget.toLocaleString('en-US', { maximumFractionDigits: 0 })}/yr` : ''}
+                    </option>
+                  ))}
+                </select>
+                {glError && (
+                  <div style={{ marginTop: 4, color: '#b91c1c', fontSize: 11 }}>
+                    Budget fetch failed: {glError}
+                  </div>
+                )}
+              </>
+            ) : (
+              <ReadOnlyValue value={glName} placeholder={assoc ? '— not set —' : '— pick association first —'} />
+            )}
+          </Field>
+        </div>
       </div>
 
       {/* Filename preview — what will be written to CINC + Drive on push.

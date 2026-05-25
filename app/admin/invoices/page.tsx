@@ -10,6 +10,9 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { listVendorsFull } from '@/lib/integrations/cinc'
 import InvoiceIntakeQueue from './components/InvoiceIntakeQueue'
 
+const PDF_BUCKET            = 'invoice-intake-pdfs'
+const PDF_SIGNED_URL_TTL_S  = 60 * 60      // 1 hour
+
 export const metadata = { title: 'Invoice intake — PMI Top Florida' }
 export const dynamic  = 'force-dynamic'
 
@@ -33,15 +36,38 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
     loadDrafts(status),
   ])
 
+  // Sign one URL per draft so the client can iframe-preview the PDF
+  // without a second round-trip. Done server-side because the bucket
+  // is private and the SA key shouldn't leave the server.
+  const pdfUrlsById = await buildSignedUrls(drafts.map(d => d.pdf_storage_key).filter(Boolean) as string[])
+  const draftsWithUrls = drafts.map(d => ({
+    ...d,
+    pdf_signed_url: d.pdf_storage_key ? (pdfUrlsById.get(d.pdf_storage_key) ?? null) : null,
+  }))
+
   return (
     <InvoiceIntakeQueue
       initialStatus  = {status}
-      initialDrafts  = {drafts}
+      initialDrafts  = {draftsWithUrls}
       initialCounts  = {counts}
       vendors        = {vendors}
       associations   = {assocs}
     />
   )
+}
+
+async function buildSignedUrls(paths: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  if (paths.length === 0) return out
+  const { data, error } = await supabaseAdmin.storage
+    .from(PDF_BUCKET)
+    .createSignedUrls(paths, PDF_SIGNED_URL_TTL_S)
+  if (error) return out
+  for (let i = 0; i < paths.length; i++) {
+    const url = data?.[i]?.signedUrl
+    if (url) out.set(paths[i], url)
+  }
+  return out
 }
 
 async function loadStatusCounts(): Promise<Record<string, number>> {
