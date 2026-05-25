@@ -1858,10 +1858,15 @@ export async function ingestInboundEmailToTicket(
         })
         return
       }
-      await appendMessage(target.id, makeInboundMessageInput(parsed))
+      // appendMessage returns null when (channel, external_id) already
+      // exists — a Pub/Sub retry or dual-mailbox re-processing of the
+      // same Gmail message. We MUST skip the ack in that case; otherwise
+      // each redelivery sends another ack. Production hit 18 acks for one
+      // inbound on 2026-05-25 because the ack was unconditional.
+      const appended = await appendMessage(target.id, makeInboundMessageInput(parsed))
       await attachEmailPhotosToWorkOrder(target.id, parsed, fetchAttachment)
-      // Explicit @maia append → staff intent is unambiguous, always ack.
-      await sendAppendAck(target, parsed)
+      // Explicit @maia append → ack on first delivery only.
+      if (appended) await sendAppendAck(target, parsed)
       return
     }
 
@@ -1869,12 +1874,12 @@ export async function ingestInboundEmailToTicket(
     if (parsed.threadId) {
       const existing = await findOpenTicketByGmailThread(parsed.threadId)
       if (existing) {
-        await appendMessage(existing.id, makeInboundMessageInput(parsed))
+        const appended = await appendMessage(existing.id, makeInboundMessageInput(parsed))
         await attachEmailPhotosToWorkOrder(existing.id, parsed, fetchAttachment)
-        // Only ack when staff explicitly invoked @maia — a bare vendor
-        // reply on the thread should stay silent so we don't auto-ack
-        // back at the vendor on every email.
-        if (mentionsMaiaInBody(parsed.body)) {
+        // Two gates: (1) only ack when staff explicitly invoked @maia
+        // (vendor reply-threads stay silent — original reason for silent
+        // append), (2) only on first delivery — see comment above.
+        if (appended && mentionsMaiaInBody(parsed.body)) {
           await sendAppendAck(existing, parsed)
         }
         return
@@ -1906,10 +1911,11 @@ export async function ingestInboundEmailToTicket(
     // 3. Subject-match dedupe across separate threads.
     const existingBySubject = await findOpenTicketBySubject(parsed.subject, parsed.senderEmail)
     if (existingBySubject) {
-      await appendMessage(existingBySubject.id, makeInboundMessageInput(parsed))
+      const appended = await appendMessage(existingBySubject.id, makeInboundMessageInput(parsed))
       await attachEmailPhotosToWorkOrder(existingBySubject.id, parsed, fetchAttachment)
-      // detectTicketTrigger required above → staff intent confirmed; always ack.
-      await sendAppendAck(existingBySubject, parsed)
+      // Staff intent confirmed by detectTicketTrigger above; ack on
+      // first delivery only — see comment in the explicit-append path.
+      if (appended) await sendAppendAck(existingBySubject, parsed)
       return
     }
 
