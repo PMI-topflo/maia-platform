@@ -966,7 +966,17 @@ RULES:
 - If unsure, direct to service@topfloridaproperties.com or 305.900.5077
 - Never fabricate financial figures or legal details
 - Never say you cannot access or update the PMI database — you can when triggered correctly
-- Always sign as: Maia | PMI Top Florida Properties AI Assistant`
+- Always sign as: Maia | PMI Top Florida Properties AI Assistant
+
+TICKET & WORK ORDER RULES — STRICT, DO NOT BREAK:
+- You CANNOT create tickets or work orders by writing about them in a reply. They are only created by a separate code path that fires when the sender includes an exact trigger phrase at the start of the body — for example "@maia open ticket <details>" or "@maia open work order <details>".
+- NEVER tell the sender that a ticket or work order has been created, opened, updated, logged, or filed. NEVER write phrases like "Work Order Created Successfully", "Ticket has been logged", "I've opened a work order", or anything implying you took the action.
+- NEVER invent or echo a ticket / work-order number. Real ones look like "TKT-2026-NNNN" (created by the system, not by you) and are delivered by a separate system email when creation succeeds. If you reference a number you saw in the conversation, only do so when quoting the sender — never as a confirmation.
+- If a staff member asks you to create / open / log a ticket or work order but did NOT include the exact trigger phrase, your job is to instruct them to resend with one of these exact phrases at the top of the body:
+    @maia open ticket <brief description>
+    @maia open work order <brief description>
+  Quote the exact phrase back to them so they can copy it. Do NOT pretend the request has been actioned.
+- The same rules apply to UPDATING existing tickets. You cannot modify a ticket by writing about it. If asked, instruct the user to email "@maia append TKT-YYYY-NNNN" with their update.`
 
 const AUTO_REPLY_SUBJECTS = ['out of office', 'auto-reply', 'automatic reply', 'delivery failed', 'undeliverable', 'autoreply']
 const AUTO_REPLY_SENDERS  = ['maia@', 'noreply@', 'no-reply@', 'mailer-daemon@']
@@ -1031,6 +1041,58 @@ export async function detectAssociationCode(text: string, strict = false): Promi
   }
 
   return null
+}
+
+// Load PDF + image attachments as Claude content blocks so freeform replies
+// reason from the actual document (invoices, photos, forms) instead of
+// guessing from the email body alone. Caps total bytes and attachment count
+// so a fwd of many huge files can't blow up tokens. Failures degrade to
+// text-only on a per-attachment basis.
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+const MAX_ATTACHMENT_COUNT = 5
+
+type ClaudeImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
+const SUPPORTED_IMAGE_TYPES = new Set<ClaudeImageMediaType>(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+
+function asImageMediaType(mt: string): ClaudeImageMediaType | null {
+  return (SUPPORTED_IMAGE_TYPES as Set<string>).has(mt) ? (mt as ClaudeImageMediaType) : null
+}
+
+type ClaudeContentBlock =
+  | { type: 'text';     text: string }
+  | { type: 'image';    source: { type: 'base64'; media_type: ClaudeImageMediaType; data: string } }
+  | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf';    data: string } }
+
+async function loadAttachmentBlocks(parsed: ParsedEmail): Promise<ClaudeContentBlock[]> {
+  if (parsed.attachments.length === 0) return []
+  const blocks: ClaudeContentBlock[] = []
+  let totalBytes = 0
+  let count      = 0
+  for (const att of parsed.attachments) {
+    if (count >= MAX_ATTACHMENT_COUNT) break
+    const mt    = att.mimeType.toLowerCase()
+    const isPdf = mt === 'application/pdf'
+    const img   = asImageMediaType(mt)
+    if (!isPdf && !img) continue
+    if (totalBytes + att.size > MAX_ATTACHMENT_BYTES) {
+      console.warn(`[MAIA attach] skipping ${att.filename}: would exceed ${MAX_ATTACHMENT_BYTES}-byte cap`)
+      continue
+    }
+    try {
+      const buf  = await fetchGmailAttachmentData(parsed.messageId, att.attachmentId)
+      const data = buf.toString('base64')
+      if (isPdf) {
+        blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } })
+      } else if (img) {
+        blocks.push({ type: 'image',    source: { type: 'base64', media_type: img,               data } })
+      }
+      totalBytes += att.size
+      count++
+    } catch (err) {
+      console.warn(`[MAIA attach] fetch failed for ${att.filename}:`, err instanceof Error ? err.message : err)
+    }
+  }
+  return blocks
 }
 
 async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
@@ -1131,12 +1193,19 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
       }).join('\n\n') +
       '\n</conversation_history>\n\n'
 
-    type MsgPair = { role: 'user' | 'assistant'; content: string }
-    const currentMessage = priorBlock +
+    // Pull PDF/image attachments first so Claude sees the invoice/photo
+    // before the email body text. The text block goes last in the user
+    // turn so the model reasons "here is a doc … now here is what the
+    // sender said about it."
+    const attachmentBlocks = await loadAttachmentBlocks(parsed)
+    const currentText = priorBlock +
       `From: ${parsed.senderName} <${parsed.senderEmail}>\n` +
       `Subject: ${parsed.subject}\n\n${parsed.body}`
-    const messages: MsgPair[] = [
-      { role: 'user', content: currentMessage },
+    const messages = [
+      {
+        role:    'user' as const,
+        content: [...attachmentBlocks, { type: 'text' as const, text: currentText }],
+      },
     ]
 
     let assocBlock = ''
@@ -1319,9 +1388,22 @@ ${aiText.split('\n').map(line => `<p style="margin:0 0 12px">${line}</p>`).join(
 const TICKET_CREATE_TRIGGERS = [
   '@maia ct',
   '@maia create ticket',
+  '@maia create a ticket',
+  '@maia new ticket',
   '@maia ticket',
   '@maia open ticket',
+  '@maia open a ticket',
   '@ticket',
+  '@maia wo',
+  '@maia work order',
+  '@maia workorder',
+  '@maia create work order',
+  '@maia create a work order',
+  '@maia new work order',
+  '@maia open work order',
+  '@maia open a work order',
+  '@workorder',
+  '@wo',
 ] as const
 
 function detectTicketTrigger(body: string): boolean {
@@ -1359,7 +1441,11 @@ interface TicketModifiers {
 function parseTicketModifiers(body: string): TicketModifiers {
   const assignMatch   = body.match(/@assign\s+([\w._%+-]+@[\w.-]+\.[A-Za-z]{2,})/i)
   const priorityMatch = body.match(/@priority\s+(urgent|high|normal|low)/i)
-  const typeMatch     = body.match(/@(?:work[\s_-]?order|wo)\b/i)
+  // Treat as a work order when either the bare `@workorder`/`@wo` modifier
+  // appears, OR the trigger phrase itself referenced "work order" — e.g.
+  // "@maia open a work order Electrical". The latter is how staff naturally
+  // phrase it; without this, every "open work order" became a generic ticket.
+  const typeMatch     = body.match(/@(?:work[\s_-]?order|wo)\b|@maia\s+(?:create\s+(?:a\s+)?|open\s+(?:a\s+)?|new\s+)?work[\s_-]?order\b/i)
   return {
     assignee: assignMatch?.[1]?.toLowerCase(),
     priority: priorityMatch ? (priorityMatch[1].toLowerCase() as TicketPriority) : undefined,
