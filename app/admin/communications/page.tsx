@@ -29,6 +29,7 @@ interface AccessContext {
   canSeeAll:     boolean
   staffEmails:   string[]  // lowercased, includes alt_emails
   staffId:       string | null
+  loginEmail:    string    // bare login email — drives the default emailTo filter
 }
 
 async function getAccessContext(): Promise<AccessContext> {
@@ -37,7 +38,7 @@ async function getAccessContext(): Promise<AccessContext> {
   const session     = token ? await verifySession(token) : null
   if (!session || session.persona !== 'staff') {
     // Middleware should have blocked this already — defensive empty.
-    return { canSeeAll: false, staffEmails: [], staffId: null }
+    return { canSeeAll: false, staffEmails: [], staffId: null, loginEmail: '' }
   }
   const loginEmail = typeof session.userId === 'string' && session.userId.includes('@')
     ? session.userId.toLowerCase()
@@ -51,6 +52,7 @@ async function getAccessContext(): Promise<AccessContext> {
       canSeeAll:   false,
       staffEmails: loginEmail ? [loginEmail] : [],
       staffId:     null,
+      loginEmail,
     }
   }
 
@@ -59,6 +61,7 @@ async function getAccessContext(): Promise<AccessContext> {
     canSeeAll,
     staffEmails: staffCandidateEmails(staffRow, loginEmail),
     staffId:     staffRow.id,
+    loginEmail,
   }
 }
 
@@ -342,11 +345,15 @@ async function getData(
   // "Staff" filter options — the curated set of team mailboxes: every
   // active connected inbox plus maia@. This is intentionally NOT every
   // recipient address ever seen; picking one filters to that inbox.
+  // Always include the logged-in staff's own email so the default
+  // "filter to my inbox" view shows a selected option even when that
+  // mailbox isn't registered in staff_gmail_accounts.
   const emailToSet = new Set<string>()
   for (const inbox of (staffInboxesRes.data ?? []) as Array<{ gmail_address: string | null }>) {
     for (const a of extractEmailAddrs(inbox.gmail_address)) emailToSet.add(a)
   }
   emailToSet.add('maia@pmitop.com')
+  if (ctx.loginEmail) emailToSet.add(ctx.loginEmail)
 
   const convSenderSet = new Set<string>()
   for (const r of (convOptsRes.data ?? []) as Array<{ sender_email: string | null; contact_email: string | null }>) {
@@ -416,8 +423,21 @@ export default async function CommunicationsPage({
     const lc = (v ?? '').toLowerCase().trim()
     return /^[a-z0-9._+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/.test(lc) ? lc : ''
   }
-  const emailFilters = { to: asEmail(sp.emailTo), from: asEmail(sp.emailFrom) }
   const ctx  = await getAccessContext()
+
+  // Default the To-filter to the logged-in staff member's inbox so
+  // every navigation lands on "my mail" instead of the global queue.
+  // ?emailTo=all is an explicit opt-out the dropdown writes when the
+  // user picks "All staff"; otherwise a missing param means "use my
+  // own inbox". canSeeAll users (owners) get no default — they're the
+  // ones who actively want the cross-staff view.
+  const rawEmailTo = (sp.emailTo ?? '').toLowerCase().trim()
+  const emailToResolved =
+      rawEmailTo === 'all'              ? ''                        // explicit override → no filter
+    : asEmail(sp.emailTo)               ? asEmail(sp.emailTo)       // explicit email
+    : (!ctx.canSeeAll && ctx.loginEmail) ? ctx.loginEmail            // default → my inbox
+    :                                     ''                        // owner / no login
+  const emailFilters = { to: emailToResolved, from: asEmail(sp.emailFrom) }
   const data = await getData(ctx, showDismissed, emailFilters, showConvArchived)
 
   return (

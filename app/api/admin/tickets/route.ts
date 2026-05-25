@@ -39,6 +39,9 @@ interface CreateBody {
   work_order_type_id?:   number | null
   work_order_type_name?: string | null
   ticket_category?:      string | null
+  unit_number?:          string | null
+  requested_by?:         string | null
+  is_board_request?:     boolean
   initial_note?:         string                // optional — seeds the timeline
   actor_email?:          string                // who is creating it
 }
@@ -81,6 +84,9 @@ export async function POST(req: Request) {
       work_order_type_id:   body.work_order_type_id,
       work_order_type_name: body.work_order_type_name,
       ticket_category:      body.ticket_category,
+      unit_number:          body.unit_number,
+      requested_by:         body.requested_by,
+      is_board_request:     body.is_board_request,
     })
 
     if (body.initial_note?.trim()) {

@@ -10,6 +10,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import { useTransition, useState, useEffect, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import NewTicketModal from './NewTicketModal'
+import { TICKET_CATEGORIES } from '@/lib/ticket-categories'
 
 export interface TicketRow {
   id:                   number
@@ -28,6 +29,7 @@ export interface TicketRow {
   assignee_email:       string | null
   due_at:               string | null
   work_order_type_name: string | null
+  ticket_category:      string | null
   cinc_workorder_id:    string | null
   archived_at:          string | null
   created_at:           string
@@ -48,6 +50,7 @@ interface ActiveFilters {
   q:           string
   type:        string
   wo_type:     string
+  category:    string
   archived:    string  // '1' = include archived
 }
 
@@ -166,6 +169,7 @@ export default function TicketListClient(props: Props) {
     (props.activeFilters.q           ? 1 : 0) +
     (props.activeFilters.type        ? 1 : 0) +
     (props.activeFilters.wo_type     ? 1 : 0) +
+    (props.activeFilters.category    ? 1 : 0) +
     (props.activeFilters.archived    ? 1 : 0)
   )
 
@@ -280,6 +284,16 @@ export default function TicketListClient(props: Props) {
             onChange={v => updateFilter('wo_type', v)}
             placeholder="Motive"
             options={props.woTypes.map(n => ({ value: n, label: n }))}
+          />
+        )}
+        {/* Category — plain tickets only. Hidden on the work orders page
+            (which uses Motive instead). */}
+        {props.lockTypeTo !== 'work_order' && (
+          <FilterSelect
+            value={props.activeFilters.category}
+            onChange={v => updateFilter('category', v)}
+            placeholder="Category"
+            options={TICKET_CATEGORIES.map(c => ({ value: c.label, label: c.label }))}
           />
         )}
         <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 ml-1 cursor-pointer">
