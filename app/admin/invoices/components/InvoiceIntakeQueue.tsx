@@ -170,6 +170,47 @@ export default function InvoiceIntakeQueue(props: Props) {
 // ─────────────────────────────────────────────────────────────────────
 // Card per draft
 // ─────────────────────────────────────────────────────────────────────
+const NOISE_WORDS = new Set([
+  'llc', 'inc', 'corp', 'ltd', 'co', 'company',
+  'pllc', 'pa', 'pc', 'lp', 'llp', 'pllp',
+  'the', 'of', 'and',
+])
+
+/** Generate a sensible default short_name from a vendor's full name.
+ *  Drops legal-suffix noise ("LLC", "Inc", "PLLC"), takes the first
+ *  significant word(s) PascalCased until we have at least 6 chars,
+ *  caps at 20. Karen can override before saving. Examples:
+ *    "Atlas Electrical Performance LLC" → "Atlas" (… → "AtlasElectrical" if "Atlas" alone < 6)
+ *    "REGISTERED AGENT SOLUTIONS, INC." → "Registered"
+ *    "Ben-Hamo Law, PLLC"              → "BenHamo"  */
+function suggestShortName(vendorName: string): string {
+  if (!vendorName) return ''
+  const words = vendorName
+    .replace(/[^A-Za-z0-9 ]/g, ' ')                  // strip punctuation + hyphens
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(w => w.length > 0 && !NOISE_WORDS.has(w))
+  if (words.length === 0) return ''
+  const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1)
+  let out = cap(words[0])
+  let i   = 1
+  while (out.length < 6 && words[i] && out.length + words[i].length <= 20) {
+    out += cap(words[i])
+    i++
+  }
+  return out.slice(0, 20)
+}
+
+/** Mirror of server-side canonicalInvoiceFilename so Karen sees exactly
+ *  what name will be written to CINC + Drive before she pushes. Must
+ *  match the server's safe() / amt formatting rules. */
+function buildFilenamePreview(opts: { assoc: string; short: string; invNo: string; amount: string }): string {
+  const safe = (s: string) => (s ?? '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32)
+  const amtN = parseFloat(opts.amount || '0')
+  const amt  = (Number.isFinite(amtN) ? amtN : 0).toFixed(2).replace(/\.00$/, '')
+  return `${safe(opts.assoc) || 'ASSOC'}_${safe(opts.short) || 'Vendor'}_${safe(opts.invNo) || 'INV'}_$${amt}.pdf`
+}
+
 function DraftCard(props: {
   draft:        Draft
   vendors:      Vendor[]
@@ -177,23 +218,51 @@ function DraftCard(props: {
   onMutate:     () => void
 }) {
   const { draft, vendors, associations, onMutate } = props
-  const [vendorId, setVendorId] = useState<string>(draft.matched_cinc_vendor_id ?? '')
+
+  // Form state — always tracks the latest values (editable in edit
+  // mode, displayed read-only in view mode).
+  const [vendorId, setVendorId]   = useState<string>(draft.matched_cinc_vendor_id ?? '')
   const [shortName, setShortName] = useState<string>(draft.matched_vendor_short_name ?? '')
   const [assoc, setAssoc]         = useState<string>(draft.extracted_association_code ?? '')
   const [invNo, setInvNo]         = useState<string>(draft.extracted_invoice_number ?? '')
   const [amount, setAmount]       = useState<string>(draft.extracted_amount != null ? String(draft.extracted_amount) : '')
   const [invDate, setInvDate]     = useState<string>(draft.extracted_invoice_date ?? '')
-  const [busy, setBusy]           = useState(false)
-  const [msg, setMsg]             = useState<string | null>(null)
+
+  // Mode toggle. Cards open in view mode so the data is presented as
+  // information first, with Edit as the explicit affordance to change
+  // anything. Push / Reject only available in view mode (you can't
+  // push half-edited values).
+  const [mode, setMode] = useState<'view' | 'edit'>('view')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg]   = useState<string | null>(null)
 
   const matchedVendor = useMemo(
     () => vendors.find(v => String(v.id) === vendorId) ?? null,
     [vendors, vendorId],
   )
-  // Keep short name reflecting CINC when the user picks a new vendor.
+
+  // When the user picks a different vendor, reset short_name to CINC's
+  // stored UserDefined1 if there is one; otherwise generate a sensible
+  // suggestion from the vendor name. Karen can still edit before save.
   useEffect(() => {
-    if (matchedVendor) setShortName(matchedVendor.shortName ?? '')
+    if (!matchedVendor) return
+    if (matchedVendor.shortName) {
+      setShortName(matchedVendor.shortName)
+    } else {
+      setShortName(prev => prev || suggestShortName(matchedVendor.name))
+    }
   }, [matchedVendor])
+
+  function cancelEdit() {
+    setVendorId (draft.matched_cinc_vendor_id     ?? '')
+    setShortName(draft.matched_vendor_short_name  ?? '')
+    setAssoc    (draft.extracted_association_code ?? '')
+    setInvNo    (draft.extracted_invoice_number   ?? '')
+    setAmount   (draft.extracted_amount != null ? String(draft.extracted_amount) : '')
+    setInvDate  (draft.extracted_invoice_date     ?? '')
+    setMode('view')
+    setMsg(null)
+  }
 
   async function save() {
     setBusy(true); setMsg(null)
@@ -215,6 +284,7 @@ function DraftCard(props: {
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
       setMsg('Saved.')
+      setMode('view')
       onMutate()
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))
@@ -309,77 +379,133 @@ function DraftCard(props: {
         </div>
       )}
 
+      {/* Form / display grid — same six fields in both modes. */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
         <Field label="Vendor (CINC)">
-          <select
-            value={vendorId}
-            onChange={e => setVendorId(e.target.value)}
-            disabled={readOnly}
-            style={{ width: '100%', padding: 6 }}
-          >
-            <option value="">— pick vendor —</option>
-            {vendors.map(v => (
-              <option key={v.id} value={String(v.id)}>{v.name}</option>
-            ))}
-          </select>
-          {draft.extracted_vendor_name && (
-            <div style={{ marginTop: 4, color: '#6b7280', fontSize: 11 }}>
-              Extracted: "{draft.extracted_vendor_name}"
-            </div>
+          {mode === 'edit' ? (
+            <>
+              <select
+                value={vendorId}
+                onChange={e => setVendorId(e.target.value)}
+                disabled={readOnly}
+                style={{ width: '100%', padding: 6 }}
+              >
+                <option value="">— pick vendor —</option>
+                {vendors.map(v => (
+                  <option key={v.id} value={String(v.id)}>{v.name}</option>
+                ))}
+              </select>
+              {draft.extracted_vendor_name && (
+                <div style={{ marginTop: 4, color: '#6b7280', fontSize: 11 }}>
+                  Extracted: &quot;{draft.extracted_vendor_name}&quot;
+                </div>
+              )}
+            </>
+          ) : (
+            <ReadOnlyValue value={matchedVendor?.name ?? draft.matched_vendor_name} placeholder="— no vendor picked —" />
           )}
         </Field>
-        <Field label="Short name (writes to CINC UserDefined1)">
-          <input
-            type="text"
-            value={shortName}
-            onChange={e => setShortName(e.target.value)}
-            disabled={readOnly || !vendorId}
-            placeholder="e.g. Atlas"
-            style={{ width: '100%', padding: 6 }}
-          />
+
+        <Field label="Short name (saved to CINC UserDefined1)">
+          {mode === 'edit' ? (
+            <input
+              type="text"
+              value={shortName}
+              onChange={e => setShortName(e.target.value)}
+              disabled={readOnly || !vendorId}
+              placeholder={matchedVendor ? suggestShortName(matchedVendor.name) : ''}
+              style={{ width: '100%', padding: 6 }}
+            />
+          ) : (
+            <ReadOnlyValue value={shortName} placeholder="— not set —" />
+          )}
         </Field>
+
         <Field label="Association">
-          <select
-            value={assoc}
-            onChange={e => setAssoc(e.target.value)}
-            disabled={readOnly}
-            style={{ width: '100%', padding: 6 }}
-          >
-            <option value="">— pick association —</option>
-            {associations.map(a => (
-              <option key={a.code} value={a.code}>{a.name} ({a.code})</option>
-            ))}
-          </select>
+          {mode === 'edit' ? (
+            <select
+              value={assoc}
+              onChange={e => setAssoc(e.target.value)}
+              disabled={readOnly}
+              style={{ width: '100%', padding: 6 }}
+            >
+              <option value="">— pick association —</option>
+              {associations.map(a => (
+                <option key={a.code} value={a.code}>{a.name} ({a.code})</option>
+              ))}
+            </select>
+          ) : (
+            <ReadOnlyValue
+              value={(() => {
+                const a = associations.find(x => x.code === assoc)
+                return a ? `${a.name} (${a.code})` : assoc
+              })()}
+              placeholder="— not set —"
+            />
+          )}
         </Field>
+
         <Field label="Invoice #">
-          <input
-            type="text"
-            value={invNo}
-            onChange={e => setInvNo(e.target.value)}
-            disabled={readOnly}
-            style={{ width: '100%', padding: 6 }}
-          />
+          {mode === 'edit' ? (
+            <input
+              type="text"
+              value={invNo}
+              onChange={e => setInvNo(e.target.value)}
+              disabled={readOnly}
+              style={{ width: '100%', padding: 6 }}
+            />
+          ) : (
+            <ReadOnlyValue value={invNo} placeholder="—" />
+          )}
         </Field>
+
         <Field label="Amount ($)">
-          <input
-            type="number"
-            step="0.01"
-            value={amount}
-            onChange={e => setAmount(e.target.value)}
-            disabled={readOnly}
-            style={{ width: '100%', padding: 6 }}
-          />
+          {mode === 'edit' ? (
+            <input
+              type="number"
+              step="0.01"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              disabled={readOnly}
+              style={{ width: '100%', padding: 6 }}
+            />
+          ) : (
+            <ReadOnlyValue
+              value={amount ? `$${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}
+              placeholder="—"
+            />
+          )}
         </Field>
+
         <Field label="Invoice date">
-          <input
-            type="date"
-            value={invDate}
-            onChange={e => setInvDate(e.target.value)}
-            disabled={readOnly}
-            style={{ width: '100%', padding: 6 }}
-          />
+          {mode === 'edit' ? (
+            <input
+              type="date"
+              value={invDate}
+              onChange={e => setInvDate(e.target.value)}
+              disabled={readOnly}
+              style={{ width: '100%', padding: 6 }}
+            />
+          ) : (
+            <ReadOnlyValue
+              value={invDate ? new Date(invDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+              placeholder="—"
+            />
+          )}
         </Field>
       </div>
+
+      {/* Filename preview — what will be written to CINC + Drive on push.
+          Live-updates as fields change in edit mode so Karen sees exactly
+          what's about to be saved. */}
+      {!isRejected && (
+        <div style={{ marginTop: 14, padding: '8px 12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 12 }}>
+          <span style={{ color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, fontSize: 10, fontWeight: 600 }}>Will be saved as</span>
+          <div style={{ marginTop: 4, fontFamily: 'ui-monospace, monospace', color: '#111827', wordBreak: 'break-all' }}>
+            {buildFilenamePreview({ assoc, short: shortName, invNo, amount })}
+          </div>
+        </div>
+      )}
 
       <div style={{ marginTop: 12, fontSize: 11, color: '#9ca3af' }}>
         Received {new Date(draft.created_at).toLocaleString()}
@@ -392,18 +518,45 @@ function DraftCard(props: {
 
       {!readOnly && (
         <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={save} disabled={busy} style={btnSecondary()}>Save edits</button>
-          {draft.status === 'needs_vendor' && (
-            <button onClick={rematch} disabled={busy} style={btnSecondary()}>Re-match vendor</button>
-          )}
-          {draft.status === 'duplicate_in_cinc' ? (
-            <button onClick={() => push(true)} disabled={busy} style={btnPrimary()}>Push anyway</button>
+          {mode === 'view' ? (
+            <>
+              <button onClick={() => setMode('edit')} disabled={busy} style={btnSecondary()}>Edit</button>
+              {draft.status === 'needs_vendor' && (
+                <button onClick={rematch} disabled={busy} style={btnSecondary()}>Re-match vendor</button>
+              )}
+              {draft.status === 'duplicate_in_cinc' ? (
+                <button onClick={() => push(true)} disabled={busy} style={btnPrimary()}>Push anyway</button>
+              ) : (
+                <button onClick={() => push(false)} disabled={busy} style={btnPrimary()}>Push to CINC</button>
+              )}
+              <button onClick={reject} disabled={busy} style={btnDanger()}>Reject</button>
+            </>
           ) : (
-            <button onClick={() => push(false)} disabled={busy} style={btnPrimary()}>Push to CINC</button>
+            <>
+              <button onClick={save}       disabled={busy} style={btnPrimary()}>Save</button>
+              <button onClick={cancelEdit} disabled={busy} style={btnSecondary()}>Cancel</button>
+            </>
           )}
-          <button onClick={reject} disabled={busy} style={btnDanger()}>Reject</button>
         </div>
       )}
+    </div>
+  )
+}
+
+function ReadOnlyValue({ value, placeholder }: { value: string | null | undefined; placeholder: string }) {
+  const has = !!(value && String(value).trim())
+  return (
+    <div style={{
+      padding:   '6px 8px',
+      minHeight: 32,
+      borderRadius: 4,
+      background: '#f9fafb',
+      color:      has ? '#111827' : '#9ca3af',
+      fontSize:   13,
+      display:    'flex',
+      alignItems: 'center',
+    }}>
+      {has ? value : placeholder}
     </div>
   )
 }
