@@ -339,6 +339,34 @@ export async function createLinkedWorkOrder(
   return { workOrderId: newest.WorkOrderId }
 }
 
+/** List currently-open work orders for an association, optionally
+ *  filtered to a single vendor. Used by the invoice intake form so
+ *  Karen can link a maintenance invoice to an existing WO instead of
+ *  it landing standalone. Filter for "open" is a description-text
+ *  heuristic — CINC's status enum varies per tenant so excluding
+ *  obviously-terminal statuses (complete/closed/void) is more robust
+ *  than trying to whitelist "open"/"pending" exactly. */
+export async function listOpenWorkOrders(opts: {
+  assocCode: string
+  vendorId?: number
+  limit?:    number
+}): Promise<CincWorkOrder[]> {
+  const list = await call<CincWorkOrder[]>('/management/1/workOrders', {
+    method: 'GET',
+    query:  { assocCode: opts.assocCode.toUpperCase() },
+  }).catch(() => [] as CincWorkOrder[])
+
+  const open = list.filter(w => {
+    if (opts.vendorId && w.VendorId !== opts.vendorId) return false
+    const status = (w.WorkOrderStatus ?? '').toLowerCase()
+    return !/complete|closed|void|cancel/.test(status)
+  })
+
+  return open
+    .sort((a, b) => new Date(b.CreatedDate ?? 0).getTime() - new Date(a.CreatedDate ?? 0).getTime())
+    .slice(0, opts.limit ?? 25)
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Update existing work order — type, description, dates, work location
 // (NOT status or vendor; those have their own endpoints).

@@ -630,6 +630,17 @@ NOTIFY pgrst, 'reload schema';`,
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'invoice_intake_work_order_number',
+    label:       'Invoice intake — work order link',
+    description: 'invoice_intake_drafts.work_order_number — Karen links a maintenance invoice to an existing CINC work order so it shows up under that WO instead of standalone',
+    filename:    '20260525_invoice_intake_work_order_number.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'work_order_number' },
+    sql: `ALTER TABLE public.invoice_intake_drafts
+  ADD COLUMN IF NOT EXISTS work_order_number integer;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
