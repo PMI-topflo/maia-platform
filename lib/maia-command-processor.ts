@@ -1443,6 +1443,28 @@ function detectTicketTrigger(body: string): boolean {
   return TICKET_CREATE_TRIGGERS.some(t => norm.includes(' ' + t + ' ') || norm.includes(t + '\n') || norm.includes(t + ',') || norm.includes(t + '.') || norm.includes(t + '!'))
 }
 
+// Invoice-intake triggers. Karen (or any staff member) forwards a
+// vendor invoice PDF to maia@ with one of these phrases in the body to
+// queue it for review in /admin/invoices. As of 2026-05-26 this is the
+// ONLY way an invoice enters intake — the old "any PDF to billing@
+// becomes an invoice" implicit routing was removed because it kept
+// swallowing real @maia commands that were CC'd to billing@.
+const INVOICE_INTAKE_TRIGGERS = [
+  '@maia process invoice',
+  '@maia invoice',
+] as const
+
+export function detectInvoiceTrigger(body: string): boolean {
+  const norm = ' ' + body.toLowerCase().replace(/\s+/g, ' ') + ' '
+  return INVOICE_INTAKE_TRIGGERS.some(t =>
+    norm.includes(' ' + t + ' ') ||
+    norm.includes(t + '\n') ||
+    norm.includes(t + ',') ||
+    norm.includes(t + '.') ||
+    norm.includes(t + '!'),
+  )
+}
+
 // Matches @maia append TKT-YYYY-NNNN (4+ digit suffix). Captures the
 // ticket number so the caller can resolve it to a ticket id. Case
 // insensitive on the keyword; the captured ticket_number is uppercased
@@ -2158,6 +2180,32 @@ export async function processEmailCommand(messageId: string): Promise<void> {
       gmailMessageId:  parsed.messageId,
       emailDate:       parsed.internalDate,
     })
+
+    // Invoice-intake trigger. Staff forwards a vendor invoice PDF to
+    // maia@ with "@maia process invoice" or "@maia invoice" in the
+    // body. This is now the ONLY way an invoice enters the intake
+    // queue — the old "any PDF at billing@" implicit routing was
+    // removed (it kept swallowing @maia DB-update commands that
+    // happened to CC billing@). Returns early so we don't ALSO try to
+    // open a ticket or run freeform Claude on the same message.
+    if (allowed && detectInvoiceTrigger(parsed.body)) {
+      const hasPdf = parsed.attachments.some(a => a.mimeType.toLowerCase() === 'application/pdf')
+      if (hasPdf) {
+        // Lazy import — the intake module also imports a few things
+        // back from this file, and a top-level import would create a
+        // small circular reference.
+        const { handleInvoiceIntake } = await import('@/lib/invoice-intake')
+        await handleInvoiceIntake(
+          parsed,
+          (attId) => fetchGmailAttachmentData(parsed.messageId, attId),
+        )
+        return
+      }
+      // Trigger present but no PDF — guide the sender. Falls through
+      // to the freeform handler so they get a real reply (the prompt
+      // will explain what's missing).
+      console.warn(`[MAIA] invoice trigger from ${parsed.senderEmail} but no PDF attached — falling through`)
+    }
 
     // Tickets are created only when staff initiate them via an explicit
     // trigger phrase (@maia ticket, @ticket, etc.). The helper itself
