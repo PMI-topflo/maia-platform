@@ -17,10 +17,7 @@ import {
   isAllowedSender,
   ingestInboundEmailToTicket,
 } from '@/lib/maia-command-processor'
-import { handleInvoiceIntake } from '@/lib/invoice-intake'
 import { logEmail } from '@/lib/email-logger'
-
-const BILLING_INBOX = 'billing@topfloridaproperties.com'
 
 // A normal Gmail Pub/Sub notification covers a handful of new messages.
 // A history batch larger than this means the stored historyId was far
@@ -326,30 +323,13 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
         emailDate:       parsed.internalDate,
       })
 
-      // Invoice intake: anything landing in billing@ with a PDF goes
-      // through the intake pipeline instead of the ticket pipeline,
-      // EXCEPT when the body contains a MAIA command — staff sometimes
-      // CC billing@ on a multi-recipient "@maia add owner" / "@maia open
-      // ticket" / "@maia update db" email. In that case the email is a
-      // MAIA command that happens to have a PDF attached, not an invoice
-      // for Karen. Routing it to intake was silently swallowing real
-      // staff commands (e.g. new-owner updates becoming invoice drafts).
-      //
-      // The bare "@maia" check is intentional — any MAIA syntax in the
-      // body is enough to opt out of intake, even casual mentions, since
-      // an actual vendor invoice never contains the string "@maia".
-      const bodyLower    = (parsed.body ?? '').toLowerCase()
-      const isMaiaCommand = bodyLower.includes('@maia') || bodyLower.includes('maia@pmitop.com')
-
-      if (account.gmail_address.toLowerCase() === BILLING_INBOX
-          && parsed.attachments.some(a => a.mimeType.toLowerCase() === 'application/pdf')
-          && !isMaiaCommand) {
-        await handleInvoiceIntake(
-          parsed,
-          (attId) => fetchGmailAttachmentDataWithToken(parsed.messageId, attId, accessToken),
-        )
-        continue
-      }
+      // Invoice intake used to fire here for any PDF landing in
+      // billing@. That implicit magnet kept swallowing real staff
+      // commands ("@maia update db" CC'd to billing@ became invoice
+      // drafts). As of 2026-05-26 invoice intake is purely explicit —
+      // it only fires on the maia@ webhook when the body contains
+      // "@maia process invoice" or "@maia invoice". See
+      // processEmailCommand → invoice-intake trigger.
 
       // Tickets are created only for emails explicitly addressed to
       // maia@pmitop.com (To / CC / BCC). Internal staff-to-staff or
