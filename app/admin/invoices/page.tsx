@@ -8,6 +8,8 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { listVendorsFull } from '@/lib/integrations/cinc'
+import SiteHeader from '@/components/SiteHeader'
+import AdminNav from '../components/AdminNav'
 import InvoiceIntakeQueue from './components/InvoiceIntakeQueue'
 
 const PDF_BUCKET            = 'invoice-intake-pdfs'
@@ -46,13 +48,18 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
   }))
 
   return (
-    <InvoiceIntakeQueue
-      initialStatus  = {status}
-      initialDrafts  = {draftsWithUrls}
-      initialCounts  = {counts}
-      vendors        = {vendors}
-      associations   = {assocs}
-    />
+    <div className="min-h-screen bg-gray-50">
+      <SiteHeader subtitle="INVOICE INTAKE">
+        <AdminNav />
+      </SiteHeader>
+      <InvoiceIntakeQueue
+        initialStatus  = {status}
+        initialDrafts  = {draftsWithUrls}
+        initialCounts  = {counts}
+        vendors        = {vendors}
+        associations   = {assocs}
+      />
+    </div>
   )
 }
 
