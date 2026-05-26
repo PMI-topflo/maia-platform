@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { label: 'Staff Dashboard',   href: '/admin' },
   { label: 'Tickets',           href: '/admin/tickets' },
   { label: 'Work Orders',       href: '/admin/work-orders' },
+  { label: 'Invoices',          href: '/admin/invoices' },
   { label: 'Monthly Report',    href: '/admin/reports/monthly' },
   { label: 'Communications',    href: '/admin/communications' },
   { label: 'Registrations',     href: '/admin/registrations' },

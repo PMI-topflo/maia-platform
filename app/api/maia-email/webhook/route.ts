@@ -327,12 +327,23 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
       })
 
       // Invoice intake: anything landing in billing@ with a PDF goes
-      // through the intake pipeline instead of the ticket pipeline. By
-      // convention this inbox is for invoices; vendors don't know
-      // about MAIA syntax. Karen reviews the extracted draft in
-      // /admin/invoices and clicks Push to CINC.
+      // through the intake pipeline instead of the ticket pipeline,
+      // EXCEPT when the body contains a MAIA command — staff sometimes
+      // CC billing@ on a multi-recipient "@maia add owner" / "@maia open
+      // ticket" / "@maia update db" email. In that case the email is a
+      // MAIA command that happens to have a PDF attached, not an invoice
+      // for Karen. Routing it to intake was silently swallowing real
+      // staff commands (e.g. new-owner updates becoming invoice drafts).
+      //
+      // The bare "@maia" check is intentional — any MAIA syntax in the
+      // body is enough to opt out of intake, even casual mentions, since
+      // an actual vendor invoice never contains the string "@maia".
+      const bodyLower    = (parsed.body ?? '').toLowerCase()
+      const isMaiaCommand = bodyLower.includes('@maia') || bodyLower.includes('maia@pmitop.com')
+
       if (account.gmail_address.toLowerCase() === BILLING_INBOX
-          && parsed.attachments.some(a => a.mimeType.toLowerCase() === 'application/pdf')) {
+          && parsed.attachments.some(a => a.mimeType.toLowerCase() === 'application/pdf')
+          && !isMaiaCommand) {
         await handleInvoiceIntake(
           parsed,
           (attId) => fetchGmailAttachmentDataWithToken(parsed.messageId, attId, accessToken),
