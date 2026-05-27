@@ -1250,6 +1250,50 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<CreateIn
   return { invoiceId }
 }
 
+/** POST /accounting/expenseItems — record the GL allocation lines for
+ *  a CINC invoice. Called right after createInvoice so the GL pick
+ *  Karen made in MAIA actually lands as an expense item in CINC
+ *  (without this, the invoice header exists but has no GL line —
+ *  someone has to add it manually in CINC). The endpoint takes the
+ *  formatted GL number (e.g. "50-5000-00"), NOT the ChartID — caller
+ *  is responsible for resolving the ChartID → GlNumber via the budget
+ *  helper. Returns the IDs of the created expense items.
+ *
+ *  Description is hard-capped at 100 chars per CINC's Swagger contract.
+ *  Most CINC GL descriptions are well under that. */
+export interface CreateExpenseItemInput {
+  glNumber:    string
+  description: string
+  amount:      number
+}
+
+export async function createInvoiceExpenseItems(opts: {
+  invoiceId: number
+  items:     CreateExpenseItemInput[]
+}): Promise<number[]> {
+  if (opts.items.length === 0) {
+    throw new CincApiError('createInvoiceExpenseItems requires at least one item')
+  }
+  const result = await call<number[] | { ExpenseItemIDs?: number[] }>(
+    '/management/1/accounting/expenseItems',
+    {
+      method: 'POST',
+      json:   {
+        InvoiceID:    opts.invoiceId,
+        ExpenseItems: opts.items.map(i => ({
+          GlNumber:    i.glNumber,
+          Description: (i.description ?? '').slice(0, 100),
+          Amount:      i.amount,
+        })),
+      },
+    },
+  )
+  // CINC's "returns the ID numbers" doc is ambiguous about envelope —
+  // accept both bare array and wrapped object.
+  if (Array.isArray(result)) return result
+  return result?.ExpenseItemIDs ?? []
+}
+
 /** POST /accounting/invoiceNotes — add a note (audit trail) to an
  *  existing invoice. Used right after every MAIA push to record
  *  provenance ("Auto-ingested from <sender> on <date>") so anyone

@@ -20,7 +20,9 @@ import {
   createInvoice,
   attachInvoicePdf,
   createInvoiceNote,
+  createInvoiceExpenseItems,
   listAssociationBankAccounts,
+  getAssociationBudget,
   CincApiError,
 } from '@/lib/integrations/cinc'
 import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
@@ -63,7 +65,7 @@ export async function POST(
 
   const { data: draft, error: loadErr } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('id, status, pdf_storage_key, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, pay_by_type, observation_note, work_order_number, pay_from_bank_account_id, extraction_confidence, gmail_message_id')
+    .select('id, status, pdf_storage_key, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, pay_by_type, observation_note, work_order_number, pay_from_bank_account_id, gl_account_id, gl_account_name, extraction_confidence, gmail_message_id')
     .eq('id', id)
     .single()
   if (loadErr || !draft) return NextResponse.json({ error: loadErr?.message ?? 'not found' }, { status: 404 })
@@ -126,6 +128,50 @@ export async function POST(
   } catch (err) {
     const message = err instanceof CincApiError ? err.message : (err as Error).message
     return NextResponse.json({ error: `CINC createInvoice failed: ${message}` }, { status: 502 })
+  }
+
+  // Push the GL expense item Karen selected. Without this, the invoice
+  // header lands in CINC but has no GL line — someone has to enter it
+  // manually in CINC, defeating the point of having a GL dropdown in
+  // the intake card.
+  //
+  // CINC's POST /accounting/expenseItems takes the formatted GL number
+  // (e.g. "50-5000-00"), not the ChartID we store on the draft. So we
+  // look up the budget (30-min cached) and find the line by ChartID
+  // to get its GlNumber.
+  //
+  // Best-effort: if this fails, the invoice header still exists in
+  // CINC and the PDF will still attach. The push response carries a
+  // warning so Karen knows to fix it manually. Same pattern as the
+  // PDF-attach failure path below.
+  let expenseItemWarning: string | null = null
+  if (draft.gl_account_id) {
+    try {
+      const budget = await getAssociationBudget(draft.extracted_association_code as string)
+      const glLine = budget.find(l => l.id === draft.gl_account_id)
+      if (!glLine) {
+        expenseItemWarning = `GL line ChartID ${draft.gl_account_id} not found in current budget for ${draft.extracted_association_code} — expense item not created. Add manually in CINC.`
+        console.warn(`[invoice-push] ${expenseItemWarning}`)
+      } else if (!glLine.number) {
+        expenseItemWarning = `GL line "${glLine.name}" (ChartID ${glLine.id}) has no GLAccountNumber — CINC expense item creation requires it. Add manually in CINC.`
+        console.warn(`[invoice-push] ${expenseItemWarning}`)
+      } else {
+        await createInvoiceExpenseItems({
+          invoiceId: cincInvoiceId,
+          items: [{
+            glNumber:    glLine.number,
+            description: (draft.gl_account_name as string) || glLine.name,
+            amount:      draft.extracted_amount as number,
+          }],
+        })
+      }
+    } catch (err) {
+      expenseItemWarning = `Expense item push failed: ${(err as Error).message}. Add the GL line manually in CINC.`
+      console.warn(`[invoice-push] ${expenseItemWarning}`)
+    }
+  } else {
+    expenseItemWarning = `No GL line selected on the draft — expense item not created. Add manually in CINC if needed.`
+    console.warn(`[invoice-push] ${expenseItemWarning}`)
   }
 
   // Attach PDF with the canonical rename.
@@ -257,11 +303,16 @@ export async function POST(
     console.warn(`[invoice-push] auto-ticket failed: ${(err as Error).message}`)
   })
 
-  if (driveWarning) {
+  // Surface non-fatal warnings so Karen knows if any post-create step
+  // didn't land. driveWarning + expenseItemWarning can both fire on the
+  // same push; concatenate so we don't lose either.
+  const warnings = [driveWarning, expenseItemWarning].filter(Boolean)
+  if (warnings.length > 0) {
     return NextResponse.json({
       ok:       true,
-      warning:  driveWarning,
+      warning:  warnings.join(' · '),
       cincInvoiceId,
+      driveFileId,
     }, { status: 207 })
   }
 
