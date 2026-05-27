@@ -50,8 +50,14 @@ async function main() {
         const hasActivity =
           (l.budget != null && l.budget > 0) ||
           (l.actual != null && Math.abs(l.actual) > 0)
+        // Always include Project Work — runs at $0 budget by design
+        // across the VP family; activity is paid from reserves via the
+        // bank-account picker. Karen needs the GL line available so the
+        // first invoice has somewhere to land.
+        const isAlwaysIncluded = /\bproject\s*work\b/i.test(l.name)
         const isReserveOrSA = /\breserve|special\s*assess/i.test(l.name)
-        return isExpenseRange && hasActivity && !isReserveOrSA
+        const isExcludedHistorical = /\bprior\s*m(gm)?t\b|\bprior\s*management\b|\badministrative\s*fees?\b/i.test(l.name)
+        return isExpenseRange && (hasActivity || isAlwaysIncluded) && !isReserveOrSA && !isExcludedHistorical
       })
     : all
 

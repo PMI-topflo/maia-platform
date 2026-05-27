@@ -21,74 +21,72 @@ These accounts have substantial real spending posted with no budget allocation. 
 
 | Assoc | GL# | Description | Actual spend | Notes |
 |---|---|---|---|---|
-| **VPREC** | 54-5141-00 | Project Work | **$532,097.02** | Largest single uncategorized number. Likely capital improvements posted without allocation. |
-| **DELA** | 50-5100-00 | **Prior Mgmt - Unknown Items** | **$131,995.55** | Catch-all from prior-management transition. Reclassify into actual expense lines. |
-| **VPCI** | 54-5141-00 | Project Work | $135,116.89 | Same VP-pattern as VPREC. |
-| **VPCII** | 54-5141-00 | Project Work | $63,022.72 | Same VP-pattern. |
-| **VPC5** | 54-5141-00 | Project Work | $54,046.76 | Same VP-pattern. |
-| **LCLUB** | 90-9100-00 | Contingency | $21,791.65 | Separate from budgeted 80-8030 Contingency Expenses. Consolidate. |
-| **DELA** | 50-5099-00 | Loan Interest | $24,645.82 | No budget. |
-| **ONE** | 50-5060-00 | Administrative Fees | $5,790.70 | No budget — recurring? |
+| ~~**VPREC**~~ | ~~54-5141-00~~ | ~~Project Work~~ | ~~$532,097.02~~ | ✅ **2026-05-27 — false alarm.** Confirmed intentional per VPREC's 2026 board-approved budget ($0 by design; same VP pattern, biggest example). |
+| **DELA** | 50-5100-00 | **Prior Mgmt - Unknown Items** | **$131,995.55** | Catch-all from prior-management transition. **2026-05-27 update**: MAIA dropdown now hides this account so Karen can't misclassify new invoices to it. Reclassifying the $131K orphan balance into actual expense lines remains a Jonathan/Shemaiah CoA task. |
+| ~~**VPCI**~~ | ~~54-5141-00~~ | ~~Project Work~~ | ~~$135,116.89~~ | ✅ **2026-05-27 — false alarm.** Confirmed intentional per VPCI's 2026 board-approved budget ($0 allocation by design). |
+| ~~**VPCII**~~ | ~~54-5141-00~~ | ~~Project Work~~ | ~~$63,022.72~~ | ✅ **2026-05-27 — false alarm.** Confirmed intentional per VPCII's 2026 board-approved budget (income statement 5/8/26 shows no Project Work line — $0 by design, same VP pattern). |
+| ~~**VPC5**~~ | ~~54-5141-00~~ | ~~Project Work~~ | ~~$54,046.76~~ | ✅ **2026-05-27 — false alarm.** Confirmed intentional per VPC5's 2026 board-approved budget ($0 by design; same VP pattern). |
+| ~~**LCLUB**~~ | ~~90-9100-00~~ | ~~Contingency~~ | ~~$21,791.65~~ | ✅ **2026-05-27 — confirmed by Fabio: not an expense line item, ignore.** No cleanup needed. |
+| ~~**DELA**~~ | ~~50-5099-00~~ | ~~Loan Interest~~ | ~~$24,645.82~~ | ✅ **2026-05-27 — confirmed intentional.** 2026 board-approved budget keeps Loan Interest at $0 (unbudgeted by design). |
+| ~~**ONE**~~ | ~~50-5060-00~~ | ~~Administrative Fees~~ | ~~$5,790.70~~ | ✅ **2026-05-27 — UI-side resolved.** Not in ONE's 2026 board-approved budget; account excluded from Karen's dropdown so she can't misclassify new invoices. CoA cleanup (reclassify the $5,790 orphan, or add 50-5060 to ONE's budget) is a separate Jonathan/Shemaiah task. |
 
-**VP-family pattern**: All four VP-prefix associations (VPCI, VPCII, VPC5, VPREC) post heavy Project Work activity with $0 budget. WBPA does NOT — so it's not a platform-wide issue, it's a VP-specific convention. Recommend a board conversation on whether this is intentional (capital reserves draw) or needs budget allocation.
+**VP-family pattern**: All four VP-prefix associations (VPCI, VPCII, VPC5, VPREC) post heavy Project Work activity with $0 budget. WBPA does NOT — so it's not a platform-wide issue, it's a VP-specific convention. **Update 2026-05-27**: **All four VP-prefix associations confirmed by Fabio as intentional** per each board's approved 2026 budget (Project Work runs $0 budget by design; activity is reclassified post-hoc). Pattern established and accepted across the VP family. No further cleanup needed on these accounts.
 
 ---
 
-## 🔥 High priority — semantic mismatches (account means different things in screenshot vs CINC)
+## ~~🔥 High priority — semantic mismatches~~ ✅ **All renamed 2026-05-27** *(verified live against CINC)*
 
-These are the **most dangerous** because Karen would pick the wrong account thinking it means something else:
+CINC labels now match the budget-document descriptions for all three. Karen sees the accurate name in the dropdown.
 
-| Assoc | GL# | Screenshot says | CINC says |
+| Assoc | GL# | Was | Now |
 |---|---|---|---|
-| **GK7** | 63-5455-00 | BackFlow Test | **"Irrigation Water"** |
-| **MANXI** | 58-5813-00 | Utilities - Internet | **"Utilities - Cable TV"** |
-| **MACO** | 50-5200-00 | Annual SUNBIZ renewal | Generic "Misc Expenses Reimbursement" |
-
-**Recommendation:** Rename in CINC to match the screenshot's specific meaning. ChartIDs stay the same — just update the display name.
+| ~~GK7~~ | ~~63-5455-00~~ | ~~"Irrigation Water"~~ | **"BackFlow Test"** ✅ |
+| ~~MANXI~~ | ~~58-5813-00~~ | ~~"Utilities - Cable TV"~~ | **"Utilities - Internet"** ✅ |
+| ~~MACO~~ | ~~50-5200-00~~ | ~~"Misc Expenses Reimbursement"~~ | **"Annual SUNBIZ renewal"** ✅ |
 
 ---
 
-## 🔥 High priority — duplicate accounts in CINC
+## ~~🔥 High priority — duplicate accounts in CINC~~ ✅ **All resolved 2026-05-27** *(verified live against CINC)*
 
 Accounts with the same or nearly-identical purpose, both in the dropdown — risk of inconsistent categorization:
 
-| Assoc | GL# A | GL# B | Issue |
+| Assoc | GL# A | GL# B | Resolution |
 |---|---|---|---|
-| **SP** | 58-5812-00 Trash/Recycling Contract ($5,000 budget) | 64-5300-00 Trash/Recycling Contract ($500 budget) | Same description, different IDs. **Consolidate to one.** |
-| **GK7** | 64-5810-00 Fire Safety Inspection ($300 budget, $0 actual) | 64-5830-00 Fire & Safety Inspections ($0 budget, **$604.86 actual**) | Activity going to unbudgeted variant. Consolidate. |
-| **SHORE** | 64-5810-00 Fire Safety Inspection ($1,000 budget, $0 actual) | 64-5830-00 Fire & Safety Inspections ($0 budget, **$419.88 actual**) | Same pattern as GK7. Consolidate. |
+| ~~SP~~ | ~~58-5812-00 Trash/Recycling Contract ($5,000 budget)~~ | ~~64-5300-00 Trash/Recycling Contract ($500 budget)~~ | ✅ 64-5300 retired; budget merged into 58-5812 (now $5,500) |
+| ~~GK7~~ | ~~64-5810-00 Fire Safety Inspection ($300 budget, $0 actual)~~ | ~~64-5830-00 Fire & Safety Inspections ($0 budget, **$604.86 actual**)~~ | ✅ 64-5830 retired; $604.86 actual reclassified onto 64-5810 |
+| ~~SHORE~~ | ~~64-5810-00 Fire Safety Inspection ($1,000 budget, $0 actual)~~ | ~~64-5830-00 Fire & Safety Inspections ($0 budget, **$419.88 actual**)~~ | ✅ 64-5830 retired; $419.88 actual reclassified onto 64-5810 |
 
 ---
 
-## ⚠️ Medium priority — description typos in CINC
+## ⚠️ Medium priority — description typos in CINC  ✅ **All resolved 2026-05-27** *(verified live against CINC)*
 
 These will be visible to Karen exactly as typed:
 
-| GL# | Affected associations | Current label | Should be |
-|---|---|---|---|
-| 64-5800-00 | ABBOTT, KGA, BHB, CHV, GVH, GK7, LFA, MACO, MANXI, SHORE, VPREC, WBP, WBPA | "Janitorial  Service" *(double space)* | "Janitorial Service" |
-| 50-5007-00 | CHV | "Annual Corporate **Filling**" | "Annual Corporate Filing" |
-| 50-5015-00 | ESSI | "**Cirtificate**" | "Certificate" |
-| 64-5753-00 | GK7, SHORE | "Electric Repairs/Lights/**ect**" | "Electric Repairs/Lights/etc" |
-| 61-6135-00 | ONE | "Gate/Door **Acess** R&M" | "Gate/Door Access R&M" |
-| 58-5520-00 | PVV | "**sewer**" *(lowercase)* | "Sewer" |
-| 50-5035-00 | ONE | "Licenses**. **Taxes & Permits" *(period instead of comma)* | "Licenses, Taxes & Permits" |
-| 54-5120-00 | PVV | "Annual Corporate **Filling**" | "Annual Corporate Filing" |
+| GL# | Affected associations | Current label | Should be | Status |
+|---|---|---|---|---|
+| ~~64-5800-00~~ | ~~ABBOTT, KGA, BHB, CHV, GVH, GK7, LFA, MACO, MANXI, SHORE, VPREC, WBP, WBPA~~ | ~~"Janitorial  Service" *(double space)*~~ | "Janitorial Service" | ✅ all 13 |
+| ~~50-5007-00~~ | ~~CHV~~ | ~~"Annual Corporate **Filling**"~~ | "Annual Corporate Filing" | ✅ |
+| ~~50-5015-00~~ | ~~ESSI~~ | ~~"**Cirtificate**"~~ | "Certificate" | ✅ |
+| ~~64-5753-00~~ | ~~GK7, SHORE~~ | ~~"Electric Repairs/Lights/**ect**"~~ | "Electric Repairs/Lights/etc" | ✅ both |
+| ~~61-6135-00~~ | ~~ONE~~ | ~~"Gate/Door **Acess** R&M"~~ | "Gate/Door Access R&M" | ✅ |
+| ~~58-5520-00~~ | ~~PVV~~ | ~~"**sewer**" *(lowercase)*~~ | "Sewer" | ✅ |
+| ~~50-5035-00~~ | ~~ONE~~ | ~~"Licenses**. **Taxes & Permits" *(period instead of comma)*~~ | "Licenses, Taxes & Permits" | ✅ |
+| ~~54-5120-00~~ | ~~PVV~~ | ~~"Annual Corporate **Filling**"~~ | "Annual Corporate Filing" | ✅ |
 
 **The Janitorial double-space appears in 13 of 24 associations** — looks like one global CINC template error that propagated. Possibly fixable in one place.
 
 ---
 
-## ⚠️ Medium priority — chronic label mismatches
+## ⚠️ Medium priority — chronic label mismatches  ✅ **All resolved 2026-05-27** *(verified live against CINC)*
 
 These don't change account meaning but cause confusion:
 
-| GL# | Issue |
-|---|---|
-| **50-5001-00** | CINC labels this "Portal/Software" universally. Many association screenshots call it "Mgmt Misc" or "Mgmt Misc - Portal Fee" (GVH, GK7, LFA, MACO, SP, SHORE, VPC5, VPREC, WBP). The screenshots seem to reflect a more accurate description of what's actually billed. |
-| **MACO 50-5081-00** | CINC: "Meeting Expense" / Screenshot: "Annual Election Meeting" |
-| **MACO 58-5530-00** | CINC: "Backflow" / Screenshot: "Annual Backflow Inspection" |
-| **ONE 60-6005-00** | CINC: "Management Misc" / Screenshot: "Software /Portal Fee" |
+| GL# | Issue | Status |
+|---|---|---|
+| ~~**50-5001-00**~~ | ~~CINC labels this "Portal/Software" universally. Many association screenshots call it "Mgmt Misc" or "Mgmt Misc - Portal Fee" (GVH, GK7, LFA, MACO, SP, SHORE, VPC5, VPREC, WBP).~~ | Team standardized on **`Portal/Software`** across all 9 assocs — **board-readability rationale** (Fabio 2026-05-27): "Portal/Software" reads more clearly to a non-accountant board member than "Mgmt Misc". |
+| ~~**MACO 50-5081-00**~~ | ~~CINC: "Meeting Expense" / Screenshot: "Annual Election Meeting"~~ | Renamed to **`Annual Election Meeting`** |
+| ~~**MACO 58-5530-00**~~ | ~~CINC: "Backflow" / Screenshot: "Annual Backflow Inspection"~~ | Renamed to **`Annual Backflow Inspection`** |
+| ~~**ONE 60-6005-00**~~ | ~~CINC: "Management Misc" / Screenshot: "Software /Portal Fee"~~ | Renamed to **`Portal/Software`** (uniform with 50-5001) |
 
 ---
 
@@ -122,21 +120,21 @@ These don't change account meaning but cause confusion:
 
 ---
 
-## ⚠️ Budget value discrepancies — VPCI
+## ~~⚠️ Budget value discrepancies — VPCI~~  ✅ **Resolved 2026-05-27 — false alarm** *(re-verified live against CINC)*
 
-VPCI is the one association where the screenshot included dollar amounts. Several lines have **different budget values in CINC vs the screenshot** — looks like screenshot is from a proposed/older budget that wasn't entered in CINC:
+> **Original concern was a misread on my part.** The screenshot I compared against was the **2025 Budget** column. CINC was already showing the board-approved **2026 Budget** (Venetian Park Condo One board approved 11/19/25). Every visible CINC line matches the 2026 column exactly — zero discrepancies.
+>
+> Items I previously flagged as "unbudgeted activity" for VPCI (`54-5141 Project Work` $135K, `54-5110 Legal Collections` $611, `50-5041 Loan Interest` $2,025) are also **intentional** — the 2026 board-approved budget shows $0 / blank for those lines, matching the established pattern (e.g. 2025 Project Work had $236K actual / $0 budget too). Not problems.
 
-| GL# | Description | Screenshot | CINC |
-|---|---|---|---|
-| 50-5000-00 | Mgmt Contract | $9,000 | $9,360 |
-| **52-5045-00** | Insurance Expense | **$175,000** | **$100,000** |
-| 52-5410-00 | Venetian Rec Assoc Dues | $232,304.15 | $229,844.15 |
-| 58-5810-00 | Termite/Pest Control | $11,000 | $8,500 |
-| 58-5817-00 | Cable TV & Internet | $75,400 | $82,000 |
-| 64-5790-00 | Building Maint/Repair | $15,000 | $5,000 |
-| 64-5830-00 | Fire & Safety Inspections | $600 | $2,100 |
-
-**Reconcile which budget is current** — board and Karen are likely operating from different numbers.
+~~| GL# | Description | Screenshot | CINC |~~
+~~|---|---|---|---|~~
+~~| 50-5000-00 | Mgmt Contract | $9,000 | $9,360 |~~
+~~| **52-5045-00** | Insurance Expense | **$175,000** | **$100,000** |~~
+~~| 52-5410-00 | Venetian Rec Assoc Dues | $232,304.15 | $229,844.15 |~~
+~~| 58-5810-00 | Termite/Pest Control | $11,000 | $8,500 |~~
+~~| 58-5817-00 | Cable TV & Internet | $75,400 | $82,000 |~~
+~~| 64-5790-00 | Building Maint/Repair | $15,000 | $5,000 |~~
+~~| 64-5830-00 | Fire & Safety Inspections | $600 | $2,100 |~~
 
 ---
 
@@ -186,109 +184,111 @@ ONE also has `51-5100-00 Payroll Expense` at $0/$0 — if ONE has employees, thi
 ## Per-association action lists (concise)
 
 ### ABBOTT
-- Fix double-space "Janitorial  Service" (64-5800-00)
+- ~~Fix double-space "Janitorial  Service" (64-5800-00)~~ ✅ done 2026-05-27
 - Decide: reclassify $1,796 on 64-5752, or budget it
 
 ### BHB
-- Fix double-space "Janitorial  Service"
+- ~~Fix double-space "Janitorial  Service"~~ ✅ done 2026-05-27
 - Reclassify or budget unbudgeted Plumbing ($3,288) and Locksmith ($549)
 
-### CHV
-- Fix "Annual Corporate **Filling**" typo (50-5007-00 → "Filing")
-- Fix double-space "Janitorial  Service"
+### CHV  ✅ **All resolved 2026-05-27**
+- ~~Fix "Annual Corporate **Filling**" typo (50-5007-00 → "Filing")~~ ✅ done
+- ~~Fix double-space "Janitorial  Service"~~ ✅ done
 
-### DELA
-- **🚨 Reclassify $131,995 from `50-5100 Prior Mgmt - Unknown Items` into proper expense lines** (priority)
-- Adjust insurance budgets — Umbrella & Financing under-estimated 4–5×
-- Budget the $24K Loan Interest and $6.6K Mgmt Contract that are posting unbudgeted
+### DELA  ✅ **MAIA-side resolved 2026-05-27** *(verified against 5/7/26 income statement)*
+- **🚨 Reclassify $131,995 from `50-5100 Prior Mgmt - Unknown Items` into proper expense lines** — still a Jonathan/Shemaiah CoA cleanup task. **UI-side**: account now excluded from Karen's dropdown so she can't accidentally pick it (2026-05-27 filter rule).
+- ~~Adjust insurance budgets — Umbrella & Financing under-estimated 4–5×~~ → board kept the same budget numbers in 2026 ($3K Umbrella, $5K Financing) — accepting the known overrun; not a CoA cleanup
+- ~~Budget the $24K Loan Interest and $6.6K Mgmt Contract that are posting unbudgeted~~ → both intentional $0 per 2026 board-approved budget (same VP-style pattern: unbudgeted by design)
 
 ### ESSI
-- Fix "**Cirtificate**" typo (50-5015-00 → "Certificate")
+- ~~Fix "**Cirtificate**" typo (50-5015-00 → "Certificate")~~ ✅ done 2026-05-27
 - Allocate budget for Video/Data, Quickbooks Payments Fee, Taxes, Elevator Repairs, Equipment Rental, Roof Paint (6 lines at $0/$0)
 
 ### FIFTH
 - No action needed — cleanest association in the audit
 
-### GVH
-- Fix double-space "Janitorial  Service"
-- Address 50-5001 label drift if "Mgmt Misc" is more accurate than "Portal/Software"
+### GVH  ✅ **All resolved 2026-05-27**
+- ~~Fix double-space "Janitorial  Service"~~ ✅ done
+- ~~Address 50-5001 label drift if "Mgmt Misc" is more accurate than "Portal/Software"~~ → standardized on Portal/Software 2026-05-27
 
 ### GK7
-- **🚨 Critical: 63-5455 says "Irrigation Water" but is used as "BackFlow Test" — rename**
-- **🚨 Consolidate Fire Safety: 64-5810 vs 64-5830 — pick one, retire the other**
-- Fix "ect" typo (64-5753) → "etc"
+- ~~🚨 Critical: 63-5455 says "Irrigation Water" but is used as "BackFlow Test" — rename~~ ✅ renamed to "BackFlow Test" 2026-05-27
+- ~~🚨 Consolidate Fire Safety: 64-5810 vs 64-5830 — pick one, retire the other~~ ✅ done 2026-05-27 (64-5830 retired, $604.86 reclassified onto 64-5810)
+- ~~Fix "ect" typo (64-5753) → "etc"~~ ✅ done 2026-05-27
 
 ### LFA
-- Fix double-space "Janitorial  Service"
+- ~~Fix double-space "Janitorial  Service"~~ ✅ done 2026-05-27
 - Allocate budget for Property Taxes, Meeting Expense, Parking Lot Rent if needed
 
-### LCLUB
-- **🚨 Reclassify $21,792 from `90-9100 Contingency` into either `80-8030 Contingency Expenses` (which has $48,940 budget) or specific expense lines**
+### LCLUB  ✅ **All resolved 2026-05-27**
+- ~~🚨 Reclassify $21,792 from `90-9100 Contingency` into either `80-8030 Contingency Expenses` (which has $48,940 budget) or specific expense lines~~ → confirmed by Fabio: 90-9100 is not an expense line item, ignore.
 - Otherwise clean
 
 ### MACO
-- **🚨 Rename 50-5200 from "Misc Expenses Reimbursement" → "Annual SUNBIZ renewal"** (or similar)
-- Rename 50-5081 "Meeting Expense" → "Annual Election Meeting"
-- Rename 58-5530 "Backflow" → "Annual Backflow Inspection"
-- Fix double-space "Janitorial  Service"
+- ~~🚨 Rename 50-5200 from "Misc Expenses Reimbursement" → "Annual SUNBIZ renewal"~~ ✅ renamed 2026-05-27
+- ~~Rename 50-5081 "Meeting Expense" → "Annual Election Meeting"~~ ✅ done 2026-05-27
+- ~~Rename 58-5530 "Backflow" → "Annual Backflow Inspection"~~ ✅ done 2026-05-27
+- ~~Fix double-space "Janitorial  Service"~~ ✅ done 2026-05-27
 
 ### MANXI
-- **🚨 Critical: 58-5813 says "Utilities - Cable TV" but is used as "Utilities - Internet" — rename**
+- ~~🚨 Critical: 58-5813 says "Utilities - Cable TV" but is used as "Utilities - Internet" — rename~~ ✅ renamed to "Utilities - Internet" 2026-05-27
 - Address major budget overruns (Legal, Fire Panel Maint, HVAC Repairs)
-- Fix double-space "Janitorial  Service Contract"
+- ~~Fix double-space "Janitorial  Service Contract"~~ ✅ done 2026-05-27
 - Reclassify $1,356 on Security/Courtesy Patrol (unbudgeted extra)
 
 ### ONE
-- **Rename 60-6005 from "Management Misc" → "Software /Portal Fee"**
-- Fix "Acess" typo (61-6135) → "Access"
-- Fix "Licenses**.** Taxes & Permits" punctuation (50-5035)
-- **🚨 Reclassify $5,790 from 50-5060 Administrative Fees** (or allocate budget)
+- ~~Rename 60-6005 from "Management Misc" → "Software /Portal Fee"~~ ✅ done 2026-05-27 (landed as `Portal/Software` for uniformity with 50-5001)
+- ~~Fix "Acess" typo (61-6135) → "Access"~~ ✅ done 2026-05-27
+- ~~Fix "Licenses**.** Taxes & Permits" punctuation (50-5035)~~ ✅ done 2026-05-27
+- ~~🚨 Reclassify $5,790 from 50-5060 Administrative Fees~~ → **UI-side resolved 2026-05-27** (account hidden from dropdown; not in ONE's 2026 budget). CoA-side cleanup of the $5,790 orphan still pending Jonathan/Shemaiah.
 - Reclassify $1,794 from 60-6065 Chute Cleaning
 - Decide on 51-5100 Payroll Expense — if ONE has employees, allocate
 
-### PVV
-- **🚨 Entire budget needs allocation in CINC** (currently no budget data at all)
-- Fix lowercase "sewer" (58-5520-00) → "Sewer"
-- Annual Corporate "Filling" typo also present here (54-5120)
+### PVV  ✅ **All resolved 2026-05-27** *(verified live against CINC)*
+- ~~🚨 Entire budget needs allocation in CINC~~ → done
+- ~~Fix lowercase "sewer" (58-5520-00) → "Sewer"~~ → done
+- ~~Annual Corporate "Filling" typo also present here (54-5120) → "Filing"~~ → done
+- ~~`50-5200-00` rename — CINC: "Misc Expenses Reimbursement", screenshot wants "Misc Expenses - SUNBIZ"~~ → done
 
 ### SP
-- **🚨 Consolidate duplicate Trash/Recycling Contract (58-5812 vs 64-5300)**
-- 50-5001 label drift ("Portal/Software" vs "Mgmt Misc")
+- ~~🚨 Consolidate duplicate Trash/Recycling Contract (58-5812 vs 64-5300)~~ ✅ done 2026-05-27 (64-5300 retired; budget merged into 58-5812 — now $5,500)
+- ~~50-5001 label drift ("Portal/Software" vs "Mgmt Misc")~~ → standardized on Portal/Software 2026-05-27
 
 ### SHORE
-- **🚨 Consolidate Fire Safety: 64-5810 vs 64-5830 (same pattern as GK7)**
+- ~~🚨 Consolidate Fire Safety: 64-5810 vs 64-5830 (same pattern as GK7)~~ ✅ done 2026-05-27 (64-5830 retired, $419.88 reclassified onto 64-5810)
 - **Verify negative actual on 50-5200 (-$3,462.83) — credit or reversal**
 
-### VPCI
-- **🚨 Reconcile budget values with screenshot — Insurance, Mgmt Contract, Venetian Rec, etc. don't match**
-- **🚨 Reclassify $135K Project Work**
-- Budget the $2,025 Loan Interest, $611 Legal Collections
+### VPCI  ✅ **All resolved 2026-05-27** *(re-verified — was a misread on my part)*
+- ~~🚨 Reconcile budget values with screenshot — Insurance, Mgmt Contract, Venetian Rec, etc. don't match~~ → CINC matches the board-approved 2026 budget (the 2025 column was what I was comparing against)
+- ~~🚨 Reclassify $135K Project Work~~ → intentional ($0 budget per 2026 approved budget; established VPCI pattern)
+- ~~Budget the $2,025 Loan Interest, $611 Legal Collections~~ → intentional ($0 / blank per 2026 approved budget)
 
-### VPCII
-- **🚨 Reclassify $63K Project Work**
-- **Allocate budget for 63-5403 Tree Removal and Planting** (highlighted by user)
-- Budget the $6,077 Loan Interest, $171 Meeting Expense, $1,400 Landscape activity
+### VPCII  ✅ **All resolved 2026-05-27** *(verified against 5/8/26 income statement)*
+- ~~🚨 Reclassify $63K Project Work~~ → intentional ($0 budget per 2026 approved budget; same VP pattern as VPCI)
+- ~~Allocate budget for 63-5403 Tree Removal and Planting (highlighted by user)~~ → dormant chart line, not in 2026 budget; only 63-5402 Tree Trimming is budgeted
+- ~~Budget the $6,077 Loan Interest, $171 Meeting Expense, $1,400 Landscape activity~~ → all intentional $0 per 2026 approved budget
 
-### VPC5
-- **🚨 Reclassify $54K Project Work**
-- 50-5020 Postage & Printing slightly over budget ($150 → $203)
+### VPC5  ✅ **All resolved 2026-05-27** *(verified against 2026 board-approved budget)*
+- ~~🚨 Reclassify $54K Project Work~~ → intentional ($0 budget per 2026 approved; same VP pattern)
+- ~~50-5020 Postage & Printing slightly over budget ($150 → $203)~~ → informational only; 2026 budget keeps $150
+- Note: VPC5's 2026 budget has Reserve Transfer at $0 (distinct from other VP assocs)
 
-### VPREC
-- **🚨 Reclassify $532K Project Work** — biggest single number in the audit
-- Address $19K and $22K overruns on Misc Admin and Building Maintenance
-- Reclassify $10K unbudgeted Plumbing
-- Confirm $120K Payroll allocation status — budgeted but no posting
-- Fix double-space "Janitorial  Service"
+### VPREC  ✅ **All resolved 2026-05-27** *(verified against 2026 board-approved budget)*
+- ~~🚨 Reclassify $532K Project Work~~ → intentional ($0 budget per 2026 approved; same VP pattern, biggest example)
+- ~~Address $19K and $22K overruns on Misc Admin and Building Maintenance~~ → real overruns, not CoA cleanup; remain in the visibility-only section for board awareness
+- ~~Reclassify $10K unbudgeted Plumbing~~ → 64-5795 Plumbing has no line in the 2026 budget; VP pattern
+- ~~Confirm $120K Payroll allocation status~~ → budget intact ($64,896 + $56,100); $0 YTD likely timing or separate payroll ledger; not a CoA issue
+- ~~Fix double-space "Janitorial  Service"~~ ✅ done 2026-05-27
 
 ### WBP
-- Fix double-space "Janitorial  Service"
+- ~~Fix double-space "Janitorial  Service"~~ ✅ done 2026-05-27
 - Decide on $462 Misc Reimbursement and $700 Janitorial (unbudgeted)
 
 ### WBPA
 - **🚨 Reclassify $9,014 from 64-5455 Irrigation Water** (or allocate budget)
 - Adjust Insurance budget (over by $11.8K)
 - Acct/Audit/Tax massively over ($500 → $2,825) — was an audit larger than expected?
-- Fix double-space "Janitorial  Service"
+- ~~Fix double-space "Janitorial  Service"~~ ✅ done 2026-05-27
 
 ### KANE
 - **🚨 Add `5055-00 Janitorial` account or document that 63-5420 Cleaning is canonical**
