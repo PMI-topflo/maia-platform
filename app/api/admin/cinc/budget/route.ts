@@ -26,7 +26,25 @@ export async function GET(req: Request) {
   if (!assoc) return NextResponse.json({ error: 'assoc query param required' }, { status: 400 })
 
   try {
-    const lines = await getAssociationBudget(assoc, { forceRefresh: force })
+    const all = await getAssociationBudget(assoc, { forceRefresh: force })
+    // CINC's budget endpoint returns the full chart of accounts. Karen
+    // is picking the expense category for an invoice, so narrow to:
+    //   - GL number prefix 5–9 (expenses + reserve transfers per the
+    //     standard fund-accounting convention), AND
+    //   - has either a budget allocation or YTD activity (i.e. an
+    //     account the association actually uses).
+    const lines = all.filter(l => {
+      const firstDigit = parseInt(l.number?.[0] ?? '', 10)
+      const isExpenseRange = firstDigit >= 5 && firstDigit <= 9
+      const hasActivity =
+        (l.budget != null && l.budget > 0) ||
+        (l.actual != null && Math.abs(l.actual) > 0)
+      // Reserve / Special Assessment lines are a funding-source decision,
+      // not an expense category — Karen picks the expense GL (e.g. Roof
+      // Repair) and the payment source is set separately.
+      const isReserveOrSA = /\breserve|special\s*assess/i.test(l.name)
+      return isExpenseRange && hasActivity && !isReserveOrSA
+    })
     return NextResponse.json({ assoc: assoc.toUpperCase(), lines })
   } catch (err) {
     return NextResponse.json(

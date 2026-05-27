@@ -1452,6 +1452,7 @@ function detectTicketTrigger(body: string): boolean {
 const INVOICE_INTAKE_TRIGGERS = [
   '@maia process invoice',
   '@maia invoice',
+  '@maia upload invoice',
 ] as const
 
 export function detectInvoiceTrigger(body: string): boolean {
@@ -2182,8 +2183,9 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     })
 
     // Invoice-intake trigger. Staff forwards a vendor invoice PDF to
-    // maia@ with "@maia process invoice" or "@maia invoice" in the
-    // body. This is now the ONLY way an invoice enters the intake
+    // maia@ with "@maia process invoice", "@maia invoice", or "@maia
+    // upload invoice" in the body. This is the ONLY way an invoice
+    // enters the intake
     // queue — the old "any PDF at billing@" implicit routing was
     // removed (it kept swallowing @maia DB-update commands that
     // happened to CC billing@). Returns early so we don't ALSO try to

@@ -27,6 +27,7 @@ const SELECT_COLUMNS = `
   extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date,
   gl_account_id, gl_account_name,
   pay_by_type, observation_note, work_order_number,
+  pay_from_bank_account_id,
   extraction_confidence, status, rejected_reason,
   cinc_invoice_id, cinc_dup_invoice_id, pushed_at, pushed_by,
   created_at, updated_at
@@ -79,6 +80,7 @@ interface PatchBody {
   pay_by_type?:                string | null
   observation_note?:           string | null
   work_order_number?:          number | null
+  pay_from_bank_account_id?:   number | null
 }
 
 export async function PATCH(req: Request) {
@@ -96,6 +98,7 @@ export async function PATCH(req: Request) {
     'extracted_association_code', 'extracted_invoice_date',
     'gl_account_id', 'gl_account_name',
     'pay_by_type', 'observation_note', 'work_order_number',
+    'pay_from_bank_account_id',
   ]
   for (const k of writable) {
     if (k in body) patch[k as string] = body[k] ?? null

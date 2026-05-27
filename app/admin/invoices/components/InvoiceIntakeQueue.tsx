@@ -31,6 +31,7 @@ interface Draft {
   pay_by_type:                 string | null
   observation_note:            string | null
   work_order_number:           number | null
+  pay_from_bank_account_id:    number | null
   extraction_confidence:       number | null
   status:                      string
   rejected_reason:             string | null
@@ -40,6 +41,18 @@ interface Draft {
   pushed_by:                   string | null
   created_at:                  string
   updated_at:                  string
+}
+
+interface BankAccountOption {
+  id:               number
+  description:      string
+  last4:            string | null
+  cashGl:           string | null
+  kind:             'operating' | 'reserve' | 'special' | 'other'
+  bankBalance:      number | null
+  cincBalance:      number | null
+  restricted:       boolean
+  restrictionLabel: string | null
 }
 
 interface PayByOption { value: string; label: string }
@@ -256,6 +269,7 @@ function DraftCard(props: {
   const [payBy, setPayBy]         = useState<string>(draft.pay_by_type     ?? '')
   const [note, setNote]           = useState<string>(draft.observation_note ?? '')
   const [woNumber, setWoNumber]   = useState<string>(draft.work_order_number != null ? String(draft.work_order_number) : '')
+  const [bankId, setBankId]       = useState<string>(draft.pay_from_bank_account_id != null ? String(draft.pay_from_bank_account_id) : '')
 
   // GL options for the selected association — fetched on demand the
   // first time edit mode + assoc are both set, then memoised. Refresh
@@ -265,6 +279,15 @@ function DraftCard(props: {
   const [glLoading, setGlLoading] = useState(false)
   const [glError, setGlError]     = useState<string | null>(null)
   const [glLoadedFor, setGlLoadedFor] = useState<string>('')
+
+  // Bank accounts for the selected association — Operating, Reserve,
+  // Special Assessment, etc. Lazy-loaded per assoc just like the GL
+  // list. Karen picks the bank that funds this invoice; the choice
+  // maps to PayFromBankAccountID on the CINC createInvoice payload.
+  const [bankOptions, setBankOptions]     = useState<BankAccountOption[]>([])
+  const [bankLoading, setBankLoading]     = useState(false)
+  const [bankError, setBankError]         = useState<string | null>(null)
+  const [bankLoadedFor, setBankLoadedFor] = useState<string>('')
 
   // Payment-method options for the selected association — same lazy
   // pattern as the GL list. CINC returns assoc-specific PayByType
@@ -304,6 +327,33 @@ function DraftCard(props: {
       .catch(err => setGlError(err instanceof Error ? err.message : String(err)))
       .finally(() => setGlLoading(false))
   }, [mode, assoc, glLoadedFor, glLoading])
+
+  // Lazy-load bank accounts the same way. Auto-select the Operating
+  // account on first fetch if Karen hasn't picked anything — sensible
+  // default since the vast majority of invoices pay from operating.
+  // She can override to Reserve/Special before pushing.
+  useEffect(() => {
+    if (mode !== 'edit' || !assoc || bankLoadedFor === assoc || bankLoading) return
+    setBankLoading(true); setBankError(null)
+    fetch(`/api/admin/cinc/bank-accounts?assoc=${encodeURIComponent(assoc)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        if (data?.error) throw new Error(data.error)
+        const accounts: BankAccountOption[] = data.accounts ?? []
+        setBankOptions(accounts)
+        setBankLoadedFor(assoc)
+        // Auto-select operating if nothing chosen yet. listAssociation
+        // BankAccounts sorts operating first, so we can just pick the
+        // first 'operating' kind we see.
+        if (!bankId) {
+          const operating = accounts.find(a => a.kind === 'operating')
+          if (operating) setBankId(String(operating.id))
+        }
+      })
+      .catch(err => setBankError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setBankLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, assoc, bankLoadedFor, bankLoading])
 
   // Lazy-load open WOs for (assoc, vendor) pair. Refetch when either
   // changes — Karen might switch vendor or assoc mid-edit.
@@ -382,6 +432,7 @@ function DraftCard(props: {
     setPayBy    (draft.pay_by_type     ?? '')
     setNote     (draft.observation_note ?? '')
     setWoNumber (draft.work_order_number != null ? String(draft.work_order_number) : '')
+    setBankId   (draft.pay_from_bank_account_id != null ? String(draft.pay_from_bank_account_id) : '')
     setMode('view')
     setMsg(null)
   }
@@ -406,6 +457,7 @@ function DraftCard(props: {
           pay_by_type:                 payBy  || null,
           observation_note:            note   || null,
           work_order_number:           woNumber ? parseInt(woNumber, 10) : null,
+          pay_from_bank_account_id:    bankId ? parseInt(bankId, 10) : null,
         }),
       })
       const data = await res.json()
@@ -786,6 +838,90 @@ function DraftCard(props: {
               </>
             ) : (
               <ReadOnlyValue value={glName} placeholder={assoc ? '— not set —' : '— pick association first —'} />
+            )}
+          </Field>
+        </div>
+
+        {/* Pay-from bank account — maps to PayFromBankAccountID on the
+            CINC createInvoice payload. Sourced from /banking/bankBalances.
+            CINC's `Reserve` flag is broken, so kind is derived from the
+            account description text (see lib/integrations/cinc.ts). */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <Field label="Pay from bank account">
+            {mode === 'edit' ? (
+              <>
+                <select
+                  value={bankId}
+                  onChange={e => setBankId(e.target.value)}
+                  disabled={readOnly || !assoc}
+                  style={{ width: '100%', padding: 6 }}
+                >
+                  <option value="">
+                    {!assoc           ? '— pick an association first —'
+                    : bankLoading     ? 'Loading bank accounts from CINC…'
+                    : bankOptions.length === 0
+                      ? (bankError ? '(failed to load — using CINC default)' : 'No bank accounts found for this association')
+                      : '— pick a bank account —'}
+                  </option>
+                  {bankOptions.map(b => {
+                    const kindLabel =
+                      b.kind === 'operating' ? 'Operating'
+                      : b.kind === 'reserve' ? 'Reserve'
+                      : b.kind === 'special' ? 'Special Assessment'
+                      : 'Other'
+                    const last4 = b.last4 ? ` …${b.last4}` : ''
+                    const bal   = b.bankBalance != null
+                      ? `  ·  $${b.bankBalance.toLocaleString('en-US', { maximumFractionDigits: 0 })} available`
+                      : ''
+                    return (
+                      <option key={b.id} value={String(b.id)}>
+                        {kindLabel}{last4}{bal}
+                      </option>
+                    )
+                  })}
+                </select>
+                {bankError && (
+                  <div style={{ marginTop: 4, color: '#b91c1c', fontSize: 11 }}>
+                    Bank-account fetch failed: {bankError}
+                  </div>
+                )}
+                {/* Visual nudge when Karen picks something other than the
+                    Operating account. Two severity tiers:
+                      - restricted (Insurance/Loan Proceeds) → red, with the
+                        specific restriction label. Funds can only pay
+                        invoices tied to the underlying claim / loan.
+                      - non-operating (Reserve / Special Assessment) → yellow.
+                    A CINC audit note is added automatically on push in
+                    either case. */}
+                {(() => {
+                  const sel = bankOptions.find(b => String(b.id) === bankId)
+                  if (!sel) return null
+                  if (sel.restricted) {
+                    return (
+                      <div style={{ marginTop: 6, padding: '8px 10px', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 4, fontSize: 11, color: '#991b1b' }}>
+                        🛑 <strong>Restricted account — {sel.restrictionLabel}.</strong> Funds here are earmarked. Only pay invoices tied to that specific {sel.restrictionLabel?.toLowerCase().includes('insurance') ? 'insurance claim' : 'loan-funded project'}. An audit note will be added to the CINC invoice on push.
+                      </div>
+                    )
+                  }
+                  if (sel.kind !== 'operating') {
+                    return (
+                      <div style={{ marginTop: 6, padding: '6px 8px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 4, fontSize: 11, color: '#92400e' }}>
+                        ⚠ Non-operating account — an audit note will be added to the CINC invoice on push.
+                      </div>
+                    )
+                  }
+                  return null
+                })()}
+              </>
+            ) : (
+              <ReadOnlyValue
+                value={(() => {
+                  const sel = bankOptions.find(b => String(b.id) === bankId)
+                    ?? (draft.pay_from_bank_account_id != null ? { description: `BankAccountID ${draft.pay_from_bank_account_id}` } as Partial<BankAccountOption> : null)
+                  return sel?.description ?? ''
+                })()}
+                placeholder={assoc ? '— not set (CINC default: Operating) —' : '— pick association first —'}
+              />
             )}
           </Field>
         </div>
