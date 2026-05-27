@@ -177,7 +177,7 @@ Two distinct path patterns appear in this category:
 | `GET /management/associations/1/associationGlAccounts` | GL account info |
 | `GET /management/associations/1/payByTypes` | Pay-by types for invoices |
 | `GET /management/associations/1/invoiceStatuses` | Status types for invoices |
-| `GET /management/associations/1/associationBankAccounts` | Bank account list (last 4 digits only) |
+| `GET /management/associations/1/associationBankAccounts` | **404 in our tenant — use `/banking/bankBalances` instead** (last 4 digits only) |
 | `GET /management/associations/1/invoicePayments` | Payments for an invoice |
 | `GET /management/associations/1/invoiceHistory` | History for an invoice |
 | `GET /management/associations/1/invoice` | A specific invoice |
@@ -205,7 +205,7 @@ Two distinct path patterns appear in this category:
 
 | Method + path | Purpose |
 |---------------|---------|
-| `GET /management/1/banking/bankBalances` | Bank balance for all accounts of a given assoc code |
+| `GET /management/1/banking/bankBalances` | Bank accounts + live balances for an assoc. Returns `BankAccountID`, `AccountDescription` ("SSB - Operating - 8614"), `CashAccountNumber` ("10-1020-00"), `BankBalance`, `CincBalance`. **Note**: the `Reserve` boolean is unreliable — returns `false` for actual reserve accounts. Detect kind from description text ("Operating" / "Reserve" / "Special Assessment") or Cash GL prefix (10-=operating, 12-=reserve, 13-=likely SA). Use this as the source for `PayFromBankAccountID` on createInvoice. |
 
 ---
 

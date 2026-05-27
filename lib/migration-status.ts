@@ -10,6 +10,17 @@
 //
 // To add a new migration: append to MIGRATIONS, include the
 // artifact's column/table name and the ALTER/CREATE SQL inline.
+//
+// ⚠ NEW TABLES — Supabase Data-API exposure (effective 2026-10-30)
+// ─────────────────────────────────────────────────────────────────
+// As of 2026-10-30, Supabase no longer auto-grants SELECT/INSERT/
+// UPDATE/DELETE on new public.* tables to anon / authenticated /
+// service_role. A new table created without an explicit GRANT block
+// is INVISIBLE to supabase-js (and PostgREST and GraphQL) even with
+// RLS policies in place. Add the GRANT block whenever the migration
+// CREATEs a new table. See supabase/migrations/_TEMPLATE_new_table.sql
+// for the canonical pattern. Existing tables are unaffected.
+// Source: https://github.com/orgs/supabase/discussions/45329
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
@@ -638,6 +649,17 @@ NOTIFY pgrst, 'reload schema';`,
     artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'work_order_number' },
     sql: `ALTER TABLE public.invoice_intake_drafts
   ADD COLUMN IF NOT EXISTS work_order_number integer;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'invoice_intake_pay_from_bank_account',
+    label:       'Invoice intake — pay-from bank account',
+    description: 'invoice_intake_drafts.pay_from_bank_account_id — CINC BankAccountID for the Operating / Reserve / Special Assessment account to pay this invoice from. Maps directly to PayFromBankAccountID on createInvoice. NULL = CINC default (operating).',
+    filename:    '20260527_invoice_intake_pay_from_bank_account.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'pay_from_bank_account_id' },
+    sql: `ALTER TABLE public.invoice_intake_drafts
+  ADD COLUMN IF NOT EXISTS pay_from_bank_account_id bigint;
 
 NOTIFY pgrst, 'reload schema';`,
   },

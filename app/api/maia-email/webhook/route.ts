@@ -328,7 +328,8 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
       // commands ("@maia update db" CC'd to billing@ became invoice
       // drafts). As of 2026-05-26 invoice intake is purely explicit —
       // it only fires on the maia@ webhook when the body contains
-      // "@maia process invoice" or "@maia invoice". See
+      // "@maia process invoice", "@maia invoice", or "@maia upload
+      // invoice". See
       // processEmailCommand → invoice-intake trigger.
 
       // Tickets are created only for emails explicitly addressed to

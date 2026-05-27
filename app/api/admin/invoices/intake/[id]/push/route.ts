@@ -20,6 +20,7 @@ import {
   createInvoice,
   attachInvoicePdf,
   createInvoiceNote,
+  listAssociationBankAccounts,
   CincApiError,
 } from '@/lib/integrations/cinc'
 import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
@@ -62,7 +63,7 @@ export async function POST(
 
   const { data: draft, error: loadErr } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('id, status, pdf_storage_key, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, pay_by_type, observation_note, work_order_number, extraction_confidence, gmail_message_id')
+    .select('id, status, pdf_storage_key, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, pay_by_type, observation_note, work_order_number, pay_from_bank_account_id, extraction_confidence, gmail_message_id')
     .eq('id', id)
     .single()
   if (loadErr || !draft) return NextResponse.json({ error: loadErr?.message ?? 'not found' }, { status: 404 })
@@ -104,18 +105,22 @@ export async function POST(
   // Push to CINC. createInvoice defaults StatusID to PENDING APPROVAL
   // (board approves in WebAxis afterward). Sends Karen's observation as
   // NoteDescription so the CINC team sees processing instructions when
-  // they open the invoice.
+  // they open the invoice. PayFromBankAccountID routes the payment to
+  // the Operating / Reserve / Special Assessment bank account Karen
+  // picked; null means "let CINC default to operating" (BankAccountID 0).
+  const payFromBankAccountId = (draft.pay_from_bank_account_id ?? null) as number | null
   let cincInvoiceId: number
   try {
     const created = await createInvoice({
-      associationCode:  draft.extracted_association_code as string,
-      vendorId:         parseInt(draft.matched_cinc_vendor_id as string, 10),
-      invoiceNumber:    draft.extracted_invoice_number    as string,
-      invoiceDate:      draft.extracted_invoice_date      as string,
-      amount:           draft.extracted_amount            as number,
-      payByType:        (draft.pay_by_type      ?? null) as string | null,
-      noteDescription:  (draft.observation_note ?? null) as string | null,
-      workOrderNumber:  (draft.work_order_number ?? null) as number | null,
+      associationCode:      draft.extracted_association_code as string,
+      vendorId:             parseInt(draft.matched_cinc_vendor_id as string, 10),
+      invoiceNumber:        draft.extracted_invoice_number    as string,
+      invoiceDate:          draft.extracted_invoice_date      as string,
+      amount:               draft.extracted_amount            as number,
+      payByType:            (draft.pay_by_type      ?? null) as string | null,
+      noteDescription:      (draft.observation_note ?? null) as string | null,
+      workOrderNumber:      (draft.work_order_number ?? null) as number | null,
+      payFromBankAccountId: payFromBankAccountId,
     })
     cincInvoiceId = created.invoiceId
   } catch (err) {
@@ -167,6 +172,38 @@ export async function POST(
     })
   } catch (err) {
     console.warn(`[invoice-push] provenance note failed: ${(err as Error).message}`)
+  }
+
+  // Audit note when Karen pays from anything other than the Operating
+  // account — board-visible provenance trail. Two flavors:
+  //   - Restricted accounts (Insurance Proceeds, Loan Proceeds): note
+  //     carries the restriction label explicitly so the board sees this
+  //     was an earmarked disbursement.
+  //   - Plain non-operating (Reserve / Special Assessment): kind label
+  //     plus account description.
+  // We resolve the picked account from the live CINC list (unfiltered
+  // helper, so restricted accounts still resolve even though they're
+  // not in Karen's dropdown). Best-effort: failure logged but non-fatal.
+  if (payFromBankAccountId != null && payFromBankAccountId !== 0) {
+    try {
+      const accounts = await listAssociationBankAccounts(draft.extracted_association_code as string)
+      const picked   = accounts.find(a => a.id === payFromBankAccountId)
+      if (picked && (picked.restricted || picked.kind !== 'operating')) {
+        let content: string
+        if (picked.restricted) {
+          content = `Payment source: RESTRICTED — ${picked.restrictionLabel} account (${picked.description}). Funds disbursed per the underlying earmarked purpose. Selected by ${pushedBy} via MAIA.`
+        } else {
+          const kindLabel =
+            picked.kind === 'reserve' ? 'Reserve'
+            : picked.kind === 'special' ? 'Special Assessment'
+            : picked.kind
+          content = `Payment source: ${kindLabel} account (${picked.description}) — selected by ${pushedBy} via MAIA.`
+        }
+        await createInvoiceNote({ invoiceId: cincInvoiceId, content })
+      }
+    } catch (err) {
+      console.warn(`[invoice-push] non-operating audit note failed: ${(err as Error).message}`)
+    }
   }
 
   // Drive mirror — best-effort. Failure is non-fatal: the CINC push

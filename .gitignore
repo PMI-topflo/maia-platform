@@ -41,3 +41,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+
+# Local dev artifacts — script outputs and sample HTML
+probe-*.json
+*-sample.html

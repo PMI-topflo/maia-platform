@@ -1006,6 +1006,148 @@ export async function listPayByTypes(assocCode: string): Promise<CincPayByType[]
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Bank accounts — drives the "Pay from which bank account" picker in
+// the invoice intake card. CINC's `Reserve` boolean is unreliable
+// (returns false for accounts whose description clearly says "Reserve"),
+// so we derive `kind` from the description text + Cash GL prefix as
+// belt-and-suspenders.
+// ─────────────────────────────────────────────────────────────────────
+
+/** Raw CINC bankBalances shape, per probe on 2026-05-26. */
+export interface CincBankAccount {
+  BankAccountID?:       number | null
+  AccountNum?:          string | null
+  AccountDescription?:  string | null
+  DepositoryAccount?:   boolean | null
+  CincBalance?:         number | null
+  BankBalance?:         number | null
+  BankDate?:            string | null
+  CashAccountNumber?:   string | null
+  Reserve?:             boolean | null
+}
+
+export type BankAccountKind = 'operating' | 'reserve' | 'special' | 'other'
+
+/** Normalised shape we feed the dropdown. */
+export interface BankAccountOption {
+  id:           number
+  description:  string
+  last4:        string | null
+  cashGl:       string | null
+  kind:         BankAccountKind
+  bankBalance:  number | null
+  cincBalance:  number | null
+  /** True for accounts whose funds are contractually earmarked for a
+   *  specific purpose (insurance claim payout, loan proceeds, etc.).
+   *  Karen CAN pay from them, but only invoices tied to the specific
+   *  covered work. Surfaced as a UI warning + audit note on push.
+   *  Debt-service accounts are filtered out entirely at the API route
+   *  level — those aren't available for AP at all. */
+  restricted:   boolean
+  /** Short human label for the restriction reason; only set when
+   *  `restricted` is true. Examples: "Insurance Proceeds", "Loan Proceeds". */
+  restrictionLabel: string | null
+}
+
+function deriveBankKind(account: CincBankAccount): BankAccountKind {
+  const desc = (account.AccountDescription ?? '').toLowerCase()
+  if (/special\s*assess/.test(desc))     return 'special'
+  if (/\breserve\b/.test(desc))          return 'reserve'
+  if (/\boperating\b|\boperations?\b/.test(desc)) return 'operating'
+  // Cash GL prefix fallback per fund-accounting convention:
+  //   10-xxxx = operating cash, 12-xxxx = reserve cash, 13-xxxx ≈ SA cash.
+  const cashGl = account.CashAccountNumber ?? ''
+  if (cashGl.startsWith('12-'))          return 'reserve'
+  if (cashGl.startsWith('13-'))          return 'special'
+  if (cashGl.startsWith('10-'))          return 'operating'
+  return 'other'
+}
+
+/** Detect restricted-purpose accounts where funds are earmarked for a
+ *  specific event (insurance claim, loan disbursement, etc.). Karen CAN
+ *  pay from them but only for invoices tied to that purpose. Returns the
+ *  human label of the restriction or null if the account is unrestricted.
+ *
+ *  Debt-service accounts aren't handled here — they're excluded entirely
+ *  at the API-route level (see /api/admin/cinc/bank-accounts). */
+function detectRestriction(account: CincBankAccount): string | null {
+  const desc = account.AccountDescription ?? ''
+  if (/insurance\s*proceeds/i.test(desc)) return 'Insurance Proceeds'
+  if (/loan\s*proceeds/i.test(desc))      return 'Loan Proceeds'
+  return null
+}
+
+function last4FromAccountNum(accountNum: string | null | undefined): string | null {
+  if (!accountNum) return null
+  const digits = accountNum.replace(/\D/g, '')
+  return digits.length >= 4 ? digits.slice(-4) : null
+}
+
+interface CachedBankAccounts { accounts: BankAccountOption[]; expiresAt: number }
+const _bankAccountsCache = new Map<string, CachedBankAccounts>()
+const BANK_ACCOUNTS_TTL_MS = 30 * 60_000  // 30 min — accounts change rarely
+
+/** GET /management/1/banking/bankBalances — bank accounts for an
+ *  association, with live balances. Cached per assoc for 30 min.
+ *
+ *  NOTE: CINC's documented `/management/associations/1/associationBankAccounts`
+ *  endpoint 404s in our tenant; this one works and includes balances.
+ *  See CINC_API.md.
+ *
+ *  The `kind` field is derived from AccountDescription (primary) with a
+ *  Cash GL prefix fallback. CINC's `Reserve` boolean returns false even
+ *  for actual reserve accounts — DO NOT rely on it. */
+export async function listAssociationBankAccounts(
+  assocCode: string,
+  opts?:     { forceRefresh?: boolean },
+): Promise<BankAccountOption[]> {
+  const key = assocCode.toUpperCase()
+  if (!opts?.forceRefresh) {
+    const hit = _bankAccountsCache.get(key)
+    if (hit && hit.expiresAt > Date.now()) return hit.accounts
+  }
+
+  const raw = await call<CincBankAccount[]>(
+    '/management/1/banking/bankBalances',
+    { method: 'GET', query: { assocCode: key } },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincBankAccount[]
+    }
+    throw err
+  })
+
+  const accounts: BankAccountOption[] = []
+  for (const r of raw) {
+    if (r.BankAccountID == null) continue
+    const restrictionLabel = detectRestriction(r)
+    accounts.push({
+      id:               r.BankAccountID,
+      description:      (r.AccountDescription ?? '').trim() || `Account ${r.BankAccountID}`,
+      last4:            last4FromAccountNum(r.AccountNum),
+      cashGl:           r.CashAccountNumber ?? null,
+      kind:             deriveBankKind(r),
+      bankBalance:      typeof r.BankBalance === 'number' ? r.BankBalance : null,
+      cincBalance:      typeof r.CincBalance === 'number' ? r.CincBalance : null,
+      restricted:       restrictionLabel != null,
+      restrictionLabel,
+    })
+  }
+
+  // Sort: operating first, then reserve, then special, then other.
+  const order: Record<BankAccountKind, number> = { operating: 0, reserve: 1, special: 2, other: 3 }
+  accounts.sort((a, b) => order[a.kind] - order[b.kind] || a.description.localeCompare(b.description))
+
+  _bankAccountsCache.set(key, { accounts, expiresAt: Date.now() + BANK_ACCOUNTS_TTL_MS })
+  return accounts
+}
+
+export function invalidateBankAccountsCache(assocCode?: string): void {
+  if (assocCode) _bankAccountsCache.delete(assocCode.toUpperCase())
+  else           _bankAccountsCache.clear()
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Invoice CRUD — used by the intake-queue push flow
 //
 // All field names below follow CINC's actual Swagger shape (PascalCase

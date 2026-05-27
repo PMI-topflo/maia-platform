@@ -67,6 +67,7 @@ The core AI automation lives in `lib/maia-command-processor.ts` (~1000 lines). W
 - **User-facing queries**: Use the anon client — RLS enforced by Supabase policies
 - **Admin/server operations**: Use `lib/supabase-admin.ts` (service role key, bypasses RLS)
 - Unique constraint violations return Postgres error code `23505`; the codebase uses this for idempotent upserts
+- **Migrations**: applied by hand in Supabase SQL editor; every migration must be idempotent and registered in `lib/migration-status.ts`. **New `public.*` tables MUST include explicit `GRANT` statements** (Supabase removes auto-grants on 2026-10-30 — see `supabase/migrations/_TEMPLATE_new_table.sql` for the canonical pattern). Existing tables are unaffected.
 
 ### Embeddable Widget
 
