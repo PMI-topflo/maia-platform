@@ -1148,6 +1148,71 @@ export function invalidateBankAccountsCache(assocCode?: string): void {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Invoice status + payment tracking — drives the /admin/reconciliation
+// page and (eventually) a status sync cron that mirrors CINC's
+// PENDING APPROVAL → READY FOR PAYMENT → PAID lifecycle into MAIA.
+// ─────────────────────────────────────────────────────────────────────
+
+/** Raw CINC OpenInvoicesVm per Swagger probe. Returned by
+ *  GET /accounting/openInvoices. Notably does NOT include InvoiceID —
+ *  to fetch payments you need the ID, which you can only get on
+ *  invoices MAIA itself pushed (cinc_invoice_id is stored on the
+ *  intake draft). */
+export interface CincOpenInvoice {
+  InvoiceDate?:    string | null
+  DueDate?:        string | null
+  InvoiceNumber?:  string | null
+  InvoiceAmount?:  number | null
+  InvoiceStatus?:  string | null
+  InvoicePayTo?:   string | null
+  AssocCode?:      string | null
+  Balance?:        number | null
+}
+
+/** GET /management/1/accounting/openInvoices — open (unpaid) invoices,
+ *  filterable by assoc. Used by the dashboard to show what's owed and
+ *  by the reconciliation sync to know what hasn't been paid yet. */
+export async function listOpenInvoices(opts?: { assocCode?: string }): Promise<CincOpenInvoice[]> {
+  const query: Record<string, string> = {}
+  if (opts?.assocCode) query.assocCode = opts.assocCode.toUpperCase()
+  return await call<CincOpenInvoice[]>(
+    '/management/1/accounting/openInvoices',
+    { method: 'GET', query },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincOpenInvoice[]
+    }
+    throw err
+  })
+}
+
+/** Raw CINC InvoicePaymentVm per Swagger probe. Returned by
+ *  GET /management/associations/1/invoicePayments?invoiceId=N. */
+export interface CincInvoicePayment {
+  TransDate?:      string | null  // ISO datetime, when payment hit the bank
+  Description?:    string | null  // free-text (often includes check#, payee)
+  CheckNo?:        string | null
+  Amount?:         number | null
+  ReconcileDate?:  string | null  // when CINC marks the payment reconciled
+}
+
+/** GET /management/associations/1/invoicePayments — all payments
+ *  applied to a specific CINC invoice. Returns [] on a 4xx (interprets
+ *  as "no payments found yet"). The endpoint does NOT return a payment
+ *  ID, so callers dedupe on (invoiceId, amount, transDate). */
+export async function listInvoicePayments(invoiceId: number): Promise<CincInvoicePayment[]> {
+  return await call<CincInvoicePayment[]>(
+    '/management/associations/1/invoicePayments',
+    { method: 'GET', query: { invoiceId } },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincInvoicePayment[]
+    }
+    throw err
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Invoice CRUD — used by the intake-queue push flow
 //
 // All field names below follow CINC's actual Swagger shape (PascalCase

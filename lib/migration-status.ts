@@ -663,6 +663,64 @@ NOTIFY pgrst, 'reload schema';`,
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'bank_reconciliation_entries',
+    label:       'Bank reconciliation — entries table',
+    description: 'bank_reconciliation_entries — per-(assoc, bank account, date) ledger for the /admin/reconciliation page. Replaces Isabela\'s manual Google-Sheet workflow. Two source kinds: cinc-auto and manual. Includes explicit GRANT block per Supabase\'s 2026-10-30 auto-grant removal.',
+    filename:    '20260527_bank_reconciliation_entries.sql',
+    artifact:    { type: 'table', table: 'bank_reconciliation_entries' },
+    sql: `CREATE TABLE IF NOT EXISTS public.bank_reconciliation_entries (
+  id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code            text        NOT NULL,
+  bank_account_id             bigint      NOT NULL,
+  bank_account_description    text,
+  source                      text        NOT NULL CHECK (source IN ('cinc', 'manual')),
+  cinc_invoice_id             bigint,
+  cinc_payment_id             text,
+  effective_date              date        NOT NULL,
+  customer                    text,
+  vendor_payee                text,
+  description                 text,
+  invoice_number              text,
+  amount                      numeric(14,2) NOT NULL,
+  paid_type                   text,
+  additional_notes            text,
+  invoice_attached_url        text,
+  running_balance             numeric(14,2),
+  pmi_coordinator_notes       text,
+  reconciled_at               timestamptz,
+  reconciled_by               text,
+  entered_by                  text        NOT NULL,
+  created_at                  timestamptz NOT NULL DEFAULT now(),
+  updated_at                  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS bank_rec_cinc_payment_uniq
+  ON public.bank_reconciliation_entries (cinc_payment_id)
+  WHERE cinc_payment_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS bank_rec_cinc_invoice_dedupe
+  ON public.bank_reconciliation_entries (cinc_invoice_id, amount, effective_date)
+  WHERE source = 'cinc' AND cinc_payment_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS bank_rec_assoc_account_date_idx
+  ON public.bank_reconciliation_entries (association_code, bank_account_id, effective_date DESC);
+
+CREATE INDEX IF NOT EXISTS bank_rec_unreconciled_idx
+  ON public.bank_reconciliation_entries (association_code, bank_account_id)
+  WHERE reconciled_at IS NULL;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.bank_reconciliation_entries
+  TO anon, authenticated, service_role;
+
+ALTER TABLE public.bank_reconciliation_entries ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "service_role_all_bank_reconciliation_entries" ON public.bank_reconciliation_entries;
+CREATE POLICY "service_role_all_bank_reconciliation_entries"
+  ON public.bank_reconciliation_entries FOR ALL TO service_role USING (true);
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

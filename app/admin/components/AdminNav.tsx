@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { label: 'Tickets',           href: '/admin/tickets' },
   { label: 'Work Orders',       href: '/admin/work-orders' },
   { label: 'Invoices',          href: '/admin/invoices' },
+  { label: 'Reconciliation',    href: '/admin/reconciliation' },
   { label: 'Monthly Report',    href: '/admin/reports/monthly' },
   { label: 'Communications',    href: '/admin/communications' },
   { label: 'Registrations',     href: '/admin/registrations' },
