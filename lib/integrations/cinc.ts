@@ -1239,6 +1239,56 @@ export async function listInvoiceHistory(invoiceId: number): Promise<CincInvoice
   })
 }
 
+/** Raw CINC GlTransactionByDate VM per Swagger probe. Returned by
+ *  GET /accounting/glTransactionsByDateAndAssocCode. Every transaction
+ *  hitting the specified GL account in the date range — for a Cash GL
+ *  (e.g. 10-1000-00 = operating cash) this is effectively the bank
+ *  ledger as CINC sees it: assessment income deposits, vendor invoice
+ *  payments, transfers, fees. Each entry has either a non-zero credit
+ *  OR debit amount, never both. */
+export interface CincGlTransaction {
+  GLTransID?:        number | null   // unique CINC transaction id — use as dedupe key
+  AccountNumber?:    string | null   // e.g. "10-1000-00"
+  AssocId?:          number | null
+  AssocCode?:        string | null
+  CreditAmount?:     number | null   // money OUT of the account (for cash)
+  DebitAmount?:      number | null   // money IN to the account (for cash)
+  Description?:      string | null   // vendor name, check#, payor — free text
+  TransactionDate?:  string | null   // ISO datetime when the transaction occurred
+  CreatedDate?:      string | null
+  PostedDate?:       string | null
+  ActualPostedDate?: string | null
+}
+
+/** GET /management/1/accounting/glTransactionsByDateAndAssocCode —
+ *  every GL transaction for (assoc, account, date range). Filtered to
+ *  a single account number (typically a bank's Cash GL) gives the full
+ *  bank activity ledger from CINC. Returns [] on 4xx. */
+export async function listGlTransactionsByDate(opts: {
+  assocCode:     string
+  fromDate:      string  // ISO date 'YYYY-MM-DD'
+  toDate:        string
+  accountNumber: string  // e.g. '10-1000-00'
+}): Promise<CincGlTransaction[]> {
+  return await call<CincGlTransaction[]>(
+    '/management/1/accounting/glTransactionsByDateAndAssocCode',
+    {
+      method: 'GET',
+      query:  {
+        assocCode:     opts.assocCode.toUpperCase(),
+        fromDate:      opts.fromDate,
+        toDate:        opts.toDate,
+        accountNumber: opts.accountNumber,
+      },
+    },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincGlTransaction[]
+    }
+    throw err
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Invoice CRUD — used by the intake-queue push flow
 //

@@ -721,6 +721,21 @@ CREATE POLICY "service_role_all_bank_reconciliation_entries"
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'bank_reconciliation_gl_trans_id',
+    label:       'Bank reconciliation — GL transaction ID column',
+    description: 'bank_reconciliation_entries.cinc_gl_trans_id — stable dedupe key for the glTransactions sync path. CINC GLTransID is unique per transaction; replaces the (cinc_invoice_id, amount, effective_date) synthetic key used for the MAIA-only sync.',
+    filename:    '20260528_bank_reconciliation_gl_trans_id.sql',
+    artifact:    { type: 'column', table: 'bank_reconciliation_entries', column: 'cinc_gl_trans_id' },
+    sql: `ALTER TABLE public.bank_reconciliation_entries
+  ADD COLUMN IF NOT EXISTS cinc_gl_trans_id bigint;
+
+CREATE UNIQUE INDEX IF NOT EXISTS bank_rec_cinc_gl_trans_uniq
+  ON public.bank_reconciliation_entries (cinc_gl_trans_id)
+  WHERE cinc_gl_trans_id IS NOT NULL;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

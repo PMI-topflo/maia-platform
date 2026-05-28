@@ -2,13 +2,14 @@
 // app/api/admin/reconciliation/sync/route.ts
 //
 // POST /api/admin/reconciliation/sync?assoc=LFA
-//   Manual "Sync now" button on the reconciliation page. Pulls CINC
-//   payments for every MAIA-pushed invoice in the assoc and upserts
-//   rows into bank_reconciliation_entries.
+//   Manual "Sync now" button on the reconciliation page. Pulls every
+//   GL transaction hitting the assoc's bank Cash GLs (past 60 days by
+//   default) and upserts rows into bank_reconciliation_entries.
+//   Enriches matched rows with vendor / invoice# from MAIA drafts.
 //
 // Also accepts `?cron=1&token=...` for the Vercel cron job (uses
-// CRON_SECRET) — when called this way, iterates over EVERY association
-// found in invoice_intake_drafts and syncs each.
+// CRON_SECRET) — when called this way, iterates over the full
+// association list and syncs each.
 // =====================================================================
 
 import { NextResponse } from 'next/server'
@@ -44,16 +45,16 @@ export async function POST(req: Request) {
   if (assoc) {
     assocsToSync = [assoc.toUpperCase()]
   } else {
-    // Cron path — sweep every assoc that has at least one pushed-to-CINC draft.
+    // Cron path — sweep every active association. glTransactions covers
+    // all bank activity regardless of whether MAIA pushed the invoice,
+    // so we no longer restrict to associations with pushed drafts.
     const { data, error } = await supabaseAdmin
-      .from('invoice_intake_drafts')
-      .select('extracted_association_code')
-      .eq('status', 'pushed_to_cinc')
-      .not('extracted_association_code', 'is', null)
+      .from('associations')
+      .select('association_code')
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
-    assocsToSync = Array.from(new Set((data ?? []).map(r => (r.extracted_association_code as string).toUpperCase())))
+    assocsToSync = Array.from(new Set((data ?? []).map(r => (r.association_code as string).toUpperCase())))
   }
 
   const results: ReconSyncStats[] = []
@@ -63,12 +64,13 @@ export async function POST(req: Request) {
       results.push(stats)
     } catch (err) {
       results.push({
-        associationCode:  code,
-        invoicesChecked:  0,
-        paymentsFetched:  0,
-        entriesCreated:   0,
-        entriesUpdated:   0,
-        errors:           [{ invoiceId: 0, message: (err as Error).message }],
+        associationCode:    code,
+        bankAccountsTried:  0,
+        transactionsSeen:   0,
+        entriesCreated:     0,
+        entriesUpdated:     0,
+        draftMatches:       0,
+        errors:             [{ message: (err as Error).message }],
       })
     }
   }
