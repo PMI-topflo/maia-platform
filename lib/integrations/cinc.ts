@@ -1212,6 +1212,33 @@ export async function listInvoicePayments(invoiceId: number): Promise<CincInvoic
   })
 }
 
+/** Raw CINC InvoiceHistoryVm per Swagger probe. Returned by
+ *  GET /management/associations/1/invoiceHistory?invoiceId=N.
+ *  One entry per audit-log event — status change, approval, void,
+ *  edit, etc. — with the timestamp and CINC username who did it. */
+export interface CincInvoiceHistoryEntry {
+  Date?:     string | null  // ISO datetime
+  Action?:   string | null  // "Invoice Created", "Status Changed", "Approved", "Voided", …
+  Message?:  string | null  // free-text detail (often "From: <old> To: <new>")
+  User?:     string | null  // CINC username (full name as shown in CINC)
+}
+
+/** GET /management/associations/1/invoiceHistory — full audit trail
+ *  for a single CINC invoice. Includes who/when on every status
+ *  change, approval, void, and edit. Returns [] on a 4xx (newly-
+ *  created invoices may briefly have no history rows yet). */
+export async function listInvoiceHistory(invoiceId: number): Promise<CincInvoiceHistoryEntry[]> {
+  return await call<CincInvoiceHistoryEntry[]>(
+    '/management/associations/1/invoiceHistory',
+    { method: 'GET', query: { invoiceId } },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincInvoiceHistoryEntry[]
+    }
+    throw err
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Invoice CRUD — used by the intake-queue push flow
 //
