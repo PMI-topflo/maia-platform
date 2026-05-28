@@ -144,7 +144,7 @@ export default function ReconciliationView(props: Props) {
       if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`)
       const stats = data.results?.[0]
       if (stats) {
-        setInfo(`Synced ${assoc}: ${stats.invoicesChecked} invoices checked, ${stats.entriesCreated} created, ${stats.entriesUpdated} updated${stats.errors?.length ? `, ${stats.errors.length} errors` : ''}.`)
+        setInfo(`Synced ${assoc}: ${stats.transactionsSeen ?? 0} bank txs seen, ${stats.entriesCreated ?? 0} created, ${stats.entriesUpdated ?? 0} updated, ${stats.draftMatches ?? 0} matched to MAIA invoices${stats.errors?.length ? `, ${stats.errors.length} errors` : ''}.`)
       } else {
         setInfo('Sync complete.')
       }
