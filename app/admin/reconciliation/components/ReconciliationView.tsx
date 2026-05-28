@@ -76,6 +76,10 @@ export default function ReconciliationView(props: Props) {
   const [entriesLoading, setEntriesLoading] = useState(false)
   const [error,          setError]          = useState<string | null>(null)
   const [info,           setInfo]           = useState<string | null>(null)
+  // Per-bank error breakdown from the last sync, rendered separately
+  // below the success line so each error gets its own row with the
+  // human bank-account label.
+  const [syncErrors, setSyncErrors] = useState<Array<{ bankAccountDescription?: string; bankAccountId?: number; message: string }>>([])
 
   const [syncBusy, setSyncBusy] = useState(false)
   const [savingRowId, setSavingRowId] = useState<string | null>(null)
@@ -137,7 +141,7 @@ export default function ReconciliationView(props: Props) {
   // ── Actions ───────────────────────────────────────────────────────
   async function runSync() {
     if (!assoc) return
-    setSyncBusy(true); setInfo(null); setError(null)
+    setSyncBusy(true); setInfo(null); setError(null); setSyncErrors([])
     try {
       const r = await fetch(`/api/admin/reconciliation/sync?assoc=${encodeURIComponent(assoc)}`, { method: 'POST' })
       const data = await r.json()
@@ -145,6 +149,7 @@ export default function ReconciliationView(props: Props) {
       const stats = data.results?.[0]
       if (stats) {
         setInfo(`Synced ${assoc}: ${stats.transactionsSeen ?? 0} bank txs seen, ${stats.entriesCreated ?? 0} created, ${stats.entriesUpdated ?? 0} updated, ${stats.draftMatches ?? 0} matched to MAIA invoices${stats.errors?.length ? `, ${stats.errors.length} errors` : ''}.`)
+        setSyncErrors(Array.isArray(stats.errors) ? stats.errors : [])
       } else {
         setInfo('Sync complete.')
       }
@@ -343,7 +348,22 @@ export default function ReconciliationView(props: Props) {
         <div style={{ padding: 10, marginBottom: 10, background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 4, color: '#991b1b', fontSize: 13 }}>{error}</div>
       )}
       {info && (
-        <div style={{ padding: 10, marginBottom: 10, background: '#dcfce7', border: '1px solid #86efac', borderRadius: 4, color: '#166534', fontSize: 13 }}>{info}</div>
+        <div style={{ padding: 10, marginBottom: syncErrors.length > 0 ? 4 : 10, background: '#dcfce7', border: '1px solid #86efac', borderRadius: 4, color: '#166534', fontSize: 13 }}>{info}</div>
+      )}
+      {syncErrors.length > 0 && (
+        <div style={{ padding: 10, marginBottom: 10, background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 4, color: '#92400e', fontSize: 12 }}>
+          <div style={{ marginBottom: 6 }}>
+            <strong>Sync errors</strong> — these bank accounts couldn&apos;t be fetched this run. Existing rows are unaffected; retry usually resolves transient CINC blips.
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {syncErrors.map((e, i) => (
+              <li key={i}>
+                <strong>{e.bankAccountDescription ?? (e.bankAccountId ? `Bank account #${e.bankAccountId}` : 'Unknown account')}:</strong>{' '}
+                <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>{e.message}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {/* Totals strip */}

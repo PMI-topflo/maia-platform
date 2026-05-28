@@ -48,7 +48,12 @@ export interface ReconSyncStats {
   entriesCreated:     number
   entriesUpdated:     number
   draftMatches:       number
-  errors:             Array<{ bankAccountId?: number; cashGl?: string; message: string }>
+  errors:             Array<{
+    bankAccountId?:          number
+    bankAccountDescription?: string   // human label so the UI can show "Popular - Loan Proceeds - 2908" instead of "id=184"
+    cashGl?:                 string
+    message:                 string
+  }>
 }
 
 interface DraftRow {
@@ -141,7 +146,12 @@ export async function syncReconciliationForAssoc(
       })
     } catch (err) {
       const message = err instanceof CincApiError ? err.message : (err as Error).message
-      stats.errors.push({ bankAccountId: bank.id, cashGl: bank.cashGl ?? undefined, message })
+      stats.errors.push({
+        bankAccountId:          bank.id,
+        bankAccountDescription: bank.description,
+        cashGl:                 bank.cashGl ?? undefined,
+        message,
+      })
       continue
     }
     stats.transactionsSeen += txs.length
