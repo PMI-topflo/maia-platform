@@ -41,19 +41,22 @@ export async function GET(req: Request) {
 
   const url    = new URL(req.url)
   const assoc  = (url.searchParams.get('assoc') ?? '').trim().toUpperCase()
-  const acct   = url.searchParams.get('account')
-  const month  = url.searchParams.get('month')  // 'YYYY-MM' (optional; default = all months)
-  if (!assoc || !acct) {
-    return NextResponse.json({ error: 'assoc + account query params required' }, { status: 400 })
+  const acct   = url.searchParams.get('account')  // optional — when omitted, return all bank accounts for the assoc (multi-account ledger view)
+  const month  = url.searchParams.get('month')    // 'YYYY-MM' (optional; default = all months)
+  if (!assoc) {
+    return NextResponse.json({ error: 'assoc query param required' }, { status: 400 })
   }
 
   let query = supabaseAdmin
     .from('bank_reconciliation_entries')
     .select(SELECT_COLS)
     .eq('association_code', assoc)
-    .eq('bank_account_id', parseInt(acct, 10))
     .order('effective_date', { ascending: true })
     .order('created_at',     { ascending: true })
+
+  if (acct) {
+    query = query.eq('bank_account_id', parseInt(acct, 10))
+  }
 
   if (month) {
     // 'YYYY-MM' → date range covering that calendar month.

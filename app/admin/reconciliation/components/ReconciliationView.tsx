@@ -1,15 +1,16 @@
 // =====================================================================
 // app/admin/reconciliation/components/ReconciliationView.tsx
-// Client component. Spreadsheet-like reconciliation view per
-// (association, bank account, month).
+// Client component. Multi-account ledger view per (association, month)
+// — matches Isabela's existing Google-Sheet format.
 //
-// Header controls: assoc picker, bank-account picker, month picker,
-// Sync button, Download CSV button, Add manual entry button.
+// Header: assoc picker, month picker, Sync button, Download CSV button,
+//   Add manual entry button. PLUS per-bank-account forecast cards
+//   (current balance / approved unpaid / recurring projected / EOM).
 //
-// Table: every transaction sorted by effective_date ascending.
-// Inline edit on notes columns; checkbox to mark reconciled.
-// CINC-sourced rows can't be deleted (re-sync would re-create them);
-// manual rows have a delete affordance.
+// Table: every transaction sorted by effective_date ascending. Each
+//   row hits exactly ONE bank account; that account's column shows the
+//   running balance after the transaction, other columns carry the
+//   prior balance forward unchanged. Dates render as MM/DD/YYYY.
 // =====================================================================
 
 'use client'
@@ -25,6 +26,8 @@ interface BankAccountOption {
   last4:        string | null
   kind:         'operating' | 'reserve' | 'special' | 'other'
   bankBalance:  number | null
+  cincBalance:  number | null
+  cashGl:       string | null
   restricted:   boolean
 }
 
@@ -54,47 +57,76 @@ interface ReconEntry {
   updated_at:                  string
 }
 
+interface ForecastSummary {
+  bankAccountId:          number
+  bankAccountDescription: string
+  currentBalance:         number
+  approvedUnpaid:         number
+  recurringProjected:     number
+  projectedEomBalance:    number
+  willOverdraw:           boolean
+}
+
+interface SyncErrorEntry {
+  bankAccountDescription?: string
+  bankAccountId?:          number
+  message:                 string
+}
+
 interface Props {
   associations:   Association[]
   initialAssoc:   string
-  initialAccount: string
+  initialAccount: string  // legacy — ignored in this multi-account refactor
   initialMonth:   string  // 'YYYY-MM'
+}
+
+// ── Date helpers ────────────────────────────────────────────────────
+function formatMD(isoDate: string): string {
+  // 'YYYY-MM-DD' → 'M/D/YYYY' (Karen's preferred format)
+  const [y, m, d] = isoDate.split('-')
+  if (!y || !m || !d) return isoDate
+  return `${parseInt(m, 10)}/${parseInt(d, 10)}/${y}`
+}
+
+function fmt$(n: number | null | undefined): string {
+  if (n == null) return ''
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 export default function ReconciliationView(props: Props) {
   const router       = useRouter()
   const searchParams = useSearchParams()
 
-  const [assoc,   setAssoc]   = useState(props.initialAssoc)
-  const [account, setAccount] = useState(props.initialAccount)
-  const [month,   setMonth]   = useState(props.initialMonth)
+  const [assoc, setAssoc] = useState(props.initialAssoc)
+  const [month, setMonth] = useState(props.initialMonth)
 
   const [banks,        setBanks]        = useState<BankAccountOption[]>([])
   const [banksLoading, setBanksLoading] = useState(false)
 
   const [entries,        setEntries]        = useState<ReconEntry[]>([])
   const [entriesLoading, setEntriesLoading] = useState(false)
-  const [error,          setError]          = useState<string | null>(null)
-  const [info,           setInfo]           = useState<string | null>(null)
-  // Per-bank error breakdown from the last sync, rendered separately
-  // below the success line so each error gets its own row with the
-  // human bank-account label.
-  const [syncErrors, setSyncErrors] = useState<Array<{ bankAccountDescription?: string; bankAccountId?: number; message: string }>>([])
 
-  const [syncBusy, setSyncBusy] = useState(false)
+  const [forecasts,        setForecasts]        = useState<Map<number, ForecastSummary>>(new Map())
+  const [forecastsLoading, setForecastsLoading] = useState(false)
+
+  const [error,      setError]      = useState<string | null>(null)
+  const [info,       setInfo]       = useState<string | null>(null)
+  const [syncErrors, setSyncErrors] = useState<SyncErrorEntry[]>([])
+
+  const [syncBusy,    setSyncBusy]    = useState(false)
   const [savingRowId, setSavingRowId] = useState<string | null>(null)
 
   // ── URL sync ──────────────────────────────────────────────────────
-  function pushUrlState(next: Partial<{ assoc: string; account: string; month: string }>) {
+  function pushUrlState(next: Partial<{ assoc: string; month: string }>) {
     const params = new URLSearchParams(searchParams.toString())
-    const fields = { assoc, account, month, ...next }
-    if (fields.assoc)   params.set('assoc',   fields.assoc);   else params.delete('assoc')
-    if (fields.account) params.set('account', fields.account); else params.delete('account')
-    if (fields.month)   params.set('month',   fields.month);   else params.delete('month')
+    const fields = { assoc, month, ...next }
+    if (fields.assoc) params.set('assoc', fields.assoc); else params.delete('assoc')
+    if (fields.month) params.set('month', fields.month); else params.delete('month')
+    params.delete('account')  // legacy
     router.replace(`?${params.toString()}`)
   }
 
-  // ── Load bank accounts when assoc changes ─────────────────────────
+  // ── Bank accounts ─────────────────────────────────────────────────
   useEffect(() => {
     if (!assoc) { setBanks([]); return }
     setBanksLoading(true)
@@ -102,28 +134,19 @@ export default function ReconciliationView(props: Props) {
       .then(r => r.json())
       .then(data => {
         if (data?.error) throw new Error(data.error)
-        const accounts: BankAccountOption[] = data.accounts ?? []
-        setBanks(accounts)
-        // If we don't have an account selected yet, default to the first
-        // operating account so the page lands on something useful.
-        if (!account && accounts.length > 0) {
-          const op = accounts.find(a => a.kind === 'operating') ?? accounts[0]
-          setAccount(String(op.id))
-          pushUrlState({ account: String(op.id) })
-        }
+        setBanks((data.accounts ?? []) as BankAccountOption[])
       })
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setBanksLoading(false))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assoc])
 
-  // ── Load entries when (assoc, account, month) changes ─────────────
+  // ── Entries (all bank accounts for assoc + month) ────────────────
   const loadEntries = useCallback(async () => {
-    if (!assoc || !account) { setEntries([]); return }
+    if (!assoc) { setEntries([]); return }
     setEntriesLoading(true); setError(null)
     try {
       const r = await fetch(
-        `/api/admin/reconciliation?assoc=${encodeURIComponent(assoc)}&account=${encodeURIComponent(account)}&month=${encodeURIComponent(month)}`,
+        `/api/admin/reconciliation?assoc=${encodeURIComponent(assoc)}&month=${encodeURIComponent(month)}`,
         { cache: 'no-store' },
       )
       const data = await r.json()
@@ -134,9 +157,65 @@ export default function ReconciliationView(props: Props) {
     } finally {
       setEntriesLoading(false)
     }
-  }, [assoc, account, month])
+  }, [assoc, month])
 
   useEffect(() => { void loadEntries() }, [loadEntries])
+
+  // ── Forecasts (one per bank account, fetched in parallel) ────────
+  const loadForecasts = useCallback(async () => {
+    if (!assoc || banks.length === 0) { setForecasts(new Map()); return }
+    setForecastsLoading(true)
+    try {
+      const results = await Promise.all(banks.map(b =>
+        fetch(`/api/admin/cinc/forecast?assoc=${encodeURIComponent(assoc)}&account=${b.id}`, { cache: 'no-store' })
+          .then(r => r.json())
+          .catch(() => null),
+      ))
+      const map = new Map<number, ForecastSummary>()
+      for (const f of results) {
+        if (f && typeof f.bankAccountId === 'number') {
+          map.set(f.bankAccountId, f)
+        }
+      }
+      setForecasts(map)
+    } catch { /* silent — forecasts are informational */ }
+    finally { setForecastsLoading(false) }
+  }, [assoc, banks])
+
+  useEffect(() => { void loadForecasts() }, [loadForecasts])
+
+  // ── Per-row running balance ───────────────────────────────────────
+  // For each bank account, start at (currentBalance − sum_of_entries_in_window)
+  // and walk the entries chronologically, updating only the affected account.
+  //
+  // This makes the rightmost row's per-account running balance roughly equal
+  // to the current CINC balance for that account, as long as the displayed
+  // month contains the full set of transactions through "today".
+  const startingBalances = useMemo(() => {
+    const map = new Map<number, number>()
+    for (const b of banks) {
+      const sumOfMonth = entries
+        .filter(e => e.bank_account_id === b.id)
+        .reduce((s, e) => s + e.amount, 0)
+      const current = b.cincBalance ?? b.bankBalance ?? 0
+      map.set(b.id, current - sumOfMonth)
+    }
+    return map
+  }, [banks, entries])
+
+  /** For each entry index, the per-account running balance AFTER that
+   *  transaction. Account columns that weren't touched in this row carry
+   *  the prior balance forward unchanged. */
+  const runningBalances = useMemo(() => {
+    const rows: Map<number, number>[] = []
+    const current = new Map(startingBalances)
+    for (const e of entries) {
+      const prior = current.get(e.bank_account_id) ?? 0
+      current.set(e.bank_account_id, prior + e.amount)
+      rows.push(new Map(current))
+    }
+    return rows
+  }, [entries, startingBalances])
 
   // ── Actions ───────────────────────────────────────────────────────
   async function runSync() {
@@ -154,6 +233,7 @@ export default function ReconciliationView(props: Props) {
         setInfo('Sync complete.')
       }
       await loadEntries()
+      await loadForecasts()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -195,6 +275,7 @@ export default function ReconciliationView(props: Props) {
   const [showAdd, setShowAdd] = useState(false)
   const [adding,  setAdding]  = useState(false)
   const [newEntry, setNewEntry] = useState({
+    bank_account_id: '',
     effective_date:  new Date().toISOString().slice(0, 10),
     vendor_payee:    '',
     description:     '',
@@ -206,20 +287,23 @@ export default function ReconciliationView(props: Props) {
   })
 
   async function submitNewEntry() {
-    if (!assoc || !account) return
+    if (!assoc || !newEntry.bank_account_id) {
+      setError('Pick a bank account in the modal before saving.')
+      return
+    }
     if (!newEntry.effective_date || newEntry.amount === '') {
       setError('Effective date + amount are required.')
       return
     }
     setAdding(true); setError(null)
     try {
-      const bank = banks.find(b => String(b.id) === account)
+      const bank = banks.find(b => String(b.id) === newEntry.bank_account_id)
       const r = await fetch('/api/admin/reconciliation', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
           association_code:           assoc,
-          bank_account_id:            parseInt(account, 10),
+          bank_account_id:            parseInt(newEntry.bank_account_id, 10),
           bank_account_description:   bank?.description ?? null,
           effective_date:             newEntry.effective_date,
           customer:                   assoc,
@@ -234,9 +318,12 @@ export default function ReconciliationView(props: Props) {
       })
       const data = await r.json()
       if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`)
-      setEntries(prev => [...prev, data.entry].sort((a, b) => a.effective_date.localeCompare(b.effective_date)))
+      setEntries(prev => [...prev, data.entry].sort((a, b) =>
+        a.effective_date.localeCompare(b.effective_date) || a.created_at.localeCompare(b.created_at),
+      ))
       setShowAdd(false)
       setNewEntry({
+        bank_account_id: '',
         effective_date:  new Date().toISOString().slice(0, 10),
         vendor_payee:    '',
         description:     '',
@@ -253,7 +340,7 @@ export default function ReconciliationView(props: Props) {
     }
   }
 
-  // ── Totals for the period ─────────────────────────────────────────
+  // ── Totals strip ──────────────────────────────────────────────────
   const totals = useMemo(() => {
     let inflow = 0, outflow = 0, reconciled = 0, unreconciled = 0
     for (const e of entries) {
@@ -264,18 +351,13 @@ export default function ReconciliationView(props: Props) {
     return { inflow, outflow, net: inflow + outflow, reconciled, unreconciled }
   }, [entries])
 
-  const bankLabel = useMemo(() => {
-    const b = banks.find(x => String(x.id) === account)
-    return b ? b.description : ''
-  }, [banks, account])
-
   // ── Render ────────────────────────────────────────────────────────
   return (
-    <div style={{ maxWidth: 1400, margin: '24px auto', padding: '0 16px', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ maxWidth: 1800, margin: '24px auto', padding: '0 16px', fontFamily: 'system-ui, sans-serif' }}>
       <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>Bank reconciliation</h1>
-          <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: 13 }}>Per association + bank account, with CINC payments auto-synced.</p>
+          <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: 13 }}>All bank accounts for the association on one page. CINC activity auto-pulled hourly.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
@@ -286,16 +368,16 @@ export default function ReconciliationView(props: Props) {
             {syncBusy ? 'Syncing…' : 'Sync now'}
           </button>
           <a
-            href={assoc && account ? `/api/admin/reconciliation/export?assoc=${encodeURIComponent(assoc)}&account=${encodeURIComponent(account)}&month=${encodeURIComponent(month)}` : '#'}
-            onClick={e => { if (!assoc || !account) e.preventDefault() }}
-            style={{ padding: '6px 12px', border: '1px solid #16a34a', borderRadius: 4, background: '#fff', color: '#16a34a', fontSize: 13, textDecoration: 'none', cursor: assoc && account ? 'pointer' : 'default' }}
+            href={assoc ? `/api/admin/reconciliation/export?assoc=${encodeURIComponent(assoc)}&month=${encodeURIComponent(month)}` : '#'}
+            onClick={e => { if (!assoc) e.preventDefault() }}
+            style={{ padding: '6px 12px', border: '1px solid #16a34a', borderRadius: 4, background: '#fff', color: '#16a34a', fontSize: 13, textDecoration: 'none', cursor: assoc ? 'pointer' : 'default' }}
           >
             Download CSV
           </a>
           <button
             onClick={() => setShowAdd(true)}
-            disabled={!assoc || !account}
-            style={{ padding: '6px 12px', border: '1px solid #6b7280', borderRadius: 4, background: '#fff', color: '#111', fontSize: 13, cursor: assoc && account ? 'pointer' : 'default' }}
+            disabled={!assoc || banks.length === 0}
+            style={{ padding: '6px 12px', border: '1px solid #6b7280', borderRadius: 4, background: '#fff', color: '#111', fontSize: 13, cursor: assoc && banks.length > 0 ? 'pointer' : 'default' }}
           >
             + Manual entry
           </button>
@@ -308,28 +390,12 @@ export default function ReconciliationView(props: Props) {
           Association
           <select
             value={assoc}
-            onChange={e => { const v = e.target.value.toUpperCase(); setAssoc(v); setAccount(''); pushUrlState({ assoc: v, account: '' }) }}
+            onChange={e => { const v = e.target.value.toUpperCase(); setAssoc(v); pushUrlState({ assoc: v }) }}
             style={{ marginLeft: 6, padding: 4 }}
           >
             <option value="">— pick —</option>
             {props.associations.map(a => (
               <option key={a.code} value={a.code}>{a.code} — {a.name}</option>
-            ))}
-          </select>
-        </label>
-        <label style={{ fontSize: 12, color: '#374151' }}>
-          Bank account
-          <select
-            value={account}
-            onChange={e => { setAccount(e.target.value); pushUrlState({ account: e.target.value }) }}
-            disabled={!assoc || banksLoading}
-            style={{ marginLeft: 6, padding: 4 }}
-          >
-            <option value="">{banksLoading ? 'Loading…' : '— pick —'}</option>
-            {banks.map(b => (
-              <option key={b.id} value={String(b.id)}>
-                {b.description}{b.bankBalance != null ? ` — $${b.bankBalance.toLocaleString('en-US', { maximumFractionDigits: 0 })} bal` : ''}
-              </option>
             ))}
           </select>
         </label>
@@ -344,16 +410,12 @@ export default function ReconciliationView(props: Props) {
         </label>
       </div>
 
-      {error && (
-        <div style={{ padding: 10, marginBottom: 10, background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 4, color: '#991b1b', fontSize: 13 }}>{error}</div>
-      )}
-      {info && (
-        <div style={{ padding: 10, marginBottom: syncErrors.length > 0 ? 4 : 10, background: '#dcfce7', border: '1px solid #86efac', borderRadius: 4, color: '#166534', fontSize: 13 }}>{info}</div>
-      )}
+      {error     && <div style={{ padding: 10, marginBottom: 10, background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 4, color: '#991b1b', fontSize: 13 }}>{error}</div>}
+      {info      && <div style={{ padding: 10, marginBottom: syncErrors.length > 0 ? 4 : 10, background: '#dcfce7', border: '1px solid #86efac', borderRadius: 4, color: '#166534', fontSize: 13 }}>{info}</div>}
       {syncErrors.length > 0 && (
         <div style={{ padding: 10, marginBottom: 10, background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 4, color: '#92400e', fontSize: 12 }}>
           <div style={{ marginBottom: 6 }}>
-            <strong>Sync errors</strong> — these bank accounts couldn&apos;t be fetched this run. Existing rows are unaffected; retry usually resolves transient CINC blips.
+            <strong>Sync errors</strong> — these bank accounts couldn&apos;t be fetched this run. Existing rows are unaffected.
           </div>
           <ul style={{ margin: 0, paddingLeft: 18 }}>
             {syncErrors.map((e, i) => (
@@ -366,21 +428,61 @@ export default function ReconciliationView(props: Props) {
         </div>
       )}
 
+      {/* Forecast cards — one per bank account. Karen sees at-a-glance
+          which accounts are healthy + which might overdraw by EOM. */}
+      {banks.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(banks.length, 4)}, 1fr)`, gap: 8, marginBottom: 14 }}>
+          {banks.map(b => {
+            const f      = forecasts.get(b.id)
+            const eom    = f?.projectedEomBalance ?? (b.cincBalance ?? b.bankBalance ?? 0)
+            const danger = f?.willOverdraw ?? false
+            const tight  = !danger && eom < 1000
+            const bg     = danger ? '#fee2e2' : tight ? '#fef3c7' : '#ecfdf5'
+            const border = danger ? '#fca5a5' : tight ? '#fcd34d' : '#86efac'
+            const fg     = danger ? '#991b1b' : tight ? '#92400e' : '#065f46'
+            return (
+              <div key={b.id} style={{ padding: 10, background: bg, border: `1px solid ${border}`, borderRadius: 4, fontSize: 11, color: fg }}>
+                <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 4, color: '#111827' }}>{b.description}</div>
+                <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>Current</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', fontVariantNumeric: 'tabular-nums' }}>${fmt$(b.cincBalance ?? b.bankBalance)}</div>
+                {f && (
+                  <>
+                    <div style={{ marginTop: 6, fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>EOM projection</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                      {danger ? '−' : ''}${fmt$(Math.abs(eom))}
+                    </div>
+                    {(f.approvedUnpaid > 0 || f.recurringProjected > 0) && (
+                      <div style={{ marginTop: 4, fontSize: 10, color: '#4b5563' }}>
+                        −${fmt$(f.approvedUnpaid)} unpaid · −${fmt$(f.recurringProjected)} recurring
+                      </div>
+                    )}
+                  </>
+                )}
+                {forecastsLoading && !f && <div style={{ fontSize: 10, color: '#6b7280', marginTop: 4 }}>Loading EOM…</div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {/* Totals strip */}
       {entries.length > 0 && (
         <div style={{ display: 'flex', gap: 16, padding: '8px 12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 4, marginBottom: 10, fontSize: 12 }}>
-          <span><strong>Inflow:</strong> ${totals.inflow.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          <span><strong>Outflow:</strong> ${totals.outflow.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          <span><strong>Net:</strong> ${totals.net.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          <span><strong>Inflow:</strong> ${fmt$(totals.inflow)}</span>
+          <span><strong>Outflow:</strong> ${fmt$(totals.outflow)}</span>
+          <span><strong>Net:</strong> ${fmt$(totals.net)}</span>
           <span style={{ marginLeft: 'auto' }}>
             <strong>{totals.reconciled}</strong> reconciled · <strong>{totals.unreconciled}</strong> pending
           </span>
         </div>
       )}
 
-      {/* Table */}
+      {/* Multi-account ledger table — matches Isabela's spreadsheet
+          format. Each row hits exactly ONE bank account; the running
+          balance for that account is in its column; the other accounts'
+          columns carry the prior balance forward unchanged. */}
       <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 4 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
           <thead>
             <tr style={{ background: '#f3f4f6' }}>
               <Th>Effective Date</Th>
@@ -392,90 +494,119 @@ export default function ReconciliationView(props: Props) {
               <Th>Paid Type</Th>
               <Th>Notes</Th>
               <Th>Invoice</Th>
-              <Th>PMI Coordinator</Th>
-              <Th>Source</Th>
-              <Th>Recon.</Th>
+              <Th>PMI Coord.</Th>
+              {banks.map(b => (
+                <Th key={b.id} right>{b.description}</Th>
+              ))}
+              <Th>Src</Th>
+              <Th>Rec.</Th>
               <Th></Th>
             </tr>
           </thead>
           <tbody>
             {entriesLoading && (
-              <tr><td colSpan={13} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>Loading…</td></tr>
+              <tr><td colSpan={14 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>Loading…</td></tr>
             )}
             {!entriesLoading && entries.length === 0 && (
-              <tr><td colSpan={13} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>
-                {assoc && account ? 'No entries yet for this month. Click "Sync now" to pull CINC payments, or "+ Manual entry" to add a row.' : 'Pick an association + bank account above.'}
+              <tr><td colSpan={14 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>
+                {assoc ? 'No entries this month. Click "Sync now" to pull CINC payments, or "+ Manual entry" to add a row.' : 'Pick an association above.'}
               </td></tr>
             )}
-            {entries.map(e => (
-              <tr key={e.id} style={{ background: e.reconciled_at ? '#f0fdf4' : '#fff', borderTop: '1px solid #f3f4f6' }}>
-                <Td>{e.effective_date}</Td>
-                <Td>{e.customer ?? ''}</Td>
-                <Td>{e.vendor_payee ?? ''}</Td>
-                <Td>{e.description ?? ''}</Td>
-                <Td>{e.invoice_number ?? ''}</Td>
-                <Td right>
-                  <span style={{ color: e.amount < 0 ? '#991b1b' : '#166534', fontVariantNumeric: 'tabular-nums' }}>
-                    ${Math.abs(e.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    {e.amount < 0 ? ' ⬇' : e.amount > 0 ? ' ⬆' : ''}
-                  </span>
-                </Td>
-                <Td>{e.paid_type ?? ''}</Td>
-                <Td>
-                  <InlineNote
-                    initial={e.additional_notes ?? ''}
-                    placeholder="Add note…"
-                    saving={savingRowId === e.id}
-                    onSave={v => updateEntry(e.id, { additional_notes: v || null })}
-                  />
-                </Td>
-                <Td>
-                  {e.invoice_attached_url ? (
-                    <a href={e.invoice_attached_url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: 11 }}>PDF</a>
-                  ) : (
-                    <span style={{ color: '#9ca3af', fontSize: 11 }}>—</span>
-                  )}
-                </Td>
-                <Td>
-                  <InlineNote
-                    initial={e.pmi_coordinator_notes ?? ''}
-                    placeholder="PMI note…"
-                    saving={savingRowId === e.id}
-                    onSave={v => updateEntry(e.id, { pmi_coordinator_notes: v || null })}
-                  />
-                </Td>
-                <Td>
-                  <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: e.source === 'cinc' ? '#dbeafe' : '#fef3c7', color: e.source === 'cinc' ? '#1e40af' : '#92400e' }}>
-                    {e.source === 'cinc' ? 'CINC' : 'Manual'}
-                  </span>
-                </Td>
-                <Td>
-                  <input
-                    type="checkbox"
-                    checked={!!e.reconciled_at}
-                    disabled={savingRowId === e.id}
-                    onChange={ev => updateEntry(e.id, { reconciled: ev.target.checked })}
-                  />
-                </Td>
-                <Td>
-                  {e.source === 'manual' && (
-                    <button
-                      onClick={() => deleteEntry(e.id)}
-                      style={{ padding: '2px 6px', border: '1px solid #fca5a5', background: '#fff', color: '#991b1b', fontSize: 10, borderRadius: 3, cursor: 'pointer' }}
-                    >Delete</button>
-                  )}
-                </Td>
+            {/* Starting balance row */}
+            {entries.length > 0 && (
+              <tr style={{ background: '#fefce8', borderTop: '1px solid #f3f4f6', fontWeight: 600 }}>
+                <Td colSpan={10}>Starting balance — {new Date(month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })}</Td>
+                {banks.map(b => (
+                  <Td key={b.id} right><span style={{ fontVariantNumeric: 'tabular-nums', color: '#111827' }}>${fmt$(startingBalances.get(b.id) ?? 0)}</span></Td>
+                ))}
+                <Td></Td><Td></Td><Td></Td>
               </tr>
-            ))}
+            )}
+            {entries.map((e, idx) => {
+              const balsAfter = runningBalances[idx] ?? new Map()
+              return (
+                <tr key={e.id} style={{ background: e.reconciled_at ? '#f0fdf4' : '#fff', borderTop: '1px solid #f3f4f6' }}>
+                  <Td>{formatMD(e.effective_date)}</Td>
+                  <Td>{e.customer ?? ''}</Td>
+                  <Td>{e.vendor_payee ?? ''}</Td>
+                  <Td>{e.description ?? ''}</Td>
+                  <Td>{e.invoice_number ?? ''}</Td>
+                  <Td right>
+                    <span style={{ color: e.amount < 0 ? '#991b1b' : '#166534', fontVariantNumeric: 'tabular-nums' }}>
+                      ${fmt$(Math.abs(e.amount))}
+                      {e.amount < 0 ? ' ⬇' : e.amount > 0 ? ' ⬆' : ''}
+                    </span>
+                  </Td>
+                  <Td>{e.paid_type ?? ''}</Td>
+                  <Td>
+                    <InlineNote
+                      initial={e.additional_notes ?? ''}
+                      placeholder="Add note…"
+                      saving={savingRowId === e.id}
+                      onSave={v => updateEntry(e.id, { additional_notes: v || null })}
+                    />
+                  </Td>
+                  <Td>
+                    {e.invoice_attached_url ? (
+                      <a href={e.invoice_attached_url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: 10 }}>PDF</a>
+                    ) : (
+                      <span style={{ color: '#9ca3af', fontSize: 10 }}>—</span>
+                    )}
+                  </Td>
+                  <Td>
+                    <InlineNote
+                      initial={e.pmi_coordinator_notes ?? ''}
+                      placeholder="PMI…"
+                      saving={savingRowId === e.id}
+                      onSave={v => updateEntry(e.id, { pmi_coordinator_notes: v || null })}
+                    />
+                  </Td>
+                  {banks.map(b => {
+                    const bal     = balsAfter.get(b.id) ?? 0
+                    const touched = b.id === e.bank_account_id
+                    return (
+                      <Td key={b.id} right>
+                        <span style={{
+                          fontVariantNumeric: 'tabular-nums',
+                          color: touched ? '#111827' : '#9ca3af',
+                          fontWeight: touched ? 600 : 400,
+                        }}>
+                          ${fmt$(bal)}
+                        </span>
+                      </Td>
+                    )
+                  })}
+                  <Td>
+                    <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 3, background: e.source === 'cinc' ? '#dbeafe' : '#fef3c7', color: e.source === 'cinc' ? '#1e40af' : '#92400e' }}>
+                      {e.source === 'cinc' ? 'CINC' : 'Manual'}
+                    </span>
+                  </Td>
+                  <Td>
+                    <input
+                      type="checkbox"
+                      checked={!!e.reconciled_at}
+                      disabled={savingRowId === e.id}
+                      onChange={ev => updateEntry(e.id, { reconciled: ev.target.checked })}
+                    />
+                  </Td>
+                  <Td>
+                    {e.source === 'manual' && (
+                      <button
+                        onClick={() => deleteEntry(e.id)}
+                        style={{ padding: '1px 5px', border: '1px solid #fca5a5', background: '#fff', color: '#991b1b', fontSize: 9, borderRadius: 3, cursor: 'pointer' }}
+                      >Del</button>
+                    )}
+                  </Td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
 
-      {bankLabel && (
-        <p style={{ marginTop: 10, fontSize: 11, color: '#6b7280' }}>
-          Bank: <strong>{bankLabel}</strong> · CINC payments are auto-pulled hourly + when you click Sync now. CSV export matches Isabela&apos;s spreadsheet column order.
-        </p>
-      )}
+      <p style={{ marginTop: 10, fontSize: 11, color: '#6b7280' }}>
+        Running-balance columns are computed: starting balance = current CINC balance − sum of this month&apos;s entries for that account, then walked forward chronologically. Account columns highlighted black/bold = touched in that row; gray = carried forward unchanged.
+      </p>
 
       {/* Manual entry modal */}
       {showAdd && (
@@ -483,14 +614,20 @@ export default function ReconciliationView(props: Props) {
           <div style={{ background: '#fff', borderRadius: 6, padding: 20, maxWidth: 500, width: '100%', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
             <h2 style={{ marginTop: 0, fontSize: 16, fontWeight: 600 }}>Add manual entry</h2>
             <p style={{ marginTop: 0, color: '#6b7280', fontSize: 12 }}>
-              For bank activity CINC doesn&apos;t track (assessment income, auto-debits, interest, transfers). Use negative amounts for outflows.
+              For bank activity CINC doesn&apos;t track. Use negative amounts for outflows. Pick which bank account this entry hits.
             </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+              <Field label="Bank account" wide>
+                <select value={newEntry.bank_account_id} onChange={e => setNewEntry(s => ({ ...s, bank_account_id: e.target.value }))} style={inputStyle}>
+                  <option value="">— pick —</option>
+                  {banks.map(b => <option key={b.id} value={String(b.id)}>{b.description}</option>)}
+                </select>
+              </Field>
               <Field label="Effective date">
                 <input type="date" value={newEntry.effective_date} onChange={e => setNewEntry(s => ({ ...s, effective_date: e.target.value }))} style={inputStyle} />
               </Field>
-              <Field label="Amount (negative = out)">
+              <Field label="Amount (neg = out)">
                 <input type="number" step="0.01" value={newEntry.amount} onChange={e => setNewEntry(s => ({ ...s, amount: e.target.value }))} style={inputStyle} />
               </Field>
               <Field label="Vendor / Payee">
@@ -530,11 +667,11 @@ export default function ReconciliationView(props: Props) {
 const inputStyle: React.CSSProperties = { width: '100%', padding: 5, fontSize: 13, border: '1px solid #d1d5db', borderRadius: 3 }
 
 function Th({ children, right }: { children?: React.ReactNode; right?: boolean }) {
-  return <th style={{ textAlign: right ? 'right' : 'left', padding: '6px 8px', fontWeight: 600, color: '#374151', fontSize: 11, borderBottom: '1px solid #e5e7eb' }}>{children}</th>
+  return <th style={{ textAlign: right ? 'right' : 'left', padding: '5px 6px', fontWeight: 600, color: '#374151', fontSize: 10, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{children}</th>
 }
 
-function Td({ children, right }: { children: React.ReactNode; right?: boolean }) {
-  return <td style={{ padding: '6px 8px', textAlign: right ? 'right' : 'left', verticalAlign: 'top' }}>{children}</td>
+function Td({ children, right, colSpan }: { children?: React.ReactNode; right?: boolean; colSpan?: number }) {
+  return <td colSpan={colSpan} style={{ padding: '4px 6px', textAlign: right ? 'right' : 'left', verticalAlign: 'top', whiteSpace: 'nowrap' }}>{children}</td>
 }
 
 function Field({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
@@ -548,7 +685,6 @@ function Field({ label, children, wide }: { label: string; children: React.React
 
 function InlineNote({ initial, placeholder, saving, onSave }: { initial: string; placeholder: string; saving: boolean; onSave: (v: string) => void }) {
   const [v, setV] = useState(initial)
-  // If the row gets refreshed from the server, reset local state.
   useEffect(() => { setV(initial) }, [initial])
   return (
     <input
@@ -557,7 +693,7 @@ function InlineNote({ initial, placeholder, saving, onSave }: { initial: string;
       onChange={e => setV(e.target.value)}
       onBlur={() => { if (v !== initial) onSave(v) }}
       disabled={saving}
-      style={{ width: '100%', padding: 3, fontSize: 12, border: '1px solid transparent', borderRadius: 3, background: 'transparent' }}
+      style={{ width: '100%', padding: 2, fontSize: 11, border: '1px solid transparent', borderRadius: 3, background: 'transparent' }}
       onFocus={e => e.currentTarget.style.border = '1px solid #d1d5db'}
     />
   )
