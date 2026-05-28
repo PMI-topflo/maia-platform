@@ -116,6 +116,39 @@ export default function ReconciliationView(props: Props) {
   const [syncBusy,    setSyncBusy]    = useState(false)
   const [savingRowId, setSavingRowId] = useState<string | null>(null)
 
+  // ── Bank ordering + grouping ──────────────────────────────────────
+  // Karen wants SSB accounts (which auto-sync from CINC) clearly
+  // separated from non-SSB accounts (Popular, Truist, etc — those are
+  // reconciled manually by Shemaiah's team + Isabela). Within the SSB
+  // group, the operating account comes first, then other SSB accounts.
+  // The order applies to BOTH the forecast cards at the top AND the
+  // running-balance columns in the ledger table.
+  function isSsbAccount(bank: BankAccountOption): boolean {
+    return /\bSSB\b/i.test(bank.description ?? '')
+  }
+  function bankSortKey(bank: BankAccountOption): number {
+    // Lower = appears first.
+    //   0-9   : SSB Operating (one or more — sub-sort by description)
+    //   10-19 : Other SSB accounts (reserve / SA / etc.)
+    //   100+  : Non-SSB accounts
+    if (isSsbAccount(bank)) {
+      return bank.kind === 'operating' ? 0 : 10
+    }
+    return 100
+  }
+  const sortedBanks = useMemo(() => {
+    return [...banks].sort((a, b) => {
+      const ka = bankSortKey(a)
+      const kb = bankSortKey(b)
+      if (ka !== kb) return ka - kb
+      return (a.description ?? '').localeCompare(b.description ?? '')
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [banks])
+
+  const ssbBanks   = useMemo(() => sortedBanks.filter(b => isSsbAccount(b)), [sortedBanks])
+  const otherBanks = useMemo(() => sortedBanks.filter(b => !isSsbAccount(b)), [sortedBanks])
+
   // ── URL sync ──────────────────────────────────────────────────────
   function pushUrlState(next: Partial<{ assoc: string; month: string }>) {
     const params = new URLSearchParams(searchParams.toString())
@@ -428,41 +461,35 @@ export default function ReconciliationView(props: Props) {
         </div>
       )}
 
-      {/* Forecast cards — one per bank account. Karen sees at-a-glance
-          which accounts are healthy + which might overdraw by EOM. */}
-      {banks.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(banks.length, 4)}, 1fr)`, gap: 8, marginBottom: 14 }}>
-          {banks.map(b => {
-            const f      = forecasts.get(b.id)
-            const eom    = f?.projectedEomBalance ?? (b.cincBalance ?? b.bankBalance ?? 0)
-            const danger = f?.willOverdraw ?? false
-            const tight  = !danger && eom < 1000
-            const bg     = danger ? '#fee2e2' : tight ? '#fef3c7' : '#ecfdf5'
-            const border = danger ? '#fca5a5' : tight ? '#fcd34d' : '#86efac'
-            const fg     = danger ? '#991b1b' : tight ? '#92400e' : '#065f46'
-            return (
-              <div key={b.id} style={{ padding: 10, background: bg, border: `1px solid ${border}`, borderRadius: 4, fontSize: 11, color: fg }}>
-                <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 4, color: '#111827' }}>{b.description}</div>
-                <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>Current</div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', fontVariantNumeric: 'tabular-nums' }}>${fmt$(b.cincBalance ?? b.bankBalance)}</div>
-                {f && (
-                  <>
-                    <div style={{ marginTop: 6, fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>EOM projection</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                      {danger ? '−' : ''}${fmt$(Math.abs(eom))}
-                    </div>
-                    {(f.approvedUnpaid > 0 || f.recurringProjected > 0) && (
-                      <div style={{ marginTop: 4, fontSize: 10, color: '#4b5563' }}>
-                        −${fmt$(f.approvedUnpaid)} unpaid · −${fmt$(f.recurringProjected)} recurring
-                      </div>
-                    )}
-                  </>
-                )}
-                {forecastsLoading && !f && <div style={{ fontSize: 10, color: '#6b7280', marginTop: 4 }}>Loading EOM…</div>}
-              </div>
-            )
-          })}
-        </div>
+      {/* Forecast cards — grouped by source.
+          SSB accounts auto-sync from CINC (real-time activity).
+          Non-SSB accounts (Popular, Truist, etc.) are reconciled manually
+          by the CINC team + Isabela — balance is correct but transaction
+          rows here may lag. Visually separated so Karen knows at a glance
+          which data she can trust as up-to-the-minute. */}
+      {ssbBanks.length > 0 && (
+        <BankGroupCards
+          title="Auto-synced from CINC"
+          subtitle="Activity pulled from CINC's GL transactions every hour."
+          containerBg="#f0f9ff"
+          containerBorder="#bae6fd"
+          accentLabel="SSB"
+          banks={ssbBanks}
+          forecasts={forecasts}
+          forecastsLoading={forecastsLoading}
+        />
+      )}
+      {otherBanks.length > 0 && (
+        <BankGroupCards
+          title="Manually reconciled"
+          subtitle="Balances entered by the CINC team + Isabela. CINC doesn't auto-sync transaction activity for these banks."
+          containerBg="#fffbeb"
+          containerBorder="#fde68a"
+          accentLabel="Manual"
+          banks={otherBanks}
+          forecasts={forecasts}
+          forecastsLoading={forecastsLoading}
+        />
       )}
 
       {/* Totals strip */}
@@ -495,7 +522,7 @@ export default function ReconciliationView(props: Props) {
               <Th>Notes</Th>
               <Th>Invoice</Th>
               <Th>PMI Coord.</Th>
-              {banks.map(b => (
+              {sortedBanks.map(b => (
                 <Th key={b.id} right>{b.description}</Th>
               ))}
               <Th>Src</Th>
@@ -516,7 +543,7 @@ export default function ReconciliationView(props: Props) {
             {entries.length > 0 && (
               <tr style={{ background: '#fefce8', borderTop: '1px solid #f3f4f6', fontWeight: 600 }}>
                 <Td colSpan={10}>Starting balance — {new Date(month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })}</Td>
-                {banks.map(b => (
+                {sortedBanks.map(b => (
                   <Td key={b.id} right><span style={{ fontVariantNumeric: 'tabular-nums', color: '#111827' }}>${fmt$(startingBalances.get(b.id) ?? 0)}</span></Td>
                 ))}
                 <Td></Td><Td></Td><Td></Td>
@@ -561,7 +588,7 @@ export default function ReconciliationView(props: Props) {
                       onSave={v => updateEntry(e.id, { pmi_coordinator_notes: v || null })}
                     />
                   </Td>
-                  {banks.map(b => {
+                  {sortedBanks.map(b => {
                     const bal     = balsAfter.get(b.id) ?? 0
                     const touched = b.id === e.bank_account_id
                     return (
@@ -621,7 +648,7 @@ export default function ReconciliationView(props: Props) {
               <Field label="Bank account" wide>
                 <select value={newEntry.bank_account_id} onChange={e => setNewEntry(s => ({ ...s, bank_account_id: e.target.value }))} style={inputStyle}>
                   <option value="">— pick —</option>
-                  {banks.map(b => <option key={b.id} value={String(b.id)}>{b.description}</option>)}
+                  {sortedBanks.map(b => <option key={b.id} value={String(b.id)}>{b.description}</option>)}
                 </select>
               </Field>
               <Field label="Effective date">
@@ -665,6 +692,65 @@ export default function ReconciliationView(props: Props) {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = { width: '100%', padding: 5, fontSize: 13, border: '1px solid #d1d5db', borderRadius: 3 }
+
+/** Forecast cards grouped under a labelled container — used to visually
+ *  separate auto-synced (SSB) accounts from manually-reconciled
+ *  (Popular/Truist/etc) accounts. The container itself has a tinted
+ *  background; each card inside still color-codes by EOM health. */
+function BankGroupCards(props: {
+  title:           string
+  subtitle:        string
+  containerBg:     string
+  containerBorder: string
+  accentLabel:     string
+  banks:           BankAccountOption[]
+  forecasts:       Map<number, ForecastSummary>
+  forecastsLoading: boolean
+}) {
+  if (props.banks.length === 0) return null
+  return (
+    <div style={{ padding: 10, background: props.containerBg, border: `1px solid ${props.containerBorder}`, borderRadius: 6, marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#111827', textTransform: 'uppercase', letterSpacing: 0.5 }}>{props.title}</span>
+          <span style={{ marginLeft: 6, fontSize: 11, color: '#6b7280' }}>· {props.subtitle}</span>
+        </div>
+        <span style={{ fontSize: 10, padding: '2px 6px', background: '#fff', border: `1px solid ${props.containerBorder}`, borderRadius: 3, color: '#374151' }}>{props.accentLabel}</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(props.banks.length, 4)}, 1fr)`, gap: 8 }}>
+        {props.banks.map(b => {
+          const f      = props.forecasts.get(b.id)
+          const eom    = f?.projectedEomBalance ?? (b.cincBalance ?? b.bankBalance ?? 0)
+          const danger = f?.willOverdraw ?? false
+          const tight  = !danger && eom < 1000
+          const bg     = danger ? '#fee2e2' : tight ? '#fef3c7' : '#fff'
+          const border = danger ? '#fca5a5' : tight ? '#fcd34d' : '#e5e7eb'
+          return (
+            <div key={b.id} style={{ padding: 10, background: bg, border: `1px solid ${border}`, borderRadius: 4, fontSize: 11 }}>
+              <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 4, color: '#111827' }}>{b.description}</div>
+              <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>Current</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', fontVariantNumeric: 'tabular-nums' }}>${fmt$(b.cincBalance ?? b.bankBalance)}</div>
+              {f && (
+                <>
+                  <div style={{ marginTop: 6, fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>EOM projection</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: danger ? '#991b1b' : tight ? '#92400e' : '#065f46', fontVariantNumeric: 'tabular-nums' }}>
+                    {danger ? '−' : ''}${fmt$(Math.abs(eom))}
+                  </div>
+                  {(f.approvedUnpaid > 0 || f.recurringProjected > 0) && (
+                    <div style={{ marginTop: 4, fontSize: 10, color: '#4b5563' }}>
+                      −${fmt$(f.approvedUnpaid)} unpaid · −${fmt$(f.recurringProjected)} recurring
+                    </div>
+                  )}
+                </>
+              )}
+              {props.forecastsLoading && !f && <div style={{ fontSize: 10, color: '#6b7280', marginTop: 4 }}>Loading EOM…</div>}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 function Th({ children, right }: { children?: React.ReactNode; right?: boolean }) {
   return <th style={{ textAlign: right ? 'right' : 'left', padding: '5px 6px', fontWeight: 600, color: '#374151', fontSize: 10, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{children}</th>
