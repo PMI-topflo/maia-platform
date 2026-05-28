@@ -951,6 +951,17 @@ function DraftCard(props: {
         <div style={{ marginTop: 8, padding: 6, background: '#f3f4f6', fontSize: 12, borderRadius: 4 }}>{msg}</div>
       )}
 
+      {/* Cash-flow forecast — visible in view mode whenever we have
+          enough info to compute one. Helps Karen avoid pushing invoices
+          that would overdraw the chosen bank account. */}
+      {!readOnly && mode === 'view' && assoc && bankId && amount && (
+        <CashFlowForecast
+          assoc={assoc}
+          bankAccountId={parseInt(bankId, 10)}
+          pushAmount={parseFloat(amount) || 0}
+        />
+      )}
+
       {!readOnly && (
         <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {mode === 'view' ? (
@@ -1013,6 +1024,117 @@ function btnSecondary(): React.CSSProperties {
 }
 function btnDanger(): React.CSSProperties {
   return { padding: '8px 14px', background: '#fff', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: 4, cursor: 'pointer', fontSize: 13 }
+}
+
+// =====================================================================
+// CashFlowForecast — small banner above the Push button showing the
+// projected end-of-month balance for the chosen bank account, and a
+// one-line "after this push" delta. Loads from /api/admin/cinc/forecast
+// once the card has assoc + bank account + amount set.
+// =====================================================================
+
+interface ForecastResult {
+  associationCode:        string
+  bankAccountId:          number
+  bankAccountDescription: string
+  currentBalance:         number
+  approvedUnpaid:         number
+  recurringProjected:     number
+  projectedEomBalance:    number
+  willOverdraw:           boolean
+  recurringVendors:       Array<{ displayName: string; avgAmount: number; pendingThisMonth: boolean; lastSeenMonth: string; monthsSeen: number }>
+  approvedUnpaidItems:    Array<{ vendorName: string | null; invoiceNumber: string | null; amount: number }>
+  caveats:                string[]
+}
+
+function CashFlowForecast({ assoc, bankAccountId, pushAmount }: { assoc: string; bankAccountId: number | null; pushAmount: number }) {
+  const [busy,     setBusy]     = useState(false)
+  const [error,    setError]    = useState<string | null>(null)
+  const [forecast, setForecast] = useState<ForecastResult | null>(null)
+  const [showDetail, setShowDetail] = useState(false)
+
+  useEffect(() => {
+    if (!assoc || !bankAccountId) { setForecast(null); return }
+    setBusy(true); setError(null)
+    fetch(`/api/admin/cinc/forecast?assoc=${encodeURIComponent(assoc)}&account=${bankAccountId}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        if (data?.error) throw new Error(data.error)
+        setForecast(data)
+      })
+      .catch(err => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setBusy(false))
+  }, [assoc, bankAccountId])
+
+  if (busy) {
+    return <div style={{ marginTop: 8, padding: 6, fontSize: 11, color: '#6b7280', background: '#f9fafb', borderRadius: 4 }}>Loading EOM forecast…</div>
+  }
+  if (error) {
+    return <div style={{ marginTop: 8, padding: 6, fontSize: 11, color: '#92400e', background: '#fef3c7', borderRadius: 4 }}>Forecast unavailable: {error}</div>
+  }
+  if (!forecast) return null
+
+  const afterPush      = forecast.projectedEomBalance - Math.abs(pushAmount)
+  const willOverdraw   = afterPush < 0
+  const veryLow        = afterPush >= 0 && afterPush < 1000
+  const fmt            = (n: number) => `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const sign           = (n: number) => n < 0 ? '−' : ''
+
+  const bg     = willOverdraw ? '#fee2e2' : veryLow ? '#fef3c7' : '#ecfdf5'
+  const border = willOverdraw ? '#fca5a5' : veryLow ? '#fcd34d' : '#86efac'
+  const fg     = willOverdraw ? '#991b1b' : veryLow ? '#92400e' : '#065f46'
+  const icon   = willOverdraw ? '🛑' : veryLow ? '⚠' : '✓'
+
+  return (
+    <div style={{ marginTop: 8, padding: 8, background: bg, border: `1px solid ${border}`, borderRadius: 4, fontSize: 12, color: fg }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span>{icon}</span>
+        <strong>After this push:</strong>
+        <span>EOM projection for {forecast.bankAccountDescription} = <strong>{sign(afterPush)}{fmt(afterPush)}</strong></span>
+        <button onClick={() => setShowDetail(s => !s)} style={{ marginLeft: 'auto', fontSize: 11, padding: '2px 6px', border: `1px solid ${border}`, background: 'transparent', color: fg, borderRadius: 3, cursor: 'pointer' }}>
+          {showDetail ? 'Hide' : 'Detail'}
+        </button>
+      </div>
+      {willOverdraw && (
+        <div style={{ marginTop: 4 }}>This push will overdraw the account by month-end. Consider Reserve or Special Assessment funding, or push only after expected income clears.</div>
+      )}
+      {veryLow && (
+        <div style={{ marginTop: 4 }}>Tight projection — under $1,000 left at month-end after this push.</div>
+      )}
+      {showDetail && (
+        <div style={{ marginTop: 8, padding: 8, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 3, color: '#111827' }}>
+          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+            <tbody>
+              <tr><td>Current balance</td><td style={{ textAlign: 'right' }}>{fmt(forecast.currentBalance)}</td></tr>
+              <tr><td>Approved unpaid (MAIA-tracked)</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmt(forecast.approvedUnpaid)}</td></tr>
+              <tr><td>Recurring projected (this month)</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmt(forecast.recurringProjected)}</td></tr>
+              <tr style={{ borderTop: '1px solid #d1d5db' }}><td><strong>Projected EOM (before this push)</strong></td><td style={{ textAlign: 'right' }}><strong>{sign(forecast.projectedEomBalance)}{fmt(forecast.projectedEomBalance)}</strong></td></tr>
+              <tr><td>This push amount</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmt(pushAmount)}</td></tr>
+              <tr style={{ borderTop: '1px solid #d1d5db' }}><td><strong>Projected EOM (after this push)</strong></td><td style={{ textAlign: 'right' }}><strong style={{ color: willOverdraw ? '#991b1b' : '#065f46' }}>{sign(afterPush)}{fmt(afterPush)}</strong></td></tr>
+            </tbody>
+          </table>
+          {forecast.recurringVendors.filter(v => v.pendingThisMonth).length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>Recurring vendors not yet paid this month:</div>
+              <ul style={{ fontSize: 11, paddingLeft: 16, margin: 0, color: '#4b5563' }}>
+                {forecast.recurringVendors.filter(v => v.pendingThisMonth).slice(0, 8).map((v, i) => (
+                  <li key={i}>{v.displayName} <span style={{ color: '#6b7280' }}>({v.monthsSeen}/3 mo · ~{fmt(v.avgAmount)})</span></li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {forecast.caveats.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 10, color: '#6b7280', borderTop: '1px dashed #e5e7eb', paddingTop: 6 }}>
+              <strong>Caveats:</strong>
+              <ul style={{ paddingLeft: 14, margin: '4px 0 0' }}>
+                {forecast.caveats.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // =====================================================================
