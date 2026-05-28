@@ -550,6 +550,9 @@ function DraftCard(props: {
           Pushed to CINC as invoice <strong>{draft.cinc_invoice_id}</strong>
           {draft.pushed_by && ` by ${draft.pushed_by}`}
           {draft.pushed_at && ` at ${new Date(draft.pushed_at).toLocaleString()}`}.
+          {draft.cinc_invoice_id && (
+            <InvoiceHistory invoiceId={parseInt(draft.cinc_invoice_id, 10)} />
+          )}
         </div>
       )}
       {isRejected && (
@@ -1010,4 +1013,163 @@ function btnSecondary(): React.CSSProperties {
 }
 function btnDanger(): React.CSSProperties {
   return { padding: '8px 14px', background: '#fff', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: 4, cursor: 'pointer', fontSize: 13 }
+}
+
+// =====================================================================
+// InvoiceHistory — collapsed-by-default audit-trail viewer for pushed
+// invoices. Fetches CINC's /invoiceHistory + /invoicePayments on first
+// open, interleaves them into a single timeline so Karen sees the full
+// lifecycle in chronological order:
+//   Created → Approved → Ready for Payment → Paid (with who/when on each)
+// =====================================================================
+
+interface HistoryEntry { Date?: string | null; Action?: string | null; Message?: string | null; User?: string | null }
+interface PaymentEntry { TransDate?: string | null; Description?: string | null; CheckNo?: string | null; Amount?: number | null }
+
+interface TimelineRow {
+  date:     Date | null
+  kind:     'history' | 'payment'
+  primary:  string  // headline action / "Payment received"
+  detail:   string  // CINC message / amount + check# + description
+  user:     string | null
+}
+
+function InvoiceHistory({ invoiceId }: { invoiceId: number }) {
+  const [open,    setOpen]    = useState(false)
+  const [loaded,  setLoaded]  = useState(false)
+  const [busy,    setBusy]    = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [payments, setPayments] = useState<PaymentEntry[]>([])
+
+  async function loadHistory() {
+    if (loaded || busy) return
+    setBusy(true); setError(null)
+    try {
+      const r = await fetch(`/api/admin/cinc/invoice-history?invoiceId=${encodeURIComponent(invoiceId)}`, { cache: 'no-store' })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`)
+      setHistory(data.history ?? [])
+      setPayments(data.payments ?? [])
+      setLoaded(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function toggle() {
+    const next = !open
+    setOpen(next)
+    if (next) void loadHistory()
+  }
+
+  // Merge + chronologically sort the two streams. CINC's history rows
+  // and payment rows are independent — combining gives one canonical
+  // lifecycle view.
+  const timeline: TimelineRow[] = useMemo(() => {
+    const rows: TimelineRow[] = []
+    for (const h of history) {
+      rows.push({
+        date:     h.Date ? new Date(h.Date) : null,
+        kind:     'history',
+        primary:  h.Action ?? 'Audit event',
+        detail:   h.Message ?? '',
+        user:     h.User ?? null,
+      })
+    }
+    for (const p of payments) {
+      const amt = typeof p.Amount === 'number' ? `$${Math.abs(p.Amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''
+      const checkBit = p.CheckNo ? ` · Check #${p.CheckNo}` : ''
+      rows.push({
+        date:     p.TransDate ? new Date(p.TransDate) : null,
+        kind:     'payment',
+        primary:  'Payment received',
+        detail:   `${amt}${checkBit}${p.Description ? ` · ${p.Description}` : ''}`,
+        user:     null,
+      })
+    }
+    return rows.sort((a, b) => {
+      const ta = a.date?.getTime() ?? 0
+      const tb = b.date?.getTime() ?? 0
+      return ta - tb
+    })
+  }, [history, payments])
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button
+        onClick={toggle}
+        style={{
+          padding:  '4px 10px',
+          fontSize: 12,
+          border:   '1px solid #10b981',
+          background: open ? '#10b981' : 'transparent',
+          color:    open ? '#fff' : '#065f46',
+          borderRadius: 3,
+          cursor:   'pointer',
+        }}
+      >
+        {open ? '▾ Hide CINC status & history' : '▸ Show CINC status & history'}
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 8, padding: 10, background: '#fff', border: '1px solid #d1fae5', borderRadius: 4 }}>
+          {busy && <div style={{ color: '#6b7280', fontSize: 12 }}>Loading from CINC…</div>}
+          {error && (
+            <div style={{ color: '#991b1b', fontSize: 12, padding: 6, background: '#fee2e2', borderRadius: 3 }}>
+              {error}
+            </div>
+          )}
+          {loaded && !busy && timeline.length === 0 && (
+            <div style={{ color: '#9ca3af', fontSize: 12 }}>
+              No history rows yet. CINC may take a few minutes to log a newly-created invoice.
+            </div>
+          )}
+          {loaded && timeline.length > 0 && (
+            <ol style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {timeline.map((row, i) => (
+                <li
+                  key={i}
+                  style={{
+                    padding: '6px 0',
+                    borderBottom: i < timeline.length - 1 ? '1px solid #f3f4f6' : 'none',
+                    fontSize: 12,
+                    display: 'grid',
+                    gridTemplateColumns: '140px 1fr auto',
+                    gap: 10,
+                    alignItems: 'baseline',
+                  }}
+                >
+                  <span style={{ color: '#6b7280', fontVariantNumeric: 'tabular-nums' }}>
+                    {row.date ? row.date.toLocaleString() : '—'}
+                  </span>
+                  <span>
+                    <strong style={{ color: row.kind === 'payment' ? '#065f46' : '#111827' }}>
+                      {row.primary}
+                    </strong>
+                    {row.detail && <span style={{ color: '#4b5563' }}> · {row.detail}</span>}
+                  </span>
+                  <span style={{ color: '#9ca3af', fontSize: 11 }}>
+                    {row.user ?? (row.kind === 'payment' ? 'CINC' : '')}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+          {loaded && (
+            <div style={{ marginTop: 6, textAlign: 'right' }}>
+              <button
+                onClick={() => { setLoaded(false); void loadHistory() }}
+                style={{ padding: '2px 8px', fontSize: 11, border: '1px solid #d1d5db', background: '#fff', borderRadius: 3, cursor: 'pointer', color: '#6b7280' }}
+              >
+                Refresh
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
