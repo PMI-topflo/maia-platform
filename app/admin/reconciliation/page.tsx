@@ -52,8 +52,9 @@ export default async function ReconciliationPage({ searchParams }: PageProps) {
 
   return (
     <>
-      <SiteHeader />
-      <AdminNav />
+      <SiteHeader subtitle="RECONCILIATION">
+        <AdminNav />
+      </SiteHeader>
       <ReconciliationView
         associations={(assocs ?? []).map(a => ({
           code: (a as { association_code: string; association_name: string }).association_code,
