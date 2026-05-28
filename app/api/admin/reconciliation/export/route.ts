@@ -73,6 +73,20 @@ export async function GET(req: Request) {
   try { banks = await listAssociationBankAccounts(assoc) }
   catch { /* if CINC is down, fall back to empty list — entries still export */ }
 
+  // Sort: SSB Operating first, then other SSB, then non-SSB. Matches the
+  // page's column order so the CSV imports cleanly into Karen's template.
+  const isSsb = (b: BankAccountOption) => /\bSSB\b/i.test(b.description ?? '')
+  const sortKey = (b: BankAccountOption) =>
+    isSsb(b)
+      ? (b.kind === 'operating' ? 0 : 10)
+      : 100
+  banks = [...banks].sort((a, b) => {
+    const ka = sortKey(a)
+    const kb = sortKey(b)
+    if (ka !== kb) return ka - kb
+    return (a.description ?? '').localeCompare(b.description ?? '')
+  })
+
   let query = supabaseAdmin
     .from('bank_reconciliation_entries')
     .select('effective_date, customer, vendor_payee, description, invoice_number, amount, paid_type, additional_notes, invoice_attached_url, bank_account_id, bank_account_description, entered_by, pmi_coordinator_notes, reconciled_at, created_at')
