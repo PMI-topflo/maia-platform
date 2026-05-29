@@ -736,6 +736,102 @@ CREATE UNIQUE INDEX IF NOT EXISTS bank_rec_cinc_gl_trans_uniq
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'association_insurance_policies',
+    label:       'Association master-insurance compliance',
+    description: 'association_insurance_policies — FL HOA/condo master-policy checklist (D&O, fidelity, master property, flood, windstorm, etc.) with dates, coverage, COI, waiver + versioning. Also extends compliance_alerts.alert_type to allow assoc_insurance_expiring/expired so the daily cron can alert on association-level policy expiry.',
+    filename:    '20260529_association_insurance_policies.sql',
+    artifact:    { type: 'table', table: 'association_insurance_policies' },
+    sql: `create table if not exists public.association_insurance_policies (
+  id                   bigint generated always as identity primary key,
+  association_code     text        not null,
+  policy_type          text        not null,
+  carrier              text,
+  policy_number        text,
+  named_insured        text,
+  effective_date       date,
+  expiration_date      date,
+  coverage_amount_usd  numeric(14,2),
+  premium_usd          numeric(12,2),
+  agent_name           text,
+  agent_email          text,
+  agent_phone          text,
+  coi_storage_path     text,
+  coi_filename         text,
+  coi_mime_type        text,
+  coi_file_size_bytes  bigint,
+  waived               boolean     not null default false,
+  waived_reason        text,
+  notes                text,
+  archived_at          timestamptz,
+  archived_by_email    text,
+  created_by_email     text,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now()
+);
+
+create index if not exists idx_assoc_ins_code on public.association_insurance_policies(association_code);
+create index if not exists idx_assoc_ins_type on public.association_insurance_policies(policy_type);
+create index if not exists idx_assoc_ins_exp  on public.association_insurance_policies(expiration_date);
+create index if not exists idx_assoc_ins_active on public.association_insurance_policies(archived_at) where archived_at is null;
+
+create unique index if not exists uq_assoc_ins_active
+  on public.association_insurance_policies(association_code, policy_type)
+  where archived_at is null;
+
+create or replace function public.tg_set_updated_at()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at := now();
+  return new;
+end $$;
+
+drop trigger if exists set_updated_at on public.association_insurance_policies;
+create trigger set_updated_at before update on public.association_insurance_policies
+  for each row execute function public.tg_set_updated_at();
+
+grant select, insert, update, delete on public.association_insurance_policies
+  to anon, authenticated, service_role;
+
+alter table public.association_insurance_policies enable row level security;
+
+drop policy if exists service_all on public.association_insurance_policies;
+create policy service_all on public.association_insurance_policies
+  for all to service_role using (true) with check (true);
+
+drop policy if exists auth_read on public.association_insurance_policies;
+create policy auth_read on public.association_insurance_policies
+  for select to authenticated using (true);
+
+do $$
+declare c record;
+begin
+  for c in
+    select con.conname
+    from pg_constraint con
+    join pg_class rel on rel.oid = con.conrelid
+    join pg_namespace nsp on nsp.oid = rel.relnamespace
+    where nsp.nspname = 'public'
+      and rel.relname = 'compliance_alerts'
+      and con.contype = 'c'
+      and pg_get_constraintdef(con.oid) ilike '%alert_type%'
+  loop
+    execute format('alter table public.compliance_alerts drop constraint %I', c.conname);
+  end loop;
+
+  alter table public.compliance_alerts
+    add constraint compliance_alerts_alert_type_check
+    check (alert_type in (
+      'lease_expiring','lease_expired',
+      'insurance_expiring','insurance_expired',
+      'violation_due','violation_overdue',
+      'cou_expiring','cou_expired',
+      'assoc_insurance_expiring','assoc_insurance_expired'
+    ));
+end $$;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

@@ -11,16 +11,8 @@
 // =====================================================================
 
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendComplianceDigestEmail } from '@/lib/email/compliance-digest';
-
-function getSupabase() {
-  const env = process.env;
-  const url = env['NEXT_PUBLIC_SUPABASE_URL'];
-  const key = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase env vars missing');
-  return createClient(url, key, { auth: { persistSession: false } });
-}
 
 interface AlertRow {
   account_number: string;
@@ -58,7 +50,7 @@ export async function GET(req: Request) {
   const newAlerts: AlertRow[] = [];
 
   // ---- 1. Leases ----
-  const { data: leases } = await getSupabase()
+  const { data: leases } = await supabaseAdmin
     .from('unit_leases')
     .select('id, account_number, association_code, tenant_name, lease_end_date')
     .not('lease_end_date', 'is', null)
@@ -83,7 +75,7 @@ export async function GET(req: Request) {
   }
 
   // ---- 2. Insurance ----
-  const { data: insurance } = await getSupabase()
+  const { data: insurance } = await supabaseAdmin
     .from('unit_insurance')
     .select('id, account_number, association_code, carrier, expiration_date')
     .not('expiration_date', 'is', null);
@@ -107,7 +99,7 @@ export async function GET(req: Request) {
   }
 
   // ---- 3. Lauderhill Certificate of Use ----
-  const { data: cous } = await getSupabase()
+  const { data: cous } = await supabaseAdmin
     .from('unit_certificate_of_use')
     .select('id, account_number, association_code, city, expiration_date')
     .not('expiration_date', 'is', null);
@@ -131,7 +123,7 @@ export async function GET(req: Request) {
   }
 
   // ---- 4. Violations ----
-  const { data: violations } = await getSupabase()
+  const { data: violations } = await supabaseAdmin
     .from('unit_violations')
     .select('id, account_number, association_code, violation_type, resolution_due_date, status')
     .in('status', ['open', 'in_progress', 'escalated'])
@@ -155,9 +147,41 @@ export async function GET(req: Request) {
     });
   }
 
+  // ---- 5. Association master insurance policies ----
+  // Association-held master coverage (D&O, fidelity, master property,
+  // etc.) — distinct from unit_insurance above. Only active (non-
+  // archived) and non-waived rows with a recorded expiration count.
+  // account_number is set to the association_code since these alerts are
+  // association-level, not unit-level (the digest renders that column).
+  const { data: assocInsurance } = await supabaseAdmin
+    .from('association_insurance_policies')
+    .select('id, association_code, policy_type, carrier, expiration_date')
+    .is('archived_at', null)
+    .eq('waived', false)
+    .not('expiration_date', 'is', null);
+
+  for (const p of assocInsurance ?? []) {
+    const days = daysBetween(p.expiration_date);
+    if (days > 60) continue;
+    const typeLabel = (p.policy_type ?? 'policy').replace(/_/g, ' ');
+    newAlerts.push({
+      account_number: p.association_code,
+      association_code: p.association_code,
+      alert_type: days < 0 ? 'assoc_insurance_expired' : 'assoc_insurance_expiring',
+      severity: severityFor(days),
+      reference_id: p.id,
+      reference_table: 'association_insurance_policies',
+      expiration_date: p.expiration_date,
+      days_delta: days,
+      message: days < 0
+        ? `Association ${typeLabel} insurance (${p.carrier ?? 'carrier unknown'}) expired ${Math.abs(days)} days ago`
+        : `Association ${typeLabel} insurance (${p.carrier ?? 'carrier unknown'}) expires in ${days} days`,
+    });
+  }
+
   // ---- Dedupe & insert ----
   // Skip alerts that already exist and are unresolved (same reference_id + alert_type)
-  const { data: existing } = await getSupabase()
+  const { data: existing } = await supabaseAdmin
     .from('compliance_alerts')
     .select('reference_id, reference_table, alert_type')
     .is('resolved_at', null);
@@ -171,7 +195,7 @@ export async function GET(req: Request) {
   );
 
   if (toInsert.length) {
-    await getSupabase().from('compliance_alerts').insert(toInsert);
+    await supabaseAdmin.from('compliance_alerts').insert(toInsert);
   }
 
   // Auto-resolve alerts whose underlying record is no longer expiring (e.g. lease was renewed)
@@ -183,7 +207,7 @@ export async function GET(req: Request) {
   );
   if (toResolve.length) {
     // Mark as resolved; need IDs — re-query
-    const { data: resolveTargets } = await getSupabase()
+    const { data: resolveTargets } = await supabaseAdmin
       .from('compliance_alerts')
       .select('id, reference_id, reference_table, alert_type')
       .is('resolved_at', null);
@@ -191,7 +215,7 @@ export async function GET(req: Request) {
       .filter(r => !activeKeys.has(`${r.reference_table}:${r.reference_id}:${r.alert_type}`))
       .map(r => r.id);
     if (resolveIds.length) {
-      await getSupabase()
+      await supabaseAdmin
         .from('compliance_alerts')
         .update({ resolved_at: new Date().toISOString() })
         .in('id', resolveIds);
@@ -211,6 +235,7 @@ export async function GET(req: Request) {
       insurance: insurance?.length ?? 0,
       cou: cous?.length ?? 0,
       violations: violations?.length ?? 0,
+      assocInsurance: assocInsurance?.length ?? 0,
     },
     newAlerts: toInsert.length,
     autoResolved: toResolve.length,
