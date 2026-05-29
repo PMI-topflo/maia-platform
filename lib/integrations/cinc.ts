@@ -887,6 +887,94 @@ export async function updateVendorShortName(vendorId: number, shortName: string)
   invalidateVendorCache()
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Single-vendor detail — used by the invoice intake card to show
+// Karen the CINC-side defaults (payment method, terms, 1099 status,
+// banking) so she can verify her Pay By selection matches CINC's
+// vendor profile before pushing. CINC's Swagger does NOT expose a
+// "DefaultPaymentMethod" field directly; the UI shows "Check" by
+// default and switches to ACH/Bank when Routing+Account are set. We
+// derive the same way here.
+// ─────────────────────────────────────────────────────────────────────
+export interface CincVendorDetail {
+  VendorId:           number
+  VendorName:         string
+  Dba?:               string  | null
+  CheckName?:         string  | null
+  Status?:            string  | null
+  VendorType?:        string  | null
+  TaxID?:             string  | null
+  Email?:             string  | null
+  Phone1?:            string  | null
+  /** Net payment terms (days). CINC field name. */
+  NetTerm?:           number  | null
+  /** Auto-approval limit ($) above which the invoice needs manual
+   *  approval in CINC. */
+  AutoAprvLimit?:     number  | null
+  /** Routing+Account+AccountType present means the vendor is set up
+   *  for ACH/Bank Transfer in CINC. */
+  Routing?:           string  | null
+  Account?:           string  | null
+  /** Bank account type (0=Checking, 1=Savings etc) — only meaningful
+   *  when Routing+Account are set. */
+  AccountType?:       number  | null
+  /** True if CINC will consolidate multiple invoices onto one check. */
+  ConsolodateChecks?: boolean | null
+  Print1099Type?:     number  | null
+  Ten99Box10?:        boolean | null
+  /** DERIVED — not a real CINC field. We infer the vendor's default
+   *  payment method by checking whether ACH banking is configured.
+   *  This mirrors what CINC's vendor page shows in its "Default Pmt
+   *  Method" field. */
+  DefaultPmtMethod:   'ACH' | 'Check'
+}
+
+/** Fetch a single vendor's full detail by VendorId. Used by the
+ *  invoice intake card to show Karen the CINC-side defaults
+ *  (payment method, terms, banking) BEFORE she pushes — read-only,
+ *  because payment-method changes require bank/ACH setup in CINC
+ *  outside MAIA's scope. */
+export async function getCincVendorDetail(vendorId: number): Promise<CincVendorDetail | null> {
+  // The /management/1/vendors endpoint returns a list; with vendorId
+  // it filters to that one. Some tenants return a single object,
+  // some return a one-element array — handle both.
+  const raw = await call<unknown>('/management/1/vendors', {
+    method: 'GET',
+    query:  { vendorId: String(vendorId) },
+  }).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) return null
+    throw err
+  })
+  if (!raw) return null
+  const v = (Array.isArray(raw) ? raw[0] : raw) as Record<string, unknown> | undefined
+  if (!v || typeof v !== 'object') return null
+
+  const routing = typeof v.Routing === 'string' ? v.Routing.trim() : ''
+  const account = typeof v.Account === 'string' ? v.Account.trim() : ''
+  const defaultPmtMethod: 'ACH' | 'Check' = (routing && account) ? 'ACH' : 'Check'
+
+  return {
+    VendorId:           Number(v.VendorId),
+    VendorName:         String(v.VendorName ?? ''),
+    Dba:                (v.Dba              as string  | undefined) ?? null,
+    CheckName:          (v.CheckName        as string  | undefined) ?? null,
+    Status:             (v.Status           as string  | undefined) ?? null,
+    VendorType:         (v.VendorType       as string  | undefined) ?? null,
+    TaxID:              (v.TaxID            as string  | undefined) ?? null,
+    Email:              (v.Email            as string  | undefined) ?? null,
+    Phone1:             (v.Phone1           as string  | undefined) ?? null,
+    NetTerm:            typeof v.NetTerm       === 'number' ? v.NetTerm       : null,
+    AutoAprvLimit:      typeof v.AutoAprvLimit === 'number' ? v.AutoAprvLimit : null,
+    Routing:            routing || null,
+    Account:            account || null,
+    AccountType:        typeof v.AccountType   === 'number' ? v.AccountType   : null,
+    ConsolodateChecks:  typeof v.ConsolodateChecks === 'boolean' ? v.ConsolodateChecks : null,
+    Print1099Type:      typeof v.Print1099Type === 'number' ? v.Print1099Type : null,
+    Ten99Box10:         typeof v.Ten99Box10    === 'boolean' ? v.Ten99Box10   : null,
+    DefaultPmtMethod:   defaultPmtMethod,
+  }
+}
+
 /** Fuzzy-match an extracted vendor name against the CINC catalog.
  *  For each vendor we score the extracted name against THREE candidate
  *  fields — VendorName, DBA, and CheckName — and keep the best score

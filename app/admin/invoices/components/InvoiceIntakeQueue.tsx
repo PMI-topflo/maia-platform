@@ -303,6 +303,25 @@ function DraftCard(props: {
   const [woLoading, setWoLoading] = useState(false)
   const [woLoadedKey, setWoLoadedKey] = useState<string>('')
 
+  // CINC vendor's full profile — banking + 1099 + terms + the
+  // DERIVED "DefaultPmtMethod" (ACH if Routing+Account configured,
+  // else Check). Shown read-only under the Payment-method dropdown
+  // so Karen can verify her Pay By selection matches the vendor's
+  // CINC default BEFORE pushing. Lazy-fetched when vendorId is set.
+  // Read-only: payment-method changes require bank/ACH setup in CINC,
+  // not in MAIA.
+  const [vendorDetail, setVendorDetail] = useState<{
+    VendorName:         string
+    Dba?:               string | null
+    NetTerm?:           number | null
+    AutoAprvLimit?:     number | null
+    Routing?:           string | null
+    Account?:           string | null
+    DefaultPmtMethod:   'ACH' | 'Check'
+  } | null>(null)
+  const [vendorDetailLoading,  setVendorDetailLoading]  = useState(false)
+  const [vendorDetailLoadedFor, setVendorDetailLoadedFor] = useState<string>('')
+
   // Mode toggle. Cards open in view mode so the data is presented as
   // information first, with Edit as the explicit affordance to change
   // anything. Push / Reject only available in view mode (you can't
@@ -385,6 +404,34 @@ function DraftCard(props: {
       .catch(() => { /* swallow — fall back to the manual text input */ })
       .finally(() => setPayByLoading(false))
   }, [mode, assoc, payByLoadedFor, payByLoading])
+
+  // Lazy-load the CINC vendor profile when a vendor is matched. Same
+  // pattern as the other CINC fetches. Fires in BOTH edit and view
+  // modes — Karen wants to see the CINC default at all times, not
+  // only while editing. Skips when vendorId is blank (unmatched).
+  useEffect(() => {
+    if (!vendorId)                                return
+    if (vendorDetailLoadedFor === vendorId)       return
+    if (vendorDetailLoading)                      return
+    setVendorDetailLoading(true)
+    fetch(`/api/admin/cinc/vendor?vendorId=${encodeURIComponent(vendorId)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        if (!data?.error && data?.vendor) setVendorDetail(data.vendor)
+        else                              setVendorDetail(null)
+        setVendorDetailLoadedFor(vendorId)
+      })
+      .catch(() => { setVendorDetail(null) })
+      .finally(() => setVendorDetailLoading(false))
+  }, [vendorId, vendorDetailLoadedFor, vendorDetailLoading])
+
+  // Reset vendor detail when the matched vendor changes — avoids
+  // showing the previous vendor's banking on the new one for a beat.
+  useEffect(() => {
+    if (vendorDetailLoadedFor && vendorDetailLoadedFor !== vendorId) {
+      setVendorDetail(null)
+    }
+  }, [vendorId, vendorDetailLoadedFor])
 
   // Auto-suggest an observation note when Karen picks a payment method
   // and hasn't typed her own. Karen can always overwrite. Format follows
@@ -742,6 +789,12 @@ function DraftCard(props: {
           ) : (
             <ReadOnlyValue value={payBy} placeholder="— not set —" />
           )}
+          <VendorPmtHint
+            loading={vendorDetailLoading}
+            vendor={vendorDetail}
+            selectedPayBy={payBy}
+            vendorMatched={!!vendorId}
+          />
         </Field>
 
         {/* Observation — free text Karen edits. Maps to CINC's
@@ -1021,6 +1074,100 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</span>
       {children}
     </label>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CINC vendor payment hint — read-only display of the matched
+// vendor's CINC profile defaults, shown under the Payment-method
+// field. Mirrors what CINC's vendor page calls "Default Pmt Method":
+// ACH when Routing+Account are configured in CINC, otherwise Check.
+//
+// Purpose: lets Karen verify her Pay By selection matches the CINC
+// vendor profile BEFORE pushing. If the selected method conflicts
+// with CINC's default (e.g. Karen picked "Check" but CINC has ACH
+// banking on file), a yellow warning prompts her to double-check.
+//
+// READ-ONLY — payment-method changes require bank/ACH setup in CINC,
+// which is outside MAIA's scope.
+// ─────────────────────────────────────────────────────────────────────
+function VendorPmtHint(props: {
+  loading:         boolean
+  vendor:          { VendorName: string; Dba?: string | null; NetTerm?: number | null; AutoAprvLimit?: number | null; Routing?: string | null; Account?: string | null; DefaultPmtMethod: 'ACH' | 'Check' } | null
+  selectedPayBy:   string
+  vendorMatched:   boolean
+}) {
+  const { loading, vendor, selectedPayBy, vendorMatched } = props
+  if (!vendorMatched) return null
+
+  if (loading && !vendor) {
+    return (
+      <div style={{ marginTop: 4, fontSize: 11, color: '#9ca3af', fontStyle: 'italic' }}>
+        Loading CINC vendor profile…
+      </div>
+    )
+  }
+  if (!vendor) return null
+
+  // Selected method matches CINC's default? Treat "ACH", "Bank
+  // Transfer", "Direct Deposit", "EFT" as ACH-equivalent for the
+  // comparison — CINC tenants use different labels for the same idea.
+  const sel = (selectedPayBy ?? '').toLowerCase()
+  const selectedNorm: 'ACH' | 'Check' | null =
+    !sel                                                  ? null    :
+    /(ach|bank|eft|direct\s*deposit|wire|online)/i.test(sel) ? 'ACH'  :
+    /check/i.test(sel)                                      ? 'Check' :
+    null
+  const mismatch = selectedNorm != null && selectedNorm !== vendor.DefaultPmtMethod
+
+  // Mask the ACH account for display — show only last 4.
+  const acctMask = vendor.Account && vendor.Account.length >= 4
+    ? `••••${vendor.Account.slice(-4)}`
+    : null
+
+  return (
+    <div
+      style={{
+        marginTop:    6,
+        padding:      '6px 8px',
+        borderRadius: 4,
+        background:   mismatch ? '#fef3c7' : '#f3f4f6',
+        border:       mismatch ? '1px solid #f59e0b' : '1px solid #e5e7eb',
+        fontSize:     11,
+        color:        '#374151',
+        display:      'flex',
+        flexDirection: 'column',
+        gap:          2,
+      }}
+    >
+      <div>
+        <strong>CINC vendor default:</strong>{' '}
+        <span style={{ fontWeight: 600 }}>{vendor.DefaultPmtMethod}</span>
+        {vendor.DefaultPmtMethod === 'ACH' && acctMask && (
+          <span style={{ color: '#6b7280' }}> ({acctMask})</span>
+        )}
+        {typeof vendor.NetTerm === 'number' && vendor.NetTerm > 0 && (
+          <span style={{ color: '#6b7280' }}> · Net {vendor.NetTerm}</span>
+        )}
+        {typeof vendor.AutoAprvLimit === 'number' && vendor.AutoAprvLimit > 0 && (
+          <span style={{ color: '#6b7280' }}>
+            {' '}· Auto-approve ≤ ${vendor.AutoAprvLimit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </span>
+        )}
+      </div>
+      {mismatch && (
+        <div style={{ color: '#92400e', fontWeight: 500 }}>
+          ⚠ You picked “{selectedPayBy}” but CINC has{' '}
+          <strong>{vendor.DefaultPmtMethod}</strong> as this vendor’s default.
+          {vendor.DefaultPmtMethod === 'Check'
+            ? ' No ACH banking is on file in CINC.'
+            : ' Use the ACH option unless this vendor asked to switch.'}
+        </div>
+      )}
+      <div style={{ color: '#9ca3af', fontSize: 10 }}>
+        Read-only — payment-method changes require bank/ACH setup in CINC.
+      </div>
+    </div>
   )
 }
 
