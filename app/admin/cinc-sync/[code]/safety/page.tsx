@@ -1,17 +1,14 @@
 // =====================================================================
-// /admin/cinc-sync/[code]/insurance
+// /admin/cinc-sync/[code]/safety
 //
-// Per-association MASTER insurance compliance checklist. Renders the
-// full Florida HOA/condo coverage list (lib/association-insurance.ts)
-// and lets staff record each policy's carrier, dates, coverage, named
-// insured, and COI — or waive a coverage that doesn't apply.
+// Per-association Florida structural-safety inspection tracker:
+// Milestone, SIRS, Wind Mitigation, Roof. Records each building's year
+// built + stories (which drive whether SIRS/Milestone apply), the last
+// completed date, the next-due deadline, the engineering firm, and the
+// report PDF. Deadlines roll into the daily compliance digest + the
+// dashboard "Inspections Due" tracker.
 //
-// SCOPE: association-held master policies (CINC / common-area). The
-// per-unit HO-6 policies owners carry live on a different screen
-// (unit_insurance) — do not conflate the two.
-//
-// Server component handles auth + association lookup; the interactive
-// checklist is the InsuranceManager client component.
+// SCOPE: association common-element structural compliance (CINC-side).
 // =====================================================================
 
 import { cookies } from 'next/headers'
@@ -21,12 +18,12 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../../../components/AdminNav'
-import InsuranceManager from './InsuranceManager'
+import SafetyManager from './SafetyManager'
 
-export const metadata = { title: 'Insurance — CINC Sync — PMI Top Florida' }
+export const metadata = { title: 'Safety Inspections — CINC Sync — PMI Top Florida' }
 export const dynamic = 'force-dynamic'
 
-export default async function AssociationInsurancePage(
+export default async function AssociationSafetyPage(
   props: { params: Promise<{ code: string }> },
 ) {
   const { code } = await props.params
@@ -72,23 +69,23 @@ export default async function AssociationInsurancePage(
             ← Back to {assoc.association_code} sync
           </Link>
           <Link
-            href={`/admin/cinc-sync/${assoc.association_code}/safety`}
+            href={`/admin/cinc-sync/${assoc.association_code}/insurance`}
             className="text-xs font-mono uppercase tracking-wide text-[#f26a1b] hover:text-white hover:bg-[#f26a1b] border border-[#f26a1b] px-2.5 py-1 rounded transition-colors"
           >
-            🏗 Safety →
+            🛡 Insurance →
           </Link>
         </div>
 
         <header className="mb-6 border-l-4 border-[#f26a1b] pl-4 mt-3">
           <h1 className="text-xl font-semibold text-gray-900">{assoc.association_name}</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Master insurance compliance — code <span className="font-mono">{assoc.association_code}</span>.
-            The association&apos;s own policies (common-element coverage), not the per-unit HO-6 policies owners carry.
-            Expiring and expired coverages roll into the daily compliance digest automatically.
+            Florida structural-safety inspections — code <span className="font-mono">{assoc.association_code}</span>.
+            Milestone &amp; SIRS apply to buildings 3+ stories; enter year built + stories so the deadline can be computed.
+            Missed deadlines carry personal liability for the board.
           </p>
         </header>
 
-        <InsuranceManager assocCode={assoc.association_code} />
+        <SafetyManager assocCode={assoc.association_code} />
       </main>
     </div>
   )

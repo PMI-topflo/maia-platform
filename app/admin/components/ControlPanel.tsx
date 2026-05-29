@@ -48,6 +48,14 @@ export interface ExpiringItem {
   href:             string
 }
 
+export interface InspectionItem {
+  label:            string
+  building_label:   string | null
+  association_code: string | null
+  date:             string   // YYYY-MM-DD (next_due_date)
+  href:             string
+}
+
 export interface TeamAlert {
   key:    string
   label:  string
@@ -70,7 +78,7 @@ interface Counts {
   myTasks: number; overdue: number; workOrders: number; invoices: number
   applications: number; registrations: number; unidentified: number; tickets: number
   compliance: number; maiaErrors: number; owners: number; ownershipTransfers: number
-  expiring: number
+  expiring: number; inspections: number
 }
 
 interface Props {
@@ -79,6 +87,7 @@ interface Props {
   workOrders:      TicketRow[]
   invoiceDrafts:   InvoiceDraftRow[]
   expiringItems:   ExpiringItem[]
+  inspectionItems: InspectionItem[]
   teamAlerts:      TeamAlert[]
   recentCommands:  MaiaCommandRow[]
   candidateList:   string[]
@@ -86,7 +95,7 @@ interface Props {
 }
 
 type Severity = 'nominal' | 'caution' | 'warning'
-type DrawerId = 'tasks' | 'workorders' | 'invoices' | 'expiring' | 'alerts' | 'maia'
+type DrawerId = 'tasks' | 'workorders' | 'invoices' | 'expiring' | 'inspections' | 'alerts' | 'maia'
 
 // ─── presentation helpers ─────────────────────────────────────────────
 const SEV_LED: Record<Severity, string> = {
@@ -149,11 +158,13 @@ const KIND_ICON: Record<ExpiringItem['kind'], string> = {
 
 // ─── main ──────────────────────────────────────────────────────────────
 export default function ControlPanel(props: Props) {
-  const { counts, myTasks, workOrders, invoiceDrafts, expiringItems, teamAlerts, recentCommands } = props
+  const { counts, myTasks, workOrders, invoiceDrafts, expiringItems, inspectionItems, teamAlerts, recentCommands } = props
   const [open, setOpen] = useState<DrawerId | null>(null)
 
   const expiredNow = expiringItems.filter(i => daysUntil(i.date) < 0).length
   const expiringSoon = expiringItems.filter(i => { const d = daysUntil(i.date); return d >= 0 && d <= 30 }).length
+  const inspOverdue = inspectionItems.filter(i => daysUntil(i.date) < 0).length
+  const inspSoon = inspectionItems.filter(i => { const d = daysUntil(i.date); return d >= 0 && d <= 90 }).length
 
   // Each instrument: id, label, big value, sub, severity, and either a
   // drawer to open or an href to navigate.
@@ -172,6 +183,12 @@ export default function ControlPanel(props: Props) {
       sub: expiredNow > 0 ? `${expiredNow} expired · ${expiringSoon} ≤30d` : counts.expiring > 0 ? `${expiringSoon} due ≤30d` : 'none expiring',
       sev: expiredNow > 0 ? 'warning' : counts.expiring > 0 ? 'caution' : 'nominal',
       drawer: 'expiring',
+    },
+    {
+      id: 'inspections', label: 'Inspections Due', value: counts.inspections,
+      sub: inspOverdue > 0 ? `${inspOverdue} overdue · ${inspSoon} ≤90d` : counts.inspections > 0 ? `${inspSoon} due ≤90d` : 'none due',
+      sev: inspOverdue > 0 ? 'warning' : counts.inspections > 0 ? 'caution' : 'nominal',
+      drawer: 'inspections',
     },
     {
       id: 'workorders', label: 'Work Orders', value: counts.workOrders,
@@ -327,6 +344,12 @@ export default function ControlPanel(props: Props) {
           : expiringItems.map((it, i) => <ExpiringLine key={`${it.kind}-${i}`} it={it} />)
       }</Drawer>}
 
+      {open === 'inspections' && <Drawer title="Structural-Safety Inspections Due" accent="#ef4444" onClose={() => setOpen(null)}>{
+        inspectionItems.length === 0
+          ? <Empty>No SIRS, Milestone, Wind Mitigation, or Roof inspections due in the next 180 days.</Empty>
+          : inspectionItems.map((it, i) => <InspectionLine key={`insp-${i}`} it={it} />)
+      }</Drawer>}
+
       {open === 'alerts'     && <Drawer title="Needs Attention (team)" accent="#f59e0b" onClose={() => setOpen(null)}>{
         teamAlerts.length === 0
           ? <Empty>No team-wide alerts.</Empty>
@@ -429,6 +452,24 @@ function ExpiringLine({ it }: { it: ExpiringItem }) {
       <span className="text-base shrink-0" aria-hidden>{KIND_ICON[it.kind]}</span>
       <span className="inline-flex rounded px-1.5 py-0.5 text-[9px] font-mono uppercase shrink-0 bg-gray-100 text-gray-500">{it.kind}</span>
       <span className="text-sm text-gray-800 flex-1 truncate group-hover:text-gray-900">{it.label}</span>
+      {it.association_code && <span className="text-[10px] font-mono text-gray-400 shrink-0 hidden md:inline">{it.association_code}</span>}
+      <span className="text-[10px] font-mono text-gray-400 shrink-0 hidden sm:inline">{it.date}</span>
+      <span className={`text-[10px] shrink-0 ${tone}`}>{when}</span>
+      <span className="text-gray-300 group-hover:text-[#f26a1b] shrink-0">→</span>
+    </Link>
+  )
+}
+
+function InspectionLine({ it }: { it: InspectionItem }) {
+  const days = daysUntil(it.date)
+  const tone = days < 0 ? 'text-red-600 font-semibold' : days <= 90 ? 'text-amber-700 font-medium' : 'text-gray-500'
+  const when = days < 0 ? `Overdue ${Math.abs(days)}d` : days === 0 ? 'Due today' : `In ${days}d`
+  return (
+    <Link href={it.href} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 group">
+      <span className="text-base shrink-0" aria-hidden>🏗</span>
+      <span className="text-sm text-gray-800 flex-1 truncate group-hover:text-gray-900">
+        {it.label}{it.building_label ? ` · ${it.building_label}` : ''}
+      </span>
       {it.association_code && <span className="text-[10px] font-mono text-gray-400 shrink-0 hidden md:inline">{it.association_code}</span>}
       <span className="text-[10px] font-mono text-gray-400 shrink-0 hidden sm:inline">{it.date}</span>
       <span className={`text-[10px] shrink-0 ${tone}`}>{when}</span>
