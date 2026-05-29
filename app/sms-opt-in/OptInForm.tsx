@@ -54,7 +54,7 @@ export default function OptInForm() {
         <p className="mt-1 text-sm font-semibold text-green-800">Thank you — your details were received.</p>
         <p className="mt-1 text-xs text-green-700">
           {smsConsent
-            ? 'You have opted in to SMS updates from PMI Top Florida Properties. Reply STOP at any time to unsubscribe.'
+            ? 'You have opted in to SMS updates from Dawnus LLC d/b/a PMI Top Florida Properties. Reply STOP at any time to unsubscribe.'
             : 'You can opt in to SMS updates any time by returning to this page.'}
         </p>
       </div>

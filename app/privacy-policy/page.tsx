@@ -75,12 +75,14 @@ function Policy() {
     <>
       <Section title="1. Who We Are">
         <P>
-          PMI Top Florida Properties (&quot;PMI,&quot; &quot;we,&quot; &quot;our,&quot; or &quot;us&quot;) is a licensed HOA and condominium management company
-          operating in South Florida. We manage associations, coordinate maintenance, and communicate with homeowners,
-          tenants, vendors, and board members on behalf of the communities we serve.
+          <strong>Dawnus LLC</strong>, a Florida limited liability company doing business as{' '}
+          <strong>PMI Top Florida Properties</strong> (&quot;PMI,&quot; &quot;we,&quot; &quot;our,&quot; or &quot;us&quot;),
+          is a licensed HOA and condominium management company operating in South Florida. We manage associations,
+          coordinate maintenance, and communicate with homeowners, tenants, vendors, and board members on behalf of
+          the communities we serve.
         </P>
         <P>
-          <strong>Contact:</strong> PMI Top Florida Properties · 1031 Ives Dairy Road Suite 228, Miami, FL 33179 ·{' '}
+          <strong>Contact:</strong> Dawnus LLC d/b/a PMI Top Florida Properties · 1031 Ives Dairy Road Suite 228, Miami, FL 33179 ·{' '}
           <a href="tel:+13059005077" style={{ color: 'var(--gold)' }}>305.900.5077</a> ·{' '}
           <a href="mailto:maia@pmitop.com" style={{ color: 'var(--gold)' }}>maia@pmitop.com</a>
         </P>

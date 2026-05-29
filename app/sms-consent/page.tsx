@@ -3,8 +3,8 @@ import Link from 'next/link'
 import SiteHeader from '@/components/SiteHeader'
 
 export const metadata = {
-  title: 'SMS Consent — PMI Top Florida Properties',
-  description: 'SMS opt-in consent disclosure for PMI Top Florida Properties. Learn what messages you will receive, how to opt out, and our data practices.',
+  title: 'SMS Consent — Dawnus LLC d/b/a PMI Top Florida Properties',
+  description: 'SMS opt-in consent disclosure for Dawnus LLC d/b/a PMI Top Florida Properties. Learn what messages you will receive, how to opt out, and our data practices.',
 }
 
 export default function SmsConsent() {
@@ -12,7 +12,7 @@ export default function SmsConsent() {
     <main className="assoc-page">
 
       <div className="assoc-topbar">
-        <span className="assoc-topbar-l">PMI Top Florida Properties · Miami, FL</span>
+        <span className="assoc-topbar-l">Dawnus LLC d/b/a PMI Top Florida Properties · Miami, FL</span>
         <span className="assoc-topbar-r">305.900.5077 · (786) 686-3223</span>
       </div>
 
@@ -25,19 +25,22 @@ export default function SmsConsent() {
             SMS / Text Message Consent
           </h1>
           <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '2rem' }}>
-            PMI Top Florida Properties · Updated May 2026
+            Dawnus LLC d/b/a PMI Top Florida Properties · Updated May 2026
           </p>
 
           {/* ── Who is sending ── */}
           <Section title="Who is sending these messages?">
             <P>
-              <strong>PMI Top Florida Properties</strong> (&quot;PMI,&quot; &quot;we,&quot; &quot;our&quot;) sends SMS text messages
-              to property owners, tenants, vendors, and real estate agents who have provided their
-              phone number and consented to receive communications from us.
+              <strong>Dawnus LLC</strong>, a Florida limited liability company doing business as{' '}
+              <strong>PMI Top Florida Properties</strong> (&quot;PMI,&quot; &quot;we,&quot; &quot;our&quot;), sends SMS text
+              messages to property owners, tenants, vendors, and real estate agents who have provided
+              their phone number and consented to receive communications from us. Our business is located
+              at 1031 Ives Dairy Road, Suite 228, Miami, FL 33179.
             </P>
             <P>
               We use <strong>Twilio</strong> as our messaging provider. Messages are sent from a
-              registered 10-digit long-code (10DLC) number on behalf of PMI Top Florida Properties.
+              registered 10-digit long-code (10DLC) number on behalf of Dawnus LLC d/b/a PMI Top
+              Florida Properties.
             </P>
           </Section>
 

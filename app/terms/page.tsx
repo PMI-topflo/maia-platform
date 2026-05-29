@@ -78,8 +78,10 @@ function TermsContent() {
       <Section title="1. Acceptance of Terms">
         <P>
           By accessing or using the MAIA platform, submitting inquiries through our website, or opting in to
-          SMS or WhatsApp communications from PMI Top Florida Properties (&quot;PMI,&quot; &quot;we,&quot; &quot;our,&quot; or &quot;us&quot;),
-          you agree to these Terms &amp; Conditions. If you do not agree, do not use our services.
+          SMS or WhatsApp communications from <strong>Dawnus LLC</strong>, a Florida limited liability company
+          doing business as <strong>PMI Top Florida Properties</strong> (&quot;PMI,&quot; &quot;we,&quot;
+          &quot;our,&quot; or &quot;us&quot;), you agree to these Terms &amp; Conditions. If you do not agree,
+          do not use our services.
         </P>
         <P>
           These terms govern your use of MAIA (Management AI Assistant), our website at pmitop.com, and any
