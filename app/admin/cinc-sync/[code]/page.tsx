@@ -77,6 +77,12 @@ export default async function CincSyncDetailPage(props: { params: Promise<{ code
               >
                 🛡 Insurance →
               </Link>
+              <Link
+                href={`/admin/cinc-sync/${assocRow.association_code}/safety`}
+                className="text-xs font-mono uppercase tracking-wide text-[#f26a1b] hover:text-white hover:bg-[#f26a1b] border border-[#f26a1b] px-2.5 py-1 rounded transition-colors"
+              >
+                🏗 Safety →
+              </Link>
             </div>
           </div>
           <p className="text-sm text-gray-500 mt-1">

@@ -4,6 +4,7 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveStaffByLoginEmail, staffCandidateEmails } from '@/lib/staff-lookup'
 import { policyTypeLabel } from '@/lib/association-insurance'
+import { inspectionTypeLabel } from '@/lib/association-safety'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from './components/AdminNav'
 import StaffStatsPanel from './components/StaffStatsPanel'
@@ -11,6 +12,7 @@ import ControlPanel, {
   type TicketRow,
   type InvoiceDraftRow,
   type ExpiringItem,
+  type InspectionItem,
   type TeamAlert,
   type MaiaCommandRow,
 } from './components/ControlPanel'
@@ -52,6 +54,10 @@ export default async function OverviewPage() {
   const horizon = new Date()
   horizon.setDate(horizon.getDate() + 120)
   const horizonISO = horizon.toISOString().slice(0, 10)
+  // Inspections schedule months out — surface a wider 180-day window.
+  const inspHorizon = new Date()
+  inspHorizon.setDate(inspHorizon.getDate() + 180)
+  const inspHorizonISO = inspHorizon.toISOString().slice(0, 10)
 
   const [
     { count: unidentified },
@@ -71,6 +77,7 @@ export default async function OverviewPage() {
     { data: expInsuranceRaw },
     { data: expPermitsRaw },
     { data: expDocsRaw },
+    { data: inspectionsRaw },
   ] = await Promise.all([
     supabaseAdmin.from('general_conversations').select('id', { count: 'exact', head: true }).eq('status', 'unidentified'),
     supabaseAdmin.from('applications').select('id', { count: 'exact', head: true }).eq('board_approval_status', 'pending').eq('stripe_payment_status', 'paid'),
@@ -140,6 +147,15 @@ export default async function OverviewPage() {
       .lte('expiry_date', horizonISO)
       .order('expiry_date', { ascending: true })
       .then(r => r, () => ({ data: [] as Record<string, unknown>[], error: null })),
+    supabaseAdmin
+      .from('association_safety_inspections')
+      .select('id, association_code, inspection_type, building_label, next_due_date')
+      .is('archived_at', null)
+      .eq('waived', false)
+      .not('next_due_date', 'is', null)
+      .lte('next_due_date', inspHorizonISO)
+      .order('next_due_date', { ascending: true })
+      .then(r => r, () => ({ data: [] as Record<string, unknown>[], error: null })),
   ])
 
   const myTasks       = (myTasksRaw       ?? []) as TicketRow[]
@@ -173,6 +189,17 @@ export default async function OverviewPage() {
       href: `/admin/cinc-sync/${d.association_code}/documents`,
     })),
   ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+
+  // Structural-safety inspection deadlines (I7 tracker).
+  const inspectionItems: InspectionItem[] = ((inspectionsRaw ?? []) as Array<{ id: number; association_code: string; inspection_type: string; building_label: string | null; next_due_date: string }>)
+    .map(i => ({
+      label: inspectionTypeLabel(i.inspection_type),
+      building_label: i.building_label,
+      association_code: i.association_code,
+      date: i.next_due_date,
+      href: `/admin/cinc-sync/${i.association_code}/safety`,
+    }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
 
   // Server component renders once per request; "now" at request time is
   // the correct semantic, not a stale captured value.
@@ -211,11 +238,13 @@ export default async function OverviewPage() {
             owners:             ownerCount ?? 0,
             ownershipTransfers: ownershipTransfers ?? 0,
             expiring:           expiringItems.length,
+            inspections:        inspectionItems.length,
           }}
           myTasks={myTasks}
           workOrders={workOrders}
           invoiceDrafts={invoiceDrafts}
           expiringItems={expiringItems}
+          inspectionItems={inspectionItems}
           teamAlerts={teamAlerts}
           recentCommands={recentCommands}
           candidateList={candidateList}
