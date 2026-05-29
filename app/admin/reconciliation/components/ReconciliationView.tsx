@@ -564,7 +564,14 @@ export default function ReconciliationView(props: Props) {
                       {e.amount < 0 ? ' ⬇' : e.amount > 0 ? ' ⬆' : ''}
                     </span>
                   </Td>
-                  <Td>{e.paid_type ?? ''}</Td>
+                  <Td>
+                    <InlineNote
+                      initial={e.paid_type ?? ''}
+                      placeholder="ACH / Check / …"
+                      saving={savingRowId === e.id}
+                      onSave={v => updateEntry(e.id, { paid_type: v || null })}
+                    />
+                  </Td>
                   <Td>
                     <InlineNote
                       initial={e.additional_notes ?? ''}
