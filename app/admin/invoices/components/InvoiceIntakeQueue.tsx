@@ -635,9 +635,9 @@ function DraftCard(props: {
           </div>
         </div>
       ) : (
-        <div style={{ marginBottom: 14, padding: 12, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 4, fontSize: 12, color: '#991b1b' }}>
-          PDF preview not available — the original upload to storage failed at intake.
-          The data below was extracted from the email body, not the PDF.
+        <div style={{ marginBottom: 14, padding: 12, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 4, fontSize: 12, color: '#92400e' }}>
+          No inline PDF preview for this invoice — the original PDF wasn&apos;t saved to storage when it first arrived.
+          The extracted fields below are still complete; you can review and push to CINC normally. (This notice isn&apos;t caused by your edits.)
         </div>
       )}
 
@@ -649,7 +649,14 @@ function DraftCard(props: {
               <VendorCombobox
                 vendors={vendors}
                 value={vendorId}
-                onChange={setVendorId}
+                onChange={id => {
+                  setVendorId(id)
+                  // Picking a vendor refreshes the short name to THAT
+                  // vendor's CINC UserDefined1 (or a fresh suggestion) —
+                  // don't leave the previously-extracted nickname behind.
+                  const v = vendors.find(x => String(x.id) === id)
+                  setShortName(v ? (v.shortName || suggestShortName(v.name)) : '')
+                }}
                 disabled={readOnly}
               />
               {draft.extracted_vendor_name && (
@@ -1525,7 +1532,14 @@ function VendorCombobox({
           disabled={disabled}
           placeholder="— pick vendor — type to search"
           onChange={e => { setQuery(e.target.value); setDirty(true); setOpen(true); setHighlight(0) }}
-          onFocus={() => { setOpen(true); setHighlight(0) }}
+          onFocus={e => {
+            // If a vendor is already selected, clear the box so the user
+            // can type a fresh search (the full list shows immediately);
+            // outside-click / Esc restores the selected name.
+            setOpen(true); setHighlight(0)
+            if (value) { setQuery(''); setDirty(true) }
+            e.target.select()
+          }}
           onKeyDown={e => {
             if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHighlight(h => Math.min(h + 1, shown.length - 1)) }
             else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight(h => Math.max(h - 1, 0)) }
