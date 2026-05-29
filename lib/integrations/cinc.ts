@@ -1675,7 +1675,7 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<CreateIn
     )
   }
 
-  const body = {
+  const body: Record<string, unknown> = {
     AssociationCode:      input.associationCode.toUpperCase(),
     VendorID:             input.vendorId,
     TotalInvoiceAmount:   input.amount,
@@ -1683,12 +1683,17 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<CreateIn
     DueDate:              input.dueDate ?? input.invoiceDate,
     VendorAccountNumber:  input.vendorAccountNumber ?? '',
     StatusID:             statusId,
-    WorkOrderNumber:      input.workOrderNumber ?? 0,
     InvoiceNumber:        input.invoiceNumber,
     NoteDescription:      (input.noteDescription ?? '').slice(0, 1000),
     PayFromBankAccountID: input.payFromBankAccountId ?? 0,
     Memo:                 (input.memo ?? '').slice(0, 1000),
     PayByType:            input.payByType ?? '',
+  }
+  // Only send WorkOrderNumber when this invoice is actually linked to a
+  // work order. CINC rejects a 0/blank value with 400 "Invalid Work Order
+  // Number" — a standalone invoice must OMIT the field entirely.
+  if (typeof input.workOrderNumber === 'number' && input.workOrderNumber > 0) {
+    body.WorkOrderNumber = input.workOrderNumber
   }
   const result = await call<{ InvoiceID?: number; InvoiceId?: number; Invoice?: { InvoiceID?: number } }>(
     '/management/1/accounting/invoice',
