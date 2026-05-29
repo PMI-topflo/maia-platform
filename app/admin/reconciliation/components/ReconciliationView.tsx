@@ -557,7 +557,15 @@ export default function ReconciliationView(props: Props) {
                   <Td>{e.customer ?? ''}</Td>
                   <Td>{e.vendor_payee ?? ''}</Td>
                   <Td>{e.description ?? ''}</Td>
-                  <Td>{e.invoice_number ?? ''}</Td>
+                  <Td>
+                    {e.invoice_number && e.cinc_invoice_id ? (
+                      <a href={`/admin/invoices/cinc/${e.cinc_invoice_id}`} style={{ color: '#2563eb', textDecoration: 'underline' }} title="Open CINC invoice detail">
+                        {e.invoice_number}
+                      </a>
+                    ) : (
+                      e.invoice_number ?? ''
+                    )}
+                  </Td>
                   <Td right>
                     <span style={{ color: e.amount < 0 ? '#991b1b' : '#166534', fontVariantNumeric: 'tabular-nums' }}>
                       ${fmt$(Math.abs(e.amount))}

@@ -1239,6 +1239,109 @@ export async function listInvoiceHistory(invoiceId: number): Promise<CincInvoice
   })
 }
 
+/** Raw CINC InvoiceExpenseItemVm per Swagger probe. One row per
+ *  GL allocation on an invoice. */
+export interface CincInvoiceExpenseItem {
+  ID?:              number | null
+  ChartId?:         number | null
+  R?:               string | null
+  GLAccount?:       string | null
+  ItemDescription?: string | null
+  Amount?:          number | null
+  IsBankAccount?:   boolean | null
+}
+
+/** Raw CINC InvoiceAttachmentInfoVm — metadata only, the binary lives
+ *  behind /document/{ImageID}. */
+export interface CincInvoiceAttachmentInfo {
+  ImageID?:  number | null
+  FileName?: string | null
+}
+
+/** Raw CINC InvoiceVm per Swagger probe — the canonical "give me
+ *  everything about this invoice" payload returned by
+ *  GET /management/associations/1/invoice?invoiceId=N. Powers the
+ *  /admin/invoices/cinc/[invoiceId] detail page. */
+export interface CincInvoice {
+  InvoiceID?:                  number | null
+  AssocCode?:                  string | null
+  AssociationName?:            string | null
+  AssociationId?:              number | null
+  InvoiceCreatedDate?:         string | null
+  InvoiceCreatedById?:         number | null
+  InvoiceCreatedByName?:       string | null
+  TotalInvoiceAmount?:         number | null
+  BankAccountID?:              number | null
+  BankAccountDescription?:     string | null
+  InvoiceStatus?:              string | null
+  InvoiceStatusID?:            number | null
+  VendorID?:                   number | null
+  Vendor?:                     string | null
+  VendorAddress1?:             string | null
+  VendorAddress2?:             string | null
+  VendorCity?:                 string | null
+  VendorState?:                string | null
+  VendorZip?:                  string | null
+  PayByType?:                  string | null
+  CheckMemo?:                  string | null
+  InvoiceDate?:                string | null
+  InvoiceNumber?:              string | null
+  VendorAccountNumber?:        string | null
+  InvoiceDueDate?:             string | null
+  WorkOrderNumber?:            number | null
+  NoteDescription?:            string | null
+  ExpenseItems?:               CincInvoiceExpenseItem[] | null
+  AttachmentInfo?:             CincInvoiceAttachmentInfo[] | null
+}
+
+/** GET /management/associations/1/invoice — fetch one invoice with
+ *  every field CINC stores on it (status, vendor, bank, pay-by type,
+ *  expense items, attachment metadata). Returns null on 4xx (invoice
+ *  not found / deleted / wrong assoc). */
+export async function getCincInvoice(invoiceId: number): Promise<CincInvoice | null> {
+  return await call<CincInvoice>(
+    '/management/associations/1/invoice',
+    { method: 'GET', query: { invoiceId } },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return null
+    }
+    throw err
+  })
+}
+
+/** Raw CINC InvoiceNoteVm — per Swagger /accounting/invoiceNotes
+ *  doesn't have a documented response model, so this is derived from
+ *  observed payloads. Fields are optional to tolerate schema drift. */
+export interface CincInvoiceNote {
+  NoteID?:       number | null
+  InvoiceID?:    number | null
+  NoteDate?:     string | null
+  NoteContent?:  string | null
+  DeletedFlag?:  boolean | null
+  CreatedBy?:    string | null
+}
+
+/** GET /management/1/accounting/invoiceNotes/{invoiceID} — fetch the
+ *  notes thread on an invoice. Optionally include deleted notes for
+ *  audit views. */
+export async function listInvoiceNotes(
+  invoiceId:        number,
+  opts?:            { includeDeleted?: boolean },
+): Promise<CincInvoiceNote[]> {
+  const query: Record<string, string> = {}
+  if (opts?.includeDeleted) query.includeDeleted = 'true'
+  return await call<CincInvoiceNote[]>(
+    `/management/1/accounting/invoiceNotes/${invoiceId}`,
+    { method: 'GET', query },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincInvoiceNote[]
+    }
+    throw err
+  })
+}
+
 /** Raw CINC GlTransactionByDate VM per Swagger probe. Returned by
  *  GET /accounting/glTransactionsByDateAndAssocCode. Every transaction
  *  hitting the specified GL account in the date range — for a Cash GL
