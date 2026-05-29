@@ -17,6 +17,7 @@ import WorkOrderPhotos from './WorkOrderPhotos'
 import LogMessageModal from './LogMessageModal'
 import RelatedTicketsCard from './RelatedTicketsCard'
 import EditDetailsModal from './EditDetailsModal'
+import { TICKET_CATEGORIES } from '@/lib/ticket-categories'
 
 interface TicketRecord {
   id:                     number
@@ -262,6 +263,9 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
   // staff can re-categorize after creation. Sync to CINC happens server-side
   // via the integration_outbox 'update_details' op.
   const [woTypeId,       setWoTypeId]       = useState<string>(ticket.work_order_type_id ? String(ticket.work_order_type_id) : '')
+  // Ticket type (a.k.a. category) for plain tickets — surfaced as a
+  // top-level panel field, mirroring the work-order-type picker.
+  const [catValue,       setCatValue]       = useState<string>(ticket.ticket_category ?? '')
   const [woTypes,        setWoTypes]        = useState<Array<{ id: number; name: string }>>([])
   const [woTypesLoading, setWoTypesLoading] = useState(false)
   const [woTypesError,   setWoTypesError]   = useState<string | null>(null)
@@ -615,10 +619,37 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
               </div>
             )}
             {ticket.cinc_workorder_id ? (
-              <div className="text-[10px] text-gray-400 mt-1">Changes sync to CINC.</div>
+              <div className="text-[10px] text-gray-400 mt-1">CINC WO #{ticket.cinc_workorder_id} · changes sync to CINC.</div>
             ) : (
-              <div className="text-[10px] text-gray-400 mt-1">Not yet synced to CINC — change is local-only until the outbound create runs.</div>
+              <div className="mt-2 pt-2 border-t border-gray-100 space-y-1.5">
+                <div className="text-[10px] text-gray-500">Not in CINC yet — create the work order there so the vendor + GL flow live in CINC.</div>
+                <button
+                  type="button"
+                  onClick={() => void pushToCinc()}
+                  disabled={pushBusy}
+                  className="w-full px-2 py-1.5 text-xs font-semibold border border-[#f26a1b] text-[#f26a1b] rounded hover:bg-[#f26a1b] hover:text-white transition-colors disabled:opacity-50"
+                >
+                  {pushBusy ? 'Creating in CINC…' : '＋ Create work order in CINC'}
+                </button>
+              </div>
             )}
+          </Card>
+        )}
+
+        {ticket.type !== 'work_order' && (
+          <Card title="Ticket type">
+            <select
+              value={catValue}
+              onChange={e => { setCatValue(e.target.value); void patch('ticket_category', e.target.value || null) }}
+              disabled={saving === 'ticket_category'}
+              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white"
+            >
+              <option value="">— Uncategorised —</option>
+              {TICKET_CATEGORIES.map(c => (
+                <option key={c.label} value={c.label}>{c.label}</option>
+              ))}
+            </select>
+            <div className="text-[10px] text-gray-400 mt-1">Routes the ticket to the right team.</div>
           </Card>
         )}
 
@@ -646,9 +677,6 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           />
           <Detail label="Unit"         value={ticket.unit_number ?? '—'} />
           <Detail label="Requested by" value={ticket.requested_by ?? '—'} />
-          {ticket.type !== 'work_order' && (
-            <Detail label="Category"   value={ticket.ticket_category ?? '—'} />
-          )}
           {ticket.is_board_request && (
             <div className="flex items-baseline justify-between py-1 text-xs">
               <span className="text-gray-400">Origin</span>
@@ -776,21 +804,8 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
               </div>
               <Detail label="Completed" value={workOrder.completed_at ? fmtAbs(workOrder.completed_at) : '—'} />
               <Detail label="Cost"      value={fmtMoney(workOrder.cost_cents)} />
-              {!ticket.cinc_workorder_id && (
-                <div className="mt-2 pt-2 border-t border-gray-100 space-y-2">
-                  <div className="text-[11px] text-gray-500">
-                    Created in MAIA without a CINC counterpart. New WOs sync automatically going forward; older orphans stay MAIA-only.
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void pushToCinc()}
-                    disabled={pushBusy}
-                    className="w-full px-2 py-1 text-xs border border-blue-300 text-blue-700 rounded hover:bg-blue-50 disabled:opacity-50"
-                  >
-                    {pushBusy ? 'Queuing…' : 'Push to CINC'}
-                  </button>
-                </div>
-              )}
+              {/* "Create work order in CINC" lives on the Work order type
+                  card above so it's always visible for un-synced WOs. */}
             </Card>
           )
         })()}
