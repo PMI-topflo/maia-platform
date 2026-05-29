@@ -1452,32 +1452,101 @@ export interface CincGlTransaction {
 }
 
 /** GET /management/1/accounting/glTransactionsByDateAndAssocCode —
- *  every GL transaction for (assoc, account, date range). Filtered to
- *  a single account number (typically a bank's Cash GL) gives the full
- *  bank activity ledger from CINC. Returns [] on 4xx. */
+ *  every GL transaction for (assoc, date range). Pass accountNumber
+ *  to filter to a single GL (typically a bank's Cash GL for the
+ *  reconciliation sync); omit it to get ALL GL activity across the
+ *  chart of accounts. Returns [] on 4xx. */
 export async function listGlTransactionsByDate(opts: {
-  assocCode:     string
-  fromDate:      string  // ISO date 'YYYY-MM-DD'
-  toDate:        string
-  accountNumber: string  // e.g. '10-1000-00'
+  assocCode:      string
+  fromDate:       string  // ISO date 'YYYY-MM-DD'
+  toDate:         string
+  /** Optional GL filter. Omit (or pass '') to fetch ALL GL activity. */
+  accountNumber?: string  // e.g. '10-1000-00'
 }): Promise<CincGlTransaction[]> {
+  const query: Record<string, string> = {
+    assocCode: opts.assocCode.toUpperCase(),
+    fromDate:  opts.fromDate,
+    toDate:    opts.toDate,
+  }
+  if (opts.accountNumber && opts.accountNumber.trim()) {
+    query.accountNumber = opts.accountNumber.trim()
+  }
   return await call<CincGlTransaction[]>(
     '/management/1/accounting/glTransactionsByDateAndAssocCode',
-    {
-      method: 'GET',
-      query:  {
-        assocCode:     opts.assocCode.toUpperCase(),
-        fromDate:      opts.fromDate,
-        toDate:        opts.toDate,
-        accountNumber: opts.accountNumber,
-      },
-    },
+    { method: 'GET', query },
   ).catch(err => {
     if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
       return [] as CincGlTransaction[]
     }
     throw err
   })
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Year-to-date actuals per GL — derived from glTransactions, NOT
+// from CINC's /budget/association endpoint.
+//
+// CINC's budget endpoint exposes an `Actual` field that's supposed
+// to be YTD spend per GL line. Observed bug (probed live, May 2026):
+// for LFA, CINC reported Mgmt Contract Actual=$795 even though 5
+// months of $795 invoices had posted ($4,041.25 total YTD), and
+// reported Electricity Actual=$0 even though $1,934.19 of electric
+// bills had been paid. Cause is on CINC's side — appears to return
+// one period's number rather than YTD.
+//
+// Fix: compute YTD actuals ourselves by summing every glTransaction
+// against each GL account for the calendar year. CINC's sign
+// convention for expense GL postings is the same as for cash GLs:
+// DebitAmount NEGATIVE when an expense is incurred — so
+// amount = -(credit + debit) yields a positive expense magnitude.
+// ─────────────────────────────────────────────────────────────────────
+interface CachedYtdActuals { byGl: Map<string, number>; expiresAt: number }
+const _ytdActualsCache = new Map<string, CachedYtdActuals>()
+const YTD_ACTUALS_TTL_MS = 15 * 60_000  // 15 min — fresher than budget cache
+
+/** YTD actual spend per GL account for an association, computed from
+ *  glTransactions. Keyed by GL account number (e.g. "58-5500-00").
+ *  Values are POSITIVE magnitudes — for expense GLs the value is the
+ *  total amount spent year-to-date. */
+export async function getYtdActualsByGl(
+  assocCode: string,
+  opts?: { forceRefresh?: boolean; year?: number },
+): Promise<Map<string, number>> {
+  const code = assocCode.toUpperCase()
+  const year = opts?.year ?? new Date().getUTCFullYear()
+  const key  = `${code}::${year}`
+
+  if (!opts?.forceRefresh) {
+    const hit = _ytdActualsCache.get(key)
+    if (hit && hit.expiresAt > Date.now()) return hit.byGl
+  }
+
+  const txs = await listGlTransactionsByDate({
+    assocCode: code,
+    fromDate:  `${year}-01-01`,
+    toDate:    `${year}-12-31`,
+    // omit accountNumber → all GL activity
+  })
+
+  const byGl = new Map<string, number>()
+  for (const t of txs) {
+    const gl = (t.AccountNumber ?? '').trim()
+    if (!gl) continue
+    const credit = typeof t.CreditAmount === 'number' ? t.CreditAmount : 0
+    const debit  = typeof t.DebitAmount  === 'number' ? t.DebitAmount  : 0
+    if (credit === 0 && debit === 0) continue
+    const amount = -(credit + debit)   // matches reconciliation sign convention
+    byGl.set(gl, (byGl.get(gl) ?? 0) + amount)
+  }
+
+  _ytdActualsCache.set(key, { byGl, expiresAt: Date.now() + YTD_ACTUALS_TTL_MS })
+  return byGl
+}
+
+export function invalidateYtdActualsCache(assocCode?: string): void {
+  if (!assocCode) { _ytdActualsCache.clear(); return }
+  const prefix = assocCode.toUpperCase() + '::'
+  for (const k of _ytdActualsCache.keys()) if (k.startsWith(prefix)) _ytdActualsCache.delete(k)
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1684,7 +1753,18 @@ const BUDGET_TTL_MS = 30 * 60_000  // 30 min — budgets change infrequently
 
 /** Fetch the budget for an association and reduce it to a clean list
  *  of GL options. Cached for 30 min per assoc code. Returns [] on a
- *  4xx (so callers can render an empty dropdown gracefully). */
+ *  4xx (so callers can render an empty dropdown gracefully).
+ *
+ *  IMPORTANT — we DO NOT trust CINC's `Actual`/`Remaining` fields on
+ *  this endpoint. CINC has been observed returning a single period's
+ *  number (or zero) instead of YTD totals — e.g. LFA Mgmt Contract
+ *  Actual=$795 when 5 months of $795 invoices ($4,041.25) had posted,
+ *  Electricity Actual=$0 when $1,934 had been paid. Karen flagged
+ *  this in May 2026 ("most items show full amount as not used").
+ *
+ *  Fix: overlay YTD actuals computed from glTransactions (see
+ *  getYtdActualsByGl). The CINC-reported Actual is kept ONLY as a
+ *  fallback for GL accounts that have no posted activity yet. */
 export async function getAssociationBudget(
   assocCode: string,
   opts?:     { forceRefresh?: boolean },
@@ -1695,15 +1775,19 @@ export async function getAssociationBudget(
     if (hit && hit.expiresAt > Date.now()) return hit.lines
   }
 
-  const raw = await call<CincBudgetLine[]>(
-    `/management/1/accounting/budget/association/${encodeURIComponent(key)}`,
-    { method: 'GET' },
-  ).catch(err => {
-    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
-      return [] as CincBudgetLine[]
-    }
-    throw err
-  })
+  // Fetch CINC's reported budget + our own YTD actuals in parallel.
+  const [raw, ytdByGl] = await Promise.all([
+    call<CincBudgetLine[]>(
+      `/management/1/accounting/budget/association/${encodeURIComponent(key)}`,
+      { method: 'GET' },
+    ).catch(err => {
+      if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+        return [] as CincBudgetLine[]
+      }
+      throw err
+    }),
+    getYtdActualsByGl(key, { forceRefresh: opts?.forceRefresh }).catch(() => new Map<string, number>()),
+  ])
 
   const seen  = new Set<string>()
   const lines: BudgetGlOption[] = []
@@ -1716,13 +1800,29 @@ export async function getAssociationBudget(
     const name = (r.GLAccountDescription ?? '').trim()
     if (!name) continue
     seen.add(id)
+
+    const cincReportedActual = typeof r.Actual === 'number' ? r.Actual : null
+    const glNumber           = r.GLAccountNumber ?? null
+    const ytdComputed        = glNumber ? (ytdByGl.get(glNumber) ?? 0) : 0
+    // Prefer our YTD when we have ANY glTransactions for the GL —
+    // CINC's reported value is unreliable. Fall back to CINC's value
+    // only when we have zero transactional data (e.g. brand-new GL).
+    const actual = ytdComputed !== 0
+      ? ytdComputed
+      : cincReportedActual
+    const budget = typeof r.AnnualBudget === 'number' ? r.AnnualBudget : null
+    const remaining =
+      budget != null && actual != null  ? Math.max(0, budget - Math.max(0, actual))
+      : typeof r.Remaining === 'number' ? r.Remaining
+      : null
+
     lines.push({
       id,
-      number:    r.GLAccountNumber ?? null,
+      number: glNumber,
       name,
-      budget:    typeof r.AnnualBudget === 'number' ? r.AnnualBudget : null,
-      actual:    typeof r.Actual      === 'number' ? r.Actual      : null,
-      remaining: typeof r.Remaining   === 'number' ? r.Remaining   : null,
+      budget,
+      actual,
+      remaining,
     })
   }
   // Sort by GL number when available (typical accounting expectation),
