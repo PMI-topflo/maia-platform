@@ -117,6 +117,89 @@ function inferPaidType(description: string | null, isOutflow: boolean): string |
   return null
 }
 
+/** Infer a vendor/payee label from CINC's Description field.
+ *
+ *  CINC's glTransactions endpoint exposes Description but NOT a
+ *  separate Vendor field. Earlier versions copied Description into
+ *  both the vendor_payee and description columns — Karen saw the
+ *  same text twice (e.g. "Deposit from batch 17945" / "Deposit from
+ *  batch 17945"). The Description column already shows the full text;
+ *  vendor_payee should be the actor: who paid us, who we paid, or
+ *  what kind of bank-side event this is.
+ *
+ *  Rules — first match wins:
+ *    "Deposit from batch NNN"        → "Bank deposit"
+ *    "Funds Transfer"                → "Funds transfer"
+ *    "Interest"                      → "Bank interest"
+ *    "<text> (<VendorName> Inv.#X)"  → "<VendorName>"    (vendor in parens)
+ *    "Misc. Check"                   → null              (Karen will fill)
+ *    "<BANK> - Cash Operating - NNN" → null              (bank-internal)
+ *    anything else                   → null              (let Karen fill)
+ *
+ *  When this returns null, vendor_payee stays empty and the operator
+ *  has the full Description visible in its own column to fill in by
+ *  hand. That's strictly better than the duplicate-text bug.
+ */
+function inferVendorPayee(description: string | null, isOutflow: boolean): string | null {
+  if (!description) return null
+  const d = description.trim()
+  if (!d) return null
+  const lower = d.toLowerCase()
+
+  // Inflows — bank-side events first.
+  if (!isOutflow) {
+    if (/^deposit\s+from\s+batch/i.test(d)) return 'Bank deposit'
+    if (/\binterest\b/i.test(lower))        return 'Bank interest'
+    if (/^funds?\s+transfer/i.test(d))      return 'Funds transfer'
+    if (/laundry|coin|vending/i.test(lower)) return 'Onsite income'
+    return null
+  }
+
+  // Outflows.
+  // "Funds Transfer" — bank-internal sweep, not a vendor.
+  if (/^funds?\s+transfer/i.test(d)) return 'Funds transfer'
+
+  // Bank-account name as the entire description ("SSB - Cash
+  // Operating - 1019") — this is a bank-internal posting like a
+  // sweep or fee, not a vendor payment.
+  if (/^[A-Z]{2,6}\s*-\s*Cash\s+(Operating|Reserve|Special)/i.test(d)) return null
+
+  // Vendor name embedded in parens, with or without a trailing
+  // "Inv.#NNN". Example seen on DELA 5/5:
+  //   "Inv.#RVP-4031 - Alternative Pymt. Method (Waste Connections Inv.#3696218W440)"
+  // → vendor_payee = "Waste Connections"
+  const paren = d.match(/\(([^)]+?)(?:\s+Inv\.?\s*#[\w-]+)?\)/)
+  if (paren) {
+    const inside = paren[1].trim()
+    // Reject parenthetical fragments that are clearly not a vendor name
+    // (all-lowercase short snippets, dates, dollar amounts, percentages).
+    if (
+      inside.length >= 3
+      && !/^\d/.test(inside)
+      && !/^\$/.test(inside)
+      && /[A-Z]/.test(inside)
+      && !/^\d+%\s*pymt/i.test(inside)
+    ) {
+      return inside
+    }
+  }
+
+  // Generic check / ACH payments where CINC didn't name the payee.
+  if (/^misc\.?\s*check\b/i.test(d)) return null
+  if (/^auto[\s-]*debit\b/i.test(d)) return null
+
+  // Account-based descriptions ("Acct.#6440084222 - June 2026 Waste
+  // Service (37.313% Pymt.)") — extract the service name as a hint
+  // when the parenthetical didn't yield a vendor.
+  const acctService = d.match(/^acct\.?#\S+\s*[-–]\s*(?:[A-Z][a-z]+\s+\d{4}\s+)?([A-Z][A-Za-z &]+?(?:\s+Service)?)\s*(?:\(|$)/)
+  if (acctService && acctService[1].length >= 4) {
+    return acctService[1].trim()
+  }
+
+  // Nothing reliable to extract — leave vendor_payee blank.
+  return null
+}
+
 /** Sync ALL bank activity for an association from CINC. Optionally
  *  narrow to a (fromDate, toDate) window — defaults to the past 60
  *  days, which covers Isabela's typical month-end + current-month
@@ -240,13 +323,23 @@ export async function syncReconciliationForAssoc(
         cinc_payment_id:            null as string | null,
         effective_date:             effectiveDate,
         customer:                   associationCode.toUpperCase(),
+        // When a MAIA draft matched, we already KNOW the vendor —
+        // use the matched vendor name (or its short alias). Otherwise
+        // try to derive a meaningful vendor label from the CINC
+        // Description, falling back to null when nothing reliable is
+        // there.
+        //
+        // Description column is the raw CINC text (matched OR not).
+        // We used to prefer the matched draft's gl_account_name here,
+        // but it made the column lose the CINC posting text (Inv.#,
+        // batch ID, etc.) that Karen also needs for reconciliation.
+        // Keeping the raw description means the vendor_payee column
+        // now shows the WHO and the description column shows the
+        // WHAT — two distinct signals instead of duplicates.
         vendor_payee:               matchedDraft?.matched_vendor_name
                                       ?? matchedDraft?.matched_vendor_short_name
-                                      ?? (tx.Description ?? '').trim()
-                                      ?? null,
-        description:                matchedDraft?.gl_account_name
-                                      ?? (tx.Description ?? '').trim()
-                                      ?? null,
+                                      ?? inferVendorPayee(tx.Description ?? null, isOutflow),
+        description:                ((tx.Description ?? '').trim() || matchedDraft?.gl_account_name || null),
         invoice_number:             matchedDraft?.extracted_invoice_number ?? null,
         amount,
         paid_type:                  matchedDraft?.pay_by_type ?? inferPaidType(tx.Description ?? null, isOutflow),
