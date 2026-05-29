@@ -13,6 +13,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sendComplianceDigestEmail } from '@/lib/email/compliance-digest';
+import { currentReportYear, dueDate, sunbizStatus, statusNeedsAttention } from '@/lib/sunbiz';
 
 interface AlertRow {
   account_number: string;
@@ -211,6 +212,45 @@ export async function GET(req: Request) {
     });
   }
 
+  // ---- 7. Sunbiz annual reports ----
+  // Per active association, has THIS year's FL annual report been filed?
+  // Due May 1; $400 late fee after; administrative dissolution by the 4th
+  // Friday of September. reference_id is the association's id (stable per
+  // association) so two unfiled associations don't collide in the dedup
+  // key. account_number = association_code (association-level).
+  const sunbizYear = currentReportYear();
+  const [{ data: activeAssocs }, { data: filings }] = await Promise.all([
+    supabaseAdmin.from('associations').select('id, association_code, association_name').eq('active', true),
+    supabaseAdmin.from('association_annual_reports').select('association_code, filed_date').eq('report_year', sunbizYear),
+  ]);
+  const filedByCode = new Map<string, string | null>();
+  for (const f of filings ?? []) filedByCode.set(f.association_code, f.filed_date);
+
+  let sunbizScanned = 0;
+  for (const a of activeAssocs ?? []) {
+    sunbizScanned++;
+    const status = sunbizStatus(sunbizYear, filedByCode.get(a.association_code) ?? null);
+    if (!statusNeedsAttention(status)) continue;
+    const due = dueDate(sunbizYear);
+    const days = daysBetween(due);
+    const overdue = status === 'overdue' || status === 'dissolution_risk';
+    newAlerts.push({
+      account_number: a.association_code,
+      association_code: a.association_code,
+      alert_type: overdue ? 'sunbiz_overdue' : 'sunbiz_due',
+      severity: status === 'dissolution_risk' ? 'critical' : severityFor(days),
+      reference_id: a.id,
+      reference_table: 'associations',
+      expiration_date: due,
+      days_delta: days,
+      message: status === 'dissolution_risk'
+        ? `${a.association_name ?? a.association_code}: Sunbiz ${sunbizYear} annual report UNFILED — administrative dissolution risk`
+        : overdue
+          ? `${a.association_name ?? a.association_code}: Sunbiz ${sunbizYear} annual report overdue (was due ${due}) — $400 late fee`
+          : `${a.association_name ?? a.association_code}: Sunbiz ${sunbizYear} annual report due ${due}`,
+    });
+  }
+
   // ---- Dedupe & insert ----
   // Skip alerts that already exist and are unresolved (same reference_id + alert_type)
   const { data: existing } = await supabaseAdmin
@@ -269,6 +309,7 @@ export async function GET(req: Request) {
       violations: violations?.length ?? 0,
       assocInsurance: assocInsurance?.length ?? 0,
       inspections: inspections?.length ?? 0,
+      sunbiz: sunbizScanned,
     },
     newAlerts: toInsert.length,
     autoResolved: toResolve.length,
