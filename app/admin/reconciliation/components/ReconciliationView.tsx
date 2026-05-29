@@ -513,7 +513,6 @@ export default function ReconciliationView(props: Props) {
           <thead>
             <tr style={{ background: '#f3f4f6' }}>
               <Th>Effective Date</Th>
-              <Th>Customer</Th>
               <Th>Vendor/Payee</Th>
               <Th>Description</Th>
               <Th>Invoice #</Th>
@@ -532,17 +531,17 @@ export default function ReconciliationView(props: Props) {
           </thead>
           <tbody>
             {entriesLoading && (
-              <tr><td colSpan={14 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>Loading…</td></tr>
+              <tr><td colSpan={13 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>Loading…</td></tr>
             )}
             {!entriesLoading && entries.length === 0 && (
-              <tr><td colSpan={14 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>
+              <tr><td colSpan={13 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>
                 {assoc ? 'No entries this month. Click "Sync now" to pull CINC payments, or "+ Manual entry" to add a row.' : 'Pick an association above.'}
               </td></tr>
             )}
             {/* Starting balance row */}
             {entries.length > 0 && (
               <tr style={{ background: '#fefce8', borderTop: '1px solid #f3f4f6', fontWeight: 600 }}>
-                <Td colSpan={10}>Starting balance — {new Date(month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })}</Td>
+                <Td colSpan={9}>Starting balance — {new Date(month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })}</Td>
                 {sortedBanks.map(b => (
                   <Td key={b.id} right><span style={{ fontVariantNumeric: 'tabular-nums', color: '#111827' }}>${fmt$(startingBalances.get(b.id) ?? 0)}</span></Td>
                 ))}
@@ -554,7 +553,6 @@ export default function ReconciliationView(props: Props) {
               return (
                 <tr key={e.id} style={{ background: e.reconciled_at ? '#f0fdf4' : '#fff', borderTop: '1px solid #f3f4f6' }}>
                   <Td>{formatMD(e.effective_date)}</Td>
-                  <Td>{e.customer ?? ''}</Td>
                   <Td>{e.vendor_payee ?? ''}</Td>
                   <Td>{e.description ?? ''}</Td>
                   <Td>
