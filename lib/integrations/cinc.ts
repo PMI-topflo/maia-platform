@@ -905,21 +905,25 @@ export async function listWorkOrderAttachments(workOrderId: number): Promise<Cin
 // UserDefined1 to store our internal "short name" for invoice file
 // renaming (e.g. "Atlas" for "Atlas Electrical Performance LLC").
 // ─────────────────────────────────────────────────────────────────────
+// Field names verified against the live /management/1/vendors response
+// (2026-05-29). CINC uses Dba / ZipCode / TaxID / Address1 / Phone1 — the
+// older PascalCase guesses (DBA / Zip / TaxId / AddressLine1 / Phone) never
+// matched, so the fuzzy matcher's DBA check was silently dead.
 export interface CincVendorFull {
   VendorId:      number
   VendorName:    string
   /** Doing-Business-As. Many vendors invoice under the DBA while CINC
    *  carries the legal name (or vice versa) — the fuzzy matcher checks
    *  this alongside VendorName + CheckName. */
-  DBA?:          string  | null
+  Dba?:          string  | null
   CheckName?:    string  | null
   Email?:        string  | null
-  Phone?:        string  | null
-  AddressLine1?: string  | null
+  Phone1?:       string  | null
+  Address1?:     string  | null
   City?:         string  | null
   State?:        string  | null
-  Zip?:          string  | null
-  TaxId?:        string  | null
+  ZipCode?:      string  | null
+  TaxID?:        string  | null
   UserDefined1?: string  | null  // our short_name
   UserDefined2?: string  | null
   UserDefined3?: string  | null
@@ -1069,7 +1073,7 @@ export function fuzzyMatchVendor(extractedName: string, catalog: CincVendorFull[
   // Exact match (normalized) on any of the three fields wins outright.
   const exact = catalog.find(v =>
     normalizeVendorName(v.VendorName ?? '') === target ||
-    normalizeVendorName(v.DBA        ?? '') === target ||
+    normalizeVendorName(v.Dba        ?? '') === target ||
     normalizeVendorName(v.CheckName  ?? '') === target,
   )
   if (exact) return exact
@@ -1081,7 +1085,7 @@ export function fuzzyMatchVendor(extractedName: string, catalog: CincVendorFull[
   for (const v of catalog) {
     const score = Math.max(
       scoreAgainstField(targetTokens, v.VendorName),
-      scoreAgainstField(targetTokens, v.DBA),
+      scoreAgainstField(targetTokens, v.Dba),
       scoreAgainstField(targetTokens, v.CheckName),
     )
     if (score >= 0.6 && (!best || score > best.score)) {
@@ -1172,15 +1176,21 @@ export async function getInvoiceStatusIdByName(name: string): Promise<number | n
   return null
 }
 
+// Verified live (2026-05-29): /management/associations/1/payByTypes
+// returns { PayTypeId, PayTypeDescription }. The older PascalCase guesses
+// (PayByTypeID / PayByTypeName / Description / Name) never matched, so the
+// payment-method dropdown came out blank. Real fields first; old names
+// kept as defensive fallbacks.
 export interface CincPayByType {
-  PayByTypeID?:    number | string | null
-  PayByTypeName?:  string | null
-  Description?:    string | null
-  Name?:           string | null
+  PayTypeId?:          number | string | null
+  PayTypeDescription?: string | null
+  PayByTypeID?:        number | string | null
+  PayByTypeName?:      string | null
+  Description?:        string | null
+  Name?:               string | null
   /** What the createInvoice body's PayByType field actually wants —
-   *  often the name string ("Check", "ACH"). When it differs from the
-   *  display label we expose both. */
-  PayByType?:      string | null
+   *  the name string ("Check", "ACH"). */
+  PayByType?:          string | null
 }
 
 const _payByCache = new Map<string, CincPayByType[]>()

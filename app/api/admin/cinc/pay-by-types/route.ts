@@ -29,8 +29,10 @@ export async function GET(req: Request) {
     // CINC's response uses inconsistent field names across endpoints
     // — try each plausible source.
     const types = raw.map(t => {
-      const value = String(t.PayByType ?? t.PayByTypeName ?? t.Name ?? t.Description ?? '').trim()
-      const label = (t.PayByTypeName ?? t.Description ?? t.Name ?? value ?? '').trim()
+      // CINC returns { PayTypeId, PayTypeDescription }; the others are
+      // defensive fallbacks for casing drift across endpoints/tenants.
+      const value = String(t.PayByType ?? t.PayTypeDescription ?? t.PayByTypeName ?? t.Name ?? t.Description ?? '').trim()
+      const label = (t.PayTypeDescription ?? t.PayByTypeName ?? t.Description ?? t.Name ?? value ?? '').trim()
       return value ? { value, label: label || value } : null
     }).filter((x): x is { value: string; label: string } => !!x)
     return NextResponse.json({ assoc: assoc.toUpperCase(), types })
