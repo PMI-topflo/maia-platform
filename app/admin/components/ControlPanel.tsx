@@ -41,15 +41,16 @@ export interface InvoiceDraftRow {
 }
 
 /** Where the actual file lives — system (uploaded, retrievable in-app),
- *  drive (link only), or none (no file attached yet). */
-export type FileSource = 'system' | 'drive' | 'none'
+ *  drive (link only), metadata (no document — a tracked date/fact like a
+ *  Sunbiz filing), or none (a file is expected but not attached yet). */
+export type FileSource = 'system' | 'drive' | 'metadata' | 'none'
 
 /** A single compliance item with an expiry/deadline date. `scope` splits
  *  the dashboard into 🏢 Building (association/common-area) vs 🏠 Unit
  *  (per-unit) instruments. */
 export interface ComplianceItem {
   scope:            'building' | 'unit'
-  kind:             'insurance' | 'inspection' | 'document' | 'lease' | 'unit_insurance' | 'permit' | 'violation'
+  kind:             'insurance' | 'inspection' | 'document' | 'sunbiz' | 'lease' | 'unit_insurance' | 'permit' | 'violation'
   label:            string
   association_code: string | null
   date:             string   // YYYY-MM-DD (expiry / next-due / resolution date)
@@ -154,11 +155,11 @@ function daysUntil(dateStr: string): number {
 }
 
 const KIND_ICON: Record<ComplianceItem['kind'], string> = {
-  insurance: '🛡', inspection: '🏗', document: '📄',
+  insurance: '🛡', inspection: '🏗', document: '📄', sunbiz: '🏛',
   lease: '📃', unit_insurance: '🛡', permit: '📋', violation: '⚠️',
 }
 const KIND_LABEL: Record<ComplianceItem['kind'], string> = {
-  insurance: 'insurance', inspection: 'inspection', document: 'document',
+  insurance: 'insurance', inspection: 'inspection', document: 'document', sunbiz: 'sunbiz',
   lease: 'lease', unit_insurance: 'insurance', permit: 'permit', violation: 'violation',
 }
 
@@ -166,13 +167,14 @@ const KIND_LABEL: Record<ComplianceItem['kind'], string> = {
 // (file lives in Google Drive); ∅ = nothing attached yet.
 function SourceChip({ source }: { source: FileSource }) {
   const map: Record<FileSource, { icon: string; label: string; cls: string }> = {
-    system: { icon: '📦', label: 'in system', cls: 'bg-emerald-50 text-emerald-700' },
-    drive:  { icon: '🗂', label: 'Drive',     cls: 'bg-blue-50 text-blue-700' },
-    none:   { icon: '∅', label: 'no file',   cls: 'bg-amber-50 text-amber-700' },
+    system:   { icon: '📦', label: 'in system', cls: 'bg-emerald-50 text-emerald-700' },
+    drive:    { icon: '🗂', label: 'Drive',     cls: 'bg-blue-50 text-blue-700' },
+    metadata: { icon: '📝', label: 'tracked',   cls: 'bg-gray-100 text-gray-500' },
+    none:     { icon: '∅', label: 'no file',   cls: 'bg-amber-50 text-amber-700' },
   }
   const s = map[source]
   return (
-    <span title={source === 'system' ? 'File uploaded into the system' : source === 'drive' ? 'Linked file lives in Google Drive' : 'No file attached yet'}
+    <span title={source === 'system' ? 'File uploaded into the system' : source === 'drive' ? 'Linked file lives in Google Drive' : source === 'metadata' ? 'No document — a tracked date/fact (e.g. Sunbiz filing)' : 'No file attached yet'}
       className={`inline-flex items-center gap-0.5 px-1 py-0 rounded text-[9px] font-mono uppercase shrink-0 ${s.cls}`}>
       {s.icon} {s.label}
     </span>

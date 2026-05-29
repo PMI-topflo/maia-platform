@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveStaffByLoginEmail, staffCandidateEmails } from '@/lib/staff-lookup'
 import { policyTypeLabel } from '@/lib/association-insurance'
 import { inspectionTypeLabel } from '@/lib/association-safety'
+import { currentReportYear, dueDate, sunbizStatus, statusNeedsAttention as sunbizNeedsAttention } from '@/lib/sunbiz'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from './components/AdminNav'
 import StaffStatsPanel from './components/StaffStatsPanel'
@@ -80,6 +81,8 @@ export default async function OverviewPage() {
     { data: leasesRaw },
     { data: unitInsRaw },
     { data: violationsRaw },
+    { data: sunbizAssocsRaw },
+    { data: sunbizFilingsRaw },
   ] = await Promise.all([
     supabaseAdmin.from('general_conversations').select('id', { count: 'exact', head: true }).eq('status', 'unidentified'),
     supabaseAdmin.from('applications').select('id', { count: 'exact', head: true }).eq('board_approval_status', 'pending').eq('stripe_payment_status', 'paid'),
@@ -182,6 +185,17 @@ export default async function OverviewPage() {
       .lte('resolution_due_date', horizonISO)
       .order('resolution_due_date', { ascending: true })
       .then(r => r, () => ({ data: [] as Record<string, unknown>[], error: null })),
+    // Sunbiz: active associations + current-year filings (I8).
+    supabaseAdmin
+      .from('associations')
+      .select('association_code, association_name')
+      .eq('active', true)
+      .then(r => r, () => ({ data: [] as Record<string, unknown>[], error: null })),
+    supabaseAdmin
+      .from('association_annual_reports')
+      .select('association_code, filed_date')
+      .eq('report_year', currentReportYear())
+      .then(r => r, () => ({ data: [] as Record<string, unknown>[], error: null })),
   ])
 
   const myTasks       = (myTasksRaw       ?? []) as TicketRow[]
@@ -220,6 +234,25 @@ export default async function OverviewPage() {
       source: srcOf(d.storage_path, d.drive_url),
       href: `/admin/cinc-sync/${d.association_code}/documents`,
     })),
+    // Sunbiz annual reports — surface associations whose current-year
+    // filing needs attention (due soon / overdue / dissolution risk).
+    // 📝 metadata source (no document; the confirmation # is the artifact).
+    ...(() => {
+      const yr = currentReportYear()
+      const filed = new Map<string, string | null>()
+      for (const f of (sunbizFilingsRaw ?? []) as Array<{ association_code: string; filed_date: string | null }>) {
+        filed.set(f.association_code, f.filed_date)
+      }
+      return ((sunbizAssocsRaw ?? []) as Array<{ association_code: string; association_name: string | null }>)
+        .filter(a => sunbizNeedsAttention(sunbizStatus(yr, filed.get(a.association_code) ?? null)))
+        .map(a => ({
+          scope: 'building' as const, kind: 'sunbiz' as const,
+          label: `Sunbiz ${yr} annual report${a.association_name ? ` · ${a.association_name}` : ''}`,
+          association_code: a.association_code, date: dueDate(yr),
+          source: 'metadata' as const,
+          href: `/admin/sunbiz`,
+        }))
+    })(),
   ].sort(byDate)
 
   // 🏠 UNIT compliance — per-unit (Drive-tracked). Leases, HO-6
