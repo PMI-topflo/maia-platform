@@ -40,19 +40,20 @@ export interface InvoiceDraftRow {
   created_at:                  string
 }
 
-export interface ExpiringItem {
-  kind:             'insurance' | 'permit' | 'document'
-  label:            string
-  association_code: string | null
-  date:             string   // YYYY-MM-DD
-  href:             string
-}
+/** Where the actual file lives — system (uploaded, retrievable in-app),
+ *  drive (link only), or none (no file attached yet). */
+export type FileSource = 'system' | 'drive' | 'none'
 
-export interface InspectionItem {
+/** A single compliance item with an expiry/deadline date. `scope` splits
+ *  the dashboard into 🏢 Building (association/common-area) vs 🏠 Unit
+ *  (per-unit) instruments. */
+export interface ComplianceItem {
+  scope:            'building' | 'unit'
+  kind:             'insurance' | 'inspection' | 'document' | 'lease' | 'unit_insurance' | 'permit' | 'violation'
   label:            string
-  building_label:   string | null
   association_code: string | null
-  date:             string   // YYYY-MM-DD (next_due_date)
+  date:             string   // YYYY-MM-DD (expiry / next-due / resolution date)
+  source:           FileSource
   href:             string
 }
 
@@ -78,7 +79,7 @@ interface Counts {
   myTasks: number; overdue: number; workOrders: number; invoices: number
   applications: number; registrations: number; unidentified: number; tickets: number
   compliance: number; maiaErrors: number; owners: number; ownershipTransfers: number
-  expiring: number; inspections: number
+  building: number; unit: number
 }
 
 interface Props {
@@ -86,8 +87,8 @@ interface Props {
   myTasks:         TicketRow[]
   workOrders:      TicketRow[]
   invoiceDrafts:   InvoiceDraftRow[]
-  expiringItems:   ExpiringItem[]
-  inspectionItems: InspectionItem[]
+  buildingItems:   ComplianceItem[]
+  unitItems:       ComplianceItem[]
   teamAlerts:      TeamAlert[]
   recentCommands:  MaiaCommandRow[]
   candidateList:   string[]
@@ -95,7 +96,7 @@ interface Props {
 }
 
 type Severity = 'nominal' | 'caution' | 'warning'
-type DrawerId = 'tasks' | 'workorders' | 'invoices' | 'expiring' | 'inspections' | 'alerts' | 'maia'
+type DrawerId = 'tasks' | 'workorders' | 'invoices' | 'building' | 'unit' | 'alerts' | 'maia'
 
 // ─── presentation helpers ─────────────────────────────────────────────
 const SEV_LED: Record<Severity, string> = {
@@ -152,19 +153,43 @@ function daysUntil(dateStr: string): number {
   return Math.round((d.getTime() - t.getTime()) / 86_400_000)
 }
 
-const KIND_ICON: Record<ExpiringItem['kind'], string> = {
-  insurance: '🛡', permit: '📋', document: '📄',
+const KIND_ICON: Record<ComplianceItem['kind'], string> = {
+  insurance: '🛡', inspection: '🏗', document: '📄',
+  lease: '📃', unit_insurance: '🛡', permit: '📋', violation: '⚠️',
+}
+const KIND_LABEL: Record<ComplianceItem['kind'], string> = {
+  insurance: 'insurance', inspection: 'inspection', document: 'document',
+  lease: 'lease', unit_insurance: 'insurance', permit: 'permit', violation: 'violation',
+}
+
+// 📦 = file uploaded into the system (retrievable in-app); 🗂 = link only
+// (file lives in Google Drive); ∅ = nothing attached yet.
+function SourceChip({ source }: { source: FileSource }) {
+  const map: Record<FileSource, { icon: string; label: string; cls: string }> = {
+    system: { icon: '📦', label: 'in system', cls: 'bg-emerald-50 text-emerald-700' },
+    drive:  { icon: '🗂', label: 'Drive',     cls: 'bg-blue-50 text-blue-700' },
+    none:   { icon: '∅', label: 'no file',   cls: 'bg-amber-50 text-amber-700' },
+  }
+  const s = map[source]
+  return (
+    <span title={source === 'system' ? 'File uploaded into the system' : source === 'drive' ? 'Linked file lives in Google Drive' : 'No file attached yet'}
+      className={`inline-flex items-center gap-0.5 px-1 py-0 rounded text-[9px] font-mono uppercase shrink-0 ${s.cls}`}>
+      {s.icon} {s.label}
+    </span>
+  )
 }
 
 // ─── main ──────────────────────────────────────────────────────────────
 export default function ControlPanel(props: Props) {
-  const { counts, myTasks, workOrders, invoiceDrafts, expiringItems, inspectionItems, teamAlerts, recentCommands } = props
+  const { counts, myTasks, workOrders, invoiceDrafts, buildingItems, unitItems, teamAlerts, recentCommands } = props
   const [open, setOpen] = useState<DrawerId | null>(null)
 
-  const expiredNow = expiringItems.filter(i => daysUntil(i.date) < 0).length
-  const expiringSoon = expiringItems.filter(i => { const d = daysUntil(i.date); return d >= 0 && d <= 30 }).length
-  const inspOverdue = inspectionItems.filter(i => daysUntil(i.date) < 0).length
-  const inspSoon = inspectionItems.filter(i => { const d = daysUntil(i.date); return d >= 0 && d <= 90 }).length
+  const overdue = (items: ComplianceItem[]) => items.filter(i => daysUntil(i.date) < 0).length
+  const soon = (items: ComplianceItem[]) => items.filter(i => { const d = daysUntil(i.date); return d >= 0 && d <= 30 }).length
+  const bldOverdue = overdue(buildingItems), bldSoon = soon(buildingItems)
+  const unitOverdue = overdue(unitItems), unitSoon = soon(unitItems)
+  const sevFor = (n: number, over: number) => over > 0 ? 'warning' as const : n > 0 ? 'caution' as const : 'nominal' as const
+  const subFor = (n: number, over: number, sn: number) => over > 0 ? `${over} overdue · ${sn} ≤30d` : n > 0 ? `${sn} due ≤30d` : 'all current'
 
   // Each instrument: id, label, big value, sub, severity, and either a
   // drawer to open or an href to navigate.
@@ -179,16 +204,16 @@ export default function ControlPanel(props: Props) {
       drawer: 'tasks',
     },
     {
-      id: 'expiring', label: 'Docs & Permits', value: counts.expiring,
-      sub: expiredNow > 0 ? `${expiredNow} expired · ${expiringSoon} ≤30d` : counts.expiring > 0 ? `${expiringSoon} due ≤30d` : 'none expiring',
-      sev: expiredNow > 0 ? 'warning' : counts.expiring > 0 ? 'caution' : 'nominal',
-      drawer: 'expiring',
+      id: 'building', label: 'Building Compliance', value: counts.building,
+      sub: subFor(counts.building, bldOverdue, bldSoon),
+      sev: sevFor(counts.building, bldOverdue),
+      drawer: 'building',
     },
     {
-      id: 'inspections', label: 'Inspections Due', value: counts.inspections,
-      sub: inspOverdue > 0 ? `${inspOverdue} overdue · ${inspSoon} ≤90d` : counts.inspections > 0 ? `${inspSoon} due ≤90d` : 'none due',
-      sev: inspOverdue > 0 ? 'warning' : counts.inspections > 0 ? 'caution' : 'nominal',
-      drawer: 'inspections',
+      id: 'unit', label: 'Unit Compliance', value: counts.unit,
+      sub: subFor(counts.unit, unitOverdue, unitSoon),
+      sev: sevFor(counts.unit, unitOverdue),
+      drawer: 'unit',
     },
     {
       id: 'workorders', label: 'Work Orders', value: counts.workOrders,
@@ -203,8 +228,8 @@ export default function ControlPanel(props: Props) {
       drawer: 'invoices',
     },
     {
-      id: 'compliance', label: 'Compliance', value: counts.compliance,
-      sub: counts.compliance > 0 ? 'unresolved alerts' : 'no alerts',
+      id: 'alertqueue', label: 'Open Alerts', value: counts.compliance,
+      sub: counts.compliance > 0 ? 'resolve on Audit →' : 'queue clear',
       sev: counts.compliance > 0 ? 'caution' : 'nominal',
       href: '/admin/audit',
     },
@@ -338,16 +363,16 @@ export default function ControlPanel(props: Props) {
           : invoiceDrafts.map(d => <InvoiceLine key={d.id} d={d} />)
       }</Drawer>}
 
-      {open === 'expiring'   && <Drawer title="Documents & Permits Expiring" accent="#ef4444" onClose={() => setOpen(null)}>{
-        expiringItems.length === 0
-          ? <Empty>Nothing expiring in the next 120 days. Insurance, city permits (Certificate of Use), and dated documents all roll up here.</Empty>
-          : expiringItems.map((it, i) => <ExpiringLine key={`${it.kind}-${i}`} it={it} />)
+      {open === 'building'   && <Drawer title="🏢 Building Compliance — association / common-area" accent="#ef4444" onClose={() => setOpen(null)}>{
+        buildingItems.length === 0
+          ? <Empty>Nothing due in the next 120 days. Master insurance, structural-safety inspections (SIRS / Milestone / Wind / Roof), and dated governing documents roll up here.</Empty>
+          : buildingItems.map((it, i) => <ComplianceLine key={`bld-${i}`} it={it} />)
       }</Drawer>}
 
-      {open === 'inspections' && <Drawer title="Structural-Safety Inspections Due" accent="#ef4444" onClose={() => setOpen(null)}>{
-        inspectionItems.length === 0
-          ? <Empty>No SIRS, Milestone, Wind Mitigation, or Roof inspections due in the next 180 days.</Empty>
-          : inspectionItems.map((it, i) => <InspectionLine key={`insp-${i}`} it={it} />)
+      {open === 'unit'       && <Drawer title="🏠 Unit Compliance — per-unit documents" accent="#ef4444" onClose={() => setOpen(null)}>{
+        unitItems.length === 0
+          ? <Empty>Nothing due in the next 120 days. Leases, unit (HO-6) insurance, city Certificates of Use, and violations roll up here. These files live in Drive — track the link + expiry.</Empty>
+          : unitItems.map((it, i) => <ComplianceLine key={`unit-${i}`} it={it} />)
       }</Drawer>}
 
       {open === 'alerts'     && <Drawer title="Needs Attention (team)" accent="#f59e0b" onClose={() => setOpen(null)}>{
@@ -443,33 +468,16 @@ function InvoiceLine({ d }: { d: InvoiceDraftRow }) {
   )
 }
 
-function ExpiringLine({ it }: { it: ExpiringItem }) {
+function ComplianceLine({ it }: { it: ComplianceItem }) {
   const days = daysUntil(it.date)
   const tone = days < 0 ? 'text-red-600 font-semibold' : days <= 30 ? 'text-amber-700 font-medium' : 'text-gray-500'
-  const when = days < 0 ? `Expired ${Math.abs(days)}d ago` : days === 0 ? 'Expires today' : `In ${days}d`
-  return (
-    <Link href={it.href} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 group">
-      <span className="text-base shrink-0" aria-hidden>{KIND_ICON[it.kind]}</span>
-      <span className="inline-flex rounded px-1.5 py-0.5 text-[9px] font-mono uppercase shrink-0 bg-gray-100 text-gray-500">{it.kind}</span>
-      <span className="text-sm text-gray-800 flex-1 truncate group-hover:text-gray-900">{it.label}</span>
-      {it.association_code && <span className="text-[10px] font-mono text-gray-400 shrink-0 hidden md:inline">{it.association_code}</span>}
-      <span className="text-[10px] font-mono text-gray-400 shrink-0 hidden sm:inline">{it.date}</span>
-      <span className={`text-[10px] shrink-0 ${tone}`}>{when}</span>
-      <span className="text-gray-300 group-hover:text-[#f26a1b] shrink-0">→</span>
-    </Link>
-  )
-}
-
-function InspectionLine({ it }: { it: InspectionItem }) {
-  const days = daysUntil(it.date)
-  const tone = days < 0 ? 'text-red-600 font-semibold' : days <= 90 ? 'text-amber-700 font-medium' : 'text-gray-500'
   const when = days < 0 ? `Overdue ${Math.abs(days)}d` : days === 0 ? 'Due today' : `In ${days}d`
   return (
     <Link href={it.href} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 group">
-      <span className="text-base shrink-0" aria-hidden>🏗</span>
-      <span className="text-sm text-gray-800 flex-1 truncate group-hover:text-gray-900">
-        {it.label}{it.building_label ? ` · ${it.building_label}` : ''}
-      </span>
+      <span className="text-base shrink-0" aria-hidden>{KIND_ICON[it.kind]}</span>
+      <span className="inline-flex rounded px-1.5 py-0.5 text-[9px] font-mono uppercase shrink-0 bg-gray-100 text-gray-500">{KIND_LABEL[it.kind]}</span>
+      <span className="text-sm text-gray-800 flex-1 truncate group-hover:text-gray-900">{it.label}</span>
+      <SourceChip source={it.source} />
       {it.association_code && <span className="text-[10px] font-mono text-gray-400 shrink-0 hidden md:inline">{it.association_code}</span>}
       <span className="text-[10px] font-mono text-gray-400 shrink-0 hidden sm:inline">{it.date}</span>
       <span className={`text-[10px] shrink-0 ${tone}`}>{when}</span>

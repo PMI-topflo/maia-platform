@@ -41,6 +41,10 @@ function cleanText(v: unknown): string | null {
   const s = (typeof v === 'string' ? v : '').trim()
   return s.length ? s : null
 }
+function cleanUrl(v: unknown): string | null {
+  const s = (typeof v === 'string' ? v : '').trim()
+  return /^https?:\/\/\S+$/i.test(s) ? s : null
+}
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ code: string; id: string }> }) {
   const session = await requireStaff()
@@ -101,6 +105,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ code: string;
   if ('notes'              in body) patch.notes               = cleanText(body.notes)
   if ('waived'             in body) patch.waived              = body.waived === true
   if ('waived_reason'      in body) patch.waived_reason       = cleanText(body.waived_reason)
+  if ('drive_url'          in body) patch.drive_url           = cleanUrl(body.drive_url)
 
   let oldReportPath: string | null = null
   if ('report_storage_path' in body) {
@@ -168,11 +173,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ code: string; 
   const { code, id } = await ctx.params
   const { data: row, error } = await supabaseAdmin
     .from('association_safety_inspections')
-    .select('report_storage_path, report_filename')
+    .select('report_storage_path, report_filename, drive_url')
     .eq('id', id).eq('association_code', code.toUpperCase()).maybeSingle()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!row)  return NextResponse.json({ error: 'Inspection not found' }, { status: 404 })
+  // Prefer the uploaded file; fall back to the Drive link.
   if (!row.report_storage_path) {
+    if (row.drive_url) return NextResponse.json({ url: row.drive_url, source: 'drive' })
     return NextResponse.json({ error: 'No report on file for this inspection' }, { status: 404 })
   }
 

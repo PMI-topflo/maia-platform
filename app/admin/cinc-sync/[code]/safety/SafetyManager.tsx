@@ -221,8 +221,10 @@ function InspectionRow({ def, row, assocCode, onEdit, onChanged }: {
         <div>
           <dt className="text-gray-400 font-mono uppercase tracking-wide text-[9px]">Report</dt>
           <dd>{row.report_storage_path
-            ? <button onClick={openReport} className="text-[#f26a1b] hover:underline font-mono text-[11px]">📄 view</button>
-            : <span className="text-amber-600 font-mono text-[11px]">none</span>}</dd>
+            ? <button onClick={openReport} className="text-[#f26a1b] hover:underline font-mono text-[11px]">📦 view <span className="text-gray-400">(system)</span></button>
+            : row.drive_url
+              ? <button onClick={openReport} className="text-[#f26a1b] hover:underline font-mono text-[11px]">🗂 view <span className="text-gray-400">(Drive)</span></button>
+              : <span className="text-amber-600 font-mono text-[11px]">none</span>}</dd>
         </div>
       </div>
       {row.waived && <div className="mt-1 text-[11px] text-gray-500">Waived{row.waived_reason ? `: ${row.waived_reason}` : ''}</div>}
@@ -255,6 +257,7 @@ function InspectionEditor({ assocCode, inspectionType, existing, onSaved, onCanc
   const [notes, setNotes] = useState(existing?.notes ?? '')
   const [waived, setWaived] = useState(existing?.waived ?? false)
   const [waivedReason, setWaivedReason] = useState(existing?.waived_reason ?? '')
+  const [driveUrl, setDriveUrl] = useState(existing?.drive_url ?? '')
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -293,6 +296,7 @@ function InspectionEditor({ assocCode, inspectionType, existing, onSaved, onCanc
         year_built: yearBuilt || null, stories: stories || null, coastal,
         last_completed_date: lastCompleted || null, next_due_date: nextDue || null,
         provider, notes, waived, waived_reason: waived ? waivedReason : null,
+        drive_url: driveUrl || null,
         ...(report ?? {}),
       }
       let res: Response
@@ -361,6 +365,12 @@ function InspectionEditor({ assocCode, inspectionType, existing, onSaved, onCanc
           <span className="text-[10px] text-gray-400 block mt-1">Current: {existing.report_filename ?? 'on file'} — choose a file to replace.</span>
         )}
       </div>
+
+      <label className="block"><span className={lblCls}>…or Google Drive link</span>
+        <input value={driveUrl} onChange={e => setDriveUrl(e.target.value)} disabled={busy}
+          placeholder="https://drive.google.com/…  (paste instead of uploading; update anytime)" className={inputCls} />
+        <span className="text-[10px] text-gray-500 block mt-0.5">Use this when the report stays in Drive. The uploaded file takes priority if both are set.</span>
+      </label>
 
       <label className="inline-flex items-center gap-2 text-[11px] text-gray-700">
         <input type="checkbox" checked={waived} onChange={e => setWaived(e.target.checked)} disabled={busy} />

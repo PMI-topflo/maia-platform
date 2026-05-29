@@ -11,8 +11,7 @@ import StaffStatsPanel from './components/StaffStatsPanel'
 import ControlPanel, {
   type TicketRow,
   type InvoiceDraftRow,
-  type ExpiringItem,
-  type InspectionItem,
+  type ComplianceItem,
   type TeamAlert,
   type MaiaCommandRow,
 } from './components/ControlPanel'
@@ -78,6 +77,9 @@ export default async function OverviewPage() {
     { data: expPermitsRaw },
     { data: expDocsRaw },
     { data: inspectionsRaw },
+    { data: leasesRaw },
+    { data: unitInsRaw },
+    { data: violationsRaw },
   ] = await Promise.all([
     supabaseAdmin.from('general_conversations').select('id', { count: 'exact', head: true }).eq('status', 'unidentified'),
     supabaseAdmin.from('applications').select('id', { count: 'exact', head: true }).eq('board_approval_status', 'pending').eq('stripe_payment_status', 'paid'),
@@ -125,7 +127,7 @@ export default async function OverviewPage() {
     //    table may not be migrated on every environment yet) ──────────
     supabaseAdmin
       .from('association_insurance_policies')
-      .select('id, association_code, policy_type, carrier, expiration_date')
+      .select('id, association_code, policy_type, carrier, expiration_date, coi_storage_path, drive_url')
       .is('archived_at', null)
       .eq('waived', false)
       .not('expiration_date', 'is', null)
@@ -134,14 +136,14 @@ export default async function OverviewPage() {
       .then(r => r, () => ({ data: [] as Record<string, unknown>[], error: null })),
     supabaseAdmin
       .from('unit_certificate_of_use')
-      .select('id, association_code, account_number, city, certificate_number, expiration_date')
+      .select('id, association_code, account_number, city, certificate_number, expiration_date, source_pdf_url')
       .not('expiration_date', 'is', null)
       .lte('expiration_date', horizonISO)
       .order('expiration_date', { ascending: true })
       .then(r => r, () => ({ data: [] as Record<string, unknown>[], error: null })),
     supabaseAdmin
       .from('association_documents')
-      .select('id, association_code, category, filename, expiry_date')
+      .select('id, association_code, category, filename, expiry_date, storage_path, drive_url')
       .is('archived_at', null)
       .not('expiry_date', 'is', null)
       .lte('expiry_date', horizonISO)
@@ -149,12 +151,36 @@ export default async function OverviewPage() {
       .then(r => r, () => ({ data: [] as Record<string, unknown>[], error: null })),
     supabaseAdmin
       .from('association_safety_inspections')
-      .select('id, association_code, inspection_type, building_label, next_due_date')
+      .select('id, association_code, inspection_type, building_label, next_due_date, report_storage_path, drive_url')
       .is('archived_at', null)
       .eq('waived', false)
       .not('next_due_date', 'is', null)
       .lte('next_due_date', inspHorizonISO)
       .order('next_due_date', { ascending: true })
+      .then(r => r, () => ({ data: [] as Record<string, unknown>[], error: null })),
+    // ── Unit-level (per-unit, Drive-tracked) expiring items ──────────
+    supabaseAdmin
+      .from('unit_leases')
+      .select('id, association_code, account_number, tenant_name, lease_end_date, source_pdf_url')
+      .in('application_status', ['active', 'approved', 'renewed'])
+      .not('lease_end_date', 'is', null)
+      .lte('lease_end_date', horizonISO)
+      .order('lease_end_date', { ascending: true })
+      .then(r => r, () => ({ data: [] as Record<string, unknown>[], error: null })),
+    supabaseAdmin
+      .from('unit_insurance')
+      .select('id, association_code, account_number, carrier, expiration_date, source_pdf_url')
+      .not('expiration_date', 'is', null)
+      .lte('expiration_date', horizonISO)
+      .order('expiration_date', { ascending: true })
+      .then(r => r, () => ({ data: [] as Record<string, unknown>[], error: null })),
+    supabaseAdmin
+      .from('unit_violations')
+      .select('id, association_code, account_number, violation_type, resolution_due_date, source_pdf_url')
+      .in('status', ['open', 'in_progress', 'escalated'])
+      .not('resolution_due_date', 'is', null)
+      .lte('resolution_due_date', horizonISO)
+      .order('resolution_due_date', { ascending: true })
       .then(r => r, () => ({ data: [] as Record<string, unknown>[], error: null })),
   ])
 
@@ -165,41 +191,69 @@ export default async function OverviewPage() {
   const invoicesCount = pendingInvoiceCount ?? invoiceDrafts.length
   const pendingReg    = (pendingAgents ?? 0) + (pendingVendors ?? 0)
 
-  // Unify the three expiry sources into one date-sorted instrument feed.
-  const expiringItems: ExpiringItem[] = [
-    ...((expInsuranceRaw ?? []) as Array<{ id: number; association_code: string; policy_type: string; carrier: string | null; expiration_date: string }>).map(p => ({
-      kind: 'insurance' as const,
+  const srcOf = (storage: unknown, drive: unknown): 'system' | 'drive' | 'none' =>
+    storage ? 'system' : drive ? 'drive' : 'none'
+  const byDate = (a: { date: string }, b: { date: string }) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
+
+  // 🏢 BUILDING compliance — association / common-area (CINC scope).
+  // Master insurance + structural-safety inspections + dated governing
+  // & financial documents. These are the 📦 in-system files.
+  const buildingItems: ComplianceItem[] = [
+    ...((expInsuranceRaw ?? []) as Array<{ association_code: string; policy_type: string; carrier: string | null; expiration_date: string; coi_storage_path: string | null; drive_url: string | null }>).map(p => ({
+      scope: 'building' as const, kind: 'insurance' as const,
       label: `${policyTypeLabel(p.policy_type)} insurance${p.carrier ? ` · ${p.carrier}` : ''}`,
-      association_code: p.association_code,
-      date: p.expiration_date,
+      association_code: p.association_code, date: p.expiration_date,
+      source: srcOf(p.coi_storage_path, p.drive_url),
       href: `/admin/cinc-sync/${p.association_code}/insurance`,
     })),
-    ...((expPermitsRaw ?? []) as Array<{ id: number; association_code: string; account_number: string | null; city: string | null; expiration_date: string }>).map(c => ({
-      kind: 'permit' as const,
-      label: `${c.city ?? 'City'} Certificate of Use${c.account_number ? ` · ${c.account_number}` : ''}`,
-      association_code: c.association_code,
-      date: c.expiration_date,
-      href: `/admin/cinc-sync/${c.association_code}`,
+    ...((inspectionsRaw ?? []) as Array<{ association_code: string; inspection_type: string; building_label: string | null; next_due_date: string; report_storage_path: string | null; drive_url: string | null }>).map(i => ({
+      scope: 'building' as const, kind: 'inspection' as const,
+      label: `${inspectionTypeLabel(i.inspection_type)}${i.building_label ? ` · ${i.building_label}` : ''}`,
+      association_code: i.association_code, date: i.next_due_date,
+      source: srcOf(i.report_storage_path, i.drive_url),
+      href: `/admin/cinc-sync/${i.association_code}/safety`,
     })),
-    ...((expDocsRaw ?? []) as Array<{ id: number; association_code: string; category: string; filename: string; expiry_date: string }>).map(d => ({
-      kind: 'document' as const,
-      label: `${d.filename}`,
-      association_code: d.association_code,
-      date: d.expiry_date,
+    ...((expDocsRaw ?? []) as Array<{ association_code: string; category: string; filename: string; expiry_date: string; storage_path: string | null; drive_url: string | null }>).map(d => ({
+      scope: 'building' as const, kind: 'document' as const,
+      label: d.filename,
+      association_code: d.association_code, date: d.expiry_date,
+      source: srcOf(d.storage_path, d.drive_url),
       href: `/admin/cinc-sync/${d.association_code}/documents`,
     })),
-  ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  ].sort(byDate)
 
-  // Structural-safety inspection deadlines (I7 tracker).
-  const inspectionItems: InspectionItem[] = ((inspectionsRaw ?? []) as Array<{ id: number; association_code: string; inspection_type: string; building_label: string | null; next_due_date: string }>)
-    .map(i => ({
-      label: inspectionTypeLabel(i.inspection_type),
-      building_label: i.building_label,
-      association_code: i.association_code,
-      date: i.next_due_date,
-      href: `/admin/cinc-sync/${i.association_code}/safety`,
-    }))
-    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  // 🏠 UNIT compliance — per-unit (Drive-tracked). Leases, HO-6
+  // insurance, city permits (Certificate of Use), violations.
+  const unitItems: ComplianceItem[] = [
+    ...((leasesRaw ?? []) as Array<{ association_code: string; account_number: string | null; tenant_name: string | null; lease_end_date: string; source_pdf_url: string | null }>).map(l => ({
+      scope: 'unit' as const, kind: 'lease' as const,
+      label: `Lease${l.tenant_name ? ` · ${l.tenant_name}` : ''}${l.account_number ? ` · ${l.account_number}` : ''}`,
+      association_code: l.association_code, date: l.lease_end_date,
+      source: srcOf(null, l.source_pdf_url),
+      href: `/admin/cinc-sync/${l.association_code}`,
+    })),
+    ...((unitInsRaw ?? []) as Array<{ association_code: string; account_number: string | null; carrier: string | null; expiration_date: string; source_pdf_url: string | null }>).map(u => ({
+      scope: 'unit' as const, kind: 'unit_insurance' as const,
+      label: `Unit insurance${u.carrier ? ` · ${u.carrier}` : ''}${u.account_number ? ` · ${u.account_number}` : ''}`,
+      association_code: u.association_code, date: u.expiration_date,
+      source: srcOf(null, u.source_pdf_url),
+      href: `/admin/cinc-sync/${u.association_code}`,
+    })),
+    ...((expPermitsRaw ?? []) as Array<{ association_code: string; account_number: string | null; city: string | null; expiration_date: string; source_pdf_url: string | null }>).map(c => ({
+      scope: 'unit' as const, kind: 'permit' as const,
+      label: `${c.city ?? 'City'} Certificate of Use${c.account_number ? ` · ${c.account_number}` : ''}`,
+      association_code: c.association_code, date: c.expiration_date,
+      source: srcOf(null, c.source_pdf_url),
+      href: `/admin/cinc-sync/${c.association_code}`,
+    })),
+    ...((violationsRaw ?? []) as Array<{ association_code: string; account_number: string | null; violation_type: string | null; resolution_due_date: string; source_pdf_url: string | null }>).map(v => ({
+      scope: 'unit' as const, kind: 'violation' as const,
+      label: `Violation${v.violation_type ? ` · ${v.violation_type}` : ''}${v.account_number ? ` · ${v.account_number}` : ''}`,
+      association_code: v.association_code, date: v.resolution_due_date,
+      source: srcOf(null, v.source_pdf_url),
+      href: `/admin/cinc-sync/${v.association_code}`,
+    })),
+  ].sort(byDate)
 
   // Server component renders once per request; "now" at request time is
   // the correct semantic, not a stale captured value.
@@ -237,14 +291,14 @@ export default async function OverviewPage() {
             maiaErrors:         maiaErrors ?? 0,
             owners:             ownerCount ?? 0,
             ownershipTransfers: ownershipTransfers ?? 0,
-            expiring:           expiringItems.length,
-            inspections:        inspectionItems.length,
+            building:           buildingItems.length,
+            unit:               unitItems.length,
           }}
           myTasks={myTasks}
           workOrders={workOrders}
           invoiceDrafts={invoiceDrafts}
-          expiringItems={expiringItems}
-          inspectionItems={inspectionItems}
+          buildingItems={buildingItems}
+          unitItems={unitItems}
           teamAlerts={teamAlerts}
           recentCommands={recentCommands}
           candidateList={candidateList}

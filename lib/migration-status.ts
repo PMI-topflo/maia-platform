@@ -926,6 +926,20 @@ end $$;
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'compliance_drive_links',
+    label:       'Compliance Drive links',
+    description: 'association_insurance_policies.drive_url + association_safety_inspections.drive_url — lets a policy/inspection point at a Google Drive file instead of an uploaded one, so staff can paste/update the link from the screen (not every file needs to live in the system). See COMPLIANCE_TRACKING.md.',
+    filename:    '20260529_compliance_drive_links.sql',
+    artifact:    { type: 'column', table: 'association_insurance_policies', column: 'drive_url' },
+    sql: `alter table public.association_insurance_policies
+  add column if not exists drive_url text;
+
+alter table public.association_safety_inspections
+  add column if not exists drive_url text;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

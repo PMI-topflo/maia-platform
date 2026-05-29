@@ -45,6 +45,10 @@ function cleanText(v: unknown): string | null {
   const s = (typeof v === 'string' ? v : '').trim()
   return s.length ? s : null
 }
+function cleanUrl(v: unknown): string | null {
+  const s = (typeof v === 'string' ? v : '').trim()
+  return /^https?:\/\/\S+$/i.test(s) ? s : null
+}
 
 export async function GET(req: Request, ctx: { params: Promise<{ code: string }> }) {
   const session = await requireStaff()
@@ -118,6 +122,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
       report_filename:        cleanText(body.report_filename),
       report_mime_type:       cleanText(body.report_mime_type),
       report_file_size_bytes: cleanInt(body.report_file_size_bytes),
+      drive_url:              cleanUrl(body.drive_url),
       waived,
       waived_reason:          waived ? cleanText(body.waived_reason) : null,
       notes:                  cleanText(body.notes),

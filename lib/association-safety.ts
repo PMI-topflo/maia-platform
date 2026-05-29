@@ -101,6 +101,9 @@ export interface AssociationSafetyInspection {
   report_filename:        string | null
   report_mime_type:       string | null
   report_file_size_bytes: number | null
+  /** Google Drive link to the report when the file lives in Drive rather
+   *  than uploaded into the system. See COMPLIANCE_TRACKING.md. */
+  drive_url:              string | null
   waived:                 boolean
   waived_reason:          string | null
   notes:                  string | null

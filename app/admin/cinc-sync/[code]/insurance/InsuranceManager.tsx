@@ -307,8 +307,10 @@ function PolicyDetails({ policy, assocCode, onChanged }: {
       {policy.notes && <div className="mt-1 text-[11px] text-gray-500">{policy.notes}</div>}
       <div className="mt-2 flex items-center gap-3">
         {policy.coi_storage_path
-          ? <button onClick={openCoi} className="text-[11px] font-mono text-[#f26a1b] hover:underline">📄 {policy.coi_filename ?? 'View COI'}</button>
-          : <span className="text-[11px] text-amber-600 font-mono">No COI on file</span>}
+          ? <button onClick={openCoi} className="text-[11px] font-mono text-[#f26a1b] hover:underline">📦 {policy.coi_filename ?? 'View COI'} <span className="text-gray-400">(in system)</span></button>
+          : policy.drive_url
+            ? <button onClick={openCoi} className="text-[11px] font-mono text-[#f26a1b] hover:underline">🗂 View COI <span className="text-gray-400">(Drive)</span></button>
+            : <span className="text-[11px] text-amber-600 font-mono">No COI on file</span>}
         <button onClick={onArchive} disabled={busy} className="text-[10px] font-mono uppercase text-gray-400 hover:text-amber-700 ml-auto">
           {busy ? '…' : 'Archive'}
         </button>
@@ -336,6 +338,7 @@ function PolicyEditor({ assocCode, policyType, existing, onSaved, onCancel }: {
   const [agentEmail, setAgentEmail]   = useState(existing?.agent_email ?? '')
   const [agentPhone, setAgentPhone]   = useState(existing?.agent_phone ?? '')
   const [notes, setNotes]             = useState(existing?.notes ?? '')
+  const [driveUrl, setDriveUrl]       = useState(existing?.drive_url ?? '')
   const [file, setFile]               = useState<File | null>(null)
   const [busy, setBusy]               = useState(false)
   const [error, setError]             = useState<string | null>(null)
@@ -377,6 +380,7 @@ function PolicyEditor({ assocCode, policyType, existing, onSaved, onCancel }: {
         coverage_amount_usd: coverage || null, premium_usd: premium || null,
         agent_name: agentName, agent_email: agentEmail, agent_phone: agentPhone,
         notes,
+        drive_url: driveUrl || null,
         ...(coi ?? {}),
       }
 
@@ -445,6 +449,16 @@ function PolicyEditor({ assocCode, policyType, existing, onSaved, onCancel }: {
           <span className="text-[10px] text-gray-400 block mt-1">Current COI: {existing.coi_filename ?? 'on file'} — choose a file to replace it.</span>
         )}
       </div>
+
+      <label className="block">
+        <span className={lblCls}>…or Google Drive link</span>
+        <input value={driveUrl} onChange={e => setDriveUrl(e.target.value)} disabled={busy}
+          placeholder="https://drive.google.com/…  (paste instead of uploading; update anytime)"
+          className={inputCls} />
+        <span className="text-[10px] text-gray-500 block mt-0.5">
+          Use this when the COI stays in Drive. The uploaded file takes priority if both are set.
+        </span>
+      </label>
 
       {error && <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>}
 

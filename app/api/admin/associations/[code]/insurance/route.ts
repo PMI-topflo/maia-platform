@@ -54,6 +54,12 @@ function cleanText(v: unknown): string | null {
   return s.length ? s : null
 }
 
+/** Accept only http(s) URLs (Google Drive links etc.); anything else → null. */
+function cleanUrl(v: unknown): string | null {
+  const s = (typeof v === 'string' ? v : '').trim()
+  return /^https?:\/\/\S+$/i.test(s) ? s : null
+}
+
 export async function GET(req: Request, ctx: { params: Promise<{ code: string }> }) {
   const session = await requireStaff()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -131,6 +137,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
       coi_filename:        cleanText(body.coi_filename),
       coi_mime_type:       cleanText(body.coi_mime_type),
       coi_file_size_bytes: cleanNumber(body.coi_file_size_bytes),
+      drive_url:           cleanUrl(body.drive_url),
       waived,
       waived_reason:       waived ? cleanText(body.waived_reason) : null,
       notes:               cleanText(body.notes),

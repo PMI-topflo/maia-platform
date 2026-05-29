@@ -146,6 +146,10 @@ export interface AssociationInsurancePolicy {
   coi_filename:        string | null
   coi_mime_type:       string | null
   coi_file_size_bytes: number | null
+  /** Google Drive link to the COI when the file lives in Drive rather
+   *  than uploaded into the system. Staff can set/update this from the
+   *  screen. See COMPLIANCE_TRACKING.md. */
+  drive_url:           string | null
   waived:              boolean
   waived_reason:       string | null
   notes:               string | null
