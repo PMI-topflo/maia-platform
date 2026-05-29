@@ -551,6 +551,14 @@ function DraftCard(props: {
           {draft.pushed_by && ` by ${draft.pushed_by}`}
           {draft.pushed_at && ` at ${new Date(draft.pushed_at).toLocaleString()}`}.
           {draft.cinc_invoice_id && (
+            <>
+              {' · '}
+              <a href={`/admin/invoices/cinc/${draft.cinc_invoice_id}`} style={{ color: '#065f46', fontWeight: 600, textDecoration: 'underline' }}>
+                View invoice detail →
+              </a>
+            </>
+          )}
+          {draft.cinc_invoice_id && (
             <InvoiceHistory invoiceId={parseInt(draft.cinc_invoice_id, 10)} />
           )}
         </div>

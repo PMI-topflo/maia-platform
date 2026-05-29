@@ -557,14 +557,29 @@ export default function ReconciliationView(props: Props) {
                   <Td>{e.customer ?? ''}</Td>
                   <Td>{e.vendor_payee ?? ''}</Td>
                   <Td>{e.description ?? ''}</Td>
-                  <Td>{e.invoice_number ?? ''}</Td>
+                  <Td>
+                    {e.invoice_number && e.cinc_invoice_id ? (
+                      <a href={`/admin/invoices/cinc/${e.cinc_invoice_id}`} style={{ color: '#2563eb', textDecoration: 'underline' }} title="Open CINC invoice detail">
+                        {e.invoice_number}
+                      </a>
+                    ) : (
+                      e.invoice_number ?? ''
+                    )}
+                  </Td>
                   <Td right>
                     <span style={{ color: e.amount < 0 ? '#991b1b' : '#166534', fontVariantNumeric: 'tabular-nums' }}>
                       ${fmt$(Math.abs(e.amount))}
                       {e.amount < 0 ? ' ⬇' : e.amount > 0 ? ' ⬆' : ''}
                     </span>
                   </Td>
-                  <Td>{e.paid_type ?? ''}</Td>
+                  <Td>
+                    <InlineNote
+                      initial={e.paid_type ?? ''}
+                      placeholder="ACH / Check / …"
+                      saving={savingRowId === e.id}
+                      onSave={v => updateEntry(e.id, { paid_type: v || null })}
+                    />
+                  </Td>
                   <Td>
                     <InlineNote
                       initial={e.additional_notes ?? ''}

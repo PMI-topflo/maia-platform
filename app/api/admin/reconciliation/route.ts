@@ -163,10 +163,14 @@ export async function PATCH(req: Request) {
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
 
-  // Always-editable.
+  // Always-editable (regardless of source). paid_type is metadata about
+  // the bank-side payment method (ACH / Check / Online / Auto-debit /
+  // Bank Deposit / Interest / etc.) — we infer it from CINC's Description
+  // field during sync but Karen can correct misclassifications here.
   if ('additional_notes'      in body) patch.additional_notes      = body.additional_notes      ?? null
   if ('pmi_coordinator_notes' in body) patch.pmi_coordinator_notes = body.pmi_coordinator_notes ?? null
   if ('invoice_attached_url'  in body) patch.invoice_attached_url  = body.invoice_attached_url  ?? null
+  if ('paid_type'             in body) patch.paid_type             = body.paid_type             ?? null
   if ('reconciled' in body) {
     if (body.reconciled) {
       patch.reconciled_at = new Date().toISOString()
@@ -184,7 +188,7 @@ export async function PATCH(req: Request) {
     if ('description'    in body) patch.description    = body.description    ?? null
     if ('invoice_number' in body) patch.invoice_number = body.invoice_number ?? null
     if ('amount'         in body && body.amount != null) patch.amount        = body.amount
-    if ('paid_type'      in body) patch.paid_type      = body.paid_type      ?? null
+    // paid_type moved to always-editable above
   }
 
   const { data, error } = await supabaseAdmin

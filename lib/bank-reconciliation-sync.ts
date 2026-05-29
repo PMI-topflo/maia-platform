@@ -85,6 +85,38 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+/** Infer a paid_type from the CINC Description field. CINC doesn't
+ *  expose payment method on glTransactions, but the description usually
+ *  carries enough of a hint that we can pre-fill Karen's spreadsheet
+ *  with a reasonable guess. She can override inline on the page.
+ *
+ *  Common real-world descriptions observed against LFA / KGA / DELA:
+ *    Inflows :  "Deposit from batch 17700", "Interest", "Funds Transfer",
+ *               "Laundry Income Truist Checking - 7932"
+ *    Outflows:  "Misc. Check", "Inv.#RVP-3954 - April Management Fees",
+ *               "CSB - Cash Operating - 1956 Inv # 010226-032426",
+ *               "AUTO DEBIT", "ACH"
+ */
+function inferPaidType(description: string | null, isOutflow: boolean): string | null {
+  if (!description) return null
+  const d = description.toLowerCase()
+  if (isOutflow) {
+    if (/\bcheck\b/.test(d))            return 'Check'
+    if (/\bauto[\s-]*debit\b/.test(d))  return 'Auto-debit'
+    if (/\bach\b/.test(d))              return 'ACH'
+    if (/\bonline\b/.test(d))           return 'Online'
+    if (/\bfunds?\s+transfer/.test(d))  return 'Funds Transfer'
+    if (/^inv\.?\s*#/.test(d))          return 'ACH'  // invoice payments default to ACH
+    return null
+  }
+  // Inflows
+  if (/\binterest\b/.test(d))           return 'Bank Interest'
+  if (/^deposit\s+from\s+batch/.test(d)) return 'Bank Deposit'
+  if (/\bfunds?\s+transfer/.test(d))    return 'Funds Transfer'
+  if (/income/.test(d))                 return 'Bank Deposit'
+  return null
+}
+
 /** Sync ALL bank activity for an association from CINC. Optionally
  *  narrow to a (fromDate, toDate) window — defaults to the past 60
  *  days, which covers Isabela's typical month-end + current-month
@@ -217,7 +249,7 @@ export async function syncReconciliationForAssoc(
                                       ?? null,
         invoice_number:             matchedDraft?.extracted_invoice_number ?? null,
         amount,
-        paid_type:                  matchedDraft?.pay_by_type ?? null,
+        paid_type:                  matchedDraft?.pay_by_type ?? inferPaidType(tx.Description ?? null, isOutflow),
         invoice_attached_url:       matchedDraft?.drive_file_id
                                       ? `https://drive.google.com/file/d/${matchedDraft.drive_file_id}/view`
                                       : null,
