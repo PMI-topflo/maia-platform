@@ -1444,19 +1444,34 @@ function detectTicketTrigger(body: string): boolean {
 }
 
 // Invoice-intake triggers. Karen (or any staff member) forwards a
-// vendor invoice PDF to maia@ with one of these phrases in the body to
-// queue it for review in /admin/invoices. As of 2026-05-26 this is the
-// ONLY way an invoice enters intake — the old "any PDF to billing@
-// becomes an invoice" implicit routing was removed because it kept
-// swallowing real @maia commands that were CC'd to billing@.
+// vendor invoice PDF to maia@ with an @maia + "...invoice" instruction in
+// the body to queue it for review in /admin/invoices. As of 2026-05-26
+// this is the ONLY way an invoice enters intake — the old "any PDF to
+// billing@ becomes an invoice" implicit routing was removed because it
+// kept swallowing real @maia commands that were CC'd to billing@.
+//
+// Contiguous legacy forms (kept for back-compat):
 const INVOICE_INTAKE_TRIGGERS = [
   '@maia process invoice',
   '@maia invoice',
   '@maia upload invoice',
 ] as const
 
+// Flexible form. Real staff phrasing rarely matches the rigid contiguous
+// triggers — e.g. Gmail renders the contact mention as "@Maia PMI AI
+// AGENT", and people write "process THIS invoice", "pay this invoice",
+// etc. This matches an @maia mention followed (allowing the mention
+// wrapper + filler words like "this"/"the") by a process/pay-style verb
+// and the word "invoice". Bounded to a single sentence (stops at a
+// period) so it can't span an unrelated later clause, and it still
+// requires an explicit AP-style verb so it doesn't swallow questions
+// like "@maia what's the status of the Atlas invoice?".
+const INVOICE_INTAKE_FLEX_REGEX =
+  /@maia\b[^.\n]{0,40}\b(process|processing|upload|pay|submit|enter|log|record)\b[^.\n]{0,25}\binvoice/i
+
 export function detectInvoiceTrigger(body: string): boolean {
   const norm = ' ' + body.toLowerCase().replace(/\s+/g, ' ') + ' '
+  if (INVOICE_INTAKE_FLEX_REGEX.test(norm)) return true
   return INVOICE_INTAKE_TRIGGERS.some(t =>
     norm.includes(' ' + t + ' ') ||
     norm.includes(t + '\n') ||
