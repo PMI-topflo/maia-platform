@@ -171,14 +171,19 @@ function inferVendorPayee(description: string | null, isOutflow: boolean): strin
   const paren = d.match(/\(([^)]+?)(?:\s+Inv\.?\s*#[\w-]+)?\)/)
   if (paren) {
     const inside = paren[1].trim()
-    // Reject parenthetical fragments that are clearly not a vendor name
-    // (all-lowercase short snippets, dates, dollar amounts, percentages).
+    // Reject parenthetical fragments that are clearly NOT a vendor name —
+    // otherwise the column just echoes a slice of the description. Seen in
+    // the wild: "(Unit 3549)", "(April Truist Bank Statements)",
+    // "(May 2026 Service)". Keep real company names like "(Waste Connections)".
     if (
       inside.length >= 3
       && !/^\d/.test(inside)
       && !/^\$/.test(inside)
       && /[A-Z]/.test(inside)
       && !/^\d+%\s*pymt/i.test(inside)
+      && !/\bunit\b/i.test(inside)            // "Unit 3549" → a unit, not a vendor
+      && !/statement/i.test(inside)           // "...Bank Statements" → a fee descriptor
+      && !/\bmaintenance\b|\brepairs?\b/i.test(inside)  // service descriptors, not names
     ) {
       return inside
     }
