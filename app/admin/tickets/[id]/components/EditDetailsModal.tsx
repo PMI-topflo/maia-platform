@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import type { AssociationOption } from './TicketDetailClient'
-import { TICKET_CATEGORIES } from '@/lib/ticket-categories'
 
 interface Props {
   ticketId:        number
@@ -23,19 +22,17 @@ interface Props {
 /** Edit the ticket's Association / Unit / Board-request flag. Issues a
  *  PATCH that only includes fields the user actually changed so the
  *  ticket_events timeline doesn't fill up with no-op rows. */
-export default function EditDetailsModal({ ticketId, ticketType, associations, initial, onClose }: Props) {
+export default function EditDetailsModal({ ticketId, associations, initial, onClose }: Props) {
   const router = useRouter()
   const [assoc, setAssoc]               = useState<string>(initial.association_code ?? '')
   const [unit, setUnit]                 = useState<string>(initial.unit_number ?? '')
   const [isBoardRequest, setIsBoardReq] = useState<boolean>(initial.is_board_request)
   const [requestedBy, setRequestedBy]   = useState<string>(initial.requested_by ?? '')
-  const [category, setCategory]         = useState<string>(initial.ticket_category ?? '')
   const [busy, setBusy]                 = useState(false)
   const [err,  setErr]                  = useState<string | null>(null)
 
-  // Category only applies to plain tickets — work orders have
-  // work_order_type_name set elsewhere.
-  const showCategory = ticketType !== 'work_order'
+  // Note: "Ticket type" (category) is edited inline on the detail panel
+  // now, not here — see TicketDetailClient's "Ticket type" card.
 
   // Close on Escape.
   useEffect(() => {
@@ -51,12 +48,10 @@ export default function EditDetailsModal({ ticketId, ticketType, associations, i
     const initialAssoc = initial.association_code ?? ''
     const initialUnit  = initial.unit_number ?? ''
     const initialReqBy = initial.requested_by ?? ''
-    const initialCat   = initial.ticket_category ?? ''
     if (assoc !== initialAssoc)              patch.association_code = assoc || null
     if (trimmedUnit !== initialUnit)         patch.unit_number      = trimmedUnit || null
     if (trimmedReqBy !== initialReqBy)       patch.requested_by     = trimmedReqBy || null
     if (isBoardRequest !== initial.is_board_request) patch.is_board_request = isBoardRequest
-    if (showCategory && category !== initialCat)     patch.ticket_category  = category || null
     if (Object.keys(patch).length === 0) { onClose(); return }
 
     setBusy(true)
@@ -107,27 +102,6 @@ export default function EditDetailsModal({ ticketId, ticketType, associations, i
               ))}
             </select>
           </label>
-
-          {showCategory && (
-            <label className="block">
-              <span className="block text-[11px] font-medium uppercase tracking-wide text-gray-500">Category</span>
-              <select
-                value={category}
-                onChange={e => setCategory(e.target.value)}
-                className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-[#f26a1b] focus:outline-none"
-              >
-                <option value="">— Uncategorised —</option>
-                {TICKET_CATEGORIES.map(c => (
-                  <option key={c.label} value={c.label}>
-                    {c.label} — {c.hint}
-                  </option>
-                ))}
-              </select>
-              <span className="mt-1 block text-[10px] text-gray-400">
-                Routes the ticket to the right team. Work orders use the Work Order Type field instead.
-              </span>
-            </label>
-          )}
 
           <label className="block">
             <span className="block text-[11px] font-medium uppercase tracking-wide text-gray-500">Unit number</span>
