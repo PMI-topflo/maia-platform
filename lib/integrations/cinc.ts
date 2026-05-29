@@ -1115,14 +1115,36 @@ function normalizeVendorName(s: string): string {
 // per process. Status is required on createInvoice; pay-by drives the
 // dropdown so Karen only picks values CINC accepts for the assoc.
 // ─────────────────────────────────────────────────────────────────────
+// CINC's actual response shape (verified live) is:
+//   { "InvoiceStatusId": -1, "InvoiceStatusDescription": "Pending Approval" }
+// Note the casing: "Id" (not "ID") and "InvoiceStatusDescription". The
+// other field names below are kept as defensive fallbacks in case CINC's
+// inconsistent casing differs on another endpoint/tenant.
 export interface CincInvoiceStatus {
-  StatusID?:          number
-  InvoiceStatusID?:   number
-  StatusDescription?: string | null
-  Description?:       string | null
-  Name?:              string | null
+  InvoiceStatusId?:          number
+  InvoiceStatusDescription?: string | null
+  StatusID?:                 number
+  InvoiceStatusID?:          number
+  StatusId?:                 number
+  StatusDescription?:        string | null
+  Description?:              string | null
+  Name?:                     string | null
 }
 let _invoiceStatusesCache: CincInvoiceStatus[] | null = null
+
+/** First id-ish field present on a status row (CINC uses InvoiceStatusId;
+ *  ids can be negative, so check presence, not truthiness). */
+function statusId(s: CincInvoiceStatus): number | null {
+  for (const v of [s.InvoiceStatusId, s.StatusId, s.StatusID, s.InvoiceStatusID]) {
+    if (typeof v === 'number') return v
+  }
+  return null
+}
+/** First name-ish field present on a status row. */
+function statusDesc(s: CincInvoiceStatus): string {
+  return (s.InvoiceStatusDescription ?? s.StatusDescription ?? s.Description ?? s.Name ?? '')
+    .toUpperCase().replace(/\s+/g, ' ').trim()
+}
 
 export async function listInvoiceStatuses(): Promise<CincInvoiceStatus[]> {
   if (_invoiceStatusesCache) return _invoiceStatusesCache
@@ -1133,14 +1155,19 @@ export async function listInvoiceStatuses(): Promise<CincInvoiceStatus[]> {
 }
 
 /** Look up the numeric StatusID for a status by name (e.g. "PENDING
- *  APPROVAL"). Tries every plausible field name on the response since
- *  CINC's casing is inconsistent. Returns null when not found so the
- *  caller can throw a useful error. */
+ *  APPROVAL"). Exact match first, then a contains-both-ways fallback so
+ *  "PENDING APPROVAL" still resolves CINC's "Pending Approval". Returns
+ *  null when not found so the caller can throw a useful error. */
 export async function getInvoiceStatusIdByName(name: string): Promise<number | null> {
   const target = name.toUpperCase().replace(/\s+/g, ' ').trim()
-  for (const s of await listInvoiceStatuses()) {
-    const desc = (s.StatusDescription ?? s.Description ?? s.Name ?? '').toUpperCase().replace(/\s+/g, ' ').trim()
-    if (desc === target) return s.StatusID ?? s.InvoiceStatusID ?? null
+  const statuses = await listInvoiceStatuses()
+  for (const s of statuses) {
+    if (statusDesc(s) === target) return statusId(s)
+  }
+  // Looser fallback — tolerate minor wording differences.
+  for (const s of statuses) {
+    const desc = statusDesc(s)
+    if (desc && (desc.includes(target) || target.includes(desc))) return statusId(s)
   }
   return null
 }
