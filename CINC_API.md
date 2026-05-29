@@ -544,6 +544,117 @@ GETs only — never mutate during discovery.
 
 ---
 
+## Contacts and Consent migration (announced 2025-12-19)
+
+CINC is rolling out a "Contacts and Consent" feature that moves
+homeowner contact info (Names, Email, Phone, BillingTypeID,
+OwnerAddress flag, mailing-address selection) **out of the per-address
+record** and into a separate **Contacts** module on the
+Homeowner / Homeowner Information screen.
+
+> **PERSONAS NOTE (Fabio, 2026-05-29):** CINC's `propertyContactTypes`
+> introduces a subset of contact types — fewer than MAIA's persona
+> model. MAIA tracks owner / tenant / board / agent / vendor; CINC's
+> v2 module focuses on property-level contacts (owner-marked or not)
+> with mailing-address selection. When CINC ships the v2 module we
+> may want to bridge MAIA personas → CINC contact types where they
+> overlap, but the two models aren't 1:1.
+
+### Tenant status
+
+Probed 2026-05-29 against PMITFP: `GET /management/1/homeowners/contactsFlag` →
+`{ IsContactsFlagOn: false }`. So **MAIA is safe to keep using the v1
+endpoints today**. The flag will flip when CINC turns the feature on
+for our tenant — we poll it server-side from the CINC sync page and
+log a console warning from `listAssociationProperties`.
+
+Detection helper: `getContactsAndConsentFlag()` in `lib/integrations/cinc.ts`.
+Admin polling endpoint: `GET /api/admin/cinc/contacts-flag`.
+
+### MAIA blast radius (today)
+
+**Only one call site is affected:** `listAssociationProperties()` in
+`lib/integrations/cinc.ts:635`, which calls
+`GET /management/1/homeowners/associationWithProperty`.
+
+When the flag flips, this endpoint will return:
+> `400 — "This endpoint is not available for customers who have
+> turned OFF the Contacts & Consent feature in CINC. Use the GET
+> /management/1/homeowners/associationWithProperty endpoint instead."`
+
+…wait, actually it's the OPPOSITE direction: today the v2 endpoint
+returns that 400 because the feature is OFF. Once CINC turns the
+feature ON, the v1 endpoint we're calling will start returning the
+mirror error pointing us at v2. **That's the failure mode to watch
+for.** The advance warning banner on the CINC sync page surfaces the
+flag flip BEFORE the sync starts failing.
+
+### New v1 endpoints (brand new — version "1")
+
+| Endpoint | Description |
+|---|---|
+| `GET /management/1/homeowners/contactsFlag` | Returns `{IsContactsFlagOn:boolean}` for the tenant. **Used by MAIA today** for detection. |
+| `GET /management/1/homeowners/propertyContacts` | Returns the contacts on a homeowner's Contacts tab. **Will be needed** to populate name/email/phone when migrating `listAssociationProperties`. |
+| `GET /management/1/homeowners/propertyContactTypes` | Lists every contact-type CINC's tenant supports (Owner, etc. — exact list TBD). |
+| `PATCH /management/1/homeowners/propertyContact` | Updates a contact (name / email / phone / address selection). Replaces the obsolete `updateEmailPhone`. |
+| `PUT /management/1/homeowners/propertyContactMailingAddressSelection` | Assigns / unassigns a mailing address to a contact. |
+
+### v1 → v2 endpoint migration table
+
+For each of these, **v1 stops working once the feature is enabled**;
+the v2 endpoint must be used in its place AND a parallel call to
+`propertyContacts` to get name/email/phone (which are no longer in the
+address array).
+
+| Original (v1) | New (v2) | Key changes |
+|---|---|---|
+| `GET /management/1/homeowners/propertyInformation` | `GET /management/2/homeowners/propertyInformation` | Names / Email / Phone / BillingTypeID / OwnerAddress no longer in address array. |
+| `GET /management/1/associations/homeownerinfo` | `GET /management/2/homeowners/homeownerInfo` | URL path changes (`associations` → `homeowners`); response now 2 arrays not 3; paginated; "Owner" flag lives on Contacts. |
+| `GET /management/1/homeowners/homeownerlookup` | `GET /management/2/homeowners/homeownerLookup` | Adds `isOwner` filter; response paginated. |
+| `GET /management/1/homeowners/mailingAddress` | `GET /management/2/homeowners/mailingAddress` | Name/Email/Phone removed — must call `propertyContacts` separately. |
+| `GET /management/1/homeowners/associationWithProperty` | `GET /management/2/homeowners/associationWithProperty` | **(MAIA uses this.)** Response 2 arrays not 3; Names/Email/Phone moved to Contacts. |
+| `GET /management/1/homeowners/allByProperty` | `GET /management/2/homeowners/allByProperty` | Names/Email/Phone moved to Contacts. |
+
+### Obsolete (cannot be used once feature is on)
+
+- `PUT /management/1/homeowners/updateEmailPhone` — replaced by
+  `PATCH /management/1/homeowners/propertyContact`.
+  **MAIA doesn't call this**, so no action needed.
+
+### Migration action list (when CINC flips the flag)
+
+1. ☐ Add `CincPropertyContact` and `CincPropertyContactType` types from
+   the live v2 Swagger (the doc dated 12/19/2025 says "Refer to Swagger
+   documentation for the latest" — v2 shapes aren't in the static
+   doc).
+2. ☐ Implement `listPropertyContacts(propertyId)` calling
+   `GET /management/1/homeowners/propertyContacts`.
+3. ☐ Implement `listAssociationPropertiesV2(assocCode)` calling
+   `GET /management/2/homeowners/associationWithProperty`, then
+   joining with `listPropertyContacts()` per property to reconstruct
+   the old shape (`CincPropertyAddress` with name/email/phone).
+4. ☐ Route `listAssociationProperties()` to v1 or v2 based on
+   `getContactsAndConsentFlag()`.
+5. ☐ Remove the warning banner on the CINC sync page once the v2 path
+   is shipping.
+6. ☐ Decide whether to expose CINC's `propertyContactTypes` in MAIA
+   admin UI so the persona model can be reconciled with CINC's
+   contact-type vocabulary.
+
+### Useful Swagger references (once feature is enabled)
+
+The static doc gives the endpoint paths but not the response shapes
+for the v2 endpoints. To get shapes:
+
+```bash
+curl https://integration.cincsys.io/api/swagger/docs/1.40.0 \
+  | jq '.definitions | keys[] | select(test("PropertyContact|HomeownerV2"; "i"))'
+```
+
+…and check `definitions["<name>"].properties` for fields.
+
+---
+
 ## Open questions / TODO
 
 - (Add as we discover them.)

@@ -631,8 +631,34 @@ export interface CincAssociationWithProperty {
 
 /** Pulls every unit + current-owner contact info for the given
  *  association. Each CincPropertyInfo's Address[] usually contains one
- *  row (the property address with the active owner). */
+ *  row (the property address with the active owner).
+ *
+ *  CINC ANNOUNCED (doc 12/19/2025): a "Contacts and Consent" feature
+ *  will move FirstName/LastName/Email/Phone/BillingTypeID/OwnerAddress
+ *  OUT of the address array and into a separate Contacts module. When
+ *  CINC turns the feature on for our tenant:
+ *    - This v1 endpoint will stop working.
+ *    - We must call v2 (/management/2/homeowners/associationWithProperty)
+ *      AND a second call (/management/1/homeowners/propertyContacts) to
+ *      get the contact fields.
+ *  Detection: getContactsAndConsentFlag() — see below.
+ *  Currently OFF on PMITFP (probed 2026-05-29: IsContactsFlagOn=false).
+ *  Until enabled, v1 stays correct. We also warn loudly if the flag
+ *  flips so we get advance notice instead of a silent break. */
 export async function listAssociationProperties(assocCode: string): Promise<CincPropertyInfo[]> {
+  // Best-effort: log once if CINC has enabled the Contacts and Consent
+  // feature but we haven't shipped the v2 path yet. Don't throw — we
+  // want the v1 call to attempt anyway so the failure mode is the
+  // CINC 400 ("use v1 instead") rather than a code-level abort.
+  const flag = await getContactsAndConsentFlag().catch(() => null)
+  if (flag === true) {
+    console.warn(
+      '[CINC] Contacts and Consent feature is ENABLED on this tenant. ' +
+      'listAssociationProperties is still calling v1 — migrate to v2 + propertyContacts. ' +
+      'See CINC_API.md "Contacts and Consent migration".',
+    )
+  }
+
   const data = await call<CincAssociationWithProperty[]>('/management/1/homeowners/associationWithProperty', {
     method: 'GET',
     query:  { assocCode: assocCode.toUpperCase() },
@@ -642,6 +668,59 @@ export async function listAssociationProperties(assocCode: string): Promise<Cinc
   })
   const wrap = (data ?? [])[0]
   return wrap?.PropertyInfo ?? []
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CINC "Contacts and Consent" feature flag (doc dated 12/19/2025).
+//
+// CINC is rolling out a new Contacts module that splits homeowner
+// contact info (name / email / phone / mailing-address selection /
+// consent preferences) out of the per-address record and into a
+// dedicated "Contacts" tab on the Homeowner Information screen.
+//
+// Six existing endpoints get v2 versions; one (updateEmailPhone) is
+// retired; five new endpoints land (propertyContacts, propertyContactTypes,
+// PATCH propertyContact, PUT propertyContactMailingAddressSelection,
+// and this flag-check endpoint). Old endpoints CEASE TO FUNCTION once
+// the feature is enabled for our tenant.
+//
+// MAIA blast radius today: only listAssociationProperties (uses the
+// v1 associationWithProperty endpoint). The other 5 endpoints in the
+// migration list aren't called by MAIA.
+//
+// Probed 2026-05-29 on PMITFP tenant: IsContactsFlagOn=false. So we're
+// safe to keep using v1 today. This helper polls the flag so we can
+// detect the moment CINC flips it on for us. See CINC_API.md.
+// ─────────────────────────────────────────────────────────────────────
+interface CachedContactsFlag { value: boolean; expiresAt: number }
+let _contactsFlagCache: CachedContactsFlag | null = null
+const CONTACTS_FLAG_TTL_MS = 15 * 60_000  // 15 min — flag changes infrequently
+
+/** GET /management/1/homeowners/contactsFlag — returns whether the
+ *  Contacts and Consent feature is enabled for our CINC tenant. When
+ *  TRUE, v1 endpoints that overlap with the new module will stop
+ *  working; we must migrate to v2 + propertyContacts.
+ *
+ *  Returns null on transport/HTTP errors so callers can fall through
+ *  to the legacy path safely. */
+export async function getContactsAndConsentFlag(opts?: { forceRefresh?: boolean }): Promise<boolean | null> {
+  if (!opts?.forceRefresh && _contactsFlagCache && _contactsFlagCache.expiresAt > Date.now()) {
+    return _contactsFlagCache.value
+  }
+  const data = await call<{ IsContactsFlagOn?: boolean }>(
+    '/management/1/homeowners/contactsFlag',
+    { method: 'GET' },
+  ).catch(err => {
+    if (err instanceof CincApiError) return null
+    throw err
+  })
+  if (!data || typeof data.IsContactsFlagOn !== 'boolean') return null
+  _contactsFlagCache = { value: data.IsContactsFlagOn, expiresAt: Date.now() + CONTACTS_FLAG_TTL_MS }
+  return data.IsContactsFlagOn
+}
+
+export function invalidateContactsFlagCache(): void {
+  _contactsFlagCache = null
 }
 
 export interface CincBoardMember {

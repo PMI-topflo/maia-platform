@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { getContactsAndConsentFlag } from '@/lib/integrations/cinc'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../../components/AdminNav'
 import SyncPreviewClient from './SyncPreviewClient'
@@ -19,11 +20,18 @@ export default async function CincSyncDetailPage(props: { params: Promise<{ code
   const session     = token ? await verifySession(token) : null
   if (!session || session.persona !== 'staff') redirect('/')
 
-  const { data: assocRow } = await supabaseAdmin
-    .from('associations')
-    .select('association_code, association_name')
-    .eq('association_code', upperCode)
-    .maybeSingle()
+  const [{ data: assocRow }, contactsFlagOn] = await Promise.all([
+    supabaseAdmin
+      .from('associations')
+      .select('association_code, association_name')
+      .eq('association_code', upperCode)
+      .maybeSingle(),
+    // Check whether CINC has enabled the Contacts and Consent feature
+    // on our tenant — if it has, our v1 associationWithProperty call
+    // will stop working and we need to migrate. Best-effort: null on
+    // any failure, banner only renders when we know it's true.
+    getContactsAndConsentFlag().catch(() => null),
+  ])
 
   if (!assocRow) {
     return (
@@ -70,6 +78,22 @@ export default async function CincSyncDetailPage(props: { params: Promise<{ code
             Manage uploaded policies, bylaws, and other documents on the <Link href={`/admin/cinc-sync/${assocRow.association_code}/documents`} className="text-[#f26a1b] hover:underline">Documents page</Link>.
           </p>
         </header>
+
+        {/* Advance-warning banner: CINC announced a "Contacts and Consent"
+            rollout (doc dated 12/19/2025) that retires the v1 endpoint this
+            sync depends on. We poll /homeowners/contactsFlag — when CINC
+            flips it on for our tenant, the v1 call breaks and we MUST
+            migrate to v2 + propertyContacts. See CINC_API.md. */}
+        {contactsFlagOn === true && (
+          <div className="mb-4 rounded border-l-4 border-red-500 bg-red-50 p-3 text-sm text-red-800">
+            <div className="font-semibold">⚠ CINC Contacts and Consent feature is ENABLED on this tenant.</div>
+            <div className="mt-1">
+              The v1 <code className="bg-red-100 px-1 rounded">associationWithProperty</code> endpoint that powers this sync
+              is now retired by CINC. Run a sync to confirm — if it fails, MAIA needs the v2 migration shipped before this
+              page can be used again. See <code>CINC_API.md → Contacts and Consent migration</code>.
+            </div>
+          </div>
+        )}
 
         <SyncPreviewClient assocCode={assocRow.association_code} />
       </main>
