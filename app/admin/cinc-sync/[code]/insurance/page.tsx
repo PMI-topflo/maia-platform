@@ -1,12 +1,17 @@
 // =====================================================================
-// /admin/cinc-sync/[code]/documents
+// /admin/cinc-sync/[code]/insurance
 //
-// Per-association document library. Staff uploads PDFs (master policies,
-// budgets, board minutes, etc.) or pastes Drive links; MAIA uses the
-// extracted text as context when answering owner questions.
+// Per-association MASTER insurance compliance checklist. Renders the
+// full Florida HOA/condo coverage list (lib/association-insurance.ts)
+// and lets staff record each policy's carrier, dates, coverage, named
+// insured, and COI — or waive a coverage that doesn't apply.
+//
+// SCOPE: association-held master policies (CINC / common-area). The
+// per-unit HO-6 policies owners carry live on a different screen
+// (unit_insurance) — do not conflate the two.
 //
 // Server component handles auth + association lookup; the interactive
-// listing + upload form is a client component (DocumentsManager).
+// checklist is the InsuranceManager client component.
 // =====================================================================
 
 import { cookies } from 'next/headers'
@@ -16,12 +21,12 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../../../components/AdminNav'
-import DocumentsManager from './DocumentsManager'
+import InsuranceManager from './InsuranceManager'
 
-export const metadata = { title: 'Documents — CINC Sync — PMI Top Florida' }
+export const metadata = { title: 'Insurance — CINC Sync — PMI Top Florida' }
 export const dynamic = 'force-dynamic'
 
-export default async function AssociationDocumentsPage(
+export default async function AssociationInsurancePage(
   props: { params: Promise<{ code: string }> },
 ) {
   const { code } = await props.params
@@ -59,30 +64,23 @@ export default async function AssociationDocumentsPage(
       <SiteHeader subtitle="STAFF DASHBOARD"><AdminNav /></SiteHeader>
 
       <main className="max-w-screen-xl mx-auto px-6 py-6">
-        <div className="flex items-center justify-between gap-4">
-          <Link
-            href={`/admin/cinc-sync/${assoc.association_code}`}
-            className="text-xs text-[#f26a1b] hover:underline [font-family:var(--font-mono)]"
-          >
-            ← Back to {assoc.association_code} sync
-          </Link>
-          <Link
-            href={`/admin/cinc-sync/${assoc.association_code}/insurance`}
-            className="text-xs font-mono uppercase tracking-wide text-[#f26a1b] hover:text-white hover:bg-[#f26a1b] border border-[#f26a1b] px-2.5 py-1 rounded transition-colors"
-          >
-            🛡 Insurance →
-          </Link>
-        </div>
+        <Link
+          href={`/admin/cinc-sync/${assoc.association_code}`}
+          className="text-xs text-[#f26a1b] hover:underline [font-family:var(--font-mono)]"
+        >
+          ← Back to {assoc.association_code} sync
+        </Link>
 
         <header className="mb-6 border-l-4 border-[#f26a1b] pl-4 mt-3">
           <h1 className="text-xl font-semibold text-gray-900">{assoc.association_name}</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Documents library — code <span className="font-mono">{assoc.association_code}</span>.
-            Upload PDFs or paste Drive links. MAIA reads the extracted text and uses it when an owner asks a question.
+            Master insurance compliance — code <span className="font-mono">{assoc.association_code}</span>.
+            The association&apos;s own policies (common-element coverage), not the per-unit HO-6 policies owners carry.
+            Expiring and expired coverages roll into the daily compliance digest automatically.
           </p>
         </header>
 
-        <DocumentsManager assocCode={assoc.association_code} />
+        <InsuranceManager assocCode={assoc.association_code} />
       </main>
     </div>
   )
