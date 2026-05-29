@@ -7,7 +7,7 @@
 
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 interface Vendor      { id: number;  name: string; shortName: string | null }
@@ -646,17 +646,12 @@ function DraftCard(props: {
         <Field label="Vendor (CINC)">
           {mode === 'edit' ? (
             <>
-              <select
+              <VendorCombobox
+                vendors={vendors}
                 value={vendorId}
-                onChange={e => setVendorId(e.target.value)}
+                onChange={setVendorId}
                 disabled={readOnly}
-                style={{ width: '100%', padding: 6 }}
-              >
-                <option value="">— pick vendor —</option>
-                {vendors.map(v => (
-                  <option key={v.id} value={String(v.id)}>{v.name}</option>
-                ))}
-              </select>
+              />
               {draft.extracted_vendor_name && (
                 <div style={{ marginTop: 4, color: '#6b7280', fontSize: 11 }}>
                   Extracted: &quot;{draft.extracted_vendor_name}&quot;
@@ -1443,6 +1438,152 @@ function InvoiceHistory({ invoiceId }: { invoiceId: number }) {
               >
                 Refresh
               </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// VendorCombobox — type-to-search vendor picker.
+//
+// Replaces the native <select> (which listed every CINC vendor in import
+// order — hundreds of rows, unsorted). Vendors are sorted alphabetically;
+// typing filters by case-insensitive substring; the rendered list is
+// capped so a big vendor book stays responsive. Keyboard: ↑/↓ to move,
+// Enter to pick, Esc to close.
+// ─────────────────────────────────────────────────────────────────────
+const VENDOR_RESULT_CAP = 50
+
+function VendorCombobox({
+  vendors, value, onChange, disabled,
+}: {
+  vendors: Vendor[]
+  value:   string                       // selected vendor id (stringified) or ''
+  onChange: (id: string) => void
+  disabled?: boolean
+}) {
+  const sorted = useMemo(
+    () => [...vendors].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })),
+    [vendors],
+  )
+  const selected = useMemo(
+    () => vendors.find(v => String(v.id) === value) ?? null,
+    [vendors, value],
+  )
+
+  const [query, setQuery]     = useState(selected?.name ?? '')
+  const [dirty, setDirty]     = useState(false)   // true once the user types
+  const [open, setOpen]       = useState(false)
+  const [highlight, setHighlight] = useState(0)
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  // Keep the input text in sync when the selection changes from outside
+  // (e.g. draft reset / re-match), but don't clobber what the user types.
+  useEffect(() => {
+    if (!open) { setQuery(selected?.name ?? ''); setDirty(false) }
+  }, [selected, open])
+
+  // Close on outside click.
+  useEffect(() => {
+    if (!open) return
+    function onDown(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  const q = query.trim().toLowerCase()
+  const matches = useMemo(
+    () => ((dirty && q) ? sorted.filter(v => v.name.toLowerCase().includes(q)) : sorted),
+    [sorted, dirty, q],
+  )
+  const shown = matches.slice(0, VENDOR_RESULT_CAP)
+
+  function pick(v: Vendor) {
+    onChange(String(v.id))
+    setQuery(v.name)
+    setDirty(false)
+    setOpen(false)
+  }
+  function clear() {
+    onChange('')
+    setQuery('')
+    setDirty(true)
+    setOpen(true)
+  }
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative' }}>
+      <div style={{ position: 'relative' }}>
+        <input
+          type="text"
+          value={query}
+          disabled={disabled}
+          placeholder="— pick vendor — type to search"
+          onChange={e => { setQuery(e.target.value); setDirty(true); setOpen(true); setHighlight(0) }}
+          onFocus={() => { setOpen(true); setHighlight(0) }}
+          onKeyDown={e => {
+            if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHighlight(h => Math.min(h + 1, shown.length - 1)) }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight(h => Math.max(h - 1, 0)) }
+            else if (e.key === 'Enter') { if (open && shown[highlight]) { e.preventDefault(); pick(shown[highlight]) } }
+            else if (e.key === 'Escape') { setOpen(false) }
+          }}
+          style={{ width: '100%', padding: 6, paddingRight: 22, boxSizing: 'border-box' }}
+        />
+        {value && !disabled && (
+          <button
+            type="button"
+            onClick={clear}
+            title="Clear vendor"
+            style={{
+              position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)',
+              border: 'none', background: 'transparent', cursor: 'pointer', color: '#9ca3af',
+              fontSize: 14, lineHeight: 1, padding: '0 4px',
+            }}
+          >×</button>
+        )}
+      </div>
+
+      {open && !disabled && (
+        <div
+          style={{
+            position: 'absolute', zIndex: 20, top: '100%', left: 0, right: 0, marginTop: 2,
+            background: '#fff', border: '1px solid #d1d5db', borderRadius: 6,
+            maxHeight: 260, overflowY: 'auto', boxShadow: '0 6px 18px rgba(0,0,0,0.12)',
+          }}
+        >
+          {shown.length === 0 ? (
+            <div style={{ padding: '8px 10px', fontSize: 12, color: '#9ca3af' }}>
+              No vendor matches &quot;{query}&quot;.
+            </div>
+          ) : (
+            shown.map((v, i) => {
+              const isSel = String(v.id) === value
+              return (
+                <div
+                  key={v.id}
+                  onMouseDown={e => { e.preventDefault(); pick(v) }}
+                  onMouseEnter={() => setHighlight(i)}
+                  style={{
+                    padding: '6px 10px', fontSize: 13, cursor: 'pointer',
+                    background: i === highlight ? '#fef3ec' : isSel ? '#f9fafb' : '#fff',
+                    color: '#111',
+                    display: 'flex', justifyContent: 'space-between', gap: 8,
+                  }}
+                >
+                  <span>{v.name}</span>
+                  {isSel && <span style={{ color: '#f26a1b', fontSize: 11 }}>✓</span>}
+                </div>
+              )
+            })
+          )}
+          {matches.length > shown.length && (
+            <div style={{ padding: '6px 10px', fontSize: 11, color: '#9ca3af', borderTop: '1px solid #f3f4f6' }}>
+              +{matches.length - shown.length} more — keep typing to narrow.
             </div>
           )}
         </div>
