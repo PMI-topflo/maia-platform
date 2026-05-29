@@ -832,6 +832,114 @@ end $$;
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'association_safety_inspections',
+    label:       'FL structural-safety inspections',
+    description: 'association_safety_inspections — Milestone / SIRS / Wind Mitigation / Roof tracking with year-built + stories, last-completed + next-due dates, report upload, waiver + versioning. Also extends compliance_alerts.alert_type to the full union incl. inspection_due/inspection_overdue so the daily cron + dashboard deadline tracker (I7) can alert on inspection deadlines.',
+    filename:    '20260529_association_safety_inspections.sql',
+    artifact:    { type: 'table', table: 'association_safety_inspections' },
+    sql: `create table if not exists public.association_safety_inspections (
+  id                   bigint generated always as identity primary key,
+  association_code     text        not null,
+  inspection_type      text        not null,
+  building_label       text,
+  year_built           int,
+  stories              int,
+  coastal              boolean     not null default false,
+  last_completed_date  date,
+  next_due_date        date,
+  provider             text,
+  report_storage_path  text,
+  report_filename      text,
+  report_mime_type     text,
+  report_file_size_bytes bigint,
+  waived               boolean     not null default false,
+  waived_reason        text,
+  notes                text,
+  archived_at          timestamptz,
+  archived_by_email    text,
+  created_by_email     text,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now()
+);
+
+create index if not exists idx_assoc_safe_code on public.association_safety_inspections(association_code);
+create index if not exists idx_assoc_safe_type on public.association_safety_inspections(inspection_type);
+create index if not exists idx_assoc_safe_due  on public.association_safety_inspections(next_due_date);
+create index if not exists idx_assoc_safe_active on public.association_safety_inspections(archived_at) where archived_at is null;
+
+create unique index if not exists uq_assoc_safe_active
+  on public.association_safety_inspections(association_code, inspection_type, coalesce(building_label, ''))
+  where archived_at is null;
+
+create or replace function public.tg_set_updated_at()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at := now();
+  return new;
+end $$;
+
+drop trigger if exists set_updated_at on public.association_safety_inspections;
+create trigger set_updated_at before update on public.association_safety_inspections
+  for each row execute function public.tg_set_updated_at();
+
+grant select, insert, update, delete on public.association_safety_inspections
+  to anon, authenticated, service_role;
+
+alter table public.association_safety_inspections enable row level security;
+
+drop policy if exists service_all on public.association_safety_inspections;
+create policy service_all on public.association_safety_inspections
+  for all to service_role using (true) with check (true);
+
+drop policy if exists auth_read on public.association_safety_inspections;
+create policy auth_read on public.association_safety_inspections
+  for select to authenticated using (true);
+
+do $$
+declare c record;
+begin
+  for c in
+    select con.conname
+    from pg_constraint con
+    join pg_class rel on rel.oid = con.conrelid
+    join pg_namespace nsp on nsp.oid = rel.relnamespace
+    where nsp.nspname = 'public'
+      and rel.relname = 'compliance_alerts'
+      and con.contype = 'c'
+      and pg_get_constraintdef(con.oid) ilike '%alert_type%'
+  loop
+    execute format('alter table public.compliance_alerts drop constraint %I', c.conname);
+  end loop;
+
+  alter table public.compliance_alerts
+    add constraint compliance_alerts_alert_type_check
+    check (alert_type in (
+      'lease_expiring','lease_expired',
+      'insurance_expiring','insurance_expired',
+      'violation_due','violation_overdue',
+      'cou_expiring','cou_expired',
+      'assoc_insurance_expiring','assoc_insurance_expired',
+      'inspection_due','inspection_overdue'
+    ));
+end $$;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'compliance_drive_links',
+    label:       'Compliance Drive links',
+    description: 'association_insurance_policies.drive_url + association_safety_inspections.drive_url — lets a policy/inspection point at a Google Drive file instead of an uploaded one, so staff can paste/update the link from the screen (not every file needs to live in the system). See COMPLIANCE_TRACKING.md.',
+    filename:    '20260529_compliance_drive_links.sql',
+    artifact:    { type: 'column', table: 'association_insurance_policies', column: 'drive_url' },
+    sql: `alter table public.association_insurance_policies
+  add column if not exists drive_url text;
+
+alter table public.association_safety_inspections
+  add column if not exists drive_url text;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

@@ -48,6 +48,10 @@ function cleanText(v: unknown): string | null {
   const s = (typeof v === 'string' ? v : '').trim()
   return s.length ? s : null
 }
+function cleanUrl(v: unknown): string | null {
+  const s = (typeof v === 'string' ? v : '').trim()
+  return /^https?:\/\/\S+$/i.test(s) ? s : null
+}
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ code: string; id: string }> }) {
   const session = await requireStaff()
@@ -120,6 +124,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ code: string;
   if ('notes'               in body) patch.notes               = cleanText(body.notes)
   if ('waived'              in body) patch.waived              = body.waived === true
   if ('waived_reason'       in body) patch.waived_reason       = cleanText(body.waived_reason)
+  if ('drive_url'           in body) patch.drive_url           = cleanUrl(body.drive_url)
 
   // COI replacement — validate prefix and remember the old object so we
   // can clean it up after the row update succeeds.
@@ -200,13 +205,16 @@ export async function GET(_req: Request, ctx: { params: Promise<{ code: string; 
   const { code, id } = await ctx.params
   const { data: row, error } = await supabaseAdmin
     .from('association_insurance_policies')
-    .select('coi_storage_path, coi_filename')
+    .select('coi_storage_path, coi_filename, drive_url')
     .eq('id', id)
     .eq('association_code', code.toUpperCase())
     .maybeSingle()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!row)  return NextResponse.json({ error: 'Policy not found' }, { status: 404 })
+  // Prefer the uploaded file (authoritative, in-system); fall back to the
+  // Drive link when the file lives only in Drive.
   if (!row.coi_storage_path) {
+    if (row.drive_url) return NextResponse.json({ url: row.drive_url, source: 'drive' })
     return NextResponse.json({ error: 'No COI on file for this policy' }, { status: 404 })
   }
 

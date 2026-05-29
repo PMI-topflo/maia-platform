@@ -179,6 +179,38 @@ export async function GET(req: Request) {
     });
   }
 
+  // ---- 6. Association structural-safety inspections ----
+  // SIRS / Milestone / Wind Mitigation / Roof. Active, non-waived rows
+  // with a next_due_date. Wider 90-day lookahead than the others because
+  // scheduling an engineering firm takes months. account_number is the
+  // association_code (association-level, not unit-level).
+  const { data: inspections } = await supabaseAdmin
+    .from('association_safety_inspections')
+    .select('id, association_code, inspection_type, building_label, next_due_date')
+    .is('archived_at', null)
+    .eq('waived', false)
+    .not('next_due_date', 'is', null);
+
+  for (const ins of inspections ?? []) {
+    const days = daysBetween(ins.next_due_date);
+    if (days > 90) continue;
+    const typeLabel = (ins.inspection_type ?? 'inspection').replace(/_/g, ' ');
+    const where = ins.building_label ? ` (${ins.building_label})` : '';
+    newAlerts.push({
+      account_number: ins.association_code,
+      association_code: ins.association_code,
+      alert_type: days < 0 ? 'inspection_overdue' : 'inspection_due',
+      severity: severityFor(days),
+      reference_id: ins.id,
+      reference_table: 'association_safety_inspections',
+      expiration_date: ins.next_due_date,
+      days_delta: days,
+      message: days < 0
+        ? `${typeLabel} inspection${where} overdue by ${Math.abs(days)} days`
+        : `${typeLabel} inspection${where} due in ${days} days`,
+    });
+  }
+
   // ---- Dedupe & insert ----
   // Skip alerts that already exist and are unresolved (same reference_id + alert_type)
   const { data: existing } = await supabaseAdmin
@@ -236,6 +268,7 @@ export async function GET(req: Request) {
       cou: cous?.length ?? 0,
       violations: violations?.length ?? 0,
       assocInsurance: assocInsurance?.length ?? 0,
+      inspections: inspections?.length ?? 0,
     },
     newAlerts: toInsert.length,
     autoResolved: toResolve.length,
