@@ -1890,11 +1890,15 @@ export async function attachInvoicePdf(opts: {
   pdfBase64: string
   filename:  string
 }): Promise<{ imageId: number }> {
+  // CINC's request model names the base64 payload field `File` — NOT
+  // `FileContent`/`Base64`/`Document`/etc, all of which return 400
+  // "Invalid Model" (verified live; this is why auto-attach never worked).
+  // Response echoes `{ InvoiceId, ImageId, FileName }`.
   const result = await call<{ ImageID?: number; ImageId?: number }>(
     '/management/1/associations/InvoiceAttachmentsBase64',
     {
       method: 'PUT',
-      json:   { InvoiceID: opts.invoiceId, FileName: opts.filename, FileContent: opts.pdfBase64 },
+      json:   { InvoiceID: opts.invoiceId, FileName: opts.filename, File: opts.pdfBase64 },
     },
   )
   const imageId = result.ImageID ?? result.ImageId

@@ -198,6 +198,8 @@ Two distinct path patterns appear in this category:
 |---------------|---------|
 | `PUT /management/1/associations/InvoiceAttachments` | Attach file (ByteArray). 1 attachment max, 25 MB max. Returns ImageID |
 | `PUT /management/1/associations/InvoiceAttachmentsBase64` | Same, but Base64-encoded body. Returns ImageID |
+
+> **Base64 attach model**: body is `{ "InvoiceID": <id>, "FileName": "x.pdf", "File": "<base64>" }`. The payload field is **`File`** — `FileContent`/`Base64`/`Document`/etc all return `400 "Invalid Model"` (verified live). Response: `{ "InvoiceId": <id>, "ImageId": <id>, "FileName": "x.pdf" }`. Keep the file ≲1 MB (normalize big scans via `lib/pdf-normalize.ts` first).
 | `DELETE /management/1/associations/InvoiceAttachments` | Delete an attachment by invoice ID + image ID |
 
 ### User-defined fields
