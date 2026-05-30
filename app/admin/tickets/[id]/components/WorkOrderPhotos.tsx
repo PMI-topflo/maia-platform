@@ -9,6 +9,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { normalizeUploadFile } from '@/lib/normalize-upload-client'
 
 interface Attachment {
   id:                 string
@@ -88,6 +89,8 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
     setError(null)
     try {
       for (const file of files) {
+        // Shrink large photos in the browser before this server-bypassing upload.
+        const upFile = await normalizeUploadFile(file)
         const urlRes = await fetch(`/api/admin/work-orders/${ticketId}/photos/upload-url`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -98,8 +101,8 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
 
         const putRes = await fetch(urlData.signed_url, {
           method:  'PUT',
-          body:    file,
-          headers: { 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'false' },
+          body:    upFile,
+          headers: { 'Content-Type': upFile.type || 'application/octet-stream', 'x-upsert': 'false' },
         })
         if (!putRes.ok) {
           let detail = `HTTP ${putRes.status}`
@@ -116,8 +119,8 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
           body:    JSON.stringify({
             storage_path:    urlData.storage_path,
             filename:        file.name,
-            mime_type:       file.type || undefined,
-            file_size_bytes: file.size,
+            mime_type:       upFile.type || undefined,
+            file_size_bytes: upFile.size,
           }),
         })
         const metaData = await metaRes.json()

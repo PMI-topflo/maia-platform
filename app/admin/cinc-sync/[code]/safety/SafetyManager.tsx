@@ -23,6 +23,7 @@ import {
   type InspectionTypeDef,
   type SafetyRequirement,
 } from '@/lib/association-safety'
+import { normalizeUploadFile } from '@/lib/normalize-upload-client'
 
 interface Props { assocCode: string }
 
@@ -266,6 +267,8 @@ function InspectionEditor({ assocCode, inspectionType, existing, onSaved, onCanc
 
   async function uploadReport() {
     if (!file) return null
+    // Shrink oversized scans in the browser before this server-bypassing upload.
+    const upFile = await normalizeUploadFile(file)
     const urlRes = await fetch(`/api/admin/associations/${assocCode}/safety/upload-url`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename: file.name, inspection_type: inspectionType }),
@@ -273,7 +276,7 @@ function InspectionEditor({ assocCode, inspectionType, existing, onSaved, onCanc
     const urlData = await urlRes.json()
     if (!urlRes.ok) throw new Error(urlData?.error ?? 'Could not get upload URL')
     const put = await fetch(urlData.signed_url, {
-      method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/pdf', 'x-upsert': 'false' },
+      method: 'PUT', body: upFile, headers: { 'Content-Type': upFile.type || 'application/pdf', 'x-upsert': 'false' },
     })
     if (!put.ok) {
       let detail = `HTTP ${put.status}`
@@ -282,7 +285,7 @@ function InspectionEditor({ assocCode, inspectionType, existing, onSaved, onCanc
     }
     return {
       report_storage_path: urlData.storage_path, report_filename: file.name,
-      report_mime_type: file.type || 'application/pdf', report_file_size_bytes: file.size,
+      report_mime_type: upFile.type || 'application/pdf', report_file_size_bytes: upFile.size,
     }
   }
 

@@ -5,6 +5,7 @@ import SiteHeader from "@/components/SiteHeader";
 import { loadStripe } from "@stripe/stripe-js";
 import { createClient } from "@supabase/supabase-js";
 import { SignaturePad, WebcamCapture } from "@/components/SignatureEvidence";
+import { normalizeUploadFile } from "@/lib/normalize-upload-client";
 
 // ── Supabase client — used only for Storage uploads (anon key) ────────────────
 const supabase = createClient(
@@ -1123,8 +1124,11 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   };
 
   // ── Document upload to Supabase Storage ────────────────────────────────────
-  const uploadDoc = useCallback(async (file: File, docType: string) => {
-    if (!file) return;
+  const uploadDoc = useCallback(async (rawFile: File, docType: string) => {
+    if (!rawFile) return;
+    // Shrink oversized phone scans in the browser first, so a big photo
+    // comes in under the limit instead of being rejected.
+    const file = await normalizeUploadFile(rawFile);
     const MAX = 10 * 1024 * 1024;
     if (file.size > MAX) { setError("File too large — max 10 MB."); return; }
 

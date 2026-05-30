@@ -21,6 +21,7 @@ import {
   languageLabel,
   type AssociationDocument,
 } from '@/lib/association-documents'
+import { normalizeUploadFile } from '@/lib/normalize-upload-client'
 
 interface Props {
   assocCode: string
@@ -207,6 +208,11 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
       // serverless body limit so 50 MB master policies / declaration
       // PDFs go straight from the browser to Supabase Storage.
       //
+      // Shrink an oversized scan in the browser first — this upload goes
+      // straight to Supabase, so the server never sees the bytes to
+      // compress them. Best-effort: returns the original on any failure.
+      const upFile = await normalizeUploadFile(file)
+
       // Step 1 — small POST: ask the server for a one-time signed
       // upload URL + token (staff auth happens here).
       const urlRes = await fetch(`/api/admin/associations/${assocCode}/documents/upload-url`, {
@@ -225,9 +231,9 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
       // through Vercel; no 4.5 MB body limit.
       const uploadRes = await fetch(urlData.signed_url, {
         method:  'PUT',
-        body:    file,
+        body:    upFile,
         headers: {
-          'Content-Type': file.type || 'application/pdf',
+          'Content-Type': upFile.type || 'application/pdf',
           // Tell Supabase Storage how to handle conflicts. The path
           // includes a timestamp + UUID so collisions are vanishingly
           // unlikely; "false" matches the createSignedUploadUrl
@@ -261,8 +267,8 @@ function UploadCard({ assocCode, onUploaded }: { assocCode: string; onUploaded: 
           source:           'upload_complete',
           storage_path:     urlData.storage_path,
           filename:         file.name,
-          mime_type:        file.type || 'application/pdf',
-          file_size_bytes:  file.size,
+          mime_type:        upFile.type || 'application/pdf',
+          file_size_bytes:  upFile.size,
           category,
           language,
           notes:            notes || null,
