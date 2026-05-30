@@ -75,7 +75,7 @@ interface ScheduledPayment {
   notes:            string | null
 }
 interface UpcomingCinc { vendorName: string | null; invoiceNumber: string | null; amount: number; dueDate: string | null; account: string }
-interface UpcomingRecurring { displayName: string; avgAmount: number; lastSeenMonth: string }
+interface UpcomingRecurring { key: string; displayName: string; avgAmount: number; lastSeenMonth: string }
 
 interface ForecastSummary {
   bankAccountId:          number
@@ -235,6 +235,25 @@ export default function ReconciliationView(props: Props) {
     finally { setUpLoading(false) }
   }, [assoc, month])
   useEffect(() => { void loadUpcoming() }, [loadUpcoming])
+
+  /** Hide a MAIA recurring estimate judged wrong/unwanted. */
+  async function dismissRecurring(vendorKey: string) {
+    await fetch('/api/admin/reconciliation/recurring-dismiss', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assoc, vendor_key: vendorKey }),
+    })
+    await loadUpcoming()
+  }
+  /** Turn a MAIA estimate into an editable manual entry (then hide the
+   *  estimate so it doesn't double-show). Lets staff correct a wrong
+   *  amount/date — the estimate itself isn't editable. */
+  async function convertRecurring(r: UpcomingRecurring) {
+    await fetch('/api/admin/reconciliation/scheduled', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ association_code: assoc, due_month: month, vendor_payee: r.displayName, description: 'From MAIA estimate — edit as needed', category: 'vendor', amount: Math.round(r.avgAmount * 100) / 100, months: 1 }),
+    })
+    await dismissRecurring(r.key)  // also reloads
+  }
 
   async function submitFuture() {
     if (!assoc || !future.due_month || future.amount === '') { setError('Month and amount are required'); return }
@@ -591,11 +610,11 @@ export default function ReconciliationView(props: Props) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
           <thead>
             <tr style={{ background: '#f3f4f6' }}>
-              <Th>Effective Date</Th>
-              <Th>Vendor/Payee</Th>
-              <Th>Description</Th>
-              <Th>Invoice #</Th>
-              <Th right>Amount</Th>
+              <Th stickyIndex={0}>Effective Date</Th>
+              <Th stickyIndex={1}>Vendor/Payee</Th>
+              <Th stickyIndex={2}>Description</Th>
+              <Th stickyIndex={3}>Invoice #</Th>
+              <Th stickyIndex={4} right>Amount</Th>
               <Th>Paid Type</Th>
               <Th>Notes</Th>
               <Th>Invoice</Th>
@@ -620,7 +639,8 @@ export default function ReconciliationView(props: Props) {
             {/* Starting balance row */}
             {entries.length > 0 && (
               <tr style={{ background: '#fefce8', borderTop: '1px solid #f3f4f6', fontWeight: 600 }}>
-                <Td colSpan={9}>Starting balance — {new Date(month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })}</Td>
+                <Td colSpan={5} stickyIndex={0} stickyWidth={STICKY_TOTAL} bg="#fefce8">Starting balance — {new Date(month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })}</Td>
+                <Td colSpan={4}></Td>
                 {sortedBanks.map(b => (
                   <Td key={b.id} right><span style={{ fontVariantNumeric: 'tabular-nums', color: '#111827' }}>${fmt$(startingBalances.get(b.id) ?? 0)}</span></Td>
                 ))}
@@ -629,12 +649,13 @@ export default function ReconciliationView(props: Props) {
             )}
             {entries.map((e, idx) => {
               const balsAfter = runningBalances[idx] ?? new Map()
+              const rowBg = e.reconciled_at ? '#f0fdf4' : '#fff'
               return (
-                <tr key={e.id} style={{ background: e.reconciled_at ? '#f0fdf4' : '#fff', borderTop: '1px solid #f3f4f6' }}>
-                  <Td>{formatMD(e.effective_date)}</Td>
-                  <Td>{e.vendor_payee ?? ''}</Td>
-                  <Td>{e.description ?? ''}</Td>
-                  <Td>
+                <tr key={e.id} style={{ background: rowBg, borderTop: '1px solid #f3f4f6' }}>
+                  <Td stickyIndex={0} bg={rowBg}>{formatMD(e.effective_date)}</Td>
+                  <Td stickyIndex={1} bg={rowBg}>{e.vendor_payee ?? ''}</Td>
+                  <Td stickyIndex={2} bg={rowBg}>{e.description ?? ''}</Td>
+                  <Td stickyIndex={3} bg={rowBg}>
                     {e.invoice_number && e.cinc_invoice_id ? (
                       <a href={`/admin/invoices/cinc/${e.cinc_invoice_id}`} style={{ color: '#2563eb', textDecoration: 'underline' }} title="Open CINC invoice detail">
                         {e.invoice_number}
@@ -643,7 +664,7 @@ export default function ReconciliationView(props: Props) {
                       e.invoice_number ?? ''
                     )}
                   </Td>
-                  <Td right>
+                  <Td stickyIndex={4} right bg={rowBg}>
                     <span style={{ color: e.amount < 0 ? '#991b1b' : '#166534', fontVariantNumeric: 'tabular-nums' }}>
                       ${fmt$(Math.abs(e.amount))}
                       {e.amount < 0 ? ' ⬇' : e.amount > 0 ? ' ⬆' : ''}
@@ -835,7 +856,10 @@ export default function ReconciliationView(props: Props) {
                     <Td></Td>
                     <Td right><span style={{ color: '#b45309', fontVariantNumeric: 'tabular-nums' }}>~${fmt$(r.avgAmount)} ⬇</span></Td>
                     <Td><span style={{ fontSize: 10, color: '#b45309' }}>estimated</span></Td>
-                    <Td></Td>
+                    <Td>
+                      <button onClick={() => void convertRecurring(r)} title="Convert to an editable manual entry (fix the amount/date)" style={{ fontSize: 10, color: '#2563eb', border: '1px solid #bfdbfe', background: '#fff', borderRadius: 3, padding: '1px 6px', cursor: 'pointer', marginRight: 4 }}>→ Manual</button>
+                      <button onClick={() => void dismissRecurring(r.key)} title="Dismiss — wrong/unwanted estimate; hide it" style={{ fontSize: 11, color: '#9ca3af', border: 'none', background: 'transparent', cursor: 'pointer' }}>×</button>
+                    </Td>
                   </tr>
                 ))}
               </tbody>
@@ -961,12 +985,30 @@ function BankGroupCards(props: {
   )
 }
 
-function Th({ children, right }: { children?: React.ReactNode; right?: boolean }) {
-  return <th style={{ textAlign: right ? 'right' : 'left', padding: '5px 6px', fontWeight: 600, color: '#374151', fontSize: 10, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{children}</th>
+// Frozen-column widths (px) for the ledger's leading identity columns —
+// Effective Date, Vendor/Payee, Description, Invoice #, Amount — so they
+// stay visible while scrolling right across many bank-account columns.
+// `left` is the cumulative offset; `STICKY_TOTAL` is the full frozen width.
+const STICKY_W = [92, 130, 220, 92, 96]
+const STICKY_LEFT = STICKY_W.reduce<number[]>((acc, w, i) => { acc.push(i === 0 ? 0 : acc[i - 1] + STICKY_W[i - 1]); return acc }, [])
+const STICKY_TOTAL = STICKY_W.reduce((s, w) => s + w, 0)
+
+function Th({ children, right, stickyIndex }: { children?: React.ReactNode; right?: boolean; stickyIndex?: number }) {
+  const s = stickyIndex != null
+  return <th style={{
+    textAlign: right ? 'right' : 'left', padding: '5px 6px', fontWeight: 600, color: '#374151', fontSize: 10,
+    borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap',
+    ...(s ? { position: 'sticky' as const, left: STICKY_LEFT[stickyIndex], width: STICKY_W[stickyIndex], minWidth: STICKY_W[stickyIndex], background: '#f3f4f6', zIndex: 5 } : {}),
+  }}>{children}</th>
 }
 
-function Td({ children, right, colSpan }: { children?: React.ReactNode; right?: boolean; colSpan?: number }) {
-  return <td colSpan={colSpan} style={{ padding: '4px 6px', textAlign: right ? 'right' : 'left', verticalAlign: 'top', whiteSpace: 'nowrap' }}>{children}</td>
+function Td({ children, right, colSpan, stickyIndex, bg, stickyWidth }: { children?: React.ReactNode; right?: boolean; colSpan?: number; stickyIndex?: number; bg?: string; stickyWidth?: number }) {
+  const s = stickyIndex != null
+  const w = stickyWidth ?? (s ? STICKY_W[stickyIndex] : undefined)
+  return <td colSpan={colSpan} style={{
+    padding: '4px 6px', textAlign: right ? 'right' : 'left', verticalAlign: 'top', whiteSpace: 'nowrap',
+    ...(s ? { position: 'sticky' as const, left: STICKY_LEFT[stickyIndex], width: w, minWidth: w, background: bg ?? '#fff', zIndex: 2 } : {}),
+  }}>{children}</td>
 }
 
 function Field({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {

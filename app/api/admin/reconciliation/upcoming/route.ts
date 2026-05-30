@@ -49,10 +49,17 @@ export async function GET(req: Request) {
     .order('due_date', { ascending: true, nullsFirst: false })
   if (manualErr) return NextResponse.json({ error: manualErr.message }, { status: 500 })
 
+  // MAIA estimates staff have dismissed (judged wrong/unwanted) — hidden.
+  const { data: dismissals } = await supabaseAdmin
+    .from('recurring_estimate_dismissals')
+    .select('vendor_key')
+    .eq('association_code', assoc)
+  const dismissedKeys = new Set((dismissals ?? []).map(d => d.vendor_key))
+
   // ── 2 + 3. CINC approved-unpaid + recurring, aggregated across the
   //          association's bank accounts (fault-tolerant). ────────────
   const cincByInvoice = new Map<string, { vendorName: string | null; invoiceNumber: string | null; amount: number; dueDate: string | null; account: string }>()
-  const recurringByKey = new Map<string, { displayName: string; avgAmount: number; lastSeenMonth: string }>()
+  const recurringByKey = new Map<string, { key: string; displayName: string; avgAmount: number; lastSeenMonth: string }>()
 
   try {
     const banks = await listAssociationBankAccounts(assoc)
@@ -73,9 +80,10 @@ export async function GET(req: Request) {
       }
       for (const v of f.recurringVendors) {
         if (!v.pendingThisMonth) continue
+        if (dismissedKeys.has(v.key)) continue   // staff dismissed this estimate
         const existing = recurringByKey.get(v.key)
         if (!existing || v.avgAmount > existing.avgAmount) {
-          recurringByKey.set(v.key, { displayName: v.displayName, avgAmount: v.avgAmount, lastSeenMonth: v.lastSeenMonth })
+          recurringByKey.set(v.key, { key: v.key, displayName: v.displayName, avgAmount: v.avgAmount, lastSeenMonth: v.lastSeenMonth })
         }
       }
     }
