@@ -1748,6 +1748,25 @@ export async function createInvoiceExpenseItems(opts: {
   return result?.ExpenseItemIDs ?? []
 }
 
+/** DELETE /accounting/expenseItems — remove expense lines from an invoice.
+ *  createInvoice auto-creates a blank-GL placeholder line equal to the
+ *  invoice total; once we POST the real GL line, that blank one must be
+ *  removed or the invoice doubles. The request model (per CINC Swagger)
+ *  is `{ InvoiceId, ExpenseItems: [<id>] }` — note the lowercase-d
+ *  `InvoiceId` and that ExpenseItems is a BARE ARRAY OF NUMBERS (the
+ *  expense item IDs from the GET / POST response), not objects.
+ *  Best-effort: caller should swallow failures and warn. */
+export async function deleteInvoiceExpenseItems(opts: {
+  invoiceId:       number
+  expenseItemIds:  number[]
+}): Promise<void> {
+  if (opts.expenseItemIds.length === 0) return
+  await call<unknown>('/management/1/accounting/expenseItems', {
+    method: 'DELETE',
+    json:   { InvoiceId: opts.invoiceId, ExpenseItems: opts.expenseItemIds },
+  })
+}
+
 /** POST /accounting/invoiceNotes — add a note (audit trail) to an
  *  existing invoice. Used right after every MAIA push to record
  *  provenance ("Auto-ingested from <sender> on <date>") so anyone

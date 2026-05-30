@@ -21,6 +21,8 @@ import {
   attachInvoicePdf,
   createInvoiceNote,
   createInvoiceExpenseItems,
+  deleteInvoiceExpenseItems,
+  getCincInvoice,
   listAssociationBankAccounts,
   getAssociationBudget,
   getCincVendorDetail,
@@ -159,6 +161,7 @@ export async function POST(
   // warning so Karen knows to fix it manually. Same pattern as the
   // PDF-attach failure path below.
   let expenseItemWarning: string | null = null
+  let expenseItemCreated = false
   if (draft.gl_account_id) {
     try {
       const budget = await getAssociationBudget(draft.extracted_association_code as string)
@@ -178,6 +181,7 @@ export async function POST(
             amount:      draft.extracted_amount as number,
           }],
         })
+        expenseItemCreated = true
       }
     } catch (err) {
       expenseItemWarning = `Expense item push failed: ${(err as Error).message}. Add the GL line manually in CINC.`
@@ -186,6 +190,30 @@ export async function POST(
   } else {
     expenseItemWarning = `No GL line selected on the draft — expense item not created. Add manually in CINC if needed.`
     console.warn(`[invoice-push] ${expenseItemWarning}`)
+  }
+
+  // Remove CINC's auto-created blank-GL placeholder line. createInvoice
+  // always seeds the invoice with one expense line that has no GL and
+  // equals the full total; left in place alongside our real GL line it
+  // doubles the invoice ("Difference: ($X)"). We only prune it once our
+  // real line exists — otherwise the blank line is the only allocation
+  // and removing it would leave the invoice with none. Identify blanks by
+  // an empty GLAccount and delete by their ID (CINC's DELETE model is
+  // `{ InvoiceId, ExpenseItems: [<id>] }`). Best-effort.
+  if (expenseItemCreated) {
+    try {
+      const inv = await getCincInvoice(cincInvoiceId)
+      const blankIds = (inv?.ExpenseItems ?? [])
+        .filter(it => it.ID != null && !((it.GLAccount ?? '').trim()))
+        .map(it => it.ID as number)
+      if (blankIds.length > 0) {
+        await deleteInvoiceExpenseItems({ invoiceId: cincInvoiceId, expenseItemIds: blankIds })
+      }
+    } catch (err) {
+      const msg = err instanceof CincApiError ? err.message : (err as Error).message
+      expenseItemWarning = [expenseItemWarning, `Could not remove CINC's blank placeholder GL line: ${msg}. Delete the $0/blank line manually in CINC so the invoice total matches.`].filter(Boolean).join(' ')
+      console.warn(`[invoice-push] blank-line cleanup failed: ${msg}`)
+    }
   }
 
   // Attach PDF with the canonical rename.
