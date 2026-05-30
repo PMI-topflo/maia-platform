@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { normalizeUpload } from '@/lib/pdf-normalize'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -57,7 +58,8 @@ export async function POST(req: NextRequest) {
   }
 
   const bytes = await file.arrayBuffer()
-  const buffer = Buffer.from(bytes)
+  // Shrink oversized phone-scan uploads before storing / extracting.
+  const { buffer } = await normalizeUpload(Buffer.from(bytes), { contentType: mimeType, filename: file.name })
 
   // ── Save to Supabase Storage (pending-leases bucket path) ─────────
   const ts = Date.now()

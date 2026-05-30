@@ -10,6 +10,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { listWorkOrderAttachments, type CincAttachment } from '@/lib/integrations/cinc'
+import { normalizeImage } from '@/lib/pdf-normalize'
 
 export const STORAGE_BUCKET = 'work-order-photos'
 const SIGNED_URL_TTL_SECONDS = 60 * 60          // 1 hour
@@ -145,6 +146,10 @@ export async function mirrorCincWorkOrderPhotos(opts: {
       continue
     }
 
+    // Shrink large photos before storing (and before the size gate, so a
+    // big phone photo is compressed rather than skipped outright).
+    buf = (await normalizeImage(buf)).buffer
+
     if (buf.byteLength > FILE_SIZE_LIMIT_BYTES) {
       errors.push(`${att.FileName} exceeds ${FILE_SIZE_LIMIT_BYTES} byte limit (${buf.byteLength})`)
       continue
@@ -254,7 +259,9 @@ export async function saveWorkOrderAttachmentBytes(opts: {
   if (!isImage(opts.filename)) {
     return { ok: false, error: `not an image: ${opts.filename}` }
   }
-  if (opts.bytes.byteLength > FILE_SIZE_LIMIT_BYTES) {
+  // Shrink large photos before the size gate + storage.
+  const bytes = (await normalizeImage(opts.bytes)).buffer
+  if (bytes.byteLength > FILE_SIZE_LIMIT_BYTES) {
     return { ok: false, error: `${opts.filename} exceeds the ${FILE_SIZE_LIMIT_BYTES}-byte limit` }
   }
   const bucket = await ensureBucket()
@@ -264,7 +271,7 @@ export async function saveWorkOrderAttachmentBytes(opts: {
   const mime        = mimeFor(opts.filename)
   const { error: uploadErr } = await supabaseAdmin.storage
     .from(STORAGE_BUCKET)
-    .upload(storagePath, opts.bytes, { contentType: mime, upsert: false })
+    .upload(storagePath, bytes, { contentType: mime, upsert: false })
   if (uploadErr) return { ok: false, error: `upload failed: ${uploadErr.message}` }
 
   const rec = await recordWorkOrderAttachment({
@@ -273,7 +280,7 @@ export async function saveWorkOrderAttachmentBytes(opts: {
     storagePath,
     filename:        opts.filename,
     mimeType:        mime,
-    fileSizeBytes:   opts.bytes.byteLength,
+    fileSizeBytes:   bytes.byteLength,
     uploadedByEmail: opts.uploadedByEmail ?? null,
   })
   if (!rec.ok) {

@@ -22,6 +22,7 @@ import {
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
 import { saveWorkOrderAttachmentBytes, isImageFilename } from '@/lib/work-order-attachments'
+import { normalizeUpload } from '@/lib/pdf-normalize'
 import { isValidTicketCategory } from '@/lib/ticket-categories'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -595,7 +596,9 @@ async function uploadAttachment(
   recordType: string | null,
 ): Promise<string | null> {
   try {
-    const buf    = await fetchGmailAttachmentData(messageId, att.attachmentId)
+    const raw    = await fetchGmailAttachmentData(messageId, att.attachmentId)
+    // Shrink oversized COI/W-9/ACH scans before storing.
+    const { buffer: buf } = await normalizeUpload(raw, { contentType: att.mimeType, filename: att.filename })
     const bucket = recordType === 'vendor' ? 'vendor-docs'
       : recordType === 'owner' ? 'application-docs'
       : 'buyer-docs'

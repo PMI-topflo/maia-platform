@@ -28,6 +28,7 @@ import {
   checkDuplicateInvoice,
 } from '@/lib/integrations/cinc'
 import { extractInvoiceFields } from '@/lib/invoice-extraction'
+import { normalizePdf, PDF_TARGET_BYTES } from '@/lib/pdf-normalize'
 
 const STORAGE_BUCKET           = 'invoice-intake-pdfs'
 const MAX_PDF_BYTES            = 25 * 1024 * 1024   // CINC's hard limit
@@ -137,7 +138,20 @@ async function processOnePdf(opts: {
 }): Promise<'created' | 'needs_vendor' | 'skipped'> {
   const { parsed, att, vendors, assocHintFromEmail, fetchAttachment } = opts
 
-  const buf  = await fetchAttachment(att.attachmentId)
+  const rawBuf = await fetchAttachment(att.attachmentId)
+
+  // Normalize oversized scans ONCE, here at intake, so every downstream
+  // copy (storage / CINC attach / Drive mirror) is the small version.
+  // CINC rejects attachments over ~1 MB; phone scans routinely arrive at
+  // 20 MB+. Best-effort — returns the original untouched if it's already
+  // small, isn't a PDF, or the pipeline fails (see lib/pdf-normalize.ts).
+  const norm = await normalizePdf(rawBuf)
+  if (norm.changed) {
+    console.log(`[invoice-intake] normalized ${att.filename}: ${norm.note}`)
+  } else if (norm.originalBytes > PDF_TARGET_BYTES) {
+    console.warn(`[invoice-intake] ${att.filename} still ${(norm.originalBytes / 1e6).toFixed(1)}MB: ${norm.note}`)
+  }
+  const buf  = norm.buffer
   const b64  = buf.toString('base64')
 
   // Storage first (so we can re-push later even if extraction/CINC errors).
