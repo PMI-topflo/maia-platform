@@ -1018,6 +1018,18 @@ end $$;
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'invoice_intake_dates',
+    label:       'Invoice due + scheduled-pay dates',
+    description: 'invoice_intake_drafts.due_date + scheduled_pay_date — invoice due date (→ CINC DueDate) and the date PMI plans to pay, for cash-flow timing + the reconciliation Upcoming Payments section.',
+    filename:    '20260530_invoice_intake_dates.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'scheduled_pay_date' },
+    sql: `alter table public.invoice_intake_drafts
+  add column if not exists due_date           date,
+  add column if not exists scheduled_pay_date date;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
