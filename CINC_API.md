@@ -103,6 +103,13 @@ The largest category. Covers homeowner charges, invoices, GL transactions, budge
 | `POST /management/1/accounting/expenseItems` | Create invoice expense items; returns IDs |
 | `PUT /management/1/accounting/expenseItems` | Update invoice expense items |
 | `DELETE /management/1/accounting/expenseItems` | Delete invoice expense items |
+
+> **Expense-item write models** (the field names diverge between GET and write, and between the three verbs — verified live, every other shape returns `400 "Invalid Model"`):
+> - **`createInvoice` auto-creates a blank-GL placeholder line = the full invoice total.** After POSTing the real GL line you MUST delete that blank line or the invoice doubles ("Difference: ($X)").
+> - **POST** body: `{ "InvoiceID": <id>, "ExpenseItems": [{ "GlNumber": "64-5791-00", "Description": "...", "Amount": -160 }] }` — `Description` capped at 100 chars. Returns `{ ExpenseItemIDs: [...], ExpenseItems: [{ ID, ChartId, R, GLAccount, ItemDescription, Amount, IsBankAccount }] }`.
+> - **PUT** body: `{ "InvoiceID": <id>, "ExpenseItems": [{ "ExpenseItemNumber": <id>, "GlNumber": "...", "Description": "...", "Amount": 0 }] }` — the line identifier is **`ExpenseItemNumber`** (= the `ID` from GET/POST), NOT `ID`.
+> - **DELETE** body: `{ "InvoiceId": <id>, "ExpenseItems": [ <id> ] }` — note lowercase-`d` **`InvoiceId`** and `ExpenseItems` is a **bare array of expense-item IDs** (numbers), not objects.
+> - The GET (`/management/associations/1/invoice?invoiceId=`) returns each line as `{ ID, ChartId, R, GLAccount, ItemDescription, Amount, IsBankAccount, GlAccountInfo }`. The blank placeholder line has `GLAccount: null` — that's how to find it for deletion.
 | `GET /management/1/accounting/invoiceNotes/{invoiceID}` | Invoice notes (pass `includeDeleted=true` to include deleted) |
 | `POST /management/1/accounting/invoiceNotes` | Create invoice notes |
 | `GET /management/1/accounting/invoiceInstruction/association/{assocCode}` | Invoice instructions |
