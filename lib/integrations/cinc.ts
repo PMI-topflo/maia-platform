@@ -1390,6 +1390,43 @@ export async function listOpenInvoices(opts?: { assocCode?: string }): Promise<C
   })
 }
 
+/** Resolve a CINC InvoiceID from an invoice NUMBER (+ optional assoc),
+ *  via the invoice-search endpoint. Bank GL transactions only carry the
+ *  invoice number as free text; the invoice-detail page needs the numeric
+ *  ID, so the reconciliation "Invoice #" link uses this to look it up.
+ *
+ *  GET /management/associations/1/invoices requires `InvoiceDateFrom` +
+ *  `InvoiceDateTo` (range ≤ 366 days) PLUS at least one other filter
+ *  (`InvoiceNumber` here). Invoice date ≤ payment date, so we search a
+ *  ~11-month window ENDING just after the (payment) date we're given.
+ *  Returns null when nothing matches. Works for any status (incl. Paid).
+ */
+export async function findInvoiceIdByNumber(opts: {
+  invoiceNumber: string
+  assocCode?:    string | null
+  aroundDate?:   string | null   // YYYY-MM-DD — the payment/effective date
+}): Promise<number | null> {
+  const num = (opts.invoiceNumber ?? '').trim()
+  if (!num) return null
+  const center = opts.aroundDate ? new Date(opts.aroundDate) : new Date()
+  if (Number.isNaN(center.getTime())) return null
+  const to   = new Date(center.getTime() + 10 * 86_400_000).toISOString().slice(0, 10)
+  const from = new Date(center.getTime() - 330 * 86_400_000).toISOString().slice(0, 10)
+
+  const rows = await call<Array<{ InvoiceId?: number; InvoiceID?: number; InvoiceNumber?: string; AssocCode?: string }>>(
+    '/management/associations/1/invoices',
+    { method: 'GET', query: { InvoiceDateFrom: from, InvoiceDateTo: to, InvoiceNumber: num } },
+  ).catch(() => [] as Array<{ InvoiceId?: number; InvoiceNumber?: string; AssocCode?: string }>)
+
+  const wantNum   = num.toLowerCase()
+  const wantAssoc = opts.assocCode?.trim().toUpperCase() || null
+  const list = Array.isArray(rows) ? rows : []
+  const exact = list.filter(r => (r.InvoiceNumber ?? '').trim().toLowerCase() === wantNum)
+  const pool  = exact.length ? exact : list
+  const match = (wantAssoc ? pool.find(r => (r.AssocCode ?? '').toUpperCase() === wantAssoc) : null) ?? pool[0]
+  return (match?.InvoiceId ?? match?.InvoiceID) ?? null
+}
+
 /** Raw CINC InvoicePaymentVm per Swagger probe. Returned by
  *  GET /management/associations/1/invoicePayments?invoiceId=N. */
 export interface CincInvoicePayment {
