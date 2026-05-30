@@ -655,12 +655,18 @@ export default function ReconciliationView(props: Props) {
                   <Td stickyIndex={1} bg={rowBg}>{e.vendor_payee ?? ''}</Td>
                   <Td stickyIndex={2} bg={rowBg}>{e.description ?? ''}</Td>
                   <Td stickyIndex={3} bg={rowBg}>
-                    {e.invoice_number && e.cinc_invoice_id ? (
-                      <a href={`/admin/invoices/cinc/${e.cinc_invoice_id}`} style={{ color: '#2563eb', textDecoration: 'underline' }} title="Open CINC invoice detail">
+                    {e.invoice_number ? (
+                      <a
+                        href={e.cinc_invoice_id
+                          ? `/admin/invoices/cinc/${e.cinc_invoice_id}`
+                          : `/admin/invoices/cinc/lookup?number=${encodeURIComponent(e.invoice_number)}&assoc=${encodeURIComponent(e.association_code)}&date=${encodeURIComponent(e.effective_date)}`}
+                        style={{ color: '#2563eb', textDecoration: 'underline' }}
+                        title="Open CINC invoice detail"
+                      >
                         {e.invoice_number}
                       </a>
                     ) : (
-                      e.invoice_number ?? ''
+                      ''
                     )}
                   </Td>
                   <Td stickyIndex={4} right bg={rowBg}>
@@ -688,6 +694,16 @@ export default function ReconciliationView(props: Props) {
                   <Td stickyIndex={7} bg={rowBg}>
                     {e.invoice_attached_url ? (
                       <a href={e.invoice_attached_url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: 10 }}>PDF</a>
+                    ) : e.invoice_number ? (
+                      <a
+                        href={e.cinc_invoice_id
+                          ? `/admin/invoices/cinc/${e.cinc_invoice_id}`
+                          : `/admin/invoices/cinc/lookup?number=${encodeURIComponent(e.invoice_number)}&assoc=${encodeURIComponent(e.association_code)}&date=${encodeURIComponent(e.effective_date)}`}
+                        style={{ color: '#2563eb', fontSize: 10 }}
+                        title="Open CINC invoice detail"
+                      >
+                        details
+                      </a>
                     ) : (
                       <span style={{ color: '#9ca3af', fontSize: 10 }}>—</span>
                     )}
