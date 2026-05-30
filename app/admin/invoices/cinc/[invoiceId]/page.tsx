@@ -100,8 +100,13 @@ export default async function CincInvoicePage({ params }: Props) {
 
   const status     = invoice.InvoiceStatus ?? '—'
   const statusCols = statusBadgeColors(status)
-  const totalLines = invoice.ExpenseItems?.reduce((s, e) => s + (e.Amount ?? 0), 0) ?? 0
-  const difference = (invoice.TotalInvoiceAmount ?? 0) - totalLines
+  // CINC stores expense-item amounts as NEGATIVE (a debit allocation),
+  // while TotalInvoiceAmount is positive. Compare magnitudes so a balanced
+  // invoice reads $0 difference — otherwise (160) − (−160) shows a phantom
+  // $320. Items render as positive magnitudes too, for readability.
+  const linesSum   = invoice.ExpenseItems?.reduce((s, e) => s + (e.Amount ?? 0), 0) ?? 0
+  const totalLines = Math.abs(linesSum)
+  const difference = Math.abs(invoice.TotalInvoiceAmount ?? 0) - totalLines
 
   return (
     <>
@@ -193,7 +198,7 @@ export default async function CincInvoicePage({ params }: Props) {
                   <tr key={item.ID ?? i} style={{ borderTop: '1px solid #f3f4f6' }}>
                     <td style={tdStyle}>{item.GLAccount ?? '—'}</td>
                     <td style={tdStyle}>{item.ItemDescription ?? '—'}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt$(item.Amount)}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt$(Math.abs(item.Amount ?? 0))}</td>
                   </tr>
                 ))}
                 <tr style={{ borderTop: '1px solid #d1d5db', background: '#f9fafb', fontWeight: 600 }}>
