@@ -1072,6 +1072,30 @@ NOTIFY pgrst, 'reload schema';`,
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'upcoming_lifecycle',
+    label:       'Upcoming-payments lifecycle',
+    description: 'recurring_estimate_dismissals (hide wrong MAIA estimates) + scheduled_payments.matched_gl_trans_id (auto-clear manual future payments when the real payment posts).',
+    filename:    '20260530_upcoming_lifecycle.sql',
+    artifact:    { type: 'table', table: 'recurring_estimate_dismissals' },
+    sql: `create table if not exists public.recurring_estimate_dismissals (
+  id                 bigint generated always as identity primary key,
+  association_code   text        not null,
+  vendor_key         text        not null,
+  dismissed_by_email text,
+  created_at         timestamptz not null default now(),
+  unique (association_code, vendor_key)
+);
+create index if not exists idx_recur_dismiss_assoc on public.recurring_estimate_dismissals(association_code);
+grant select, insert, update, delete on public.recurring_estimate_dismissals to anon, authenticated, service_role;
+alter table public.recurring_estimate_dismissals enable row level security;
+drop policy if exists service_all on public.recurring_estimate_dismissals;
+create policy service_all on public.recurring_estimate_dismissals for all to service_role using (true) with check (true);
+drop policy if exists auth_read on public.recurring_estimate_dismissals;
+create policy auth_read on public.recurring_estimate_dismissals for select to authenticated using (true);
+alter table public.scheduled_payments add column if not exists matched_gl_trans_id bigint;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

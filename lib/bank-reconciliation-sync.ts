@@ -413,5 +413,41 @@ export async function syncReconciliationForAssoc(
     }
   }
 
+  // ── Auto-clear manual future payments whose real payment has posted ──
+  // When a CINC outflow lands that matches a pending scheduled_payment
+  // (same assoc, exact amount, on/after its due month), mark it paid and
+  // link the transaction — so manual entries drop off the Upcoming list
+  // on their own instead of staff deleting them by hand. Conservative:
+  // exact-amount match, one transaction per payment.
+  try {
+    const { data: pendings } = await supabaseAdmin
+      .from('scheduled_payments')
+      .select('id, amount, due_month')
+      .eq('association_code', associationCode.toUpperCase())
+      .eq('status', 'pending')
+      .is('matched_gl_trans_id', null)
+    if (pendings && pendings.length) {
+      const { data: outflows } = await supabaseAdmin
+        .from('bank_reconciliation_entries')
+        .select('cinc_gl_trans_id, amount, effective_date')
+        .eq('association_code', associationCode.toUpperCase())
+        .lt('amount', 0)
+        .not('cinc_gl_trans_id', 'is', null)
+      const used = new Set<number>()
+      for (const p of pendings) {
+        const match = (outflows ?? []).find(o =>
+          o.cinc_gl_trans_id != null && !used.has(o.cinc_gl_trans_id)
+          && Math.abs(Math.abs(o.amount) - Number(p.amount)) < 0.005
+          && String(o.effective_date).slice(0, 7) >= p.due_month)
+        if (match) {
+          used.add(match.cinc_gl_trans_id)
+          await supabaseAdmin.from('scheduled_payments')
+            .update({ status: 'paid', paid_date: match.effective_date, matched_gl_trans_id: match.cinc_gl_trans_id })
+            .eq('id', p.id)
+        }
+      }
+    }
+  } catch { /* auto-clear is best-effort */ }
+
   return stats
 }

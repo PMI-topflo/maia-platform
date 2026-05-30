@@ -75,7 +75,7 @@ interface ScheduledPayment {
   notes:            string | null
 }
 interface UpcomingCinc { vendorName: string | null; invoiceNumber: string | null; amount: number; dueDate: string | null; account: string }
-interface UpcomingRecurring { displayName: string; avgAmount: number; lastSeenMonth: string }
+interface UpcomingRecurring { key: string; displayName: string; avgAmount: number; lastSeenMonth: string }
 
 interface ForecastSummary {
   bankAccountId:          number
@@ -235,6 +235,25 @@ export default function ReconciliationView(props: Props) {
     finally { setUpLoading(false) }
   }, [assoc, month])
   useEffect(() => { void loadUpcoming() }, [loadUpcoming])
+
+  /** Hide a MAIA recurring estimate judged wrong/unwanted. */
+  async function dismissRecurring(vendorKey: string) {
+    await fetch('/api/admin/reconciliation/recurring-dismiss', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assoc, vendor_key: vendorKey }),
+    })
+    await loadUpcoming()
+  }
+  /** Turn a MAIA estimate into an editable manual entry (then hide the
+   *  estimate so it doesn't double-show). Lets staff correct a wrong
+   *  amount/date — the estimate itself isn't editable. */
+  async function convertRecurring(r: UpcomingRecurring) {
+    await fetch('/api/admin/reconciliation/scheduled', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ association_code: assoc, due_month: month, vendor_payee: r.displayName, description: 'From MAIA estimate — edit as needed', category: 'vendor', amount: Math.round(r.avgAmount * 100) / 100, months: 1 }),
+    })
+    await dismissRecurring(r.key)  // also reloads
+  }
 
   async function submitFuture() {
     if (!assoc || !future.due_month || future.amount === '') { setError('Month and amount are required'); return }
@@ -835,7 +854,10 @@ export default function ReconciliationView(props: Props) {
                     <Td></Td>
                     <Td right><span style={{ color: '#b45309', fontVariantNumeric: 'tabular-nums' }}>~${fmt$(r.avgAmount)} ⬇</span></Td>
                     <Td><span style={{ fontSize: 10, color: '#b45309' }}>estimated</span></Td>
-                    <Td></Td>
+                    <Td>
+                      <button onClick={() => void convertRecurring(r)} title="Convert to an editable manual entry (fix the amount/date)" style={{ fontSize: 10, color: '#2563eb', border: '1px solid #bfdbfe', background: '#fff', borderRadius: 3, padding: '1px 6px', cursor: 'pointer', marginRight: 4 }}>→ Manual</button>
+                      <button onClick={() => void dismissRecurring(r.key)} title="Dismiss — wrong/unwanted estimate; hide it" style={{ fontSize: 11, color: '#9ca3af', border: 'none', background: 'transparent', cursor: 'pointer' }}>×</button>
+                    </Td>
                   </tr>
                 ))}
               </tbody>
