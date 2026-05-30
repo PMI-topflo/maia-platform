@@ -25,6 +25,7 @@ const SELECT_COLUMNS = `
   id, gmail_message_id, pdf_storage_key, ticket_id,
   extracted_vendor_name, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name,
   extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date,
+  due_date, scheduled_pay_date,
   gl_account_id, gl_account_name,
   pay_by_type, observation_note, work_order_number,
   pay_from_bank_account_id,
@@ -75,6 +76,8 @@ interface PatchBody {
   extracted_amount?:           number | null
   extracted_association_code?: string | null
   extracted_invoice_date?:     string | null
+  due_date?:                   string | null
+  scheduled_pay_date?:         string | null
   gl_account_id?:              string | null
   gl_account_name?:            string | null
   pay_by_type?:                string | null
@@ -96,6 +99,7 @@ export async function PATCH(req: Request) {
     'matched_cinc_vendor_id', 'matched_vendor_name', 'matched_vendor_short_name',
     'extracted_invoice_number', 'extracted_amount',
     'extracted_association_code', 'extracted_invoice_date',
+    'due_date', 'scheduled_pay_date',
     'gl_account_id', 'gl_account_name',
     'pay_by_type', 'observation_note', 'work_order_number',
     'pay_from_bank_account_id',

@@ -65,7 +65,7 @@ export async function POST(
 
   const { data: draft, error: loadErr } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('id, status, pdf_storage_key, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, pay_by_type, observation_note, work_order_number, pay_from_bank_account_id, gl_account_id, gl_account_name, extraction_confidence, gmail_message_id')
+    .select('id, status, pdf_storage_key, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, due_date, scheduled_pay_date, pay_by_type, observation_note, work_order_number, pay_from_bank_account_id, gl_account_id, gl_account_name, extraction_confidence, gmail_message_id')
     .eq('id', id)
     .single()
   if (loadErr || !draft) return NextResponse.json({ error: loadErr?.message ?? 'not found' }, { status: 404 })
@@ -118,6 +118,7 @@ export async function POST(
       vendorId:             parseInt(draft.matched_cinc_vendor_id as string, 10),
       invoiceNumber:        draft.extracted_invoice_number    as string,
       invoiceDate:          draft.extracted_invoice_date      as string,
+      dueDate:              (draft.due_date ?? null) as string | null,
       amount:               draft.extracted_amount            as number,
       payByType:            (draft.pay_by_type      ?? null) as string | null,
       noteDescription:      (draft.observation_note ?? null) as string | null,

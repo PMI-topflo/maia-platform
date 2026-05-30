@@ -26,6 +26,8 @@ interface Draft {
   extracted_amount:            number | null
   extracted_association_code:  string | null
   extracted_invoice_date:      string | null
+  due_date:                    string | null
+  scheduled_pay_date:          string | null
   gl_account_id:               string | null
   gl_account_name:             string | null
   pay_by_type:                 string | null
@@ -264,6 +266,8 @@ function DraftCard(props: {
   const [invNo, setInvNo]         = useState<string>(draft.extracted_invoice_number ?? '')
   const [amount, setAmount]       = useState<string>(draft.extracted_amount != null ? String(draft.extracted_amount) : '')
   const [invDate, setInvDate]     = useState<string>(draft.extracted_invoice_date ?? '')
+  const [dueDate, setDueDate]     = useState<string>(draft.due_date ?? '')
+  const [schedDate, setSchedDate] = useState<string>(draft.scheduled_pay_date ?? '')
   const [glId, setGlId]           = useState<string>(draft.gl_account_id   ?? '')
   const [glName, setGlName]       = useState<string>(draft.gl_account_name ?? '')
   const [payBy, setPayBy]         = useState<string>(draft.pay_by_type     ?? '')
@@ -474,6 +478,8 @@ function DraftCard(props: {
     setInvNo    (draft.extracted_invoice_number   ?? '')
     setAmount   (draft.extracted_amount != null ? String(draft.extracted_amount) : '')
     setInvDate  (draft.extracted_invoice_date     ?? '')
+    setDueDate  (draft.due_date                    ?? '')
+    setSchedDate(draft.scheduled_pay_date          ?? '')
     setGlId     (draft.gl_account_id   ?? '')
     setGlName   (draft.gl_account_name ?? '')
     setPayBy    (draft.pay_by_type     ?? '')
@@ -499,6 +505,8 @@ function DraftCard(props: {
           extracted_amount:            amount ? parseFloat(amount) : null,
           extracted_association_code:  assoc || null,
           extracted_invoice_date:      invDate || null,
+          due_date:                    dueDate || null,
+          scheduled_pay_date:          schedDate || null,
           gl_account_id:               glId   || null,
           gl_account_name:             glName || null,
           pay_by_type:                 payBy  || null,
@@ -747,6 +755,45 @@ function DraftCard(props: {
             <ReadOnlyValue
               value={invDate ? new Date(invDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
               placeholder="—"
+            />
+          )}
+        </Field>
+
+        <Field label="Payment due date (per invoice)">
+          {mode === 'edit' ? (
+            <input
+              type="date"
+              value={dueDate}
+              onChange={e => setDueDate(e.target.value)}
+              disabled={readOnly}
+              style={{ width: '100%', padding: 6 }}
+            />
+          ) : (
+            <ReadOnlyValue
+              value={dueDate ? new Date(dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+              placeholder="— not set —"
+            />
+          )}
+        </Field>
+
+        <Field label="Scheduled payment date">
+          {mode === 'edit' ? (
+            <>
+              <input
+                type="date"
+                value={schedDate}
+                onChange={e => setSchedDate(e.target.value)}
+                disabled={readOnly}
+                style={{ width: '100%', padding: 6 }}
+              />
+              <div style={{ marginTop: 4, color: '#6b7280', fontSize: 11 }}>
+                When PMI plans to pay. Drives the reconciliation &quot;Upcoming Payments&quot; section + cash-flow timing; defer it to a month with funds.
+              </div>
+            </>
+          ) : (
+            <ReadOnlyValue
+              value={schedDate ? new Date(schedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+              placeholder="— not set —"
             />
           )}
         </Field>
