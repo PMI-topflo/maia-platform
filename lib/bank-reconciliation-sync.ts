@@ -48,7 +48,12 @@ import {
  *  up against open invoices. Returns null when no invoice token present. */
 function parseInvoiceNumber(description: string | null): string | null {
   if (!description) return null
-  const m = description.match(/\bInv\.?\s*#\s*([\w-]+)/i)
+  // CINC posts invoice references in two formats, both seen in the live
+  // ledger: "Inv.#0823 - Plumbing" and "Invoice: 135". Accept both
+  // (optional "oice", optional "." / "#" / ":" separators). Require the
+  // captured token to contain a digit so plain words ("Invoice payment")
+  // don't get mistaken for an invoice number.
+  const m = description.match(/\bInv(?:oice)?\b\.?\s*[#:]?\s*([\w-]*\d[\w-]*)/i)
   return m ? m[1].trim() : null
 }
 
