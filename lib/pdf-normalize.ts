@@ -32,6 +32,15 @@ import { PDFDocument } from 'pdf-lib'
 // base64 expansion (+33%) and PDF container overhead still clear it.
 export const PDF_TARGET_BYTES = 900_000
 
+// Generic document uploads (condo docs, leases, COI, financials) don't go
+// to CINC, so they get a roomier budget — we only want to tame 20 MB phone
+// scans, not touch ordinary multi-page text PDFs.
+export const DOC_TARGET_BYTES = 4_000_000
+
+// Image uploads (work-order photos, scanned COIs saved as JPG/PNG).
+export const IMAGE_TARGET_BYTES = 1_500_000
+const IMAGE_MAX_DIM = 2400
+
 export interface NormalizeResult {
   /** The normalized bytes, or the original if we left it alone / failed. */
   buffer: Buffer
@@ -61,6 +70,44 @@ async function loadPdfjs() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs')
   return pdfjs
+}
+
+/**
+ * True if the PDF carries a real, selectable text layer (a born-digital
+ * document) rather than being a flat scan. We sample the first few pages
+ * and call it "text" if there's a meaningful amount of extractable text.
+ *
+ * This protects ordinary documents (leases, financials, board PDFs) from
+ * being rasterized — flattening them would destroy the text layer and
+ * wreck downstream text extraction. Scans (phone photos of a check
+ * request) have ~no text and fall through to compression.
+ *
+ * Conservative on failure: returns true ("looks like text, leave it") so
+ * an unparseable PDF is never rasterized blindly.
+ */
+async function pdfHasTextLayer(buf: Buffer): Promise<boolean> {
+  try {
+    const pdfjs = await loadPdfjs()
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), isEvalSupported: false }).promise
+    try {
+      const sample = Math.min(doc.numPages, 3)
+      let chars = 0
+      for (let i = 1; i <= sample; i++) {
+        const page = await doc.getPage(i)
+        const tc = await page.getTextContent()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        chars += tc.items.map((it: any) => ('str' in it ? it.str : '')).join('').length
+        page.cleanup()
+      }
+      // > ~300 chars/page of real text => a born-digital document.
+      return chars / sample > 300
+    } finally {
+      await doc.cleanup?.()
+      await doc.destroy?.()
+    }
+  } catch {
+    return true
+  }
 }
 
 /**
@@ -140,7 +187,7 @@ async function jpegsToPdf(
  */
 export async function normalizePdf(
   buf: Buffer,
-  opts: { targetBytes?: number } = {},
+  opts: { targetBytes?: number; preserveTextPdfs?: boolean } = {},
 ): Promise<NormalizeResult> {
   const targetBytes = opts.targetBytes ?? PDF_TARGET_BYTES
   const originalBytes = buf.length
@@ -152,6 +199,10 @@ export async function normalizePdf(
   // Cheap sniff: PDFs start with "%PDF". Anything else, leave alone.
   if (buf.subarray(0, 5).toString('latin1') !== '%PDF-') {
     return { buffer: buf, changed: false, originalBytes, finalBytes: originalBytes, note: 'not a PDF — left unchanged' }
+  }
+  // Don't flatten born-digital text PDFs (leases, financials, board docs).
+  if (opts.preserveTextPdfs !== false && await pdfHasTextLayer(buf)) {
+    return { buffer: buf, changed: false, originalBytes, finalBytes: originalBytes, note: 'text-layer PDF preserved (not rasterized)' }
   }
 
   let best: Buffer | null = null
@@ -188,4 +239,80 @@ export async function normalizePdf(
     }
   }
   return { buffer: buf, changed: false, originalBytes, finalBytes: originalBytes, note: 'could not reduce below original; kept original' }
+}
+
+/**
+ * Shrink an oversized raster image (work-order photo, scanned COI saved as
+ * JPG/PNG). Resizes the longest side down to IMAGE_MAX_DIM and recompresses
+ * IN THE SAME FORMAT so the file extension / contentType / DB mime stay
+ * valid. Best-effort: returns the original on any failure, for animated
+ * images, or if re-encoding didn't actually save bytes.
+ */
+export async function normalizeImage(
+  buf: Buffer,
+  opts: { targetBytes?: number } = {},
+): Promise<NormalizeResult> {
+  const targetBytes = opts.targetBytes ?? IMAGE_TARGET_BYTES
+  const originalBytes = buf.length
+  if (originalBytes <= targetBytes) {
+    return { buffer: buf, changed: false, originalBytes, finalBytes: originalBytes, note: 'image already within size budget' }
+  }
+  try {
+    const meta = await sharp(buf).metadata()
+    // Don't touch animated images (GIF/animated WebP) — recompressing
+    // would drop frames.
+    if ((meta.pages ?? 1) > 1) {
+      return { buffer: buf, changed: false, originalBytes, finalBytes: originalBytes, note: 'animated image left unchanged' }
+    }
+    const longest = Math.max(meta.width ?? 0, meta.height ?? 0)
+    let pipe = sharp(buf).rotate() // bake in EXIF orientation
+    if (longest > IMAGE_MAX_DIM) pipe = pipe.resize({ width: IMAGE_MAX_DIM, height: IMAGE_MAX_DIM, fit: 'inside', withoutEnlargement: true })
+
+    let out: Buffer
+    switch (meta.format) {
+      case 'jpeg': out = await pipe.jpeg({ quality: 72, mozjpeg: true }).toBuffer(); break
+      case 'png':  out = await pipe.png({ compressionLevel: 9, palette: true }).toBuffer(); break
+      case 'webp': out = await pipe.webp({ quality: 72 }).toBuffer(); break
+      default:
+        return { buffer: buf, changed: false, originalBytes, finalBytes: originalBytes, note: `image format ${meta.format ?? '?'} left unchanged` }
+    }
+    if (out.length >= originalBytes) {
+      return { buffer: buf, changed: false, originalBytes, finalBytes: originalBytes, note: 'recompression did not shrink image; kept original' }
+    }
+    return {
+      buffer: out, changed: true, originalBytes, finalBytes: out.length,
+      note: `image ${(originalBytes / 1e6).toFixed(1)}MB → ${(out.length / 1e6).toFixed(2)}MB`,
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { buffer: buf, changed: false, originalBytes, finalBytes: originalBytes, note: `image normalize failed, kept original: ${msg}` }
+  }
+}
+
+/**
+ * One entry point for ALL file uploads in the system. Dispatches on type:
+ *   - PDF   → normalizePdf (rasterize scans; born-digital text PDFs are
+ *             preserved)
+ *   - image → normalizeImage (resize + recompress, same format)
+ *   - other → returned untouched
+ *
+ * The returned buffer is safe to store under the SAME filename /
+ * contentType the caller already chose (PDF stays a PDF, image keeps its
+ * format). Always succeeds — falls back to the original bytes.
+ */
+export async function normalizeUpload(
+  buf: Buffer,
+  opts: { contentType?: string | null; filename?: string | null; pdfTargetBytes?: number; imageTargetBytes?: number } = {},
+): Promise<NormalizeResult> {
+  const ct = (opts.contentType ?? '').toLowerCase()
+  const name = (opts.filename ?? '').toLowerCase()
+  const isPdf = ct.includes('pdf') || name.endsWith('.pdf') || buf.subarray(0, 5).toString('latin1') === '%PDF-'
+  if (isPdf) {
+    return normalizePdf(buf, { targetBytes: opts.pdfTargetBytes ?? DOC_TARGET_BYTES })
+  }
+  const isImage = ct.startsWith('image/') || /\.(jpe?g|png|webp)$/.test(name)
+  if (isImage) {
+    return normalizeImage(buf, { targetBytes: opts.imageTargetBytes })
+  }
+  return { buffer: buf, changed: false, originalBytes: buf.length, finalBytes: buf.length, note: 'unsupported type — left unchanged' }
 }

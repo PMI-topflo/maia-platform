@@ -23,6 +23,7 @@ import {
   type DocumentSource,
 } from '@/lib/association-documents'
 import { extractPdfText } from '@/lib/extract-pdf'
+import { normalizeUpload } from '@/lib/pdf-normalize'
 
 export const dynamic = 'force-dynamic'
 
@@ -191,7 +192,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
 
     // Stable, collision-resistant storage path so concurrent uploads
     // of identically-named files don't overwrite each other.
-    const buffer = Buffer.from(await file.arrayBuffer())
+    const raw = Buffer.from(await file.arrayBuffer())
+    // Shrink oversized scans before storing + extracting; text PDFs and
+    // small files pass through untouched.
+    const { buffer } = await normalizeUpload(raw, { contentType: file.type, filename: file.name })
     const safeName = file.name.replace(/[^\w\-.]/g, '_').slice(0, 120)
     const storagePath = `${upperCode}/${category}/${Date.now()}_${crypto.randomUUID().slice(0, 8)}_${safeName}`
 

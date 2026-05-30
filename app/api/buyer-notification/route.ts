@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { normalizeUpload } from '@/lib/pdf-normalize'
 
 const BUCKET = 'buyer-docs'
 
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
 
     for (const file of fileEntries) {
       if (!file || !file.name) continue
-      const bytes = await file.arrayBuffer()
+      const { buffer: bytes } = await normalizeUpload(Buffer.from(await file.arrayBuffer()), { contentType: file.type, filename: file.name })
       const timestamp = Date.now()
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const path = `${association_code}/${timestamp}_${safeName}`

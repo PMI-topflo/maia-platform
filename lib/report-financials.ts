@@ -14,6 +14,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { normalizeUpload } from '@/lib/pdf-normalize'
 
 export const FINANCIALS_BUCKET = 'report-financials'
 const SIGNED_URL_TTL_SECONDS = 60 * 60          // 1 hour
@@ -206,7 +207,10 @@ export async function saveFinancialPdf(opts: {
   if (opts.bytes.byteLength === 0) {
     return { ok: false, error: 'The uploaded file is empty' }
   }
-  if (opts.bytes.byteLength > FILE_SIZE_LIMIT_BYTES) {
+  // Shrink an oversized scanned statement before the size gate (text-layer
+  // statements are preserved as-is, so extraction is unaffected).
+  const { buffer: bytes } = await normalizeUpload(opts.bytes, { contentType: 'application/pdf', filename: opts.filename })
+  if (bytes.byteLength > FILE_SIZE_LIMIT_BYTES) {
     return { ok: false, error: `The PDF exceeds the ${Math.round(FILE_SIZE_LIMIT_BYTES / 1024 / 1024)} MB limit` }
   }
 
@@ -221,7 +225,7 @@ export async function saveFinancialPdf(opts: {
   const storagePath = `${code}/${opts.month}/${globalThis.crypto.randomUUID()}.pdf`
   const { error: uploadErr } = await supabaseAdmin.storage
     .from(FINANCIALS_BUCKET)
-    .upload(storagePath, opts.bytes, { contentType: 'application/pdf', upsert: false })
+    .upload(storagePath, bytes, { contentType: 'application/pdf', upsert: false })
   if (uploadErr) return { ok: false, error: `Upload failed: ${uploadErr.message}` }
 
   // Extract the figures. A failure here must not lose the PDF — record
@@ -230,7 +234,7 @@ export async function saveFinancialPdf(opts: {
   let status:  ExtractStatus = 'failed'
   let error:   string | null = null
   try {
-    const result = await extractFinancialFigures(opts.bytes.toString('base64'))
+    const result = await extractFinancialFigures(bytes.toString('base64'))
     if (result.headline.length > 0) {
       figures = result
       status  = 'extracted'
@@ -248,7 +252,7 @@ export async function saveFinancialPdf(opts: {
       month:             opts.month,
       storage_path:      storagePath,
       pdf_filename:      opts.filename,
-      pdf_size_bytes:    opts.bytes.byteLength,
+      pdf_size_bytes:    bytes.byteLength,
       figures,
       extract_status:    status,
       extract_error:     error,
