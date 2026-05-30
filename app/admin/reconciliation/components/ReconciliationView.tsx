@@ -261,6 +261,17 @@ export default function ReconciliationView(props: Props) {
     await fetch(`/api/admin/reconciliation/scheduled/${id}${series ? '?series=1' : ''}`, { method: 'DELETE' })
     await loadUpcoming()
   }
+  /** Push a scheduled payment one month later — for deferring an outflow
+   *  to a month with funds, so we don't pay while short. */
+  async function postponeScheduled(id: number, currentMonth: string) {
+    const [y, m] = currentMonth.split('-').map(Number)
+    const d = new Date(Date.UTC(y, m, 1))  // m is 1-based → Date month m = next month
+    const next = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+    await fetch(`/api/admin/reconciliation/scheduled/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ due_month: next, due_date: null }),
+    })
+    await loadUpcoming()
+  }
 
   // ── Forecasts (one per bank account, fetched in parallel) ────────
   const loadForecasts = useCallback(async () => {
@@ -794,6 +805,7 @@ export default function ReconciliationView(props: Props) {
                       <Td><span style={{ fontSize: 10, color: '#92400e' }}>pending</span></Td>
                       <Td>
                         <button onClick={() => void markScheduledPaid(m.id)} title="Mark as paid" style={{ fontSize: 10, color: '#16a34a', border: '1px solid #bbf7d0', background: '#fff', borderRadius: 3, padding: '1px 6px', cursor: 'pointer', marginRight: 4 }}>Paid</button>
+                        <button onClick={() => void postponeScheduled(m.id, m.due_month)} title="Postpone one month (defer to a month with funds)" style={{ fontSize: 10, color: '#b45309', border: '1px solid #fde68a', background: '#fff', borderRadius: 3, padding: '1px 6px', cursor: 'pointer', marginRight: 4 }}>Postpone ▸</button>
                         <button onClick={() => void deleteScheduled(m.id, false)} title="Delete" style={{ fontSize: 11, color: '#9ca3af', border: 'none', background: 'transparent', cursor: 'pointer' }}>×</button>
                         {m.series_id && <button onClick={() => void deleteScheduled(m.id, true)} title="Delete whole series" style={{ fontSize: 9, color: '#9ca3af', border: 'none', background: 'transparent', cursor: 'pointer' }}>×series</button>}
                       </Td>
