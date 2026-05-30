@@ -17,6 +17,29 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const dynamic = 'force-dynamic'
 
+const PDF_BUCKET           = 'invoice-intake-pdfs'
+const PDF_SIGNED_URL_TTL_S = 60 * 60   // 1 hour — matches the server page load
+
+/** Sign one preview URL per storage key. The PDF preview in the queue is
+ *  driven by `pdf_signed_url`; the server page builds these on first load,
+ *  but client refetches (tab switch, edit, push) hit THIS route — without
+ *  signing here the preview would blank out and falsely report "upload
+ *  failed at intake" until a hard refresh. Best-effort: a failure leaves
+ *  the URL null (the genuine no-PDF fallback). */
+async function buildSignedUrls(paths: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  if (paths.length === 0) return out
+  const { data, error } = await supabaseAdmin.storage
+    .from(PDF_BUCKET)
+    .createSignedUrls(paths, PDF_SIGNED_URL_TTL_S)
+  if (error) return out
+  for (let i = 0; i < paths.length; i++) {
+    const url = data?.[i]?.signedUrl
+    if (url) out.set(paths[i], url)
+  }
+  return out
+}
+
 const VALID_STATUSES = new Set([
   'pending_review', 'needs_vendor', 'duplicate_in_cinc', 'pushed_to_cinc', 'rejected',
 ])
@@ -55,6 +78,17 @@ export async function GET(req: Request) {
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Attach a signed preview URL per draft (same as the server page load),
+  // so the PDF preview survives client refetches instead of blanking out.
+  const rows = data ?? []
+  const signed = await buildSignedUrls(
+    rows.map(d => d.pdf_storage_key).filter(Boolean) as string[],
+  )
+  const draftsWithUrls = rows.map(d => ({
+    ...d,
+    pdf_signed_url: d.pdf_storage_key ? (signed.get(d.pdf_storage_key) ?? null) : null,
+  }))
+
   // Side counts per status so the dashboard tabs can show pill numbers.
   const { data: counts } = await supabaseAdmin
     .from('invoice_intake_drafts')
@@ -64,7 +98,7 @@ export async function GET(req: Request) {
     countsByStatus[row.status as string] = (countsByStatus[row.status as string] ?? 0) + 1
   }
 
-  return NextResponse.json({ drafts: data ?? [], counts: countsByStatus })
+  return NextResponse.json({ drafts: draftsWithUrls, counts: countsByStatus })
 }
 
 interface PatchBody {
@@ -119,5 +153,8 @@ export async function PATCH(req: Request) {
     .select(SELECT_COLUMNS)
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ draft: data })
+  // Re-attach the preview URL so the card keeps showing the PDF after an edit.
+  const signed = data?.pdf_storage_key ? await buildSignedUrls([data.pdf_storage_key]) : null
+  const draft = { ...data, pdf_signed_url: data?.pdf_storage_key ? (signed?.get(data.pdf_storage_key) ?? null) : null }
+  return NextResponse.json({ draft })
 }
