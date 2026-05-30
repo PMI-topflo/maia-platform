@@ -23,6 +23,7 @@ import {
   createInvoiceExpenseItems,
   listAssociationBankAccounts,
   getAssociationBudget,
+  getCincVendorDetail,
   CincApiError,
 } from '@/lib/integrations/cinc'
 import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
@@ -111,6 +112,18 @@ export async function POST(
   // the Operating / Reserve / Special Assessment bank account Karen
   // picked; null means "let CINC default to operating" (BankAccountID 0).
   const payFromBankAccountId = (draft.pay_from_bank_account_id ?? null) as number | null
+
+  // Pay-by method: use what Karen set on the draft; otherwise fall back to
+  // the VENDOR's CINC default (e.g. ACH) instead of letting CINC default
+  // everything to Check. Best-effort — null lets CINC apply its own default.
+  let payByType = (draft.pay_by_type ?? null) as string | null
+  if (!payByType) {
+    try {
+      const vd = await getCincVendorDetail(parseInt(draft.matched_cinc_vendor_id as string, 10))
+      payByType = vd?.DefaultPmtMethod ?? null
+    } catch { /* fall back to CINC default */ }
+  }
+
   let cincInvoiceId: number
   try {
     const created = await createInvoice({
@@ -120,7 +133,7 @@ export async function POST(
       invoiceDate:          draft.extracted_invoice_date      as string,
       dueDate:              (draft.due_date ?? null) as string | null,
       amount:               draft.extracted_amount            as number,
-      payByType:            (draft.pay_by_type      ?? null) as string | null,
+      payByType:            payByType,
       noteDescription:      (draft.observation_note ?? null) as string | null,
       workOrderNumber:      (draft.work_order_number ?? null) as number | null,
       payFromBankAccountId: payFromBankAccountId,
@@ -182,28 +195,25 @@ export async function POST(
     invoiceNo:   draft.extracted_invoice_number   as string,
     amount:      draft.extracted_amount           as number,
   })
-  try {
-    await attachInvoicePdf({ invoiceId: cincInvoiceId, pdfBase64, filename })
-  } catch (err) {
-    // Invoice header was created but the file failed — flag in the draft
-    // so Karen can manually attach in CINC. Don't roll back the header
-    // (CINC has no rollback; manual void is the only recourse).
-    const message = err instanceof CincApiError ? err.message : (err as Error).message
-    await supabaseAdmin
-      .from('invoice_intake_drafts')
-      .update({
-        status:          'pushed_to_cinc',
-        cinc_invoice_id: String(cincInvoiceId),
-        pushed_at:       new Date().toISOString(),
-        pushed_by:       pushedBy,
-        rejected_reason: `PDF attach failed: ${message}`,
-        updated_at:      new Date().toISOString(),
-      })
-      .eq('id', id)
-    return NextResponse.json({
-      warning: `Invoice header created (CINC id ${cincInvoiceId}) but PDF attachment failed: ${message}. Attach manually in CINC.`,
-      cincInvoiceId,
-    }, { status: 207 })
+  // CINC rejects oversized invoice attachments (its real limit is ~1 MB;
+  // a big phone-scan PDF comes back as a cryptic 400 "Invalid Model").
+  // Guard the size so the push doesn't fail confusingly — and, crucially,
+  // so we DON'T short-circuit the Drive mirror below (a failed attach used
+  // to early-return). Skipped/failed attach is a non-fatal warning; the
+  // invoice header + GL + Drive copy still complete.
+  const CINC_ATTACH_MAX_BYTES = 1_000_000
+  let attachWarning: string | null = null
+  if (buf.length > CINC_ATTACH_MAX_BYTES) {
+    attachWarning = `Invoice image is ${(buf.length / 1024 / 1024).toFixed(1)} MB — over CINC's ~1 MB attachment limit, so it was NOT attached in CINC. The renamed file still goes to the Drive "INVOICE TO INPUT" folder; attach a smaller/compressed copy in CINC if it must live there too.`
+    console.warn(`[invoice-push] ${attachWarning}`)
+  } else {
+    try {
+      await attachInvoicePdf({ invoiceId: cincInvoiceId, pdfBase64, filename })
+    } catch (err) {
+      const message = err instanceof CincApiError ? err.message : (err as Error).message
+      attachWarning = `PDF attachment to CINC failed: ${message}. The Drive copy still landed; attach manually in CINC if needed.`
+      console.warn(`[invoice-push] ${attachWarning}`)
+    }
   }
 
   // Provenance note — gives anyone viewing the invoice in CINC the
@@ -307,7 +317,7 @@ export async function POST(
   // Surface non-fatal warnings so Karen knows if any post-create step
   // didn't land. driveWarning + expenseItemWarning can both fire on the
   // same push; concatenate so we don't lose either.
-  const warnings = [driveWarning, expenseItemWarning].filter(Boolean)
+  const warnings = [attachWarning, driveWarning, expenseItemWarning].filter(Boolean)
   if (warnings.length > 0) {
     return NextResponse.json({
       ok:       true,
