@@ -36,10 +36,21 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import {
   listAssociationBankAccounts,
   listGlTransactionsByDate,
+  listOpenInvoices,
   CincApiError,
   type CincGlTransaction,
   type BankAccountOption,
 } from '@/lib/integrations/cinc'
+
+/** Pull the "Inv.#NNN" invoice number out of a CINC gl Description.
+ *  CINC posts vendor payments as "Inv.#207814 - Roof Maintenance/Repairs"
+ *  — the number lets us populate the Invoice # column and look the payee
+ *  up against open invoices. Returns null when no invoice token present. */
+function parseInvoiceNumber(description: string | null): string | null {
+  if (!description) return null
+  const m = description.match(/\bInv\.?\s*#\s*([\w-]+)/i)
+  return m ? m[1].trim() : null
+}
 
 export interface ReconSyncStats {
   associationCode:    string
@@ -253,6 +264,24 @@ export async function syncReconciliationForAssoc(
     .eq('status', 'pushed_to_cinc')
   const drafts = (draftsRaw ?? []) as DraftRow[]
 
+  // ── Open-invoice payee map (for vendor_payee enrichment) ───────────
+  // CINC's bank transactions carry no vendor — only a free-text
+  // Description with an "Inv.#NNN" token. listOpenInvoices DOES expose
+  // InvoicePayTo (the vendor) alongside InvoiceNumber, so for any ledger
+  // row whose invoice is still open/ready-for-payment we can show the
+  // real vendor name. (Fully-paid-and-closed invoices aren't in this
+  // list, so those rows fall back to the description heuristic — the
+  // vendor isn't reachable from the bank transaction alone.) One call
+  // per assoc per sync.
+  const payeeByInvoiceNum = new Map<string, string>()
+  try {
+    for (const oi of await listOpenInvoices({ assocCode: associationCode })) {
+      const num = (oi.InvoiceNumber ?? '').trim()
+      const payTo = (oi.InvoicePayTo ?? '').trim()
+      if (num && payTo) payeeByInvoiceNum.set(num.toLowerCase(), payTo)
+    }
+  } catch { /* non-fatal — enrichment only */ }
+
   // ── Per-bank sync ──────────────────────────────────────────────────
   for (const bank of syncable) {
     stats.bankAccountsTried++
@@ -315,6 +344,8 @@ export async function syncReconciliationForAssoc(
       }
       if (matchedDraft) stats.draftMatches++
 
+      const parsedInvNum = parseInvoiceNumber(tx.Description ?? null)
+
       // Build the row. Structural fields are sourced from CINC + the
       // matched draft (if any). Notes/reconciled state are not touched
       // on update — only ever set on initial insert.
@@ -341,11 +372,17 @@ export async function syncReconciliationForAssoc(
         // Keeping the raw description means the vendor_payee column
         // now shows the WHO and the description column shows the
         // WHAT — two distinct signals instead of duplicates.
+        // Vendor priority: MAIA-matched draft (we KNOW it) → open-invoice
+        // payee map (real CINC vendor for still-open invoices) → the
+        // description heuristic → null. Never echoes the description.
         vendor_payee:               matchedDraft?.matched_vendor_name
                                       ?? matchedDraft?.matched_vendor_short_name
+                                      ?? (parsedInvNum ? payeeByInvoiceNum.get(parsedInvNum.toLowerCase()) ?? null : null)
                                       ?? inferVendorPayee(tx.Description ?? null, isOutflow),
         description:                ((tx.Description ?? '').trim() || matchedDraft?.gl_account_name || null),
-        invoice_number:             matchedDraft?.extracted_invoice_number ?? null,
+        // Populate the Invoice # column for CINC-native rows too, parsed
+        // from the "Inv.#NNN" token in the description.
+        invoice_number:             matchedDraft?.extracted_invoice_number ?? parsedInvNum ?? null,
         amount,
         paid_type:                  matchedDraft?.pay_by_type ?? inferPaidType(tx.Description ?? null, isOutflow),
         invoice_attached_url:       matchedDraft?.drive_file_id

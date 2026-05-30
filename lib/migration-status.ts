@@ -1019,6 +1019,48 @@ end $$;
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'scheduled_payments',
+    label:       'Reconciliation upcoming/future payments',
+    description: 'scheduled_payments table — manual future payments (insurance installments etc.) for the reconciliation "Upcoming Payments" section; installment series + carry-forward.',
+    filename:    '20260530_scheduled_payments.sql',
+    artifact:    { type: 'table', table: 'scheduled_payments' },
+    sql: `create table if not exists public.scheduled_payments (
+  id                bigint generated always as identity primary key,
+  association_code  text        not null,
+  bank_account_id   bigint,
+  due_month         text        not null,
+  due_date          date,
+  vendor_payee      text,
+  description       text,
+  category          text,
+  amount            numeric(14,2) not null,
+  direction         text        not null default 'outflow' check (direction in ('outflow','inflow')),
+  series_id         uuid,
+  status            text        not null default 'pending' check (status in ('pending','paid','cancelled')),
+  paid_date         date,
+  notes             text,
+  created_by_email  text,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
+);
+create index if not exists idx_sched_pay_assoc  on public.scheduled_payments(association_code);
+create index if not exists idx_sched_pay_month  on public.scheduled_payments(due_month);
+create index if not exists idx_sched_pay_status on public.scheduled_payments(status);
+create index if not exists idx_sched_pay_series on public.scheduled_payments(series_id);
+create or replace function public.tg_set_updated_at()
+returns trigger language plpgsql as $$ begin new.updated_at := now(); return new; end $$;
+drop trigger if exists set_updated_at on public.scheduled_payments;
+create trigger set_updated_at before update on public.scheduled_payments
+  for each row execute function public.tg_set_updated_at();
+grant select, insert, update, delete on public.scheduled_payments to anon, authenticated, service_role;
+alter table public.scheduled_payments enable row level security;
+drop policy if exists service_all on public.scheduled_payments;
+create policy service_all on public.scheduled_payments for all to service_role using (true) with check (true);
+drop policy if exists auth_read on public.scheduled_payments;
+create policy auth_read on public.scheduled_payments for select to authenticated using (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'invoice_intake_dates',
     label:       'Invoice due + scheduled-pay dates',
     description: 'invoice_intake_drafts.due_date + scheduled_pay_date — invoice due date (→ CINC DueDate) and the date PMI plans to pay, for cash-flow timing + the reconciliation Upcoming Payments section.',

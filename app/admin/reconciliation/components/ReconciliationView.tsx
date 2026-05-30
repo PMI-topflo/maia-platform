@@ -57,6 +57,26 @@ interface ReconEntry {
   updated_at:                  string
 }
 
+// ── Upcoming Payments (future / scheduled) ───────────────────────────
+interface ScheduledPayment {
+  id:               number
+  association_code: string
+  bank_account_id:  number | null
+  due_month:        string  // YYYY-MM
+  due_date:         string | null
+  vendor_payee:     string | null
+  description:      string | null
+  category:         string | null
+  amount:           number  // positive magnitude
+  direction:        'outflow' | 'inflow'
+  series_id:        string | null
+  status:           'pending' | 'paid' | 'cancelled'
+  paid_date:        string | null
+  notes:            string | null
+}
+interface UpcomingCinc { vendorName: string | null; invoiceNumber: string | null; amount: number; dueDate: string | null; account: string }
+interface UpcomingRecurring { displayName: string; avgAmount: number; lastSeenMonth: string }
+
 interface ForecastSummary {
   bankAccountId:          number
   bankAccountDescription: string
@@ -105,6 +125,15 @@ export default function ReconciliationView(props: Props) {
 
   const [entries,        setEntries]        = useState<ReconEntry[]>([])
   const [entriesLoading, setEntriesLoading] = useState(false)
+
+  // Upcoming Payments (future) state.
+  const [upManual,    setUpManual]    = useState<ScheduledPayment[]>([])
+  const [upCinc,      setUpCinc]      = useState<UpcomingCinc[]>([])
+  const [upRecurring, setUpRecurring] = useState<UpcomingRecurring[]>([])
+  const [upLoading,   setUpLoading]   = useState(false)
+  const [showFuture,  setShowFuture]  = useState(false)
+  const [futureBusy,  setFutureBusy]  = useState(false)
+  const [future, setFuture] = useState({ due_month: '', vendor_payee: '', description: '', category: 'insurance', amount: '', months: '1', notes: '' })
 
   const [forecasts,        setForecasts]        = useState<Map<number, ForecastSummary>>(new Map())
   const [forecastsLoading, setForecastsLoading] = useState(false)
@@ -193,6 +222,56 @@ export default function ReconciliationView(props: Props) {
   }, [assoc, month])
 
   useEffect(() => { void loadEntries() }, [loadEntries])
+
+  // ── Upcoming Payments (future) ─────────────────────────────────────
+  const loadUpcoming = useCallback(async () => {
+    if (!assoc) { setUpManual([]); setUpCinc([]); setUpRecurring([]); return }
+    setUpLoading(true)
+    try {
+      const r = await fetch(`/api/admin/reconciliation/upcoming?assoc=${encodeURIComponent(assoc)}&month=${encodeURIComponent(month)}`, { cache: 'no-store' })
+      const d = await r.json()
+      if (r.ok) { setUpManual(d.manual ?? []); setUpCinc(d.cinc ?? []); setUpRecurring(d.recurring ?? []) }
+    } catch { /* non-fatal */ }
+    finally { setUpLoading(false) }
+  }, [assoc, month])
+  useEffect(() => { void loadUpcoming() }, [loadUpcoming])
+
+  async function submitFuture() {
+    if (!assoc || !future.due_month || future.amount === '') { setError('Month and amount are required'); return }
+    setFutureBusy(true); setError(null)
+    try {
+      const r = await fetch('/api/admin/reconciliation/scheduled', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ association_code: assoc, ...future, months: parseInt(future.months, 10) || 1 }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d?.error ?? 'Save failed')
+      setShowFuture(false)
+      setFuture({ due_month: month, vendor_payee: '', description: '', category: 'insurance', amount: '', months: '1', notes: '' })
+      await loadUpcoming()
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setFutureBusy(false) }
+  }
+  async function markScheduledPaid(id: number) {
+    await fetch(`/api/admin/reconciliation/scheduled/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'mark_paid' }) })
+    await loadUpcoming()
+  }
+  async function deleteScheduled(id: number, series: boolean) {
+    if (!confirm(series ? 'Delete the entire installment series?' : 'Delete this future payment?')) return
+    await fetch(`/api/admin/reconciliation/scheduled/${id}${series ? '?series=1' : ''}`, { method: 'DELETE' })
+    await loadUpcoming()
+  }
+  /** Push a scheduled payment one month later — for deferring an outflow
+   *  to a month with funds, so we don't pay while short. */
+  async function postponeScheduled(id: number, currentMonth: string) {
+    const [y, m] = currentMonth.split('-').map(Number)
+    const d = new Date(Date.UTC(y, m, 1))  // m is 1-based → Date month m = next month
+    const next = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+    await fetch(`/api/admin/reconciliation/scheduled/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ due_month: next, due_date: null }),
+    })
+    await loadUpcoming()
+  }
 
   // ── Forecasts (one per bank account, fetched in parallel) ────────
   const loadForecasts = useCallback(async () => {
@@ -647,6 +726,123 @@ export default function ReconciliationView(props: Props) {
       <p style={{ marginTop: 10, fontSize: 11, color: '#6b7280' }}>
         Running-balance columns are computed: starting balance = current CINC balance − sum of this month&apos;s entries for that account, then walked forward chronologically. Account columns highlighted black/bold = touched in that row; gray = carried forward unchanged.
       </p>
+
+      {/* ── Upcoming Payments (future / scheduled) ───────────────────── */}
+      {assoc && (
+        <div style={{ marginTop: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Upcoming Payments</h2>
+              <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6b7280' }}>
+                Future / not-yet-paid: CINC approved-unpaid invoices, MAIA recurring estimates, and your manual entries (e.g. insurance installments).
+                Unpaid items carry forward into later months until marked paid. {upLoading && <span style={{ color: '#9ca3af' }}>· loading…</span>}
+              </p>
+            </div>
+            <button
+              onClick={() => { setFuture(s => ({ ...s, due_month: month })); setShowFuture(v => !v) }}
+              style={{ padding: '6px 12px', border: '1px solid #6b7280', borderRadius: 4, background: '#fff', color: '#111', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              {showFuture ? 'Close' : '+ Add future payment'}
+            </button>
+          </div>
+
+          {showFuture && (
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: 6, padding: 14, marginBottom: 10, background: '#f9fafb' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                <Field label="First month (YYYY-MM)">
+                  <input type="month" value={future.due_month} onChange={e => setFuture(s => ({ ...s, due_month: e.target.value }))} style={inputStyle} />
+                </Field>
+                <Field label="Repeat for N months (installments)">
+                  <input type="number" min={1} max={36} value={future.months} onChange={e => setFuture(s => ({ ...s, months: e.target.value }))} style={inputStyle} />
+                </Field>
+                <Field label="Amount (per month)">
+                  <input type="number" step="0.01" value={future.amount} onChange={e => setFuture(s => ({ ...s, amount: e.target.value }))} style={inputStyle} />
+                </Field>
+                <Field label="Vendor / Payee">
+                  <input value={future.vendor_payee} onChange={e => setFuture(s => ({ ...s, vendor_payee: e.target.value }))} style={inputStyle} />
+                </Field>
+                <Field label="Category">
+                  <select value={future.category} onChange={e => setFuture(s => ({ ...s, category: e.target.value }))} style={inputStyle}>
+                    {['insurance', 'assessment', 'utility', 'vendor', 'tax', 'other'].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </Field>
+                <Field label="Description">
+                  <input value={future.description} onChange={e => setFuture(s => ({ ...s, description: e.target.value }))} style={inputStyle} />
+                </Field>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+                <button onClick={() => setShowFuture(false)} disabled={futureBusy} style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: 4, background: '#fff', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+                <button onClick={submitFuture} disabled={futureBusy} style={{ padding: '6px 12px', border: '1px solid #2563eb', borderRadius: 4, background: '#2563eb', color: '#fff', fontSize: 13, cursor: 'pointer' }}>
+                  {futureBusy ? 'Saving…' : (parseInt(future.months, 10) > 1 ? `Schedule ${future.months} payments` : 'Schedule payment')}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 4 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ background: '#f3f4f6' }}>
+                  <Th>Due</Th><Th>Source</Th><Th>Vendor/Payee</Th><Th>Description</Th><Th>Category</Th>
+                  <Th right>Amount</Th><Th>Status</Th><Th></Th>
+                </tr>
+              </thead>
+              <tbody>
+                {!upLoading && upManual.length === 0 && upCinc.length === 0 && upRecurring.length === 0 && (
+                  <tr><td colSpan={8} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>Nothing upcoming. Add a future payment, or CINC approved-unpaid invoices will appear here.</td></tr>
+                )}
+                {/* Manual scheduled payments */}
+                {upManual.map(m => {
+                  const carried = m.due_month < month
+                  return (
+                    <tr key={`m-${m.id}`} style={{ borderTop: '1px solid #f3f4f6' }}>
+                      <Td>{m.due_month}{m.due_date ? ` (${formatMD(m.due_date)})` : ''}{carried && <span style={{ marginLeft: 4, fontSize: 9, color: '#b45309', background: '#fef3c7', padding: '0 4px', borderRadius: 3 }}>carried</span>}</Td>
+                      <Td><span style={{ fontSize: 9, color: '#374151', background: '#e5e7eb', padding: '1px 5px', borderRadius: 3 }}>Manual</span>{m.series_id && <span style={{ marginLeft: 3, fontSize: 9, color: '#6b7280' }}>· installment</span>}</Td>
+                      <Td>{m.vendor_payee ?? ''}</Td>
+                      <Td>{m.description ?? ''}</Td>
+                      <Td>{m.category ?? ''}</Td>
+                      <Td right><span style={{ color: m.direction === 'inflow' ? '#166534' : '#991b1b', fontVariantNumeric: 'tabular-nums' }}>${fmt$(m.amount)} {m.direction === 'inflow' ? '⬆' : '⬇'}</span></Td>
+                      <Td><span style={{ fontSize: 10, color: '#92400e' }}>pending</span></Td>
+                      <Td>
+                        <button onClick={() => void markScheduledPaid(m.id)} title="Mark as paid" style={{ fontSize: 10, color: '#16a34a', border: '1px solid #bbf7d0', background: '#fff', borderRadius: 3, padding: '1px 6px', cursor: 'pointer', marginRight: 4 }}>Paid</button>
+                        <button onClick={() => void postponeScheduled(m.id, m.due_month)} title="Postpone one month (defer to a month with funds)" style={{ fontSize: 10, color: '#b45309', border: '1px solid #fde68a', background: '#fff', borderRadius: 3, padding: '1px 6px', cursor: 'pointer', marginRight: 4 }}>Postpone ▸</button>
+                        <button onClick={() => void deleteScheduled(m.id, false)} title="Delete" style={{ fontSize: 11, color: '#9ca3af', border: 'none', background: 'transparent', cursor: 'pointer' }}>×</button>
+                        {m.series_id && <button onClick={() => void deleteScheduled(m.id, true)} title="Delete whole series" style={{ fontSize: 9, color: '#9ca3af', border: 'none', background: 'transparent', cursor: 'pointer' }}>×series</button>}
+                      </Td>
+                    </tr>
+                  )
+                })}
+                {/* CINC approved-unpaid invoices */}
+                {upCinc.map((c, i) => (
+                  <tr key={`c-${i}`} style={{ borderTop: '1px solid #f3f4f6', background: '#f8fafc' }}>
+                    <Td>{c.dueDate ? formatMD(c.dueDate) : '—'}</Td>
+                    <Td><span style={{ fontSize: 9, color: '#1e40af', background: '#dbeafe', padding: '1px 5px', borderRadius: 3 }}>CINC · approved</span></Td>
+                    <Td>{c.vendorName ?? ''}</Td>
+                    <Td>{c.invoiceNumber ? `Inv.#${c.invoiceNumber}` : ''} <span style={{ color: '#9ca3af' }}>· {c.account}</span></Td>
+                    <Td></Td>
+                    <Td right><span style={{ color: '#991b1b', fontVariantNumeric: 'tabular-nums' }}>${fmt$(c.amount)} ⬇</span></Td>
+                    <Td><span style={{ fontSize: 10, color: '#1e40af' }}>ready to pay</span></Td>
+                    <Td></Td>
+                  </tr>
+                ))}
+                {/* MAIA recurring estimates */}
+                {upRecurring.map((r, i) => (
+                  <tr key={`r-${i}`} style={{ borderTop: '1px solid #f3f4f6', background: '#fffdf7' }}>
+                    <Td>~ {month}</Td>
+                    <Td><span style={{ fontSize: 9, color: '#92400e', background: '#fef3c7', padding: '1px 5px', borderRadius: 3 }}>MAIA estimate</span></Td>
+                    <Td>{r.displayName}</Td>
+                    <Td><span style={{ color: '#9ca3af' }}>recurring · last seen {r.lastSeenMonth}</span></Td>
+                    <Td></Td>
+                    <Td right><span style={{ color: '#b45309', fontVariantNumeric: 'tabular-nums' }}>~${fmt$(r.avgAmount)} ⬇</span></Td>
+                    <Td><span style={{ fontSize: 10, color: '#b45309' }}>estimated</span></Td>
+                    <Td></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Manual entry modal */}
       {showAdd && (
