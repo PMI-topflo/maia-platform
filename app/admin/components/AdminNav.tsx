@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { label: 'Staff Dashboard',   href: '/admin' },
   { label: 'Tickets',           href: '/admin/tickets' },
   { label: 'Work Orders',       href: '/admin/work-orders' },
+  { label: 'Recurring',         href: '/admin/recurring-services' },
   { label: 'Invoices',          href: '/admin/invoices' },
   { label: 'Reconciliation',    href: '/admin/reconciliation' },
   { label: 'Monthly Report',    href: '/admin/reports/monthly' },
