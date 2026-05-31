@@ -13,20 +13,27 @@ import Uploader from './Uploader'
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Upload to PMI Top Florida' }
 
-interface Props { params: Promise<{ token: string }> }
+interface Props { params: Promise<{ token: string }>; searchParams: Promise<{ lang?: string }> }
 
-export default async function VendorUploadPage({ params }: Props) {
+const T = {
+  en: { wo: 'Work order', fallbackTitle: 'Upload your files', vendor: 'Vendor', intro: 'Upload your <b>estimate</b>, <b>invoice</b>, or <b>job photos</b> for this work order. PDF, JPG, PNG accepted.', expired: 'This upload link is invalid or has expired. Please ask PMI for a new link.', notFound: 'This work order could not be found.' },
+  es: { wo: 'Orden de trabajo', fallbackTitle: 'Suba sus archivos', vendor: 'Proveedor', intro: 'Suba su <b>estimado</b>, <b>factura</b> o <b>fotos del trabajo</b> para esta orden. Se aceptan PDF, JPG, PNG.', expired: 'Este enlace no es válido o ha expirado. Pida a PMI un nuevo enlace.', notFound: 'No se encontró esta orden de trabajo.' },
+} as const
+
+export default async function VendorUploadPage({ params, searchParams }: Props) {
   const { token } = await params
+  const lang = (((await searchParams)?.lang) === 'es' ? 'es' : 'en') as keyof typeof T
+  const t = T[lang]
   const ticketId = await verifyVendorUploadToken(token)
 
-  if (!ticketId) return <Shell><Bad>This upload link is invalid or has expired. Please ask PMI for a new link.</Bad></Shell>
+  if (!ticketId) return <Shell><Bad>{t.expired}</Bad></Shell>
 
   const { data: ticket } = await supabaseAdmin
     .from('tickets')
     .select('id, ticket_number, subject, association_code, status')
     .eq('id', ticketId)
     .single()
-  if (!ticket) return <Shell><Bad>This work order could not be found.</Bad></Shell>
+  if (!ticket) return <Shell><Bad>{t.notFound}</Bad></Shell>
 
   const { data: wod } = await supabaseAdmin
     .from('work_order_details')
@@ -38,14 +45,12 @@ export default async function VendorUploadPage({ params }: Props) {
 
   return (
     <Shell>
-      <div style={{ fontSize: 12, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Work order {ticket.ticket_number}</div>
-      <h1 style={{ fontSize: 20, fontWeight: 700, margin: '6px 0 2px' }}>{ticket.subject || 'Upload your files'}</h1>
+      <div style={{ fontSize: 12, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.wo} {ticket.ticket_number}</div>
+      <h1 style={{ fontSize: 20, fontWeight: 700, margin: '6px 0 2px' }}>{ticket.subject || t.fallbackTitle}</h1>
       {where && <div style={{ fontSize: 13, color: '#4b5563' }}>{where}</div>}
-      {wod?.vendor_name && <div style={{ fontSize: 13, color: '#4b5563', marginTop: 2 }}>Vendor: {wod.vendor_name}</div>}
-      <p style={{ fontSize: 13, color: '#4b5563', margin: '14px 0 18px', lineHeight: 1.5 }}>
-        Upload your <strong>estimate</strong>, <strong>invoice</strong>, or <strong>job photos</strong> for this work order. PDF, JPG, PNG accepted.
-      </p>
-      <Uploader token={token} />
+      {wod?.vendor_name && <div style={{ fontSize: 13, color: '#4b5563', marginTop: 2 }}>{t.vendor}: {wod.vendor_name}</div>}
+      <p style={{ fontSize: 13, color: '#4b5563', margin: '14px 0 18px', lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: t.intro }} />
+      <Uploader token={token} lang={lang} />
     </Shell>
   )
 }

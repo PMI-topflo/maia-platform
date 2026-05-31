@@ -16,6 +16,7 @@ import { saveWorkOrderFile } from '@/lib/work-order-attachments'
 import { createInvoiceDraftFromUpload } from '@/lib/invoice-intake'
 import { appendMessage, updateTicket } from '@/lib/tickets'
 import { sendEmail } from '@/lib/gmail'
+import { translateToEnglish } from '@/lib/translate'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -35,6 +36,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const category    = String(form.get('category') ?? 'estimate').toLowerCase()
   const report      = String(form.get('report') ?? '').trim().slice(0, 4000)
   const suggestions = String(form.get('suggestions') ?? '').trim().slice(0, 4000)
+  const lang        = String(form.get('lang') ?? 'en').toLowerCase()
   const files       = form.getAll('files').filter((f): f is File => f instanceof File && f.size > 0)
   if (files.length === 0)        return NextResponse.json({ error: 'no files' }, { status: 400 })
   if (files.length > MAX_FILES)  return NextResponse.json({ error: `max ${MAX_FILES} files at once` }, { status: 400 })
@@ -81,12 +83,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     return NextResponse.json({ error: `nothing uploaded. ${failed.join('; ')}` }, { status: 400 })
   }
 
+  // Store the report in English (canonical-English rule); keep the
+  // original when it was written in another language.
+  const needTranslate = lang !== 'en' && (!!report || !!suggestions)
+  const reportEn      = needTranslate ? await translateToEnglish(report, lang) : report
+  const suggestionsEn = needTranslate ? await translateToEnglish(suggestions, lang) : suggestions
+
   const label = category === 'invoice' ? 'invoice' : category === 'photos' ? 'job photos' : 'estimate'
   const noteBody = [
     `Vendor uploaded ${saved.length} ${label} file(s) via the upload portal: ${saved.join(', ')}.`,
     category === 'invoice' ? '→ sent to invoice intake for review.' : '',
-    report      ? `\n📋 Report: ${report}` : '',
-    suggestions ? `\n⚠️ Suggestions / issues: ${suggestions}` : '',
+    reportEn      ? `\n📋 Report: ${reportEn}` : '',
+    suggestionsEn ? `\n⚠️ Suggestions / issues: ${suggestionsEn}` : '',
+    needTranslate && (report || suggestions) ? `\n(original ${lang}: ${[report, suggestions].filter(Boolean).join(' | ')})` : '',
     failed.length ? `\nRejected: ${failed.join('; ')}` : '',
   ].filter(Boolean).join('')
   await appendMessage(ticketId, {
