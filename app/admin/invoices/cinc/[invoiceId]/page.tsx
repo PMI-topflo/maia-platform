@@ -30,7 +30,13 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const dynamic = 'force-dynamic'
 
-interface Props { params: Promise<{ invoiceId: string }> }
+interface Props {
+  params:        Promise<{ invoiceId: string }>
+  // `?embed=1` hides the site header / nav so the page can be shown inside
+  // a modal iframe (e.g. from the reconciliation ledger) without the
+  // chrome. Plain navigation (no embed) renders the full page as before.
+  searchParams?: Promise<{ embed?: string }>
+}
 
 export async function generateMetadata({ params }: Props) {
   const { invoiceId } = await params
@@ -65,14 +71,15 @@ function statusBadgeColors(status: string | null | undefined): { bg: string; fg:
   return { bg: '#f3f4f6', fg: '#374151', border: '#d1d5db' }
 }
 
-export default async function CincInvoicePage({ params }: Props) {
+export default async function CincInvoicePage({ params, searchParams }: Props) {
   const { invoiceId: invoiceIdStr } = await params
+  const embed = ((await searchParams)?.embed) === '1'
   const invoiceId = parseInt(invoiceIdStr, 10)
 
   if (!Number.isFinite(invoiceId)) {
     return (
       <>
-        <SiteHeader subtitle="INVOICE DETAIL"><AdminNav /></SiteHeader>
+        {!embed && <SiteHeader subtitle="INVOICE DETAIL"><AdminNav /></SiteHeader>}
         <ErrorState message={`Invalid invoice id: ${invoiceIdStr}`} />
       </>
     )
@@ -92,7 +99,7 @@ export default async function CincInvoicePage({ params }: Props) {
   if (!invoice || !invoice.InvoiceID) {
     return (
       <>
-        <SiteHeader subtitle="INVOICE DETAIL"><AdminNav /></SiteHeader>
+        {!embed && <SiteHeader subtitle="INVOICE DETAIL"><AdminNav /></SiteHeader>}
         <ErrorState message={`Invoice #${invoiceId} not found in CINC.`} />
       </>
     )
@@ -110,8 +117,8 @@ export default async function CincInvoicePage({ params }: Props) {
 
   return (
     <>
-      <SiteHeader subtitle="INVOICE DETAIL"><AdminNav /></SiteHeader>
-      <div style={{ maxWidth: 1200, margin: '24px auto', padding: '0 16px', fontFamily: 'system-ui, sans-serif' }}>
+      {!embed && <SiteHeader subtitle="INVOICE DETAIL"><AdminNav /></SiteHeader>}
+      <div style={{ maxWidth: 1200, margin: embed ? '0 auto' : '24px auto', padding: embed ? '20px 16px' : '0 16px', fontFamily: 'system-ui, sans-serif' }}>
 
         {/* Header strip */}
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>

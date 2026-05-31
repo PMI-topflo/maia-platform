@@ -145,6 +145,35 @@ export default function ReconciliationView(props: Props) {
   const [syncBusy,    setSyncBusy]    = useState(false)
   const [savingRowId, setSavingRowId] = useState<string | null>(null)
 
+  // Invoice detail modal: the embed URL currently shown in the overlay,
+  // or null when closed. Opened by clicking an Invoice #/details link.
+  const [invoiceModalUrl, setInvoiceModalUrl] = useState<string | null>(null)
+
+  // Build the invoice-detail URL for a row (direct when we hold the CINC
+  // id, else the number→id lookup hop). Returns null when there's nothing
+  // to link to.
+  function invoiceHref(e: ReconEntry): string | null {
+    if (!e.invoice_number) return null
+    return e.cinc_invoice_id
+      ? `/admin/invoices/cinc/${e.cinc_invoice_id}`
+      : `/admin/invoices/cinc/lookup?number=${encodeURIComponent(e.invoice_number)}&assoc=${encodeURIComponent(e.association_code)}&date=${encodeURIComponent(e.effective_date)}`
+  }
+  // Plain click → open in the modal (embed mode). ⌘/Ctrl/middle-click keep
+  // the native behaviour (open the full page in a new tab).
+  function onInvoiceLinkClick(ev: React.MouseEvent, href: string | null) {
+    if (!href || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button !== 0) return
+    ev.preventDefault()
+    setInvoiceModalUrl(href)   // base href; the iframe adds ?embed=1
+  }
+
+  // Close the invoice modal on Escape.
+  useEffect(() => {
+    if (!invoiceModalUrl) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setInvoiceModalUrl(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [invoiceModalUrl])
+
   // ── Bank ordering + grouping ──────────────────────────────────────
   // Karen wants SSB accounts (which auto-sync from CINC) clearly
   // separated from non-SSB accounts (Popular, Truist, etc — those are
@@ -657,9 +686,8 @@ export default function ReconciliationView(props: Props) {
                   <Td stickyIndex={3} bg={rowBg}>
                     {e.invoice_number ? (
                       <a
-                        href={e.cinc_invoice_id
-                          ? `/admin/invoices/cinc/${e.cinc_invoice_id}`
-                          : `/admin/invoices/cinc/lookup?number=${encodeURIComponent(e.invoice_number)}&assoc=${encodeURIComponent(e.association_code)}&date=${encodeURIComponent(e.effective_date)}`}
+                        href={invoiceHref(e) ?? '#'}
+                        onClick={ev => onInvoiceLinkClick(ev, invoiceHref(e))}
                         style={{ color: '#2563eb', textDecoration: 'underline' }}
                         title="Open CINC invoice detail"
                       >
@@ -696,9 +724,8 @@ export default function ReconciliationView(props: Props) {
                       <a href={e.invoice_attached_url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: 10 }}>PDF</a>
                     ) : e.invoice_number ? (
                       <a
-                        href={e.cinc_invoice_id
-                          ? `/admin/invoices/cinc/${e.cinc_invoice_id}`
-                          : `/admin/invoices/cinc/lookup?number=${encodeURIComponent(e.invoice_number)}&assoc=${encodeURIComponent(e.association_code)}&date=${encodeURIComponent(e.effective_date)}`}
+                        href={invoiceHref(e) ?? '#'}
+                        onClick={ev => onInvoiceLinkClick(ev, invoiceHref(e))}
                         style={{ color: '#2563eb', fontSize: 10 }}
                         title="Open CINC invoice detail"
                       >
@@ -931,6 +958,39 @@ export default function ReconciliationView(props: Props) {
                 {adding ? 'Saving…' : 'Save entry'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice detail modal — embeds the invoice-detail page (chrome-less)
+          in an overlay so Karen can peek at an invoice without leaving the
+          ledger. Click the backdrop or ✕ (or press Esc) to close. */}
+      {invoiceModalUrl && (
+        <div
+          onClick={() => setInvoiceModalUrl(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        >
+          <div
+            onClick={ev => ev.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 8, width: 'min(1100px, 96vw)', height: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.35)' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid #e5e7eb', background: '#f9fafb', flexShrink: 0 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Invoice detail</span>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <a href={invoiceModalUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#2563eb', textDecoration: 'none' }}>Open full page ↗</a>
+                <button
+                  onClick={() => setInvoiceModalUrl(null)}
+                  style={{ fontSize: 12, fontWeight: 600, color: '#374151', background: '#fff', border: '1px solid #d1d5db', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}
+                >
+                  ✕ Close
+                </button>
+              </div>
+            </div>
+            <iframe
+              src={`${invoiceModalUrl}${invoiceModalUrl.includes('?') ? '&' : '?'}embed=1`}
+              title="Invoice detail"
+              style={{ flex: 1, width: '100%', border: 'none' }}
+            />
           </div>
         </div>
       )}

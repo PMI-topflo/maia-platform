@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Open invoice — PMI Top Florida' }
 
 interface Props {
-  searchParams: Promise<{ number?: string; assoc?: string; date?: string }>
+  searchParams: Promise<{ number?: string; assoc?: string; date?: string; embed?: string }>
 }
 
 export default async function InvoiceLookupPage({ searchParams }: Props) {
@@ -26,18 +26,23 @@ export default async function InvoiceLookupPage({ searchParams }: Props) {
   const number = typeof sp.number === 'string' ? sp.number.trim() : ''
   const assoc  = typeof sp.assoc === 'string' ? sp.assoc : undefined
   const date   = typeof sp.date === 'string' ? sp.date : undefined
+  const embed  = sp.embed === '1'
 
   let invoiceId: number | null = null
   if (number) {
     invoiceId = await findInvoiceIdByNumber({ invoiceNumber: number, assocCode: assoc, aroundDate: date })
-    if (invoiceId) redirect(`/admin/invoices/cinc/${invoiceId}`)
+    // Carry the embed flag through so the detail page stays chrome-less
+    // inside the modal iframe.
+    if (invoiceId) redirect(`/admin/invoices/cinc/${invoiceId}${embed ? '?embed=1' : ''}`)
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <SiteHeader subtitle="INVOICE LOOKUP">
-        <AdminNav />
-      </SiteHeader>
+      {!embed && (
+        <SiteHeader subtitle="INVOICE LOOKUP">
+          <AdminNav />
+        </SiteHeader>
+      )}
       <div style={{ maxWidth: 560, margin: '48px auto', padding: 24, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 }}>
         <h1 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Invoice not found in CINC</h1>
         <p style={{ fontSize: 13, color: '#4b5563', lineHeight: 1.5 }}>
