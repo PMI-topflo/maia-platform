@@ -9,24 +9,34 @@ const CATEGORIES = [
 ] as const
 
 export default function Uploader({ token }: { token: string }) {
-  const [category, setCategory] = useState<string>('estimate')
-  const [files, setFiles]       = useState<File[]>([])
-  const [busy, setBusy]         = useState(false)
-  const [done, setDone]         = useState<string | null>(null)
-  const [error, setError]       = useState<string | null>(null)
+  const [category, setCategory]    = useState<string>('estimate')
+  const [files, setFiles]          = useState<File[]>([])
+  const [report, setReport]        = useState('')
+  const [suggestions, setSuggestions] = useState('')
+  const [busy, setBusy]            = useState(false)
+  const [done, setDone]            = useState<string | null>(null)
+  const [error, setError]          = useState<string | null>(null)
+
+  // Photos really need a report; estimates/invoices can carry a short note.
+  const reportLabel = category === 'photos'
+    ? 'Brief report — what work was done?'
+    : 'Note (optional)'
 
   async function submit() {
     if (!files.length) { setError('Choose at least one file.'); return }
+    if (category === 'photos' && !report.trim()) { setError('Please add a brief report of the work done.'); return }
     setBusy(true); setError(null); setDone(null)
     try {
       const fd = new FormData()
       fd.set('category', category)
+      fd.set('report', report)
+      fd.set('suggestions', suggestions)
       files.forEach(f => fd.append('files', f))
       const res = await fetch(`/api/vendor/upload/${token}`, { method: 'POST', body: fd })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j?.error ?? `Upload failed (${res.status})`)
       setDone(`Thank you — ${j.saved ?? files.length} file(s) received. PMI has been notified.`)
-      setFiles([])
+      setFiles([]); setReport(''); setSuggestions('')
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -72,6 +82,24 @@ export default function Uploader({ token }: { token: string }) {
         </ul>
       )}
 
+      <label style={fieldLabel}>{reportLabel}</label>
+      <textarea
+        value={report}
+        onChange={e => setReport(e.target.value)}
+        rows={3}
+        placeholder={category === 'photos' ? 'e.g. Mowed and edged front + rear common areas, blew walkways, trimmed hedges by pool gate.' : 'Optional note for PMI.'}
+        style={taStyle}
+      />
+
+      <label style={fieldLabel}>Suggestions / issues noticed (optional)</label>
+      <textarea
+        value={suggestions}
+        onChange={e => setSuggestions(e.target.value)}
+        rows={2}
+        placeholder="e.g. Sprinkler head broken near unit 12; palm by entrance needs trimming next visit."
+        style={taStyle}
+      />
+
       {error && <div style={{ fontSize: 13, color: '#991b1b', marginBottom: 10 }}>⚠ {error}</div>}
 
       <button onClick={submit} disabled={busy} style={{
@@ -86,3 +114,5 @@ export default function Uploader({ token }: { token: string }) {
 }
 
 const linkBtn: React.CSSProperties = { background: 'none', border: 'none', color: '#065f46', textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0 }
+const fieldLabel: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#6b7280', margin: '4px 0' }
+const taStyle: React.CSSProperties = { width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, marginBottom: 12, resize: 'vertical', boxSizing: 'border-box' }

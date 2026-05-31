@@ -32,8 +32,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   let form: FormData
   try { form = await req.formData() } catch { return NextResponse.json({ error: 'invalid form' }, { status: 400 }) }
 
-  const category = String(form.get('category') ?? 'estimate').toLowerCase()
-  const files    = form.getAll('files').filter((f): f is File => f instanceof File && f.size > 0)
+  const category    = String(form.get('category') ?? 'estimate').toLowerCase()
+  const report      = String(form.get('report') ?? '').trim().slice(0, 4000)
+  const suggestions = String(form.get('suggestions') ?? '').trim().slice(0, 4000)
+  const files       = form.getAll('files').filter((f): f is File => f instanceof File && f.size > 0)
   if (files.length === 0)        return NextResponse.json({ error: 'no files' }, { status: 400 })
   if (files.length > MAX_FILES)  return NextResponse.json({ error: `max ${MAX_FILES} files at once` }, { status: 400 })
 
@@ -80,12 +82,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   }
 
   const label = category === 'invoice' ? 'invoice' : category === 'photos' ? 'job photos' : 'estimate'
+  const noteBody = [
+    `Vendor uploaded ${saved.length} ${label} file(s) via the upload portal: ${saved.join(', ')}.`,
+    category === 'invoice' ? '→ sent to invoice intake for review.' : '',
+    report      ? `\n📋 Report: ${report}` : '',
+    suggestions ? `\n⚠️ Suggestions / issues: ${suggestions}` : '',
+    failed.length ? `\nRejected: ${failed.join('; ')}` : '',
+  ].filter(Boolean).join('')
   await appendMessage(ticketId, {
     direction: 'internal_note', channel: 'internal',
     from_addr: wod?.vendor_name ? `Vendor (${wod.vendor_name})` : 'Vendor',
-    body: `Vendor uploaded ${saved.length} ${label} file(s) via the upload portal: ${saved.join(', ')}.` +
-          (category === 'invoice' ? ' → sent to invoice intake for review.' : '') +
-          (failed.length ? `\nRejected: ${failed.join('; ')}` : ''),
+    body: noteBody,
   }).catch(() => null)
 
   // Nudge an untouched ticket forward so the inbox shows movement.
