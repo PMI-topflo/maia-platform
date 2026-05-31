@@ -1785,6 +1785,34 @@ function makeInboundMessageInput(parsed: ParsedEmail) {
   }
 }
 
+// A staff reply that a team member sent to an OUTSIDE party (vendor /
+// homeowner / board) on a tracked thread — maia@ is only CC'd, the To: is
+// someone else. Recording it as an OUTBOUND message captures "the staffer
+// replied" as ticket activity (attributed to them), so they don't have to
+// log anything manually. Dedupe is by RFC822 Message-ID (stable across the
+// staffer's SENT copy, maia@'s CC copy, and Pub/Sub retries).
+function makeOutboundMessageInput(parsed: ParsedEmail) {
+  return {
+    direction:   'outbound' as const,
+    channel:     'email'    as const,
+    from_addr:   parsed.senderEmail,
+    to_addr:     parsed.to.join(', ') || null,
+    subject:     parsed.subject,
+    body:        parsed.body,
+    external_id: parsed.rfcMessageId || parsed.messageId,
+    attachments: parsed.attachments.map(a => ({
+      filename: a.filename, mimeType: a.mimeType, size: a.size,
+    })),
+  }
+}
+
+// Is maia@ the PRIMARY recipient (To:), i.e. the staffer is writing TO Maia
+// (a command / note = inbound) rather than CC'ing Maia on a reply to an
+// outside party (= outbound)?
+function maiaIsPrimaryRecipient(parsed: ParsedEmail): boolean {
+  return parsed.to.join(' ').toLowerCase().includes('maia@pmitop.com')
+}
+
 // A bare ticket / work-order number (TKT-YYYY-NNNN) mentioned anywhere
 // in the subject or body — no command keyword required. Used to auto-
 // route an emailed photo onto a work order.
@@ -1947,7 +1975,12 @@ export async function ingestInboundEmailToTicket(
     if (parsed.threadId) {
       const existing = await findOpenTicketByGmailThread(parsed.threadId)
       if (existing) {
-        const appended = await appendMessage(existing.id, makeInboundMessageInput(parsed))
+        // Staff writing TO maia@ (To:) = a note/instruction → inbound.
+        // Staff CC'ing maia@ on a reply to an outside party (To: someone
+        // else) = the staffer's own reply → outbound. This captures staff
+        // vendor/homeowner coordination as ticket activity automatically.
+        const input    = maiaIsPrimaryRecipient(parsed) ? makeInboundMessageInput(parsed) : makeOutboundMessageInput(parsed)
+        const appended = await appendMessage(existing.id, input)
         await attachEmailPhotosToWorkOrder(existing.id, parsed, fetchAttachment)
         // Two gates: (1) only ack when staff explicitly invoked @maia
         // (vendor reply-threads stay silent — original reason for silent
