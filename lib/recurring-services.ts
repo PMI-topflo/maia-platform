@@ -12,6 +12,7 @@ export const SERVICE_TYPES = ['Landscaping', 'Pool', 'Janitorial', 'Pest Control
 export const CADENCES = ['weekly', 'biweekly', 'monthly'] as const
 export const BILLING_CADENCES = ['per_visit', 'weekly', 'monthly'] as const
 export const CHANNELS = ['email', 'sms', 'whatsapp'] as const
+export const LANGUAGES = ['en', 'es', 'pt', 'ht', 'fr'] as const   // English, Spanish, Portuguese, Haitian Creole, French
 
 export interface RecurringService {
   id:               number
@@ -23,6 +24,7 @@ export interface RecurringService {
   billing_cadence:  string
   expected_day:     number | null
   office_email:     string | null
+  office_language:  string
   active:           boolean
   notes:            string | null
   created_at:       string
@@ -37,6 +39,7 @@ export interface VendorEmployee {
   phone:             string | null
   email:             string | null
   preferred_channel: string
+  preferred_language: string
   active:            boolean
   created_at:        string
   updated_at:        string
@@ -60,6 +63,7 @@ export async function createRecurringService(input: Partial<RecurringService>): 
     billing_cadence:  input.billing_cadence ?? 'monthly',
     expected_day:     input.expected_day ?? null,
     office_email:     input.office_email ?? null,
+    office_language:  input.office_language ?? 'en',
     notes:            input.notes ?? null,
   }).select('*').single()
   if (error) return { ok: false, error: error.message }
@@ -67,7 +71,7 @@ export async function createRecurringService(input: Partial<RecurringService>): 
 }
 
 export async function updateRecurringService(id: number, patch: Partial<RecurringService>): Promise<{ ok: boolean; error?: string }> {
-  const allowed: (keyof RecurringService)[] = ['cinc_vendor_id', 'vendor_name', 'service_type', 'cadence', 'billing_cadence', 'expected_day', 'office_email', 'active', 'notes']
+  const allowed: (keyof RecurringService)[] = ['cinc_vendor_id', 'vendor_name', 'service_type', 'cadence', 'billing_cadence', 'expected_day', 'office_email', 'office_language', 'active', 'notes']
   const body: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const k of allowed) if (k in patch) body[k] = patch[k]
   const { error } = await supabaseAdmin.from('recurring_services').update(body).eq('id', id)
@@ -95,13 +99,14 @@ export async function createVendorEmployee(input: Partial<VendorEmployee>): Prom
     phone:             input.phone ?? null,
     email:             input.email ?? null,
     preferred_channel: input.preferred_channel ?? 'email',
+    preferred_language: input.preferred_language ?? 'en',
   }).select('*').single()
   if (error) return { ok: false, error: error.message }
   return { ok: true, row: data as VendorEmployee }
 }
 
 export async function updateVendorEmployee(id: string, patch: Partial<VendorEmployee>): Promise<{ ok: boolean; error?: string }> {
-  const allowed: (keyof VendorEmployee)[] = ['cinc_vendor_id', 'vendor_name', 'name', 'phone', 'email', 'preferred_channel', 'active']
+  const allowed: (keyof VendorEmployee)[] = ['cinc_vendor_id', 'vendor_name', 'name', 'phone', 'email', 'preferred_channel', 'preferred_language', 'active']
   const body: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const k of allowed) if (k in patch) body[k] = patch[k]
   const { error } = await supabaseAdmin.from('vendor_employees').update(body).eq('id', id)

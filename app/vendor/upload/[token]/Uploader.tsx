@@ -2,13 +2,41 @@
 
 import { useState } from 'react'
 
-const CATEGORIES = [
-  { key: 'estimate', label: 'Estimate' },
-  { key: 'invoice',  label: 'Invoice' },
-  { key: 'photos',   label: 'Job photos' },
-] as const
+const STR = {
+  en: {
+    cats: { estimate: 'Estimate', invoice: 'Invoice', photos: 'Job photos' },
+    reportPhotos: 'Brief report — what work was done?', reportNote: 'Note (optional)',
+    reportPh: 'e.g. Mowed and edged front + rear common areas, blew walkways, trimmed hedges by pool gate.',
+    notePh: 'Optional note for PMI.',
+    suggLabel: 'Suggestions / issues noticed (optional)',
+    suggPh: 'e.g. Sprinkler head broken near unit 12; palm by entrance needs trimming next visit.',
+    chooseFile: 'Choose at least one file.', needReport: 'Please add a brief report of the work done.',
+    upload: 'Upload', uploading: 'Uploading…', files: 'files', file: 'file',
+    thanks: (n: number) => `Thank you — ${n} file(s) received. PMI has been notified.`,
+    uploadMore: 'Upload more', autoCompress: 'Large photos are compressed automatically. Max 25 MB per file.',
+  },
+  es: {
+    cats: { estimate: 'Estimado', invoice: 'Factura', photos: 'Fotos del trabajo' },
+    reportPhotos: 'Informe breve — ¿qué trabajo se hizo?', reportNote: 'Nota (opcional)',
+    reportPh: 'p. ej. Corté y bordeé las áreas comunes del frente y atrás, soplé las aceras, podé los setos junto a la piscina.',
+    notePh: 'Nota opcional para PMI.',
+    suggLabel: 'Sugerencias / problemas observados (opcional)',
+    suggPh: 'p. ej. Aspersor roto cerca de la unidad 12; la palmera de la entrada necesita poda la próxima visita.',
+    chooseFile: 'Elija al menos un archivo.', needReport: 'Por favor agregue un informe breve del trabajo realizado.',
+    upload: 'Subir', uploading: 'Subiendo…', files: 'archivos', file: 'archivo',
+    thanks: (n: number) => `Gracias — se recibieron ${n} archivo(s). PMI ha sido notificado.`,
+    uploadMore: 'Subir más', autoCompress: 'Las fotos grandes se comprimen automáticamente. Máx. 25 MB por archivo.',
+  },
+} as const
 
-export default function Uploader({ token }: { token: string }) {
+export default function Uploader({ token, lang = 'en' }: { token: string; lang?: 'en' | 'es' }) {
+  const t = STR[lang] ?? STR.en
+  const CATEGORIES = [
+    { key: 'estimate', label: t.cats.estimate },
+    { key: 'invoice',  label: t.cats.invoice },
+    { key: 'photos',   label: t.cats.photos },
+  ] as const
+
   const [category, setCategory]    = useState<string>('estimate')
   const [files, setFiles]          = useState<File[]>([])
   const [report, setReport]        = useState('')
@@ -17,25 +45,23 @@ export default function Uploader({ token }: { token: string }) {
   const [done, setDone]            = useState<string | null>(null)
   const [error, setError]          = useState<string | null>(null)
 
-  // Photos really need a report; estimates/invoices can carry a short note.
-  const reportLabel = category === 'photos'
-    ? 'Brief report — what work was done?'
-    : 'Note (optional)'
+  const reportLabel = category === 'photos' ? t.reportPhotos : t.reportNote
 
   async function submit() {
-    if (!files.length) { setError('Choose at least one file.'); return }
-    if (category === 'photos' && !report.trim()) { setError('Please add a brief report of the work done.'); return }
+    if (!files.length) { setError(t.chooseFile); return }
+    if (category === 'photos' && !report.trim()) { setError(t.needReport); return }
     setBusy(true); setError(null); setDone(null)
     try {
       const fd = new FormData()
       fd.set('category', category)
       fd.set('report', report)
       fd.set('suggestions', suggestions)
+      fd.set('lang', lang)
       files.forEach(f => fd.append('files', f))
       const res = await fetch(`/api/vendor/upload/${token}`, { method: 'POST', body: fd })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j?.error ?? `Upload failed (${res.status})`)
-      setDone(`Thank you — ${j.saved ?? files.length} file(s) received. PMI has been notified.`)
+      setDone(t.thanks(j.saved ?? files.length))
       setFiles([]); setReport(''); setSuggestions('')
     } catch (e) {
       setError((e as Error).message)
@@ -49,7 +75,7 @@ export default function Uploader({ token }: { token: string }) {
       <div style={{ padding: 14, background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, fontSize: 14, color: '#065f46' }}>
         ✓ {done}
         <div style={{ marginTop: 10 }}>
-          <button onClick={() => setDone(null)} style={linkBtn}>Upload more</button>
+          <button onClick={() => setDone(null)} style={linkBtn}>{t.uploadMore}</button>
         </div>
       </div>
     )
@@ -87,16 +113,16 @@ export default function Uploader({ token }: { token: string }) {
         value={report}
         onChange={e => setReport(e.target.value)}
         rows={3}
-        placeholder={category === 'photos' ? 'e.g. Mowed and edged front + rear common areas, blew walkways, trimmed hedges by pool gate.' : 'Optional note for PMI.'}
+        placeholder={category === 'photos' ? t.reportPh : t.notePh}
         style={taStyle}
       />
 
-      <label style={fieldLabel}>Suggestions / issues noticed (optional)</label>
+      <label style={fieldLabel}>{t.suggLabel}</label>
       <textarea
         value={suggestions}
         onChange={e => setSuggestions(e.target.value)}
         rows={2}
-        placeholder="e.g. Sprinkler head broken near unit 12; palm by entrance needs trimming next visit."
+        placeholder={t.suggPh}
         style={taStyle}
       />
 
@@ -106,9 +132,9 @@ export default function Uploader({ token }: { token: string }) {
         width: '100%', padding: '11px', borderRadius: 8, border: 'none', cursor: busy ? 'default' : 'pointer',
         background: busy ? '#9ca3af' : '#f26a1b', color: '#fff', fontSize: 14, fontWeight: 700,
       }}>
-        {busy ? 'Uploading…' : `Upload ${files.length || ''} file${files.length === 1 ? '' : 's'}`.trim()}
+        {busy ? t.uploading : `${t.upload} ${files.length || ''} ${files.length === 1 ? t.file : t.files}`.replace(/\s+/g, ' ').trim()}
       </button>
-      <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 10 }}>Large photos are compressed automatically. Max 25 MB per file.</p>
+      <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 10 }}>{t.autoCompress}</p>
     </div>
   )
 }

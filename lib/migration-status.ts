@@ -1171,6 +1171,16 @@ drop policy if exists auth_read on public.service_visits;
 create policy auth_read on public.service_visits     for select to authenticated using (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'vendor_language',
+    label:       'Vendor + crew preferred language',
+    description: 'vendor_employees.preferred_language + recurring_services.office_language — send links/messages in the vendor/crew language; reports are translated to English for storage.',
+    filename:    '20260531_vendor_language.sql',
+    artifact:    { type: 'column', table: 'vendor_employees', column: 'preferred_language' },
+    sql: `alter table public.vendor_employees   add column if not exists preferred_language text not null default 'en';
+alter table public.recurring_services add column if not exists office_language    text not null default 'en';
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

@@ -6,32 +6,38 @@ const SERVICE_TYPES = ['Landscaping', 'Pool', 'Janitorial', 'Pest Control', 'Oth
 const CADENCES = ['weekly', 'biweekly', 'monthly']
 const BILLING = ['monthly', 'weekly', 'per_visit']
 const CHANNELS = ['email', 'sms', 'whatsapp']
+const LANGS = [['en', 'English'], ['es', 'Español'], ['pt', 'Português'], ['ht', 'Kreyòl'], ['fr', 'Français']]
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 interface Assoc { code: string; name: string }
 interface Service { id: number; association_code: string; cinc_vendor_id: string | null; vendor_name: string; service_type: string; cadence: string; billing_cadence: string; expected_day: number | null; office_email: string | null; active: boolean }
-interface Employee { id: string; cinc_vendor_id: string | null; vendor_name: string; name: string; phone: string | null; email: string | null; preferred_channel: string; active: boolean }
+interface Employee { id: string; cinc_vendor_id: string | null; vendor_name: string; name: string; phone: string | null; email: string | null; preferred_channel: string; preferred_language: string; active: boolean }
+interface Visit { id: number; service_type: string | null; vendor_name: string | null; week_of: string; status: string; ticket_id: number | null }
 
 export default function Manager({ associations }: { associations: Assoc[] }) {
   const [assoc, setAssoc] = useState(associations[0]?.code ?? '')
   const [services, setServices] = useState<Service[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
+  const [visits, setVisits] = useState<Visit[]>([])
+  const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // add-service form
-  const [svc, setSvc] = useState({ vendor_name: '', cinc_vendor_id: '', service_type: 'Landscaping', cadence: 'weekly', billing_cadence: 'monthly', expected_day: '', office_email: '' })
+  const [svc, setSvc] = useState({ vendor_name: '', cinc_vendor_id: '', service_type: 'Landscaping', cadence: 'weekly', billing_cadence: 'monthly', expected_day: '', office_email: '', office_language: 'en' })
   // add-employee form
-  const [emp, setEmp] = useState({ vendor_name: '', cinc_vendor_id: '', name: '', phone: '', email: '', preferred_channel: 'email' })
+  const [emp, setEmp] = useState({ vendor_name: '', cinc_vendor_id: '', name: '', phone: '', email: '', preferred_channel: 'email', preferred_language: 'en' })
 
   const load = useCallback(async () => {
     setError(null)
     try {
-      const [s, e] = await Promise.all([
+      const [s, e, v] = await Promise.all([
         fetch(`/api/admin/recurring-services?assoc=${encodeURIComponent(assoc)}`).then(r => r.json()),
         fetch(`/api/admin/vendor-employees`).then(r => r.json()),
+        fetch(`/api/admin/service-visits?assoc=${encodeURIComponent(assoc)}`).then(r => r.json()),
       ])
       setServices(s.services ?? [])
       setEmployees(e.employees ?? [])
+      setVisits(v.visits ?? [])
     } catch { setError('Failed to load.') }
   }, [assoc])
   useEffect(() => { if (assoc) void load() }, [assoc, load])
@@ -43,7 +49,7 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
       body: JSON.stringify({ ...svc, association_code: assoc, expected_day: svc.expected_day === '' ? null : Number(svc.expected_day) }),
     })
     if (!res.ok) { setError((await res.json())?.error ?? 'Add failed'); return }
-    setSvc({ vendor_name: '', cinc_vendor_id: '', service_type: 'Landscaping', cadence: 'weekly', billing_cadence: 'monthly', expected_day: '', office_email: '' })
+    setSvc({ vendor_name: '', cinc_vendor_id: '', service_type: 'Landscaping', cadence: 'weekly', billing_cadence: 'monthly', expected_day: '', office_email: '', office_language: 'en' })
     void load()
   }
   async function delService(id: number) {
@@ -56,12 +62,30 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(emp),
     })
     if (!res.ok) { setError((await res.json())?.error ?? 'Add failed'); return }
-    setEmp({ vendor_name: '', cinc_vendor_id: '', name: '', phone: '', email: '', preferred_channel: 'email' })
+    setEmp({ vendor_name: '', cinc_vendor_id: '', name: '', phone: '', email: '', preferred_channel: 'email', preferred_language: 'en' })
     void load()
   }
   async function delEmployee(id: string) {
     if (!confirm('Remove this employee?')) return
     await fetch(`/api/admin/vendor-employees/${id}`, { method: 'DELETE' }); void load()
+  }
+  async function generateVisits() {
+    setBusy('gen'); setError(null)
+    try {
+      const res = await fetch('/api/admin/recurring-services/generate-visits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j?.error ?? 'Failed')
+      void load()
+    } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
+  }
+  async function sendLinks(visitId: number) {
+    setBusy(`v${visitId}`); setError(null)
+    try {
+      const res = await fetch(`/api/admin/service-visits/${visitId}/send-links`, { method: 'POST' })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j?.error ?? 'Failed')
+      alert(`Sent ${j.sent} link(s):\n${(j.results ?? []).join('\n')}`)
+    } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
   }
 
   return (
@@ -109,8 +133,37 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
             {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
           </select>
           <input placeholder="Vendor office email" value={svc.office_email} onChange={e => setSvc({ ...svc, office_email: e.target.value })} style={field} />
+          <select value={svc.office_language} onChange={e => setSvc({ ...svc, office_language: e.target.value })} style={field} title="Language for the weekly agenda email to the office">
+            {LANGS.map(([v, label]) => <option key={v} value={v}>office: {label}</option>)}
+          </select>
         </div>
         <button onClick={addService} style={addBtn}>+ Add service</button>
+      </section>
+
+      {/* This week's / recent visits */}
+      <section style={card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={h2}>Service visits</h2>
+          <button onClick={generateVisits} disabled={busy === 'gen'} style={addBtn}>
+            {busy === 'gen' ? 'Generating…' : "Generate this week's visits"}
+          </button>
+        </div>
+        <p style={muted}>Each visit is a documentation work order — the crew uploads photos + a brief report via their link.</p>
+        {visits.length === 0 && <p style={muted}>No visits yet. Click “Generate this week’s visits”.</p>}
+        {visits.map(v => (
+          <div key={v.id} style={row}>
+            <div>
+              <strong>{v.service_type}</strong> <span style={muted}>· {v.vendor_name} · week of {v.week_of}</span>
+              <div style={muted}>
+                status: {v.status}
+                {v.ticket_id ? <> · <a href={`/admin/tickets/${v.ticket_id}`} style={{ color: '#2563eb' }}>work order →</a></> : null}
+              </div>
+            </div>
+            <button onClick={() => sendLinks(v.id)} disabled={busy === `v${v.id}`} style={addBtn}>
+              {busy === `v${v.id}` ? 'Sending…' : '📤 Send crew links'}
+            </button>
+          </div>
+        ))}
       </section>
 
       {/* Vendor employees (crew) */}
@@ -122,7 +175,7 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
           <div key={e.id} style={row}>
             <div>
               <strong>{e.name}</strong> <span style={muted}>· {e.vendor_name}</span>
-              <div style={muted}>{[e.preferred_channel, e.phone, e.email].filter(Boolean).join(' · ')}</div>
+              <div style={muted}>{[e.preferred_channel, (LANGS.find(l => l[0] === e.preferred_language)?.[1] ?? e.preferred_language), e.phone, e.email].filter(Boolean).join(' · ')}</div>
             </div>
             <button onClick={() => delEmployee(e.id)} style={delBtn}>Remove</button>
           </div>
@@ -133,8 +186,11 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
           <input placeholder="Employee name" value={emp.name} onChange={e => setEmp({ ...emp, name: e.target.value })} style={field} />
           <input placeholder="Phone" value={emp.phone} onChange={e => setEmp({ ...emp, phone: e.target.value })} style={field} />
           <input placeholder="Email" value={emp.email} onChange={e => setEmp({ ...emp, email: e.target.value })} style={field} />
-          <select value={emp.preferred_channel} onChange={e => setEmp({ ...emp, preferred_channel: e.target.value })} style={field}>
+          <select value={emp.preferred_channel} onChange={e => setEmp({ ...emp, preferred_channel: e.target.value })} style={field} title="How they get the link">
             {CHANNELS.map(c => <option key={c}>{c}</option>)}
+          </select>
+          <select value={emp.preferred_language} onChange={e => setEmp({ ...emp, preferred_language: e.target.value })} style={field} title="Language for their link + page">
+            {LANGS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
         </div>
         <button onClick={addEmployee} style={addBtn}>+ Add employee</button>
