@@ -1,0 +1,105 @@
+// =====================================================================
+// POST /api/vendor/upload/[token]  (multipart: category + files[])
+//
+// The vendor upload portal's submit endpoint. Token-gated (no session).
+// Routes each file by category:
+//   invoice          → invoice-intake draft (pre-tagged assoc+vendor+WO)
+//   estimate / photos → work-order attachment
+// Then logs an internal note on the ticket, nudges status, notifies the
+// assignee. Public route (not in middleware matcher).
+// =====================================================================
+
+import { NextResponse } from 'next/server'
+import { verifyVendorUploadToken } from '@/lib/vendor-upload-token'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { saveWorkOrderFile } from '@/lib/work-order-attachments'
+import { createInvoiceDraftFromUpload } from '@/lib/invoice-intake'
+import { appendMessage, updateTicket } from '@/lib/tickets'
+import { sendEmail } from '@/lib/gmail'
+
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
+const MAX_FILES = 12
+const MAX_BYTES = 25 * 1024 * 1024   // 25 MB per file
+const ALLOWED   = /\.(pdf|jpe?g|png|heic|webp)$/i
+
+export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const { token } = await ctx.params
+  const ticketId = await verifyVendorUploadToken(token)
+  if (!ticketId) return NextResponse.json({ error: 'invalid or expired link' }, { status: 401 })
+
+  let form: FormData
+  try { form = await req.formData() } catch { return NextResponse.json({ error: 'invalid form' }, { status: 400 }) }
+
+  const category = String(form.get('category') ?? 'estimate').toLowerCase()
+  const files    = form.getAll('files').filter((f): f is File => f instanceof File && f.size > 0)
+  if (files.length === 0)        return NextResponse.json({ error: 'no files' }, { status: 400 })
+  if (files.length > MAX_FILES)  return NextResponse.json({ error: `max ${MAX_FILES} files at once` }, { status: 400 })
+
+  // Work-order context for tagging + notification.
+  const { data: ticket } = await supabaseAdmin
+    .from('tickets')
+    .select('id, ticket_number, status, association_code, assignee_email, cinc_workorder_id')
+    .eq('id', ticketId)
+    .single()
+  if (!ticket) return NextResponse.json({ error: 'work order not found' }, { status: 404 })
+
+  const { data: wod } = await supabaseAdmin
+    .from('work_order_details').select('vendor_name').eq('ticket_id', ticketId).maybeSingle()
+  const woNumber = ticket.cinc_workorder_id ? parseInt(String(ticket.cinc_workorder_id), 10) : null
+
+  const saved: string[] = []
+  const failed: string[] = []
+  for (const file of files) {
+    if (!ALLOWED.test(file.name)) { failed.push(`${file.name} (type not allowed)`); continue }
+    const buf = Buffer.from(await file.arrayBuffer())
+    if (buf.byteLength > MAX_BYTES) { failed.push(`${file.name} (over 25 MB)`); continue }
+
+    try {
+      if (category === 'invoice') {
+        const r = await createInvoiceDraftFromUpload({
+          ticketId, associationCode: ticket.association_code, vendorName: wod?.vendor_name ?? null,
+          workOrderNumber: Number.isFinite(woNumber) ? woNumber : null, buf, filename: file.name,
+        })
+        r.ok ? saved.push(file.name) : failed.push(file.name)
+      } else {
+        const r = await saveWorkOrderFile({
+          ticketId, source: 'staff_upload', bytes: buf, filename: file.name,
+          contentType: file.type || null, uploadedByEmail: `vendor-portal:${wod?.vendor_name ?? 'vendor'}`,
+        })
+        r.ok ? saved.push(file.name) : failed.push(`${file.name} (${(r as { error: string }).error})`)
+      }
+    } catch (e) {
+      failed.push(`${file.name} (${(e as Error).message})`)
+    }
+  }
+
+  if (saved.length === 0) {
+    return NextResponse.json({ error: `nothing uploaded. ${failed.join('; ')}` }, { status: 400 })
+  }
+
+  const label = category === 'invoice' ? 'invoice' : category === 'photos' ? 'job photos' : 'estimate'
+  await appendMessage(ticketId, {
+    direction: 'internal_note', channel: 'internal',
+    from_addr: wod?.vendor_name ? `Vendor (${wod.vendor_name})` : 'Vendor',
+    body: `Vendor uploaded ${saved.length} ${label} file(s) via the upload portal: ${saved.join(', ')}.` +
+          (category === 'invoice' ? ' → sent to invoice intake for review.' : '') +
+          (failed.length ? `\nRejected: ${failed.join('; ')}` : ''),
+  }).catch(() => null)
+
+  // Nudge an untouched ticket forward so the inbox shows movement.
+  if (ticket.status === 'open') await updateTicket(ticketId, { status: 'pending' }, 'vendor-portal').catch(() => null)
+
+  // Notify the assignee (best-effort).
+  if (ticket.assignee_email) {
+    await sendEmail({
+      to: ticket.assignee_email,
+      subject: `Vendor uploaded ${label} — ${ticket.ticket_number}`,
+      html: `<p>A vendor uploaded <strong>${saved.length} ${label}</strong> file(s) for <strong>${ticket.ticket_number}</strong> via the portal.</p>
+             <p><a href="${process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'}/admin/tickets/${ticketId}">Open the work order →</a></p>`,
+    }).catch(() => null)
+  }
+
+  return NextResponse.json({ ok: true, saved: saved.length, failed: failed.length })
+}

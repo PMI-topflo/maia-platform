@@ -224,6 +224,68 @@ function safeFilename(name: string): string {
     .slice(0, 120)
 }
 
+/** Create an invoice-intake draft from a VENDOR-PORTAL upload (a vendor
+ *  uploaded an invoice via the tokenized link on a work order). Mirrors
+ *  processOnePdf but is pre-tagged with the work order's association +
+ *  vendor + WO number, and linked to the ticket. Lands in the normal
+ *  intake review queue (pending_review / needs_vendor / duplicate_in_cinc).
+ *  Best-effort vendor match by the WO's vendor name, then the extractor's. */
+export async function createInvoiceDraftFromUpload(opts: {
+  ticketId:         number
+  associationCode:  string | null
+  vendorName:       string | null
+  workOrderNumber:  number | null
+  buf:              Buffer
+  filename:         string
+}): Promise<{ ok: boolean; status: DraftStatus | 'error'; draftId?: number }> {
+  const norm = await normalizePdf(opts.buf)
+  const bytes = norm.buffer
+  const b64 = bytes.toString('base64')
+
+  const storageKey = `vendor-portal/${opts.ticketId}/${Date.now()}-${safeFilename(opts.filename)}`
+  const upload = await supabaseAdmin.storage
+    .from(STORAGE_BUCKET)
+    .upload(storageKey, bytes, { contentType: 'application/pdf', upsert: true })
+  if (upload.error) console.warn(`[invoice-intake] vendor-portal upload failed: ${upload.error.message}`)
+
+  const extracted = await extractInvoiceFields(b64).catch(() => null)
+  const assoc = (opts.associationCode ?? extracted?.associationHint ?? '').toUpperCase() || null
+
+  const vendors = await listVendorsFull().catch(() => [])
+  const matchName = extracted?.vendorName || opts.vendorName || null
+  const matched = matchName ? fuzzyMatchVendor(matchName, vendors) : null
+
+  let status: DraftStatus = matched ? 'pending_review' : 'needs_vendor'
+  let cincDupId: string | null = null
+  if (matched && assoc && extracted?.invoiceNumber) {
+    try {
+      const dups = await checkDuplicateInvoice({ associationCode: assoc, vendorId: matched.VendorId, invoiceNumber: extracted.invoiceNumber })
+      if (dups.length > 0) { status = 'duplicate_in_cinc'; cincDupId = String(dups[0].InvoiceID) }
+    } catch { /* non-fatal */ }
+  }
+
+  const { data, error } = await supabaseAdmin.from('invoice_intake_drafts').insert({
+    gmail_message_id:           `vendor-portal:${opts.ticketId}:${globalThis.crypto.randomUUID()}`,
+    ticket_id:                  opts.ticketId,
+    work_order_number:          opts.workOrderNumber,
+    pdf_storage_key:            upload.error ? null : storageKey,
+    extracted_vendor_name:      extracted?.vendorName ?? opts.vendorName ?? null,
+    matched_cinc_vendor_id:     matched ? String(matched.VendorId) : null,
+    matched_vendor_name:        matched?.VendorName  ?? null,
+    matched_vendor_short_name:  matched?.UserDefined1 ?? null,
+    extracted_invoice_number:   extracted?.invoiceNumber ?? null,
+    extracted_amount:           extracted?.amount ?? null,
+    extracted_association_code: assoc,
+    extracted_invoice_date:     extracted?.invoiceDate ?? null,
+    extraction_confidence:      extracted?.confidence ?? null,
+    status,
+    cinc_dup_invoice_id:        cincDupId,
+  }).select('id').single()
+
+  if (error) { console.error(`[invoice-intake] vendor-portal draft insert failed: ${error.message}`); return { ok: false, status: 'error' } }
+  return { ok: true, status, draftId: data?.id as number }
+}
+
 async function sendVendorAck(parsed: ParsedEmail): Promise<void> {
   const subject = parsed.subject.startsWith('Re:') ? parsed.subject : `Re: ${parsed.subject}`
   const html    = `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#222;max-width:600px;margin:0 auto;padding:20px">
