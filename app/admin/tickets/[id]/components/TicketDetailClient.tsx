@@ -201,6 +201,7 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
 
   const [showSchedulingModal, setShowSchedulingModal] = useState(false)
   const [showVendorModal,     setShowVendorModal]     = useState(false)
+  const [vendorLinkBusy,      setVendorLinkBusy]      = useState(false)
   const [showEditDetails,     setShowEditDetails]     = useState(false)
   const [pushBusy,            setPushBusy]            = useState(false)
 
@@ -218,6 +219,29 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setPushBusy(false)
+    }
+  }
+
+  // Staff-triggered: email the vendor a secure link to upload estimate /
+  // invoice / photos straight onto this work order. Prefills the WO's
+  // vendor email; staff can override at the prompt.
+  async function sendVendorUploadLink() {
+    const prefill = workOrder?.vendor_email ?? ''
+    const email = window.prompt('Email the vendor an upload link. Vendor email:', prefill)
+    if (email === null) return
+    setVendorLinkBusy(true); setError(null)
+    try {
+      const res = await fetch(`/api/admin/tickets/${ticket.id}/vendor-link`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() || undefined }),
+      })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j?.error ?? 'Failed to send link')
+      window.alert(`Upload link sent to ${j.recipient}.`)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setVendorLinkBusy(false)
     }
   }
 
@@ -806,6 +830,15 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
               <Detail label="Cost"      value={fmtMoney(workOrder.cost_cents)} />
               {/* "Create work order in CINC" lives on the Work order type
                   card above so it's always visible for un-synced WOs. */}
+              <button
+                type="button"
+                onClick={sendVendorUploadLink}
+                disabled={vendorLinkBusy}
+                className="mt-3 w-full rounded border border-[#f26a1b] px-3 py-1.5 text-xs font-medium text-[#c2410c] hover:bg-[#fff7ed] disabled:opacity-50"
+                title="Email the vendor a secure link to upload estimate / invoice / job photos"
+              >
+                {vendorLinkBusy ? 'Sending…' : '📤 Email vendor upload link'}
+              </button>
             </Card>
           )
         })()}

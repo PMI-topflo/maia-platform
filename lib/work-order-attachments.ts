@@ -10,7 +10,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { listWorkOrderAttachments, type CincAttachment } from '@/lib/integrations/cinc'
-import { normalizeImage } from '@/lib/pdf-normalize'
+import { normalizeImage, normalizeUpload } from '@/lib/pdf-normalize'
 
 export const STORAGE_BUCKET = 'work-order-photos'
 const SIGNED_URL_TTL_SECONDS = 60 * 60          // 1 hour
@@ -285,6 +285,48 @@ export async function saveWorkOrderAttachmentBytes(opts: {
   })
   if (!rec.ok) {
     // Roll back the orphaned object so a failed insert leaves no leak.
+    await supabaseAdmin.storage.from(STORAGE_BUCKET).remove([storagePath])
+    return { ok: false, error: rec.error }
+  }
+  return rec
+}
+
+/** Save ANY file type (PDF estimate, image photo) to a work order in one
+ *  step. Unlike saveWorkOrderAttachmentBytes this does NOT gate on
+ *  isImage — used by the vendor upload portal for estimates (PDF) and job
+ *  photos. Normalizes oversized scans/photos first (server-side). */
+export async function saveWorkOrderFile(opts: {
+  ticketId:         number
+  source:           'email' | 'staff_upload'
+  bytes:            Buffer
+  filename:         string
+  contentType?:     string | null
+  uploadedByEmail?: string | null
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const bytes = (await normalizeUpload(opts.bytes, { contentType: opts.contentType, filename: opts.filename })).buffer
+  if (bytes.byteLength > FILE_SIZE_LIMIT_BYTES) {
+    return { ok: false, error: `${opts.filename} exceeds the ${FILE_SIZE_LIMIT_BYTES}-byte limit` }
+  }
+  const bucket = await ensureBucket()
+  if (!bucket.ok) return { ok: false, error: bucket.reason }
+
+  const storagePath = workOrderStoragePath(opts.ticketId, opts.filename)
+  const mime        = opts.contentType || mimeFor(opts.filename)
+  const { error: uploadErr } = await supabaseAdmin.storage
+    .from(STORAGE_BUCKET)
+    .upload(storagePath, bytes, { contentType: mime, upsert: false })
+  if (uploadErr) return { ok: false, error: `upload failed: ${uploadErr.message}` }
+
+  const rec = await recordWorkOrderAttachment({
+    ticketId:        opts.ticketId,
+    source:          opts.source,
+    storagePath,
+    filename:        opts.filename,
+    mimeType:        mime,
+    fileSizeBytes:   bytes.byteLength,
+    uploadedByEmail: opts.uploadedByEmail ?? null,
+  })
+  if (!rec.ok) {
     await supabaseAdmin.storage.from(STORAGE_BUCKET).remove([storagePath])
     return { ok: false, error: rec.error }
   }
