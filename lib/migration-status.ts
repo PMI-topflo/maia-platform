@@ -1193,6 +1193,16 @@ NOTIFY pgrst, 'reload schema';`,
   add column if not exists confirmed_at           timestamptz;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'association_match_aliases',
+    label:       'Association match aliases',
+    description: 'associations.match_aliases (text[]) — curated common-name aliases ("One Bay Harbor" → ONE) so MAIA maps invoices/work orders to the right association. Seed values via APPLY_association_aliases_seed.sql.',
+    filename:    '20260601_association_match_aliases.sql',
+    artifact:    { type: 'column', table: 'associations', column: 'match_aliases' },
+    sql: `alter table public.associations
+  add column if not exists match_aliases text[] not null default '{}';
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
