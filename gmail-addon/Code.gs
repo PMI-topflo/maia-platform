@@ -95,11 +95,6 @@ function onGmailMessage(e) {
     card.addSection(suggestSection_(suggest));
   }
 
-  // Has attachments → offer a one-click forward-to-Maia (keeps the PDF;
-  // a Reply would drop it).
-  if (ctx.attachmentCount > 0) {
-    card.addSection(forwardSection_(ctx, suggest));
-  }
 
   // Matched ticket (if any) + quick status actions.
   if (data.matched) {
@@ -198,19 +193,6 @@ function matchedSection_(t) {
   return s;
 }
 
-// "📤 Send to Maia" — forward (not reply) so the PDF attachment survives.
-function forwardSection_(ctx, suggest) {
-  suggest = suggest || {};
-  var s = CardService.newCardSection().setHeader('📤 Send to Maia (keeps the PDF)');
-  s.addWidget(CardService.newTextParagraph().setText(
-    'A <b>reply</b> drops attachments. This makes a <b>forward</b> draft to <b>maia@pmitop.com</b> with the upload trigger and the file attached. Review it in Drafts, then Send.'));
-  s.addWidget(CardService.newTextButton().setText('📤 Forward to Maia — upload invoice')
-    .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-    .setOnClickAction(CardService.newAction().setFunctionName('forwardToMaiaAction')
-      .setParameters({ association: suggest.association || '' })));
-  return s;
-}
-
 // "✨ Maia suggests" — what the email looks like + which association.
 function suggestSection_(sg) {
   var s = CardService.newCardSection().setHeader('✨ Maia suggests');
@@ -260,10 +242,19 @@ function createSection_(ctx, data, suggest, staffList) {
 
   s.addWidget(CardService.newTextInput().setFieldName('note').setTitle('Instructions / notes for Maia').setMultiline(true));
 
-  s.addWidget(CardService.newTextButton().setText(data.matched ? 'Create another' : 'Create & assign to me')
+  s.addWidget(CardService.newTextButton().setText(data.matched ? 'Create another' : 'Create')
     .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
     .setOnClickAction(CardService.newAction().setFunctionName('createTicketAction')
       .setParameters({ threadId: ctx.threadId, email: ctx.email, contactName: ctx.name || '' })));
+
+  // Or send the invoice to Maia: forwards THIS email (keeps the PDF) to
+  // maia@ with "@maia upload this invoice #<association above>". Uses the
+  // Association code field above. Lands as a draft to review + Send.
+  s.addWidget(CardService.newTextParagraph().setText(
+    '<font color="#6b7280">Invoice? Use the Association code above, then:</font>'));
+  s.addWidget(CardService.newTextButton().setText('📤 Send invoice to Maia')
+    .setOnClickAction(CardService.newAction().setFunctionName('forwardToMaiaAction')
+      .setParameters({})));
   return s;
 }
 
@@ -411,23 +402,40 @@ function setStatusAction(e) {
 // user's Drafts to review + Send.
 function forwardToMaiaAction(e) {
   var p = e.commonEventObject.parameters || {};
+  var f = e.commonEventObject.formInputs || {};
   try {
     var token = e.gmail.accessToken;
     GmailApp.setCurrentMessageAccessToken(token);
     var msg = GmailApp.getMessageById(e.gmail.messageId);
-    var assoc = p.association || '';
+    var assoc = strInput_(f, 'association_code') || p.association || '';
     var trigger = '@maia upload this invoice' + (assoc ? (' #' + assoc) : ' #CODE');
-    var atts = msg.getAttachments({ includeInlineImages: false, includeAttachments: true });
+
+    // Collect real attachments (skip inline logos). If the open message has
+    // none, scan the rest of the thread — the PDF is often on the original
+    // when you're viewing a reply.
+    var opts = { includeInlineImages: false, includeAttachments: true };
+    var atts = msg.getAttachments(opts);
+    if (!atts.length) {
+      var msgs = msg.getThread().getMessages();
+      for (var i = msgs.length - 1; i >= 0 && !atts.length; i--) {
+        atts = msgs[i].getAttachments(opts);
+      }
+    }
+
     var html = '<p>' + trigger + '</p><hr>' + (msg.getBody() || '');
     GmailApp.createDraft('maia@pmitop.com', 'Fwd: ' + (msg.getSubject() || ''), trigger, {
       htmlBody:    html,
       attachments: atts,
     });
-    var note = assoc
-      ? ('Draft to Maia created (#' + assoc + ') — review in Drafts & Send.')
-      : ('Draft to Maia created — set the #CODE if needed, then Send.');
+
+    // Confirm exactly what was attached so the PDF is never silently dropped.
+    var names = atts.map(function (a) { return a.getName(); }).join(', ');
+    var note = atts.length
+      ? ('📤 Draft to Maia' + (assoc ? ' #' + assoc : '') + ' with ' + atts.length +
+         ' file(s): ' + names.slice(0, 100) + ' — review in Drafts & Send.')
+      : ('⚠ Draft to Maia created, but NO attachment was found on this email/thread — attach the PDF before sending.');
     return CardService.newActionResponseBuilder()
-      .setNotification(CardService.newNotification().setText('📤 ' + note))
+      .setNotification(CardService.newNotification().setText(note))
       .build();
   } catch (err) { return notify_(err); }
 }
