@@ -100,8 +100,11 @@ function onGmailMessage(e) {
     card.addSection(matchedSection_(data.matched));
   }
 
-  // Guided create / link form (pre-filled from the suggestion).
-  card.addSection(createSection_(ctx, data, suggest));
+  // Guided create / link form (pre-filled from the suggestion). Pull the
+  // staff list so the creator can assign to anyone, not just themselves.
+  var staffList = [];
+  try { staffList = (apiGet_('/api/addon/staff').staff) || []; } catch (stErr) { staffList = []; }
+  card.addSection(createSection_(ctx, data, suggest, staffList));
 
   // AI draft.
   var draftSection = CardService.newCardSection().setHeader('✨ AI reply');
@@ -205,8 +208,9 @@ function suggestSection_(sg) {
   return s;
 }
 
-function createSection_(ctx, data, suggest) {
+function createSection_(ctx, data, suggest, staffList) {
   suggest = suggest || {};
+  staffList = staffList || [];
   var s = CardService.newCardSection().setHeader(data.matched ? '➕ Create another item' : '➕ Create ticket / work order');
 
   var woFirst = suggest.kind === 'work_order';   // pre-select Work order when suggested
@@ -219,6 +223,15 @@ function createSection_(ctx, data, suggest) {
     .setTitle('Priority').setFieldName('priority')
     .addItem('Low', 'low', false).addItem('Normal', 'normal', true)
     .addItem('High', 'high', false).addItem('Urgent', 'urgent', false));
+
+  // Assign to — anyone, defaulting to "Me" (empty value = the caller).
+  var assignInput = CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
+    .setTitle('Assign to').setFieldName('assignee')
+    .addItem('Me', '', true);
+  staffList.forEach(function (m) {
+    if (m && m.email) assignInput.addItem(m.name || m.email, m.email, false);
+  });
+  s.addWidget(assignInput);
 
   s.addWidget(CardService.newTextInput().setFieldName('association_code').setTitle('Association code')
     .setValue(suggest.association || data.association || ''));
@@ -337,6 +350,7 @@ function createTicketAction(e) {
   var p = e.commonEventObject.parameters || {};
   var f = e.commonEventObject.formInputs || {};
   try {
+    var assignee = strInput_(f, 'assignee');   // '' = me, else a staff email
     var res = apiPost_('/api/addon/tickets/ensure', {
       type:             strInput_(f, 'type') || 'ticket',
       priority:         strInput_(f, 'priority') || 'normal',
@@ -346,12 +360,14 @@ function createTicketAction(e) {
       contact_email:    p.email || null,
       contact_name:     p.contactName || null,
       gmail_thread_id:  p.threadId || null,
-      assignToMe:       true,
+      assignee_email:   assignee || null,
+      assignToMe:       assignee ? false : true,
     });
     var t = res.ticket || {};
+    var who = assignee ? (' → ' + assignee) : ' → you';
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification().setText(
-        (res.created ? 'Created ' : 'Linked existing ') + (t.ticket_number || 'ticket')))
+        (res.created ? 'Created ' : 'Linked existing ') + (t.ticket_number || 'ticket') + who))
       .setNavigation(CardService.newNavigation().updateCard(onGmailMessage(e)))
       .build();
   } catch (err) {
