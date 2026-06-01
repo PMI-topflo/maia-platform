@@ -1001,9 +1001,14 @@ function describeAssociationType(t: string): string {
   }
 }
 
-// Cache association codes for the lifetime of the process to avoid repeated DB lookups
+// Cache association codes to avoid a DB lookup on every call. Short TTL
+// (not process-lifetime) so a newly CINC-onboarded association becomes
+// detectable within a few minutes without waiting for the serverless
+// instance to recycle.
 interface AssocCacheEntry { code: string; name: string; upperName: string; core: string; aliases: string[] }
 let _assocCodeCache: AssocCacheEntry[] | null = null
+let _assocCacheAt = 0
+const ASSOC_CACHE_TTL_MS = 5 * 60_000
 
 const reEscape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -1028,23 +1033,29 @@ function deriveCoreName(name: string): string {
 // strict=false → additionally try the derived core name, bare code, and
 //   full legal name (looser; invoice intake uses this).
 export async function detectAssociationCode(text: string, strict = false): Promise<string | null> {
-  if (!_assocCodeCache) {
+  const stale = !_assocCodeCache || (Date.now() - _assocCacheAt) > ASSOC_CACHE_TTL_MS
+  if (stale) {
     // select('*') is fault-tolerant if match_aliases isn't migrated yet.
     const { data } = await supabaseAdmin
       .from('associations')
       .select('*')
       .eq('active', true)
-    _assocCodeCache = (data ?? []).map((r: Record<string, unknown>) => {
-      const name = String(r.association_name ?? '')
-      const rawAliases = Array.isArray(r.match_aliases) ? (r.match_aliases as unknown[]) : []
-      return {
-        code:      String(r.association_code ?? ''),
-        name,
-        upperName: name.toUpperCase(),
-        core:      deriveCoreName(name),
-        aliases:   rawAliases.map(a => String(a).toUpperCase()).filter(a => a.length >= 3),
-      }
-    })
+    // Only replace the cache if the query succeeded — on a transient DB
+    // error keep serving the previous (slightly stale) cache.
+    if (data) {
+      _assocCodeCache = data.map((r: Record<string, unknown>) => {
+        const name = String(r.association_name ?? '')
+        const rawAliases = Array.isArray(r.match_aliases) ? (r.match_aliases as unknown[]) : []
+        return {
+          code:      String(r.association_code ?? ''),
+          name,
+          upperName: name.toUpperCase(),
+          core:      deriveCoreName(name),
+          aliases:   rawAliases.map(a => String(a).toUpperCase()).filter(a => a.length >= 3),
+        }
+      })
+      _assocCacheAt = Date.now()
+    }
   }
 
   if (!_assocCodeCache) return null
