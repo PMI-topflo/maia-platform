@@ -62,8 +62,8 @@ function onHomepage(e) {
   } catch (err) {
     card.addSection(errorSection_(err));
   }
-  card.addSection(associationsSection_());
   card.addSection(footerSection_());
+  card.addSection(associationsSection_());  // last — long reference, kept at the very bottom
   return card.build();
 }
 
@@ -99,8 +99,8 @@ function onGmailMessage(e) {
     card.addSection(ticketsSection_(data.recent, '', 'Recent for this contact'));
   }
 
-  card.addSection(associationsSection_());
   card.addSection(footerSection_());
+  card.addSection(associationsSection_());  // last — long reference, kept at the very bottom
   return card.build();
 }
 

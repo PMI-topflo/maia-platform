@@ -12,8 +12,7 @@
   "addOns": {
     "common": {
       "name": "Maia",
-      "logoUrl": "https://www.pmitop.com/maia-logo.png",
-      "useLocaleFromApp": true,
+      "logoUrl": "https://www.pmitop.com/pmi-icon.jpg",
       "homepageTrigger": {
         "runFunction": "onHomepage",
         "enabled": true

@@ -11,6 +11,7 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { signAddonToken } from '@/lib/addon-token'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../components/AdminNav'
+import CopyField from './CopyField'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Gmail add-on — PMI Top Florida' }
@@ -37,14 +38,11 @@ export default async function AddonConnectPage() {
               The token authenticates the add-on as <strong>{email}</strong>. Keep it private; re-load this page to mint a fresh one (the old one keeps working until it expires).
             </p>
 
-            <label style={labelStyle}>API base URL</label>
-            <input readOnly value={apiBase} style={fieldStyle} onClick={e => (e.target as HTMLInputElement).select()} />
-
-            <label style={labelStyle}>Your add-on token</label>
-            <textarea readOnly value={addonToken ?? ''} rows={4} style={{ ...fieldStyle, fontFamily: 'var(--font-mono, monospace)', fontSize: 11, resize: 'vertical' }} onClick={e => (e.target as HTMLTextAreaElement).select()} />
+            <CopyField label="API base URL" value={apiBase} />
+            <CopyField label="Your add-on token" value={addonToken ?? ''} multiline />
 
             <p style={{ fontSize: 12, color: '#6b7280', marginTop: 12 }}>
-              Tip: click a field to select it, then copy. Valid for 1 year.
+              Click <strong>Copy</strong> (or click a field to select it). Token valid for 1 year.
             </p>
           </>
         )}
@@ -52,6 +50,3 @@ export default async function AddonConnectPage() {
     </div>
   )
 }
-
-const labelStyle: React.CSSProperties = { display: 'block', marginTop: 16, marginBottom: 4, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#6b7280' }
-const fieldStyle: React.CSSProperties = { width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' }

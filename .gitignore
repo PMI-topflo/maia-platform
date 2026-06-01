@@ -45,3 +45,7 @@ next-env.d.ts
 # Local dev artifacts — script outputs and sample HTML
 probe-*.json
 *-sample.html
+
+# clasp (Apps Script) local project link — created by `clasp create-script`
+.clasp.json
+gmail-addon/.clasp.json
