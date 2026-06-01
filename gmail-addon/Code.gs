@@ -59,9 +59,13 @@ function onHomepage(e) {
   try {
     var mineData = apiGet_('/api/addon/tickets?mine=1&status=open&limit=25');
     card.addSection(ticketsSection_(mineData.tickets || [], 'You have no open tickets or work orders. 🎉', '🎟️ My open items'));
-    // All company open items — staff grab a TKT-#### to "@maia append" to a thread.
-    var allData = apiGet_('/api/addon/tickets?mine=0&status=open&limit=50');
-    card.addSection(ticketsSection_(allData.tickets || [], 'No open items across the company.', '🏢 All open — company', true));
+    // All company open items — staff grab a TKT-#### to "@maia append" to a
+    // thread. Split into work orders then tickets so the two don't mix.
+    var allOpen = (apiGet_('/api/addon/tickets?mine=0&status=open&limit=50').tickets) || [];
+    var openWOs = allOpen.filter(function (t) { return t.type === 'work_order'; });
+    var openTks = allOpen.filter(function (t) { return t.type !== 'work_order'; });
+    card.addSection(ticketsSection_(openWOs, 'No open work orders.', '🔧 Open work orders — company', true));
+    card.addSection(ticketsSection_(openTks, 'No open tickets.', '🎟️ Open tickets — company', true));
   } catch (err) {
     card.addSection(errorSection_(err));
   }
@@ -104,9 +108,13 @@ function onGmailMessage(e) {
   }
 
   // All company open items — pick a TKT-#### to "@maia append" this email to.
+  // Work orders first, then tickets, as separate sections.
   try {
-    var allOpen = apiGet_('/api/addon/tickets?mine=0&status=open&limit=50');
-    card.addSection(ticketsSection_(allOpen.tickets || [], 'No open items across the company.', '🏢 All open — company', true));
+    var allOpen2 = (apiGet_('/api/addon/tickets?mine=0&status=open&limit=50').tickets) || [];
+    var openWOs2 = allOpen2.filter(function (t) { return t.type === 'work_order'; });
+    var openTks2 = allOpen2.filter(function (t) { return t.type !== 'work_order'; });
+    card.addSection(ticketsSection_(openWOs2, 'No open work orders.', '🔧 Open work orders — company', true));
+    card.addSection(ticketsSection_(openTks2, 'No open tickets.', '🎟️ Open tickets — company', true));
   } catch (errAll) { /* non-fatal — keep the rest of the card */ }
 
   card.addSection(footerSection_());
