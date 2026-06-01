@@ -56,6 +56,7 @@ function onHomepage(e) {
   if (!isConfigured_()) return settingsCard_(true);
   var card = CardService.newCardBuilder().setHeader(
     CardService.newCardHeader().setTitle('Maia').setSubtitle('My open items'));
+  card.addSection(topBarSection_());
   try {
     var mineData = apiGet_('/api/addon/tickets?mine=1&status=open&limit=25');
     card.addSection(ticketsSection_(mineData.tickets || [], 'You have no open tickets or work orders. 🎉', '🎟️ My open items'));
@@ -69,9 +70,9 @@ function onHomepage(e) {
   } catch (err) {
     card.addSection(errorSection_(err));
   }
-  card.addSection(footerSection_());
   card.addSection(commandsSection_());
-  card.addSection(associationsSection_());  // last — long reference, kept at the very bottom
+  card.addSection(associationsSection_());  // long reference, kept near the bottom
+  card.addSection(settingsSection_());      // Settings pinned last
   return card.build();
 }
 
@@ -81,18 +82,26 @@ function onGmailMessage(e) {
   var ctx = readMessage_(e);  // { email, name, threadId, subject }
   var card = CardService.newCardBuilder().setHeader(
     CardService.newCardHeader().setTitle('Maia').setSubtitle(ctx.email || 'This email'));
+  card.addSection(topBarSection_());
 
   var data = {};
   try { data = apiGet_('/api/addon/context?gmailThreadId=' + encodeURIComponent(ctx.threadId) + '&email=' + encodeURIComponent(ctx.email)); }
-  catch (err) { card.addSection(errorSection_(err)); card.addSection(footerSection_()); return card.build(); }
+  catch (err) { card.addSection(errorSection_(err)); card.addSection(settingsSection_()); return card.build(); }
+
+  // ✨ Intelligence: read the body + suggest association and kind.
+  var suggest = {};
+  try { suggest = apiPost_('/api/addon/suggest', { subject: ctx.subject, body: ctx.body || '' }); } catch (sErr) { suggest = {}; }
+  if (suggest && (suggest.association || (suggest.kind && suggest.kind !== 'ticket'))) {
+    card.addSection(suggestSection_(suggest));
+  }
 
   // Matched ticket (if any) + quick status actions.
   if (data.matched) {
     card.addSection(matchedSection_(data.matched));
   }
 
-  // Guided create / link form.
-  card.addSection(createSection_(ctx, data));
+  // Guided create / link form (pre-filled from the suggestion).
+  card.addSection(createSection_(ctx, data, suggest));
 
   // AI draft.
   var draftSection = CardService.newCardSection().setHeader('✨ AI reply');
@@ -104,7 +113,7 @@ function onGmailMessage(e) {
 
   // Recent history for this contact.
   if (data.recent && data.recent.length) {
-    card.addSection(ticketsSection_(data.recent, '', '🕘 Recent for this contact'));
+    card.addSection(ticketsSection_(data.recent, '', '🕘 Recent for this contact', false, ctx));
   }
 
   // All company open items — pick a TKT-#### to "@maia append" this email to.
@@ -113,13 +122,13 @@ function onGmailMessage(e) {
     var allOpen2 = (apiGet_('/api/addon/tickets?mine=0&status=open&limit=50').tickets) || [];
     var openWOs2 = allOpen2.filter(function (t) { return t.type === 'work_order'; });
     var openTks2 = allOpen2.filter(function (t) { return t.type !== 'work_order'; });
-    card.addSection(ticketsSection_(openWOs2, 'No open work orders.', '🔧 Open work orders — company', true));
-    card.addSection(ticketsSection_(openTks2, 'No open tickets.', '🎟️ Open tickets — company', true));
+    card.addSection(ticketsSection_(openWOs2, 'No open work orders.', '🔧 Open work orders — company', true, ctx));
+    card.addSection(ticketsSection_(openTks2, 'No open tickets.', '🎟️ Open tickets — company', true, ctx));
   } catch (errAll) { /* non-fatal — keep the rest of the card */ }
 
-  card.addSection(footerSection_());
   card.addSection(commandsSection_());
-  card.addSection(associationsSection_());  // last — long reference, kept at the very bottom
+  card.addSection(associationsSection_());  // long reference, kept near the bottom
+  card.addSection(settingsSection_());      // Settings pinned last
   return card.build();
 }
 
@@ -127,7 +136,7 @@ function onSettings(e) { return settingsCard_(false); }
 
 // ---- card builders ----------------------------------------------------
 
-function ticketsSection_(tickets, emptyText, headerText, collapsible) {
+function ticketsSection_(tickets, emptyText, headerText, collapsible, linkCtx) {
   var s = CardService.newCardSection();
   if (headerText) s.setHeader(headerText);
   if (collapsible) s.setCollapsible(true).setNumUncollapsibleWidgets(3);
@@ -143,7 +152,19 @@ function ticketsSection_(tickets, emptyText, headerText, collapsible) {
       .setText((t.subject || '(no subject)'))
       .setBottomLabel([kind, t.association_code || '', t.priority || ''].filter(Boolean).join('  ·  '))
       .setWrapText(true)
-      .setOpenLink(CardService.newOpenLink().setUrl(c.apiBase + '/admin/invoices/cinc/lookup'.replace('/invoices/cinc/lookup', '') + '/admin/tickets/' + t.id));
+      .setOpenLink(CardService.newOpenLink().setUrl(c.apiBase + '/admin/tickets/' + t.id));
+    // When an email is open, offer a one-click "link this email here".
+    if (linkCtx && (linkCtx.threadId || linkCtx.messageId)) {
+      line.setButton(CardService.newTextButton().setText('🔗 Link')
+        .setOnClickAction(CardService.newAction().setFunctionName('linkEmailAction').setParameters({
+          ticketId:   String(t.id),
+          ticketNo:   t.ticket_number || '',
+          threadId:   linkCtx.threadId || '',
+          messageId:  linkCtx.messageId || '',
+          subject:    linkCtx.subject || '',
+          sender:     linkCtx.email || '',
+        })));
+    }
     s.addWidget(line);
   });
   return s;
@@ -168,13 +189,31 @@ function matchedSection_(t) {
   return s;
 }
 
-function createSection_(ctx, data) {
+// "✨ Maia suggests" — what the email looks like + which association.
+function suggestSection_(sg) {
+  var s = CardService.newCardSection().setHeader('✨ Maia suggests');
+  var kindLabel = sg.kind === 'invoice' ? 'Invoice' : sg.kind === 'work_order' ? 'Work order' : 'Ticket';
+  var headline = kindLabel + (sg.association ? ('  ·  ' + sg.association) : '');
+  s.addWidget(CardService.newDecoratedText()
+    .setText('<b><font color="#f26a1b">' + headline + '</font></b>')
+    .setBottomLabel(sg.reason || '').setWrapText(true));
+  if (sg.kind === 'invoice') {
+    s.addWidget(CardService.newTextParagraph().setText(
+      'Looks like an invoice — forward to <b>maia@pmitop.com</b> with <font color="#f26a1b">@maia upload this invoice ' +
+      (sg.association ? ('#' + sg.association) : '#CODE') + '</font> (attach the PDF).'));
+  }
+  return s;
+}
+
+function createSection_(ctx, data, suggest) {
+  suggest = suggest || {};
   var s = CardService.newCardSection().setHeader(data.matched ? '➕ Create another item' : '➕ Create ticket / work order');
 
+  var woFirst = suggest.kind === 'work_order';   // pre-select Work order when suggested
   s.addWidget(CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
     .setTitle('Type').setFieldName('type')
-    .addItem('Ticket', 'ticket', true)
-    .addItem('Work order', 'work_order', false));
+    .addItem('Ticket', 'ticket', !woFirst)
+    .addItem('Work order', 'work_order', woFirst));
 
   s.addWidget(CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
     .setTitle('Priority').setFieldName('priority')
@@ -182,7 +221,7 @@ function createSection_(ctx, data) {
     .addItem('High', 'high', false).addItem('Urgent', 'urgent', false));
 
   s.addWidget(CardService.newTextInput().setFieldName('association_code').setTitle('Association code')
-    .setValue(data.association || ''));
+    .setValue(suggest.association || data.association || ''));
 
   s.addWidget(CardService.newTextInput().setFieldName('subject').setTitle('Subject')
     .setValue(ctx.subject || ''));
@@ -217,11 +256,19 @@ function errorSection_(err) {
     CardService.newTextParagraph().setText('⚠️ ' + (err && err.message ? err.message : String(err))));
 }
 
-function footerSection_() {
+// Primary action, pinned at the TOP of every card.
+function topBarSection_() {
   var c = getConfig_();
   var s = CardService.newCardSection();
-  s.addWidget(CardService.newTextButton().setText('Open Maia queue')
-    .setOpenLink(CardService.newOpenLink().setUrl(c.apiBase + '/admin/tickets')));
+  s.addWidget(CardService.newTextButton().setText('Open Maia Platform')
+    .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+    .setOpenLink(CardService.newOpenLink().setUrl(c.apiBase + '/admin')));
+  return s;
+}
+
+// Settings, pinned at the very BOTTOM of every card.
+function settingsSection_() {
+  var s = CardService.newCardSection();
   s.addWidget(CardService.newTextButton().setText('Settings')
     .setOnClickAction(CardService.newAction().setFunctionName('onSettings')));
   return s;
@@ -324,6 +371,25 @@ function setStatusAction(e) {
   } catch (err) { return notify_(err); }
 }
 
+// Link the open email to the chosen ticket (records the association + a
+// note on the ticket). A toast confirms; no card refresh needed.
+function linkEmailAction(e) {
+  var p = e.commonEventObject.parameters || {};
+  try {
+    var res = apiPost_('/api/addon/tickets/' + encodeURIComponent(p.ticketId) + '/link-email', {
+      gmailThreadId:  p.threadId  || '',
+      gmailMessageId: p.messageId || '',
+      subject:        p.subject   || '',
+      sender:         p.sender    || '',
+    });
+    var num = res.ticket_number || p.ticketNo || 'ticket';
+    var msg = res.already ? ('Already linked to ' + num) : ('🔗 Linked this email to ' + num);
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText(msg))
+      .build();
+  } catch (err) { return notify_(err); }
+}
+
 function draftReplyAction(e) {
   var p = e.commonEventObject.parameters || {};
   try {
@@ -365,8 +431,9 @@ function onComposeInsertDraft(e) {
 // ---- small utils ------------------------------------------------------
 
 function readMessage_(e) {
-  var out = { email: '', name: '', threadId: '', subject: '' };
+  var out = { email: '', name: '', threadId: '', subject: '', messageId: '', body: '' };
   try {
+    out.messageId = (e.gmail && e.gmail.messageId) || '';
     var token = e.gmail.accessToken;
     GmailApp.setCurrentMessageAccessToken(token);
     var msg = GmailApp.getMessageById(e.gmail.messageId);
@@ -376,6 +443,7 @@ function readMessage_(e) {
     out.name  = from.replace(/<[^>]+>/, '').replace(/"/g, '').trim();
     out.subject = msg.getSubject() || '';
     out.threadId = msg.getThread().getId();
+    try { out.body = (msg.getPlainBody() || '').slice(0, 6000); } catch (b) { out.body = ''; }
   } catch (err) { /* metadata may be unavailable; leave blanks */ }
   return out;
 }
