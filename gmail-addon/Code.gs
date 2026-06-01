@@ -409,17 +409,33 @@ function forwardToMaiaAction(e) {
     var msg = GmailApp.getMessageById(e.gmail.messageId);
     var assoc = strInput_(f, 'association_code') || p.association || '';
     var trigger = '@maia upload this invoice' + (assoc ? (' #' + assoc) : ' #CODE');
-    var atts = msg.getAttachments({ includeInlineImages: false, includeAttachments: true });
+
+    // Collect real attachments (skip inline logos). If the open message has
+    // none, scan the rest of the thread — the PDF is often on the original
+    // when you're viewing a reply.
+    var opts = { includeInlineImages: false, includeAttachments: true };
+    var atts = msg.getAttachments(opts);
+    if (!atts.length) {
+      var msgs = msg.getThread().getMessages();
+      for (var i = msgs.length - 1; i >= 0 && !atts.length; i--) {
+        atts = msgs[i].getAttachments(opts);
+      }
+    }
+
     var html = '<p>' + trigger + '</p><hr>' + (msg.getBody() || '');
     GmailApp.createDraft('maia@pmitop.com', 'Fwd: ' + (msg.getSubject() || ''), trigger, {
       htmlBody:    html,
       attachments: atts,
     });
-    var note = assoc
-      ? ('Draft to Maia created (#' + assoc + ') — review in Drafts & Send.')
-      : ('Draft to Maia created — set the #CODE if needed, then Send.');
+
+    // Confirm exactly what was attached so the PDF is never silently dropped.
+    var names = atts.map(function (a) { return a.getName(); }).join(', ');
+    var note = atts.length
+      ? ('📤 Draft to Maia' + (assoc ? ' #' + assoc : '') + ' with ' + atts.length +
+         ' file(s): ' + names.slice(0, 100) + ' — review in Drafts & Send.')
+      : ('⚠ Draft to Maia created, but NO attachment was found on this email/thread — attach the PDF before sending.');
     return CardService.newActionResponseBuilder()
-      .setNotification(CardService.newNotification().setText('📤 ' + note))
+      .setNotification(CardService.newNotification().setText(note))
       .build();
   } catch (err) { return notify_(err); }
 }
