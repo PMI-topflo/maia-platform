@@ -8,8 +8,23 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../components/AdminNav'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const metadata = { title: 'Help — PMI Top Florida' }
+export const dynamic = 'force-dynamic'
+
+async function loadAssociations(): Promise<Array<{ code: string; name: string; aliases: string[] }>> {
+  const { data } = await supabaseAdmin
+    .from('associations')
+    .select('*')
+    .eq('active', true)
+    .order('association_code')
+  return (data ?? []).map((r: Record<string, unknown>) => ({
+    code:    String(r.association_code ?? ''),
+    name:    String(r.association_name ?? ''),
+    aliases: Array.isArray(r.match_aliases) ? (r.match_aliases as unknown[]).map(String) : [],
+  }))
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Quick-access link tiles — what staff use most.
@@ -36,7 +51,8 @@ const EXTERNAL_LINKS: Array<{ label: string; href: string; desc: string; emoji: 
   { emoji: '🪟', label: 'Embed Widget',            href: '/widget',                                  desc: 'AI chat for partner sites' },
 ]
 
-export default function HelpPage() {
+export default async function HelpPage() {
+  const associations = await loadAssociations()
   return (
     <div className="min-h-screen bg-gray-50">
       <SiteHeader subtitle="STAFF DASHBOARD">
@@ -88,6 +104,45 @@ export default function HelpPage() {
           </div>
         </Section>
 
+        {/* Association codes + #CODE tagging */}
+        <Section title="Association codes — tag with #CODE">
+          <p className="text-sm text-gray-700 mb-3">
+            When you email <code className="bg-gray-100 px-1 rounded">maia@pmitop.com</code> about an invoice or work order,
+            add <code className="bg-gray-100 px-1 rounded">#CODE</code> anywhere in the body to tell MAIA which association
+            it belongs to. This is the most reliable way — MAIA also tries to recognize the name automatically, but the
+            <code className="bg-gray-100 px-1 rounded ml-1">#CODE</code> tag is exact and never guesses wrong.
+          </p>
+          <CodeBlock>
+{`@maia upload this invoice #ONE
+@maia open work order #SP   (leaking pipe, unit 6)`}
+          </CodeBlock>
+          <p className="text-xs text-gray-500 mt-2 mb-3">
+            Only a real code after <code className="bg-gray-100 px-1 rounded">#</code> is used — an invoice number like
+            <code className="bg-gray-100 px-1 rounded ml-1">#5481</code> is ignored.
+          </p>
+          <div className="border border-gray-200 rounded overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Tag</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Association</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Also recognized as</th>
+                </tr>
+              </thead>
+              <tbody>
+                {associations.map(a => (
+                  <tr key={a.code} className="border-t border-gray-100">
+                    <td className="px-3 py-2 align-top"><code className="bg-[#f26a1b]/10 text-[#f26a1b] font-semibold px-1.5 py-0.5 rounded">#{a.code}</code></td>
+                    <td className="px-3 py-2 text-gray-700 align-top">{a.name}</td>
+                    <td className="px-3 py-2 text-gray-400 text-xs align-top">{a.aliases.length ? a.aliases.join(', ') : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">{associations.length} active associations · codes are case-insensitive (<code>#one</code> = <code>#ONE</code>).</p>
+        </Section>
+
         {/* How tickets are born */}
         <Section title="1 · How tickets are created">
           <p className="text-sm text-gray-700 mb-3">
@@ -135,9 +190,9 @@ export default function HelpPage() {
           <Table
             head={['Modifier', 'Effect']}
             rows={[
-              [<code className="bg-gray-100 px-1 rounded">@assign jane@pmitop.com</code>, 'Sets the assignee. Sends a courtesy notification email to the new assignee with a link to the ticket.'],
-              [<code className="bg-gray-100 px-1 rounded">@priority urgent</code>, 'Sets priority (urgent / high / normal / low). Recomputes the SLA due_at.'],
-              [<code className="bg-gray-100 px-1 rounded">@workorder</code>, 'Creates as a work order instead of a ticket.'],
+              [<code key="c" className="bg-gray-100 px-1 rounded">@assign jane@pmitop.com</code>, 'Sets the assignee. Sends a courtesy notification email to the new assignee with a link to the ticket.'],
+              [<code key="c" className="bg-gray-100 px-1 rounded">@priority urgent</code>, 'Sets priority (urgent / high / normal / low). Recomputes the SLA due_at.'],
+              [<code key="c" className="bg-gray-100 px-1 rounded">@workorder</code>, 'Creates as a work order instead of a ticket.'],
             ]}
           />
 
@@ -152,14 +207,14 @@ Needs vendor dispatched by tomorrow morning.`}
           </CodeBlock>
           <p className="text-sm text-gray-700 mt-2">
             → Ticket created with that subject, priority=high, assigned to Jane. Jane receives an email
-            <em> "You've been assigned TKT-XXXX"</em> with a button to open it.
+            <em> &ldquo;You&apos;ve been assigned TKT-XXXX&rdquo;</em> with a button to open it.
           </p>
 
           <h3 className="text-sm font-semibold text-gray-900 mt-5 mb-2">No <code className="bg-gray-100 px-1 rounded">@assign</code>? Triage email with one-click buttons</h3>
           <p className="text-sm text-gray-700 mb-3">
-            Send a ticket without an explicit assignee and you'll get a reply within seconds asking who should
+            Send a ticket without an explicit assignee and you&apos;ll get a reply within seconds asking who should
             handle it. Each teammate is a button — one click, the ticket gets assigned, the assignee receives
-            their notification, and you land on the ticket detail page. Includes a <strong>"Keep it for myself"</strong> button
+            their notification, and you land on the ticket detail page. Includes a <strong>&ldquo;Keep it for myself&rdquo;</strong> button
             if you wanted to own it. <em>Maia (AI)</em> is also in the list — assign her now and AI-assisted resolution slots in later.
           </p>
           <Callout>
@@ -176,7 +231,7 @@ Needs vendor dispatched by tomorrow morning.`}
 
           <h3 className="text-sm font-semibold text-gray-900 mt-5 mb-2">DB-update commands (separate from tickets)</h3>
           <p className="text-sm text-gray-700 mb-2">
-            These are existing MAIA commands for owner / tenant / board changes — they update the database, they don't create tickets.
+            These are existing MAIA commands for owner / tenant / board changes — they update the database, they don&apos;t create tickets.
           </p>
           <CodeBlock>
 {`@maia add owner
@@ -211,7 +266,7 @@ New board:
 
           <Callout>
             <strong>No trigger? No ticket.</strong> Forwarding or BCCing <code className="bg-blue-100 px-1 rounded">maia@pmitop.com</code> without
-            one of the trigger phrases just logs the email — it doesn't open a ticket. Add <code className="bg-blue-100 px-1 rounded">@maia ticket</code> to the body to capture it.
+            one of the trigger phrases just logs the email — it doesn&apos;t open a ticket. Add <code className="bg-blue-100 px-1 rounded">@maia ticket</code> to the body to capture it.
           </Callout>
         </Section>
 
@@ -232,11 +287,11 @@ New board:
           <Table
             head={['Status', 'Meaning']}
             rows={[
-              [<Badge cls="bg-green-100 text-green-800">open</Badge>,             'Fresh, awaiting first response'],
-              [<Badge cls="bg-yellow-100 text-yellow-800">pending</Badge>,        'Staff is actively working it'],
-              [<Badge cls="bg-blue-100 text-blue-800">waiting external</Badge>,   "Ball is in the customer's or vendor's court"],
-              [<Badge cls="bg-slate-100 text-slate-700">resolved</Badge>,         'Work done, awaiting customer confirmation'],
-              [<Badge cls="bg-gray-200 text-gray-600">closed</Badge>,             'Done and confirmed'],
+              [<Badge key="b" cls="bg-green-100 text-green-800">open</Badge>,             'Fresh, awaiting first response'],
+              [<Badge key="b" cls="bg-yellow-100 text-yellow-800">pending</Badge>,        'Staff is actively working it'],
+              [<Badge key="b" cls="bg-blue-100 text-blue-800">waiting external</Badge>,   "Ball is in the customer's or vendor's court"],
+              [<Badge key="b" cls="bg-slate-100 text-slate-700">resolved</Badge>,         'Work done, awaiting customer confirmation'],
+              [<Badge key="b" cls="bg-gray-200 text-gray-600">closed</Badge>,             'Done and confirmed'],
             ]}
           />
 
@@ -244,10 +299,10 @@ New board:
           <Table
             head={['Priority', 'Default due_at']}
             rows={[
-              [<Badge cls="bg-red-100 text-red-800">urgent</Badge>,    '+4 hours'],
-              [<Badge cls="bg-orange-100 text-orange-800">high</Badge>, '+24 hours'],
-              [<Badge cls="bg-slate-100 text-slate-700">normal</Badge>, '+72 hours (3 days)'],
-              [<Badge cls="bg-gray-100 text-gray-600">low</Badge>,      '+168 hours (7 days)'],
+              [<Badge key="b" cls="bg-red-100 text-red-800">urgent</Badge>,    '+4 hours'],
+              [<Badge key="b" cls="bg-orange-100 text-orange-800">high</Badge>, '+24 hours'],
+              [<Badge key="b" cls="bg-slate-100 text-slate-700">normal</Badge>, '+72 hours (3 days)'],
+              [<Badge key="b" cls="bg-gray-100 text-gray-600">low</Badge>,      '+168 hours (7 days)'],
             ]}
           />
           <p className="text-xs text-gray-500 mt-2">
@@ -259,12 +314,12 @@ New board:
             On any ticket detail page, click the <strong>Due</strong> field in the right sidebar to open the
             change-date modal. Pick a new date, choose a reason from the dropdown (grouped by Maintenance / Financial /
             Operations / Internal), and add an optional note. The change is recorded in the timeline as
-            "Due: <em>old date</em> → <em>new date</em> (<em>reason</em>)" so you have a full audit trail.
+            &ldquo;Due: <em>old date</em> → <em>new date</em> (<em>reason</em>)&rdquo; so you have a full audit trail.
           </p>
           <Callout>
             <strong>KPI buckets</strong> — every reason is tagged <em>external</em> (vendor, owner, bank, permit) or
             <em> internal</em> (staff capacity, missed follow-up, rework). Internal reasons are the only ones that count
-            toward team-efficiency KPIs. The other 13 reasons are non-controllable by definition, so the team isn't
+            toward team-efficiency KPIs. The other 13 reasons are non-controllable by definition, so the team isn&apos;t
             penalized for vendor lateness or owner indecision.
           </Callout>
           <p className="text-xs text-gray-500 mt-2">
@@ -298,7 +353,7 @@ ORDER BY push_count DESC;`}
             <li><strong>Rentvine sync:</strong> waiting on Rentvine support for the actual API endpoint names. The outbox table queues syncs in the meantime.</li>
             <li><strong>CINC sync:</strong> stubbed behind <code className="bg-gray-100 px-1 rounded">CINC_SYNC_ENABLED</code>; will wire when credentials arrive.</li>
             <li><strong>Tenant lease cron</strong> (<code className="bg-gray-100 px-1 rounded">/api/cron/sync-rentvine-tenants</code>) is hitting the wrong base URL; will fix when the Rentvine docs land.</li>
-            <li><strong>Inline <code className="bg-gray-100 px-1 rounded">@maia close</code></strong> from Gmail isn't wired yet — use the dashboard to close tickets. (<code className="bg-gray-100 px-1 rounded">@assign</code> and <code className="bg-gray-100 px-1 rounded">@priority</code> work today at create time.)</li>
+            <li><strong>Inline <code className="bg-gray-100 px-1 rounded">@maia close</code></strong> from Gmail isn&apos;t wired yet — use the dashboard to close tickets. (<code className="bg-gray-100 px-1 rounded">@assign</code> and <code className="bg-gray-100 px-1 rounded">@priority</code> work today at create time.)</li>
             <li><strong>Vendor portal:</strong> vendors get email and reply via email; no magic-link portal yet.</li>
             <li><strong>Assignee:</strong> free-text email today; no avatar picker.</li>
           </ul>

@@ -1001,52 +1001,114 @@ function describeAssociationType(t: string): string {
   }
 }
 
-// Cache association codes for the lifetime of the process to avoid repeated DB lookups
-let _assocCodeCache: Array<{ code: string; name: string }> | null = null
+// Cache association codes to avoid a DB lookup on every call. Short TTL
+// (not process-lifetime) so a newly CINC-onboarded association becomes
+// detectable within a few minutes without waiting for the serverless
+// instance to recycle.
+interface AssocCacheEntry { code: string; name: string; upperName: string; core: string; aliases: string[] }
+let _assocCodeCache: AssocCacheEntry[] | null = null
+let _assocCacheAt = 0
+const ASSOC_CACHE_TTL_MS = 5 * 60_000
 
-// strict=true → only match explicit account-number patterns like "ESSI16"
-// strict=false → also try bare code and association name (more false positives)
+const reEscape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// Legal-entity boilerplate stripped to derive an association's distinctive
+// "core" name from its full legal name, so "One Bay Harbor Condominium
+// Assoc., Inc." → "ONE BAY HARBOR" (which is what shows up on documents).
+// Longer phrases first so "PROPERTY OWNERS" is removed before "OWNERS".
+const LEGAL_BOILERPLATE = [
+  'PROPERTY OWNERS', 'HOMEOWNERS', 'HOME OWNERS', 'OWNERS',
+  'CONDOMINIUM', 'CONDO', 'ASSOCIATIONS', 'ASSOCIATION', 'ASSOC',
+  'CORPORATION', 'CORP', 'COMPANY', 'INC', 'LLC', 'LTD', 'CO',
+]
+function deriveCoreName(name: string): string {
+  let s = name.toUpperCase().replace(/[.,]/g, ' ')
+  for (const w of LEGAL_BOILERPLATE) s = s.replace(new RegExp(`\\b${w}\\b`, 'g'), ' ')
+  return s.replace(/\s+/g, ' ').trim()
+}
+
+// strict=true → only high-confidence signals (explicit #CODE tag, account
+//   number like "ESSI16", or a curated alias). Used for email logging +
+//   work-order tagging so we never cross-contaminate from a loose guess.
+// strict=false → additionally try the derived core name, bare code, and
+//   full legal name (looser; invoice intake uses this).
 export async function detectAssociationCode(text: string, strict = false): Promise<string | null> {
-  if (!_assocCodeCache) {
+  const stale = !_assocCodeCache || (Date.now() - _assocCacheAt) > ASSOC_CACHE_TTL_MS
+  if (stale) {
+    // select('*') is fault-tolerant if match_aliases isn't migrated yet.
     const { data } = await supabaseAdmin
       .from('associations')
-      .select('association_code, association_name')
+      .select('*')
       .eq('active', true)
-    _assocCodeCache = (data ?? []).map((r: Record<string, unknown>) => ({
-      code: String(r.association_code ?? ''),
-      name: String(r.association_name ?? ''),
-    }))
+    // Only replace the cache if the query succeeded — on a transient DB
+    // error keep serving the previous (slightly stale) cache.
+    if (data) {
+      _assocCodeCache = data.map((r: Record<string, unknown>) => {
+        const name = String(r.association_name ?? '')
+        const rawAliases = Array.isArray(r.match_aliases) ? (r.match_aliases as unknown[]) : []
+        return {
+          code:      String(r.association_code ?? ''),
+          name,
+          upperName: name.toUpperCase(),
+          core:      deriveCoreName(name),
+          aliases:   rawAliases.map(a => String(a).toUpperCase()).filter(a => a.length >= 3),
+        }
+      })
+      _assocCacheAt = Date.now()
+    }
   }
 
   if (!_assocCodeCache) return null
   const cache = _assocCodeCache
   const upper = text.toUpperCase()
 
-  // Most reliable: explicit account-number pattern (e.g. ESSI16 → ESSI, MANXI23 → MANXI)
-  // Require prefix ≥ 3 chars to avoid "FL22" style false positives
+  // ── 1. Explicit #CODE tag (highest confidence) — e.g. "@maia upload this
+  //    invoice #ONE". Only matches when the token after # is EXACTLY a known
+  //    association code, so invoice numbers ("#5481") and "#invoice" are
+  //    ignored. Works in both strict and loose mode.
+  const codeByUpper = new Map(cache.filter(a => a.code).map(a => [a.code.toUpperCase(), a.code]))
+  for (const m of upper.matchAll(/#\s*([A-Z][A-Z0-9]{1,15})\b/g)) {
+    const hit = codeByUpper.get(m[1])
+    if (hit) return hit
+  }
+
+  // ── 2. Explicit account-number pattern (e.g. ESSI16 → ESSI). Prefix ≥ 3
+  //    chars to avoid "FL22" false positives.
   const acctMatch = upper.match(/\b([A-Z]{3,6})\d{1,3}\b/)
   if (acctMatch) {
-    const prefix = acctMatch[1]
-    const hit = cache.find(a => a.code === prefix)
-    if (hit) return hit.code
+    const hit = codeByUpper.get(acctMatch[1])
+    if (hit) return hit
   }
 
-  // In strict mode we stop here — email logs use strict to avoid cross-contamination
+  // ── 3. Curated alias (e.g. "One Bay Harbor" → ONE). Safe enough for
+  //    strict mode because aliases are hand-maintained per association.
+  for (const a of cache) {
+    for (const al of a.aliases) {
+      if (new RegExp(`\\b${reEscape(al)}\\b`).test(upper)) return a.code
+    }
+  }
+
+  // In strict mode we stop here — email logs / work-order tagging avoid
+  // looser guesses that could cross-contaminate associations.
   if (strict) return null
 
-  // Bare code at word boundary, min 4 chars (loose — can still produce false positives)
+  // ── 4. Derived core name (legal name minus boilerplate). Require ≥ 5
+  //    chars and a UNIQUE match — if two associations' cores both appear,
+  //    leave it blank rather than guess (financial routing).
+  const coreHits = new Set<string>()
   for (const a of cache) {
-    if (a.code && a.code.length >= 4) {
-      if (new RegExp(`\\b${a.code}\\b`).test(upper)) return a.code
-    }
+    if (a.core.length >= 5 && new RegExp(`\\b${reEscape(a.core)}\\b`).test(upper)) coreHits.add(a.code)
+  }
+  if (coreHits.size === 1) return [...coreHits][0]
+
+  // ── 5. Bare code at word boundary, min 4 chars (loose).
+  for (const a of cache) {
+    if (a.code && a.code.length >= 4 && new RegExp(`\\b${a.code}\\b`).test(upper)) return a.code
   }
 
-  // Full association name at word boundary, min 6 chars
+  // ── 6. Full legal name at word boundary, min 6 chars.
   for (const a of cache) {
-    if (a.name && a.name.length >= 6) {
-      const escaped = a.name.toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      if (new RegExp(`\\b${escaped}\\b`).test(upper)) return a.code
-    }
+    if (a.upperName.length >= 6 && new RegExp(`\\b${reEscape(a.upperName)}\\b`).test(upper)) return a.code
   }
 
   return null
