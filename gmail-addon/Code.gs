@@ -56,6 +56,7 @@ function onHomepage(e) {
   if (!isConfigured_()) return settingsCard_(true);
   var card = CardService.newCardBuilder().setHeader(
     CardService.newCardHeader().setTitle('Maia').setSubtitle('My open items'));
+  card.addSection(topBarSection_());
   try {
     var mineData = apiGet_('/api/addon/tickets?mine=1&status=open&limit=25');
     card.addSection(ticketsSection_(mineData.tickets || [], 'You have no open tickets or work orders. 🎉', '🎟️ My open items'));
@@ -69,9 +70,9 @@ function onHomepage(e) {
   } catch (err) {
     card.addSection(errorSection_(err));
   }
-  card.addSection(footerSection_());
   card.addSection(commandsSection_());
-  card.addSection(associationsSection_());  // last — long reference, kept at the very bottom
+  card.addSection(associationsSection_());  // long reference, kept near the bottom
+  card.addSection(settingsSection_());      // Settings pinned last
   return card.build();
 }
 
@@ -81,10 +82,11 @@ function onGmailMessage(e) {
   var ctx = readMessage_(e);  // { email, name, threadId, subject }
   var card = CardService.newCardBuilder().setHeader(
     CardService.newCardHeader().setTitle('Maia').setSubtitle(ctx.email || 'This email'));
+  card.addSection(topBarSection_());
 
   var data = {};
   try { data = apiGet_('/api/addon/context?gmailThreadId=' + encodeURIComponent(ctx.threadId) + '&email=' + encodeURIComponent(ctx.email)); }
-  catch (err) { card.addSection(errorSection_(err)); card.addSection(footerSection_()); return card.build(); }
+  catch (err) { card.addSection(errorSection_(err)); card.addSection(settingsSection_()); return card.build(); }
 
   // Matched ticket (if any) + quick status actions.
   if (data.matched) {
@@ -117,9 +119,9 @@ function onGmailMessage(e) {
     card.addSection(ticketsSection_(openTks2, 'No open tickets.', '🎟️ Open tickets — company', true));
   } catch (errAll) { /* non-fatal — keep the rest of the card */ }
 
-  card.addSection(footerSection_());
   card.addSection(commandsSection_());
-  card.addSection(associationsSection_());  // last — long reference, kept at the very bottom
+  card.addSection(associationsSection_());  // long reference, kept near the bottom
+  card.addSection(settingsSection_());      // Settings pinned last
   return card.build();
 }
 
@@ -217,11 +219,19 @@ function errorSection_(err) {
     CardService.newTextParagraph().setText('⚠️ ' + (err && err.message ? err.message : String(err))));
 }
 
-function footerSection_() {
+// Primary action, pinned at the TOP of every card.
+function topBarSection_() {
   var c = getConfig_();
   var s = CardService.newCardSection();
-  s.addWidget(CardService.newTextButton().setText('Open Maia queue')
-    .setOpenLink(CardService.newOpenLink().setUrl(c.apiBase + '/admin/tickets')));
+  s.addWidget(CardService.newTextButton().setText('Open Maia Platform')
+    .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+    .setOpenLink(CardService.newOpenLink().setUrl(c.apiBase + '/admin')));
+  return s;
+}
+
+// Settings, pinned at the very BOTTOM of every card.
+function settingsSection_() {
+  var s = CardService.newCardSection();
   s.addWidget(CardService.newTextButton().setText('Settings')
     .setOnClickAction(CardService.newAction().setFunctionName('onSettings')));
   return s;
