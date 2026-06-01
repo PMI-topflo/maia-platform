@@ -1181,6 +1181,18 @@ NOTIFY pgrst, 'reload schema';`,
 alter table public.recurring_services add column if not exists office_language    text not null default 'en';
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'service_visit_agenda',
+    label:       'Service visit agenda (crew + planned date)',
+    description: 'service_visits.planned_date + assigned_employee_ids + confirmed_at — the vendor office confirms next week\'s crew + day via the Friday agenda link.',
+    filename:    '20260531_service_visit_agenda.sql',
+    artifact:    { type: 'column', table: 'service_visits', column: 'planned_date' },
+    sql: `alter table public.service_visits
+  add column if not exists planned_date          date,
+  add column if not exists assigned_employee_ids uuid[] not null default '{}',
+  add column if not exists confirmed_at           timestamptz;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

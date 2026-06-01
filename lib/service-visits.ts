@@ -92,13 +92,14 @@ export async function listVisits(assoc: string, weekOf?: string): Promise<Servic
 /** Send each crew member of the visit's vendor their personal upload link
  *  (the vendor portal, scoped to this visit's work order) via their
  *  preferred channel. Returns per-employee results. */
-export async function sendCrewUploadLinks(visitId: number): Promise<{ ok: true; sent: number; results: string[] } | { ok: false; error: string }> {
+export async function sendCrewUploadLinks(visitId: number, employeeIds?: string[]): Promise<{ ok: true; sent: number; results: string[] } | { ok: false; error: string }> {
   const { data: visit } = await supabaseAdmin.from('service_visits').select('*').eq('id', visitId).maybeSingle()
   if (!visit) return { ok: false, error: 'visit not found' }
   const v = visit as ServiceVisit
   if (!v.ticket_id) return { ok: false, error: 'visit has no work order' }
 
-  const crew = (await listVendorEmployees(v.cinc_vendor_id)).filter(e => e.active)
+  let crew = (await listVendorEmployees(v.cinc_vendor_id)).filter(e => e.active)
+  if (employeeIds && employeeIds.length) crew = crew.filter(e => employeeIds.includes(e.id))
   if (crew.length === 0) return { ok: false, error: 'no active crew for this vendor — add employees first' }
 
   const token = await signVendorUploadToken(v.ticket_id)
