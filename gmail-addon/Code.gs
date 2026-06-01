@@ -57,8 +57,11 @@ function onHomepage(e) {
   var card = CardService.newCardBuilder().setHeader(
     CardService.newCardHeader().setTitle('Maia').setSubtitle('My open items'));
   try {
-    var data = apiGet_('/api/addon/tickets?mine=1&status=open&limit=25');
-    card.addSection(ticketsSection_(data.tickets || [], 'You have no open tickets or work orders. 🎉', '🎟️ My open items'));
+    var mineData = apiGet_('/api/addon/tickets?mine=1&status=open&limit=25');
+    card.addSection(ticketsSection_(mineData.tickets || [], 'You have no open tickets or work orders. 🎉', '🎟️ My open items'));
+    // All company open items — staff grab a TKT-#### to "@maia append" to a thread.
+    var allData = apiGet_('/api/addon/tickets?mine=0&status=open&limit=50');
+    card.addSection(ticketsSection_(allData.tickets || [], 'No open items across the company.', '🏢 All open — company', true));
   } catch (err) {
     card.addSection(errorSection_(err));
   }
@@ -100,6 +103,12 @@ function onGmailMessage(e) {
     card.addSection(ticketsSection_(data.recent, '', '🕘 Recent for this contact'));
   }
 
+  // All company open items — pick a TKT-#### to "@maia append" this email to.
+  try {
+    var allOpen = apiGet_('/api/addon/tickets?mine=0&status=open&limit=50');
+    card.addSection(ticketsSection_(allOpen.tickets || [], 'No open items across the company.', '🏢 All open — company', true));
+  } catch (errAll) { /* non-fatal — keep the rest of the card */ }
+
   card.addSection(footerSection_());
   card.addSection(commandsSection_());
   card.addSection(associationsSection_());  // last — long reference, kept at the very bottom
@@ -110,9 +119,10 @@ function onSettings(e) { return settingsCard_(false); }
 
 // ---- card builders ----------------------------------------------------
 
-function ticketsSection_(tickets, emptyText, headerText) {
+function ticketsSection_(tickets, emptyText, headerText, collapsible) {
   var s = CardService.newCardSection();
   if (headerText) s.setHeader(headerText);
+  if (collapsible) s.setCollapsible(true).setNumUncollapsibleWidgets(3);
   if (!tickets.length) { s.addWidget(CardService.newTextParagraph().setText(emptyText || 'Nothing here.')); return s; }
   var c = getConfig_();
   var dot = function (status) {
