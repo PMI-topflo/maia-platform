@@ -1920,8 +1920,11 @@ export function invalidateBudgetCache(assocCode?: string): void {
 
 /** PUT /associations/InvoiceAttachmentsBase64 — attach a single PDF
  *  to a CINC invoice. CINC's hard limit is 25 MB pre-conversion.
- *  Body uses InvoiceID / FileName / FileContent (PascalCase to match
- *  the rest of CINC's invoice endpoints). */
+ *  Body model is { InvoiceID, FileName, File } — the base64 goes in the
+ *  `File` field. (A prior "shape fix" renamed it to `FileContent`, which
+ *  CINC rejects with 400 "Invalid Model" — verified live against invoice
+ *  16236, which only accepted `File`.) Response is { InvoiceId, ImageId,
+ *  FileName }. */
 export async function attachInvoicePdf(opts: {
   invoiceId: number
   pdfBase64: string
@@ -1931,7 +1934,7 @@ export async function attachInvoicePdf(opts: {
     '/management/1/associations/InvoiceAttachmentsBase64',
     {
       method: 'PUT',
-      json:   { InvoiceID: opts.invoiceId, FileName: opts.filename, FileContent: opts.pdfBase64 },
+      json:   { InvoiceID: opts.invoiceId, FileName: opts.filename, File: opts.pdfBase64 },
     },
   )
   const imageId = result.ImageID ?? result.ImageId
