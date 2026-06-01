@@ -134,7 +134,10 @@ function CoverageRowLine({ row }: { row: CoverageRow }) {
         <Link href={`/admin/recurring-services?assoc=${row.association_code}`} className="hover:text-[#f26a1b]">{row.association_code}</Link>
       </td>
       <td className="px-4 py-2.5 text-gray-800 truncate max-w-[180px]">{row.vendor_name ?? '—'}</td>
-      <td className="px-4 py-2.5 text-gray-600">{row.service_type ?? '—'}</td>
+      <td className="px-4 py-2.5 text-gray-600">
+        {row.service_type ?? '—'}
+        {row.cadence && row.cadence !== 'weekly' && <span className="ml-1.5 inline-flex rounded px-1 py-0.5 text-[9px] font-mono uppercase bg-indigo-50 text-indigo-600">{row.cadence}</span>}
+      </td>
       <td className="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">{row.expected_day != null ? DAY_LABEL[row.expected_day] : '—'}</td>
       <td className="px-4 py-2.5 text-gray-600 text-xs whitespace-nowrap">
         {row.ticket_id

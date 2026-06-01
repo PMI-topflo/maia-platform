@@ -71,15 +71,17 @@ export async function ensureWeeklyVisit(svc: RecurringService, weekOf: string): 
   return { created: true, visit: data as ServiceVisit }
 }
 
-/** Generate visits for every active recurring service for a given week. */
-export async function generateVisitsForWeek(weekOf: string): Promise<{ created: number; existing: number }> {
+/** Generate visits for every active recurring service that is DUE in the
+ *  given week (cadence-aware — biweekly/monthly are skipped on off-weeks). */
+export async function generateVisitsForWeek(weekOf: string): Promise<{ created: number; existing: number; skipped: number }> {
   const { data: services } = await supabaseAdmin.from('recurring_services').select('*').eq('active', true)
-  let created = 0, existing = 0
+  let created = 0, existing = 0, skipped = 0
   for (const svc of (services ?? []) as RecurringService[]) {
+    if (!isVisitDue(weekOf, svc.cadence, svc.schedule_anchor, svc.monthly_day)) { skipped++; continue }
     const r = await ensureWeeklyVisit(svc, weekOf)
     if (r.created) created++; else existing++
   }
-  return { created, existing }
+  return { created, existing, skipped }
 }
 
 export async function listVisits(assoc: string, weekOf?: string): Promise<ServiceVisit[]> {
@@ -197,6 +199,45 @@ function visitState(weekOf: string, expectedDay: number | null, hasPhotos: boole
   return 'missed'
 }
 
+/** Whole weeks between two dates (rounded), positive when b is after a. */
+function weeksBetween(aISO: string, bISO: string): number {
+  const ms = new Date(`${bISO}T00:00:00Z`).getTime() - new Date(`${aISO}T00:00:00Z`).getTime()
+  return Math.round(ms / (7 * 86_400_000))
+}
+
+/** Is a service due in the week starting `weekOf` (a Monday), given its
+ *  cadence + schedule anchor? This is the single source of truth for both
+ *  visit generation and coverage flags, so they never disagree.
+ *   • weekly   → every week
+ *   • biweekly → alternating weeks measured from schedule_anchor's Monday
+ *                (null anchor falls back to weekly so nothing is skipped)
+ *   • monthly  → the week containing monthly_day (clamped to month length;
+ *                null → the week containing the 1st) */
+export function isVisitDue(
+  weekOf: string,
+  cadence: string | null | undefined,
+  scheduleAnchor: string | null | undefined,
+  monthlyDay: number | null | undefined,
+): boolean {
+  if (cadence === 'biweekly') {
+    if (!scheduleAnchor) return true
+    const anchorMonday = mondayOf(new Date(`${scheduleAnchor}T00:00:00Z`))
+    const w = weeksBetween(anchorMonday, weekOf)
+    return ((w % 2) + 2) % 2 === 0
+  }
+  if (cadence === 'monthly') {
+    const target = monthlyDay ?? 1
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(`${weekOf}T00:00:00Z`)
+      d.setUTCDate(d.getUTCDate() + i)
+      const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
+      if (d.getUTCDate() === Math.min(target, lastDay)) return true
+    }
+    return false
+  }
+  return true // weekly (and any unknown cadence → treat as weekly)
+}
+
 /** Batch-fetch which tickets have ≥1 image attachment + their newest
  *  attachment time, in a single query. */
 async function ticketPhotoInfo(ticketIds: number[]): Promise<{ photos: Set<number>; lastActivity: Map<number, string> }> {
@@ -233,16 +274,17 @@ function severityFor(rows: { state: CoverageState }[]): CoverageSeverity {
   return 'nominal'
 }
 
-/** This week's coverage across active WEEKLY services (the ones genuinely
- *  expected to report every week). Powers the dashboard LED. */
+/** This week's coverage across every active service that is DUE this week
+ *  (cadence-aware via isVisitDue, so biweekly/monthly only count on their
+ *  scheduled weeks). Powers the dashboard LED. */
 export async function getWeeklyCoverage(weekOf: string = mondayOf()): Promise<WeeklyCoverage> {
   const today = todayISO()
   const { data: svcData } = await supabaseAdmin
     .from('recurring_services')
-    .select('id, association_code, vendor_name, service_type, cadence, expected_day')
+    .select('id, association_code, vendor_name, service_type, cadence, expected_day, schedule_anchor, monthly_day')
     .eq('active', true)
-    .eq('cadence', 'weekly')
-  const services = (svcData ?? []) as Array<{ id: number; association_code: string; vendor_name: string | null; service_type: string | null; cadence: string; expected_day: number | null }>
+  const services = ((svcData ?? []) as Array<{ id: number; association_code: string; vendor_name: string | null; service_type: string | null; cadence: string; expected_day: number | null; schedule_anchor: string | null; monthly_day: number | null }>)
+    .filter(s => isVisitDue(weekOf, s.cadence, s.schedule_anchor, s.monthly_day))
 
   const { data: visitData } = await supabaseAdmin
     .from('service_visits')

@@ -23,6 +23,8 @@ export interface RecurringService {
   cadence:          string
   billing_cadence:  string
   expected_day:     number | null
+  schedule_anchor:  string | null   // biweekly: reference Monday (YYYY-MM-DD)
+  monthly_day:      number | null   // monthly: day-of-month (1–31)
   office_email:     string | null
   office_language:  string
   active:           boolean
@@ -62,6 +64,8 @@ export async function createRecurringService(input: Partial<RecurringService>): 
     cadence:          input.cadence ?? 'weekly',
     billing_cadence:  input.billing_cadence ?? 'monthly',
     expected_day:     input.expected_day ?? null,
+    schedule_anchor:  input.schedule_anchor ?? null,
+    monthly_day:      input.monthly_day ?? null,
     office_email:     input.office_email ?? null,
     office_language:  input.office_language ?? 'en',
     notes:            input.notes ?? null,
@@ -71,7 +75,7 @@ export async function createRecurringService(input: Partial<RecurringService>): 
 }
 
 export async function updateRecurringService(id: number, patch: Partial<RecurringService>): Promise<{ ok: boolean; error?: string }> {
-  const allowed: (keyof RecurringService)[] = ['cinc_vendor_id', 'vendor_name', 'service_type', 'cadence', 'billing_cadence', 'expected_day', 'office_email', 'office_language', 'active', 'notes']
+  const allowed: (keyof RecurringService)[] = ['cinc_vendor_id', 'vendor_name', 'service_type', 'cadence', 'billing_cadence', 'expected_day', 'schedule_anchor', 'monthly_day', 'office_email', 'office_language', 'active', 'notes']
   const body: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const k of allowed) if (k in patch) body[k] = patch[k]
   const { error } = await supabaseAdmin.from('recurring_services').update(body).eq('id', id)

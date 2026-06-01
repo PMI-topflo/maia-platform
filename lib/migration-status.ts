@@ -1193,6 +1193,17 @@ NOTIFY pgrst, 'reload schema';`,
   add column if not exists confirmed_at           timestamptz;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'recurring_schedule_anchor',
+    label:       'Recurring schedule anchor (cadence-accurate flags)',
+    description: 'recurring_services.schedule_anchor (biweekly parity reference Monday) + monthly_day (1–31, monthly target day) — drives cadence-aware visit generation + weekly-coverage flags so non-weekly services only flag on weeks they are actually due.',
+    filename:    '20260601_recurring_schedule_anchor.sql',
+    artifact:    { type: 'column', table: 'recurring_services', column: 'schedule_anchor' },
+    sql: `alter table public.recurring_services
+  add column if not exists schedule_anchor date,
+  add column if not exists monthly_day     smallint check (monthly_day between 1 and 31);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
