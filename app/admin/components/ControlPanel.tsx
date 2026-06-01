@@ -83,6 +83,15 @@ interface Counts {
   building: number; unit: number
 }
 
+/** This-week recurring-service reporting health, for the "Recurring Work
+ *  Orders" tile (full breakdown lives on /admin/recurring-services/coverage). */
+export interface RecurringCoverage {
+  total:  number
+  late:   number
+  missed: number
+  sev:    'nominal' | 'caution' | 'warning'
+}
+
 interface Props {
   counts:          Counts
   myTasks:         TicketRow[]
@@ -94,6 +103,7 @@ interface Props {
   recentCommands:  MaiaCommandRow[]
   candidateList:   string[]
   staffLookupHint: 'none' | 'matched' | 'no_match'
+  recurring:       RecurringCoverage
 }
 
 type Severity = 'nominal' | 'caution' | 'warning'
@@ -183,7 +193,7 @@ function SourceChip({ source }: { source: FileSource }) {
 
 // ─── main ──────────────────────────────────────────────────────────────
 export default function ControlPanel(props: Props) {
-  const { counts, myTasks, workOrders, invoiceDrafts, buildingItems, unitItems, teamAlerts, recentCommands } = props
+  const { counts, myTasks, workOrders, invoiceDrafts, buildingItems, unitItems, teamAlerts, recentCommands, recurring } = props
   const [open, setOpen] = useState<DrawerId | null>(null)
 
   const overdue = (items: ComplianceItem[]) => items.filter(i => daysUntil(i.date) < 0).length
@@ -222,6 +232,16 @@ export default function ControlPanel(props: Props) {
       sub: counts.workOrders > 0 ? 'active' : 'none open',
       sev: counts.workOrders > 0 ? 'caution' : 'nominal',
       drawer: 'workorders',
+    },
+    {
+      id: 'recurring', label: 'Recurring Work Orders', value: recurring.total,
+      sub: recurring.missed > 0
+        ? `${recurring.missed} missed${recurring.late ? ` · ${recurring.late} late` : ''}`
+        : recurring.late > 0
+          ? `${recurring.late} late this week`
+          : recurring.total > 0 ? 'all reported' : 'none configured',
+      sev: recurring.sev,
+      href: '/admin/recurring-services/coverage',
     },
     {
       id: 'invoices', label: 'Invoices', value: counts.invoices,

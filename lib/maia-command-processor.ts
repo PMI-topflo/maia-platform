@@ -2229,13 +2229,20 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     }
 
     // Normalize Gmail's auto-expanded contact chip back to "@maia".
-    // When a staff member types "@maia" in Gmail, autocomplete replaces
-    // it with the maia@ contact's display NAME — "@Maia PMI AI AGENT" —
-    // so the body the webhook receives reads "@Maia PMI AI AGENT process
-    // this invoice…". Every trigger detector downstream (invoice, ticket,
-    // append, owner/tenant/board/vendor) expects "@maia <keyword>", so we
-    // collapse the chip here, once, before any detection or logging.
-    parsed.body = parsed.body.replace(/@maia\s+pmi\s+ai\s+agent\b/gi, '@maia')
+    // When a staff member types "@maia" in Gmail, autocomplete replaces it
+    // with the maia@ contact. Two render forms have been seen in the wild:
+    //   1. the display NAME — "@Maia PMI AI AGENT process this invoice…"
+    //   2. the ADDRESS      — "@maia <maia@pmitop.com> upload this invoice…"
+    // Every trigger detector downstream (invoice, ticket, append,
+    // owner/tenant/board/vendor) expects a clean "@maia <keyword>". The
+    // address form is especially harmful: the "." in "pmitop.com" sits
+    // between "@maia" and the keyword and breaks the invoice regex's
+    // [^.\n] span, so "upload this invoice" silently fails to route to
+    // intake and falls through to a ticket. Collapse both chip forms here,
+    // once, before any detection or logging.
+    parsed.body = parsed.body
+      .replace(/@maia\s+pmi\s+ai\s+agent\b/gi, '@maia')   // display-name chip
+      .replace(/@maia\s*<[^>\n]*>/gi, '@maia')             // address chip "@maia <maia@pmitop.com>"
 
     const bodyNorm     = parsed.body.toLowerCase().replace(/\s+/g, ' ')
     const subjectNorm  = parsed.subject.toLowerCase()

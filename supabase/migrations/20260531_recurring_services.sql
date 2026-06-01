@@ -30,7 +30,7 @@ create table if not exists public.recurring_services (
   cinc_vendor_id   text,
   vendor_name      text        not null,
   service_type     text        not null,
-  cadence          text        not null default 'weekly' check (cadence in ('weekly','biweekly','monthly')),       -- how often they SERVICE (drives weekly visits/photos)
+  cadence          text        not null default 'weekly' check (cadence in ('daily','weekly','biweekly','monthly')),       -- how often they SERVICE (drives weekly visits/photos)
   billing_cadence  text        not null default 'monthly' check (billing_cadence in ('per_visit','weekly','monthly')), -- how the vendor BILLS (one monthly invoice covers the month's visits)
   expected_day     smallint    check (expected_day between 0 and 6),  -- 0=Sun..6=Sat, optional
   office_email     text,       -- vendor office address for the Friday agenda email
