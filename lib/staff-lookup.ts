@@ -64,21 +64,33 @@ async function fetchAltEmails(id: string): Promise<string[]> {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 }
 
-/** All email addresses tied to this staff record. Useful for building
- *  the candidate list when filtering tickets by assignee_email. The
- *  loginEmail passed in is included even if it's not stored on the row
- *  (covers the name-derived alias case where the row has no direct
- *  reference to the address the user actually typed). */
+/** Same local-part across every trusted PMI work domain. Staff use
+ *  <name>@topfloridaproperties.com and <name>@pmitop.com (and mypmitop.com)
+ *  interchangeably for the same person, so any one address implies the
+ *  others. Non-PMI domains (e.g. a personal gmail) pass through unchanged.
+ *  This is what makes "my tickets" match whether the assignee was recorded
+ *  under either domain — without needing alt_emails populated. */
+export function trustedDomainVariants(email: string | null | undefined): string[] {
+  const e = lower(email)
+  const at = e.indexOf('@')
+  if (at < 1) return e ? [e] : []
+  const local = e.slice(0, at)
+  const domain = e.slice(at + 1)
+  if (!TRUSTED_DOMAINS.has(domain)) return [e]
+  return [...TRUSTED_DOMAINS].map(d => `${local}@${d}`)
+}
+
+/** All email addresses tied to this staff record, expanded across the
+ *  trusted PMI domains. Used to build the candidate list when filtering
+ *  tickets by assignee_email. The loginEmail is included even if it's not
+ *  stored on the row (covers the name-derived alias case). */
 export function staffCandidateEmails(row: StaffRow, loginEmail: string): string[] {
   const out = new Set<string>()
-  if (row.email)          out.add(lower(row.email))
-  if (row.personal_email) out.add(lower(row.personal_email))
-  for (const a of (row.alt_emails ?? [])) {
-    const v = lower(a)
-    if (v) out.add(v)
-  }
-  const login = lower(loginEmail)
-  if (login) out.add(login)
+  const add = (v: string | null | undefined) => { for (const variant of trustedDomainVariants(v)) out.add(variant) }
+  add(row.email)
+  add(row.personal_email)
+  for (const a of (row.alt_emails ?? [])) add(a)
+  add(loginEmail)
   return [...out].filter(Boolean)
 }
 
