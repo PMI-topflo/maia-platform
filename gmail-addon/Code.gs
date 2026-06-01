@@ -106,7 +106,7 @@ function onGmailMessage(e) {
 
   // Recent history for this contact.
   if (data.recent && data.recent.length) {
-    card.addSection(ticketsSection_(data.recent, '', '🕘 Recent for this contact'));
+    card.addSection(ticketsSection_(data.recent, '', '🕘 Recent for this contact', false, ctx));
   }
 
   // All company open items — pick a TKT-#### to "@maia append" this email to.
@@ -115,8 +115,8 @@ function onGmailMessage(e) {
     var allOpen2 = (apiGet_('/api/addon/tickets?mine=0&status=open&limit=50').tickets) || [];
     var openWOs2 = allOpen2.filter(function (t) { return t.type === 'work_order'; });
     var openTks2 = allOpen2.filter(function (t) { return t.type !== 'work_order'; });
-    card.addSection(ticketsSection_(openWOs2, 'No open work orders.', '🔧 Open work orders — company', true));
-    card.addSection(ticketsSection_(openTks2, 'No open tickets.', '🎟️ Open tickets — company', true));
+    card.addSection(ticketsSection_(openWOs2, 'No open work orders.', '🔧 Open work orders — company', true, ctx));
+    card.addSection(ticketsSection_(openTks2, 'No open tickets.', '🎟️ Open tickets — company', true, ctx));
   } catch (errAll) { /* non-fatal — keep the rest of the card */ }
 
   card.addSection(commandsSection_());
@@ -129,7 +129,7 @@ function onSettings(e) { return settingsCard_(false); }
 
 // ---- card builders ----------------------------------------------------
 
-function ticketsSection_(tickets, emptyText, headerText, collapsible) {
+function ticketsSection_(tickets, emptyText, headerText, collapsible, linkCtx) {
   var s = CardService.newCardSection();
   if (headerText) s.setHeader(headerText);
   if (collapsible) s.setCollapsible(true).setNumUncollapsibleWidgets(3);
@@ -145,7 +145,19 @@ function ticketsSection_(tickets, emptyText, headerText, collapsible) {
       .setText((t.subject || '(no subject)'))
       .setBottomLabel([kind, t.association_code || '', t.priority || ''].filter(Boolean).join('  ·  '))
       .setWrapText(true)
-      .setOpenLink(CardService.newOpenLink().setUrl(c.apiBase + '/admin/invoices/cinc/lookup'.replace('/invoices/cinc/lookup', '') + '/admin/tickets/' + t.id));
+      .setOpenLink(CardService.newOpenLink().setUrl(c.apiBase + '/admin/tickets/' + t.id));
+    // When an email is open, offer a one-click "link this email here".
+    if (linkCtx && (linkCtx.threadId || linkCtx.messageId)) {
+      line.setButton(CardService.newTextButton().setText('🔗 Link')
+        .setOnClickAction(CardService.newAction().setFunctionName('linkEmailAction').setParameters({
+          ticketId:   String(t.id),
+          ticketNo:   t.ticket_number || '',
+          threadId:   linkCtx.threadId || '',
+          messageId:  linkCtx.messageId || '',
+          subject:    linkCtx.subject || '',
+          sender:     linkCtx.email || '',
+        })));
+    }
     s.addWidget(line);
   });
   return s;
@@ -334,6 +346,25 @@ function setStatusAction(e) {
   } catch (err) { return notify_(err); }
 }
 
+// Link the open email to the chosen ticket (records the association + a
+// note on the ticket). A toast confirms; no card refresh needed.
+function linkEmailAction(e) {
+  var p = e.commonEventObject.parameters || {};
+  try {
+    var res = apiPost_('/api/addon/tickets/' + encodeURIComponent(p.ticketId) + '/link-email', {
+      gmailThreadId:  p.threadId  || '',
+      gmailMessageId: p.messageId || '',
+      subject:        p.subject   || '',
+      sender:         p.sender    || '',
+    });
+    var num = res.ticket_number || p.ticketNo || 'ticket';
+    var msg = res.already ? ('Already linked to ' + num) : ('🔗 Linked this email to ' + num);
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText(msg))
+      .build();
+  } catch (err) { return notify_(err); }
+}
+
 function draftReplyAction(e) {
   var p = e.commonEventObject.parameters || {};
   try {
@@ -375,8 +406,9 @@ function onComposeInsertDraft(e) {
 // ---- small utils ------------------------------------------------------
 
 function readMessage_(e) {
-  var out = { email: '', name: '', threadId: '', subject: '' };
+  var out = { email: '', name: '', threadId: '', subject: '', messageId: '' };
   try {
+    out.messageId = (e.gmail && e.gmail.messageId) || '';
     var token = e.gmail.accessToken;
     GmailApp.setCurrentMessageAccessToken(token);
     var msg = GmailApp.getMessageById(e.gmail.messageId);
