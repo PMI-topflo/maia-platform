@@ -63,6 +63,7 @@ function onHomepage(e) {
     card.addSection(errorSection_(err));
   }
   card.addSection(footerSection_());
+  card.addSection(commandsSection_());
   card.addSection(associationsSection_());  // last — long reference, kept at the very bottom
   return card.build();
 }
@@ -100,6 +101,7 @@ function onGmailMessage(e) {
   }
 
   card.addSection(footerSection_());
+  card.addSection(commandsSection_());
   card.addSection(associationsSection_());  // last — long reference, kept at the very bottom
   return card.build();
 }
@@ -219,6 +221,31 @@ function associationsSection_() {
   } catch (err) {
     s.addWidget(CardService.newTextParagraph().setText('Could not load association codes.'));
   }
+  return s;
+}
+
+// Collapsible cheat-sheet of MAIA email commands staff can copy into the
+// body of an email to maia@pmitop.com. Selectable text → tap to copy.
+function commandsSection_() {
+  var c = getConfig_();
+  var s = CardService.newCardSection().setHeader('MAIA commands (type in the email body)');
+  s.setCollapsible(true).setNumUncollapsibleWidgets(1);
+  s.addWidget(CardService.newTextParagraph().setText(
+    'Email <b>maia@pmitop.com</b> with any of these in the body. Tap a line to select and copy.'));
+  function row(label, cmd) {
+    s.addWidget(CardService.newDecoratedText().setTopLabel(label).setText(cmd).setWrapText(true));
+  }
+  row('Create ticket',          '@maia ticket   (or @ticket)');
+  row('Open work order',        '@maia work order');
+  row('Assign someone',         '@assign jane@pmitop.com');
+  row('Set priority',           '@priority urgent   (urgent / high / normal / low)');
+  row('Tag the association',    '#ONE   (any code — see list below)');
+  row('Process an invoice',     '@maia upload this invoice #ONE   (attach the PDF)');
+  row('Add to existing ticket', '@maia append TKT-2026-0001');
+  row('Add records',            '@maia add owner / tenant / board member / agent / vendor');
+  row('Replace a board',        '@maia update board members   (then list the new board)');
+  s.addWidget(CardService.newTextButton().setText('Full command guide →')
+    .setOpenLink(CardService.newOpenLink().setUrl(c.apiBase + '/admin/help')));
   return s;
 }
 
