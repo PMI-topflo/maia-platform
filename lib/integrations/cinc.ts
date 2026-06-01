@@ -1416,7 +1416,7 @@ export async function findInvoiceIdByNumber(opts: {
   const rows = await call<Array<{ InvoiceId?: number; InvoiceID?: number; InvoiceNumber?: string; AssocCode?: string }>>(
     '/management/associations/1/invoices',
     { method: 'GET', query: { InvoiceDateFrom: from, InvoiceDateTo: to, InvoiceNumber: num } },
-  ).catch(() => [] as Array<{ InvoiceId?: number; InvoiceNumber?: string; AssocCode?: string }>)
+  ).catch(() => [] as Array<{ InvoiceId?: number; InvoiceID?: number; InvoiceNumber?: string; AssocCode?: string }>)
 
   const wantNum   = num.toLowerCase()
   const wantAssoc = opts.assocCode?.trim().toUpperCase() || null

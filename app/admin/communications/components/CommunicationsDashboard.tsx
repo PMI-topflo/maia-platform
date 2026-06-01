@@ -1266,7 +1266,7 @@ function TicketsTab({ tickets, staff }: { tickets: Ticket[]; staff: Staff[] }) {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterPriority, setFilterPriority] = useState('all')
-  const [expanded, setExpanded] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<string | number | null>(null)
 
   const filtered = tickets.filter(t => {
     if (filterStatus !== 'all' && (t.status ?? 'open') !== filterStatus) return false

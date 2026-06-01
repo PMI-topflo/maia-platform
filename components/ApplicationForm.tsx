@@ -818,7 +818,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [assocLoading, setAssocLoading] = useState(true);
   // Lease upload state
   type LeaseData = {
-    extracted: { association: string | null; address: string | null; unit: string | null; moveIn: string | null; tenants: string[] };
+    extracted: { association: string | null; address: string | null; unit: string | null; moveIn: string | null; tenants: string[]; entity?: string | null };
     matched: { code: string; name: string; address: string } | null;
     storagePath: string;
   };
