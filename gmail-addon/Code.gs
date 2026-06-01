@@ -62,6 +62,7 @@ function onHomepage(e) {
   } catch (err) {
     card.addSection(errorSection_(err));
   }
+  card.addSection(associationsSection_());
   card.addSection(footerSection_());
   return card.build();
 }
@@ -98,6 +99,7 @@ function onGmailMessage(e) {
     card.addSection(ticketsSection_(data.recent, '', 'Recent for this contact'));
   }
 
+  card.addSection(associationsSection_());
   card.addSection(footerSection_());
   return card.build();
 }
@@ -199,6 +201,24 @@ function footerSection_() {
     .setOpenLink(CardService.newOpenLink().setUrl(c.apiBase + '/admin/tickets')));
   s.addWidget(CardService.newTextButton().setText('Settings')
     .setOnClickAction(CardService.newAction().setFunctionName('onSettings')));
+  return s;
+}
+
+// Collapsible reference of association codes so staff know what to type for
+// the "#CODE" association tag (e.g. "@maia upload this invoice #ONE").
+function associationsSection_() {
+  var s = CardService.newCardSection().setHeader('Association codes (tag with #CODE)');
+  s.setCollapsible(true).setNumUncollapsibleWidgets(1);
+  s.addWidget(CardService.newTextParagraph().setText(
+    'Add <b>#CODE</b> anywhere in your email to tag the association — e.g. <b>@maia upload this invoice #ONE</b>.'));
+  try {
+    var data = apiGet_('/api/addon/associations');
+    (data.associations || []).forEach(function (a) {
+      s.addWidget(CardService.newDecoratedText().setTopLabel('#' + a.code).setText(a.name).setWrapText(true));
+    });
+  } catch (err) {
+    s.addWidget(CardService.newTextParagraph().setText('Could not load association codes.'));
+  }
   return s;
 }
 

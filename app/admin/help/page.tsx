@@ -8,8 +8,23 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../components/AdminNav'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const metadata = { title: 'Help — PMI Top Florida' }
+export const dynamic = 'force-dynamic'
+
+async function loadAssociations(): Promise<Array<{ code: string; name: string; aliases: string[] }>> {
+  const { data } = await supabaseAdmin
+    .from('associations')
+    .select('*')
+    .eq('active', true)
+    .order('association_code')
+  return (data ?? []).map((r: Record<string, unknown>) => ({
+    code:    String(r.association_code ?? ''),
+    name:    String(r.association_name ?? ''),
+    aliases: Array.isArray(r.match_aliases) ? (r.match_aliases as unknown[]).map(String) : [],
+  }))
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Quick-access link tiles — what staff use most.
@@ -36,7 +51,8 @@ const EXTERNAL_LINKS: Array<{ label: string; href: string; desc: string; emoji: 
   { emoji: '🪟', label: 'Embed Widget',            href: '/widget',                                  desc: 'AI chat for partner sites' },
 ]
 
-export default function HelpPage() {
+export default async function HelpPage() {
+  const associations = await loadAssociations()
   return (
     <div className="min-h-screen bg-gray-50">
       <SiteHeader subtitle="STAFF DASHBOARD">
@@ -86,6 +102,45 @@ export default function HelpPage() {
               </a>
             ))}
           </div>
+        </Section>
+
+        {/* Association codes + #CODE tagging */}
+        <Section title="Association codes — tag with #CODE">
+          <p className="text-sm text-gray-700 mb-3">
+            When you email <code className="bg-gray-100 px-1 rounded">maia@pmitop.com</code> about an invoice or work order,
+            add <code className="bg-gray-100 px-1 rounded">#CODE</code> anywhere in the body to tell MAIA which association
+            it belongs to. This is the most reliable way — MAIA also tries to recognize the name automatically, but the
+            <code className="bg-gray-100 px-1 rounded ml-1">#CODE</code> tag is exact and never guesses wrong.
+          </p>
+          <CodeBlock>
+{`@maia upload this invoice #ONE
+@maia open work order #SP   (leaking pipe, unit 6)`}
+          </CodeBlock>
+          <p className="text-xs text-gray-500 mt-2 mb-3">
+            Only a real code after <code className="bg-gray-100 px-1 rounded">#</code> is used — an invoice number like
+            <code className="bg-gray-100 px-1 rounded ml-1">#5481</code> is ignored.
+          </p>
+          <div className="border border-gray-200 rounded overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Tag</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Association</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Also recognized as</th>
+                </tr>
+              </thead>
+              <tbody>
+                {associations.map(a => (
+                  <tr key={a.code} className="border-t border-gray-100">
+                    <td className="px-3 py-2 align-top"><code className="bg-[#f26a1b]/10 text-[#f26a1b] font-semibold px-1.5 py-0.5 rounded">#{a.code}</code></td>
+                    <td className="px-3 py-2 text-gray-700 align-top">{a.name}</td>
+                    <td className="px-3 py-2 text-gray-400 text-xs align-top">{a.aliases.length ? a.aliases.join(', ') : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">{associations.length} active associations · codes are case-insensitive (<code>#one</code> = <code>#ONE</code>).</p>
         </Section>
 
         {/* How tickets are born */}
