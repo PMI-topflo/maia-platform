@@ -43,6 +43,7 @@ interface Body {
   summary?:          string | null
   is_board_request?: boolean
   assignToMe?:       boolean
+  assignee_email?:   string | null   // explicit assignee; overrides assignToMe
   note?:             string | null
 }
 
@@ -57,6 +58,11 @@ export async function POST(req: Request) {
   const priority = PRIORITIES.includes(body.priority as TicketPriority) ? (body.priority as TicketPriority) : 'normal'
   const email    = (body.contact_email ?? '').trim().toLowerCase() || null
   const thread   = (body.gmail_thread_id ?? '').trim() || null
+
+  // Assignee: an explicit pick wins; otherwise assign to the caller unless
+  // assignToMe was set false.
+  const explicitAssignee = (body.assignee_email ?? '').trim().toLowerCase() || null
+  const assigneeEmail = explicitAssignee ?? (body.assignToMe === false ? null : staff)
 
   // Idempotency: reuse an existing open ticket on this thread/contact.
   let existing = null
@@ -75,7 +81,7 @@ export async function POST(req: Request) {
     subject:          body.subject ?? null,
     summary:          body.summary ?? null,
     is_board_request: body.is_board_request ?? false,
-    assignee_email:   body.assignToMe === false ? null : staff,
+    assignee_email:   assigneeEmail,
   })
 
   // Record the staffer's instructions as an internal note, when provided.

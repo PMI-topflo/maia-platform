@@ -95,13 +95,22 @@ function onGmailMessage(e) {
     card.addSection(suggestSection_(suggest));
   }
 
+  // Has attachments → offer a one-click forward-to-Maia (keeps the PDF;
+  // a Reply would drop it).
+  if (ctx.attachmentCount > 0) {
+    card.addSection(forwardSection_(ctx, suggest));
+  }
+
   // Matched ticket (if any) + quick status actions.
   if (data.matched) {
     card.addSection(matchedSection_(data.matched));
   }
 
-  // Guided create / link form (pre-filled from the suggestion).
-  card.addSection(createSection_(ctx, data, suggest));
+  // Guided create / link form (pre-filled from the suggestion). Pull the
+  // staff list so the creator can assign to anyone, not just themselves.
+  var staffList = [];
+  try { staffList = (apiGet_('/api/addon/staff').staff) || []; } catch (stErr) { staffList = []; }
+  card.addSection(createSection_(ctx, data, suggest, staffList));
 
   // AI draft.
   var draftSection = CardService.newCardSection().setHeader('✨ AI reply');
@@ -189,6 +198,19 @@ function matchedSection_(t) {
   return s;
 }
 
+// "📤 Send to Maia" — forward (not reply) so the PDF attachment survives.
+function forwardSection_(ctx, suggest) {
+  suggest = suggest || {};
+  var s = CardService.newCardSection().setHeader('📤 Send to Maia (keeps the PDF)');
+  s.addWidget(CardService.newTextParagraph().setText(
+    'A <b>reply</b> drops attachments. This makes a <b>forward</b> draft to <b>maia@pmitop.com</b> with the upload trigger and the file attached. Review it in Drafts, then Send.'));
+  s.addWidget(CardService.newTextButton().setText('📤 Forward to Maia — upload invoice')
+    .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+    .setOnClickAction(CardService.newAction().setFunctionName('forwardToMaiaAction')
+      .setParameters({ association: suggest.association || '' })));
+  return s;
+}
+
 // "✨ Maia suggests" — what the email looks like + which association.
 function suggestSection_(sg) {
   var s = CardService.newCardSection().setHeader('✨ Maia suggests');
@@ -205,8 +227,9 @@ function suggestSection_(sg) {
   return s;
 }
 
-function createSection_(ctx, data, suggest) {
+function createSection_(ctx, data, suggest, staffList) {
   suggest = suggest || {};
+  staffList = staffList || [];
   var s = CardService.newCardSection().setHeader(data.matched ? '➕ Create another item' : '➕ Create ticket / work order');
 
   var woFirst = suggest.kind === 'work_order';   // pre-select Work order when suggested
@@ -219,6 +242,15 @@ function createSection_(ctx, data, suggest) {
     .setTitle('Priority').setFieldName('priority')
     .addItem('Low', 'low', false).addItem('Normal', 'normal', true)
     .addItem('High', 'high', false).addItem('Urgent', 'urgent', false));
+
+  // Assign to — anyone, defaulting to "Me" (empty value = the caller).
+  var assignInput = CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
+    .setTitle('Assign to').setFieldName('assignee')
+    .addItem('Me', '', true);
+  staffList.forEach(function (m) {
+    if (m && m.email) assignInput.addItem(m.name || m.email, m.email, false);
+  });
+  s.addWidget(assignInput);
 
   s.addWidget(CardService.newTextInput().setFieldName('association_code').setTitle('Association code')
     .setValue(suggest.association || data.association || ''));
@@ -337,6 +369,7 @@ function createTicketAction(e) {
   var p = e.commonEventObject.parameters || {};
   var f = e.commonEventObject.formInputs || {};
   try {
+    var assignee = strInput_(f, 'assignee');   // '' = me, else a staff email
     var res = apiPost_('/api/addon/tickets/ensure', {
       type:             strInput_(f, 'type') || 'ticket',
       priority:         strInput_(f, 'priority') || 'normal',
@@ -346,12 +379,14 @@ function createTicketAction(e) {
       contact_email:    p.email || null,
       contact_name:     p.contactName || null,
       gmail_thread_id:  p.threadId || null,
-      assignToMe:       true,
+      assignee_email:   assignee || null,
+      assignToMe:       assignee ? false : true,
     });
     var t = res.ticket || {};
+    var who = assignee ? (' → ' + assignee) : ' → you';
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification().setText(
-        (res.created ? 'Created ' : 'Linked existing ') + (t.ticket_number || 'ticket')))
+        (res.created ? 'Created ' : 'Linked existing ') + (t.ticket_number || 'ticket') + who))
       .setNavigation(CardService.newNavigation().updateCard(onGmailMessage(e)))
       .build();
   } catch (err) {
@@ -367,6 +402,32 @@ function setStatusAction(e) {
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification().setText('Status updated.'))
       .setNavigation(CardService.newNavigation().updateCard(onGmailMessage(e)))
+      .build();
+  } catch (err) { return notify_(err); }
+}
+
+// Build a FORWARD draft to maia@ (keeps attachments, unlike a reply) with
+// the "@maia upload this invoice #CODE" trigger pre-filled. Lands in the
+// user's Drafts to review + Send.
+function forwardToMaiaAction(e) {
+  var p = e.commonEventObject.parameters || {};
+  try {
+    var token = e.gmail.accessToken;
+    GmailApp.setCurrentMessageAccessToken(token);
+    var msg = GmailApp.getMessageById(e.gmail.messageId);
+    var assoc = p.association || '';
+    var trigger = '@maia upload this invoice' + (assoc ? (' #' + assoc) : ' #CODE');
+    var atts = msg.getAttachments({ includeInlineImages: false, includeAttachments: true });
+    var html = '<p>' + trigger + '</p><hr>' + (msg.getBody() || '');
+    GmailApp.createDraft('maia@pmitop.com', 'Fwd: ' + (msg.getSubject() || ''), trigger, {
+      htmlBody:    html,
+      attachments: atts,
+    });
+    var note = assoc
+      ? ('Draft to Maia created (#' + assoc + ') — review in Drafts & Send.')
+      : ('Draft to Maia created — set the #CODE if needed, then Send.');
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('📤 ' + note))
       .build();
   } catch (err) { return notify_(err); }
 }
@@ -431,7 +492,7 @@ function onComposeInsertDraft(e) {
 // ---- small utils ------------------------------------------------------
 
 function readMessage_(e) {
-  var out = { email: '', name: '', threadId: '', subject: '', messageId: '', body: '' };
+  var out = { email: '', name: '', threadId: '', subject: '', messageId: '', body: '', attachmentCount: 0 };
   try {
     out.messageId = (e.gmail && e.gmail.messageId) || '';
     var token = e.gmail.accessToken;
@@ -443,7 +504,9 @@ function readMessage_(e) {
     out.name  = from.replace(/<[^>]+>/, '').replace(/"/g, '').trim();
     out.subject = msg.getSubject() || '';
     out.threadId = msg.getThread().getId();
+    // Body + attachments need the readonly scope.
     try { out.body = (msg.getPlainBody() || '').slice(0, 6000); } catch (b) { out.body = ''; }
+    try { out.attachmentCount = msg.getAttachments({ includeInlineImages: false, includeAttachments: true }).length; } catch (a) { out.attachmentCount = 0; }
   } catch (err) { /* metadata may be unavailable; leave blanks */ }
   return out;
 }
