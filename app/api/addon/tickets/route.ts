@@ -13,6 +13,7 @@
 import { NextResponse } from 'next/server'
 import { addonStaffEmail } from '@/lib/addon-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { resolveStaffByLoginEmail, staffCandidateEmails } from '@/lib/staff-lookup'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,7 +35,16 @@ export async function GET(req: Request) {
     .order('updated_at', { ascending: false })
     .limit(limit)
 
-  if (mine)              q = q.eq('assignee_email', staff)
+  if (mine) {
+    // Match every address that could be on assignee_email for this staffer
+    // (login email + staff-record email / personal / alt / name-alias) —
+    // same resolution the dashboard "My Tasks" uses, so self-assigned
+    // tickets show up even when the assignee form differs from the login.
+    const candidates = new Set<string>([staff])
+    const row = await resolveStaffByLoginEmail(staff)
+    if (row) for (const e of staffCandidateEmails(row, staff)) candidates.add(e)
+    q = q.in('assignee_email', [...candidates])
+  }
   if (status !== 'all')  q = q.in('status', ACTIONABLE)
 
   const { data, error } = await q

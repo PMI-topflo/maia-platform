@@ -57,12 +57,20 @@ function onHomepage(e) {
   var card = CardService.newCardBuilder().setHeader(
     CardService.newCardHeader().setTitle('Maia').setSubtitle('My open items'));
   try {
-    var data = apiGet_('/api/addon/tickets?mine=1&status=open&limit=25');
-    card.addSection(ticketsSection_(data.tickets || [], 'You have no open tickets or work orders. 🎉'));
+    var mineData = apiGet_('/api/addon/tickets?mine=1&status=open&limit=25');
+    card.addSection(ticketsSection_(mineData.tickets || [], 'You have no open tickets or work orders. 🎉', '🎟️ My open items'));
+    // All company open items — staff grab a TKT-#### to "@maia append" to a
+    // thread. Split into work orders then tickets so the two don't mix.
+    var allOpen = (apiGet_('/api/addon/tickets?mine=0&status=open&limit=50').tickets) || [];
+    var openWOs = allOpen.filter(function (t) { return t.type === 'work_order'; });
+    var openTks = allOpen.filter(function (t) { return t.type !== 'work_order'; });
+    card.addSection(ticketsSection_(openWOs, 'No open work orders.', '🔧 Open work orders — company', true));
+    card.addSection(ticketsSection_(openTks, 'No open tickets.', '🎟️ Open tickets — company', true));
   } catch (err) {
     card.addSection(errorSection_(err));
   }
   card.addSection(footerSection_());
+  card.addSection(commandsSection_());
   card.addSection(associationsSection_());  // last — long reference, kept at the very bottom
   return card.build();
 }
@@ -87,7 +95,7 @@ function onGmailMessage(e) {
   card.addSection(createSection_(ctx, data));
 
   // AI draft.
-  var draftSection = CardService.newCardSection();
+  var draftSection = CardService.newCardSection().setHeader('✨ AI reply');
   var draftBtn = CardService.newTextButton().setText('✨ Draft reply')
     .setOnClickAction(CardService.newAction().setFunctionName('draftReplyAction')
       .setParameters({ ticketId: data.matched ? String(data.matched.id) : '', threadId: ctx.threadId, email: ctx.email, subject: ctx.subject || '' }));
@@ -96,10 +104,21 @@ function onGmailMessage(e) {
 
   // Recent history for this contact.
   if (data.recent && data.recent.length) {
-    card.addSection(ticketsSection_(data.recent, '', 'Recent for this contact'));
+    card.addSection(ticketsSection_(data.recent, '', '🕘 Recent for this contact'));
   }
 
+  // All company open items — pick a TKT-#### to "@maia append" this email to.
+  // Work orders first, then tickets, as separate sections.
+  try {
+    var allOpen2 = (apiGet_('/api/addon/tickets?mine=0&status=open&limit=50').tickets) || [];
+    var openWOs2 = allOpen2.filter(function (t) { return t.type === 'work_order'; });
+    var openTks2 = allOpen2.filter(function (t) { return t.type !== 'work_order'; });
+    card.addSection(ticketsSection_(openWOs2, 'No open work orders.', '🔧 Open work orders — company', true));
+    card.addSection(ticketsSection_(openTks2, 'No open tickets.', '🎟️ Open tickets — company', true));
+  } catch (errAll) { /* non-fatal — keep the rest of the card */ }
+
   card.addSection(footerSection_());
+  card.addSection(commandsSection_());
   card.addSection(associationsSection_());  // last — long reference, kept at the very bottom
   return card.build();
 }
@@ -108,15 +127,19 @@ function onSettings(e) { return settingsCard_(false); }
 
 // ---- card builders ----------------------------------------------------
 
-function ticketsSection_(tickets, emptyText, headerText) {
+function ticketsSection_(tickets, emptyText, headerText, collapsible) {
   var s = CardService.newCardSection();
   if (headerText) s.setHeader(headerText);
+  if (collapsible) s.setCollapsible(true).setNumUncollapsibleWidgets(3);
   if (!tickets.length) { s.addWidget(CardService.newTextParagraph().setText(emptyText || 'Nothing here.')); return s; }
   var c = getConfig_();
+  var dot = function (status) {
+    return ({ open: '🟢', pending: '🟡', waiting_external: '🔵', resolved: '⚪', closed: '⚫' })[status] || '⚪';
+  };
   tickets.forEach(function (t) {
     var kind = t.type === 'work_order' ? '🔧 WO' : '🎟️ Ticket';
     var line = CardService.newDecoratedText()
-      .setTopLabel(t.ticket_number + '  ·  ' + (t.status || ''))
+      .setTopLabel(dot(t.status) + '  ' + t.ticket_number + '  ·  ' + (t.status || ''))
       .setText((t.subject || '(no subject)'))
       .setBottomLabel([kind, t.association_code || '', t.priority || ''].filter(Boolean).join('  ·  '))
       .setWrapText(true)
@@ -127,7 +150,7 @@ function ticketsSection_(tickets, emptyText, headerText) {
 }
 
 function matchedSection_(t) {
-  var s = CardService.newCardSection().setHeader('Linked ' + (t.type === 'work_order' ? 'work order' : 'ticket'));
+  var s = CardService.newCardSection().setHeader('🔗 Linked ' + (t.type === 'work_order' ? 'work order' : 'ticket'));
   s.addWidget(CardService.newDecoratedText()
     .setTopLabel(t.ticket_number)
     .setText(t.subject || '(no subject)')
@@ -146,7 +169,7 @@ function matchedSection_(t) {
 }
 
 function createSection_(ctx, data) {
-  var s = CardService.newCardSection().setHeader(data.matched ? 'Create another item' : 'Create ticket / work order');
+  var s = CardService.newCardSection().setHeader(data.matched ? '➕ Create another item' : '➕ Create ticket / work order');
 
   s.addWidget(CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
     .setTitle('Type').setFieldName('type')
@@ -207,18 +230,46 @@ function footerSection_() {
 // Collapsible reference of association codes so staff know what to type for
 // the "#CODE" association tag (e.g. "@maia upload this invoice #ONE").
 function associationsSection_() {
-  var s = CardService.newCardSection().setHeader('Association codes (tag with #CODE)');
+  var s = CardService.newCardSection().setHeader('🏢 Association codes (tag with #CODE)');
   s.setCollapsible(true).setNumUncollapsibleWidgets(1);
   s.addWidget(CardService.newTextParagraph().setText(
-    'Add <b>#CODE</b> anywhere in your email to tag the association — e.g. <b>@maia upload this invoice #ONE</b>.'));
+    'Add <font color="#f26a1b"><b>#CODE</b></font> anywhere in your email to tag the association — e.g. <b>@maia upload this invoice #ONE</b>.'));
   try {
     var data = apiGet_('/api/addon/associations');
     (data.associations || []).forEach(function (a) {
-      s.addWidget(CardService.newDecoratedText().setTopLabel('#' + a.code).setText(a.name).setWrapText(true));
+      s.addWidget(CardService.newDecoratedText()
+        .setText('<font color="#f26a1b"><b>#' + a.code + '</b></font>')
+        .setBottomLabel(a.name).setWrapText(true));
     });
   } catch (err) {
     s.addWidget(CardService.newTextParagraph().setText('Could not load association codes.'));
   }
+  return s;
+}
+
+// Collapsible cheat-sheet of MAIA email commands staff can copy into the
+// body of an email to maia@pmitop.com. Selectable text → tap to copy.
+function commandsSection_() {
+  var c = getConfig_();
+  var s = CardService.newCardSection().setHeader('🧩 MAIA commands (type in the email body)');
+  s.setCollapsible(true).setNumUncollapsibleWidgets(1);
+  s.addWidget(CardService.newTextParagraph().setText(
+    'Email <b>maia@pmitop.com</b> with any of these in the body. Tap a line to select and copy.'));
+  function row(label, cmd) {
+    s.addWidget(CardService.newDecoratedText().setTopLabel(label)
+      .setText('<font color="#f26a1b">' + cmd + '</font>').setWrapText(true));
+  }
+  row('Create ticket',          '@maia ticket   (or @ticket)');
+  row('Open work order',        '@maia work order');
+  row('Assign someone',         '@assign jane@pmitop.com');
+  row('Set priority',           '@priority urgent   (urgent / high / normal / low)');
+  row('Tag the association',    '#ONE   (any code — see list below)');
+  row('Process an invoice',     '@maia upload this invoice #ONE   (attach the PDF)');
+  row('Add to existing ticket', '@maia append TKT-2026-0001');
+  row('Add records',            '@maia add owner / tenant / board member / agent / vendor');
+  row('Replace a board',        '@maia update board members   (then list the new board)');
+  s.addWidget(CardService.newTextButton().setText('Full command guide →')
+    .setOpenLink(CardService.newOpenLink().setUrl(c.apiBase + '/admin/help')));
   return s;
 }
 
