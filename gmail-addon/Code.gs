@@ -95,6 +95,12 @@ function onGmailMessage(e) {
     card.addSection(suggestSection_(suggest));
   }
 
+  // Has attachments → offer a one-click forward-to-Maia (keeps the PDF;
+  // a Reply would drop it).
+  if (ctx.attachmentCount > 0) {
+    card.addSection(forwardSection_(ctx, suggest));
+  }
+
   // Matched ticket (if any) + quick status actions.
   if (data.matched) {
     card.addSection(matchedSection_(data.matched));
@@ -189,6 +195,19 @@ function matchedSection_(t) {
   s.addWidget(statusInput);
   s.addWidget(CardService.newTextButton().setText('Update status')
     .setOnClickAction(CardService.newAction().setFunctionName('setStatusAction').setParameters({ ticketId: String(t.id) })));
+  return s;
+}
+
+// "📤 Send to Maia" — forward (not reply) so the PDF attachment survives.
+function forwardSection_(ctx, suggest) {
+  suggest = suggest || {};
+  var s = CardService.newCardSection().setHeader('📤 Send to Maia (keeps the PDF)');
+  s.addWidget(CardService.newTextParagraph().setText(
+    'A <b>reply</b> drops attachments. This makes a <b>forward</b> draft to <b>maia@pmitop.com</b> with the upload trigger and the file attached. Review it in Drafts, then Send.'));
+  s.addWidget(CardService.newTextButton().setText('📤 Forward to Maia — upload invoice')
+    .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+    .setOnClickAction(CardService.newAction().setFunctionName('forwardToMaiaAction')
+      .setParameters({ association: suggest.association || '' })));
   return s;
 }
 
@@ -387,6 +406,32 @@ function setStatusAction(e) {
   } catch (err) { return notify_(err); }
 }
 
+// Build a FORWARD draft to maia@ (keeps attachments, unlike a reply) with
+// the "@maia upload this invoice #CODE" trigger pre-filled. Lands in the
+// user's Drafts to review + Send.
+function forwardToMaiaAction(e) {
+  var p = e.commonEventObject.parameters || {};
+  try {
+    var token = e.gmail.accessToken;
+    GmailApp.setCurrentMessageAccessToken(token);
+    var msg = GmailApp.getMessageById(e.gmail.messageId);
+    var assoc = p.association || '';
+    var trigger = '@maia upload this invoice' + (assoc ? (' #' + assoc) : ' #CODE');
+    var atts = msg.getAttachments({ includeInlineImages: false, includeAttachments: true });
+    var html = '<p>' + trigger + '</p><hr>' + (msg.getBody() || '');
+    GmailApp.createDraft('maia@pmitop.com', 'Fwd: ' + (msg.getSubject() || ''), trigger, {
+      htmlBody:    html,
+      attachments: atts,
+    });
+    var note = assoc
+      ? ('Draft to Maia created (#' + assoc + ') — review in Drafts & Send.')
+      : ('Draft to Maia created — set the #CODE if needed, then Send.');
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('📤 ' + note))
+      .build();
+  } catch (err) { return notify_(err); }
+}
+
 // Link the open email to the chosen ticket (records the association + a
 // note on the ticket). A toast confirms; no card refresh needed.
 function linkEmailAction(e) {
@@ -447,7 +492,7 @@ function onComposeInsertDraft(e) {
 // ---- small utils ------------------------------------------------------
 
 function readMessage_(e) {
-  var out = { email: '', name: '', threadId: '', subject: '', messageId: '', body: '' };
+  var out = { email: '', name: '', threadId: '', subject: '', messageId: '', body: '', attachmentCount: 0 };
   try {
     out.messageId = (e.gmail && e.gmail.messageId) || '';
     var token = e.gmail.accessToken;
@@ -459,9 +504,9 @@ function readMessage_(e) {
     out.name  = from.replace(/<[^>]+>/, '').replace(/"/g, '').trim();
     out.subject = msg.getSubject() || '';
     out.threadId = msg.getThread().getId();
-    // Body read needs the readonly scope (parked for now to avoid forcing
-    // re-consent). Re-enable with the readonly scope when ready:
-    // try { out.body = (msg.getPlainBody() || '').slice(0, 6000); } catch (b) { out.body = ''; }
+    // Body + attachments need the readonly scope.
+    try { out.body = (msg.getPlainBody() || '').slice(0, 6000); } catch (b) { out.body = ''; }
+    try { out.attachmentCount = msg.getAttachments({ includeInlineImages: false, includeAttachments: true }).length; } catch (a) { out.attachmentCount = 0; }
   } catch (err) { /* metadata may be unavailable; leave blanks */ }
   return out;
 }
