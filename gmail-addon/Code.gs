@@ -88,13 +88,20 @@ function onGmailMessage(e) {
   try { data = apiGet_('/api/addon/context?gmailThreadId=' + encodeURIComponent(ctx.threadId) + '&email=' + encodeURIComponent(ctx.email)); }
   catch (err) { card.addSection(errorSection_(err)); card.addSection(settingsSection_()); return card.build(); }
 
+  // ✨ Intelligence: read the body + suggest association and kind.
+  var suggest = {};
+  try { suggest = apiPost_('/api/addon/suggest', { subject: ctx.subject, body: ctx.body || '' }); } catch (sErr) { suggest = {}; }
+  if (suggest && (suggest.association || (suggest.kind && suggest.kind !== 'ticket'))) {
+    card.addSection(suggestSection_(suggest));
+  }
+
   // Matched ticket (if any) + quick status actions.
   if (data.matched) {
     card.addSection(matchedSection_(data.matched));
   }
 
-  // Guided create / link form.
-  card.addSection(createSection_(ctx, data));
+  // Guided create / link form (pre-filled from the suggestion).
+  card.addSection(createSection_(ctx, data, suggest));
 
   // AI draft.
   var draftSection = CardService.newCardSection().setHeader('✨ AI reply');
@@ -182,13 +189,31 @@ function matchedSection_(t) {
   return s;
 }
 
-function createSection_(ctx, data) {
+// "✨ Maia suggests" — what the email looks like + which association.
+function suggestSection_(sg) {
+  var s = CardService.newCardSection().setHeader('✨ Maia suggests');
+  var kindLabel = sg.kind === 'invoice' ? 'Invoice' : sg.kind === 'work_order' ? 'Work order' : 'Ticket';
+  var headline = kindLabel + (sg.association ? ('  ·  ' + sg.association) : '');
+  s.addWidget(CardService.newDecoratedText()
+    .setText('<b><font color="#f26a1b">' + headline + '</font></b>')
+    .setBottomLabel(sg.reason || '').setWrapText(true));
+  if (sg.kind === 'invoice') {
+    s.addWidget(CardService.newTextParagraph().setText(
+      'Looks like an invoice — forward to <b>maia@pmitop.com</b> with <font color="#f26a1b">@maia upload this invoice ' +
+      (sg.association ? ('#' + sg.association) : '#CODE') + '</font> (attach the PDF).'));
+  }
+  return s;
+}
+
+function createSection_(ctx, data, suggest) {
+  suggest = suggest || {};
   var s = CardService.newCardSection().setHeader(data.matched ? '➕ Create another item' : '➕ Create ticket / work order');
 
+  var woFirst = suggest.kind === 'work_order';   // pre-select Work order when suggested
   s.addWidget(CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
     .setTitle('Type').setFieldName('type')
-    .addItem('Ticket', 'ticket', true)
-    .addItem('Work order', 'work_order', false));
+    .addItem('Ticket', 'ticket', !woFirst)
+    .addItem('Work order', 'work_order', woFirst));
 
   s.addWidget(CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
     .setTitle('Priority').setFieldName('priority')
@@ -196,7 +221,7 @@ function createSection_(ctx, data) {
     .addItem('High', 'high', false).addItem('Urgent', 'urgent', false));
 
   s.addWidget(CardService.newTextInput().setFieldName('association_code').setTitle('Association code')
-    .setValue(data.association || ''));
+    .setValue(suggest.association || data.association || ''));
 
   s.addWidget(CardService.newTextInput().setFieldName('subject').setTitle('Subject')
     .setValue(ctx.subject || ''));
@@ -406,7 +431,7 @@ function onComposeInsertDraft(e) {
 // ---- small utils ------------------------------------------------------
 
 function readMessage_(e) {
-  var out = { email: '', name: '', threadId: '', subject: '', messageId: '' };
+  var out = { email: '', name: '', threadId: '', subject: '', messageId: '', body: '' };
   try {
     out.messageId = (e.gmail && e.gmail.messageId) || '';
     var token = e.gmail.accessToken;
@@ -418,6 +443,7 @@ function readMessage_(e) {
     out.name  = from.replace(/<[^>]+>/, '').replace(/"/g, '').trim();
     out.subject = msg.getSubject() || '';
     out.threadId = msg.getThread().getId();
+    try { out.body = (msg.getPlainBody() || '').slice(0, 6000); } catch (b) { out.body = ''; }
   } catch (err) { /* metadata may be unavailable; leave blanks */ }
   return out;
 }
