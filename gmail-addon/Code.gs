@@ -443,7 +443,9 @@ function readMessage_(e) {
     out.name  = from.replace(/<[^>]+>/, '').replace(/"/g, '').trim();
     out.subject = msg.getSubject() || '';
     out.threadId = msg.getThread().getId();
-    try { out.body = (msg.getPlainBody() || '').slice(0, 6000); } catch (b) { out.body = ''; }
+    // Body read needs the readonly scope (parked for now to avoid forcing
+    // re-consent). Re-enable with the readonly scope when ready:
+    // try { out.body = (msg.getPlainBody() || '').slice(0, 6000); } catch (b) { out.body = ''; }
   } catch (err) { /* metadata may be unavailable; leave blanks */ }
   return out;
 }
