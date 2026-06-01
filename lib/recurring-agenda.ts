@@ -11,7 +11,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { signAgendaToken } from '@/lib/agenda-token'
-import { mondayOf, ensureWeeklyVisit, sendCrewUploadLinks } from '@/lib/service-visits'
+import { mondayOf, ensureWeeklyVisit, sendCrewUploadLinks, isVisitDue } from '@/lib/service-visits'
 import type { RecurringService } from '@/lib/recurring-services'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
@@ -42,6 +42,8 @@ export async function sendAgendaEmails(): Promise<{ sent: number; skipped: numbe
   let sent = 0, skipped = 0
   const errors: string[] = []
   for (const svc of (services ?? []) as RecurringService[]) {
+    // Only chase the office on weeks this service is actually due.
+    if (!isVisitDue(weekOf, svc.cadence, svc.schedule_anchor, svc.monthly_day)) { skipped++; continue }
     if (!svc.office_email) { skipped++; continue }
     try {
       const token = await signAgendaToken(svc.id)

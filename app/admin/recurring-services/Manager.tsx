@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useState } from 'react'
 
 const SERVICE_TYPES = ['Landscaping', 'Pool', 'Janitorial', 'Pest Control', 'Other']
-const CADENCES = ['weekly', 'biweekly', 'monthly']
+const CADENCES = ['daily', 'weekly', 'biweekly', 'monthly']
 const BILLING = ['monthly', 'weekly', 'per_visit']
 const CHANNELS = ['email', 'sms', 'whatsapp']
 const LANGS = [['en', 'English'], ['es', 'Español'], ['pt', 'Português'], ['ht', 'Kreyòl'], ['fr', 'Français']]
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 interface Assoc { code: string; name: string }
-interface Service { id: number; association_code: string; cinc_vendor_id: string | null; vendor_name: string; service_type: string; cadence: string; billing_cadence: string; expected_day: number | null; office_email: string | null; active: boolean }
+interface Service { id: number; association_code: string; cinc_vendor_id: string | null; vendor_name: string; service_type: string; cadence: string; billing_cadence: string; expected_day: number | null; schedule_anchor: string | null; monthly_day: number | null; office_email: string | null; active: boolean }
 interface Employee { id: string; cinc_vendor_id: string | null; vendor_name: string; name: string; phone: string | null; email: string | null; preferred_channel: string; preferred_language: string; active: boolean }
 interface Visit { id: number; service_type: string | null; vendor_name: string | null; week_of: string; status: string; ticket_id: number | null }
 
@@ -23,7 +23,7 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
   const [error, setError] = useState<string | null>(null)
 
   // add-service form
-  const [svc, setSvc] = useState({ vendor_name: '', cinc_vendor_id: '', service_type: 'Landscaping', cadence: 'weekly', billing_cadence: 'monthly', expected_day: '', office_email: '', office_language: 'en' })
+  const [svc, setSvc] = useState({ vendor_name: '', cinc_vendor_id: '', service_type: 'Landscaping', cadence: 'weekly', billing_cadence: 'monthly', expected_day: '', schedule_anchor: '', monthly_day: '', office_email: '', office_language: 'en' })
   // add-employee form
   const [emp, setEmp] = useState({ vendor_name: '', cinc_vendor_id: '', name: '', phone: '', email: '', preferred_channel: 'email', preferred_language: 'en' })
 
@@ -46,10 +46,16 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
     if (!svc.vendor_name.trim()) { setError('Vendor name required.'); return }
     const res = await fetch('/api/admin/recurring-services', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...svc, association_code: assoc, expected_day: svc.expected_day === '' ? null : Number(svc.expected_day) }),
+      body: JSON.stringify({
+        ...svc,
+        association_code: assoc,
+        expected_day:    svc.expected_day === '' ? null : Number(svc.expected_day),
+        schedule_anchor: svc.cadence === 'biweekly' && svc.schedule_anchor ? svc.schedule_anchor : null,
+        monthly_day:     svc.cadence === 'monthly' && svc.monthly_day !== '' ? Number(svc.monthly_day) : null,
+      }),
     })
     if (!res.ok) { setError((await res.json())?.error ?? 'Add failed'); return }
-    setSvc({ vendor_name: '', cinc_vendor_id: '', service_type: 'Landscaping', cadence: 'weekly', billing_cadence: 'monthly', expected_day: '', office_email: '', office_language: 'en' })
+    setSvc({ vendor_name: '', cinc_vendor_id: '', service_type: 'Landscaping', cadence: 'weekly', billing_cadence: 'monthly', expected_day: '', schedule_anchor: '', monthly_day: '', office_email: '', office_language: 'en' })
     void load()
   }
   async function delService(id: number) {
@@ -111,7 +117,7 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
             <div>
               <strong>{s.service_type}</strong> — {s.vendor_name}
               {s.cinc_vendor_id ? <span style={muted}> · CINC #{s.cinc_vendor_id}</span> : null}
-              <div style={muted}>services {s.cadence}{s.expected_day != null ? ` (${DAYS[s.expected_day]})` : ''} · bills {s.billing_cadence}{s.office_email ? ` · ${s.office_email}` : ''}</div>
+              <div style={muted}>services {s.cadence}{s.expected_day != null ? ` (${DAYS[s.expected_day]})` : ''}{s.cadence === 'biweekly' && s.schedule_anchor ? ` from ${s.schedule_anchor}` : ''}{s.cadence === 'monthly' ? ` on day ${s.monthly_day ?? 1}` : ''} · bills {s.billing_cadence}{s.office_email ? ` · ${s.office_email}` : ''}</div>
             </div>
             <button onClick={() => delService(s.id)} style={delBtn}>Remove</button>
           </div>
@@ -128,10 +134,16 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
           <select value={svc.billing_cadence} onChange={e => setSvc({ ...svc, billing_cadence: e.target.value })} style={field} title="How the vendor bills">
             {BILLING.map(c => <option key={c} value={c}>bills {c}</option>)}
           </select>
-          <select value={svc.expected_day} onChange={e => setSvc({ ...svc, expected_day: e.target.value })} style={field}>
+          <select value={svc.expected_day} onChange={e => setSvc({ ...svc, expected_day: e.target.value })} style={field} title="Expected day of the week (used for late/missed timing)">
             <option value="">— day (optional) —</option>
             {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
           </select>
+          {svc.cadence === 'biweekly' && (
+            <input type="date" value={svc.schedule_anchor} onChange={e => setSvc({ ...svc, schedule_anchor: e.target.value })} style={field} title="Biweekly anchor: pick any date in an ON week — alternating weeks from here are due" />
+          )}
+          {svc.cadence === 'monthly' && (
+            <input type="number" min={1} max={31} placeholder="Day of month (1–31)" value={svc.monthly_day} onChange={e => setSvc({ ...svc, monthly_day: e.target.value })} style={field} title="Monthly: day-of-month the visit is due (the week containing it counts)" />
+          )}
           <input placeholder="Vendor office email" value={svc.office_email} onChange={e => setSvc({ ...svc, office_email: e.target.value })} style={field} />
           <select value={svc.office_language} onChange={e => setSvc({ ...svc, office_language: e.target.value })} style={field} title="Language for the weekly agenda email to the office">
             {LANGS.map(([v, label]) => <option key={v} value={v}>office: {label}</option>)}

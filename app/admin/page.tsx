@@ -6,6 +6,7 @@ import { resolveStaffByLoginEmail, staffCandidateEmails } from '@/lib/staff-look
 import { policyTypeLabel } from '@/lib/association-insurance'
 import { inspectionTypeLabel } from '@/lib/association-safety'
 import { currentReportYear, dueDate, sunbizStatus, statusNeedsAttention as sunbizNeedsAttention } from '@/lib/sunbiz'
+import { getWeeklyCoverage } from '@/lib/service-visits'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from './components/AdminNav'
 import StaffStatsPanel from './components/StaffStatsPanel'
@@ -49,6 +50,12 @@ export default async function OverviewPage() {
     }
   }
   const candidateList = Array.from(candidateEmails)
+
+  // Recurring-service weekly reporting health (own multi-query rollup —
+  // kick it off in parallel with the dashboard's big Promise.all below).
+  const coveragePromise = getWeeklyCoverage().catch(
+    () => ({ week_of: '', rows: [], total: 0, complete: 0, late: 0, missed: 0, sev: 'nominal' as const }),
+  )
 
   // 120-day expiry horizon for the documents + permits instrument.
   const horizon = new Date()
@@ -198,6 +205,8 @@ export default async function OverviewPage() {
       .then(r => r, () => ({ data: [] as Record<string, unknown>[], error: null })),
   ])
 
+  const weeklyCoverage = await coveragePromise
+
   const myTasks       = (myTasksRaw       ?? []) as TicketRow[]
   const workOrders    = (workOrdersRaw    ?? []) as TicketRow[]
   const invoiceDrafts = (invoiceDraftsRaw ?? []) as InvoiceDraftRow[]
@@ -336,6 +345,12 @@ export default async function OverviewPage() {
           recentCommands={recentCommands}
           candidateList={candidateList}
           staffLookupHint={staffLookupHint}
+          recurring={{
+            total:  weeklyCoverage.total,
+            late:   weeklyCoverage.late,
+            missed: weeklyCoverage.missed,
+            sev:    weeklyCoverage.sev,
+          }}
         />
 
         {/* Activity analytics — secondary, below the live instruments. */}
