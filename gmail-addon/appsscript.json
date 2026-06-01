@@ -13,7 +13,6 @@
     "common": {
       "name": "Maia",
       "logoUrl": "https://www.pmitop.com/pmi-icon.jpg",
-      "useLocaleFromApp": true,
       "homepageTrigger": {
         "runFunction": "onHomepage",
         "enabled": true
