@@ -36,7 +36,7 @@ create table if not exists public.recurring_services (
   cinc_vendor_id   text,
   vendor_name      text        not null,
   service_type     text        not null,
-  cadence          text        not null default 'weekly'  check (cadence in ('weekly','biweekly','monthly')),
+  cadence          text        not null default 'weekly'  check (cadence in ('daily','weekly','biweekly','monthly')),
   billing_cadence  text        not null default 'monthly'  check (billing_cadence in ('per_visit','weekly','monthly')),
   expected_day     smallint    check (expected_day between 0 and 6),  -- 0=Sun..6=Sat, optional
   office_email     text,
@@ -79,6 +79,12 @@ alter table public.service_visits
 alter table public.recurring_services
   add column if not exists schedule_anchor date,
   add column if not exists monthly_day     smallint check (monthly_day between 1 and 31);
+
+-- Allow 'daily' cadence (re-asserts the check on an already-existing table,
+-- since the CREATE above is skipped when the table is present).
+alter table public.recurring_services drop constraint if exists recurring_services_cadence_check;
+alter table public.recurring_services
+  add constraint recurring_services_cadence_check check (cadence in ('daily','weekly','biweekly','monthly'));
 
 -- ── Grants (Supabase drops auto-grants on new tables 2026-10-30) ─────
 grant select, insert, update, delete on public.vendor_employees   to anon, authenticated, service_role;

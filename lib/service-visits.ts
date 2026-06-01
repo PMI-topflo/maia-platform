@@ -208,6 +208,8 @@ function weeksBetween(aISO: string, bISO: string): number {
 /** Is a service due in the week starting `weekOf` (a Monday), given its
  *  cadence + schedule anchor? This is the single source of truth for both
  *  visit generation and coverage flags, so they never disagree.
+ *   • daily    → every week (they come multiple times a week; one weekly
+ *                documentation visit still represents the week)
  *   • weekly   → every week
  *   • biweekly → alternating weeks measured from schedule_anchor's Monday
  *                (null anchor falls back to weekly so nothing is skipped)
@@ -235,7 +237,7 @@ export function isVisitDue(
     }
     return false
   }
-  return true // weekly (and any unknown cadence → treat as weekly)
+  return true // daily + weekly (and any unknown cadence) → due every week
 }
 
 /** Batch-fetch which tickets have ≥1 image attachment + their newest

@@ -1122,7 +1122,7 @@ create table if not exists public.recurring_services (
   cinc_vendor_id   text,
   vendor_name      text        not null,
   service_type     text        not null,
-  cadence          text        not null default 'weekly' check (cadence in ('weekly','biweekly','monthly')),
+  cadence          text        not null default 'weekly' check (cadence in ('daily','weekly','biweekly','monthly')),
   billing_cadence  text        not null default 'monthly' check (billing_cadence in ('per_visit','weekly','monthly')),
   expected_day     smallint    check (expected_day between 0 and 6),
   office_email     text,
@@ -1196,12 +1196,15 @@ NOTIFY pgrst, 'reload schema';`,
   {
     key:         'recurring_schedule_anchor',
     label:       'Recurring schedule anchor (cadence-accurate flags)',
-    description: 'recurring_services.schedule_anchor (biweekly parity reference Monday) + monthly_day (1–31, monthly target day) — drives cadence-aware visit generation + weekly-coverage flags so non-weekly services only flag on weeks they are actually due.',
+    description: 'recurring_services.schedule_anchor (biweekly parity reference Monday) + monthly_day (1–31, monthly target day) + widen cadence check to include daily — drives cadence-aware visit generation + weekly-coverage flags so non-weekly services only flag on weeks they are actually due.',
     filename:    '20260601_recurring_schedule_anchor.sql',
     artifact:    { type: 'column', table: 'recurring_services', column: 'schedule_anchor' },
     sql: `alter table public.recurring_services
   add column if not exists schedule_anchor date,
   add column if not exists monthly_day     smallint check (monthly_day between 1 and 31);
+alter table public.recurring_services drop constraint if exists recurring_services_cadence_check;
+alter table public.recurring_services
+  add constraint recurring_services_cadence_check check (cadence in ('daily','weekly','biweekly','monthly'));
 NOTIFY pgrst, 'reload schema';`,
   },
 ]

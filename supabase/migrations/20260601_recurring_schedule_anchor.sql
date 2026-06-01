@@ -12,11 +12,17 @@
 --                      (Mon–Sun) that contains that calendar day. Null →
 --                      the week containing the 1st.
 --
--- Weekly services ignore both. Idempotent.
+-- Weekly + daily services ignore both. Also widens the cadence check to
+-- include 'daily' (vendors who service multiple times a week). Idempotent.
 -- =====================================================================
 
 alter table public.recurring_services
   add column if not exists schedule_anchor date,
   add column if not exists monthly_day     smallint check (monthly_day between 1 and 31);
+
+-- Re-assert the cadence check so already-applied DBs accept 'daily'.
+alter table public.recurring_services drop constraint if exists recurring_services_cadence_check;
+alter table public.recurring_services
+  add constraint recurring_services_cadence_check check (cadence in ('daily','weekly','biweekly','monthly'));
 
 NOTIFY pgrst, 'reload schema';

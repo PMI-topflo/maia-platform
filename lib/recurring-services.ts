@@ -9,7 +9,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const SERVICE_TYPES = ['Landscaping', 'Pool', 'Janitorial', 'Pest Control', 'Other'] as const
-export const CADENCES = ['weekly', 'biweekly', 'monthly'] as const
+export const CADENCES = ['daily', 'weekly', 'biweekly', 'monthly'] as const
 export const BILLING_CADENCES = ['per_visit', 'weekly', 'monthly'] as const
 export const CHANNELS = ['email', 'sms', 'whatsapp'] as const
 export const LANGUAGES = ['en', 'es', 'pt', 'ht', 'fr'] as const   // English, Spanish, Portuguese, Haitian Creole, French

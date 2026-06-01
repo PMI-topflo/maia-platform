@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 const SERVICE_TYPES = ['Landscaping', 'Pool', 'Janitorial', 'Pest Control', 'Other']
-const CADENCES = ['weekly', 'biweekly', 'monthly']
+const CADENCES = ['daily', 'weekly', 'biweekly', 'monthly']
 const BILLING = ['monthly', 'weekly', 'per_visit']
 const CHANNELS = ['email', 'sms', 'whatsapp']
 const LANGS = [['en', 'English'], ['es', 'Español'], ['pt', 'Português'], ['ht', 'Kreyòl'], ['fr', 'Français']]
