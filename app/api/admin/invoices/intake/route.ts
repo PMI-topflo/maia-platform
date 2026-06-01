@@ -57,6 +57,12 @@ const SELECT_COLUMNS = `
   created_at, updated_at
 `.replace(/\s+/g, ' ').trim()
 
+// The select string is built at runtime, so the Supabase client can't infer a
+// row type and widens each row to its GenericStringError union. We only touch
+// pdf_storage_key here (after the query error is already handled), so a narrow
+// row shape is enough to keep the rest typed as a plain object.
+type IntakeDraftRow = { pdf_storage_key: string | null } & Record<string, unknown>
+
 export async function GET(req: Request) {
   const url       = new URL(req.url)
   const status    = url.searchParams.get('status') ?? 'pending_review'
@@ -80,7 +86,7 @@ export async function GET(req: Request) {
 
   // Attach a signed preview URL per draft (same as the server page load),
   // so the PDF preview survives client refetches instead of blanking out.
-  const rows = data ?? []
+  const rows = (data ?? []) as unknown as IntakeDraftRow[]
   const signed = await buildSignedUrls(
     rows.map(d => d.pdf_storage_key).filter(Boolean) as string[],
   )
@@ -154,7 +160,8 @@ export async function PATCH(req: Request) {
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   // Re-attach the preview URL so the card keeps showing the PDF after an edit.
-  const signed = data?.pdf_storage_key ? await buildSignedUrls([data.pdf_storage_key]) : null
-  const draft = { ...data, pdf_signed_url: data?.pdf_storage_key ? (signed?.get(data.pdf_storage_key) ?? null) : null }
+  const row = (data ?? null) as unknown as IntakeDraftRow | null
+  const signed = row?.pdf_storage_key ? await buildSignedUrls([row.pdf_storage_key]) : null
+  const draft = { ...row, pdf_signed_url: row?.pdf_storage_key ? (signed?.get(row.pdf_storage_key) ?? null) : null }
   return NextResponse.json({ draft })
 }
