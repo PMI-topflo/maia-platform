@@ -649,6 +649,18 @@ function DraftCard(props: {
     setChecked(next); void persistChecklist(next)
   }
 
+  // Let the funds check move the scheduled payment date to an affordable
+  // month without leaving view mode — persists scheduled_pay_date directly.
+  async function updateScheduledDate(date: string) {
+    setSchedDate(date)
+    setAuditBusy(true); setAuditMsg(null)
+    try {
+      const res = await fetch('/api/admin/invoices/intake', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: draft.id, scheduled_pay_date: date || null }) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+    } catch (e) { setAuditMsg(e instanceof Error ? e.message : String(e)) } finally { setAuditBusy(false) }
+  }
+
   const showAudit = !readOnly && (draft.status === 'pending_review' || draft.status === 'ready_to_push' || draft.status === 'needs_vendor')
   const isReady   = draft.status === 'ready_to_push'
 
@@ -1171,15 +1183,25 @@ function DraftCard(props: {
         <div style={{ marginTop: 8, padding: 6, background: '#f3f4f6', fontSize: 12, borderRadius: 4 }}>{msg}</div>
       )}
 
-      {/* Cash-flow forecast — visible in view mode whenever we have
-          enough info to compute one. Helps Karen avoid pushing invoices
-          that would overdraw the chosen bank account. */}
-      {!readOnly && mode === 'view' && assoc && bankId && amount && (
-        <CashFlowForecast
-          assoc={assoc}
-          bankAccountId={parseInt(bankId, 10)}
-          pushAmount={parseFloat(amount) || 0}
-        />
+      {/* Funds check — the "do we have the money to pay this on the
+          scheduled date?" big check. Runs once the team has confirmed the
+          Amount + Scheduled date (and picked a pay-from account); projects
+          to the scheduled month using all open invoices + account run-rate,
+          and lets them move the date to an affordable month. */}
+      {showAudit && mode === 'view' && assoc && (
+        (checked['amount'] && checked['scheduled_date'] && bankId && amount) ? (
+          <FundsCheck
+            assoc={assoc}
+            bankAccountId={parseInt(bankId, 10)}
+            pushAmount={parseFloat(amount) || 0}
+            scheduledDate={schedDate}
+            onChooseDate={updateScheduledDate}
+          />
+        ) : (
+          <div style={{ marginTop: 12, padding: '10px 12px', background: '#f1f5f9', border: '1px dashed #cbd5e1', borderRadius: 6, fontSize: 12, color: '#475569' }}>
+            💰 <strong>Funds check</strong> — confirm the <strong>Amount</strong> and <strong>Scheduled payment date</strong> above{!bankId ? ', and pick a pay-from account,' : ''} to check whether the account will have the money on that date.
+          </div>
+        )
       )}
 
       {/* Audit footer — the per-field green-checks live inline beside each
@@ -1504,108 +1526,144 @@ function AuditFooter(props: {
 }
 
 // =====================================================================
-// CashFlowForecast — small banner above the Push button showing the
-// projected end-of-month balance for the chosen bank account, and a
-// one-line "after this push" delta. Loads from /api/admin/cinc/forecast
-// once the card has assoc + bank account + amount set.
+// FundsCheck — the "do we have the money to pay this on the scheduled
+// date?" check. Runs once Amount + Scheduled date are confirmed. Projects
+// the pay-from account's balance to the END OF THE SCHEDULED MONTH using
+// ALL open invoices + the account's average monthly net flow, shows a big
+// affordable / short verdict, a 6-month horizon, and lets the reviewer
+// move the scheduled date to the earliest affordable month.
 // =====================================================================
 
-interface ForecastResult {
-  associationCode:        string
-  bankAccountId:          number
+interface FundsResult {
   bankAccountDescription: string
   currentBalance:         number
-  approvedUnpaid:         number
-  recurringProjected:     number
-  projectedEomBalance:    number
-  willOverdraw:           boolean
-  recurringVendors:       Array<{ displayName: string; avgAmount: number; pendingThisMonth: boolean; lastSeenMonth: string; monthsSeen: number }>
-  approvedUnpaidItems:    Array<{ vendorName: string | null; invoiceNumber: string | null; amount: number }>
+  openInvoicesTotal:      number
+  openInvoicesCount:      number
+  avgMonthlyNet:          number
+  avgMonthlyIn:           number
+  avgMonthlyOut:          number
+  monthsSampled:          number
+  pushAmount:             number
+  scheduledMonth:         string
+  monthsAhead:            number
+  projectedAtScheduled:   number
+  affordable:             boolean
+  earliestAffordableMonth: string | null
+  horizon:                Array<{ month: string; monthsAhead: number; projectedBalance: number; affordableAfterPush: boolean }>
   caveats:                string[]
 }
 
-function CashFlowForecast({ assoc, bankAccountId, pushAmount }: { assoc: string; bankAccountId: number | null; pushAmount: number }) {
-  const [busy,     setBusy]     = useState(false)
-  const [error,    setError]    = useState<string | null>(null)
-  const [forecast, setForecast] = useState<ForecastResult | null>(null)
+const fmtUSD = (n: number) => `${n < 0 ? '−' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const monthLabel = (ym: string) => { const d = new Date(`${ym}-01T00:00:00Z`); return d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }) }
+const endOfMonthISO = (ym: string) => { const [y, m] = ym.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10) }
+
+function FundsCheck({ assoc, bankAccountId, pushAmount, scheduledDate, onChooseDate }: {
+  assoc: string; bankAccountId: number | null; pushAmount: number; scheduledDate: string; onChooseDate: (date: string) => void
+}) {
+  const [busy, setBusy]     = useState(false)
+  const [error, setError]   = useState<string | null>(null)
+  const [res, setRes]       = useState<FundsResult | null>(null)
   const [showDetail, setShowDetail] = useState(false)
 
   useEffect(() => {
-    if (!assoc || !bankAccountId) { setForecast(null); return }
+    if (!assoc || !bankAccountId) { setRes(null); return }
     setBusy(true); setError(null)
-    fetch(`/api/admin/cinc/forecast?assoc=${encodeURIComponent(assoc)}&account=${bankAccountId}`, { cache: 'no-store' })
+    const p = new URLSearchParams({ assoc, account: String(bankAccountId), scheduled: scheduledDate || '', push: String(pushAmount || 0) })
+    let live = true
+    fetch(`/api/admin/cinc/funds-check?${p.toString()}`, { cache: 'no-store' })
       .then(r => r.json())
-      .then(data => {
-        if (data?.error) throw new Error(data.error)
-        setForecast(data)
-      })
-      .catch(err => setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setBusy(false))
-  }, [assoc, bankAccountId])
+      .then(d => { if (!live) return; if (d?.error) throw new Error(d.error); setRes(d) })
+      .catch(err => { if (live) setError(err instanceof Error ? err.message : String(err)) })
+      .finally(() => { if (live) setBusy(false) })
+    return () => { live = false }
+  }, [assoc, bankAccountId, scheduledDate, pushAmount])
 
-  if (busy) {
-    return <div style={{ marginTop: 8, padding: 6, fontSize: 11, color: '#6b7280', background: '#f9fafb', borderRadius: 4 }}>Loading EOM forecast…</div>
-  }
-  if (error) {
-    return <div style={{ marginTop: 8, padding: 6, fontSize: 11, color: '#92400e', background: '#fef3c7', borderRadius: 4 }}>Forecast unavailable: {error}</div>
-  }
-  if (!forecast) return null
+  if (busy && !res) return <div style={{ marginTop: 12, padding: 10, fontSize: 12, color: '#6b7280', background: '#f9fafb', borderRadius: 6 }}>💰 Running funds check…</div>
+  if (error)        return <div style={{ marginTop: 12, padding: 10, fontSize: 12, color: '#92400e', background: '#fef3c7', borderRadius: 6 }}>Funds check unavailable: {error}</div>
+  if (!res) return null
 
-  const afterPush      = forecast.projectedEomBalance - Math.abs(pushAmount)
-  const willOverdraw   = afterPush < 0
-  const veryLow        = afterPush >= 0 && afterPush < 1000
-  const fmt            = (n: number) => `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  const sign           = (n: number) => n < 0 ? '−' : ''
-
-  const bg     = willOverdraw ? '#fee2e2' : veryLow ? '#fef3c7' : '#ecfdf5'
-  const border = willOverdraw ? '#fca5a5' : veryLow ? '#fcd34d' : '#86efac'
-  const fg     = willOverdraw ? '#991b1b' : veryLow ? '#92400e' : '#065f46'
-  const icon   = willOverdraw ? '🛑' : veryLow ? '⚠' : '✓'
+  const ok       = res.affordable
+  const tight    = ok && res.projectedAtScheduled < 1000
+  const bg       = !ok ? '#fef2f2' : tight ? '#fffbeb' : '#ecfdf5'
+  const border   = !ok ? '#fca5a5' : tight ? '#fcd34d' : '#86efac'
+  const fg       = !ok ? '#991b1b' : tight ? '#92400e' : '#065f46'
+  const icon     = !ok ? '🛑' : tight ? '⚠' : '✅'
+  const schedLabel = scheduledDate ? new Date(`${scheduledDate}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : monthLabel(res.scheduledMonth)
+  const earliest = res.earliestAffordableMonth
 
   return (
-    <div style={{ marginTop: 8, padding: 8, background: bg, border: `1px solid ${border}`, borderRadius: 4, fontSize: 12, color: fg }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span>{icon}</span>
-        <strong>After this push:</strong>
-        <span>EOM projection for {forecast.bankAccountDescription} = <strong>{sign(afterPush)}{fmt(afterPush)}</strong></span>
-        <button onClick={() => setShowDetail(s => !s)} style={{ marginLeft: 'auto', fontSize: 11, padding: '2px 6px', border: `1px solid ${border}`, background: 'transparent', color: fg, borderRadius: 3, cursor: 'pointer' }}>
-          {showDetail ? 'Hide' : 'Detail'}
+    <div style={{ marginTop: 12, padding: 12, background: bg, border: `2px solid ${border}`, borderRadius: 8, fontSize: 13, color: fg }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 18 }}>{icon}</span>
+        <div style={{ fontWeight: 700 }}>
+          {ok ? 'Funds available' : 'Not enough funds'} to pay {fmtUSD(res.pushAmount)} on {schedLabel}
+        </div>
+        <button onClick={() => setShowDetail(s => !s)} style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 8px', border: `1px solid ${border}`, background: 'transparent', color: fg, borderRadius: 4, cursor: 'pointer' }}>
+          {showDetail ? 'Hide math' : 'Show math'}
         </button>
       </div>
-      {willOverdraw && (
-        <div style={{ marginTop: 4 }}>This push will overdraw the account by month-end. Consider Reserve or Special Assessment funding, or push only after expected income clears.</div>
-      )}
-      {veryLow && (
-        <div style={{ marginTop: 4 }}>Tight projection — under $1,000 left at month-end after this push.</div>
-      )}
+      <div style={{ marginTop: 4, marginLeft: 26 }}>
+        Projected <strong>{res.bankAccountDescription}</strong> balance at end of {monthLabel(res.scheduledMonth)} (after this payment) = <strong>{fmtUSD(res.projectedAtScheduled)}</strong>.
+      </div>
+
+      {/* Move-the-date affordance */}
+      <div style={{ marginTop: 10, marginLeft: 26, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <label style={{ fontSize: 12, color: fg }}>
+          Scheduled pay date:{' '}
+          <input type="date" value={scheduledDate} onChange={e => onChooseDate(e.target.value)}
+            style={{ padding: 4, border: `1px solid ${border}`, borderRadius: 4 }} />
+        </label>
+        {!ok && earliest && (
+          <button onClick={() => onChooseDate(endOfMonthISO(earliest))}
+            style={{ fontSize: 12, fontWeight: 600, padding: '5px 10px', background: '#fff', border: `1px solid ${border}`, borderRadius: 6, cursor: 'pointer', color: fg }}>
+            ↪ Move to {monthLabel(earliest)} (first month with funds)
+          </button>
+        )}
+        {!ok && !earliest && (
+          <span style={{ fontSize: 12 }}>No month in the next 6 covers this — consider Reserve / Special Assessment funding.</span>
+        )}
+      </div>
+
+      {/* 6-month horizon */}
+      <div style={{ marginTop: 10, marginLeft: 26, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {res.horizon.map(h => {
+          const sel = h.month === res.scheduledMonth
+          return (
+            <button key={h.month} onClick={() => onChooseDate(endOfMonthISO(h.month))} title={`Projected ${fmtUSD(h.projectedBalance)}`}
+              style={{
+                fontSize: 11, padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                border: sel ? '2px solid #111827' : `1px solid ${h.affordableAfterPush ? '#86efac' : '#fca5a5'}`,
+                background: h.affordableAfterPush ? '#dcfce7' : '#fee2e2',
+                color: h.affordableAfterPush ? '#065f46' : '#991b1b', fontWeight: sel ? 700 : 500,
+              }}>
+              {monthLabel(h.month)} {h.affordableAfterPush ? '✓' : '✕'} {fmtUSD(h.projectedBalance)}
+            </button>
+          )
+        })}
+      </div>
+
       {showDetail && (
-        <div style={{ marginTop: 8, padding: 8, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 3, color: '#111827' }}>
+        <div style={{ marginTop: 10, marginLeft: 26, padding: 8, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 4, color: '#111827' }}>
           <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
             <tbody>
-              <tr><td>Current balance</td><td style={{ textAlign: 'right' }}>{fmt(forecast.currentBalance)}</td></tr>
-              <tr><td>Approved unpaid (MAIA-tracked)</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmt(forecast.approvedUnpaid)}</td></tr>
-              <tr><td>Recurring projected (this month)</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmt(forecast.recurringProjected)}</td></tr>
-              <tr style={{ borderTop: '1px solid #d1d5db' }}><td><strong>Projected EOM (before this push)</strong></td><td style={{ textAlign: 'right' }}><strong>{sign(forecast.projectedEomBalance)}{fmt(forecast.projectedEomBalance)}</strong></td></tr>
-              <tr><td>This push amount</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmt(pushAmount)}</td></tr>
-              <tr style={{ borderTop: '1px solid #d1d5db' }}><td><strong>Projected EOM (after this push)</strong></td><td style={{ textAlign: 'right' }}><strong style={{ color: willOverdraw ? '#991b1b' : '#065f46' }}>{sign(afterPush)}{fmt(afterPush)}</strong></td></tr>
+              <tr><td>Current balance</td><td style={{ textAlign: 'right' }}>{fmtUSD(res.currentBalance)}</td></tr>
+              <tr><td>− All open invoices in CINC ({res.openInvoicesCount})</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmtUSD(res.openInvoicesTotal)}</td></tr>
+              <tr><td>− This payment</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmtUSD(res.pushAmount)}</td></tr>
+              {res.monthsAhead > 0 && (
+                <tr><td>{res.monthsAhead} month(s) of run-rate net flow (~{fmtUSD(res.avgMonthlyNet)}/mo)</td><td style={{ textAlign: 'right', color: res.avgMonthlyNet >= 0 ? '#065f46' : '#991b1b' }}>{fmtUSD(res.monthsAhead * res.avgMonthlyNet)}</td></tr>
+              )}
+              <tr style={{ borderTop: '1px solid #d1d5db' }}><td><strong>Projected at end of {monthLabel(res.scheduledMonth)}</strong></td><td style={{ textAlign: 'right' }}><strong style={{ color: ok ? '#065f46' : '#991b1b' }}>{fmtUSD(res.projectedAtScheduled)}</strong></td></tr>
             </tbody>
           </table>
-          {forecast.recurringVendors.filter(v => v.pendingThisMonth).length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>Recurring vendors not yet paid this month:</div>
-              <ul style={{ fontSize: 11, paddingLeft: 16, margin: 0, color: '#4b5563' }}>
-                {forecast.recurringVendors.filter(v => v.pendingThisMonth).slice(0, 8).map((v, i) => (
-                  <li key={i}>{v.displayName} <span style={{ color: '#6b7280' }}>({v.monthsSeen}/3 mo · ~{fmt(v.avgAmount)})</span></li>
-                ))}
-              </ul>
+          {res.monthsSampled > 0 && (
+            <div style={{ marginTop: 6, fontSize: 10, color: '#6b7280' }}>
+              Run-rate from last {res.monthsSampled} month(s): ~{fmtUSD(res.avgMonthlyIn)}/mo in, ~{fmtUSD(res.avgMonthlyOut)}/mo out.
             </div>
           )}
-          {forecast.caveats.length > 0 && (
-            <div style={{ marginTop: 8, fontSize: 10, color: '#6b7280', borderTop: '1px dashed #e5e7eb', paddingTop: 6 }}>
-              <strong>Caveats:</strong>
-              <ul style={{ paddingLeft: 14, margin: '4px 0 0' }}>
-                {forecast.caveats.map((c, i) => <li key={i}>{c}</li>)}
-              </ul>
+          {res.caveats.length > 0 && (
+            <div style={{ marginTop: 6, fontSize: 10, color: '#6b7280', borderTop: '1px dashed #e5e7eb', paddingTop: 6 }}>
+              <strong>Assumptions:</strong>
+              <ul style={{ paddingLeft: 14, margin: '4px 0 0' }}>{res.caveats.map((c, i) => <li key={i}>{c}</li>)}</ul>
             </div>
           )}
         </div>
