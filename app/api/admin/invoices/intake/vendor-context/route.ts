@@ -21,6 +21,8 @@ import {
   listGlTransactionsByDate,
   checkDuplicateInvoice,
   listVendorsFull,
+  getAssociationBudget,
+  type CincGlTransaction,
 } from '@/lib/integrations/cinc'
 
 export const dynamic = 'force-dynamic'
@@ -77,36 +79,15 @@ export async function GET(req: Request) {
   } catch { /* fall back to vendorName only */ }
   const nameTokens = vendorNameTokens(vendorName, vendorDba, vendorCheckName)
 
-  // GL suggestion — the vendor's account for THIS association. If CINC has
-  // no vendor-account mapping (common), fall back to the GL we booked this
-  // vendor to on the most recent invoice we processed through MAIA.
-  let suggestedGl: { glAccount: string | null; accountNumber: string | null; source: string } | null = null
-  try {
-    const accounts = await listVendorAccounts(vendorId)
-    const acct = accounts.find(a => a.assocCode === assoc)
-    if (acct && acct.glAccount) suggestedGl = { glAccount: acct.glAccount, accountNumber: acct.accountNumber, source: 'CINC vendor account' }
-  } catch { /* leave null */ }
-  if (!suggestedGl) {
-    try {
-      const { data: priorGl } = await supabaseAdmin
-        .from('invoice_intake_drafts')
-        .select('gl_account_name, gl_account_id, created_at')
-        .eq('matched_cinc_vendor_id', String(vendorId))
-        .eq('extracted_association_code', assoc)
-        .not('gl_account_name', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (priorGl?.gl_account_name) suggestedGl = { glAccount: String(priorGl.gl_account_name), accountNumber: priorGl.gl_account_id ? String(priorGl.gl_account_id) : null, source: 'last MAIA invoice' }
-    } catch { /* leave null */ }
-  }
-
-  // Pull the operating cash ledger ONCE (6 months). Used for both the
-  // "recent payments" panel (matched by vendor name tokens) and the
-  // double-pay guard's same-amount scan (matched by amount, name-agnostic —
-  // catches recurring vendors whose ledger lines carry no name).
+  // Pull the GL ledger across ALL accounts ONCE (6 months). Powers three
+  // things: the "recent payments" panel + double-pay same-amount scan
+  // (operating cash credits), AND detecting the expense GL this vendor's
+  // invoices were booked to — the expense-side debit lives on a different
+  // account than the cash credit, so we need every account, not just cash.
+  let allTxns: CincGlTransaction[] = []
   let ledgerTxns: Array<{ date: string | null; description: string; amount: number }> = []
   let ledgerScanned = 0
+  let operatingCashGl: string | null = null
   try {
     const banks = await listAssociationBankAccounts(assoc)
     // Prefer the account literally described "operating" (the true checking
@@ -116,17 +97,13 @@ export async function GET(req: Request) {
       banks.find(b => /operating/i.test(b.description)) ??
       banks.find(b => b.kind === 'operating') ??
       banks[0]
-    if (operating?.cashGl) {
-      const to = new Date()
-      const from = new Date(); from.setMonth(from.getMonth() - 6)
-      const txns = await listGlTransactionsByDate({
-        assocCode:     assoc,
-        fromDate:      from.toISOString().slice(0, 10),
-        toDate:        to.toISOString().slice(0, 10),
-        accountNumber: operating.cashGl,
-      })
-      ledgerTxns = txns
-        .filter(x => (x.CreditAmount ?? 0) > 0)
+    operatingCashGl = operating?.cashGl ?? null
+    const to = new Date()
+    const from = new Date(); from.setMonth(from.getMonth() - 6)
+    allTxns = await listGlTransactionsByDate({ assocCode: assoc, fromDate: from.toISOString().slice(0, 10), toDate: to.toISOString().slice(0, 10) })
+    if (operatingCashGl) {
+      ledgerTxns = allTxns
+        .filter(x => x.AccountNumber === operatingCashGl && (x.CreditAmount ?? 0) > 0)
         .map(x => ({ date: (x.TransactionDate ?? '').slice(0, 10) || null, description: x.Description ?? '', amount: x.CreditAmount ?? 0 }))
       ledgerScanned = ledgerTxns.length
     }
@@ -148,6 +125,68 @@ export async function GET(req: Request) {
     .sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))
     .slice(0, 6)
     .map(x => ({ date: x.date, description: x.description || null, amount: x.amount, matchedByName: byName.includes(x) }))
+
+  // GL suggestion, in priority order:
+  //   1. CINC's vendor-account GL mapping for this assoc (often empty).
+  //   2. The expense GL this vendor's recent invoices were actually booked
+  //      to — found by taking the invoice numbers off the recent payments
+  //      and looking up their expense-side debit (a non-cash account) in the
+  //      ledger, then naming it via the association budget.
+  //   3. The GL we used on the last MAIA invoice for this vendor.
+  let suggestedGl: { glAccount: string | null; accountNumber: string | null; source: string } | null = null
+  try {
+    const accounts = await listVendorAccounts(vendorId)
+    const acct = accounts.find(a => a.assocCode === assoc)
+    if (acct && acct.glAccount) suggestedGl = { glAccount: acct.glAccount, accountNumber: acct.accountNumber, source: 'CINC vendor account' }
+  } catch { /* leave null */ }
+
+  if (!suggestedGl && recentPayments.length > 0 && allTxns.length > 0) {
+    try {
+      const invNums = new Set<string>()
+      for (const p of recentPayments) {
+        const m = /inv\.?\s*#?\s*([a-z0-9][a-z0-9-]*)/i.exec(p.description ?? '')
+        if (m) invNums.add(m[1].toLowerCase())
+      }
+      if (invNums.size > 0) {
+        // Tally the expense GL each matching invoice was booked to (the
+        // non-cash account carrying the debit), then take the most common.
+        const tally = new Map<string, number>()
+        for (const tx of allTxns) {
+          const acct = String(tx.AccountNumber ?? '')
+          if (!acct || acct === operatingCashGl) continue
+          if ((tx.DebitAmount ?? 0) === 0) continue
+          const d = (tx.Description ?? '').toLowerCase()
+          if ([...invNums].some(n => d.includes(n))) tally.set(acct, (tally.get(acct) ?? 0) + 1)
+        }
+        let bestAcct: string | null = null, bestCount = 0
+        for (const [a, c] of tally) if (c > bestCount) { bestAcct = a; bestCount = c }
+        if (bestAcct) {
+          let label = bestAcct
+          try {
+            const budget = await getAssociationBudget(assoc)
+            const line = budget.find(l => l.number === bestAcct)
+            if (line) label = `${line.number} ${line.name}`
+          } catch { /* name stays as the raw GL number */ }
+          suggestedGl = { glAccount: label, accountNumber: bestAcct, source: `${bestCount} past invoice${bestCount === 1 ? '' : 's'}` }
+        }
+      }
+    } catch { /* leave null */ }
+  }
+
+  if (!suggestedGl) {
+    try {
+      const { data: priorGl } = await supabaseAdmin
+        .from('invoice_intake_drafts')
+        .select('gl_account_name, gl_account_id, created_at')
+        .eq('matched_cinc_vendor_id', String(vendorId))
+        .eq('extracted_association_code', assoc)
+        .not('gl_account_name', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (priorGl?.gl_account_name) suggestedGl = { glAccount: String(priorGl.gl_account_name), accountNumber: priorGl.gl_account_id ? String(priorGl.gl_account_id) : null, source: 'last MAIA invoice' }
+    } catch { /* leave null */ }
+  }
 
   // ── Double-pay guard ──────────────────────────────────────────────
   // EXACT = same vendor + same invoice# (CINC's dup endpoint + our pushed

@@ -1670,7 +1670,10 @@ export async function listGlTransactionsByDate(opts: {
   assocCode:     string
   fromDate:      string  // ISO date 'YYYY-MM-DD'
   toDate:        string
-  accountNumber: string  // e.g. '10-1000-00'
+  /** Omit to return transactions across ALL accounts (e.g. to find the
+   *  expense GL an invoice was booked to, which lives on a different
+   *  account than the cash credit). */
+  accountNumber?: string  // e.g. '10-1000-00'
 }): Promise<CincGlTransaction[]> {
   return await call<CincGlTransaction[]>(
     '/management/1/accounting/glTransactionsByDateAndAssocCode',
@@ -1680,7 +1683,7 @@ export async function listGlTransactionsByDate(opts: {
         assocCode:     opts.assocCode.toUpperCase(),
         fromDate:      opts.fromDate,
         toDate:        opts.toDate,
-        accountNumber: opts.accountNumber,
+        ...(opts.accountNumber ? { accountNumber: opts.accountNumber } : {}),
       },
     },
   ).catch(err => {

@@ -1059,8 +1059,19 @@ function DraftCard(props: {
                   </div>
                 )}
                 {glHint ? (
-                  <div style={{ marginTop: 4, color: '#2563eb', fontSize: 11 }}>
-                    💡 MAIA: {glHint}
+                  <div style={{ marginTop: 4, color: '#2563eb', fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span>💡 MAIA: {glHint}</span>
+                    {(() => {
+                      const num = auditCtx?.suggestedGl?.accountNumber
+                      const hit = num ? glOptions.find(o => o.number === num) : null
+                      if (!hit || glId === hit.id) return null
+                      return (
+                        <button type="button" onClick={() => { setGlId(hit.id); setGlName(hit.name) }}
+                          style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', border: '1px solid #2563eb', borderRadius: 10, background: '#eff6ff', color: '#2563eb', cursor: 'pointer' }}>
+                          Use it
+                        </button>
+                      )
+                    })()}
                   </div>
                 ) : (vendorId && auditCtx && (
                   <div style={{ marginTop: 4, color: '#9ca3af', fontSize: 11 }}>
