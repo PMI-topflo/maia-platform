@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
-interface Vendor      { id: number;  name: string; shortName: string | null }
+interface Vendor      { id: number;  name: string; shortName: string | null; dba?: string | null }
 interface Association { code: string; name: string }
 
 interface Draft {
@@ -592,6 +592,70 @@ function DraftCard(props: {
   const isRejected = draft.status === 'rejected'
   const readOnly   = isPushed || isRejected
 
+  // ── AP audit checklist (inline) ────────────────────────────────────
+  // Each audited field carries its own green-check toggle, rendered beside
+  // the field, so the team fills the value and confirms it in one place.
+  // The state + system double-pay guard live here so the whole card shares
+  // one source of truth. Karen can mark the draft ready only when every
+  // required field is checked and no hard duplicate is found.
+  const [checked, setChecked]     = useState<Record<string, boolean>>(draft.audit_checklist ?? {})
+  const [auditCtx, setAuditCtx]   = useState<VendorCtx | null>(null)
+  const [auditBusy, setAuditBusy] = useState(false)
+  const [auditMsg, setAuditMsg]   = useState<string | null>(null)
+
+  const vendorNameForCtx = matchedVendor?.name ?? draft.matched_vendor_name ?? ''
+  const filenamePreview  = buildFilenamePreview({ assoc, short: shortName, invNo, amount })
+
+  // Load the duplicate-guard + GL suggestion + recent-payments context
+  // whenever both vendor and association are known.
+  useEffect(() => {
+    if (!vendorId || !assoc) { setAuditCtx(null); return }
+    const p = new URLSearchParams({
+      vendorId, assoc, vendorName: vendorNameForCtx,
+      invoiceNumber: invNo, amount, draftId: String(draft.id),
+    })
+    let live = true
+    fetch(`/api/admin/invoices/intake/vendor-context?${p.toString()}`, { cache: 'no-store' })
+      .then(r => r.json()).then(d => { if (live) setAuditCtx(d) }).catch(() => { if (live) setAuditCtx(null) })
+    return () => { live = false }
+  }, [vendorId, assoc, invNo, amount, vendorNameForCtx, draft.id])
+
+  const dup     = auditCtx?.duplicate
+  const hardDup = !!dup?.hasHardDuplicate
+  const glHint  = auditCtx?.suggestedGl?.glAccount ? `vendor’s usual GL: ${auditCtx.suggestedGl.glAccount}` : undefined
+
+  const REQUIRED_CHECKS = ['association', 'vendor', 'short_name', 'payment_method', 'gl_account', 'bank_account', 'scheduled_date', 'filename']
+  const requiredOk = REQUIRED_CHECKS.every(k => checked[k])
+  const allReady   = requiredOk && !!checked['duplicate'] && !hardDup
+
+  async function persistChecklist(next: Record<string, boolean>, statusChange?: string) {
+    setAuditBusy(true); setAuditMsg(null)
+    try {
+      const body: Record<string, unknown> = { id: draft.id, audit_checklist: next }
+      if (statusChange) body.status = statusChange
+      const res = await fetch('/api/admin/invoices/intake', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      if (statusChange) onMutate()
+    } catch (e) { setAuditMsg(e instanceof Error ? e.message : String(e)) } finally { setAuditBusy(false) }
+  }
+
+  function toggleCheck(id: string, present: boolean) {
+    if (id === 'duplicate' && hardDup) { setAuditMsg('Hard duplicate — cannot clear. Reject this draft instead.'); return }
+    if (id !== 'duplicate' && !present && !checked[id]) { setAuditMsg('Fill that field in Edit first, then confirm it.'); return }
+    const next = { ...checked, [id]: !checked[id] }
+    setChecked(next); void persistChecklist(next)
+  }
+
+  const showAudit = !readOnly && (draft.status === 'pending_review' || draft.status === 'ready_to_push' || draft.status === 'needs_vendor')
+  const isReady   = draft.status === 'ready_to_push'
+
+  // Per-field check toggle, shown beside a field only while auditing.
+  const fieldCheck = (id: string, present: boolean) =>
+    showAudit
+      ? <CheckToggle on={!!checked[id]} present={present} disabled={auditBusy} onToggle={() => toggleCheck(id, present)} />
+      : undefined
+
   return (
     <div style={{ border: '1px solid #e5e7eb', borderRadius: 6, padding: 16, background: '#fff' }}>
       {draft.status === 'needs_vendor' && (
@@ -626,7 +690,7 @@ function DraftCard(props: {
       )}
       {isRejected && (
         <div style={{ padding: 8, marginBottom: 12, background: '#f3f4f6', borderLeft: '3px solid #6b7280', fontSize: 13 }}>
-          Rejected. {draft.rejected_reason && <em>"{draft.rejected_reason}"</em>}
+          Rejected. {draft.rejected_reason && <em>&quot;{draft.rejected_reason}&quot;</em>}
         </div>
       )}
 
@@ -655,9 +719,36 @@ function DraftCard(props: {
         </div>
       )}
 
+      {/* Action bar — directly under the invoice image so the reviewer can
+          act without scrolling past every field. */}
+      {!readOnly && (
+        <div style={{ marginBottom: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {mode === 'view' ? (
+            <>
+              <button onClick={() => setMode('edit')} disabled={busy} style={btnSecondary()}>Edit</button>
+              {draft.status === 'needs_vendor' && (
+                <button onClick={rematch} disabled={busy} style={btnSecondary()}>Re-match vendor</button>
+              )}
+              {draft.status === 'duplicate_in_cinc' && (
+                <button onClick={() => push(true)} disabled={busy} style={btnPrimary()}>Push anyway</button>
+              )}
+              {draft.status === 'ready_to_push' && (
+                <button onClick={() => push(false)} disabled={busy} style={btnPrimary()}>Push to CINC</button>
+              )}
+              <button onClick={reject} disabled={busy} style={btnDanger()}>Reject</button>
+            </>
+          ) : (
+            <>
+              <button onClick={save}       disabled={busy} style={btnPrimary()}>Save</button>
+              <button onClick={cancelEdit} disabled={busy} style={btnSecondary()}>Cancel</button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Form / display grid — same fields in both modes. */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
-        <Field label="Vendor (CINC)">
+        <Field label="Vendor (CINC)" right={fieldCheck('vendor', !!vendorId)}>
           {mode === 'edit' ? (
             <>
               <VendorCombobox
@@ -677,7 +768,7 @@ function DraftCard(props: {
           )}
         </Field>
 
-        <Field label="Short name (saved to CINC UserDefined1)">
+        <Field label="Short name (saved to CINC UserDefined1)" right={fieldCheck('short_name', !!shortName)}>
           {mode === 'edit' ? (
             <input
               type="text"
@@ -692,7 +783,7 @@ function DraftCard(props: {
           )}
         </Field>
 
-        <Field label="Association">
+        <Field label="Association" right={fieldCheck('association', !!assoc)}>
           {mode === 'edit' ? (
             <select
               value={assoc}
@@ -765,7 +856,7 @@ function DraftCard(props: {
           )}
         </Field>
 
-        <Field label="Payment due date (per invoice)">
+        <Field label="Payment due date (per invoice)" right={fieldCheck('due_date', !!dueDate)}>
           {mode === 'edit' ? (
             <input
               type="date"
@@ -782,7 +873,7 @@ function DraftCard(props: {
           )}
         </Field>
 
-        <Field label="Scheduled payment date">
+        <Field label="Scheduled payment date" right={fieldCheck('scheduled_date', !!schedDate)}>
           {mode === 'edit' ? (
             <>
               <input
@@ -808,7 +899,7 @@ function DraftCard(props: {
             Falls back to a free-text input if CINC returns no options
             (mis-configured assoc — Karen can still type something the
             CINC team will accept). */}
-        <Field label="Payment method">
+        <Field label="Payment method" right={fieldCheck('payment_method', !!payBy)}>
           {mode === 'edit' ? (
             payByOptions.length > 0 ? (
               <select
@@ -870,7 +961,7 @@ function DraftCard(props: {
             otherwise the dropdown is disabled. Spans both columns
             because WO descriptions can be long. */}
         <div style={{ gridColumn: '1 / -1' }}>
-          <Field label="Link to work order (optional)">
+          <Field label="Link to work order (optional)" right={fieldCheck('work_order', !!woNumber)}>
             {mode === 'edit' ? (
               <select
                 value={woNumber}
@@ -907,7 +998,7 @@ function DraftCard(props: {
         {/* GL — spans both columns so long account names fit. Source is
             the association's CINC budget, fetched lazily on first edit. */}
         <div style={{ gridColumn: '1 / -1' }}>
-          <Field label="GL line (from association budget)">
+          <Field label="GL line (from association budget)" right={fieldCheck('gl_account', !!glId)}>
             {mode === 'edit' ? (
               <>
                 <select
@@ -947,6 +1038,11 @@ function DraftCard(props: {
                     Budget fetch failed: {glError}
                   </div>
                 )}
+                {glHint && (
+                  <div style={{ marginTop: 4, color: '#2563eb', fontSize: 11 }}>
+                    💡 MAIA: {glHint}
+                  </div>
+                )}
               </>
             ) : (
               <ReadOnlyValue value={glName} placeholder={assoc ? '— not set —' : '— pick association first —'} />
@@ -959,7 +1055,7 @@ function DraftCard(props: {
             CINC's `Reserve` flag is broken, so kind is derived from the
             account description text (see lib/integrations/cinc.ts). */}
         <div style={{ gridColumn: '1 / -1' }}>
-          <Field label="Pay from bank account">
+          <Field label="Pay from bank account" right={fieldCheck('bank_account', !!bankId)}>
             {mode === 'edit' ? (
               <>
                 <select
@@ -1044,9 +1140,12 @@ function DraftCard(props: {
           what's about to be saved. */}
       {!isRejected && (
         <div style={{ marginTop: 14, padding: '8px 12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 12 }}>
-          <span style={{ color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, fontSize: 10, fontWeight: 600 }}>Will be saved as</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <span style={{ color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, fontSize: 10, fontWeight: 600 }}>Will be saved as</span>
+            {showAudit && <CheckToggle on={!!checked['filename']} present={!!filenamePreview} disabled={auditBusy} onToggle={() => toggleCheck('filename', !!filenamePreview)} />}
+          </div>
           <div style={{ marginTop: 4, fontFamily: 'ui-monospace, monospace', color: '#111827', wordBreak: 'break-all' }}>
-            {buildFilenamePreview({ assoc, short: shortName, invNo, amount })}
+            {filenamePreview}
           </div>
         </div>
       )}
@@ -1071,44 +1170,24 @@ function DraftCard(props: {
         />
       )}
 
-      {/* AP audit checklist — review each field, then mark ready to push.
-          Shown for no-vendor drafts too; the "Vendor" item reads missing
-          until they assign it in Edit. */}
-      {mode === 'view' && (draft.status === 'pending_review' || draft.status === 'ready_to_push' || draft.status === 'needs_vendor') && (
-        <AuditChecklist
-          draft={draft}
-          onMutate={onMutate}
-          values={{
-            assoc, vendorId, shortName, payBy, glId, bankId, dueDate, schedDate, woNumber, invNo, amount,
-            vendorName: matchedVendor?.name ?? draft.matched_vendor_name ?? '',
-            filename: buildFilenamePreview({ assoc, short: shortName, invNo, amount }),
-          }}
+      {/* Audit footer — the per-field green-checks live inline beside each
+          field above; this footer holds the system double-pay guard, the
+          vendor's recent payments, and the "mark ready to push" approval. */}
+      {showAudit && (
+        <AuditFooter
+          ctx={auditCtx}
+          dupChecked={!!checked['duplicate']}
+          hardDup={hardDup}
+          onToggleDup={() => toggleCheck('duplicate', true)}
+          allReady={allReady}
+          requiredOk={requiredOk}
+          isReady={isReady}
+          readyBy={draft.audit_ready_by}
+          busy={auditBusy}
+          msg={auditMsg}
+          onMarkReady={() => persistChecklist(checked, 'ready_to_push')}
+          onUnready={() => persistChecklist(checked, 'pending_review')}
         />
-      )}
-
-      {!readOnly && (
-        <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {mode === 'view' ? (
-            <>
-              <button onClick={() => setMode('edit')} disabled={busy} style={btnSecondary()}>Edit</button>
-              {draft.status === 'needs_vendor' && (
-                <button onClick={rematch} disabled={busy} style={btnSecondary()}>Re-match vendor</button>
-              )}
-              {draft.status === 'duplicate_in_cinc' && (
-                <button onClick={() => push(true)} disabled={busy} style={btnPrimary()}>Push anyway</button>
-              )}
-              {draft.status === 'ready_to_push' && (
-                <button onClick={() => push(false)} disabled={busy} style={btnPrimary()}>Push to CINC</button>
-              )}
-              <button onClick={reject} disabled={busy} style={btnDanger()}>Reject</button>
-            </>
-          ) : (
-            <>
-              <button onClick={save}       disabled={busy} style={btnPrimary()}>Save</button>
-              <button onClick={cancelEdit} disabled={busy} style={btnSecondary()}>Cancel</button>
-            </>
-          )}
-        </div>
       )}
     </div>
   )
@@ -1132,12 +1211,39 @@ function ReadOnlyValue({ value, placeholder }: { value: string | null | undefine
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, right }: { label: string; children: React.ReactNode; right?: React.ReactNode }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</span>
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: 22 }}>
+        <span style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</span>
+        {right}
+      </span>
       {children}
     </label>
+  )
+}
+
+// Inline per-field audit toggle — rendered beside each field so the team
+// fills the value and confirms it in the same place (no separate checklist
+// section). Green when audited; greyed "—" until the field has a value.
+function CheckToggle({ on, present, disabled, onToggle }: { on: boolean; present: boolean; disabled?: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={e => { e.preventDefault(); e.stopPropagation(); onToggle() }}
+      title={on ? 'Audited — click to un-confirm' : present ? 'Confirm this field is correct' : 'Fill this field first'}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        border: `1px solid ${on ? '#16a34a' : present ? '#d1d5db' : '#e5e7eb'}`,
+        background: on ? '#16a34a' : '#fff',
+        color: on ? '#fff' : present ? '#374151' : '#9ca3af',
+        borderRadius: 14, padding: '2px 9px', fontSize: 11, fontWeight: 600,
+        cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', lineHeight: 1.4,
+      }}
+    >
+      <span style={{ fontSize: 12 }}>{on ? '✓' : '○'}</span>{on ? 'Audited' : present ? 'Confirm' : '—'}
+    </button>
   )
 }
 
@@ -1235,6 +1341,15 @@ function VendorPmtHint(props: {
   )
 }
 
+function AuditDot({ on, ok = true }: { on: boolean; ok?: boolean }) {
+  return (
+    <span style={{ display: 'inline-flex', width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center',
+      fontSize: 12, fontWeight: 700, color: on ? '#fff' : '#9ca3af', background: on ? (ok ? '#16a34a' : '#dc2626') : '#e5e7eb' }}>
+      {on ? '✓' : '○'}
+    </span>
+  )
+}
+
 function btnPrimary(): React.CSSProperties {
   return { padding: '8px 14px', background: '#f26a1b', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 13, fontWeight: 500 }
 }
@@ -1246,9 +1361,11 @@ function btnDanger(): React.CSSProperties {
 }
 
 // =====================================================================
-// AuditChecklist — the AP team (Karen / Jonathan / Isabela) green-checks
-// each field, then marks the draft "ready to push". Karen can only push a
-// ready draft. Also runs a system double-pay guard (exact dup + same-$).
+// AuditFooter — the per-field green-checks live INLINE beside each field
+// (see CheckToggle / fieldCheck in DraftCard). This footer carries only
+// the non-per-field parts: the system double-pay guard, the vendor's
+// recent payments, and the "mark ready to push" approval. Karen can only
+// push a draft once every required field is checked + no hard duplicate.
 // =====================================================================
 interface DupHit { source: string; invoiceNumber: string | null; amount: number | null; date: string | null; status: string | null; paid: boolean }
 interface VendorCtx {
@@ -1257,101 +1374,37 @@ interface VendorCtx {
   duplicate: { exact: DupHit[]; sameAmount: DupHit[]; anyPaid: boolean; hasHardDuplicate: boolean; amountLabel: string | null }
 }
 
-function AuditChecklist(props: {
-  draft:   Draft
-  values:  { assoc: string; vendorId: string; shortName: string; payBy: string; glId: string; bankId: string; dueDate: string; schedDate: string; woNumber: string; invNo: string; amount: string; vendorName: string; filename: string }
-  onMutate: () => void
+function AuditFooter(props: {
+  ctx:         VendorCtx | null
+  dupChecked:  boolean
+  hardDup:     boolean
+  onToggleDup: () => void
+  allReady:    boolean
+  requiredOk:  boolean
+  isReady:     boolean
+  readyBy:     string | null
+  busy:        boolean
+  msg:         string | null
+  onMarkReady: () => void
+  onUnready:   () => void
 }) {
-  const { draft, values, onMutate } = props
-  const [checked, setChecked] = useState<Record<string, boolean>>(draft.audit_checklist ?? {})
-  const [ctx, setCtx]   = useState<VendorCtx | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg]   = useState<string | null>(null)
-  const isReady = draft.status === 'ready_to_push'
-
-  useEffect(() => {
-    if (!values.vendorId || !values.assoc) { setCtx(null); return }
-    const p = new URLSearchParams({
-      vendorId: values.vendorId, assoc: values.assoc, vendorName: values.vendorName,
-      invoiceNumber: values.invNo, amount: values.amount, draftId: String(draft.id),
-    })
-    let live = true
-    fetch(`/api/admin/invoices/intake/vendor-context?${p.toString()}`, { cache: 'no-store' })
-      .then(r => r.json()).then(d => { if (live) setCtx(d) }).catch(() => { if (live) setCtx(null) })
-    return () => { live = false }
-  }, [values.vendorId, values.assoc, values.invNo, values.amount, values.vendorName, draft.id])
-
+  const { ctx, dupChecked, hardDup, onToggleDup, allReady, requiredOk, isReady, readyBy, busy, msg, onMarkReady, onUnready } = props
   const dup     = ctx?.duplicate
-  const hardDup = !!dup?.hasHardDuplicate
-  const glHint  = ctx?.suggestedGl?.glAccount ? `vendor’s usual GL: ${ctx.suggestedGl.glAccount}` : undefined
-
-  const items: Array<{ id: string; label: string; present: boolean; required: boolean; hint?: string }> = [
-    { id: 'association',    label: 'Association',                 present: !!values.assoc,     required: true },
-    { id: 'vendor',         label: 'Vendor',                      present: !!values.vendorId,  required: true },
-    { id: 'short_name',     label: 'Short name',                  present: !!values.shortName, required: true },
-    { id: 'payment_method', label: 'Payment method',              present: !!values.payBy,     required: true },
-    { id: 'gl_account',     label: 'GL account',                  present: !!values.glId,      required: true, hint: glHint },
-    { id: 'bank_account',   label: 'Pay-from bank account',       present: !!values.bankId,    required: true },
-    { id: 'due_date',       label: 'Payment due date',            present: !!values.dueDate,   required: false },
-    { id: 'scheduled_date', label: 'Scheduled pay date (funds?)', present: !!values.schedDate, required: true },
-    { id: 'work_order',     label: 'Work order #',                present: !!values.woNumber,  required: false },
-    { id: 'filename',       label: 'Will be saved as',            present: !!values.filename,  required: true },
-  ]
-
-  const requiredOk = items.filter(i => i.required).every(i => checked[i.id])
-  const allReady   = requiredOk && !!checked['duplicate'] && !hardDup
-
-  async function persist(next: Record<string, boolean>, statusChange?: string) {
-    setBusy(true); setMsg(null)
-    try {
-      const body: Record<string, unknown> = { id: draft.id, audit_checklist: next }
-      if (statusChange) body.status = statusChange
-      const res = await fetch('/api/admin/invoices/intake', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
-      if (statusChange) onMutate()
-    } catch (e) { setMsg(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
-  }
-
-  function toggle(id: string, present: boolean) {
-    if (id === 'duplicate' && hardDup) { setMsg('Hard duplicate — cannot clear. Reject this draft instead.'); return }
-    if (!present && !checked[id]) { setMsg(`Fill that field in Edit first.`); return }
-    const next = { ...checked, [id]: !checked[id] }
-    setChecked(next); void persist(next)
-  }
-
   const dupClear = dup && !hardDup && (dup.sameAmount.length === 0)
-  const Dot = ({ on, ok = true }: { on: boolean; ok?: boolean }) => (
-    <span style={{ display: 'inline-flex', width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center',
-      fontSize: 12, fontWeight: 700, color: on ? '#fff' : '#9ca3af', background: on ? (ok ? '#16a34a' : '#dc2626') : '#e5e7eb' }}>
-      {on ? '✓' : '○'}
-    </span>
-  )
 
   return (
     <div style={{ marginTop: 14, padding: 12, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6 }}>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: '#374151', marginBottom: 8 }}>
-        ✅ Audit checklist — verify each item before pushing
+        ✅ Final approval — confirm each field above, then mark ready
       </div>
 
-      {items.map(it => (
-        <button key={it.id} onClick={() => toggle(it.id, it.present)} disabled={busy}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0' }}>
-          <Dot on={!!checked[it.id]} />
-          <span style={{ fontSize: 13, color: checked[it.id] ? '#111827' : '#374151', fontWeight: checked[it.id] ? 600 : 400 }}>{it.label}</span>
-          {!it.required && <span style={{ fontSize: 10, color: '#9ca3af' }}>optional</span>}
-          {!it.present && <span style={{ fontSize: 11, color: '#b45309' }}>— missing</span>}
-          {it.hint && <span style={{ fontSize: 11, color: '#2563eb' }}>· {it.hint}</span>}
-        </button>
-      ))}
-
       {/* System double-pay guard */}
-      <div style={{ marginTop: 6, padding: '6px 8px', borderRadius: 4,
+      <div style={{ padding: '6px 8px', borderRadius: 4,
         background: hardDup ? '#fef2f2' : (dup && dup.sameAmount.length > 0 ? '#fffbeb' : '#f0fdf4'),
         border: `1px solid ${hardDup ? '#fecaca' : (dup && dup.sameAmount.length > 0 ? '#fde68a' : '#bbf7d0')}` }}>
-        <button onClick={() => toggle('duplicate', true)} disabled={busy || hardDup}
+        <button onClick={onToggleDup} disabled={busy || hardDup}
           style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: hardDup ? 'not-allowed' : 'pointer', padding: 0 }}>
-          <Dot on={hardDup ? true : !!checked['duplicate']} ok={!hardDup} />
+          <AuditDot on={hardDup ? true : dupChecked} ok={!hardDup} />
           <span style={{ fontSize: 13, fontWeight: 600, color: hardDup ? '#b91c1c' : (dup && dup.sameAmount.length > 0 ? '#92400e' : '#166534') }}>
             Duplicate / double-pay check {!ctx ? '…' : ''}
           </span>
@@ -1388,12 +1441,12 @@ function AuditChecklist(props: {
       <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
         {isReady ? (
           <>
-            <span style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>✓ Ready to push{draft.audit_ready_by ? ` · by ${draft.audit_ready_by}` : ''}</span>
-            <button onClick={() => persist(checked, 'pending_review')} disabled={busy} style={btnSecondary()}>Un-ready (edit more)</button>
+            <span style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>✓ Ready to push{readyBy ? ` · by ${readyBy}` : ''}</span>
+            <button onClick={onUnready} disabled={busy} style={btnSecondary()}>Un-ready (edit more)</button>
           </>
         ) : (
-          <button onClick={() => persist(checked, 'ready_to_push')} disabled={busy || !allReady} style={allReady ? btnPrimary() : btnSecondary()}>
-            {allReady ? 'Mark ready to push →' : 'Complete all checks to enable'}
+          <button onClick={onMarkReady} disabled={busy || !allReady} style={allReady ? btnPrimary() : btnSecondary()}>
+            {allReady ? 'Mark ready to push →' : requiredOk ? 'Confirm the duplicate check to enable' : 'Confirm every field above to enable'}
           </button>
         )}
       </div>
@@ -1724,7 +1777,15 @@ function VendorCombobox({
 
   const q = query.trim().toLowerCase()
   const matches = useMemo(
-    () => ((dirty && q) ? sorted.filter(v => v.name.toLowerCase().includes(q)) : sorted),
+    // Search the legal name AND the DBA / short name — many vendors invoice
+    // under a DBA while CINC carries the legal name (e.g. typing "Envera"
+    // must find "Hidden Eyes LLC" whose DBA is "Envera Systems").
+    () => ((dirty && q)
+      ? sorted.filter(v =>
+          v.name.toLowerCase().includes(q) ||
+          (v.dba ?? '').toLowerCase().includes(q) ||
+          (v.shortName ?? '').toLowerCase().includes(q))
+      : sorted),
     [sorted, dirty, q],
   )
   const shown = matches.slice(0, VENDOR_RESULT_CAP)
@@ -1749,7 +1810,7 @@ function VendorCombobox({
           type="text"
           value={query}
           disabled={disabled}
-          placeholder="— pick vendor — type to search"
+          placeholder="— pick vendor — type name or DBA"
           onChange={e => { setQuery(e.target.value); setDirty(true); setOpen(true); setHighlight(0) }}
           onFocus={() => { setOpen(true); setHighlight(0) }}
           onKeyDown={e => {
@@ -1798,10 +1859,13 @@ function VendorCombobox({
                     padding: '6px 10px', fontSize: 13, cursor: 'pointer',
                     background: i === highlight ? '#fef3ec' : isSel ? '#f9fafb' : '#fff',
                     color: '#111',
-                    display: 'flex', justifyContent: 'space-between', gap: 8,
+                    display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline',
                   }}
                 >
-                  <span>{v.name}</span>
+                  <span>
+                    {v.name}
+                    {v.dba && <span style={{ color: '#6b7280', fontSize: 11 }}> · DBA {v.dba}</span>}
+                  </span>
                   {isSel && <span style={{ color: '#f26a1b', fontSize: 11 }}>✓</span>}
                 </div>
               )

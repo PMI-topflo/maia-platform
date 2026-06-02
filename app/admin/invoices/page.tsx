@@ -104,6 +104,7 @@ async function safeFetchVendors() {
       id:        x.VendorId,
       name:      x.VendorName,
       shortName: x.UserDefined1 ?? null,
+      dba:       x.Dba ?? null,
     }))
   } catch {
     return []

@@ -1121,7 +1121,31 @@ export function fuzzyMatchVendor(extractedName: string, catalog: CincVendorFull[
       best = { vendor: v, score }
     }
   }
-  return best?.vendor ?? null
+  if (best) return best.vendor
+
+  // Distinctive-token fallback. A short invoice name (e.g. just "Envera"
+  // for vendor "Hidden Eyes LLC" DBA "Envera Systems") scores below 0.6
+  // by token-overlap, yet is unambiguous. If exactly ONE vendor in the
+  // whole catalog carries a long, distinctive target token (≥5 chars) in
+  // its name / DBA / check name, match it. Uniqueness keeps this safe from
+  // false positives — common words ("air", "pool") will hit many vendors
+  // and bail out.
+  const distinctive = [...targetTokens].filter(t => t.length >= 5)
+  for (const token of distinctive) {
+    const hits = catalog.filter(v =>
+      fieldHasToken(v.VendorName, token) ||
+      fieldHasToken(v.Dba, token) ||
+      fieldHasToken(v.CheckName, token),
+    )
+    if (hits.length === 1) return hits[0]
+  }
+  return null
+}
+
+/** True if `token` appears as a whole normalized token in the field. */
+function fieldHasToken(field: string | null | undefined, token: string): boolean {
+  if (!field) return false
+  return normalizeVendorName(field).split(' ').includes(token)
 }
 
 function scoreAgainstField(targetTokens: Set<string>, candidate: string | null | undefined): number {
