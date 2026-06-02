@@ -79,9 +79,10 @@ interface BudgetGlOption {
 }
 
 const TABS: Array<{ key: string; label: string }> = [
+  // 'Pending review' folds in no-vendor drafts too — the audit checklist
+  // handles assigning the vendor, so they don't need a separate tab.
   { key: 'pending_review',    label: 'Pending review' },
   { key: 'ready_to_push',     label: 'Ready to push' },
-  { key: 'needs_vendor',      label: 'Needs vendor' },
   { key: 'duplicate_in_cinc', label: 'Duplicates' },
   { key: 'pushed_to_cinc',    label: 'Pushed' },
   { key: 'rejected',          label: 'Rejected' },
@@ -157,7 +158,8 @@ export default function InvoiceIntakeQueue(props: Props) {
       <div role="tablist" style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e5e7eb', marginBottom: 16 }}>
         {TABS.map(t => {
           const active = t.key === status
-          const count  = counts[t.key] ?? 0
+          // Pending review folds in no-vendor drafts (no separate tab).
+          const count  = (counts[t.key] ?? 0) + (t.key === 'pending_review' ? (counts['needs_vendor'] ?? 0) : 0)
           return (
             <button
               key={t.key}
@@ -1069,8 +1071,10 @@ function DraftCard(props: {
         />
       )}
 
-      {/* AP audit checklist — review each field, then mark ready to push. */}
-      {mode === 'view' && (draft.status === 'pending_review' || draft.status === 'ready_to_push') && (
+      {/* AP audit checklist — review each field, then mark ready to push.
+          Shown for no-vendor drafts too; the "Vendor" item reads missing
+          until they assign it in Edit. */}
+      {mode === 'view' && (draft.status === 'pending_review' || draft.status === 'ready_to_push' || draft.status === 'needs_vendor') && (
         <AuditChecklist
           draft={draft}
           onMutate={onMutate}
