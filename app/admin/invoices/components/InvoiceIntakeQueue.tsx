@@ -622,9 +622,11 @@ function DraftCard(props: {
 
   const dup     = auditCtx?.duplicate
   const hardDup = !!dup?.hasHardDuplicate
-  const glHint  = auditCtx?.suggestedGl?.glAccount ? `vendor’s usual GL: ${auditCtx.suggestedGl.glAccount}` : undefined
+  const glHint  = auditCtx?.suggestedGl?.glAccount
+    ? `usual GL: ${auditCtx.suggestedGl.glAccount}${auditCtx.suggestedGl.source ? ` (${auditCtx.suggestedGl.source})` : ''}`
+    : undefined
 
-  const REQUIRED_CHECKS = ['association', 'vendor', 'short_name', 'payment_method', 'gl_account', 'bank_account', 'scheduled_date', 'filename']
+  const REQUIRED_CHECKS = ['association', 'vendor', 'short_name', 'amount', 'payment_method', 'gl_account', 'bank_account', 'scheduled_date', 'filename']
   const requiredOk = REQUIRED_CHECKS.every(k => checked[k])
   const allReady   = requiredOk && !!checked['duplicate'] && !hardDup
 
@@ -658,10 +660,16 @@ function DraftCard(props: {
 
   return (
     <div style={{ border: '1px solid #e5e7eb', borderRadius: 6, padding: 16, background: '#fff' }}>
-      {draft.status === 'needs_vendor' && (
+      {draft.status === 'needs_vendor' && !vendorId && (
         <div style={{ padding: 8, marginBottom: 12, background: '#fef3c7', borderLeft: '3px solid #f59e0b', fontSize: 13 }}>
-          No CINC vendor matched <strong>{draft.extracted_vendor_name ?? '(unknown vendor)'}</strong>.
-          Create the vendor in CINC, then click <em>Re-match</em>.
+          No CINC vendor auto-matched for <strong>{draft.extracted_vendor_name ?? '(unknown vendor)'}</strong>.
+          Use the <em>Vendor (CINC)</em> box below to search by name <em>or DBA</em> and pick it, then
+          <strong> Save</strong>. If it isn&apos;t in CINC yet, create it there first.
+        </div>
+      )}
+      {draft.status === 'needs_vendor' && !!vendorId && (
+        <div style={{ padding: 8, marginBottom: 12, background: '#eff6ff', borderLeft: '3px solid #3b82f6', fontSize: 13 }}>
+          Vendor selected — click <strong>Save</strong> to assign it and move this invoice into the review queue.
         </div>
       )}
       {draft.status === 'duplicate_in_cinc' && (
@@ -821,7 +829,7 @@ function DraftCard(props: {
           )}
         </Field>
 
-        <Field label="Amount ($)">
+        <Field label="Amount ($)" right={fieldCheck('amount', !!amount)}>
           {mode === 'edit' ? (
             <input
               type="number"
@@ -1038,11 +1046,15 @@ function DraftCard(props: {
                     Budget fetch failed: {glError}
                   </div>
                 )}
-                {glHint && (
+                {glHint ? (
                   <div style={{ marginTop: 4, color: '#2563eb', fontSize: 11 }}>
                     💡 MAIA: {glHint}
                   </div>
-                )}
+                ) : (vendorId && auditCtx && (
+                  <div style={{ marginTop: 4, color: '#9ca3af', fontSize: 11 }}>
+                    No prior GL on file for this vendor — pick from the budget above.
+                  </div>
+                ))}
               </>
             ) : (
               <ReadOnlyValue value={glName} placeholder={assoc ? '— not set —' : '— pick association first —'} />
@@ -1369,9 +1381,10 @@ function btnDanger(): React.CSSProperties {
 // =====================================================================
 interface DupHit { source: string; invoiceNumber: string | null; amount: number | null; date: string | null; status: string | null; paid: boolean }
 interface VendorCtx {
-  suggestedGl: { glAccount: string | null; accountNumber: string | null } | null
+  suggestedGl: { glAccount: string | null; accountNumber: string | null; source?: string } | null
   recentPayments: Array<{ date: string | null; description: string | null; amount: number }>
   duplicate: { exact: DupHit[]; sameAmount: DupHit[]; anyPaid: boolean; hasHardDuplicate: boolean; amountLabel: string | null }
+  scanned?: { cincDuplicates: boolean; ledgerPayments: number; ourHistory: number }
 }
 
 function AuditFooter(props: {
@@ -1389,8 +1402,18 @@ function AuditFooter(props: {
   onUnready:   () => void
 }) {
   const { ctx, dupChecked, hardDup, onToggleDup, allReady, requiredOk, isReady, readyBy, busy, msg, onMarkReady, onUnready } = props
-  const dup     = ctx?.duplicate
-  const dupClear = dup && !hardDup && (dup.sameAmount.length === 0)
+  const dup      = ctx?.duplicate
+  const hasSame  = !!dup && dup.sameAmount.length > 0
+  const dupClear = !!dup && !hardDup && !hasSame
+  const sc       = ctx?.scanned
+  // Human description of everything the guard inspected.
+  const scannedLine = sc
+    ? [
+        sc.cincDuplicates ? 'CINC duplicate registry' : null,
+        `${sc.ledgerPayments} payment${sc.ledgerPayments === 1 ? '' : 's'} (6-mo ledger)`,
+        sc.ourHistory > 0 ? `${sc.ourHistory} prior MAIA invoice${sc.ourHistory === 1 ? '' : 's'}` : null,
+      ].filter(Boolean).join(' · ')
+    : null
 
   return (
     <div style={{ marginTop: 14, padding: 12, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6 }}>
@@ -1400,40 +1423,51 @@ function AuditFooter(props: {
 
       {/* System double-pay guard */}
       <div style={{ padding: '6px 8px', borderRadius: 4,
-        background: hardDup ? '#fef2f2' : (dup && dup.sameAmount.length > 0 ? '#fffbeb' : '#f0fdf4'),
-        border: `1px solid ${hardDup ? '#fecaca' : (dup && dup.sameAmount.length > 0 ? '#fde68a' : '#bbf7d0')}` }}>
+        background: hardDup ? '#fef2f2' : (hasSame ? '#fffbeb' : '#f0fdf4'),
+        border: `1px solid ${hardDup ? '#fecaca' : (hasSame ? '#fde68a' : '#bbf7d0')}` }}>
         <button onClick={onToggleDup} disabled={busy || hardDup}
           style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: hardDup ? 'not-allowed' : 'pointer', padding: 0 }}>
           <AuditDot on={hardDup ? true : dupChecked} ok={!hardDup} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: hardDup ? '#b91c1c' : (dup && dup.sameAmount.length > 0 ? '#92400e' : '#166534') }}>
-            Duplicate / double-pay check {!ctx ? '…' : ''}
+          <span style={{ fontSize: 13, fontWeight: 600, color: hardDup ? '#b91c1c' : (hasSame ? '#92400e' : '#166534') }}>
+            Duplicate / double-pay check {!ctx ? '— checking…' : ''}
           </span>
         </button>
+        {scannedLine && (
+          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3, marginLeft: 26 }}>
+            Checked: {scannedLine}.
+          </div>
+        )}
         {hardDup && (
           <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 4 }}>
             ⛔ Already in CINC{dup?.anyPaid ? ' (PAID)' : ''} — do NOT push:
             {dup?.exact.map((h, i) => <div key={i}>• #{h.invoiceNumber ?? '?'} {h.amount != null ? '· $' + h.amount.toLocaleString() : ''} · {h.source}{h.status ? ' · ' + h.status : ''}</div>)}
           </div>
         )}
-        {!hardDup && dup && dup.sameAmount.length > 0 && (
+        {!hardDup && hasSame && (
           <div style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>
-            ⚠ Same amount {dup.amountLabel} seen recently (verify it’s not a double — recurring vendors are OK):
-            {dup.sameAmount.slice(0, 5).map((h, i) => <div key={i}>• {h.date ?? '?'} · {h.amount != null ? '$' + h.amount.toLocaleString() : ''} · {h.source}</div>)}
+            ⚠ Found {dup!.sameAmount.length} payment{dup!.sameAmount.length === 1 ? '' : 's'} of the same amount {dup?.amountLabel} — verify this isn’t a double (recurring monthly vendors are normal):
+            {dup!.sameAmount.slice(0, 6).map((h, i) => <div key={i}>• {h.date ?? '?'} · {h.amount != null ? '$' + h.amount.toLocaleString() : ''} · {h.source}</div>)}
           </div>
         )}
-        {dupClear && <div style={{ fontSize: 12, color: '#166534', marginTop: 2 }}>No duplicate found. Tap to confirm.</div>}
+        {dupClear && <div style={{ fontSize: 12, color: '#166534', marginTop: 2 }}>✓ Checked all of the above — no duplicate or same-amount payment found. Tap to confirm.</div>}
       </div>
 
       {/* Recent payments context */}
-      {ctx && ctx.recentPayments.length > 0 && (
+      {ctx && (
         <div style={{ marginTop: 8 }}>
           <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: '#6b7280' }}>Vendor’s recent payments (this assoc)</div>
-          {ctx.recentPayments.map((p, i) => (
-            <div key={i} style={{ fontSize: 12, color: '#374151', display: 'flex', justifyContent: 'space-between' }}>
-              <span>{p.date ?? '?'} · {p.description ?? ''}</span>
-              <span style={{ fontFamily: 'ui-monospace, monospace' }}>${p.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+          {ctx.recentPayments.length > 0 ? (
+            ctx.recentPayments.map((p, i) => (
+              <div key={i} style={{ fontSize: 12, color: '#374151', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span>{p.date ?? '?'} · {p.description ?? ''}</span>
+                <span style={{ fontFamily: 'ui-monospace, monospace' }}>${p.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+              </div>
+            ))
+          ) : (
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>
+              None matched this vendor by name in the last 6 months{sc ? ` (scanned ${sc.ledgerPayments})` : ''}. CINC ledger lines often omit the vendor name — the amount check above still covers double-pays.
             </div>
-          ))}
+          )}
         </div>
       )}
 
