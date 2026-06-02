@@ -13,6 +13,8 @@
 // =====================================================================
 
 import { NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
+import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const dynamic = 'force-dynamic'
@@ -41,7 +43,7 @@ async function buildSignedUrls(paths: string[]): Promise<Map<string, string>> {
 }
 
 const VALID_STATUSES = new Set([
-  'pending_review', 'needs_vendor', 'duplicate_in_cinc', 'pushed_to_cinc', 'rejected',
+  'pending_review', 'ready_to_push', 'needs_vendor', 'duplicate_in_cinc', 'pushed_to_cinc', 'rejected',
 ])
 
 const SELECT_COLUMNS = `
@@ -53,6 +55,7 @@ const SELECT_COLUMNS = `
   pay_by_type, observation_note, work_order_number,
   pay_from_bank_account_id,
   extraction_confidence, status, rejected_reason,
+  audit_checklist, audit_ready_by, audit_ready_at,
   cinc_invoice_id, cinc_dup_invoice_id, pushed_at, pushed_by,
   created_at, updated_at
 `.replace(/\s+/g, ' ').trim()
@@ -124,6 +127,15 @@ interface PatchBody {
   observation_note?:           string | null
   work_order_number?:          number | null
   pay_from_bank_account_id?:   number | null
+  audit_checklist?:            Record<string, boolean> | null
+  status?:                     string   // 'ready_to_push' | 'pending_review'
+}
+
+async function staffEmail(): Promise<string | null> {
+  const t = (await cookies()).get(SESSION_COOKIE)?.value
+  const s = t ? await verifySession(t) : null
+  if (s?.persona !== 'staff') return null
+  return typeof s.userId === 'string' && s.userId.includes('@') ? s.userId.toLowerCase() : 'staff'
 }
 
 export async function PATCH(req: Request) {
@@ -142,7 +154,7 @@ export async function PATCH(req: Request) {
     'due_date', 'scheduled_pay_date',
     'gl_account_id', 'gl_account_name',
     'pay_by_type', 'observation_note', 'work_order_number',
-    'pay_from_bank_account_id',
+    'pay_from_bank_account_id', 'audit_checklist',
   ]
   for (const k of writable) {
     if (k in body) patch[k as string] = body[k] ?? null
@@ -150,6 +162,17 @@ export async function PATCH(req: Request) {
   // If Karen assigned a vendor, drop the needs_vendor status.
   if ('matched_cinc_vendor_id' in body && body.matched_cinc_vendor_id) {
     patch.status = 'pending_review'
+  }
+  // Audit-status transitions: ready_to_push stamps who/when; reverting to
+  // pending_review (un-readying for more edits) clears the stamp.
+  if (body.status === 'ready_to_push') {
+    patch.status = 'ready_to_push'
+    patch.audit_ready_by = await staffEmail()
+    patch.audit_ready_at = new Date().toISOString()
+  } else if (body.status === 'pending_review') {
+    patch.status = 'pending_review'
+    patch.audit_ready_by = null
+    patch.audit_ready_at = null
   }
 
   const { data, error } = await supabaseAdmin

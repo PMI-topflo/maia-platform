@@ -1058,6 +1058,35 @@ export async function getCincVendorDetail(vendorId: number): Promise<CincVendorD
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Vendor accounts — GET /management/1/vendor/{vendorId}/accounts.
+// Per association, the vendor's CINC account number + the GL account it's
+// normally booked to. Powers the invoice-intake "suggested GL line" (match
+// AssocCode to the invoice's association). Returns [] on 4xx.
+// ─────────────────────────────────────────────────────────────────────
+export interface CincVendorAccount {
+  assocCode:     string
+  accountNumber: string | null
+  glAccount:     string | null
+}
+
+export async function listVendorAccounts(vendorId: number): Promise<CincVendorAccount[]> {
+  const data = await call<Array<Record<string, unknown>>>(
+    `/management/1/vendor/${vendorId}/accounts`,
+    { method: 'GET' },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as Array<Record<string, unknown>>
+    }
+    throw err
+  })
+  return (data ?? []).map(r => ({
+    assocCode:     String(r.AssocCode ?? '').toUpperCase(),
+    accountNumber: r.AccountNumber != null ? String(r.AccountNumber).trim() || null : null,
+    glAccount:     r.GlAccount != null ? String(r.GlAccount).trim() || null : null,
+  }))
+}
+
 /** Fuzzy-match an extracted vendor name against the CINC catalog.
  *  For each vendor we score the extracted name against THREE candidate
  *  fields — VendorName, DBA, and CheckName — and keep the best score

@@ -86,6 +86,12 @@ export async function POST(
   if (draft.status === 'duplicate_in_cinc' && !body.pushAnyway) {
     return NextResponse.json({ error: 'duplicate flagged — set pushAnyway=true to override' }, { status: 409 })
   }
+  // Audit gate: the AP team must complete the checklist and mark the draft
+  // 'ready_to_push' before it can post to CINC (prevents un-reviewed /
+  // duplicate pushes). duplicate_in_cinc with pushAnyway is the only bypass.
+  if (draft.status !== 'ready_to_push' && !(draft.status === 'duplicate_in_cinc' && body.pushAnyway)) {
+    return NextResponse.json({ error: 'not ready — complete the audit checklist and mark “ready to push” first' }, { status: 409 })
+  }
   // Required-field gate.
   const missing: string[] = []
   if (!draft.extracted_invoice_number)   missing.push('invoice_number')
