@@ -95,6 +95,11 @@ function onGmailMessage(e) {
     card.addSection(suggestSection_(suggest));
   }
 
+  // Association picker at the TOP — it applies to everything below (create,
+  // send-to-Maia). Pre-selected from the suggestion. Pick by name.
+  var assocList = [];
+  try { assocList = (apiGet_('/api/addon/associations').associations) || []; } catch (aErr) { assocList = []; }
+  card.addSection(associationPickerSection_(assocList, suggest));
 
   // Matched ticket (if any) + quick status actions.
   if (data.matched) {
@@ -209,6 +214,29 @@ function suggestSection_(sg) {
   return s;
 }
 
+// Association picker at the top — a dropdown of every association by
+// CODE · Name, pre-selected from the suggestion. Field 'association_code'
+// is card-wide, so both Create and Send-invoice read it.
+function associationPickerSection_(assocList, suggest) {
+  suggest = suggest || {};
+  var selected = String(suggest.association || '').toUpperCase();
+  var s = CardService.newCardSection().setHeader('🏢 Association — applies to everything below');
+  var dd = CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
+    .setTitle('Association').setFieldName('association_code');
+  var matched = false;
+  (assocList || []).forEach(function (a) {
+    if (a && a.code) {
+      var isSel = a.code.toUpperCase() === selected;
+      if (isSel) matched = true;
+      dd.addItem(a.code + ' · ' + (a.name || ''), a.code, isSel);
+    }
+  });
+  // Blank first option, selected when nothing matched the suggestion.
+  dd.addItem('— choose association —', '', !matched);
+  s.addWidget(dd);
+  return s;
+}
+
 function createSection_(ctx, data, suggest, staffList) {
   suggest = suggest || {};
   staffList = staffList || [];
@@ -234,9 +262,8 @@ function createSection_(ctx, data, suggest, staffList) {
   });
   s.addWidget(assignInput);
 
-  s.addWidget(CardService.newTextInput().setFieldName('association_code').setTitle('Association code')
-    .setValue(suggest.association || data.association || ''));
-
+  // Association is chosen in the picker at the top of the card (its value
+  // is card-wide), so it's not repeated here.
   s.addWidget(CardService.newTextInput().setFieldName('subject').setTitle('Subject')
     .setValue(ctx.subject || ''));
 
@@ -248,10 +275,10 @@ function createSection_(ctx, data, suggest, staffList) {
       .setParameters({ threadId: ctx.threadId, email: ctx.email, contactName: ctx.name || '' })));
 
   // Or send the invoice to Maia: forwards THIS email (keeps the PDF) to
-  // maia@ with "@maia upload this invoice #<association above>". Uses the
-  // Association code field above. Lands as a draft to review + Send.
+  // maia@ with "@maia upload this invoice #<association picked at top>".
+  // Lands as a draft to review + Send.
   s.addWidget(CardService.newTextParagraph().setText(
-    '<font color="#6b7280">Invoice? Use the Association code above, then:</font>'));
+    '<font color="#6b7280">Invoice? Pick the Association at the top, then:</font>'));
   s.addWidget(CardService.newTextButton().setText('📤 Send invoice to Maia')
     .setOnClickAction(CardService.newAction().setFunctionName('forwardToMaiaAction')
       .setParameters({})));
@@ -410,17 +437,9 @@ function forwardToMaiaAction(e) {
     var assoc = strInput_(f, 'association_code') || p.association || '';
     var trigger = '@maia upload this invoice' + (assoc ? (' #' + assoc) : ' #CODE');
 
-    // Collect real attachments (skip inline logos). If the open message has
-    // none, scan the rest of the thread — the PDF is often on the original
-    // when you're viewing a reply.
-    var opts = { includeInlineImages: false, includeAttachments: true };
-    var atts = msg.getAttachments(opts);
-    if (!atts.length) {
-      var msgs = msg.getThread().getMessages();
-      for (var i = msgs.length - 1; i >= 0 && !atts.length; i--) {
-        atts = msgs[i].getAttachments(opts);
-      }
-    }
+    // Real attachments on the open message (skip inline logos). Only the
+    // current message — reading the whole thread needs a broad Gmail scope.
+    var atts = msg.getAttachments({ includeInlineImages: false, includeAttachments: true });
 
     var html = '<p>' + trigger + '</p><hr>' + (msg.getBody() || '');
     GmailApp.createDraft('maia@pmitop.com', 'Fwd: ' + (msg.getSubject() || ''), trigger, {
