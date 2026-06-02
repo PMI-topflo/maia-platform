@@ -11,7 +11,8 @@
 // drills down on demand.
 // =====================================================================
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 // ─── shared row types (also imported by the server page) ──────────────
@@ -195,6 +196,21 @@ function SourceChip({ source }: { source: FileSource }) {
 export default function ControlPanel(props: Props) {
   const { counts, myTasks, workOrders, invoiceDrafts, buildingItems, unitItems, teamAlerts, recentCommands, recurring } = props
   const [open, setOpen] = useState<DrawerId | null>(null)
+  const router = useRouter()
+
+  // Keep the panel live — it's a leave-it-open dashboard, but it's
+  // server-rendered and won't otherwise reflect new invoices/tickets/alerts
+  // until a manual reload. Re-pull the server data every 60s (only while the
+  // tab is visible). router.refresh() preserves client state, so an open
+  // drawer stays open and there's no flicker.
+  useEffect(() => {
+    const tick = () => { if (document.visibilityState === 'visible') router.refresh() }
+    const id = setInterval(tick, 60_000)
+    // Also refresh the moment the tab regains focus after being away.
+    const onVis = () => { if (document.visibilityState === 'visible') router.refresh() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis) }
+  }, [router])
 
   const overdue = (items: ComplianceItem[]) => items.filter(i => daysUntil(i.date) < 0).length
   const soon = (items: ComplianceItem[]) => items.filter(i => { const d = daysUntil(i.date); return d >= 0 && d <= 30 }).length
