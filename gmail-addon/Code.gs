@@ -274,14 +274,14 @@ function createSection_(ctx, data, suggest, staffList) {
     .setOnClickAction(CardService.newAction().setFunctionName('createTicketAction')
       .setParameters({ threadId: ctx.threadId, email: ctx.email, contactName: ctx.name || '' })));
 
-  // Or send the invoice to Maia: forwards THIS email (keeps the PDF) to
-  // maia@ with "@maia upload this invoice #<association picked at top>".
-  // Lands as a draft to review + Send.
+  // Invoice upload guidance. A one-click forward needs restricted Gmail
+  // scopes (readonly + compose) that the Workspace hasn't fully granted, so
+  // we point staff to Gmail's native Forward — which keeps the PDF (a Reply
+  // drops it) and is 100% reliable.
   s.addWidget(CardService.newTextParagraph().setText(
-    '<font color="#6b7280">Invoice? Pick the Association at the top, then:</font>'));
-  s.addWidget(CardService.newTextButton().setText('📤 Send invoice to Maia')
-    .setOnClickAction(CardService.newAction().setFunctionName('forwardToMaiaAction')
-      .setParameters({})));
+    '<b>Invoice?</b> Click Gmail’s <b>Forward</b> (not Reply — Reply drops the PDF) to ' +
+    '<b>maia@pmitop.com</b>, and type <font color="#f26a1b">@maia upload this invoice #' +
+    '&lt;code&gt;</font> in the body (use the Association code above).'));
   return s;
 }
 
