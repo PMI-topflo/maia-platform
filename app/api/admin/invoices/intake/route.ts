@@ -13,9 +13,40 @@
 // =====================================================================
 
 import { NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
+import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { sendEmail } from '@/lib/gmail'
+import { resolveStaffByLoginEmail, trustedDomainVariants } from '@/lib/staff-lookup'
 
 export const dynamic = 'force-dynamic'
+
+const APP_URL        = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
+const KAREN_ALERT_TO = process.env.MAIA_BILLING_ALERT_TO ?? 'billing@topfloridaproperties.com'
+
+/** When someone OTHER than Karen marks a draft ready, email Karen that it's
+ *  ready for her approval + a link to the audit screen. Best-effort. */
+async function notifyKarenReady(row: Record<string, unknown>, markerEmail: string | null): Promise<void> {
+  if (!markerEmail) return
+  // Karen (billing@) marking her own — no email needed.
+  const karen = new Set(trustedDomainVariants(KAREN_ALERT_TO).map(e => e.toLowerCase()))
+  if (karen.has(markerEmail.toLowerCase())) return
+
+  let who = markerEmail
+  try { const st = await resolveStaffByLoginEmail(markerEmail); if (st?.name) who = st.name } catch { /* fall back to email */ }
+
+  const vendor = String(row.matched_vendor_name ?? row.matched_vendor_short_name ?? 'vendor')
+  const inv    = String(row.extracted_invoice_number ?? '(no #)')
+  const amt    = row.extracted_amount != null ? '$' + Number(row.extracted_amount).toLocaleString('en-US', { minimumFractionDigits: 2 }) : ''
+  const assoc  = String(row.extracted_association_code ?? '')
+  const link   = `${APP_URL}/admin/invoices?status=ready_to_push`
+  const subject = `Invoice ready for your approval — ${vendor} #${inv}${amt ? ' · ' + amt : ''}`
+  const html = `<p><strong>${who}</strong> finished auditing this invoice — it's <strong>ready for your approval</strong>.</p>
+    <p>${vendor} · #${inv}${amt ? ' · ' + amt : ''}${assoc ? ' · ' + assoc : ''}</p>
+    <p style="margin:18px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:11px 20px;border-radius:6px;font-weight:600">Open the audit &amp; push to CINC →</a></p>
+    <p style="color:#6b7280;font-size:12px">${link}</p>`
+  await sendEmail({ to: KAREN_ALERT_TO, subject, html })
+}
 
 const PDF_BUCKET           = 'invoice-intake-pdfs'
 const PDF_SIGNED_URL_TTL_S = 60 * 60   // 1 hour — matches the server page load
@@ -41,7 +72,7 @@ async function buildSignedUrls(paths: string[]): Promise<Map<string, string>> {
 }
 
 const VALID_STATUSES = new Set([
-  'pending_review', 'needs_vendor', 'duplicate_in_cinc', 'pushed_to_cinc', 'rejected',
+  'pending_review', 'ready_to_push', 'needs_vendor', 'duplicate_in_cinc', 'pushed_to_cinc', 'rejected',
 ])
 
 const SELECT_COLUMNS = `
@@ -53,6 +84,7 @@ const SELECT_COLUMNS = `
   pay_by_type, observation_note, work_order_number,
   pay_from_bank_account_id,
   extraction_confidence, status, rejected_reason,
+  audit_checklist, audit_ready_by, audit_ready_at,
   cinc_invoice_id, cinc_dup_invoice_id, pushed_at, pushed_by,
   created_at, updated_at
 `.replace(/\s+/g, ' ').trim()
@@ -124,6 +156,15 @@ interface PatchBody {
   observation_note?:           string | null
   work_order_number?:          number | null
   pay_from_bank_account_id?:   number | null
+  audit_checklist?:            Record<string, boolean> | null
+  status?:                     string   // 'ready_to_push' | 'pending_review'
+}
+
+async function staffEmail(): Promise<string | null> {
+  const t = (await cookies()).get(SESSION_COOKIE)?.value
+  const s = t ? await verifySession(t) : null
+  if (s?.persona !== 'staff') return null
+  return typeof s.userId === 'string' && s.userId.includes('@') ? s.userId.toLowerCase() : 'staff'
 }
 
 export async function PATCH(req: Request) {
@@ -142,7 +183,7 @@ export async function PATCH(req: Request) {
     'due_date', 'scheduled_pay_date',
     'gl_account_id', 'gl_account_name',
     'pay_by_type', 'observation_note', 'work_order_number',
-    'pay_from_bank_account_id',
+    'pay_from_bank_account_id', 'audit_checklist',
   ]
   for (const k of writable) {
     if (k in body) patch[k as string] = body[k] ?? null
@@ -150,6 +191,17 @@ export async function PATCH(req: Request) {
   // If Karen assigned a vendor, drop the needs_vendor status.
   if ('matched_cinc_vendor_id' in body && body.matched_cinc_vendor_id) {
     patch.status = 'pending_review'
+  }
+  // Audit-status transitions: ready_to_push stamps who/when; reverting to
+  // pending_review (un-readying for more edits) clears the stamp.
+  if (body.status === 'ready_to_push') {
+    patch.status = 'ready_to_push'
+    patch.audit_ready_by = await staffEmail()
+    patch.audit_ready_at = new Date().toISOString()
+  } else if (body.status === 'pending_review') {
+    patch.status = 'pending_review'
+    patch.audit_ready_by = null
+    patch.audit_ready_at = null
   }
 
   const { data, error } = await supabaseAdmin
@@ -161,6 +213,10 @@ export async function PATCH(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   // Re-attach the preview URL so the card keeps showing the PDF after an edit.
   const row = (data ?? null) as unknown as IntakeDraftRow | null
+  // Notify Karen when a non-Karen staffer just marked this ready (best-effort).
+  if (patch.status === 'ready_to_push' && row) {
+    void notifyKarenReady(row, (patch.audit_ready_by as string | null) ?? null).catch(() => null)
+  }
   const signed = row?.pdf_storage_key ? await buildSignedUrls([row.pdf_storage_key]) : null
   const draft = { ...row, pdf_signed_url: row?.pdf_storage_key ? (signed?.get(row.pdf_storage_key) ?? null) : null }
   return NextResponse.json({ draft })

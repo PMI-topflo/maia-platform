@@ -580,7 +580,7 @@ CREATE INDEX IF NOT EXISTS tickets_category_idx
   extraction_confidence      real,
   -- State machine:
   status                     text NOT NULL CHECK (status IN
-                               ('pending_review','needs_vendor','duplicate_in_cinc',
+                               ('pending_review','ready_to_push','needs_vendor','duplicate_in_cinc',
                                 'pushed_to_cinc','rejected')),
   rejected_reason            text,
   -- Post-push:
@@ -1205,6 +1205,22 @@ NOTIFY pgrst, 'reload schema';`,
 alter table public.recurring_services drop constraint if exists recurring_services_cadence_check;
 alter table public.recurring_services
   add constraint recurring_services_cadence_check check (cadence in ('daily','weekly','biweekly','monthly'));
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'invoice_intake_audit_checklist',
+    label:       'Invoice intake audit checklist',
+    description: 'invoice_intake_drafts.audit_checklist (jsonb per-field checks) + audit_ready_by/at + status \'ready_to_push\' — AP team green-checks each field before Karen can push.',
+    filename:    '20260602_invoice_intake_audit_checklist.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'audit_checklist' },
+    sql: `alter table public.invoice_intake_drafts
+  add column if not exists audit_checklist jsonb       not null default '{}'::jsonb,
+  add column if not exists audit_ready_by  text,
+  add column if not exists audit_ready_at  timestamptz;
+alter table public.invoice_intake_drafts drop constraint if exists invoice_intake_drafts_status_check;
+alter table public.invoice_intake_drafts
+  add constraint invoice_intake_drafts_status_check check (status in
+    ('pending_review','ready_to_push','needs_vendor','duplicate_in_cinc','pushed_to_cinc','rejected'));
 NOTIFY pgrst, 'reload schema';`,
   },
   {

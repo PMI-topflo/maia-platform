@@ -36,6 +36,9 @@ interface Draft {
   pay_from_bank_account_id:    number | null
   extraction_confidence:       number | null
   status:                      string
+  audit_checklist:             Record<string, boolean> | null
+  audit_ready_by:              string | null
+  audit_ready_at:              string | null
   rejected_reason:             string | null
   cinc_invoice_id:             string | null
   cinc_dup_invoice_id:         string | null
@@ -77,6 +80,7 @@ interface BudgetGlOption {
 
 const TABS: Array<{ key: string; label: string }> = [
   { key: 'pending_review',    label: 'Pending review' },
+  { key: 'ready_to_push',     label: 'Ready to push' },
   { key: 'needs_vendor',      label: 'Needs vendor' },
   { key: 'duplicate_in_cinc', label: 'Duplicates' },
   { key: 'pushed_to_cinc',    label: 'Pushed' },
@@ -1065,6 +1069,19 @@ function DraftCard(props: {
         />
       )}
 
+      {/* AP audit checklist — review each field, then mark ready to push. */}
+      {mode === 'view' && (draft.status === 'pending_review' || draft.status === 'ready_to_push') && (
+        <AuditChecklist
+          draft={draft}
+          onMutate={onMutate}
+          values={{
+            assoc, vendorId, shortName, payBy, glId, bankId, dueDate, schedDate, woNumber, invNo, amount,
+            vendorName: matchedVendor?.name ?? draft.matched_vendor_name ?? '',
+            filename: buildFilenamePreview({ assoc, short: shortName, invNo, amount }),
+          }}
+        />
+      )}
+
       {!readOnly && (
         <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {mode === 'view' ? (
@@ -1073,9 +1090,10 @@ function DraftCard(props: {
               {draft.status === 'needs_vendor' && (
                 <button onClick={rematch} disabled={busy} style={btnSecondary()}>Re-match vendor</button>
               )}
-              {draft.status === 'duplicate_in_cinc' ? (
+              {draft.status === 'duplicate_in_cinc' && (
                 <button onClick={() => push(true)} disabled={busy} style={btnPrimary()}>Push anyway</button>
-              ) : (
+              )}
+              {draft.status === 'ready_to_push' && (
                 <button onClick={() => push(false)} disabled={busy} style={btnPrimary()}>Push to CINC</button>
               )}
               <button onClick={reject} disabled={busy} style={btnDanger()}>Reject</button>
@@ -1221,6 +1239,163 @@ function btnSecondary(): React.CSSProperties {
 }
 function btnDanger(): React.CSSProperties {
   return { padding: '8px 14px', background: '#fff', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: 4, cursor: 'pointer', fontSize: 13 }
+}
+
+// =====================================================================
+// AuditChecklist — the AP team (Karen / Jonathan / Isabela) green-checks
+// each field, then marks the draft "ready to push". Karen can only push a
+// ready draft. Also runs a system double-pay guard (exact dup + same-$).
+// =====================================================================
+interface DupHit { source: string; invoiceNumber: string | null; amount: number | null; date: string | null; status: string | null; paid: boolean }
+interface VendorCtx {
+  suggestedGl: { glAccount: string | null; accountNumber: string | null } | null
+  recentPayments: Array<{ date: string | null; description: string | null; amount: number }>
+  duplicate: { exact: DupHit[]; sameAmount: DupHit[]; anyPaid: boolean; hasHardDuplicate: boolean; amountLabel: string | null }
+}
+
+function AuditChecklist(props: {
+  draft:   Draft
+  values:  { assoc: string; vendorId: string; shortName: string; payBy: string; glId: string; bankId: string; dueDate: string; schedDate: string; woNumber: string; invNo: string; amount: string; vendorName: string; filename: string }
+  onMutate: () => void
+}) {
+  const { draft, values, onMutate } = props
+  const [checked, setChecked] = useState<Record<string, boolean>>(draft.audit_checklist ?? {})
+  const [ctx, setCtx]   = useState<VendorCtx | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg]   = useState<string | null>(null)
+  const isReady = draft.status === 'ready_to_push'
+
+  useEffect(() => {
+    if (!values.vendorId || !values.assoc) { setCtx(null); return }
+    const p = new URLSearchParams({
+      vendorId: values.vendorId, assoc: values.assoc, vendorName: values.vendorName,
+      invoiceNumber: values.invNo, amount: values.amount, draftId: String(draft.id),
+    })
+    let live = true
+    fetch(`/api/admin/invoices/intake/vendor-context?${p.toString()}`, { cache: 'no-store' })
+      .then(r => r.json()).then(d => { if (live) setCtx(d) }).catch(() => { if (live) setCtx(null) })
+    return () => { live = false }
+  }, [values.vendorId, values.assoc, values.invNo, values.amount, values.vendorName, draft.id])
+
+  const dup     = ctx?.duplicate
+  const hardDup = !!dup?.hasHardDuplicate
+  const glHint  = ctx?.suggestedGl?.glAccount ? `vendor’s usual GL: ${ctx.suggestedGl.glAccount}` : undefined
+
+  const items: Array<{ id: string; label: string; present: boolean; required: boolean; hint?: string }> = [
+    { id: 'association',    label: 'Association',                 present: !!values.assoc,     required: true },
+    { id: 'vendor',         label: 'Vendor',                      present: !!values.vendorId,  required: true },
+    { id: 'short_name',     label: 'Short name',                  present: !!values.shortName, required: true },
+    { id: 'payment_method', label: 'Payment method',              present: !!values.payBy,     required: true },
+    { id: 'gl_account',     label: 'GL account',                  present: !!values.glId,      required: true, hint: glHint },
+    { id: 'bank_account',   label: 'Pay-from bank account',       present: !!values.bankId,    required: true },
+    { id: 'due_date',       label: 'Payment due date',            present: !!values.dueDate,   required: false },
+    { id: 'scheduled_date', label: 'Scheduled pay date (funds?)', present: !!values.schedDate, required: true },
+    { id: 'work_order',     label: 'Work order #',                present: !!values.woNumber,  required: false },
+    { id: 'filename',       label: 'Will be saved as',            present: !!values.filename,  required: true },
+  ]
+
+  const requiredOk = items.filter(i => i.required).every(i => checked[i.id])
+  const allReady   = requiredOk && !!checked['duplicate'] && !hardDup
+
+  async function persist(next: Record<string, boolean>, statusChange?: string) {
+    setBusy(true); setMsg(null)
+    try {
+      const body: Record<string, unknown> = { id: draft.id, audit_checklist: next }
+      if (statusChange) body.status = statusChange
+      const res = await fetch('/api/admin/invoices/intake', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      if (statusChange) onMutate()
+    } catch (e) { setMsg(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
+  }
+
+  function toggle(id: string, present: boolean) {
+    if (id === 'duplicate' && hardDup) { setMsg('Hard duplicate — cannot clear. Reject this draft instead.'); return }
+    if (!present && !checked[id]) { setMsg(`Fill that field in Edit first.`); return }
+    const next = { ...checked, [id]: !checked[id] }
+    setChecked(next); void persist(next)
+  }
+
+  const dupClear = dup && !hardDup && (dup.sameAmount.length === 0)
+  const Dot = ({ on, ok = true }: { on: boolean; ok?: boolean }) => (
+    <span style={{ display: 'inline-flex', width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center',
+      fontSize: 12, fontWeight: 700, color: on ? '#fff' : '#9ca3af', background: on ? (ok ? '#16a34a' : '#dc2626') : '#e5e7eb' }}>
+      {on ? '✓' : '○'}
+    </span>
+  )
+
+  return (
+    <div style={{ marginTop: 14, padding: 12, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: '#374151', marginBottom: 8 }}>
+        ✅ Audit checklist — verify each item before pushing
+      </div>
+
+      {items.map(it => (
+        <button key={it.id} onClick={() => toggle(it.id, it.present)} disabled={busy}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0' }}>
+          <Dot on={!!checked[it.id]} />
+          <span style={{ fontSize: 13, color: checked[it.id] ? '#111827' : '#374151', fontWeight: checked[it.id] ? 600 : 400 }}>{it.label}</span>
+          {!it.required && <span style={{ fontSize: 10, color: '#9ca3af' }}>optional</span>}
+          {!it.present && <span style={{ fontSize: 11, color: '#b45309' }}>— missing</span>}
+          {it.hint && <span style={{ fontSize: 11, color: '#2563eb' }}>· {it.hint}</span>}
+        </button>
+      ))}
+
+      {/* System double-pay guard */}
+      <div style={{ marginTop: 6, padding: '6px 8px', borderRadius: 4,
+        background: hardDup ? '#fef2f2' : (dup && dup.sameAmount.length > 0 ? '#fffbeb' : '#f0fdf4'),
+        border: `1px solid ${hardDup ? '#fecaca' : (dup && dup.sameAmount.length > 0 ? '#fde68a' : '#bbf7d0')}` }}>
+        <button onClick={() => toggle('duplicate', true)} disabled={busy || hardDup}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: hardDup ? 'not-allowed' : 'pointer', padding: 0 }}>
+          <Dot on={hardDup ? true : !!checked['duplicate']} ok={!hardDup} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: hardDup ? '#b91c1c' : (dup && dup.sameAmount.length > 0 ? '#92400e' : '#166534') }}>
+            Duplicate / double-pay check {!ctx ? '…' : ''}
+          </span>
+        </button>
+        {hardDup && (
+          <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 4 }}>
+            ⛔ Already in CINC{dup?.anyPaid ? ' (PAID)' : ''} — do NOT push:
+            {dup?.exact.map((h, i) => <div key={i}>• #{h.invoiceNumber ?? '?'} {h.amount != null ? '· $' + h.amount.toLocaleString() : ''} · {h.source}{h.status ? ' · ' + h.status : ''}</div>)}
+          </div>
+        )}
+        {!hardDup && dup && dup.sameAmount.length > 0 && (
+          <div style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>
+            ⚠ Same amount {dup.amountLabel} seen recently (verify it’s not a double — recurring vendors are OK):
+            {dup.sameAmount.slice(0, 5).map((h, i) => <div key={i}>• {h.date ?? '?'} · {h.amount != null ? '$' + h.amount.toLocaleString() : ''} · {h.source}</div>)}
+          </div>
+        )}
+        {dupClear && <div style={{ fontSize: 12, color: '#166534', marginTop: 2 }}>No duplicate found. Tap to confirm.</div>}
+      </div>
+
+      {/* Recent payments context */}
+      {ctx && ctx.recentPayments.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: '#6b7280' }}>Vendor’s recent payments (this assoc)</div>
+          {ctx.recentPayments.map((p, i) => (
+            <div key={i} style={{ fontSize: 12, color: '#374151', display: 'flex', justifyContent: 'space-between' }}>
+              <span>{p.date ?? '?'} · {p.description ?? ''}</span>
+              <span style={{ fontFamily: 'ui-monospace, monospace' }}>${p.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Ready toggle */}
+      <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+        {isReady ? (
+          <>
+            <span style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>✓ Ready to push{draft.audit_ready_by ? ` · by ${draft.audit_ready_by}` : ''}</span>
+            <button onClick={() => persist(checked, 'pending_review')} disabled={busy} style={btnSecondary()}>Un-ready (edit more)</button>
+          </>
+        ) : (
+          <button onClick={() => persist(checked, 'ready_to_push')} disabled={busy || !allReady} style={allReady ? btnPrimary() : btnSecondary()}>
+            {allReady ? 'Mark ready to push →' : 'Complete all checks to enable'}
+          </button>
+        )}
+      </div>
+      {msg && <div style={{ marginTop: 6, fontSize: 12, color: '#b91c1c' }}>{msg}</div>}
+    </div>
+  )
 }
 
 // =====================================================================
