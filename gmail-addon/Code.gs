@@ -274,13 +274,14 @@ function createSection_(ctx, data, suggest, staffList) {
     .setOnClickAction(CardService.newAction().setFunctionName('createTicketAction')
       .setParameters({ threadId: ctx.threadId, email: ctx.email, contactName: ctx.name || '' })));
 
-  // Invoice upload guidance. (A one-click forward needs restricted Gmail
-  // scopes the Workspace must admin-trust first; until then, use Gmail's
-  // native Forward — which keeps the PDF that a Reply would drop.)
+  // One-click: forward THIS email to maia@ (keeps the PDF) with
+  // "@maia upload this invoice #<association picked above>". Creates a
+  // draft to review + Send. Needs the admin-trusted readonly+compose scopes.
   s.addWidget(CardService.newTextParagraph().setText(
-    '<b>Invoice?</b> Use Gmail’s <b>Forward</b> (not Reply — Reply drops the PDF) to ' +
-    '<b>maia@pmitop.com</b>, and put <font color="#f26a1b">@maia upload this invoice #' +
-    '&lt;association&gt;</font> in the body. Pick the association from the dropdown above for the code.'));
+    '<font color="#6b7280">Invoice? Pick the Association at the top, then:</font>'));
+  s.addWidget(CardService.newTextButton().setText('📤 Send invoice to Maia')
+    .setOnClickAction(CardService.newAction().setFunctionName('forwardToMaiaAction')
+      .setParameters({})));
   return s;
 }
 
