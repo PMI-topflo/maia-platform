@@ -79,11 +79,11 @@ interface BudgetGlOption {
 }
 
 const TABS: Array<{ key: string; label: string }> = [
-  // 'Pending review' folds in no-vendor drafts too — the audit checklist
-  // handles assigning the vendor, so they don't need a separate tab.
+  // 'Pending review' folds in no-vendor AND CINC-duplicate drafts — the
+  // audit checklist assigns the vendor and its duplicate guard hard-blocks
+  // marking a duplicate ready, so neither needs its own tab.
   { key: 'pending_review',    label: 'Pending review' },
   { key: 'ready_to_push',     label: 'Ready to push' },
-  { key: 'duplicate_in_cinc', label: 'Duplicates' },
   { key: 'pushed_to_cinc',    label: 'Pushed' },
   { key: 'rejected',          label: 'Rejected' },
 ]
@@ -158,8 +158,8 @@ export default function InvoiceIntakeQueue(props: Props) {
       <div role="tablist" style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e5e7eb', marginBottom: 16 }}>
         {TABS.map(t => {
           const active = t.key === status
-          // Pending review folds in no-vendor drafts (no separate tab).
-          const count  = (counts[t.key] ?? 0) + (t.key === 'pending_review' ? (counts['needs_vendor'] ?? 0) : 0)
+          // Pending review folds in no-vendor + CINC-duplicate drafts (no separate tabs).
+          const count  = (counts[t.key] ?? 0) + (t.key === 'pending_review' ? ((counts['needs_vendor'] ?? 0) + (counts['duplicate_in_cinc'] ?? 0)) : 0)
           return (
             <button
               key={t.key}
@@ -661,7 +661,7 @@ function DraftCard(props: {
     } catch (e) { setAuditMsg(e instanceof Error ? e.message : String(e)) } finally { setAuditBusy(false) }
   }
 
-  const showAudit = !readOnly && (draft.status === 'pending_review' || draft.status === 'ready_to_push' || draft.status === 'needs_vendor')
+  const showAudit = !readOnly && (draft.status === 'pending_review' || draft.status === 'ready_to_push' || draft.status === 'needs_vendor' || draft.status === 'duplicate_in_cinc')
   const isReady   = draft.status === 'ready_to_push'
 
   // Per-field check toggle, shown beside a field only while auditing.

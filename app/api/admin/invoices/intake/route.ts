@@ -111,8 +111,9 @@ export async function GET(req: Request) {
     .order('created_at', { ascending: false })
     .limit(limit)
 
-  // 'Pending review' folds in no-vendor drafts (no separate tab anymore).
-  if (status === 'pending_review')      query = query.in('status', ['pending_review', 'needs_vendor'])
+  // 'Pending review' folds in no-vendor + CINC-duplicate drafts (no separate
+  // tabs); the audit checklist handles vendor assignment + the duplicate guard.
+  if (status === 'pending_review')      query = query.in('status', ['pending_review', 'needs_vendor', 'duplicate_in_cinc'])
   else if (status !== 'all')            query = query.eq('status', status)
 
   const { data, error } = await query
