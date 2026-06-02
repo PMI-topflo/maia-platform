@@ -111,7 +111,9 @@ export async function GET(req: Request) {
     .order('created_at', { ascending: false })
     .limit(limit)
 
-  if (status !== 'all') query = query.eq('status', status)
+  // 'Pending review' folds in no-vendor drafts (no separate tab anymore).
+  if (status === 'pending_review')      query = query.in('status', ['pending_review', 'needs_vendor'])
+  else if (status !== 'all')            query = query.eq('status', status)
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
