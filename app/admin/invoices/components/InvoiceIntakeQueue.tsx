@@ -1239,6 +1239,14 @@ function Field({ label, children, right }: { label: string; children: React.Reac
 // fills the value and confirms it in the same place (no separate checklist
 // section). Green when audited; greyed "—" until the field has a value.
 function CheckToggle({ on, present, disabled, onToggle }: { on: boolean; present: boolean; disabled?: boolean; onToggle: () => void }) {
+  // Three visual states, high-contrast so the un-confirmed pills are easy to
+  // spot: solid GREEN once audited, solid AMBER "Confirm" call-to-action when
+  // the field has a value, muted grey "Fill first" when it's still empty.
+  const style: React.CSSProperties = on
+    ? { background: '#16a34a', border: '2px solid #15803d', color: '#fff' }
+    : present
+      ? { background: '#f59e0b', border: '2px solid #d97706', color: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }
+      : { background: '#f3f4f6', border: '2px dashed #d1d5db', color: '#9ca3af' }
   return (
     <button
       type="button"
@@ -1247,14 +1255,13 @@ function CheckToggle({ on, present, disabled, onToggle }: { on: boolean; present
       title={on ? 'Audited — click to un-confirm' : present ? 'Confirm this field is correct' : 'Fill this field first'}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 5,
-        border: `1px solid ${on ? '#16a34a' : present ? '#d1d5db' : '#e5e7eb'}`,
-        background: on ? '#16a34a' : '#fff',
-        color: on ? '#fff' : present ? '#374151' : '#9ca3af',
-        borderRadius: 14, padding: '2px 9px', fontSize: 11, fontWeight: 600,
-        cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', lineHeight: 1.4,
+        borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 700,
+        cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', lineHeight: 1.3,
+        ...style,
       }}
     >
-      <span style={{ fontSize: 12 }}>{on ? '✓' : '○'}</span>{on ? 'Audited' : present ? 'Confirm' : '—'}
+      <span style={{ fontSize: 13 }}>{on ? '✓' : present ? '☐' : '○'}</span>
+      {on ? 'Audited' : present ? 'Confirm' : 'Fill first'}
     </button>
   )
 }
