@@ -1389,7 +1389,7 @@ function btnDanger(): React.CSSProperties {
 interface DupHit { source: string; invoiceNumber: string | null; amount: number | null; date: string | null; status: string | null; paid: boolean }
 interface VendorCtx {
   suggestedGl: { glAccount: string | null; accountNumber: string | null; source?: string } | null
-  recentPayments: Array<{ date: string | null; description: string | null; amount: number }>
+  recentPayments: Array<{ date: string | null; description: string | null; amount: number; matchedByName?: boolean }>
   duplicate: { exact: DupHit[]; sameAmount: DupHit[]; anyPaid: boolean; hasHardDuplicate: boolean; amountLabel: string | null }
   scanned?: { cincDuplicates: boolean; ledgerPayments: number; ourHistory: number }
 }
@@ -1462,17 +1462,24 @@ function AuditFooter(props: {
       {/* Recent payments context */}
       {ctx && (
         <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: '#6b7280' }}>Vendor’s recent payments (this assoc)</div>
+          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: '#6b7280' }}>
+            Recent payments (this assoc, 6 mo){sc ? ` · scanned ${sc.ledgerPayments}` : ''}
+          </div>
           {ctx.recentPayments.length > 0 ? (
             ctx.recentPayments.map((p, i) => (
               <div key={i} style={{ fontSize: 12, color: '#374151', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span>{p.date ?? '?'} · {p.description ?? ''}</span>
+                <span>
+                  {p.date ?? '?'} · {p.description ?? ''}
+                  {p.matchedByName
+                    ? <span style={{ color: '#16a34a', fontSize: 10 }}> · name match</span>
+                    : <span style={{ color: '#b45309', fontSize: 10 }}> · same amount</span>}
+                </span>
                 <span style={{ fontFamily: 'ui-monospace, monospace' }}>${p.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
               </div>
             ))
           ) : (
             <div style={{ fontSize: 12, color: '#9ca3af' }}>
-              None matched this vendor by name in the last 6 months{sc ? ` (scanned ${sc.ledgerPayments})` : ''}. CINC ledger lines often omit the vendor name — the amount check above still covers double-pays.
+              No payments by name or matching amount in the last 6 months{sc ? ` (scanned ${sc.ledgerPayments})` : ''}. CINC ledger lines often omit the vendor name.
             </div>
           )}
         </div>

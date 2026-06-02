@@ -109,7 +109,13 @@ export async function GET(req: Request) {
   let ledgerScanned = 0
   try {
     const banks = await listAssociationBankAccounts(assoc)
-    const operating = banks.find(b => b.kind === 'operating') ?? banks[0]
+    // Prefer the account literally described "operating" (the true checking
+    // account) over anything merely classified operating by GL prefix — some
+    // assocs have a debt-service account on a 10- cash GL that would shadow it.
+    const operating =
+      banks.find(b => /operating/i.test(b.description)) ??
+      banks.find(b => b.kind === 'operating') ??
+      banks[0]
     if (operating?.cashGl) {
       const to = new Date()
       const from = new Date(); from.setMonth(from.getMonth() - 6)
@@ -127,12 +133,21 @@ export async function GET(req: Request) {
   } catch { /* leave empty */ }
 
   // Recent payments — ledger outflows whose description carries one of the
-  // vendor's name tokens (legal / DBA / check name).
-  const recentPayments = ledgerTxns
-    .filter(x => { const d = norm(x.description); return [...nameTokens].some(t => d.includes(t)) })
+  // vendor's name tokens (legal / DBA / check name). CINC ledger lines often
+  // omit the vendor name entirely (they read "Inv.#… - <service>"), so when
+  // the name match is empty we fall back to payments of the SAME amount as
+  // this invoice — for a recurring vendor (e.g. monthly monitoring) that
+  // surfaces the prior payments the reviewer actually wants to see.
+  const byName = ledgerTxns.filter(x => { const d = norm(x.description); return [...nameTokens].some(t => d.includes(t)) })
+  const byAmount = (Number.isFinite(amount) && amount > 0)
+    ? ledgerTxns.filter(x => Math.abs(x.amount - amount) < 0.01)
+    : []
+  const seen = new Set<string>()
+  const recentPayments = [...byName, ...byAmount]
+    .filter(x => { const k = `${x.date}|${x.amount}|${x.description}`; if (seen.has(k)) return false; seen.add(k); return true })
     .sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))
-    .slice(0, 5)
-    .map(x => ({ date: x.date, description: x.description || null, amount: x.amount }))
+    .slice(0, 6)
+    .map(x => ({ date: x.date, description: x.description || null, amount: x.amount, matchedByName: byName.includes(x) }))
 
   // ── Double-pay guard ──────────────────────────────────────────────
   // EXACT = same vendor + same invoice# (CINC's dup endpoint + our pushed
