@@ -42,6 +42,7 @@ interface Draft {
   rejected_reason:             string | null
   cinc_invoice_id:             string | null
   cinc_dup_invoice_id:         string | null
+  drive_file_id:               string | null
   pushed_at:                   string | null
   pushed_by:                   string | null
   created_at:                  string
@@ -588,6 +589,23 @@ function DraftCard(props: {
     }
   }
 
+  // Re-send a pushed invoice's PDF to the Drive "INVOICE TO INPUT" folder
+  // when the original push's Drive copy missed (transient failure).
+  async function remirror() {
+    setBusy(true); setMsg(null)
+    try {
+      const res = await fetch(`/api/admin/invoices/intake/${draft.id}/remirror`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      setMsg(`Saved to Drive${data.filename ? ` as ${data.filename}` : ''}.`)
+      onMutate()
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const isPushed   = draft.status === 'pushed_to_cinc'
   const isRejected = draft.status === 'rejected'
   const readOnly   = isPushed || isRejected
@@ -702,6 +720,14 @@ function DraftCard(props: {
                 View invoice detail →
               </a>
             </>
+          )}
+          {!draft.drive_file_id && (
+            <div style={{ marginTop: 6, padding: '6px 8px', background: '#fff', border: '1px solid #fcd34d', borderRadius: 4, color: '#92400e', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              ⚠ The renamed PDF didn&apos;t reach the Drive &quot;INVOICE TO INPUT&quot; folder.
+              <button onClick={remirror} disabled={busy} style={{ fontSize: 12, fontWeight: 600, padding: '4px 10px', border: '1px solid #d97706', borderRadius: 4, background: '#fffbeb', color: '#92400e', cursor: 'pointer' }}>
+                Save to Drive now
+              </button>
+            </div>
           )}
           {draft.cinc_invoice_id && (
             <InvoiceHistory invoiceId={parseInt(draft.cinc_invoice_id, 10)} />

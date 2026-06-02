@@ -85,7 +85,7 @@ const SELECT_COLUMNS = `
   pay_from_bank_account_id,
   extraction_confidence, status, rejected_reason,
   audit_checklist, audit_ready_by, audit_ready_at,
-  cinc_invoice_id, cinc_dup_invoice_id, pushed_at, pushed_by,
+  cinc_invoice_id, cinc_dup_invoice_id, pushed_at, pushed_by, drive_file_id,
   created_at, updated_at
 `.replace(/\s+/g, ' ').trim()
 
@@ -177,6 +177,24 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: 'id required' }, { status: 400 })
   }
 
+  // Terminal-state guard. An invoice that's already in CINC is the source of
+  // truth — editing it here (or reverting its status) would desync MAIA from
+  // CINC and, worse, drop it back into the review queue where it could be
+  // PUSHED A SECOND TIME. That's exactly the bug that let a pushed invoice
+  // reappear under "pending review". A rejected draft is likewise terminal.
+  const { data: current, error: curErr } = await supabaseAdmin
+    .from('invoice_intake_drafts')
+    .select('status, cinc_invoice_id')
+    .eq('id', body.id)
+    .single()
+  if (curErr || !current) return NextResponse.json({ error: curErr?.message ?? 'not found' }, { status: 404 })
+  if (current.status === 'pushed_to_cinc' || current.cinc_invoice_id) {
+    return NextResponse.json({ error: 'Already pushed to CINC (invoice ' + (current.cinc_invoice_id ?? '?') + ') — it can no longer be edited here.' }, { status: 409 })
+  }
+  if (current.status === 'rejected') {
+    return NextResponse.json({ error: 'This draft was rejected and can no longer be edited.' }, { status: 409 })
+  }
+
   // Only write keys that were actually included in the request body.
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
   const writable: Array<keyof PatchBody> = [
@@ -191,12 +209,8 @@ export async function PATCH(req: Request) {
   for (const k of writable) {
     if (k in body) patch[k as string] = body[k] ?? null
   }
-  // If Karen assigned a vendor, drop the needs_vendor status.
-  if ('matched_cinc_vendor_id' in body && body.matched_cinc_vendor_id) {
-    patch.status = 'pending_review'
-  }
-  // Audit-status transitions: ready_to_push stamps who/when; reverting to
-  // pending_review (un-readying for more edits) clears the stamp.
+  // Explicit audit-status transitions (sent by the "mark ready" / "un-ready"
+  // buttons): ready_to_push stamps who/when; pending_review clears the stamp.
   if (body.status === 'ready_to_push') {
     patch.status = 'ready_to_push'
     patch.audit_ready_by = await staffEmail()
@@ -205,6 +219,19 @@ export async function PATCH(req: Request) {
     patch.status = 'pending_review'
     patch.audit_ready_by = null
     patch.audit_ready_at = null
+  } else {
+    // No explicit status in the body — this is a field edit / checklist tweak.
+    //   • Assigning a vendor to a no-vendor draft promotes it to review.
+    //   • Editing any field on an already-"ready" draft INVALIDATES the audit:
+    //     send it back to pending_review and clear the ready stamp so it must
+    //     be re-confirmed (previously it reverted but kept a stale stamp).
+    if (current.status === 'needs_vendor' && body.matched_cinc_vendor_id) {
+      patch.status = 'pending_review'
+    } else if (current.status === 'ready_to_push') {
+      patch.status = 'pending_review'
+      patch.audit_ready_by = null
+      patch.audit_ready_at = null
+    }
   }
 
   const { data, error } = await supabaseAdmin

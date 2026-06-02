@@ -54,24 +54,33 @@ export async function uploadInvoiceToDrive(opts: {
 }): Promise<MirrorResult> {
   const folderId = opts.folderId ?? DEFAULT_FOLDER_ID
 
-  const res = await drive().files.create({
-    requestBody: {
-      name:     opts.filename,
-      parents:  [folderId],
-      mimeType: 'application/pdf',
-    },
-    media: {
-      mimeType: 'application/pdf',
-      body:     Readable.from(opts.pdfBuffer),
-    },
-    fields:        'id, webViewLink',
-    supportsAllDrives: true,
-  })
-
-  const driveFileId = res.data.id
-  if (!driveFileId) throw new Error('Drive returned no file id')
-  return {
-    driveFileId,
-    webViewLink: res.data.webViewLink ?? null,
+  // Retry transient Drive failures. A single blip during a push used to
+  // permanently miss the Drive copy (the invoice still posts to CINC, but the
+  // file never lands in INVOICE TO INPUT). A Readable can only be consumed
+  // once, so build a fresh one per attempt.
+  let lastErr: unknown
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await drive().files.create({
+        requestBody: {
+          name:     opts.filename,
+          parents:  [folderId],
+          mimeType: 'application/pdf',
+        },
+        media: {
+          mimeType: 'application/pdf',
+          body:     Readable.from(opts.pdfBuffer),
+        },
+        fields:        'id, webViewLink',
+        supportsAllDrives: true,
+      })
+      const driveFileId = res.data.id
+      if (!driveFileId) throw new Error('Drive returned no file id')
+      return { driveFileId, webViewLink: res.data.webViewLink ?? null }
+    } catch (err) {
+      lastErr = err
+      if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 600))
+    }
   }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
 }
