@@ -76,7 +76,20 @@ function onHomepage(e) {
   return card.build();
 }
 
-function onGmailMessage(e) {
+function onGmailMessage(e) { return buildGmailCard_(e, null); }
+
+// Re-render the card when the Association dropdown changes, forcing the
+// picked code so the copy-text + create form reflect it.
+function onAssociationChange(e) {
+  var f = (e.commonEventObject && e.commonEventObject.formInputs) || {};
+  var assoc = strInput_(f, 'association_code') || '';
+  return CardService.newActionResponseBuilder()
+    .setStateChanged(true)
+    .setNavigation(CardService.newNavigation().updateCard(buildGmailCard_(e, assoc)))
+    .build();
+}
+
+function buildGmailCard_(e, forcedAssoc) {
   if (!isConfigured_()) return settingsCard_(true);
 
   var ctx = readMessage_(e);  // { email, name, threadId, subject }
@@ -99,7 +112,7 @@ function onGmailMessage(e) {
   // send-to-Maia). Pre-selected from the suggestion. Pick by name.
   var assocList = [];
   try { assocList = (apiGet_('/api/addon/associations').associations) || []; } catch (aErr) { assocList = []; }
-  card.addSection(associationPickerSection_(assocList, suggest));
+  card.addSection(associationPickerSection_(assocList, suggest, forcedAssoc));
 
   // Matched ticket (if any) + quick status actions.
   if (data.matched) {
@@ -217,23 +230,29 @@ function suggestSection_(sg) {
 // Association picker at the top — a dropdown of every association by
 // CODE · Name, pre-selected from the suggestion. Field 'association_code'
 // is card-wide, so both Create and Send-invoice read it.
-function associationPickerSection_(assocList, suggest) {
+function associationPickerSection_(assocList, suggest, forcedAssoc) {
   suggest = suggest || {};
-  var selected = String(suggest.association || '').toUpperCase();
-  var s = CardService.newCardSection().setHeader('🏢 Association — applies to everything below');
+  var selected = String(forcedAssoc || suggest.association || '').toUpperCase();
+  var s = CardService.newCardSection().setHeader('🏢 Association (applies to all below)');
+  // No setTitle — a floating label overlaps the value (garbles). Re-renders
+  // the card on change so the copy-text below reflects the pick.
   var dd = CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
-    .setTitle('Association').setFieldName('association_code');
-  var matched = false;
+    .setFieldName('association_code')
+    .setOnChangeAction(CardService.newAction().setFunctionName('onAssociationChange'));
+  dd.addItem('— choose —', '', !selected);   // placeholder first
   (assocList || []).forEach(function (a) {
-    if (a && a.code) {
-      var isSel = a.code.toUpperCase() === selected;
-      if (isSel) matched = true;
-      dd.addItem(a.code + ' · ' + (a.name || ''), a.code, isSel);
-    }
+    if (a && a.code) dd.addItem(a.code + ' · ' + (a.name || ''), a.code, a.code.toUpperCase() === selected);
   });
-  // Blank first option, selected when nothing matched the suggestion.
-  dd.addItem('— choose association —', '', !matched);
   s.addWidget(dd);
+
+  // Dynamic invoice-forward helper — copy this into a Forward to maia@.
+  if (selected) {
+    s.addWidget(CardService.newDecoratedText()
+      .setTopLabel('Invoice? Forward to maia@pmitop.com — copy:')
+      .setText('<font color="#f26a1b"><b>@maia upload this invoice #' + selected + '</b></font>')
+      .setBottomLabel('Use Forward (not Reply — Reply drops the PDF).')
+      .setWrapText(true));
+  }
   return s;
 }
 
@@ -256,7 +275,7 @@ function createSection_(ctx, data, suggest, staffList) {
   // Assign to — anyone, defaulting to "Me" (empty value = the caller).
   var assignInput = CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
     .setTitle('Assign to').setFieldName('assignee')
-    .addItem('Me', '', true);
+    .addItem('Me', 'me', true);
   staffList.forEach(function (m) {
     if (m && m.email) assignInput.addItem(m.name || m.email, m.email, false);
   });
@@ -274,14 +293,8 @@ function createSection_(ctx, data, suggest, staffList) {
     .setOnClickAction(CardService.newAction().setFunctionName('createTicketAction')
       .setParameters({ threadId: ctx.threadId, email: ctx.email, contactName: ctx.name || '' })));
 
-  // Invoice upload guidance. A one-click forward needs restricted Gmail
-  // scopes (readonly + compose) that the Workspace hasn't fully granted, so
-  // we point staff to Gmail's native Forward — which keeps the PDF (a Reply
-  // drops it) and is 100% reliable.
-  s.addWidget(CardService.newTextParagraph().setText(
-    '<b>Invoice?</b> Click Gmail’s <b>Forward</b> (not Reply — Reply drops the PDF) to ' +
-    '<b>maia@pmitop.com</b>, and type <font color="#f26a1b">@maia upload this invoice #' +
-    '&lt;code&gt;</font> in the body (use the Association code above).'));
+  // (Invoice-forward copy-text lives in the Association picker at the top,
+  // where it updates with the chosen code.)
   return s;
 }
 
@@ -387,7 +400,8 @@ function createTicketAction(e) {
   var p = e.commonEventObject.parameters || {};
   var f = e.commonEventObject.formInputs || {};
   try {
-    var assignee = strInput_(f, 'assignee');   // '' = me, else a staff email
+    var assignee = strInput_(f, 'assignee');   // 'me'/'' = caller, else a staff email
+    if (assignee === 'me') assignee = '';
     var res = apiPost_('/api/addon/tickets/ensure', {
       type:             strInput_(f, 'type') || 'ticket',
       priority:         strInput_(f, 'priority') || 'normal',
