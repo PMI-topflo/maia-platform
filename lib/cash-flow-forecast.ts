@@ -330,3 +330,159 @@ export async function forecastEndOfMonthBalance(opts: {
     caveats,
   }
 }
+
+// =====================================================================
+// Funds check for a SCHEDULED PAYMENT DATE.
+//
+// Answers "will <account> have enough on the day we plan to pay this
+// invoice?" — projecting to the END OF THE SCHEDULED MONTH and counting
+// ALL open invoices in CINC (not just MAIA-pushed ones). For months
+// beyond the current one it applies the account's average monthly net
+// flow (typical income minus typical outflow), so deferring to a later
+// month is modelled realistically. Also returns a month-by-month
+// horizon so the UI can suggest the earliest affordable month.
+// =====================================================================
+
+export interface MonthProjection { month: string; monthsAhead: number; projectedBalance: number; affordableAfterPush: boolean }
+
+export interface FundsCheckResult {
+  associationCode:        string
+  bankAccountId:          number
+  bankAccountDescription: string
+  currentBalance:         number
+  /** Sum of Balance across ALL open invoices in CINC for this assoc. */
+  openInvoicesTotal:      number
+  openInvoicesCount:      number
+  /** Average monthly net (income − outflow) from the last few complete
+   *  months on this account's cash ledger. */
+  avgMonthlyNet:          number
+  avgMonthlyIn:           number
+  avgMonthlyOut:          number
+  monthsSampled:          number
+  pushAmount:             number
+  scheduledMonth:         string          // YYYY-MM the payment is scheduled in
+  monthsAhead:            number
+  projectedAtScheduled:   number          // balance after this push, end of scheduled month
+  affordable:             boolean
+  /** Earliest month (YYYY-MM) whose projection covers this push, or null
+   *  if none within the horizon. */
+  earliestAffordableMonth: string | null
+  horizon:                MonthProjection[]
+  caveats:                string[]
+}
+
+function ymKey(d: Date): string { return d.toISOString().slice(0, 7) }
+function monthsBetween(fromYm: string, toYm: string): number {
+  const [fy, fm] = fromYm.split('-').map(Number)
+  const [ty, tm] = toYm.split('-').map(Number)
+  return (ty * 12 + (tm - 1)) - (fy * 12 + (fm - 1))
+}
+
+/** Average monthly net cash flow over the last `months` COMPLETE calendar
+ *  months on a cash account (excludes the current partial month). Net =
+ *  deposits (DebitAmount) − payments (CreditAmount). */
+async function averageMonthlyNetFlow(assocCode: string, cashGl: string, months = 3): Promise<{ avgNet: number; avgIn: number; avgOut: number; sampled: number }> {
+  const now   = new Date()
+  const firstOfThisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+  const to    = new Date(firstOfThisMonth.getTime() - 86400000)               // last day of previous month
+  const from  = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth() - (months - 1), 1))
+  let txs: CincGlTransaction[] = []
+  try {
+    txs = await listGlTransactionsByDate({ assocCode, fromDate: isoDate(from), toDate: isoDate(to), accountNumber: cashGl })
+  } catch { return { avgNet: 0, avgIn: 0, avgOut: 0, sampled: 0 } }
+
+  // CINC sign convention on a cash account (verified live): deposits (money
+  // IN) post as NEGATIVE DebitAmount (e.g. "Deposit from batch" D=−29,586);
+  // payments (money OUT) post as POSITIVE CreditAmount. So inflow = |Debit|
+  // and outflow = positive Credit.
+  const byMonth = new Map<string, { in: number; out: number }>()
+  for (const tx of txs) {
+    if (!tx.TransactionDate) continue
+    const m = monthOf(tx.TransactionDate)
+    const b = byMonth.get(m) ?? { in: 0, out: 0 }
+    b.in  += typeof tx.DebitAmount  === 'number' ? Math.abs(tx.DebitAmount)  : 0
+    b.out += typeof tx.CreditAmount === 'number' ? Math.max(0, tx.CreditAmount) : 0
+    byMonth.set(m, b)
+  }
+  const sampled = byMonth.size
+  if (sampled === 0) return { avgNet: 0, avgIn: 0, avgOut: 0, sampled: 0 }
+  let totIn = 0, totOut = 0
+  for (const b of byMonth.values()) { totIn += b.in; totOut += b.out }
+  const avgIn = totIn / sampled, avgOut = totOut / sampled
+  return { avgNet: avgIn - avgOut, avgIn, avgOut, sampled }
+}
+
+export async function forecastFundsForDate(opts: {
+  assocCode:     string
+  bankAccountId: number
+  scheduledDate: string   // YYYY-MM-DD
+  pushAmount:    number
+}): Promise<FundsCheckResult> {
+  const caveats: string[] = []
+  const banks = await listAssociationBankAccounts(opts.assocCode)
+  const bank  = banks.find(b => b.id === opts.bankAccountId) ?? banks.find(b => b.kind === 'operating') ?? banks[0]
+
+  const currentBalance = bank ? (bank.cincBalance ?? bank.bankBalance ?? 0) : 0
+  if (bank && bank.cincBalance == null && bank.bankBalance != null) {
+    caveats.push('Using bank-reported balance — CINC reconciled balance unavailable.')
+  }
+
+  // ALL open invoices for the assoc (committed near-term outflows). [B]
+  const open = await listOpenInvoices({ assocCode: opts.assocCode }).catch(() => [])
+  const openInvoicesTotal = open.reduce((s, o) => s + (typeof o.Balance === 'number' ? o.Balance : (typeof o.InvoiceAmount === 'number' ? o.InvoiceAmount : 0)), 0)
+  if (open.length > 0) caveats.push(`Counts all ${open.length} open invoice(s) in CINC for this association as near-term outflows (some may draw from a different account).`)
+
+  const flow = bank?.cashGl
+    ? await averageMonthlyNetFlow(opts.assocCode, bank.cashGl)
+    : { avgNet: 0, avgIn: 0, avgOut: 0, sampled: 0 }
+  if (!bank?.cashGl) caveats.push('No Cash GL on this account — future-month run-rate skipped.')
+  else if (flow.sampled === 0) caveats.push('No recent ledger history — future-month run-rate unavailable (showing current balance only).')
+  else caveats.push(`Future months use this account's average net flow over ${flow.sampled} month(s): ${flow.avgNet >= 0 ? '+' : ''}${Math.round(flow.avgNet).toLocaleString()} / month.`)
+
+  const nowYm = ymKey(new Date())
+  const push  = Math.abs(opts.pushAmount || 0)
+
+  // Project the balance at end of a given month: current balance, less all
+  // open invoices (this-month commitments) and this push, plus the run-rate
+  // net flow for each FULL month beyond the current one.
+  const project = (ym: string): number => {
+    const ahead = Math.max(0, monthsBetween(nowYm, ym))
+    return currentBalance - openInvoicesTotal - push + ahead * flow.avgNet
+  }
+
+  // 6-month horizon starting this month.
+  const horizon: MonthProjection[] = []
+  const base = new Date()
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + i, 1))
+    const ym = ymKey(d)
+    const projectedBalance = project(ym)
+    horizon.push({ month: ym, monthsAhead: i, projectedBalance, affordableAfterPush: projectedBalance >= 0 })
+  }
+
+  const scheduledMonth = (opts.scheduledDate || nowYm).slice(0, 7)
+  const monthsAhead    = Math.max(0, monthsBetween(nowYm, scheduledMonth))
+  const projectedAtScheduled = project(scheduledMonth)
+  const earliest = horizon.find(h => h.affordableAfterPush)?.month ?? null
+
+  return {
+    associationCode:        opts.assocCode.toUpperCase(),
+    bankAccountId:          opts.bankAccountId,
+    bankAccountDescription: bank?.description ?? `Account ${opts.bankAccountId}`,
+    currentBalance,
+    openInvoicesTotal,
+    openInvoicesCount:      open.length,
+    avgMonthlyNet:          flow.avgNet,
+    avgMonthlyIn:           flow.avgIn,
+    avgMonthlyOut:          flow.avgOut,
+    monthsSampled:          flow.sampled,
+    pushAmount:             push,
+    scheduledMonth,
+    monthsAhead,
+    projectedAtScheduled,
+    affordable:             projectedAtScheduled >= 0,
+    earliestAffordableMonth: earliest,
+    horizon,
+    caveats,
+  }
+}

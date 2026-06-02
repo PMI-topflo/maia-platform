@@ -1310,6 +1310,11 @@ function deriveBankKind(account: CincBankAccount): BankAccountKind {
   const desc = (account.AccountDescription ?? '').toLowerCase()
   if (/special\s*assess/.test(desc))     return 'special'
   if (/\breserve\b/.test(desc))          return 'reserve'
+  // Debt service / loan / mortgage / escrow accounts are NOT operating, even
+  // though their cash GL can share the 10- prefix (e.g. "Popular - Debt
+  // Service" on 10-1010-00). Catch them before the prefix fallback so they
+  // don't shadow the real operating account.
+  if (/\bdebt\b|loan|mortgage|escrow|\bclosing\b/.test(desc)) return 'other'
   if (/\boperating\b|\boperations?\b/.test(desc)) return 'operating'
   // Cash GL prefix fallback per fund-accounting convention:
   //   10-xxxx = operating cash, 12-xxxx = reserve cash, 13-xxxx ≈ SA cash.
