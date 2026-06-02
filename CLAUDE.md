@@ -91,3 +91,7 @@ All required variables are documented with descriptions in `.env.example`. Key p
 - **`TWILIO_PHONE_NUMBER`** is the SMS sender; **`TWILIO_WHATSAPP_NUMBER`** is the WhatsApp-enabled number. These may be different values.
 - **`CRON_SECRET`** is set automatically by Vercel for scheduled cron jobs — add it to your local `.env.local` for manual cron testing.
 - **`INTERNAL_API_SECRET`** guards `/api/trigger-applycheck` from external calls; it is passed as the `x-internal-secret` header by the Stripe webhook handler.
+
+## Session Handoff / Current State
+
+See **`docs/SESSION-HANDOFF.md`** for the latest shipped features, the prioritized backlog ("what's next"), and gotchas learned (Vercel queue stalls, CINC ledger sign conventions, the merge-race branch discipline). Read it at the start of a new working session to pick up where the last one left off.
