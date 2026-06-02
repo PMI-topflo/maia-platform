@@ -220,10 +220,14 @@ function suggestSection_(sg) {
 function associationPickerSection_(assocList, suggest) {
   suggest = suggest || {};
   var selected = String(suggest.association || '').toUpperCase();
-  var s = CardService.newCardSection().setHeader('🏢 Association — applies to everything below');
+  var s = CardService.newCardSection().setHeader('🏢 Association (applies to all below)');
+  // No setTitle — a floating label overlaps the value when the blank option
+  // is selected. The section header above provides the label.
   var dd = CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
-    .setTitle('Association').setFieldName('association_code');
+    .setFieldName('association_code');
   var matched = false;
+  // Placeholder first, selected only when nothing matched the suggestion.
+  dd.addItem('— choose —', '', !selected);
   (assocList || []).forEach(function (a) {
     if (a && a.code) {
       var isSel = a.code.toUpperCase() === selected;
@@ -231,8 +235,7 @@ function associationPickerSection_(assocList, suggest) {
       dd.addItem(a.code + ' · ' + (a.name || ''), a.code, isSel);
     }
   });
-  // Blank first option, selected when nothing matched the suggestion.
-  dd.addItem('— choose association —', '', !matched);
+  if (matched) { /* a real association is selected */ }
   s.addWidget(dd);
   return s;
 }
@@ -253,10 +256,11 @@ function createSection_(ctx, data, suggest, staffList) {
     .addItem('Low', 'low', false).addItem('Normal', 'normal', true)
     .addItem('High', 'high', false).addItem('Urgent', 'urgent', false));
 
-  // Assign to — anyone, defaulting to "Me" (empty value = the caller).
+  // Assign to — anyone, defaulting to "Me" ('me' = the caller; a real value
+  // so the floating label doesn't overlap the text).
   var assignInput = CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
     .setTitle('Assign to').setFieldName('assignee')
-    .addItem('Me', '', true);
+    .addItem('Me', 'me', true);
   staffList.forEach(function (m) {
     if (m && m.email) assignInput.addItem(m.name || m.email, m.email, false);
   });
@@ -387,7 +391,8 @@ function createTicketAction(e) {
   var p = e.commonEventObject.parameters || {};
   var f = e.commonEventObject.formInputs || {};
   try {
-    var assignee = strInput_(f, 'assignee');   // '' = me, else a staff email
+    var assignee = strInput_(f, 'assignee');   // 'me'/'' = caller, else a staff email
+    if (assignee === 'me') assignee = '';
     var res = apiPost_('/api/addon/tickets/ensure', {
       type:             strInput_(f, 'type') || 'ticket',
       priority:         strInput_(f, 'priority') || 'normal',
