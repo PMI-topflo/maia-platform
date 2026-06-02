@@ -94,4 +94,4 @@ All required variables are documented with descriptions in `.env.example`. Key p
 
 ## Session Handoff / Current State
 
-See **`docs/SESSION-HANDOFF.md`** for the latest shipped features, the prioritized backlog ("what's next"), and gotchas learned (Vercel queue stalls, CINC ledger sign conventions, the merge-race branch discipline). Read it at the start of a new working session to pick up where the last one left off.
+See **`docs/SESSION-HANDOFF.md`** for the latest shipped features, the prioritized backlog ("what's next"), and gotchas learned (Vercel queue stalls, CINC ledger sign conventions, the merge-race branch discipline). For the full cross-feature open-items list (invoice audit, leasing/application pipeline, owner self-service, CINC integration, comms/add-on), see **`docs/ROADMAP.md`**. Read both at the start of a new working session to pick up where the last one left off.
