@@ -15,6 +15,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { fetchStaffList } from '@/lib/staff-list'
+import { sendEmail } from '@/lib/gmail'
 
 const NAVY   = '#1f2a44'
 const ORANGE = '#f26a1b'
@@ -66,6 +67,15 @@ interface TicketRow {
 const localPart = (email: string | null | undefined) =>
   (email ?? '').trim().toLowerCase().split('@')[0]
 
+/** The Daily News is for human staff only. Exclude the MAIA AI bot account
+ *  (it's the email-command inbox, not a person) and any other AI/bot/system
+ *  entry so it neither gets a section nor receives the email. */
+export function isHumanStaff(s: { name?: string | null; email?: string | null; role?: string | null }): boolean {
+  if (localPart(s.email) === 'maia') return false
+  if (/\b(ai|bot|system|automation)\b/i.test(`${s.role ?? ''} ${s.name ?? ''}`)) return false
+  return true
+}
+
 const emptyMetrics = (): NewsMetrics => ({
   ticketsOpened: 0, woOpened: 0, ticketsResolved: 0, woResolved: 0,
   ticketsOpen: 0, woOpen: 0, ticketsLate: 0, woLate: 0,
@@ -110,7 +120,7 @@ export async function gatherStaffNews(now = new Date()): Promise<StaffNewsData> 
   const weekStartIso = weekStart.toISOString()
   const nowMs = now.getTime()
 
-  const staff = await fetchStaffList()
+  const staff = (await fetchStaffList()).filter(isHumanStaff)
   // localPart → section index (active staff get their own section).
   const sections: NewsSection[] = staff.map(s => ({
     name: s.name, email: s.email, role: s.role, metrics: emptyMetrics(),
@@ -264,4 +274,31 @@ export function buildStaffNewsEmail(data: StaffNewsData, appUrl: string): { subj
   ].join('\n')
 
   return { subject, html, text }
+}
+
+// ── Send orchestrator (shared by the cron + the admin "Send now" button) ─
+export interface SendDailyNewsResult {
+  ok:         boolean
+  dry?:       boolean
+  reason?:    string
+  recipients: string[]
+  subject:    string
+  totals:     NewsMetrics
+}
+
+/** Gather → build → send the Daily News to the human staff shown in it.
+ *  Recipients are derived from the rendered sections, so the people who
+ *  get the email are exactly the people with a section (bots excluded;
+ *  the Unassigned bucket has no email). `dry` builds without sending. */
+export async function sendDailyNews(opts: { appUrl: string; dry?: boolean }): Promise<SendDailyNewsResult> {
+  const data  = await gatherStaffNews()
+  const email = buildStaffNewsEmail(data, opts.appUrl)
+  const recipients = Array.from(new Set(
+    data.sections.map(s => s.email).filter((e): e is string => !!e),
+  ))
+  const base = { recipients, subject: email.subject, totals: data.totals }
+  if (opts.dry)               return { ok: true, dry: true, ...base }
+  if (recipients.length === 0) return { ok: false, reason: 'no human staff recipients', ...base }
+  await sendEmail({ to: recipients, subject: email.subject, html: email.html, text: email.text })
+  return { ok: true, ...base }
 }
