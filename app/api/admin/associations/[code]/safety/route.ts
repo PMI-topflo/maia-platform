@@ -14,6 +14,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { normalizeStoredFile } from '@/lib/normalize-stored-file'
 import { INSPECTION_TYPE_KEYS, type AssociationSafetyInspection } from '@/lib/association-safety'
 
 export const dynamic = 'force-dynamic'
@@ -91,6 +92,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
   const reportPath = cleanText(body.report_storage_path)
   if (reportPath && !reportPath.startsWith(`${upperCode}/safety/`)) {
     return NextResponse.json({ error: 'report_storage_path does not belong to this association' }, { status: 400 })
+  }
+  // Compress the browser-uploaded report in place (signed-URL upload = raw).
+  if (reportPath) {
+    await normalizeStoredFile({ bucket: 'association-documents', path: reportPath, filename: reportPath.split('/').pop() ?? null })
+      .then(r => { if (r.changed) console.log(`[safety] normalized ${reportPath}: ${r.note}`) })
   }
 
   const waived = body.waived === true

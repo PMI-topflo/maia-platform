@@ -24,7 +24,9 @@ import {
   deleteWorkOrderAttachment,
   isImageFilename,
   WO_FILE_SIZE_LIMIT_BYTES,
+  STORAGE_BUCKET,
 } from '@/lib/work-order-attachments'
+import { normalizeStoredFile } from '@/lib/normalize-stored-file'
 
 export const runtime = 'nodejs'
 
@@ -145,8 +147,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!Number.isFinite(fileSize) || fileSize <= 0) {
     return NextResponse.json({ error: 'file_size_bytes is required' }, { status: 400 })
   }
-  if (fileSize > WO_FILE_SIZE_LIMIT_BYTES) {
-    return NextResponse.json({ error: `File exceeds the ${WO_FILE_SIZE_LIMIT_BYTES}-byte limit` }, { status: 400 })
+
+  // Compress the browser-uploaded image in place (signed-URL upload = raw),
+  // THEN enforce the size limit against the COMPRESSED size — so a big phone
+  // photo that shrinks under the limit is accepted instead of rejected.
+  const norm = await normalizeStoredFile({ bucket: STORAGE_BUCKET, path: storagePath, contentType: (body.mime_type ?? '').trim() || null, filename })
+  if (norm.changed) console.log(`[wo-photos] normalized ${storagePath}: ${norm.note}`)
+  const effectiveSize = norm.changed ? norm.finalBytes : fileSize
+  if (effectiveSize > WO_FILE_SIZE_LIMIT_BYTES) {
+    return NextResponse.json({ error: `File exceeds the ${WO_FILE_SIZE_LIMIT_BYTES}-byte limit even after compression` }, { status: 400 })
   }
 
   const uploadedBy = typeof session.userId === 'string' && session.userId.includes('@')
@@ -159,7 +168,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     storagePath,
     filename,
     mimeType:        (body.mime_type ?? '').trim() || undefined,
-    fileSizeBytes:   fileSize,
+    fileSizeBytes:   effectiveSize,
     uploadedByEmail: uploadedBy,
   })
   if (!rec.ok) {

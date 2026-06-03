@@ -24,6 +24,7 @@ import {
 } from '@/lib/association-documents'
 import { extractPdfText } from '@/lib/extract-pdf'
 import { normalizeUpload } from '@/lib/pdf-normalize'
+import { normalizeStoredFile } from '@/lib/normalize-stored-file'
 
 export const dynamic = 'force-dynamic'
 
@@ -305,6 +306,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     const category = normalizeCategory(body.category)
     const language = normalizeLanguage(body.language)
     const mime     = body.mime_type ?? null
+
+    // Signed-URL uploads land in storage RAW (the browser uploads directly,
+    // bypassing the inline normalizeUpload on the multipart path). Compress
+    // the stored object in place before we extract text + record it.
+    await normalizeStoredFile({ bucket: STORAGE_BUCKET, path: storagePath, contentType: mime, filename })
+      .then(r => { if (r.changed) console.log(`[assoc-docs] normalized ${storagePath}: ${r.note}`) })
 
     // Fetch the file from storage to extract text. This bypasses
     // Vercel's body-size limit on the public-facing request because
