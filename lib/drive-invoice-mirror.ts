@@ -7,11 +7,16 @@
 // workflow (per-association folder move + spreadsheet update) keeps
 // working unchanged.
 //
-// Auth: same service-account JSON used by app/api/indexer/drive-scan,
-// but with the narrower drive.file scope (only files the SA creates).
-// For the SA to be able to put a file *inside* the INVOICE TO INPUT
-// folder, the folder must be shared with the service-account email
-// with Editor permission — one-time manual step in Drive.
+// Auth: same service-account JSON used by app/api/indexer/drive-scan.
+// Scope is FULL `drive` (NOT `drive.file`): drive.file only grants access to
+// files the SA itself created, so it can't see — let alone write into — the
+// human-created "INVOICE TO INPUT" folder, and every upload 404s (this is
+// why drive_file_id was null on every pushed invoice). Full `drive` lets the
+// SA write into a folder that's been SHARED with it.
+// Requirement: share that folder with the service-account email (the
+// `client_email` in GOOGLE_SERVICE_ACCOUNT_JSON) with Editor permission —
+// one-time manual step in Drive. On failure the thrown error names the SA
+// email + folder id so the share step is obvious.
 //
 // Failure mode: callers should treat upload failure as non-fatal.
 // The CINC push is the source of truth; Drive is a convenience copy.
@@ -25,12 +30,19 @@ const DEFAULT_FOLDER_ID = process.env.INVOICE_INTAKE_DRIVE_FOLDER_ID
 
 let _driveClient: ReturnType<typeof buildClient> | null = null
 
+/** The service-account's email (client_email) — what the Drive folder must
+ *  be shared with. Read at runtime; null if the JSON is missing/malformed. */
+export function serviceAccountEmail(): string | null {
+  try { return (JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}').client_email as string) ?? null }
+  catch { return null }
+}
+
 function buildClient() {
   const json = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
   if (!json) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON not set')
   const auth = new google.auth.GoogleAuth({
     credentials: JSON.parse(json),
-    scopes: ['https://www.googleapis.com/auth/drive.file'],
+    scopes: ['https://www.googleapis.com/auth/drive'],
   })
   return google.drive({ version: 'v3', auth })
 }
@@ -82,5 +94,12 @@ export async function uploadInvoiceToDrive(opts: {
       if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 600))
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
+  const base = lastErr instanceof Error ? lastErr.message : String(lastErr)
+  // A permission/visibility error almost always means the folder isn't shared
+  // with the SA. Name the exact account + folder so the fix is one click.
+  const sa = serviceAccountEmail()
+  const hint = /not found|permission|insufficient|forbidden|403|404/i.test(base)
+    ? ` — the service account can't access the folder. Share Drive folder ${folderId} with ${sa ?? 'the service-account email'} (Editor), then retry.`
+    : ''
+  throw new Error(`${base}${hint}`)
 }

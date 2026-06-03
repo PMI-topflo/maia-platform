@@ -29,6 +29,21 @@ import {
   CincApiError,
 } from '@/lib/integrations/cinc'
 import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
+import { normalizePdf } from '@/lib/pdf-normalize'
+import { trustedDomainVariants } from '@/lib/staff-lookup'
+
+// CINC base64-encodes the attachment in its payload and rejects models over
+// ~1 MB. base64 inflates bytes ~33%, so we target a smaller BINARY size and
+// gate on the ENCODED length. If a scan can't be squeezed under this, we
+// refuse to push (no CINC invoice without its PDF) rather than silently
+// creating a PDF-less invoice.
+const CINC_ATTACH_TARGET_BYTES = 700_000      // binary target fed to normalizePdf
+const CINC_ATTACH_MAX_B64      = 1_000_000     // hard ceiling on the base64 payload
+
+// Window for the cross-invoice double-pay guard: a same vendor + amount +
+// association invoice already pushed/queued within this many days hard-blocks
+// the push unless Karen explicitly overrides (pushAnyway).
+const DUP_GUARD_DAYS = 60
 
 // Karen's inbox — the assignee + author for every auto-resolved
 // "invoice processed" ticket. Same env as the needs-vendor alert.
@@ -68,7 +83,7 @@ export async function POST(
 
   const { data: draft, error: loadErr } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('id, status, pdf_storage_key, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, due_date, scheduled_pay_date, pay_by_type, observation_note, work_order_number, pay_from_bank_account_id, gl_account_id, gl_account_name, extraction_confidence, gmail_message_id')
+    .select('id, status, pdf_storage_key, drive_file_id, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, due_date, scheduled_pay_date, pay_by_type, observation_note, work_order_number, pay_from_bank_account_id, gl_account_id, gl_account_name, extraction_confidence, gmail_message_id')
     .eq('id', id)
     .single()
   if (loadErr || !draft) return NextResponse.json({ error: loadErr?.message ?? 'not found' }, { status: 404 })
@@ -110,8 +125,57 @@ export async function POST(
   if (dlErr || !blob) {
     return NextResponse.json({ error: `storage download failed: ${dlErr?.message ?? 'no blob'}` }, { status: 500 })
   }
-  const buf = Buffer.from(await blob.arrayBuffer())
+  const rawBuf = Buffer.from(await blob.arrayBuffer())
+
+  // Shrink oversized scans (phone photos of check requests routinely arrive
+  // multi-MB) so the PDF fits CINC's ~1 MB attachment limit. If we STILL
+  // can't get the base64 payload under the ceiling, BLOCK the push here —
+  // before any CINC invoice exists — so we never create a PDF-less invoice
+  // (the bug that left CINC 16272 with no attachment). Karen can re-upload a
+  // smaller/clearer scan and retry.
+  const norm = await normalizePdf(rawBuf, { targetBytes: CINC_ATTACH_TARGET_BYTES }).catch(() => null)
+  const buf  = norm?.buffer ?? rawBuf
   const pdfBase64 = buf.toString('base64')
+  if (pdfBase64.length > CINC_ATTACH_MAX_B64) {
+    return NextResponse.json({
+      error: `Invoice PDF is ${(buf.length / 1024 / 1024).toFixed(1)} MB even after compression — over CINC's attachment limit. Replace it with a smaller / single-page scan and try again. Nothing was pushed to CINC.`,
+      pdfTooLarge: true,
+    }, { status: 413 })
+  }
+
+  // Cross-invoice double-pay guard. CINC's own duplicate check keys on the
+  // invoice NUMBER; this catches what slipped through — the SAME vendor +
+  // amount + association already pushed/queued under a DIFFERENT number
+  // (e.g. "May" vs "May Compensation"). Hard-block, and only Karen may
+  // override (pushAnyway) — staff can't push past a suspected double-pay.
+  {
+    const sinceIso = new Date(Date.now() - DUP_GUARD_DAYS * 86_400_000).toISOString()
+    const { data: dupes } = await supabaseAdmin
+      .from('invoice_intake_drafts')
+      .select('id, cinc_invoice_id, extracted_invoice_number, status')
+      .eq('matched_cinc_vendor_id', draft.matched_cinc_vendor_id as string)
+      .eq('extracted_association_code', draft.extracted_association_code as string)
+      .eq('extracted_amount', draft.extracted_amount as number)
+      .in('status', ['pushed_to_cinc', 'ready_to_push'])
+      .neq('id', id)
+      .gte('created_at', sinceIso)
+    if (dupes && dupes.length > 0) {
+      const karenSet = new Set(trustedDomainVariants(KAREN_EMAIL).map(e => e.toLowerCase()))
+      const isKaren  = karenSet.has((pushedBy ?? '').toLowerCase())
+      if (!(body.pushAnyway && isKaren)) {
+        const d0 = dupes[0]
+        const tail = body.pushAnyway && !isKaren
+          ? 'Only Karen can override a suspected double payment.'
+          : 'If this really is a separate payment, Karen can push again with override.'
+        return NextResponse.json({
+          error: `Possible double payment: ${draft.matched_vendor_name ?? 'this vendor'} already has a $${(draft.extracted_amount as number).toFixed(2)} invoice for ${draft.extracted_association_code} in MAIA (draft ${d0.id}${d0.cinc_invoice_id ? `, CINC ${d0.cinc_invoice_id}` : ''}, #${d0.extracted_invoice_number ?? '—'}, ${d0.status}). ${tail}`,
+          duplicateGuard: true,
+          karenOnly: body.pushAnyway && !isKaren,
+          existing: dupes.map(d => ({ id: d.id, cincInvoiceId: d.cinc_invoice_id, invoiceNumber: d.extracted_invoice_number, status: d.status })),
+        }, { status: 409 })
+      }
+    }
+  }
 
   // Push to CINC. createInvoice defaults StatusID to PENDING APPROVAL
   // (board approves in WebAxis afterward). Sends Karen's observation as
@@ -229,25 +293,17 @@ export async function POST(
     invoiceNo:   draft.extracted_invoice_number   as string,
     amount:      draft.extracted_amount           as number,
   })
-  // CINC rejects oversized invoice attachments (its real limit is ~1 MB;
-  // a big phone-scan PDF comes back as a cryptic 400 "Invalid Model").
-  // Guard the size so the push doesn't fail confusingly — and, crucially,
-  // so we DON'T short-circuit the Drive mirror below (a failed attach used
-  // to early-return). Skipped/failed attach is a non-fatal warning; the
-  // invoice header + GL + Drive copy still complete.
-  const CINC_ATTACH_MAX_BYTES = 1_000_000
+  // Attach the (already size-gated) PDF. The oversize case was blocked
+  // before createInvoice, so this fits — a failure here is transient
+  // (network/CINC). Surface it loudly: the invoice exists but has no PDF,
+  // so Karen must re-attach via "Re-attach PDF to CINC" on the pushed card.
   let attachWarning: string | null = null
-  if (buf.length > CINC_ATTACH_MAX_BYTES) {
-    attachWarning = `Invoice image is ${(buf.length / 1024 / 1024).toFixed(1)} MB — over CINC's ~1 MB attachment limit, so it was NOT attached in CINC. The renamed file still goes to the Drive "INVOICE TO INPUT" folder; attach a smaller/compressed copy in CINC if it must live there too.`
+  try {
+    await attachInvoicePdf({ invoiceId: cincInvoiceId, pdfBase64, filename })
+  } catch (err) {
+    const message = err instanceof CincApiError ? err.message : (err as Error).message
+    attachWarning = `⚠ PDF was NOT attached in CINC: ${message}. The invoice exists in CINC — use "Re-attach PDF to CINC" on the pushed card to add it.`
     console.warn(`[invoice-push] ${attachWarning}`)
-  } else {
-    try {
-      await attachInvoicePdf({ invoiceId: cincInvoiceId, pdfBase64, filename })
-    } catch (err) {
-      const message = err instanceof CincApiError ? err.message : (err as Error).message
-      attachWarning = `PDF attachment to CINC failed: ${message}. The Drive copy still landed; attach manually in CINC if needed.`
-      console.warn(`[invoice-push] ${attachWarning}`)
-    }
   }
 
   // Provenance note — gives anyone viewing the invoice in CINC the
@@ -302,14 +358,17 @@ export async function POST(
   // existing folder-move + spreadsheet workflow keeps working. If the
   // SA doesn't have access to the folder yet (one-time share step),
   // every push will warn but CINC stays correct.
-  let driveFileId: string | null = null
+  let driveFileId: string | null = (draft.drive_file_id ?? null) as string | null
   let driveWarning: string | null = null
-  try {
-    const mirror = await uploadInvoiceToDrive({ filename, pdfBuffer: buf })
-    driveFileId = mirror.driveFileId
-  } catch (err) {
-    driveWarning = `Drive mirror failed: ${(err as Error).message}`
-    console.warn(`[invoice-push] ${driveWarning}`)
+  if (!driveFileId) {
+    // Not already mirrored at the Transfer-to-Push step — do it now.
+    try {
+      const mirror = await uploadInvoiceToDrive({ filename, pdfBuffer: buf })
+      driveFileId = mirror.driveFileId
+    } catch (err) {
+      driveWarning = `Drive mirror failed: ${(err as Error).message}`
+      console.warn(`[invoice-push] ${driveWarning}`)
+    }
   }
 
   // Mark pushed.

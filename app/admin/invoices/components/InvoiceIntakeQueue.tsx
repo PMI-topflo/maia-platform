@@ -516,30 +516,36 @@ function DraftCard(props: {
     setMsg(null)
   }
 
+  /** The current edited field values, as the PATCH body the API expects.
+   *  Shared by Save and by the auto-save-on-confirm path so confirming a
+   *  compliance check persists the latest values without a separate Save. */
+  function valuesPatch(): Record<string, unknown> {
+    return {
+      matched_cinc_vendor_id:      vendorId || null,
+      matched_vendor_name:         matchedVendor?.name ?? null,
+      matched_vendor_short_name:   shortName || null,
+      extracted_invoice_number:    invNo || null,
+      extracted_amount:            amount ? parseFloat(amount) : null,
+      extracted_association_code:  assoc || null,
+      extracted_invoice_date:      invDate || null,
+      due_date:                    dueDate || null,
+      scheduled_pay_date:          schedDate || null,
+      gl_account_id:               glId   || null,
+      gl_account_name:             glName || null,
+      pay_by_type:                 payBy  || null,
+      observation_note:            note   || null,
+      work_order_number:           woNumber ? parseInt(woNumber, 10) : null,
+      pay_from_bank_account_id:    bankId ? parseInt(bankId, 10) : null,
+    }
+  }
+
   async function save() {
     setBusy(true); setMsg(null)
     try {
       const res = await fetch('/api/admin/invoices/intake', {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          id:                          draft.id,
-          matched_cinc_vendor_id:      vendorId || null,
-          matched_vendor_name:         matchedVendor?.name ?? null,
-          matched_vendor_short_name:   shortName || null,
-          extracted_invoice_number:    invNo || null,
-          extracted_amount:            amount ? parseFloat(amount) : null,
-          extracted_association_code:  assoc || null,
-          extracted_invoice_date:      invDate || null,
-          due_date:                    dueDate || null,
-          scheduled_pay_date:          schedDate || null,
-          gl_account_id:               glId   || null,
-          gl_account_name:             glName || null,
-          pay_by_type:                 payBy  || null,
-          observation_note:            note   || null,
-          work_order_number:           woNumber ? parseInt(woNumber, 10) : null,
-          pay_from_bank_account_id:    bankId ? parseInt(bankId, 10) : null,
-        }),
+        body:    JSON.stringify({ id: draft.id, ...valuesPatch() }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
@@ -563,6 +569,15 @@ function DraftCard(props: {
         body:    JSON.stringify({ pushAnyway }),
       })
       const data = await res.json()
+      // Double-pay guard: offer Karen the override (server still enforces
+      // Karen-only). karenOnly=true means a non-Karen tried to override.
+      if (res.status === 409 && data?.duplicateGuard) {
+        setBusy(false)
+        if (data.karenOnly) { setMsg(data.error); return }
+        if (!pushAnyway && confirm(`⚠ ${data.error}\n\nPush anyway?`)) { void push(true) }
+        else setMsg(data.error)
+        return
+      }
       if (!res.ok && res.status !== 207) throw new Error(data?.error ?? `HTTP ${res.status}`)
       setMsg(data.warning ?? `Pushed to CINC (id ${data.cincInvoiceId}).`)
       onMutate()
@@ -617,6 +632,23 @@ function DraftCard(props: {
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
       setMsg(`Saved to Drive${data.filename ? ` as ${data.filename}` : ''}.`)
+      onMutate()
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Re-attach the stored PDF to the existing CINC invoice — for invoices that
+  // landed in CINC without their PDF (oversized scan skipped by an old push).
+  async function reattachCinc() {
+    setBusy(true); setMsg(null)
+    try {
+      const res = await fetch(`/api/admin/invoices/intake/${draft.id}/reattach-cinc`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      setMsg(`PDF attached to CINC invoice ${data.cincInvoiceId}${data.filename ? ` as ${data.filename}` : ''}.`)
       onMutate()
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))
@@ -689,15 +721,24 @@ function DraftCard(props: {
   const requiredOk = REQUIRED_CHECKS.every(k => checked[k])
   const allReady   = requiredOk && !!checked['duplicate'] && !hardDup
 
-  async function persistChecklist(next: Record<string, boolean>, statusChange?: string) {
+  async function persistChecklist(next: Record<string, boolean>, opts?: { statusChange?: string; includeValues?: boolean }) {
     setAuditBusy(true); setAuditMsg(null)
     try {
       const body: Record<string, unknown> = { id: draft.id, audit_checklist: next }
-      if (statusChange) body.status = statusChange
+      // Auto-save the current field values alongside the checklist when
+      // confirming in edit mode — so each compliance confirmation persists
+      // the latest values without a separate "Save" click. Only in edit mode,
+      // where the vendor list is loaded (otherwise valuesPatch could null the
+      // vendor name). Same body the Save button sends.
+      if (opts?.includeValues) Object.assign(body, valuesPatch())
+      if (opts?.statusChange)  body.status = opts.statusChange
       const res = await fetch('/api/admin/invoices/intake', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
-      if (statusChange) onMutate()
+      if (opts?.statusChange) {
+        if (data?.driveWarning) setAuditMsg(`Transferred — but Drive copy didn't land: ${data.driveWarning}`)
+        onMutate()
+      } else if (opts?.includeValues) setAuditMsg('Saved ✓')
     } catch (e) { setAuditMsg(e instanceof Error ? e.message : String(e)) } finally { setAuditBusy(false) }
   }
 
@@ -705,7 +746,10 @@ function DraftCard(props: {
     if (id === 'duplicate' && hardDup) { setAuditMsg('Hard duplicate — cannot clear. Reject this draft instead.'); return }
     if (id !== 'duplicate' && !present && !checked[id]) { setAuditMsg('Fill that field in Edit first, then confirm it.'); return }
     const next = { ...checked, [id]: !checked[id] }
-    setChecked(next); void persistChecklist(next)
+    setChecked(next)
+    // Confirming auto-saves the current values (edit mode only); unchecking
+    // or confirming in view mode just persists the checklist boolean.
+    void persistChecklist(next, { includeValues: mode === 'edit' })
   }
 
   // Let the funds check move the scheduled payment date to an affordable
@@ -775,6 +819,14 @@ function DraftCard(props: {
               </button>
             </div>
           )}
+          {/* Re-attach PDF to CINC — for invoices that landed in CINC without
+              their PDF (oversized scan skipped by an old push). */}
+          <div style={{ marginTop: 6 }}>
+            <button onClick={reattachCinc} disabled={busy} title="Compress and attach the stored PDF to this CINC invoice"
+              style={{ fontSize: 12, fontWeight: 600, padding: '4px 10px', border: '1px solid #059669', borderRadius: 4, background: '#fff', color: '#065f46', cursor: 'pointer' }}>
+              📎 Re-attach PDF to CINC
+            </button>
+          </div>
           {draft.cinc_invoice_id && (
             <InvoiceHistory invoiceId={parseInt(draft.cinc_invoice_id, 10)} />
           )}
@@ -1316,8 +1368,8 @@ function DraftCard(props: {
           readyBy={draft.audit_ready_by}
           busy={auditBusy}
           msg={auditMsg}
-          onMarkReady={() => persistChecklist(checked, 'ready_to_push')}
-          onUnready={() => persistChecklist(checked, 'pending_review')}
+          onMarkReady={() => persistChecklist(checked, { statusChange: 'ready_to_push' })}
+          onUnready={() => persistChecklist(checked, { statusChange: 'pending_review' })}
         />
       )}
     </div>
@@ -1544,7 +1596,7 @@ function AuditFooter(props: {
   return (
     <div style={{ marginTop: 14, padding: 12, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6 }}>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: '#374151', marginBottom: 8 }}>
-        ✅ Final approval — confirm each field above, then mark ready
+        ✅ Confirm each field above (auto-saves), then Transfer to Push for Karen
       </div>
 
       {/* System double-pay guard */}
@@ -1608,12 +1660,12 @@ function AuditFooter(props: {
       <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
         {isReady ? (
           <>
-            <span style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>✓ Ready to push{readyBy ? ` · by ${readyBy}` : ''}</span>
-            <button onClick={onUnready} disabled={busy} style={btnSecondary()}>Un-ready (edit more)</button>
+            <span style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>✓ Transferred to Push{readyBy ? ` · by ${readyBy}` : ''} — Karen pushes from the “Ready to push” tab</span>
+            <button onClick={onUnready} disabled={busy} style={btnSecondary()}>↩ Return to team</button>
           </>
         ) : (
           <button onClick={onMarkReady} disabled={busy || !allReady} style={allReady ? btnPrimary() : btnSecondary()}>
-            {allReady ? 'Mark ready to push →' : requiredOk ? 'Confirm the duplicate check to enable' : 'Confirm every field above to enable'}
+            {allReady ? 'Transfer to Push →' : requiredOk ? 'Confirm the duplicate check to enable' : 'Confirm every field above to enable'}
           </button>
         )}
       </div>
