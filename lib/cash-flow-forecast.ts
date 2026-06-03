@@ -115,6 +115,13 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+/** Last calendar day of a YYYY-MM month, as YYYY-MM-DD. (Day 0 of the next
+ *  month rolls back to the last day of this one.) */
+function endOfMonthISO(ym: string): string {
+  const [y, m] = ym.split('-').map(Number)
+  return isoDate(new Date(Date.UTC(y, m, 0)))
+}
+
 function startOfMonthMinusN(months: number): string {
   const d = new Date()
   d.setUTCDate(1)
@@ -345,6 +352,26 @@ export async function forecastEndOfMonthBalance(opts: {
 
 export interface MonthProjection { month: string; monthsAhead: number; projectedBalance: number; affordableAfterPush: boolean }
 
+export type OpenInvoiceScope = 'all' | 'due-by-scheduled'
+
+// Tunable funds-check knobs, centralised so the magic numbers live in one
+// place instead of being scattered across the engine and the UI. Each is also
+// overridable per call via forecastFundsForDate opts — a future per-assoc
+// settings table can feed those overrides without touching this file.
+export const FUNDS_CHECK_DEFAULTS = {
+  /** Projected balance below which the check shows an amber "tight" warning
+   *  even though the payment is technically affordable. */
+  tightThreshold:   1000,
+  /** Complete prior months that feed the run-rate (average net flow). */
+  runRateMonths:    3,
+  /** Months the affordability horizon spans. */
+  horizonMonths:    6,
+  /** Which open invoices count against the balance:
+   *   'all'              – every open invoice for the assoc (most conservative)
+   *   'due-by-scheduled' – only those due on/before the scheduled month. */
+  openInvoiceScope: 'all' as OpenInvoiceScope,
+}
+
 export interface FundsCheckResult {
   associationCode:        string
   bankAccountId:          number
@@ -364,6 +391,11 @@ export interface FundsCheckResult {
   monthsAhead:            number
   projectedAtScheduled:   number          // balance after this push, end of scheduled month
   affordable:             boolean
+  /** Affordable but the projected balance is under `tightThreshold`. */
+  tight:                  boolean
+  tightThreshold:         number
+  /** Which open invoices were counted against the balance. */
+  openInvoiceScope:       OpenInvoiceScope
   /** Earliest month (YYYY-MM) whose projection covers this push, or null
    *  if none within the horizon. */
   earliestAffordableMonth: string | null
@@ -413,11 +445,20 @@ async function averageMonthlyNetFlow(assocCode: string, cashGl: string, months =
 }
 
 export async function forecastFundsForDate(opts: {
-  assocCode:     string
-  bankAccountId: number
-  scheduledDate: string   // YYYY-MM-DD
-  pushAmount:    number
+  assocCode:        string
+  bankAccountId:    number
+  scheduledDate:    string   // YYYY-MM-DD
+  pushAmount:       number
+  runRateMonths?:   number
+  horizonMonths?:   number
+  openInvoiceScope?: OpenInvoiceScope
+  tightThreshold?:  number
 }): Promise<FundsCheckResult> {
+  const runRateMonths    = opts.runRateMonths   ?? FUNDS_CHECK_DEFAULTS.runRateMonths
+  const horizonMonths    = opts.horizonMonths   ?? FUNDS_CHECK_DEFAULTS.horizonMonths
+  const openInvoiceScope = opts.openInvoiceScope ?? FUNDS_CHECK_DEFAULTS.openInvoiceScope
+  const tightThreshold   = opts.tightThreshold  ?? FUNDS_CHECK_DEFAULTS.tightThreshold
+
   const caveats: string[] = []
   const banks = await listAssociationBankAccounts(opts.assocCode)
   const bank  = banks.find(b => b.id === opts.bankAccountId) ?? banks.find(b => b.kind === 'operating') ?? banks[0]
@@ -427,40 +468,51 @@ export async function forecastFundsForDate(opts: {
     caveats.push('Using bank-reported balance — CINC reconciled balance unavailable.')
   }
 
-  // ALL open invoices for the assoc (committed near-term outflows). [B]
-  const open = await listOpenInvoices({ assocCode: opts.assocCode }).catch(() => [])
+  const nowYm          = ymKey(new Date())
+  const scheduledMonth = (opts.scheduledDate || nowYm).slice(0, 7)
+  const push           = Math.abs(opts.pushAmount || 0)
+
+  // Open invoices counted as committed near-term outflows. Scope decides
+  // which ones: 'all' (every open invoice — most conservative) or
+  // 'due-by-scheduled' (only those due on/before the end of the scheduled
+  // month, so invoices not yet due don't deflate a near-term check).
+  const allOpen = await listOpenInvoices({ assocCode: opts.assocCode }).catch(() => [])
+  const schedCutoff = endOfMonthISO(scheduledMonth)   // YYYY-MM-DD, last day of scheduled month
+  const open = openInvoiceScope === 'due-by-scheduled'
+    ? allOpen.filter(o => !o.DueDate || o.DueDate.slice(0, 10) <= schedCutoff)
+    : allOpen
   const openInvoicesTotal = open.reduce((s, o) => s + (typeof o.Balance === 'number' ? o.Balance : (typeof o.InvoiceAmount === 'number' ? o.InvoiceAmount : 0)), 0)
-  if (open.length > 0) caveats.push(`Counts all ${open.length} open invoice(s) in CINC for this association as near-term outflows (some may draw from a different account).`)
+  if (open.length > 0) {
+    caveats.push(openInvoiceScope === 'due-by-scheduled'
+      ? `Counts the ${open.length} open invoice(s) due by ${monthOf(schedCutoff)} (of ${allOpen.length} total open) as near-term outflows.`
+      : `Counts all ${open.length} open invoice(s) in CINC for this association as near-term outflows (some may draw from a different account).`)
+  }
 
   const flow = bank?.cashGl
-    ? await averageMonthlyNetFlow(opts.assocCode, bank.cashGl)
+    ? await averageMonthlyNetFlow(opts.assocCode, bank.cashGl, runRateMonths)
     : { avgNet: 0, avgIn: 0, avgOut: 0, sampled: 0 }
   if (!bank?.cashGl) caveats.push('No Cash GL on this account — future-month run-rate skipped.')
   else if (flow.sampled === 0) caveats.push('No recent ledger history — future-month run-rate unavailable (showing current balance only).')
   else caveats.push(`Future months use this account's average net flow over ${flow.sampled} month(s): ${flow.avgNet >= 0 ? '+' : ''}${Math.round(flow.avgNet).toLocaleString()} / month.`)
 
-  const nowYm = ymKey(new Date())
-  const push  = Math.abs(opts.pushAmount || 0)
-
-  // Project the balance at end of a given month: current balance, less all
-  // open invoices (this-month commitments) and this push, plus the run-rate
-  // net flow for each FULL month beyond the current one.
+  // Project the balance at end of a given month: current balance, less the
+  // counted open invoices (this-month commitments) and this push, plus the
+  // run-rate net flow for each FULL month beyond the current one.
   const project = (ym: string): number => {
     const ahead = Math.max(0, monthsBetween(nowYm, ym))
     return currentBalance - openInvoicesTotal - push + ahead * flow.avgNet
   }
 
-  // 6-month horizon starting this month.
+  // Affordability horizon starting this month.
   const horizon: MonthProjection[] = []
   const base = new Date()
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < horizonMonths; i++) {
     const d = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + i, 1))
     const ym = ymKey(d)
     const projectedBalance = project(ym)
     horizon.push({ month: ym, monthsAhead: i, projectedBalance, affordableAfterPush: projectedBalance >= 0 })
   }
 
-  const scheduledMonth = (opts.scheduledDate || nowYm).slice(0, 7)
   const monthsAhead    = Math.max(0, monthsBetween(nowYm, scheduledMonth))
   const projectedAtScheduled = project(scheduledMonth)
   const earliest = horizon.find(h => h.affordableAfterPush)?.month ?? null
@@ -481,6 +533,9 @@ export async function forecastFundsForDate(opts: {
     monthsAhead,
     projectedAtScheduled,
     affordable:             projectedAtScheduled >= 0,
+    tight:                  projectedAtScheduled >= 0 && projectedAtScheduled < tightThreshold,
+    tightThreshold,
+    openInvoiceScope,
     earliestAffordableMonth: earliest,
     horizon,
     caveats,

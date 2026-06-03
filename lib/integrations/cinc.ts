@@ -1306,6 +1306,21 @@ export interface BankAccountOption {
   restrictionLabel: string | null
 }
 
+/** Description patterns for accounts holding restricted debt / escrow funds.
+ *  These are never a valid source for ordinary AP invoice payments and must
+ *  never shadow the real operating account. Shared by `deriveBankKind`
+ *  (→ 'other') and the "Pay from" dropdown filter so the two never drift —
+ *  previously the dropdown only excluded "debt service" by description while
+ *  the classifier also flagged loan/mortgage/escrow, so those leaked into the
+ *  payable list. */
+const DEBT_ESCROW_RE = /\bdebt\b|loan|mortgage|escrow|\bclosing\b/i
+
+/** True when an account's description marks it as restricted debt/escrow
+ *  funds that must be kept out of the AP "Pay from" picker. */
+export function isDebtOrEscrowAccount(description: string | null | undefined): boolean {
+  return DEBT_ESCROW_RE.test(description ?? '')
+}
+
 function deriveBankKind(account: CincBankAccount): BankAccountKind {
   const desc = (account.AccountDescription ?? '').toLowerCase()
   if (/special\s*assess/.test(desc))     return 'special'
@@ -1314,7 +1329,7 @@ function deriveBankKind(account: CincBankAccount): BankAccountKind {
   // though their cash GL can share the 10- prefix (e.g. "Popular - Debt
   // Service" on 10-1010-00). Catch them before the prefix fallback so they
   // don't shadow the real operating account.
-  if (/\bdebt\b|loan|mortgage|escrow|\bclosing\b/.test(desc)) return 'other'
+  if (DEBT_ESCROW_RE.test(desc)) return 'other'
   if (/\boperating\b|\boperations?\b/.test(desc)) return 'operating'
   // Cash GL prefix fallback per fund-accounting convention:
   //   10-xxxx = operating cash, 12-xxxx = reserve cash, 13-xxxx ≈ SA cash.

@@ -6,9 +6,16 @@
 // ledger:
 //   1. manual    — scheduled_payments rows (pending, due_month <= month;
 //                  past-due unpaid carry forward into later months)
-//   2. cinc       — CINC invoices approved but not yet paid (live)
+//   2. cinc       — CINC invoices approved but not yet paid (live), each
+//                   tagged with OUR scheduled_pay_date when the invoice was
+//                   pushed from MAIA (so the list reflects when we plan to
+//                   pay, not just CINC's due date)
 //   3. recurring  — vendors MAIA expects to recur this month (live, from
 //                   payment history), not yet seen this month
+//   4. scheduled  — MAIA drafts marked ready_to_push with a scheduled pay
+//                   date that haven't been pushed to CINC yet (so they're a
+//                   real upcoming outflow CINC doesn't know about). Past-due
+//                   unpaid carry forward, same as manual entries.
 //
 // Staff-only.
 // =====================================================================
@@ -56,9 +63,35 @@ export async function GET(req: Request) {
     .eq('association_code', assoc)
   const dismissedKeys = new Set((dismissals ?? []).map(d => d.vendor_key))
 
+  // ── MAIA invoice drafts with an explicit scheduled pay date ─────────
+  // Two uses below:
+  //   • pushed drafts → look up their scheduled_pay_date by invoice # so the
+  //     CINC stream can show when WE plan to pay, not just CINC's due date.
+  //   • ready_to_push drafts → a 4th "scheduled" stream (not in CINC yet).
+  const normInvNo = (s: string | null | undefined) => (s ?? '').trim().toUpperCase().replace(/\s+/g, '')
+  // First day of the month AFTER the query month — the upper bound for
+  // "scheduled on or before this month" (string compare works for ISO dates).
+  const [qy, qm] = month.split('-').map(Number)
+  const nextMonthFirst = `${qm === 12 ? qy + 1 : qy}-${String(qm === 12 ? 1 : qm + 1).padStart(2, '0')}-01`
+
+  const { data: schedDrafts } = await supabaseAdmin
+    .from('invoice_intake_drafts')
+    .select('extracted_invoice_number, matched_vendor_name, matched_vendor_short_name, extracted_amount, scheduled_pay_date, status')
+    .eq('extracted_association_code', assoc)
+    .in('status', ['ready_to_push', 'pushed_to_cinc'])
+    .not('scheduled_pay_date', 'is', null)
+    .order('scheduled_pay_date', { ascending: true })
+
+  const schedByInvoiceNo = new Map<string, string>()
+  for (const d of schedDrafts ?? []) {
+    if (d.status === 'pushed_to_cinc' && d.extracted_invoice_number && d.scheduled_pay_date) {
+      schedByInvoiceNo.set(normInvNo(d.extracted_invoice_number), d.scheduled_pay_date as string)
+    }
+  }
+
   // ── 2 + 3. CINC approved-unpaid + recurring, aggregated across the
   //          association's bank accounts (fault-tolerant). ────────────
-  const cincByInvoice = new Map<string, { vendorName: string | null; invoiceNumber: string | null; amount: number; dueDate: string | null; account: string }>()
+  const cincByInvoice = new Map<string, { vendorName: string | null; invoiceNumber: string | null; amount: number; dueDate: string | null; scheduledPayDate: string | null; account: string }>()
   const recurringByKey = new Map<string, { key: string; displayName: string; avgAmount: number; lastSeenMonth: string }>()
 
   try {
@@ -74,7 +107,9 @@ export async function GET(req: Request) {
         if (!cincByInvoice.has(key)) {
           cincByInvoice.set(key, {
             vendorName: it.vendorName, invoiceNumber: it.invoiceNumber,
-            amount: it.amount, dueDate: it.dueDate, account: f.bankAccountDescription,
+            amount: it.amount, dueDate: it.dueDate,
+            scheduledPayDate: it.invoiceNumber ? (schedByInvoiceNo.get(normInvNo(it.invoiceNumber)) ?? null) : null,
+            account: f.bankAccountDescription,
           })
         }
       }
@@ -89,10 +124,24 @@ export async function GET(req: Request) {
     }
   } catch { /* live CINC enrichment is best-effort */ }
 
+  // ── 4. MAIA scheduled (ready_to_push, not yet in CINC) ──────────────
+  // These are audited invoices with a pay date that we haven't pushed yet,
+  // so they don't appear in the CINC stream. Show those scheduled on or
+  // before the query month (past-due unpaid carry forward, like manual).
+  const scheduled = (schedDrafts ?? [])
+    .filter(d => d.status === 'ready_to_push' && typeof d.scheduled_pay_date === 'string' && d.scheduled_pay_date < nextMonthFirst)
+    .map(d => ({
+      vendorName:       d.matched_vendor_name ?? d.matched_vendor_short_name ?? null,
+      invoiceNumber:    d.extracted_invoice_number ?? null,
+      amount:           typeof d.extracted_amount === 'number' ? d.extracted_amount : 0,
+      scheduledPayDate: d.scheduled_pay_date as string,
+    }))
+
   return NextResponse.json({
     assoc, month,
     manual:    manual ?? [],
     cinc:      [...cincByInvoice.values()],
     recurring: [...recurringByKey.values()],
+    scheduled,
   })
 }

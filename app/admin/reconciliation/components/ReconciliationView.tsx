@@ -74,8 +74,9 @@ interface ScheduledPayment {
   paid_date:        string | null
   notes:            string | null
 }
-interface UpcomingCinc { vendorName: string | null; invoiceNumber: string | null; amount: number; dueDate: string | null; account: string }
+interface UpcomingCinc { vendorName: string | null; invoiceNumber: string | null; amount: number; dueDate: string | null; scheduledPayDate: string | null; account: string }
 interface UpcomingRecurring { key: string; displayName: string; avgAmount: number; lastSeenMonth: string }
+interface UpcomingScheduled { vendorName: string | null; invoiceNumber: string | null; amount: number; scheduledPayDate: string }
 
 interface ForecastSummary {
   bankAccountId:          number
@@ -130,6 +131,7 @@ export default function ReconciliationView(props: Props) {
   const [upManual,    setUpManual]    = useState<ScheduledPayment[]>([])
   const [upCinc,      setUpCinc]      = useState<UpcomingCinc[]>([])
   const [upRecurring, setUpRecurring] = useState<UpcomingRecurring[]>([])
+  const [upScheduled, setUpScheduled] = useState<UpcomingScheduled[]>([])
   const [upLoading,   setUpLoading]   = useState(false)
   const [showFuture,  setShowFuture]  = useState(false)
   const [futureBusy,  setFutureBusy]  = useState(false)
@@ -254,12 +256,12 @@ export default function ReconciliationView(props: Props) {
 
   // ── Upcoming Payments (future) ─────────────────────────────────────
   const loadUpcoming = useCallback(async () => {
-    if (!assoc) { setUpManual([]); setUpCinc([]); setUpRecurring([]); return }
+    if (!assoc) { setUpManual([]); setUpCinc([]); setUpRecurring([]); setUpScheduled([]); return }
     setUpLoading(true)
     try {
       const r = await fetch(`/api/admin/reconciliation/upcoming?assoc=${encodeURIComponent(assoc)}&month=${encodeURIComponent(month)}`, { cache: 'no-store' })
       const d = await r.json()
-      if (r.ok) { setUpManual(d.manual ?? []); setUpCinc(d.cinc ?? []); setUpRecurring(d.recurring ?? []) }
+      if (r.ok) { setUpManual(d.manual ?? []); setUpCinc(d.cinc ?? []); setUpRecurring(d.recurring ?? []); setUpScheduled(d.scheduled ?? []) }
     } catch { /* non-fatal */ }
     finally { setUpLoading(false) }
   }, [assoc, month])
@@ -851,7 +853,7 @@ export default function ReconciliationView(props: Props) {
                 </tr>
               </thead>
               <tbody>
-                {!upLoading && upManual.length === 0 && upCinc.length === 0 && upRecurring.length === 0 && (
+                {!upLoading && upManual.length === 0 && upCinc.length === 0 && upRecurring.length === 0 && upScheduled.length === 0 && (
                   <tr><td colSpan={8} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>Nothing upcoming. Add a future payment, or CINC approved-unpaid invoices will appear here.</td></tr>
                 )}
                 {/* Manual scheduled payments */}
@@ -878,7 +880,12 @@ export default function ReconciliationView(props: Props) {
                 {/* CINC approved-unpaid invoices */}
                 {upCinc.map((c, i) => (
                   <tr key={`c-${i}`} style={{ borderTop: '1px solid #f3f4f6', background: '#f8fafc' }}>
-                    <Td>{c.dueDate ? formatMD(c.dueDate) : '—'}</Td>
+                    <Td>
+                      {c.scheduledPayDate
+                        ? <>{formatMD(c.scheduledPayDate)}<span style={{ marginLeft: 4, fontSize: 9, color: '#1e40af', background: '#dbeafe', padding: '0 4px', borderRadius: 3 }}>scheduled</span>
+                            {c.dueDate && c.dueDate.slice(0, 10) !== c.scheduledPayDate.slice(0, 10) && <span style={{ marginLeft: 4, color: '#9ca3af', fontSize: 9 }}>due {formatMD(c.dueDate)}</span>}</>
+                        : (c.dueDate ? formatMD(c.dueDate) : '—')}
+                    </Td>
                     <Td><span style={{ fontSize: 9, color: '#1e40af', background: '#dbeafe', padding: '1px 5px', borderRadius: 3 }}>CINC · approved</span></Td>
                     <Td>{c.vendorName ?? ''}</Td>
                     <Td>{c.invoiceNumber ? `Inv.#${c.invoiceNumber}` : ''} <span style={{ color: '#9ca3af' }}>· {c.account}</span></Td>
@@ -888,6 +895,22 @@ export default function ReconciliationView(props: Props) {
                     <Td></Td>
                   </tr>
                 ))}
+                {/* MAIA scheduled — audited invoices not yet pushed to CINC */}
+                {upScheduled.map((s, i) => {
+                  const carried = s.scheduledPayDate.slice(0, 7) < month
+                  return (
+                    <tr key={`s-${i}`} style={{ borderTop: '1px solid #f3f4f6', background: '#f5f3ff' }}>
+                      <Td>{formatMD(s.scheduledPayDate)}{carried && <span style={{ marginLeft: 4, fontSize: 9, color: '#b45309', background: '#fef3c7', padding: '0 4px', borderRadius: 3 }}>carried</span>}</Td>
+                      <Td><span style={{ fontSize: 9, color: '#6d28d9', background: '#ede9fe', padding: '1px 5px', borderRadius: 3 }}>MAIA · scheduled</span></Td>
+                      <Td>{s.vendorName ?? ''}</Td>
+                      <Td>{s.invoiceNumber ? `Inv.#${s.invoiceNumber}` : ''} <span style={{ color: '#9ca3af' }}>· not pushed yet</span></Td>
+                      <Td></Td>
+                      <Td right><span style={{ color: '#991b1b', fontVariantNumeric: 'tabular-nums' }}>${fmt$(s.amount)} ⬇</span></Td>
+                      <Td><span style={{ fontSize: 10, color: '#6d28d9' }}>scheduled</span></Td>
+                      <Td></Td>
+                    </tr>
+                  )
+                })}
                 {/* MAIA recurring estimates */}
                 {upRecurring.map((r, i) => (
                   <tr key={`r-${i}`} style={{ borderTop: '1px solid #f3f4f6', background: '#fffdf7' }}>

@@ -1,17 +1,20 @@
 // =====================================================================
 // app/api/admin/cinc/funds-check/route.ts
 //
-// GET /api/admin/cinc/funds-check?assoc=X&account=Y&scheduled=YYYY-MM-DD&push=N
+// GET /api/admin/cinc/funds-check?assoc=X&account=Y&scheduled=YYYY-MM-DD&push=N&scope=all|due-by-scheduled
 //   "Will <account> have funds on the scheduled payment date?" — projects
-//   the balance to the END OF THE SCHEDULED MONTH using ALL open invoices
-//   plus the account's average monthly net flow, and returns a 6-month
-//   horizon so the intake card can suggest the earliest affordable month.
+//   the balance to the END OF THE SCHEDULED MONTH using the counted open
+//   invoices (see `scope`) plus the account's average monthly net flow, and
+//   returns an affordability horizon so the intake card can suggest the
+//   earliest affordable month.
+//   `scope` (optional): 'all' (default) counts every open invoice;
+//   'due-by-scheduled' counts only invoices due by the scheduled month.
 // =====================================================================
 
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
-import { forecastFundsForDate } from '@/lib/cash-flow-forecast'
+import { forecastFundsForDate, type OpenInvoiceScope } from '@/lib/cash-flow-forecast'
 
 export const dynamic     = 'force-dynamic'
 export const maxDuration = 60
@@ -28,6 +31,8 @@ export async function GET(req: Request) {
   const acct      = url.searchParams.get('account')
   const scheduled = (url.searchParams.get('scheduled') ?? '').trim()
   const push      = parseFloat(url.searchParams.get('push') ?? '0')
+  const scopeParam = url.searchParams.get('scope')
+  const openInvoiceScope: OpenInvoiceScope = scopeParam === 'due-by-scheduled' ? 'due-by-scheduled' : 'all'
   if (!assoc || !acct) {
     return NextResponse.json({ error: 'assoc + account query params required' }, { status: 400 })
   }
@@ -42,6 +47,7 @@ export async function GET(req: Request) {
       bankAccountId,
       scheduledDate: scheduled || new Date().toISOString().slice(0, 10),
       pushAmount:    Number.isFinite(push) ? push : 0,
+      openInvoiceScope,
     })
     return NextResponse.json(result)
   } catch (err) {
