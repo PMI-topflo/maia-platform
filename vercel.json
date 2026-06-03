@@ -34,7 +34,7 @@
     },
     {
       "path": "/api/cron/daily-staff-news",
-      "schedule": "0 21 * * 1-5"
+      "schedule": "0 10,11 * * 1-5"
     }
   ]
 }
