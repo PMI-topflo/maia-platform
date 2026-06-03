@@ -1,6 +1,6 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: 2026-06-02. Living document. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked._
+_Last updated: 2026-06-03. Living document. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked._
 _Companion to `docs/SESSION-HANDOFF.md` (session-by-session state + gotchas)._
 
 ---
@@ -20,11 +20,11 @@ The big focus of the latest session. Email → MAIA extracts → AP audits → p
 - Email Karen when a non-Karen staffer marks ready.
 
 **🟡 / 🔴 Open**
-- 🟡 **GL auto-select** (pre-fill the dropdown when confidence is high) instead of "Use it".
-- 🔴 **Auto-association detection** when an invoice arrives with no association (Arrow Asphalt had none — staff set VPREC by hand).
-- 🟡 **Funds-check tuning**: the $1,000 "tight" threshold, the 3-month run-rate window, toggle for which open invoices count.
-- 🔴 **Drive link for manually-placed files** — the service account's `drive.file` scope can't see files it didn't create, so a manually-dropped PDF leaves `drive_file_id` null (no detail-page link).
-- 🟡 **Expense-side GL** shown on the **Pushed** invoices view.
+- ✅ **GL auto-select** — pre-fills the dropdown when confidence is high (CINC vendor-account mapping or ≥2 past invoices); single-data-point stays a manual "Use it"; never auto-confirms the audit pill. _(PR #262)_
+- ✅ **Auto-association detection** — infers the association from the vendor's confirmed MAIA history (unanimous ready/pushed drafts only). Self-corrects the Arrow-Asphalt case after the first manual set. _(PR #262)_ — 🔴 **still open:** brand-new vendor's *first* invoice (no history) would need a live CINC cross-association ledger scan; intentionally kept out of the webhook path.
+- ✅ **Funds-check tuning** — knobs centralised in `FUNDS_CHECK_DEFAULTS` (tight $1,000, run-rate 3mo, horizon 6mo, all overridable per call); `tight` computed server-side; new "which open invoices count" toggle (`all` vs `due-by-scheduled`). _(PR #263)_ — 🟡 **follow-up:** a persisted per-association settings panel so the knobs change without a deploy.
+- 🔴 **Drive link for manually-placed files** — the service account's `drive.file` scope can't see files it didn't create, so a manually-dropped PDF leaves `drive_file_id` null (no detail-page link). _(still open)_
+- ✅ **Expense-side GL** surfaced in the Pushed banner (scannable at a glance). _(PR #262)_
 
 ---
 
@@ -37,8 +37,8 @@ Applicant fills form → pays fee (Stripe) → background check (Applycheck) aut
 - **Background check** — `/api/trigger-applycheck` calls **Applycheck** (`APPLYCHECK_API_KEY` / `APPLYCHECK_ACCOUNT_ID`), which emails each applicant a verification invite. **Auto-triggered by the Stripe payment webhook** on successful payment.
 - **Board review + decision** flow (`/board/review`, `/api/board/review`, `/admin/applications`, send-to-board, approve/reject).
 
-**🟡 / 🔴 Open — _confirm exact scope with the team_**
-- ❓ "Application forms" was named as an open item — **need the specific gap** (a field/validation? a new association's rules? multi-language? a step that's not saving?). Code shows a complete flow, so this is a refinement list to define.
+**🟡 / 🔴 Open**
+- 🔴 **Per-association rules acknowledgment** (confirmed scope, 2026-06-03): the flow is complete; the remaining work is to add **each association's rules into the `/apply` flow so the applicant acknowledges/signs them inside the application**. Per-association rules content + an acknowledgment/signature step. Likely a small migration for the rules text (or reuse the existing association docs/rules surface).
 - 🟡 Background-check **status surfacing** — `applycheck_status` is stored; verify it's shown clearly to the board and that webhooks/poll update it.
 - 🟡 Edge cases: co-applicant payment splitting, resume-link expiry, partial-pay handling.
 
@@ -62,8 +62,8 @@ The items you named as carry-over. These do **not** exist yet as owner-facing fe
 - Deep CINC client (`lib/integrations/cinc.ts`): vendors, invoices, GL transactions (all-accounts), budgets, bank balances, work orders, duplicate detection.
 
 **🟡 Open**
-- 🟡 **Reconciliation "Upcoming Payments"** driven by the invoice **scheduled_pay_date** (ties into the new funds check).
-- 🟡 Verify reconciliation handles the non-operating / reserve / debt-service accounts correctly (we just fixed `deriveBankKind` misclassifying debt-service as operating).
+- ✅ **Reconciliation "Upcoming Payments"** now driven by `scheduled_pay_date` — CINC approved-unpaid rows show our planned pay date (badged), plus a new `MAIA · scheduled` stream for ready-to-push drafts not yet in CINC. No double-counting. _(PR #263)_
+- ✅ **Reserve / debt-service verified + fixed** — found the "Pay from" dropdown only filtered `"debt service"` by description while `deriveBankKind` also flagged loan/mortgage/escrow, so those leaked into the payable list. Now share one `isDebtOrEscrowAccount()` predicate. Reserve handling was already correct. _(PR #263)_
 
 ---
 
@@ -88,10 +88,34 @@ The items you named as carry-over. These do **not** exist yet as owner-facing fe
 
 ---
 
-## 7. Needs your input (to make this exhaustive)
-These were named across sessions but I don't have the original detailed requirements — tell me the desired behavior and I'll scope/build:
-1. **Application forms** — what specifically is still open (a field, a validation, a new association, a bug)?
-2. **Owner ledger by request** — delivery (email PDF vs. in-portal), which CINC ledger/statement, auth (owner OTP).
-3. **Payment method integration** — owner assessments? vendor payments? which rail (Stripe / CINC portal / ACH)?
-4. **Background check** — is Applycheck fully wired end-to-end, or is there a remaining gap (status callback, board view, re-invite)?
-5. Anything else from prior sessions not reflected above.
+## 6b. Staff Daily News + Improvement-ideas board — _NEW (requested 2026-06-03), not built_
+A branded daily HTML email — **"PMI Top Florida Daily News"** — to the whole team, plus an idea-intake → admin triage loop.
+
+**Requested behaviour**
+- 🔴 Daily (Mon–Fri) branded HTML email (PMI Top Florida look — navy `#1f2a44` / orange `#f26a1b`, reuse `lib/report-email.ts` patterns).
+- 🔴 **One section per staff** (Jonathan, Isabela, Paola, Karen, Fabio), each showing **week-to-date (Mon→today)**:
+  - tickets + work orders **opened** and **resolved** (counts),
+  - currently **open** and **open-and-late** counts, colour-coded.
+- 🔴 Per-staff **"suggest a MAIA improvement"** link (optional) → feeds a backlog.
+- 🔴 **Dashboard triage screen** (Fabio) for the ideas list with **accept / done / delete** states.
+
+**What the data supports (from the 2026-06-03 code map)**
+- Tickets **and** work orders both live in `tickets` (`type` = `'ticket' | 'work_order'`); `created_at`, `resolved_at`, `status`, `due_at` (for "late"), `archived_at`. Staff attribution is **only** `assignee_email` (expanded across `@topfloridaproperties.com`/`@pmitop.com`/`@mypmitop.com`).
+- Staff roster: `pmi_staff` (`name`, `email`, `alt_emails`, `active`).
+- Email via `sendEmail()` (lib/gmail.ts, Resend→Gmail fallback); branded template precedent `lib/report-email.ts`; tokenized-link precedent `report_feedback`.
+- Cron precedent: `app/api/cron/compliance-alerts` (CRON_SECRET bearer), registered in `vercel.json`.
+
+**⚠️ Key gotcha + open decisions (see memory `staff_daily_news.md`)**
+- **Unassigned tickets (`assignee_email IS NULL`) appear in nobody's section** — decide: omit, a "Team / Unassigned" section, or attribute to a manager.
+- Define **"late"** (`due_at < now` AND not resolved? what when `due_at` is null?).
+- Confirm: one newsletter with everyone's sections sent to all (transparency) vs each person gets only their own; send time (EST); idea link per-staff tokenized.
+- Needs a new migration: `maia_improvement_ideas` (idempotent + GRANTs per the new-table template).
+
+## 7. Decisions captured (2026-06-03)
+Answers from the PM, now the spec for these tracks:
+1. **Application forms** — the whole flow is built; the ONLY remaining work is to **add each association's rules into the existing `/apply` flow so the applicant acknowledges/signs them inside the application** (per-association rules content + acknowledgment step). Not a bug, not new infra.
+2. **Owner ledger by request** — owner is identified **once** via the existing owner OTP, then may **request their ledger by any channel: email, WhatsApp, or text (SMS)**. Multi-channel delivery, not in-portal-only. Needs a CINC per-owner statement fetch + Resend/Twilio delivery.
+3. **Owner payments rail** — owners pay via **CINC WebAxis login, check, or ACH forms**. **Stripe is application-fee ONLY.** So owner "online payments" = surface a WebAxis link + check/ACH info on `/my-account`; no Stripe owner-assessment flow.
+4. **Background check** — ⏳ next up: verify Applycheck is wired end-to-end (status callback/poll, board surfacing, re-invite) and report the real gap.
+
+(Full detail also in memory: `owner_self_service_decisions.md`, `staff_daily_news.md`.)
