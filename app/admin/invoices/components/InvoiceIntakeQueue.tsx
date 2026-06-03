@@ -352,11 +352,14 @@ function DraftCard(props: {
   const [vendorDetailLoading,  setVendorDetailLoading]  = useState(false)
   const [vendorDetailLoadedFor, setVendorDetailLoadedFor] = useState<string>('')
 
-  // Mode toggle. Cards open in view mode so the data is presented as
-  // information first, with Edit as the explicit affordance to change
-  // anything. Push / Reject only available in view mode (you can't
-  // push half-edited values).
-  const [mode, setMode] = useState<'view' | 'edit'>('view')
+  // Mode toggle. Drafts still being reviewed open straight in EDIT mode so
+  // staff can fill/confirm fields without first clicking "Edit" (each
+  // confirm auto-saves). Already-ready / pushed / rejected drafts open in
+  // view mode (read-only or awaiting Karen's push).
+  const [mode, setMode] = useState<'view' | 'edit'>(
+    draft.status === 'pending_review' || draft.status === 'needs_vendor' || draft.status === 'duplicate_in_cinc'
+      ? 'edit' : 'view',
+  )
   const [busy, setBusy] = useState(false)
   const [msg, setMsg]   = useState<string | null>(null)
 
@@ -871,27 +874,37 @@ function DraftCard(props: {
       {/* Action bar — directly under the invoice image so the reviewer can
           act without scrolling past every field. */}
       {!readOnly && (
-        <div style={{ marginBottom: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {mode === 'view' ? (
-            <>
-              <button onClick={() => setMode('edit')} disabled={busy} style={btnSecondary()}>Edit</button>
-              {draft.status === 'needs_vendor' && (
-                <button onClick={rematch} disabled={busy} style={btnSecondary()}>Re-match vendor</button>
-              )}
-              {draft.status === 'duplicate_in_cinc' && (
-                <button onClick={() => push(true)} disabled={busy} style={btnPrimary()}>Push anyway</button>
-              )}
-              {draft.status === 'ready_to_push' && (
-                <button onClick={() => push(false)} disabled={busy} style={btnPrimary()}>Push to CINC</button>
-              )}
-              <button onClick={reject} disabled={busy} style={btnDanger()}>Reject</button>
-            </>
-          ) : (
-            <>
-              <button onClick={save}       disabled={busy} style={btnPrimary()}>Save</button>
-              <button onClick={cancelEdit} disabled={busy} style={btnSecondary()}>Cancel</button>
-            </>
-          )}
+        <div style={{ marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          {/* Primary actions — left */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {mode === 'view' ? (
+              <>
+                <button onClick={() => setMode('edit')} disabled={busy} style={btnSecondary()}>Edit</button>
+                {draft.status === 'needs_vendor' && (
+                  <button onClick={rematch} disabled={busy} style={btnSecondary()}>Re-match vendor</button>
+                )}
+                {draft.status === 'duplicate_in_cinc' && (
+                  <button onClick={() => push(true)} disabled={busy} style={btnPrimary()}>Push anyway</button>
+                )}
+                {draft.status === 'ready_to_push' && (
+                  <button onClick={() => push(false)} disabled={busy} style={btnPrimary()}>Push to CINC</button>
+                )}
+              </>
+            ) : (
+              <>
+                <button onClick={save}       disabled={busy} style={btnPrimary()}>Save</button>
+                <button onClick={cancelEdit} disabled={busy} style={btnSecondary()}>Cancel</button>
+              </>
+            )}
+          </div>
+          {/* Reject — far right, in a deliberate red box so it isn't pressed
+              by mistake while filling fields. */}
+          <div style={{ paddingLeft: 12, borderLeft: '1px solid #f3f4f6' }}>
+            <button onClick={reject} disabled={busy}
+              style={{ ...btnDanger(), fontWeight: 700, padding: '8px 16px', color: '#b91c1c', background: '#fff5f5', border: '2px solid #dc2626', borderRadius: 6 }}>
+              ✕ Reject
+            </button>
+          </div>
         </div>
       )}
 
