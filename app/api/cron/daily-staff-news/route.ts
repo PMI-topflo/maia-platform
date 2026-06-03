@@ -11,9 +11,7 @@
 // =====================================================================
 
 import { NextResponse } from 'next/server'
-import { sendEmail } from '@/lib/gmail'
-import { fetchStaffList } from '@/lib/staff-list'
-import { gatherStaffNews, buildStaffNewsEmail } from '@/lib/staff-news'
+import { sendDailyNews } from '@/lib/staff-news'
 
 export const dynamic     = 'force-dynamic'
 export const maxDuration = 60
@@ -28,23 +26,8 @@ export async function GET(req: Request) {
   const dry = new URL(req.url).searchParams.get('dry') === '1'
 
   try {
-    const data  = await gatherStaffNews()
-    const email = buildStaffNewsEmail(data, APP_URL)
-
-    // One newsletter to the whole team (transparency / motivation).
-    const recipients = Array.from(new Set(
-      (await fetchStaffList()).map(s => s.email).filter((e): e is string => !!e),
-    ))
-
-    if (dry) {
-      return NextResponse.json({ ok: true, dry: true, recipients, subject: email.subject, totals: data.totals, sections: data.sections.length })
-    }
-    if (recipients.length === 0) {
-      return NextResponse.json({ ok: false, reason: 'no active staff recipients' })
-    }
-
-    const res = await sendEmail({ to: recipients, subject: email.subject, html: email.html, text: email.text })
-    return NextResponse.json({ ok: true, recipients: recipients.length, totals: data.totals, send: res })
+    const result = await sendDailyNews({ appUrl: APP_URL, dry })
+    return NextResponse.json({ ...result, recipientCount: result.recipients.length })
   } catch (err) {
     console.error('[daily-staff-news] failed:', err instanceof Error ? err.message : err)
     return NextResponse.json({ error: `daily-staff-news failed: ${(err as Error).message}` }, { status: 500 })

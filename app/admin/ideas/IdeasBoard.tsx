@@ -35,6 +35,8 @@ export default function IdeasBoard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
+  const [sendMsg, setSendMsg] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setError(null)
@@ -65,6 +67,30 @@ export default function IdeasBoard() {
 
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
+  async function sendDailyNews() {
+    // Preview the recipient list first so the confirm names real people.
+    setSendMsg(null)
+    let recipients: string[] = []
+    try {
+      const p = await fetch('/api/admin/daily-news/send', { cache: 'no-store' })
+      const d = await p.json()
+      if (!p.ok) throw new Error(d?.error ?? `HTTP ${p.status}`)
+      recipients = d.recipients ?? []
+    } catch (e) { setSendMsg(`Couldn't load recipients: ${e instanceof Error ? e.message : String(e)}`); return }
+
+    if (recipients.length === 0) { setSendMsg('No human staff recipients found — nothing sent.'); return }
+    if (!confirm(`Send "PMI Top Florida Daily News" now to ${recipients.length} staff?\n\n${recipients.join('\n')}`)) return
+
+    setSending(true)
+    try {
+      const r = await fetch('/api/admin/daily-news/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const d = await r.json()
+      if (!r.ok || !d.ok) throw new Error(d?.error ?? d?.reason ?? `HTTP ${r.status}`)
+      setSendMsg(`✅ Sent to ${d.recipients.length} staff: ${d.recipients.join(', ')}`)
+    } catch (e) { setSendMsg(`Send failed: ${e instanceof Error ? e.message : String(e)}`) }
+    finally { setSending(false) }
+  }
+
   function Card({ i }: { i: Idea }) {
     const disabled = busyId === i.id
     return (
@@ -91,10 +117,17 @@ export default function IdeasBoard() {
 
   return (
     <div style={{ maxWidth: 1100, margin: '24px auto', padding: '0 16px', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12, gap: 10, flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: NAVY, margin: 0 }}>💡 MAIA Improvement Ideas</h1>
-        <button onClick={() => void load()} style={btn('#6b7280', false)}>Refresh</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => void sendDailyNews()} disabled={sending}
+            style={{ ...btn(ORANGE, true), padding: '6px 12px', fontSize: 12, opacity: sending ? 0.6 : 1 }}>
+            {sending ? 'Sending…' : '📣 Send Daily News now'}
+          </button>
+          <button onClick={() => void load()} style={btn('#6b7280', false)}>Refresh</button>
+        </div>
       </div>
+      {sendMsg && <div style={{ background: sendMsg.startsWith('✅') ? '#ecfdf5' : '#fef3c7', border: `1px solid ${sendMsg.startsWith('✅') ? '#86efac' : '#fcd34d'}`, color: sendMsg.startsWith('✅') ? '#065f46' : '#92400e', padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{sendMsg}</div>}
       {error && <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b', padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{error}</div>}
       {loading ? (
         <div style={{ color: '#6b7280', fontSize: 14 }}>Loading…</div>
