@@ -16,6 +16,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { normalizeStoredFile } from '@/lib/normalize-stored-file'
 import { POLICY_TYPE_KEYS, type AssociationInsurancePolicy } from '@/lib/association-insurance'
 
 export const dynamic = 'force-dynamic'
@@ -104,6 +105,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
   // file (or escape the bucket prefix).
   if (coiPath && !coiPath.startsWith(`${upperCode}/insurance/`)) {
     return NextResponse.json({ error: 'coi_storage_path does not belong to this association' }, { status: 400 })
+  }
+  // Compress the browser-uploaded COI in place (signed-URL upload = raw).
+  if (coiPath) {
+    await normalizeStoredFile({ bucket: 'association-documents', path: coiPath, filename: coiPath.split('/').pop() ?? null })
+      .then(r => { if (r.changed) console.log(`[insurance] normalized ${coiPath}: ${r.note}`) })
   }
 
   const waived = body.waived === true

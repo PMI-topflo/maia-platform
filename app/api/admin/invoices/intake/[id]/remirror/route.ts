@@ -12,6 +12,7 @@ import { cookies } from 'next/headers'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
+import { normalizePdf } from '@/lib/pdf-normalize'
 
 export const dynamic = 'force-dynamic'
 const STORAGE_BUCKET = 'invoice-intake-pdfs'
@@ -48,7 +49,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     .from(STORAGE_BUCKET)
     .download(draft.pdf_storage_key as string)
   if (dlErr || !blob) return NextResponse.json({ error: `storage download failed: ${dlErr?.message ?? 'no blob'}` }, { status: 500 })
-  const buf = Buffer.from(await blob.arrayBuffer())
+  const rawBuf = Buffer.from(await blob.arrayBuffer())
+  // Compress before mirroring so the Drive copy isn't a 20 MB raw scan (the
+  // stored PDF may be raw if it predates the working compressor).
+  const norm = await normalizePdf(rawBuf).catch(() => null)
+  const buf  = norm?.buffer ?? rawBuf
 
   const filename = canonicalInvoiceFilename({
     association: draft.extracted_association_code as string,
@@ -63,7 +68,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       .from('invoice_intake_drafts')
       .update({ drive_file_id: mirror.driveFileId, updated_at: new Date().toISOString() })
       .eq('id', id)
-    return NextResponse.json({ ok: true, driveFileId: mirror.driveFileId, webViewLink: mirror.webViewLink, filename })
+    return NextResponse.json({ ok: true, driveFileId: mirror.driveFileId, webViewLink: mirror.webViewLink, filename, compressor: norm?.note ?? 'no compression run', sizeMB: +(buf.length / 1e6).toFixed(2) })
   } catch (err) {
     return NextResponse.json({ error: `Drive upload failed: ${(err as Error).message}` }, { status: 502 })
   }

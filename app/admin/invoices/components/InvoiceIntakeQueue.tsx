@@ -631,7 +631,7 @@ function DraftCard(props: {
       const res = await fetch(`/api/admin/invoices/intake/${draft.id}/remirror`, { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
-      setMsg(`Saved to Drive${data.filename ? ` as ${data.filename}` : ''}.`)
+      setMsg(`Saved to Drive${data.filename ? ` as ${data.filename}` : ''}${data.sizeMB != null ? ` (${data.sizeMB} MB${data.compressor ? ` — ${data.compressor}` : ''})` : ''}.`)
       onMutate()
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))
