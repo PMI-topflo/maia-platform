@@ -40,10 +40,26 @@ export function serviceAccountEmail(): string | null {
 function buildClient() {
   const json = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
   if (!json) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON not set')
-  const auth = new google.auth.GoogleAuth({
-    credentials: JSON.parse(json),
-    scopes: ['https://www.googleapis.com/auth/drive'],
-  })
+  const creds  = JSON.parse(json)
+  const scopes = ['https://www.googleapis.com/auth/drive']
+  // Service accounts have NO Drive storage quota of their own, so creating a
+  // file the SA itself would OWN fails with "Service Accounts do not have
+  // storage quota" — even in a folder shared with it. Two ways to give the
+  // file a real owner:
+  //   • Domain-wide delegation (GOOGLE_DRIVE_IMPERSONATE): the SA acts AS a
+  //     Workspace user (who has quota); the file is owned by that user and
+  //     lands in their My Drive — so the existing "INVOICE TO INPUT" folder
+  //     keeps working. Requires authorizing the SA's client ID for the drive
+  //     scope in the Workspace Admin console.
+  //   • Shared Drive: put the target folder in a Shared Drive and add the SA
+  //     as a member — files are owned by the Shared Drive, no impersonation.
+  //     supportsAllDrives:true on the create call already covers this.
+  const subject = process.env.GOOGLE_DRIVE_IMPERSONATE
+  if (subject) {
+    const jwt = new google.auth.JWT({ email: creds.client_email, key: creds.private_key, scopes, subject })
+    return google.drive({ version: 'v3', auth: jwt })
+  }
+  const auth = new google.auth.GoogleAuth({ credentials: creds, scopes })
   return google.drive({ version: 'v3', auth })
 }
 
@@ -95,11 +111,13 @@ export async function uploadInvoiceToDrive(opts: {
     }
   }
   const base = lastErr instanceof Error ? lastErr.message : String(lastErr)
-  // A permission/visibility error almost always means the folder isn't shared
-  // with the SA. Name the exact account + folder so the fix is one click.
   const sa = serviceAccountEmail()
-  const hint = /not found|permission|insufficient|forbidden|403|404/i.test(base)
-    ? ` — the service account can't access the folder. Share Drive folder ${folderId} with ${sa ?? 'the service-account email'} (Editor), then retry.`
-    : ''
+  let hint = ''
+  if (/storage quota/i.test(base)) {
+    // The real, common cause: SAs own no Drive storage.
+    hint = ` — service accounts can't own Drive files. Fix EITHER: (a) set GOOGLE_DRIVE_IMPERSONATE to a Workspace user email and authorize ${sa ?? 'the SA'} for domain-wide delegation (drive scope) in Admin; OR (b) move folder ${folderId} into a Shared Drive and add ${sa ?? 'the SA'} as a member.`
+  } else if (/not found|permission|insufficient|forbidden|403|404/i.test(base)) {
+    hint = ` — the service account can't access the folder. Share Drive folder ${folderId} with ${sa ?? 'the service-account email'} (Editor), or use GOOGLE_DRIVE_IMPERSONATE.`
+  }
   throw new Error(`${base}${hint}`)
 }

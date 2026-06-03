@@ -824,9 +824,14 @@ function DraftCard(props: {
           <div style={{ marginTop: 6 }}>
             <button onClick={reattachCinc} disabled={busy} title="Compress and attach the stored PDF to this CINC invoice"
               style={{ fontSize: 12, fontWeight: 600, padding: '4px 10px', border: '1px solid #059669', borderRadius: 4, background: '#fff', color: '#065f46', cursor: 'pointer' }}>
-              📎 Re-attach PDF to CINC
+              {busy ? 'Working…' : '📎 Re-attach PDF to CINC'}
             </button>
           </div>
+          {/* Inline result right here by the buttons, so feedback is visible
+              instead of only appearing at the very bottom of the card. */}
+          {msg && (
+            <div style={{ marginTop: 8, padding: '6px 8px', background: '#fff', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 12, color: '#374151', whiteSpace: 'pre-wrap' }}>{msg}</div>
+          )}
           {draft.cinc_invoice_id && (
             <InvoiceHistory invoiceId={parseInt(draft.cinc_invoice_id, 10)} />
           )}
