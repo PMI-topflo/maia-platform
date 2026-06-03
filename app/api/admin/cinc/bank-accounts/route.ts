@@ -9,7 +9,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
-import { listAssociationBankAccounts } from '@/lib/integrations/cinc'
+import { listAssociationBankAccounts, isDebtOrEscrowAccount } from '@/lib/integrations/cinc'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,13 +27,14 @@ export async function GET(req: Request) {
 
   try {
     const all = await listAssociationBankAccounts(assoc, { forceRefresh: force })
-    // Debt-service accounts hold restricted funds earmarked for loan /
-    // mortgage payments — they're not an available source for vendor
-    // invoice payments. Exclude from Karen's dropdown so she can't
-    // accidentally route an AP invoice to them. (The audit-note path
-    // in push/route.ts still calls the helper directly and gets the
-    // unfiltered list, so lookups by ID continue to resolve.)
-    const accounts = all.filter(a => !/debt\s*service/i.test(a.description))
+    // Debt-service / loan / mortgage / escrow accounts hold restricted funds
+    // earmarked for loan & mortgage payments — they're not an available
+    // source for vendor invoice payments. Exclude from Karen's dropdown so
+    // she can't accidentally route an AP invoice to them. Uses the same
+    // predicate as deriveBankKind so the picker and the classifier stay in
+    // lockstep. (The audit-note path in push/route.ts still calls the helper
+    // directly and gets the unfiltered list, so lookups by ID still resolve.)
+    const accounts = all.filter(a => !isDebtOrEscrowAccount(a.description))
     return NextResponse.json({ assoc: assoc.toUpperCase(), accounts })
   } catch (err) {
     return NextResponse.json(

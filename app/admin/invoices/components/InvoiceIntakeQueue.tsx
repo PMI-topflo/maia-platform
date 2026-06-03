@@ -1645,6 +1645,9 @@ interface FundsResult {
   monthsAhead:            number
   projectedAtScheduled:   number
   affordable:             boolean
+  tight:                  boolean
+  tightThreshold:         number
+  openInvoiceScope:       'all' | 'due-by-scheduled'
   earliestAffordableMonth: string | null
   horizon:                Array<{ month: string; monthsAhead: number; projectedBalance: number; affordableAfterPush: boolean }>
   caveats:                string[]
@@ -1661,11 +1664,15 @@ function FundsCheck({ assoc, bankAccountId, pushAmount, scheduledDate, onChooseD
   const [error, setError]   = useState<string | null>(null)
   const [res, setRes]       = useState<FundsResult | null>(null)
   const [showDetail, setShowDetail] = useState(false)
+  // Which open invoices count against the balance. 'all' is the conservative
+  // default; 'due-by-scheduled' ignores invoices not yet due so a near-term
+  // check isn't deflated by money that won't leave for months.
+  const [scope, setScope]   = useState<'all' | 'due-by-scheduled'>('all')
 
   useEffect(() => {
     if (!assoc || !bankAccountId) { setRes(null); return }
     setBusy(true); setError(null)
-    const p = new URLSearchParams({ assoc, account: String(bankAccountId), scheduled: scheduledDate || '', push: String(pushAmount || 0) })
+    const p = new URLSearchParams({ assoc, account: String(bankAccountId), scheduled: scheduledDate || '', push: String(pushAmount || 0), scope })
     let live = true
     fetch(`/api/admin/cinc/funds-check?${p.toString()}`, { cache: 'no-store' })
       .then(r => r.json())
@@ -1673,14 +1680,14 @@ function FundsCheck({ assoc, bankAccountId, pushAmount, scheduledDate, onChooseD
       .catch(err => { if (live) setError(err instanceof Error ? err.message : String(err)) })
       .finally(() => { if (live) setBusy(false) })
     return () => { live = false }
-  }, [assoc, bankAccountId, scheduledDate, pushAmount])
+  }, [assoc, bankAccountId, scheduledDate, pushAmount, scope])
 
   if (busy && !res) return <div style={{ marginTop: 12, padding: 10, fontSize: 12, color: '#6b7280', background: '#f9fafb', borderRadius: 6 }}>💰 Running funds check…</div>
   if (error)        return <div style={{ marginTop: 12, padding: 10, fontSize: 12, color: '#92400e', background: '#fef3c7', borderRadius: 6 }}>Funds check unavailable: {error}</div>
   if (!res) return null
 
   const ok       = res.affordable
-  const tight    = ok && res.projectedAtScheduled < 1000
+  const tight    = res.tight
   const bg       = !ok ? '#fef2f2' : tight ? '#fffbeb' : '#ecfdf5'
   const border   = !ok ? '#fca5a5' : tight ? '#fcd34d' : '#86efac'
   const fg       = !ok ? '#991b1b' : tight ? '#92400e' : '#065f46'
@@ -1709,6 +1716,14 @@ function FundsCheck({ assoc, bankAccountId, pushAmount, scheduledDate, onChooseD
           Scheduled pay date:{' '}
           <input type="date" value={scheduledDate} onChange={e => onChooseDate(e.target.value)}
             style={{ padding: 4, border: `1px solid ${border}`, borderRadius: 4 }} />
+        </label>
+        <label style={{ fontSize: 12, color: fg }} title="Which open invoices to subtract from the balance">
+          Count:{' '}
+          <select value={scope} onChange={e => setScope(e.target.value as 'all' | 'due-by-scheduled')}
+            style={{ padding: 4, border: `1px solid ${border}`, borderRadius: 4 }}>
+            <option value="all">all open invoices</option>
+            <option value="due-by-scheduled">only due by {monthLabel(res.scheduledMonth)}</option>
+          </select>
         </label>
         {!ok && earliest && (
           <button onClick={() => onChooseDate(endOfMonthISO(earliest))}
@@ -1744,7 +1759,7 @@ function FundsCheck({ assoc, bankAccountId, pushAmount, scheduledDate, onChooseD
           <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
             <tbody>
               <tr><td>Current balance</td><td style={{ textAlign: 'right' }}>{fmtUSD(res.currentBalance)}</td></tr>
-              <tr><td>− All open invoices in CINC ({res.openInvoicesCount})</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmtUSD(res.openInvoicesTotal)}</td></tr>
+              <tr><td>− {res.openInvoiceScope === 'due-by-scheduled' ? `Open invoices due by ${monthLabel(res.scheduledMonth)}` : 'All open invoices in CINC'} ({res.openInvoicesCount})</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmtUSD(res.openInvoicesTotal)}</td></tr>
               <tr><td>− This payment</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmtUSD(res.pushAmount)}</td></tr>
               {res.monthsAhead > 0 && (
                 <tr><td>{res.monthsAhead} month(s) of run-rate net flow (~{fmtUSD(res.avgMonthlyNet)}/mo)</td><td style={{ textAlign: 'right', color: res.avgMonthlyNet >= 0 ? '#065f46' : '#991b1b' }}>{fmtUSD(res.monthsAhead * res.avgMonthlyNet)}</td></tr>
