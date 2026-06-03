@@ -79,6 +79,18 @@ interface BudgetGlOption {
   remaining: number | null
 }
 
+// Decide whether a MAIA GL suggestion is confident enough to pre-fill the
+// dropdown automatically. The vendor-context endpoint encodes confidence in
+// the `source` string: an explicit "CINC vendor account" mapping, or
+// "N past invoice(s)". We auto-fill on the explicit mapping or ≥2 past
+// invoices; a single "last MAIA invoice" data point stays a manual "Use it".
+function isHighConfidenceGl(source?: string): boolean {
+  if (!source) return false
+  if (/cinc vendor account/i.test(source)) return true
+  const m = source.match(/(\d+)\s+past invoice/i)
+  return m ? Number(m[1]) >= 2 : false
+}
+
 const TABS: Array<{ key: string; label: string }> = [
   // 'Pending review' folds in no-vendor AND CINC-duplicate drafts — the
   // audit checklist assigns the vendor and its duplicate guard hard-blocks
@@ -290,6 +302,13 @@ function DraftCard(props: {
   const [glLoading, setGlLoading] = useState(false)
   const [glError, setGlError]     = useState<string | null>(null)
   const [glLoadedFor, setGlLoadedFor] = useState<string>('')
+  // Auto-select bookkeeping: we pre-fill the GL once per association when
+  // MAIA's suggestion is high-confidence, but only if Karen hasn't already
+  // chosen one. `glAutoAppliedFor` makes it fire at most once per assoc so
+  // we never fight a manual clear; `glAutoFilled` flags the value as
+  // machine-picked so the UI asks for a confirm rather than implying intent.
+  const [glAutoAppliedFor, setGlAutoAppliedFor] = useState<string>('')
+  const [glAutoFilled, setGlAutoFilled]         = useState(false)
 
   // Bank accounts for the selected association — Operating, Reserve,
   // Special Assessment, etc. Lazy-loaded per assoc just like the GL
@@ -644,6 +663,28 @@ function DraftCard(props: {
     ? `usual GL: ${auditCtx.suggestedGl.glAccount}${auditCtx.suggestedGl.source ? ` (${auditCtx.suggestedGl.source})` : ''}`
     : undefined
 
+  // GL auto-select: once the budget list is loaded for an association and
+  // MAIA's suggestion is high-confidence, pre-fill the dropdown instead of
+  // making Karen click "Use it". High confidence = an explicit CINC vendor
+  // account mapping, or the vendor's expense GL seen on ≥2 past invoices.
+  // The single-data-point fallback ("last MAIA invoice") stays a manual
+  // "Use it" so a one-off doesn't silently steer the books. We never
+  // overwrite an existing pick, and fire at most once per association so a
+  // manual clear is respected. Karen still confirms 'gl_account' on the
+  // audit checklist — auto-fill sets the value, not the green check.
+  useEffect(() => {
+    if (mode !== 'edit' || !assoc || glLoadedFor !== assoc) return
+    if (glAutoAppliedFor === assoc) return
+    const sg = auditCtx?.suggestedGl
+    if (!sg?.accountNumber) return
+    const hit = glOptions.find(o => o.number === sg.accountNumber)
+    if (!hit) return
+    setGlAutoAppliedFor(assoc)            // mark attempted regardless, so a manual clear sticks
+    if (glId) return                      // never override an existing choice
+    if (!isHighConfidenceGl(sg.source)) return
+    setGlId(hit.id); setGlName(hit.name); setGlAutoFilled(true)
+  }, [mode, assoc, glLoadedFor, glOptions, auditCtx, glId, glAutoAppliedFor])
+
   const REQUIRED_CHECKS = ['association', 'vendor', 'short_name', 'amount', 'payment_method', 'gl_account', 'bank_account', 'scheduled_date', 'filename']
   const requiredOk = REQUIRED_CHECKS.every(k => checked[k])
   const allReady   = requiredOk && !!checked['duplicate'] && !hardDup
@@ -713,6 +754,11 @@ function DraftCard(props: {
           Pushed to CINC as invoice <strong>{draft.cinc_invoice_id}</strong>
           {draft.pushed_by && ` by ${draft.pushed_by}`}
           {draft.pushed_at && ` at ${new Date(draft.pushed_at).toLocaleString()}`}.
+          {draft.gl_account_name && (
+            <>
+              {' · '}Expense GL: <strong>{draft.gl_account_name}</strong>
+            </>
+          )}
           {draft.cinc_invoice_id && (
             <>
               {' · '}
@@ -1054,6 +1100,7 @@ function DraftCard(props: {
                     setGlId(id)
                     const hit = glOptions.find(o => o.id === id)
                     setGlName(hit?.name ?? '')
+                    setGlAutoFilled(false)   // a manual pick is no longer "auto-selected"
                   }}
                   disabled={readOnly || !assoc}
                   style={{ width: '100%', padding: 6 }}
@@ -1085,17 +1132,30 @@ function DraftCard(props: {
                   </div>
                 )}
                 {glHint ? (
-                  <div style={{ marginTop: 4, color: '#2563eb', fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <span>💡 MAIA: {glHint}</span>
+                  <div style={{ marginTop: 4, color: glAutoFilled ? '#15803d' : '#2563eb', fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     {(() => {
                       const num = auditCtx?.suggestedGl?.accountNumber
                       const hit = num ? glOptions.find(o => o.number === num) : null
-                      if (!hit || glId === hit.id) return null
+                      // Suggestion already applied (auto-filled or matched a
+                      // manual pick): show a confirm nudge, no "Use it".
+                      if (hit && glId === hit.id) {
+                        return (
+                          <span>
+                            {glAutoFilled ? '✓ MAIA auto-selected GL' : '✓ Using MAIA GL'} — {glHint}.{' '}
+                            <span style={{ color: '#6b7280' }}>Confirm or change above.</span>
+                          </span>
+                        )
+                      }
                       return (
-                        <button type="button" onClick={() => { setGlId(hit.id); setGlName(hit.name) }}
-                          style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', border: '1px solid #2563eb', borderRadius: 10, background: '#eff6ff', color: '#2563eb', cursor: 'pointer' }}>
-                          Use it
-                        </button>
+                        <>
+                          <span>💡 MAIA: {glHint}</span>
+                          {hit && (
+                            <button type="button" onClick={() => { setGlId(hit.id); setGlName(hit.name) }}
+                              style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', border: '1px solid #2563eb', borderRadius: 10, background: '#eff6ff', color: '#2563eb', cursor: 'pointer' }}>
+                              Use it
+                            </button>
+                          )}
+                        </>
                       )
                     })()}
                   </div>

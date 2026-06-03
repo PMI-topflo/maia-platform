@@ -165,10 +165,26 @@ async function processOnePdf(opts: {
   }
 
   const extracted = await extractInvoiceFields(b64)
-  const assoc     = (assocHintFromEmail ?? extracted.associationHint ?? '').toUpperCase() || null
+  let   assoc     = (assocHintFromEmail ?? extracted.associationHint ?? '').toUpperCase() || null
 
   // Vendor matching — null when extractor couldn't find a vendor name.
   const matched = extracted.vendorName ? fuzzyMatchVendor(extracted.vendorName, vendors) : null
+
+  // Auto-association fallback: when neither the email text nor the PDF named
+  // an association, infer it from this vendor's own confirmed history in
+  // MAIA. If every association a human has already approved for this exact
+  // CINC vendor is the same one, it's a safe inference (recurring vendors
+  // like Arrow Asphalt → VPREC). Ambiguous (vendor serves several assocs) or
+  // no history → stay null and land in review. Karen still confirms the
+  // association on the audit checklist either way, so this only removes the
+  // by-hand first guess, it doesn't push anything unverified.
+  if (!assoc && matched) {
+    const inferred = await inferAssocFromVendorHistory(String(matched.VendorId))
+    if (inferred) {
+      assoc = inferred
+      console.log(`[invoice-intake] association ${assoc} inferred from confirmed history of vendor ${matched.VendorName} (#${matched.VendorId})`)
+    }
+  }
 
   // Duplicate pre-check — only if we have all three keys.
   let status: DraftStatus = 'pending_review'
@@ -222,6 +238,27 @@ function safeFilename(name: string): string {
   return (name ?? 'invoice.pdf')
     .replace(/[^A-Za-z0-9._-]/g, '_')
     .slice(0, 120)
+}
+
+/** Infer an association for an invoice that arrived without one, using this
+ *  vendor's own history in MAIA. Only counts drafts whose association a human
+ *  already validated (ready-to-push or pushed) so we never learn from an
+ *  earlier unconfirmed guess. Returns the code only when that history is
+ *  unanimous — a vendor that bills several associations stays ambiguous and
+ *  is left for manual selection. */
+async function inferAssocFromVendorHistory(cincVendorId: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
+    .from('invoice_intake_drafts')
+    .select('extracted_association_code')
+    .eq('matched_cinc_vendor_id', cincVendorId)
+    .in('status', ['ready_to_push', 'pushed_to_cinc'])
+    .not('extracted_association_code', 'is', null)
+    .limit(100)
+  if (error || !data || data.length === 0) return null
+  const distinct = Array.from(new Set(
+    data.map(r => (r.extracted_association_code as string | null)?.toUpperCase()).filter(Boolean) as string[],
+  ))
+  return distinct.length === 1 ? distinct[0] : null
 }
 
 /** Create an invoice-intake draft from a VENDOR-PORTAL upload (a vendor
