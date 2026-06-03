@@ -140,6 +140,7 @@ export async function POST(
     return NextResponse.json({
       error: `Invoice PDF is ${(buf.length / 1024 / 1024).toFixed(1)} MB even after compression — over CINC's attachment limit. Replace it with a smaller / single-page scan and try again. Nothing was pushed to CINC.`,
       pdfTooLarge: true,
+      normalizeNote: norm?.note ?? 'normalize returned nothing',
     }, { status: 413 })
   }
 

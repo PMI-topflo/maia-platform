@@ -53,7 +53,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const buf    = norm?.buffer ?? rawBuf
   const pdfBase64 = buf.toString('base64')
   if (pdfBase64.length > CINC_ATTACH_MAX_B64) {
-    return NextResponse.json({ error: `PDF is ${(buf.length / 1024 / 1024).toFixed(1)} MB even after compression — over CINC's attachment limit. Replace it with a smaller scan.`, pdfTooLarge: true }, { status: 413 })
+    return NextResponse.json({ error: `PDF is ${(buf.length / 1024 / 1024).toFixed(1)} MB even after compression — over CINC's attachment limit. Replace it with a smaller scan.`, pdfTooLarge: true, normalizeNote: norm?.note ?? 'normalize returned nothing' }, { status: 413 })
   }
 
   const filename = canonicalInvoiceFilename({

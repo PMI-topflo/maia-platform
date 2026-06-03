@@ -578,7 +578,7 @@ function DraftCard(props: {
         else setMsg(data.error)
         return
       }
-      if (!res.ok && res.status !== 207) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      if (!res.ok && res.status !== 207) throw new Error((data?.error ?? `HTTP ${res.status}`) + (data?.normalizeNote ? ` [compressor: ${data.normalizeNote}]` : ''))
       setMsg(data.warning ?? `Pushed to CINC (id ${data.cincInvoiceId}).`)
       onMutate()
     } catch (err) {
@@ -647,7 +647,7 @@ function DraftCard(props: {
     try {
       const res = await fetch(`/api/admin/invoices/intake/${draft.id}/reattach-cinc`, { method: 'POST' })
       const data = await res.json()
-      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      if (!res.ok) throw new Error((data?.error ?? `HTTP ${res.status}`) + (data?.normalizeNote ? ` [compressor: ${data.normalizeNote}]` : ''))
       setMsg(`PDF attached to CINC invoice ${data.cincInvoiceId}${data.filename ? ` as ${data.filename}` : ''}.`)
       onMutate()
     } catch (err) {
