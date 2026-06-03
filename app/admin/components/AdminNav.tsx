@@ -21,6 +21,7 @@ const NAV_ITEMS = [
   { label: 'Performance',       href: '/admin/staff-performance' },
   { label: 'CINC Sync',         href: '/admin/cinc-sync' },
   { label: 'Sunbiz',            href: '/admin/sunbiz' },
+  { label: 'Ideas',             href: '/admin/ideas' },
   { label: 'Tools',             href: '/admin/tools' },
 ]
 

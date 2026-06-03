@@ -1233,6 +1233,35 @@ NOTIFY pgrst, 'reload schema';`,
   add column if not exists match_aliases text[] not null default '{}';
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'maia_improvement_ideas',
+    label:       'MAIA improvement ideas',
+    description: 'maia_improvement_ideas table — staff "make MAIA better" suggestions submitted via the daily-news email link; triaged on /admin/ideas (new → accepted → done, or deleted).',
+    filename:    '20260603_maia_improvement_ideas.sql',
+    artifact:    { type: 'table', table: 'maia_improvement_ideas' },
+    sql: `CREATE TABLE IF NOT EXISTS public.maia_improvement_ideas (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  idea               text        NOT NULL,
+  submitted_by_name  text,
+  submitted_by_email text,
+  source             text        NOT NULL DEFAULT 'daily_news',
+  status             text        NOT NULL DEFAULT 'new'
+                       CHECK (status IN ('new','accepted','done','deleted')),
+  triaged_by         text,
+  triaged_at         timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS maia_improvement_ideas_status_created_idx
+  ON public.maia_improvement_ideas (status, created_at DESC);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.maia_improvement_ideas
+  TO anon, authenticated, service_role;
+ALTER TABLE public.maia_improvement_ideas ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_maia_improvement_ideas" ON public.maia_improvement_ideas;
+CREATE POLICY "service_role_all_maia_improvement_ideas"
+  ON public.maia_improvement_ideas FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
