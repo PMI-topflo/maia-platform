@@ -114,6 +114,9 @@ export default function InvoiceIntakeQueue(props: Props) {
   const searchParams = useSearchParams()
   const [status, setStatus] = useState(props.initialStatus)
   const [drafts, setDrafts] = useState<Draft[]>(props.initialDrafts)
+  // One invoice on screen at a time; idx is the position within the current
+  // tab's list. The ◀ ▶ pager moves through them (Karen's request).
+  const [idx, setIdx]       = useState(0)
   const [counts, setCounts] = useState<Record<string, number>>(props.initialCounts)
   const [busy,   setBusy]   = useState(false)
   const [error,  setError]  = useState<string | null>(null)
@@ -124,7 +127,11 @@ export default function InvoiceIntakeQueue(props: Props) {
       const res = await fetch(`/api/admin/invoices/intake?status=${encodeURIComponent(s)}`, { cache: 'no-store' })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
-      setDrafts(data.drafts ?? [])
+      const list = (data.drafts ?? []) as Draft[]
+      setDrafts(list)
+      // Keep the pager in range after a refresh (e.g. a card moved tabs and
+      // the list shrank) — clamp to the last item instead of going blank.
+      setIdx(i => Math.max(0, Math.min(i, list.length - 1)))
       setCounts(data.counts ?? {})
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -135,6 +142,7 @@ export default function InvoiceIntakeQueue(props: Props) {
 
   function switchTab(s: string) {
     setStatus(s)
+    setIdx(0)   // start at the first invoice of the new tab
     const params = new URLSearchParams(searchParams.toString())
     params.set('status', s)
     router.replace(`?${params.toString()}`)
@@ -210,19 +218,43 @@ export default function InvoiceIntakeQueue(props: Props) {
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {drafts.map(d => (
-          <DraftCard
-            key={d.id}
-            draft={d}
-            vendors={props.vendors}
-            associations={props.associations}
-            onMutate={() => void fetchTab(status)}
-          />
-        ))}
-      </div>
+      {!busy && drafts.length > 0 && (() => {
+        const safeIdx = Math.max(0, Math.min(idx, drafts.length - 1))
+        const current = drafts[safeIdx]
+        const atFirst = safeIdx === 0
+        const atLast  = safeIdx >= drafts.length - 1
+        return (
+          <>
+            {/* Pager — one invoice per view; ◀ N/total ▶ on the right. */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <button onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={atFirst} title="Previous invoice" aria-label="Previous invoice" style={pagerBtn(atFirst)}>‹</button>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#374151', minWidth: 46, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                {safeIdx + 1}/{drafts.length}
+              </span>
+              <button onClick={() => setIdx(i => Math.min(drafts.length - 1, i + 1))} disabled={atLast} title="Next invoice" aria-label="Next invoice" style={pagerBtn(atLast)}>›</button>
+            </div>
+            <DraftCard
+              key={current.id}
+              draft={current}
+              vendors={props.vendors}
+              associations={props.associations}
+              onMutate={() => void fetchTab(status)}
+            />
+          </>
+        )
+      })()}
     </div>
   )
+}
+
+function pagerBtn(disabled: boolean): React.CSSProperties {
+  return {
+    fontSize: 20, lineHeight: 1, width: 36, height: 32, padding: 0,
+    border: '1px solid #d1d5db', borderRadius: 6,
+    background: disabled ? '#f3f4f6' : '#fff',
+    color:      disabled ? '#cbd5e1' : '#111827',
+    cursor:     disabled ? 'default' : 'pointer',
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
