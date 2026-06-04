@@ -10,7 +10,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
-  currentReportYear, dueDate, sunbizStatus, statusLabel, statusNeedsAttention,
+  currentReportYear, dueDate, dissolutionDate, sunbizStatus, statusLabel, statusNeedsAttention,
   SUNBIZ_LATE_FEE_USD, type AssociationAnnualReport, type SunbizStatus,
 } from '@/lib/sunbiz'
 
@@ -88,6 +88,13 @@ export default function SunbizManager() {
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </label>
+      </div>
+
+      {/* Rule-based deadline (not on any document — defined by Florida statute). */}
+      <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-[11px] text-gray-600 font-mono">
+        <span className="font-semibold text-gray-800">Last date to file without penalty: {dueDate(year)}</span>
+        {' · '}${SUNBIZ_LATE_FEE_USD} non-waivable late fee after
+        {' · '}administrative dissolution {dissolutionDate(year)} (4th Friday of September) if still unfiled
       </div>
 
       {error && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</div>}
