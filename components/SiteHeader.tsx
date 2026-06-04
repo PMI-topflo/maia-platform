@@ -38,8 +38,11 @@ export default function SiteHeader({ children }: SiteHeaderProps) {
       </a>
 
       {/* Right — optional slot + account menu (phones removed; freed
-          horizontal space for the admin nav). */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexShrink: 0 }}>
+          horizontal space for the admin nav). The group grows (flex:1)
+          so a stretchable child like AdminNav (flex-1) can fill from just
+          after the logo; shrink-wrapped children (e.g. homepage language
+          tabs) still sit flush right via justify-end. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1, minWidth: 0, justifyContent: 'flex-end' }}>
         {children}
         {/* Account menu — renders only when a valid session exists,
             so this stays invisible on pre-login public pages. */}

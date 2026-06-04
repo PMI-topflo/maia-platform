@@ -13,7 +13,7 @@ export default function AdminHeader({ associations }: Props) {
 
   return (
     <>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
         <AdminNav />
         <button
           onClick={() => setShowModal(true)}
