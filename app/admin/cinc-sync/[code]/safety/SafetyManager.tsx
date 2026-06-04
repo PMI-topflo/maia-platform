@@ -261,19 +261,22 @@ function InspectionEditor({ assocCode, inspectionType, existing, onSaved, onCanc
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  type ReportMeta = { report_storage_path: string; report_filename: string; report_mime_type: string; report_file_size_bytes: number }
+  const [reportMeta, setReportMeta]   = useState<ReportMeta | null>(null)
+  const [extracting, setExtracting]   = useState(false)
+  const [extractNote, setExtractNote] = useState<string | null>(null)
 
   const suggested = suggestedNextDue(def, lastCompleted || null, yearBuilt ? Number(yearBuilt) : null, coastal)
 
-  async function uploadReport() {
-    if (!file) return null
+  async function uploadFileGetMeta(f: File): Promise<ReportMeta> {
     const urlRes = await fetch(`/api/admin/associations/${assocCode}/safety/upload-url`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: file.name, inspection_type: inspectionType }),
+      body: JSON.stringify({ filename: f.name, inspection_type: inspectionType }),
     })
     const urlData = await urlRes.json()
     if (!urlRes.ok) throw new Error(urlData?.error ?? 'Could not get upload URL')
     const put = await fetch(urlData.signed_url, {
-      method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/pdf', 'x-upsert': 'false' },
+      method: 'PUT', body: f, headers: { 'Content-Type': f.type || 'application/pdf', 'x-upsert': 'false' },
     })
     if (!put.ok) {
       let detail = `HTTP ${put.status}`
@@ -281,9 +284,43 @@ function InspectionEditor({ assocCode, inspectionType, existing, onSaved, onCanc
       throw new Error(`Report upload failed: ${detail}`)
     }
     return {
-      report_storage_path: urlData.storage_path, report_filename: file.name,
-      report_mime_type: file.type || 'application/pdf', report_file_size_bytes: file.size,
+      report_storage_path: urlData.storage_path, report_filename: f.name,
+      report_mime_type: f.type || 'application/pdf', report_file_size_bytes: f.size,
     }
+  }
+
+  // On file select: upload, then ask AI to read the inspection / next-due
+  // dates off the report and PRE-FILL the fields (staff confirms).
+  async function handleFile(f: File | null) {
+    setFile(f); setReportMeta(null); setExtractNote(null); setError(null)
+    if (!f) return
+    setExtracting(true)
+    try {
+      const meta = await uploadFileGetMeta(f)
+      setReportMeta(meta)
+      const exRes = await fetch(`/api/admin/associations/${assocCode}/compliance-extract`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storage_path: meta.report_storage_path, kind: 'safety', mime_type: meta.report_mime_type }),
+      })
+      const ex = await exRes.json()
+      if (exRes.ok && ex.ok) {
+        if (ex.inspectionDate && !lastCompleted) setLastCompleted(ex.inspectionDate)
+        if (ex.nextDueDate) setNextDue(ex.nextDueDate)
+        if (ex.issuer && !provider) setProvider(ex.issuer)
+        const pct = Math.round((ex.confidence ?? 0) * 100)
+        setExtractNote(`🔍 AI read${ex.inspectionDate ? ` inspection ${ex.inspectionDate}` : ''}${ex.nextDueDate ? ` · next due ${ex.nextDueDate}` : ' · next due not stated — use Suggested or enter it'}${ex.note ? ` · ${ex.note}` : ''} (confidence ${pct}%) — please confirm.`)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setExtracting(false)
+    }
+  }
+
+  async function uploadReport(): Promise<ReportMeta | null> {
+    if (!file) return null
+    if (reportMeta) return reportMeta   // already uploaded during AI extraction
+    return uploadFileGetMeta(file)
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -359,8 +396,10 @@ function InspectionEditor({ assocCode, inspectionType, existing, onSaved, onCanc
 
       <div>
         <span className={lblCls}>Inspection report / study (PDF)</span>
-        <input type="file" accept="application/pdf,.pdf" onChange={e => setFile(e.target.files?.[0] ?? null)} disabled={busy}
+        <input type="file" accept="application/pdf,.pdf,image/*" onChange={e => void handleFile(e.target.files?.[0] ?? null)} disabled={busy || extracting}
           className="mt-1 block text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-mono file:uppercase file:bg-[#f26a1b]/10 file:text-[#f26a1b] hover:file:bg-[#f26a1b]/20" />
+        {extracting && <span className="text-[10px] text-[#f26a1b] block mt-1">🔍 Reading dates from the report…</span>}
+        {extractNote && <span className="text-[11px] text-gray-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 block mt-1">{extractNote}</span>}
         {existing?.report_storage_path && !file && (
           <span className="text-[10px] text-gray-400 block mt-1">Current: {existing.report_filename ?? 'on file'} — choose a file to replace.</span>
         )}

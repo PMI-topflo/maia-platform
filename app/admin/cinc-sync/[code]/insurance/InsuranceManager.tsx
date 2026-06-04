@@ -343,18 +343,23 @@ function PolicyEditor({ assocCode, policyType, existing, onSaved, onCancel }: {
   const [busy, setBusy]               = useState(false)
   const [error, setError]             = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  // Uploaded-COI metadata, cached once we upload (on file-select for AI
+  // extraction) so onSubmit doesn't upload a second time.
+  type CoiMeta = { coi_storage_path: string; coi_filename: string; coi_mime_type: string; coi_file_size_bytes: number }
+  const [coiMeta, setCoiMeta]         = useState<CoiMeta | null>(null)
+  const [extracting, setExtracting]   = useState(false)
+  const [extractNote, setExtractNote] = useState<string | null>(null)
 
-  async function uploadCoi(): Promise<{ coi_storage_path: string; coi_filename: string; coi_mime_type: string; coi_file_size_bytes: number } | null> {
-    if (!file) return null
+  async function uploadFileGetMeta(f: File): Promise<CoiMeta> {
     const urlRes = await fetch(`/api/admin/associations/${assocCode}/insurance/upload-url`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: file.name, policy_type: policyType }),
+      body: JSON.stringify({ filename: f.name, policy_type: policyType }),
     })
     const urlData = await urlRes.json()
     if (!urlRes.ok) throw new Error(urlData?.error ?? 'Could not get upload URL')
     const put = await fetch(urlData.signed_url, {
-      method: 'PUT', body: file,
-      headers: { 'Content-Type': file.type || 'application/pdf', 'x-upsert': 'false' },
+      method: 'PUT', body: f,
+      headers: { 'Content-Type': f.type || 'application/pdf', 'x-upsert': 'false' },
     })
     if (!put.ok) {
       let detail = `HTTP ${put.status}`
@@ -363,10 +368,46 @@ function PolicyEditor({ assocCode, policyType, existing, onSaved, onCancel }: {
     }
     return {
       coi_storage_path:    urlData.storage_path,
-      coi_filename:        file.name,
-      coi_mime_type:       file.type || 'application/pdf',
-      coi_file_size_bytes: file.size,
+      coi_filename:        f.name,
+      coi_mime_type:       f.type || 'application/pdf',
+      coi_file_size_bytes: f.size,
     }
+  }
+
+  // On file select: upload, then ask AI to read the expiration date off the
+  // COI and PRE-FILL the field (staff confirms before saving).
+  async function handleFile(f: File | null) {
+    setFile(f); setCoiMeta(null); setExtractNote(null); setError(null)
+    if (!f) return
+    setExtracting(true)
+    try {
+      const meta = await uploadFileGetMeta(f)
+      setCoiMeta(meta)
+      const exRes = await fetch(`/api/admin/associations/${assocCode}/compliance-extract`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storage_path: meta.coi_storage_path, kind: 'insurance', mime_type: meta.coi_mime_type }),
+      })
+      const ex = await exRes.json()
+      if (exRes.ok && ex.ok) {
+        if (ex.expirationDate) setExpiration(ex.expirationDate)
+        if (ex.effectiveDate && !effective) setEffective(ex.effectiveDate)
+        if (ex.issuer && !carrier) setCarrier(ex.issuer)
+        const pct = Math.round((ex.confidence ?? 0) * 100)
+        setExtractNote(ex.expirationDate
+          ? `🔍 AI read expiration ${ex.expirationDate}${ex.note ? ` · ${ex.note}` : ''} (confidence ${pct}%) — please confirm.`
+          : `🔍 AI couldn't find an expiration date — enter it manually.`)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setExtracting(false)
+    }
+  }
+
+  async function uploadCoi(): Promise<CoiMeta | null> {
+    if (!file) return null
+    if (coiMeta) return coiMeta   // already uploaded during AI extraction
+    return uploadFileGetMeta(file)
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -442,9 +483,11 @@ function PolicyEditor({ assocCode, policyType, existing, onSaved, onCancel }: {
 
       <div>
         <span className={lblCls}>Certificate of Insurance (PDF)</span>
-        <input ref={fileRef} type="file" accept="application/pdf,.pdf"
-          onChange={e => setFile(e.target.files?.[0] ?? null)} disabled={busy}
+        <input ref={fileRef} type="file" accept="application/pdf,.pdf,image/*"
+          onChange={e => void handleFile(e.target.files?.[0] ?? null)} disabled={busy || extracting}
           className="mt-1 block text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-mono file:uppercase file:bg-[#f26a1b]/10 file:text-[#f26a1b] hover:file:bg-[#f26a1b]/20" />
+        {extracting && <span className="text-[10px] text-[#f26a1b] block mt-1">🔍 Reading the expiration date from the COI…</span>}
+        {extractNote && <span className="text-[11px] text-gray-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 block mt-1">{extractNote}</span>}
         {existing?.coi_storage_path && !file && (
           <span className="text-[10px] text-gray-400 block mt-1">Current COI: {existing.coi_filename ?? 'on file'} — choose a file to replace it.</span>
         )}
