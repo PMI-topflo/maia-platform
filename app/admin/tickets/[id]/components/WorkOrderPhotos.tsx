@@ -19,6 +19,13 @@ interface Attachment {
   signed_url:         string
   cinc_created_date:  string | null
   created_at:         string
+  extracted_doc_type?: string | null
+  extracted_data?:     { confidence?: number; summary?: string | null; fields?: Record<string, string> } | null
+}
+
+const DOC_TYPE_BADGE: Record<string, string> = {
+  w9: 'W-9', coi: 'COI', ach: 'ACH', license: 'License',
+  insurance: 'Insurance', estimate: 'Estimate', invoice: 'Invoice',
 }
 
 interface PhotosResponse {
@@ -54,6 +61,13 @@ function fileIcon(att: Attachment): string {
   if (/\.(docx?|rtf)$/i.test(att.filename)) return '📝'
   if (/\.(xlsx?|csv)$/i.test(att.filename)) return '📊'
   return '📎'
+}
+// Force a one-click download (Content-Disposition: attachment) by adding
+// Supabase Storage's `download` query param to the signed URL — honored
+// regardless of cross-origin, so the file saves instead of opening.
+function downloadHref(att: Attachment): string {
+  const sep = att.signed_url.includes('?') ? '&' : '?'
+  return `${att.signed_url}${sep}download=${encodeURIComponent(att.filename)}`
 }
 
 export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props) {
@@ -254,22 +268,48 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
                   />
                 </button>
               ) : (
-                <a
-                  href={att.signed_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  title={`${att.filename} — open (${SOURCE_LABEL[att.source]})`}
-                >
-                  <span className="text-3xl leading-none" aria-hidden>{fileIcon(att)}</span>
-                  <span className="line-clamp-2 break-all px-1 text-[10px] font-medium text-gray-700">{att.filename}</span>
-                  <span className="text-[9px] font-semibold uppercase tracking-wide text-blue-600 group-hover:text-blue-800">Open ↗</span>
-                </a>
+                <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center">
+                  <a
+                    href={att.signed_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex min-h-0 flex-col items-center gap-1 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    title={`${att.filename} — open (${SOURCE_LABEL[att.source]})`}
+                  >
+                    <span className="text-3xl leading-none" aria-hidden>{fileIcon(att)}</span>
+                    <span className="line-clamp-2 break-all px-1 text-[10px] font-medium text-gray-700">{att.filename}</span>
+                  </a>
+                  <div className="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-wide">
+                    <a href={att.signed_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800">Open ↗</a>
+                    <span className="text-gray-300" aria-hidden>·</span>
+                    <a href={downloadHref(att)} download={att.filename} className="text-blue-600 hover:text-blue-800">⬇ Download</a>
+                  </div>
+                </div>
               )}
               {att.source !== 'cinc' && (
                 <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-white">
                   {SOURCE_LABEL[att.source]}
                 </span>
+              )}
+              {att.extracted_doc_type && DOC_TYPE_BADGE[att.extracted_doc_type] && (
+                <span
+                  title={att.extracted_data?.summary ?? undefined}
+                  className="pointer-events-none absolute top-1 left-1 rounded bg-emerald-600/90 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white"
+                >
+                  {DOC_TYPE_BADGE[att.extracted_doc_type]}
+                  {att.extracted_data?.fields?.expiration_date ? ` · exp ${att.extracted_data.fields.expiration_date}` : ''}
+                </span>
+              )}
+              {isImage(att) && !att.extracted_doc_type && (
+                <a
+                  href={downloadHref(att)}
+                  download={att.filename}
+                  onClick={(e) => e.stopPropagation()}
+                  title="Download"
+                  className="absolute top-1 left-1 hidden h-6 w-6 items-center justify-center rounded-full bg-black/70 text-xs text-white hover:bg-blue-600 group-hover:flex"
+                >
+                  ⬇
+                </a>
               )}
               {att.source !== 'cinc' && (
                 <button
@@ -377,8 +417,16 @@ function Lightbox({
         </a>
       )}
 
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded bg-black/60 px-3 py-1.5 text-xs text-white">
-        {att.filename} · {(att.file_size_bytes / 1024).toFixed(0)} KB · {index + 1} of {attachments.length}
+      <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded bg-black/60 px-3 py-1.5 text-xs text-white">
+        <span>{att.filename} · {(att.file_size_bytes / 1024).toFixed(0)} KB · {index + 1} of {attachments.length}</span>
+        <a
+          href={downloadHref(att)}
+          download={att.filename}
+          onClick={(e) => e.stopPropagation()}
+          className="font-semibold text-blue-300 hover:text-blue-200"
+        >
+          ⬇ Download
+        </a>
       </div>
     </div>
   )
