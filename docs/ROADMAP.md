@@ -53,7 +53,18 @@ This is the consolidated backlog. Items marked **[carry-over]** predate the 2026
 - 🔴 **Document AI retrieval** (ask questions against stored compliance docs) — **[carry-over I13]**.
 
 ### 4. Vendor / Recurring Services — *[carry-over 2026-05-31]*
-- 🔴 **Push extracted vendor data → CINC vendor record** (NEW 2026-06-04) — once Claude reads an ACH form / W-9 / COI off a vendor upload (#276), write it back to the vendor's CINC file: ACH banking (routing/account → CINC `Routing`/`Account`), W-9 (legal name, tax classification, 1099 type), COI expiry. **Button first** ("Apply to CINC vendor" on the attachment, staff-confirmed) → **auto** later once trusted. ⚠️ **Blocked-pending-verify**: confirm CINC exposes a vendor **update/PATCH** endpoint (the probe found read fields only — `AccountType`/`Print1099Type`/`VendorAddressType`/`VendorType`; need to confirm write capability + which fields are settable). Full account/routing must be re-collected at push time (we only store masked last-4) — keep originals transiently or re-read the stored file server-side. Update `CINC_API.md` when verified.
+- 🟢 **Push extracted vendor data → CINC vendor record** (NEW 2026-06-04 · **UNBLOCKED — full spec verified, see `CINC_API.md`**) — once Claude reads an ACH form / W-9 / COI / license off a vendor upload (#276), write it back to the vendor's CINC file via a staff-confirmed **"Apply to CINC vendor"** button → auto later. Endpoints all confirmed writable:
+    - **ACH banking** → `PATCH /vendors/vendor` `{ VendorID, Routing, Account, AccountType }` (read-back from `GET /vendors`).
+    - **W-9 / 1099** → `PATCH /vendors/vendor` `{ TaxID, Exempt, VendorTypeID, Print1099Type, Ten99Box10, CheckName }`.
+    - **COI (+ PDF)** → `PATCH /vendors/vendorInsuranceUpdateByteArray` (file as base64; `InsuranceId`=type, `AccountNumber`=policy#, `Expiration`, `InsuranceCarrier`).
+    - **License** → `POST /vendors/vendorLicense` `{ VendorId, LicenseType, LicenseNumber, LicenseExpiration, ... }`.
+    - UX: confirmation modal showing **current CINC value vs extracted value** per field (staff approves). ⚠️ We store only masked last-4 of ACH/EIN — at push time re-read the full numbers from the stored file server-side (re-extract or keep originals transiently); never persist them. Only `VendorID` is required on the PATCH, so we write just the changed fields.
+- 🔴 **Vendor procurement inside work orders** (NEW 2026-06-04, Paola) — drive ALL vendor comms from inside the WO so a service request *forces* a work order + keeps the whole thread in Maia. Sub-parts:
+    - **Send vendor emails from a WO** using a service mailbox (`service@topfloridaproperties.com` / `service@pmitop.com`) — the ticket detail already has Email/SMS/WhatsApp/Internal-note compose tabs (`appendMessage` + `lib/gmail`); work = wire the **From/Reply-To to service@** + ensure replies thread back onto the WO (Gmail watch / Message-ID). *(Feasible now.)*
+    - **Request-for-estimate email** with the tokenized vendor **upload link** (reuse `signVendorUploadToken`) so vendors upload estimates straight to the WO.
+    - **Estimate comparison view** — side-by-side vendor/amount/scope (with estimate images) once ≥2 estimates are in.
+    - **Board approval report** — generate a comparison report → email the board → capture approve/decline → on approve, set the WO vendor + move it forward (ties into the existing "non-recurring WO → estimates board report" item below).
+    - ⚠️ Decisions needed: which sender (`service@` vs `maia@`), whether the mailbox is Gmail-watched for replies, board-approval delivery (email link vs `/board`).
 - 🔴 **Control Panel "Recurring Work Orders" card** (🟢/🟠/🔴 vendor weekly-report status) + status table.
 - 🔴 **Non-recurring WO → estimates board report** (vendor/amount/scope comparison **with estimate images**) for board approval.
 - 🔴 **Non-recurring WO weekly office chase** (extend the Friday agenda email).
