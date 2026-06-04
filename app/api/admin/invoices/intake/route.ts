@@ -113,7 +113,7 @@ async function buildSignedUrls(paths: string[]): Promise<Map<string, string>> {
 }
 
 const VALID_STATUSES = new Set([
-  'pending_review', 'ready_to_push', 'needs_vendor', 'duplicate_in_cinc', 'pushed_to_cinc', 'rejected',
+  'pending_review', 'ready_to_push', 'needs_vendor', 'duplicate_in_cinc', 'pushed_to_cinc', 'rejected', 'on_hold',
 ])
 
 const SELECT_COLUMNS = `
@@ -127,6 +127,7 @@ const SELECT_COLUMNS = `
   extraction_confidence, status, rejected_reason,
   audit_checklist, audit_ready_by, audit_ready_at,
   cinc_invoice_id, cinc_dup_invoice_id, pushed_at, pushed_by, drive_file_id,
+  hold_requested_items, hold_ticket_id, hold_requested_at, hold_note,
   created_at, updated_at
 `.replace(/\s+/g, ' ').trim()
 
