@@ -380,6 +380,28 @@ export default function ControlPanel(props: Props) {
             )
           })}
         </div>
+
+        {/* ── Utility / admin destinations ──
+            Kept here (not in the top nav) so the primary bar stays short
+            and legible. These are tools, not at-a-glance instruments. */}
+        <div className="mt-4 pt-3 border-t border-[#23262e] flex flex-wrap items-center gap-x-1 gap-y-1.5">
+          <span className="text-[9px] font-mono uppercase tracking-[0.25em] text-gray-600 mr-1">Admin tools</span>
+          {[
+            { label: 'Performance', href: '/admin/staff-performance' },
+            { label: 'CINC Sync',   href: '/admin/cinc-sync' },
+            { label: 'Sunbiz',      href: '/admin/sunbiz' },
+            { label: 'Ideas',       href: '/admin/ideas' },
+            { label: 'Tools',       href: '/admin/tools' },
+          ].map(t => (
+            <Link
+              key={t.href}
+              href={t.href}
+              className="[font-family:var(--font-mono)] text-[0.62rem] uppercase tracking-[0.08em] px-2.5 py-1 rounded-[3px] text-gray-400 border border-[#262a33] hover:text-white hover:border-[#3a3f4a] transition-colors"
+            >
+              {t.label}
+            </Link>
+          ))}
+        </div>
       </div>
 
       {/* ── Drill-down drawer ── */}
