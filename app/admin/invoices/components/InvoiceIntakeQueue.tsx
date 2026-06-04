@@ -495,6 +495,21 @@ function DraftCard(props: {
     }
   }, [vendorId, vendorDetailLoadedFor])
 
+  // Pull the vendor's CINC default payment method into the Payment-method
+  // field when nothing is set yet — so Karen doesn't have to re-pick what
+  // CINC already knows (ACH when the vendor has banking on file, else Check).
+  // Prefers a matching CINC pay-by option; falls back to the raw label so it
+  // still shows in view mode (where the option list isn't loaded). Never
+  // overrides a value already chosen/saved.
+  useEffect(() => {
+    if (payBy) return
+    const def = vendorDetail?.DefaultPmtMethod
+    if (!def) return
+    const match = payByOptions.find(o => o.value.toLowerCase() === def.toLowerCase() || o.label.toLowerCase() === def.toLowerCase())
+      ?? (def === 'ACH' ? payByOptions.find(o => /\b(ach|eft|electronic|direct deposit|transfer)\b/i.test(`${o.value} ${o.label}`)) : undefined)
+    setPayBy(match ? match.value : def)
+  }, [vendorDetail, payByOptions, payBy])
+
   // Auto-suggest an observation note when Karen picks a payment method
   // and hasn't typed her own. Karen can always overwrite. Format follows
   // what the CINC team needs to see when processing payment.
