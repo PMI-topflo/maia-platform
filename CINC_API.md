@@ -510,7 +510,7 @@ ACH/banking is READ back from `GET /management/1/vendors` (`Routing`/`Account`/`
 
 | Method + path | Purpose | Wrapper in `lib/integrations/cinc.ts` |
 |---------------|---------|----------------------------------------|
-| `GET /management/1/workOrderStatuses` | List of WO statuses (reference data) | (no wrapper yet) |
+| `GET /management/1/workOrderStatuses` | List of WO statuses (reference data) | `listWorkOrderStatuses()` (internal → `getOpenWorkOrderStatusId()`, `findCincStatusIdForTicketStatus()`) |
 | `GET /management/1/workOrderTypes` | List of WO types (reference data) | `listWorkOrderTypes()`, `getDefaultWorkOrderTypeId()`, `getOpenWorkOrderStatusId()` |
 | `GET /management/1/workOrders?workOrderId={id}` | Fetch one WO with notes + contacts + vendor (no attachments inline) | `getWorkOrderById()` |
 | `GET /management/1/workOrders?createdFromDate={iso}` | List WOs created since a cursor | `listWorkOrdersCreatedSince()` |
@@ -521,8 +521,31 @@ ACH/banking is READ back from `GET /management/1/vendors` (`Routing`/`Account`/`
 | `POST /management/1/linkedWorkOrder` | Create a WO linked to a homeowner or common area | `createLinkedWorkOrder()` |
 | `POST /management/1/unlinkedWorkOrder` | Create a WO for an unlinked work location (no homeowner/common-area link) | (no wrapper yet) |
 | `PATCH /management/1/workOrderStatus` | Update WO status | `updateWorkOrderStatus()` |
-| `PATCH /management/1/workOrderStatusReopen` | Reopen a closed/completed WO | (no wrapper yet) |
+| `PATCH /management/1/workOrderStatusReopen` | Reopen a closed/completed WO | ✅ inside `updateWorkOrderStatus()` (auto-picks reopen vs status) |
 | `PATCH /management/1/workOrderDetails` | Update type, description, dates, work location. **Use the dedicated PATCH endpoints for status or vendor, not this one** | `updateWorkOrderDetails()` |
+
+### Verified write bodies (Swagger-confirmed 2026-06-04, API v1.40.0)
+
+**`POST /management/1/workOrderAttachment`** — push a file INTO a CINC WO. `workOrderId` is a **query** param; body is an **array** (batch upload). `file` is a byte array (base64). ≤25 MB.
+```jsonc
+// ?workOrderId={id}
+[ { "fileName": "string", "file": "string" } ]   // file = base64 bytes
+```
+
+**`POST /management/1/unlinkedWorkOrder`** — create a WO for a work location not tied to a homeowner/common area. **Still requires `assocId`** (does NOT bypass AssocId resolution). Good for ad-hoc locations + the monthly recurring-rollup WO.
+```jsonc
+{
+  "assocId": 0, "workOrderTypeId": 0, "workOrderStatusId": 0,
+  "description": "string", "estimateTotal": 0,
+  "dueDate": "ISO", "followUpDate": "ISO",
+  "workLocationName": "string", "addressLine1": "string", "addressLine2": "string",
+  "city": "string", "state": "string", "zip": "string",
+  "contactEmail": "string", "contactPhone": "string",
+  "additionalContacts": [ { "addlContactName": "string", "addlContactEmail": "string", "addlContactPhone": "string" } ],
+  "vendorId": 0, "vendorName": "string",
+  "notes": { "noteDescription": "string", "isNotePublic": true, "isNoteEmailedToWorkLocation": true, "isNoteEmailedToVendor": true }
+}
+```
 
 ### Bidirectional photo sync opportunity (tasks 2 + 3)
 
