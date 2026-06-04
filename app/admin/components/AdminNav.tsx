@@ -3,11 +3,17 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-const NAV_ITEMS = [
+// Primary navigation. The utility/admin destinations (Performance, CINC
+// Sync, Sunbiz, Ideas, Tools) deliberately do NOT live here — they're
+// reachable from the "Control Panel" black block on the Staff Dashboard,
+// to keep this bar short and legible.
+//
+// `sub` attaches a compact secondary button to the right of a tab (used to
+// fold "Recurring" into "Work Orders" without spending a full tab slot).
+const NAV_ITEMS: Array<{ label: string; href: string; sub?: { label: string; href: string } }> = [
   { label: 'Staff Dashboard',   href: '/admin' },
   { label: 'Tickets',           href: '/admin/tickets' },
-  { label: 'Work Orders',       href: '/admin/work-orders' },
-  { label: 'Recurring',         href: '/admin/recurring-services' },
+  { label: 'Work Orders',       href: '/admin/work-orders', sub: { label: '↻ Recurring', href: '/admin/recurring-services' } },
   { label: 'Invoices',          href: '/admin/invoices' },
   { label: 'Reconciliation',    href: '/admin/reconciliation' },
   { label: 'Monthly Report',    href: '/admin/reports/monthly' },
@@ -18,11 +24,6 @@ const NAV_ITEMS = [
   { label: 'Ownership',         href: '/admin/ownership-history' },
   { label: 'Tenancy',           href: '/admin/tenancy-history' },
   { label: 'Logins',            href: '/admin/login-history' },
-  { label: 'Performance',       href: '/admin/staff-performance' },
-  { label: 'CINC Sync',         href: '/admin/cinc-sync' },
-  { label: 'Sunbiz',            href: '/admin/sunbiz' },
-  { label: 'Ideas',             href: '/admin/ideas' },
-  { label: 'Tools',             href: '/admin/tools' },
 ]
 
 /** Optional override so pages whose URL doesn't naturally match the
@@ -32,6 +33,8 @@ const NAV_ITEMS = [
 interface Props {
   activeOverride?: string
 }
+
+const TAB_BASE = '[font-family:var(--font-mono)] text-[0.68rem] uppercase tracking-[0.06em] px-2.5 py-1.5 rounded-[2px] transition-colors whitespace-nowrap'
 
 export default function AdminNav({ activeOverride }: Props = {}) {
   const pathname = usePathname()
@@ -44,19 +47,39 @@ export default function AdminNav({ activeOverride }: Props = {}) {
         const active = item.href === '/admin'
           ? matchTarget === '/admin'
           : matchTarget.startsWith(item.href)
-        return (
+        const main = (
           <Link
-            key={item.href}
             href={item.href}
             className={[
-              '[font-family:var(--font-mono)] text-[0.6rem] uppercase tracking-[0.08em] px-3 py-1.5 rounded-[2px] transition-colors',
+              TAB_BASE,
               active
                 ? 'text-white border border-white/40'
-                : 'text-white/60 hover:text-white border border-transparent hover:border-white/20',
+                : 'text-white/65 hover:text-white border border-transparent hover:border-white/20',
             ].join(' ')}
           >
             {item.label}
           </Link>
+        )
+        if (!item.sub) return <span key={item.href}>{main}</span>
+
+        // Tab with an attached secondary button (Work Orders + Recurring).
+        const subActive = matchTarget.startsWith(item.sub.href)
+        return (
+          <span key={item.href} className="inline-flex items-center">
+            {main}
+            <Link
+              href={item.sub.href}
+              title="Recurring services"
+              className={[
+                '[font-family:var(--font-mono)] text-[0.62rem] uppercase tracking-[0.06em] px-2 py-1.5 -ml-0.5 rounded-[2px] transition-colors whitespace-nowrap',
+                subActive
+                  ? 'text-white border border-white/40'
+                  : 'text-white/45 hover:text-white border border-transparent hover:border-white/20',
+              ].join(' ')}
+            >
+              {item.sub.label}
+            </Link>
+          </span>
         )
       })}
 
@@ -66,7 +89,7 @@ export default function AdminNav({ activeOverride }: Props = {}) {
         href="/admin/help"
         title="Staff procedures + quick links"
         className={[
-          '[font-family:var(--font-mono)] text-[0.6rem] uppercase tracking-[0.08em] px-3 py-1.5 rounded-[2px] transition-colors ml-2',
+          TAB_BASE, 'ml-2',
           helpActive
             ? 'text-white bg-[#f26a1b] border border-[#f26a1b]'
             : 'text-[#f26a1b] border border-[#f26a1b]/40 hover:bg-[#f26a1b] hover:text-white',
