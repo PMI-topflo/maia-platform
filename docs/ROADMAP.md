@@ -18,6 +18,10 @@ This is the consolidated backlog. Items marked **[carry-over]** predate the 2026
 - **Staff "PMI Top Florida Daily News"** (#265/#266): branded Mon–Fri 6am-ET email, per-staff week-to-date ticket/WO counts (open/resolved/late) + "Team · Unassigned" + improvement-ideas board (`/admin/ideas`) + "Send now" button. AI bot excluded.
 - **Gmail add-on deployed to Workspace Marketplace** (private) + admin-installed org-wide. Manifest `urlFetchWhitelist` fix + store assets (#272).
 - **CINC_SYNC_ENABLED=true** set in Vercel — work-order→CINC sync (`createLinkedWorkOrder` via the outbox drain cron) is now active.
+- **Invoice single-card pager** (#274): one invoice per view across all 4 tabs + ◀ N/total ▶ pager; payment-method auto-fills from the vendor's CINC default.
+- **Invoice "On Hold" workflow** (#275): On-hold tab; ⏸ put-on-hold modal (request COI/license/W-9/ACH checklist + note), optional follow-up Vendor-Compliance work order, tokenized vendor upload-link email; on-hold banner + Release.
+- **Admin nav cleanup** (#275/#276): trimmed to day-to-day tabs, Performance/CINC-Sync/Sunbiz/Ideas/Tools moved into the Control Panel "Admin tools" row, Recurring → orange button on the Work Orders page; nav now fills the bar left-aligned.
+- 🟡 **Vendor attachments: view / download / AI-read** (#276, in review): PDFs/docs render as openable file cards (not broken thumbnails) + one-click **Download**; vendor uploads hard-capped at 4 MB after compression (refused otherwise); **Claude reads each vendor doc on upload, before compression** — classifies W-9/COI/ACH/license/insurance + pulls key fields (sensitive values masked to last-4) → doc-type badge + "🔎 Detected" staff note + `extracted_data` stored. Migration `20260605_vendor_doc_extraction.sql`.
 
 ---
 
@@ -49,6 +53,7 @@ This is the consolidated backlog. Items marked **[carry-over]** predate the 2026
 - 🔴 **Document AI retrieval** (ask questions against stored compliance docs) — **[carry-over I13]**.
 
 ### 4. Vendor / Recurring Services — *[carry-over 2026-05-31]*
+- 🔴 **Push extracted vendor data → CINC vendor record** (NEW 2026-06-04) — once Claude reads an ACH form / W-9 / COI off a vendor upload (#276), write it back to the vendor's CINC file: ACH banking (routing/account → CINC `Routing`/`Account`), W-9 (legal name, tax classification, 1099 type), COI expiry. **Button first** ("Apply to CINC vendor" on the attachment, staff-confirmed) → **auto** later once trusted. ⚠️ **Blocked-pending-verify**: confirm CINC exposes a vendor **update/PATCH** endpoint (the probe found read fields only — `AccountType`/`Print1099Type`/`VendorAddressType`/`VendorType`; need to confirm write capability + which fields are settable). Full account/routing must be re-collected at push time (we only store masked last-4) — keep originals transiently or re-read the stored file server-side. Update `CINC_API.md` when verified.
 - 🔴 **Control Panel "Recurring Work Orders" card** (🟢/🟠/🔴 vendor weekly-report status) + status table.
 - 🔴 **Non-recurring WO → estimates board report** (vendor/amount/scope comparison **with estimate images**) for board approval.
 - 🔴 **Non-recurring WO weekly office chase** (extend the Friday agenda email).
