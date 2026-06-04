@@ -1279,6 +1279,18 @@ ALTER TABLE public.invoice_intake_drafts
   ADD COLUMN IF NOT EXISTS hold_note             text;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'vendor_doc_extraction',
+    label:       'Vendor doc AI extraction',
+    description: 'work_order_attachments: extracted_doc_type / extracted_data / extracted_at — Claude classifies + reads vendor docs (W-9/COI/ACH/license) on upload, before compression.',
+    filename:    '20260605_vendor_doc_extraction.sql',
+    artifact:    { type: 'column', table: 'work_order_attachments', column: 'extracted_doc_type' },
+    sql: `ALTER TABLE public.work_order_attachments
+  ADD COLUMN IF NOT EXISTS extracted_doc_type text,
+  ADD COLUMN IF NOT EXISTS extracted_data     jsonb,
+  ADD COLUMN IF NOT EXISTS extracted_at       timestamptz;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

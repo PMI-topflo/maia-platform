@@ -19,6 +19,13 @@ interface Attachment {
   signed_url:         string
   cinc_created_date:  string | null
   created_at:         string
+  extracted_doc_type?: string | null
+  extracted_data?:     { confidence?: number; summary?: string | null; fields?: Record<string, string> } | null
+}
+
+const DOC_TYPE_BADGE: Record<string, string> = {
+  w9: 'W-9', coi: 'COI', ach: 'ACH', license: 'License',
+  insurance: 'Insurance', estimate: 'Estimate', invoice: 'Invoice',
 }
 
 interface PhotosResponse {
@@ -36,6 +43,31 @@ const SOURCE_LABEL: Record<Attachment['source'], string> = {
   cinc:         'from CINC',
   email:        'from email',
   staff_upload: 'uploaded',
+}
+
+// Vendors upload more than photos through the portal — W-9s, ACH forms,
+// COIs, estimates — which are usually PDFs. An <img> can't render those,
+// so we branch on type and show an openable file card instead.
+function isImage(att: Attachment): boolean {
+  if (att.mime_type?.startsWith('image/')) return true
+  if (att.mime_type === 'application/pdf') return false
+  return /\.(png|jpe?g|gif|webp|heic|heif|bmp|tiff?|avif)$/i.test(att.filename)
+}
+function isPdf(att: Attachment): boolean {
+  return att.mime_type === 'application/pdf' || /\.pdf$/i.test(att.filename)
+}
+function fileIcon(att: Attachment): string {
+  if (isPdf(att)) return '📄'
+  if (/\.(docx?|rtf)$/i.test(att.filename)) return '📝'
+  if (/\.(xlsx?|csv)$/i.test(att.filename)) return '📊'
+  return '📎'
+}
+// Force a one-click download (Content-Disposition: attachment) by adding
+// Supabase Storage's `download` query param to the signed URL — honored
+// regardless of cross-origin, so the file saves instead of opening.
+function downloadHref(att: Attachment): string {
+  const sep = att.signed_url.includes('?') ? '&' : '?'
+  return `${att.signed_url}${sep}download=${encodeURIComponent(att.filename)}`
 }
 
 export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props) {
@@ -165,12 +197,12 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-900">Photos</h3>
+        <h3 className="text-sm font-semibold text-gray-900">Photos &amp; files</h3>
         <div className="flex items-center gap-3">
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,application/pdf,.pdf,.doc,.docx"
             multiple
             className="hidden"
             onChange={(e) => {
@@ -183,9 +215,9 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
             className="text-xs font-medium text-[#f26a1b] hover:text-[#d85a14] disabled:text-gray-400"
-            title="Upload photos from this device"
+            title="Upload photos or files (PDF, doc) from this device"
           >
-            {uploading ? 'Uploading…' : '+ Add photos'}
+            {uploading ? 'Uploading…' : '+ Add files'}
           </button>
           {hasCincWorkOrderId && (
             <button
@@ -210,7 +242,7 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
 
       {!loading && !error && attachments.length === 0 && (
         <div className="text-xs text-gray-500">
-          No photos yet. Use <span className="font-medium text-[#f26a1b]">+ Add photos</span> to upload from this device.
+          No files yet. Use <span className="font-medium text-[#f26a1b]">+ Add files</span> to upload photos or documents from this device.
           {hasCincWorkOrderId && ' Vendor-attached photos in CINC also appear here.'}
         </div>
       )}
@@ -222,22 +254,62 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
               key={att.id}
               className="group relative aspect-square overflow-hidden rounded border border-gray-200 bg-gray-50 hover:border-blue-400"
             >
-              <button
-                onClick={() => setLightboxIdx(idx)}
-                className="block h-full w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
-                title={`${att.filename} — ${SOURCE_LABEL[att.source]}`}
-              >
-                <img
-                  src={att.signed_url}
-                  alt={att.filename}
-                  loading="lazy"
-                  className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                />
-              </button>
+              {isImage(att) ? (
+                <button
+                  onClick={() => setLightboxIdx(idx)}
+                  className="block h-full w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  title={`${att.filename} — ${SOURCE_LABEL[att.source]}`}
+                >
+                  <img
+                    src={att.signed_url}
+                    alt={att.filename}
+                    loading="lazy"
+                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                  />
+                </button>
+              ) : (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center">
+                  <a
+                    href={att.signed_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex min-h-0 flex-col items-center gap-1 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    title={`${att.filename} — open (${SOURCE_LABEL[att.source]})`}
+                  >
+                    <span className="text-3xl leading-none" aria-hidden>{fileIcon(att)}</span>
+                    <span className="line-clamp-2 break-all px-1 text-[10px] font-medium text-gray-700">{att.filename}</span>
+                  </a>
+                  <div className="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-wide">
+                    <a href={att.signed_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800">Open ↗</a>
+                    <span className="text-gray-300" aria-hidden>·</span>
+                    <a href={downloadHref(att)} download={att.filename} className="text-blue-600 hover:text-blue-800">⬇ Download</a>
+                  </div>
+                </div>
+              )}
               {att.source !== 'cinc' && (
                 <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-white">
                   {SOURCE_LABEL[att.source]}
                 </span>
+              )}
+              {att.extracted_doc_type && DOC_TYPE_BADGE[att.extracted_doc_type] && (
+                <span
+                  title={att.extracted_data?.summary ?? undefined}
+                  className="pointer-events-none absolute top-1 left-1 rounded bg-emerald-600/90 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white"
+                >
+                  {DOC_TYPE_BADGE[att.extracted_doc_type]}
+                  {att.extracted_data?.fields?.expiration_date ? ` · exp ${att.extracted_data.fields.expiration_date}` : ''}
+                </span>
+              )}
+              {isImage(att) && !att.extracted_doc_type && (
+                <a
+                  href={downloadHref(att)}
+                  download={att.filename}
+                  onClick={(e) => e.stopPropagation()}
+                  title="Download"
+                  className="absolute top-1 left-1 hidden h-6 w-6 items-center justify-center rounded-full bg-black/70 text-xs text-white hover:bg-blue-600 group-hover:flex"
+                >
+                  ⬇
+                </a>
               )}
               {att.source !== 'cinc' && (
                 <button
@@ -317,15 +389,44 @@ function Lightbox({
         </button>
       )}
 
-      <img
-        src={att.signed_url}
-        alt={att.filename}
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-[88vh] max-w-[88vw] object-contain"
-      />
+      {isImage(att) ? (
+        <img
+          src={att.signed_url}
+          alt={att.filename}
+          onClick={(e) => e.stopPropagation()}
+          className="max-h-[88vh] max-w-[88vw] object-contain"
+        />
+      ) : isPdf(att) ? (
+        <iframe
+          src={att.signed_url}
+          title={att.filename}
+          onClick={(e) => e.stopPropagation()}
+          className="h-[88vh] w-[88vw] rounded bg-white"
+        />
+      ) : (
+        <a
+          href={att.signed_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="flex flex-col items-center gap-3 rounded-lg bg-white/10 px-8 py-10 text-white hover:bg-white/20"
+        >
+          <span className="text-5xl" aria-hidden>{fileIcon(att)}</span>
+          <span className="text-sm">{att.filename}</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-blue-300">Download ↗</span>
+        </a>
+      )}
 
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded bg-black/60 px-3 py-1.5 text-xs text-white">
-        {att.filename} · {(att.file_size_bytes / 1024).toFixed(0)} KB · {index + 1} of {attachments.length}
+      <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded bg-black/60 px-3 py-1.5 text-xs text-white">
+        <span>{att.filename} · {(att.file_size_bytes / 1024).toFixed(0)} KB · {index + 1} of {attachments.length}</span>
+        <a
+          href={downloadHref(att)}
+          download={att.filename}
+          onClick={(e) => e.stopPropagation()}
+          className="font-semibold text-blue-300 hover:text-blue-200"
+        >
+          ⬇ Download
+        </a>
       </div>
     </div>
   )

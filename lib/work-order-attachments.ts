@@ -14,7 +14,8 @@ import { normalizeImage, normalizeUpload } from '@/lib/pdf-normalize'
 
 export const STORAGE_BUCKET = 'work-order-photos'
 const SIGNED_URL_TTL_SECONDS = 60 * 60          // 1 hour
-const FILE_SIZE_LIMIT_BYTES  = 25 * 1024 * 1024 // 25 MB per file
+const FILE_SIZE_LIMIT_BYTES  = 25 * 1024 * 1024 // 25 MB per file (raw ingest gate)
+const WO_STORED_MAX_BYTES    = 4 * 1024 * 1024  // 4 MB hard cap AFTER compression
 
 const IMAGE_EXTENSIONS: Record<string, string> = {
   png:  'image/png',
@@ -79,6 +80,9 @@ export interface WorkOrderAttachmentRow {
   uploaded_by_email:   string | null
   mirrored_at:         string
   created_at:          string
+  extracted_doc_type:  string | null
+  extracted_data:      { confidence?: number; summary?: string | null; fields?: Record<string, string> } | null
+  extracted_at:        string | null
 }
 
 export interface WorkOrderAttachmentWithUrl extends WorkOrderAttachmentRow {
@@ -303,9 +307,16 @@ export async function saveWorkOrderFile(opts: {
   contentType?:     string | null
   uploadedByEmail?: string | null
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  // Compress (PDF → ≤4 MB, image → ≤1.5 MB), then HARD-cap the stored
+  // result at 4 MB. If the normalizer still can't get it under the cap
+  // (e.g. a huge non-rasterizable PDF), refuse the file rather than store
+  // a bloated attachment — the uploader gets a clear "reduce and resend".
   const bytes = (await normalizeUpload(opts.bytes, { contentType: opts.contentType, filename: opts.filename })).buffer
-  if (bytes.byteLength > FILE_SIZE_LIMIT_BYTES) {
-    return { ok: false, error: `${opts.filename} exceeds the ${FILE_SIZE_LIMIT_BYTES}-byte limit` }
+  if (bytes.byteLength > WO_STORED_MAX_BYTES) {
+    return {
+      ok: false,
+      error: `${opts.filename} is ${(bytes.byteLength / 1e6).toFixed(1)} MB even after compression — the limit is 4 MB. Please reduce the file (split pages, lower the scan resolution, or export a smaller PDF) and re-upload.`,
+    }
   }
   const bucket = await ensureBucket()
   if (!bucket.ok) return { ok: false, error: bucket.reason }

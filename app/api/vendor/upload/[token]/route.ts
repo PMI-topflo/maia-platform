@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server'
 import { verifyVendorUploadToken } from '@/lib/vendor-upload-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { saveWorkOrderFile } from '@/lib/work-order-attachments'
+import { extractVendorDocument, vendorDocTypeLabel } from '@/lib/vendor-doc-extraction'
 import { createInvoiceDraftFromUpload } from '@/lib/invoice-intake'
 import { appendMessage, updateTicket } from '@/lib/tickets'
 import { sendEmail } from '@/lib/gmail'
@@ -55,6 +56,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   const saved: string[] = []
   const failed: string[] = []
+  const detected: string[] = []   // AI-classified doc types, for the staff note
   for (const file of files) {
     if (!ALLOWED.test(file.name)) { failed.push(`${file.name} (type not allowed)`); continue }
     const buf = Buffer.from(await file.arrayBuffer())
@@ -68,11 +70,31 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         })
         r.ok ? saved.push(file.name) : failed.push(file.name)
       } else {
+        // Read the document with Claude FIRST, on the original (best-quality)
+        // bytes — before saveWorkOrderFile compresses it. Skip pure job-photo
+        // batches. Never let a slow/failed extraction block the upload.
+        const extraction = category === 'photos'
+          ? null
+          : await extractVendorDocument(buf, file.name, file.type || null).catch(() => null)
+
         const r = await saveWorkOrderFile({
           ticketId, source: 'staff_upload', bytes: buf, filename: file.name,
           contentType: file.type || null, uploadedByEmail: `vendor-portal:${wod?.vendor_name ?? 'vendor'}`,
         })
-        r.ok ? saved.push(file.name) : failed.push(`${file.name} (${(r as { error: string }).error})`)
+        if (r.ok) {
+          saved.push(file.name)
+          if (extraction && extraction.confidence >= 0.3 && extraction.docType !== 'other') {
+            await supabaseAdmin.from('work_order_attachments').update({
+              extracted_doc_type: extraction.docType,
+              extracted_data:     { confidence: extraction.confidence, summary: extraction.summary, fields: extraction.fields },
+              extracted_at:       new Date().toISOString(),
+            }).eq('id', r.id).then(() => null, () => null)
+            const exp = extraction.fields.expiration_date
+            detected.push(`${vendorDocTypeLabel(extraction.docType)}${exp ? ` (exp ${exp})` : ''} — ${file.name}`)
+          }
+        } else {
+          failed.push(`${file.name} (${(r as { error: string }).error})`)
+        }
       }
     } catch (e) {
       failed.push(`${file.name} (${(e as Error).message})`)
@@ -93,6 +115,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const noteBody = [
     `Vendor uploaded ${saved.length} ${label} file(s) via the upload portal: ${saved.join(', ')}.`,
     category === 'invoice' ? '→ sent to invoice intake for review.' : '',
+    detected.length ? `\n🔎 Detected: ${detected.join('; ')}` : '',
     reportEn      ? `\n📋 Report: ${reportEn}` : '',
     suggestionsEn ? `\n⚠️ Suggestions / issues: ${suggestionsEn}` : '',
     needTranslate && (report || suggestions) ? `\n(original ${lang}: ${[report, suggestions].filter(Boolean).join(' | ')})` : '',

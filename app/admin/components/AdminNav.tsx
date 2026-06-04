@@ -6,14 +6,12 @@ import { usePathname } from 'next/navigation'
 // Primary navigation. The utility/admin destinations (Performance, CINC
 // Sync, Sunbiz, Ideas, Tools) deliberately do NOT live here — they're
 // reachable from the "Control Panel" black block on the Staff Dashboard,
-// to keep this bar short and legible.
-//
-// `sub` attaches a compact secondary button to the right of a tab (used to
-// fold "Recurring" into "Work Orders" without spending a full tab slot).
-const NAV_ITEMS: Array<{ label: string; href: string; sub?: { label: string; href: string } }> = [
+// to keep this bar short and legible. Recurring work orders is reached via
+// the orange button on the Work Orders page header (not a nav tab).
+const NAV_ITEMS: Array<{ label: string; href: string }> = [
   { label: 'Staff Dashboard',   href: '/admin' },
   { label: 'Tickets',           href: '/admin/tickets' },
-  { label: 'Work Orders',       href: '/admin/work-orders', sub: { label: '↻ Recurring', href: '/admin/recurring-services' } },
+  { label: 'Work Orders',       href: '/admin/work-orders' },
   { label: 'Invoices',          href: '/admin/invoices' },
   { label: 'Reconciliation',    href: '/admin/reconciliation' },
   { label: 'Monthly Report',    href: '/admin/reports/monthly' },
@@ -42,13 +40,14 @@ export default function AdminNav({ activeOverride }: Props = {}) {
   const helpActive = matchTarget.startsWith('/admin/help')
 
   return (
-    <div className="flex items-center gap-1 flex-wrap">
+    <div className="flex items-center gap-1 flex-wrap flex-1 min-w-0">
       {NAV_ITEMS.map(item => {
         const active = item.href === '/admin'
           ? matchTarget === '/admin'
           : matchTarget.startsWith(item.href)
-        const main = (
+        return (
           <Link
+            key={item.href}
             href={item.href}
             className={[
               TAB_BASE,
@@ -59,27 +58,6 @@ export default function AdminNav({ activeOverride }: Props = {}) {
           >
             {item.label}
           </Link>
-        )
-        if (!item.sub) return <span key={item.href}>{main}</span>
-
-        // Tab with an attached secondary button (Work Orders + Recurring).
-        const subActive = matchTarget.startsWith(item.sub.href)
-        return (
-          <span key={item.href} className="inline-flex items-center">
-            {main}
-            <Link
-              href={item.sub.href}
-              title="Recurring services"
-              className={[
-                '[font-family:var(--font-mono)] text-[0.62rem] uppercase tracking-[0.06em] px-2 py-1.5 -ml-0.5 rounded-[2px] transition-colors whitespace-nowrap',
-                subActive
-                  ? 'text-white border border-white/40'
-                  : 'text-white/45 hover:text-white border border-transparent hover:border-white/20',
-              ].join(' ')}
-            >
-              {item.sub.label}
-            </Link>
-          </span>
         )
       })}
 

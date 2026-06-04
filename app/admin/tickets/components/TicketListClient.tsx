@@ -195,6 +195,14 @@ export default function TicketListClient(props: Props) {
               Clear filters
             </button>
           )}
+          {props.lockTypeTo === 'work_order' && (
+            <a
+              href="/admin/recurring-services"
+              className="border border-[#f26a1b] text-[#f26a1b] hover:bg-[#f26a1b] hover:text-white px-3 py-1.5 rounded text-sm font-medium transition-colors"
+            >
+              ↻ Recurring work orders
+            </a>
+          )}
           <button
             onClick={() => setShowNewModal(true)}
             className="bg-[#f26a1b] text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-[#d85a14]"
