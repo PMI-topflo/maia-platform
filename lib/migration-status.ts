@@ -1262,6 +1262,23 @@ CREATE POLICY "service_role_all_maia_improvement_ideas"
   ON public.maia_improvement_ideas FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'invoice_on_hold',
+    label:       'Invoice On Hold state',
+    description: "invoice_intake_drafts: 'on_hold' status + hold_requested_items / hold_ticket_id / hold_requested_at / hold_note — hold an invoice while collecting missing vendor docs (COI/license/W-9/ACH).",
+    filename:    '20260604_invoice_on_hold.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'hold_requested_items' },
+    sql: `ALTER TABLE public.invoice_intake_drafts DROP CONSTRAINT IF EXISTS invoice_intake_drafts_status_check;
+ALTER TABLE public.invoice_intake_drafts
+  ADD CONSTRAINT invoice_intake_drafts_status_check CHECK (status IN
+    ('pending_review','ready_to_push','needs_vendor','duplicate_in_cinc','pushed_to_cinc','rejected','on_hold'));
+ALTER TABLE public.invoice_intake_drafts
+  ADD COLUMN IF NOT EXISTS hold_requested_items text[],
+  ADD COLUMN IF NOT EXISTS hold_ticket_id        bigint,
+  ADD COLUMN IF NOT EXISTS hold_requested_at     timestamptz,
+  ADD COLUMN IF NOT EXISTS hold_note             text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

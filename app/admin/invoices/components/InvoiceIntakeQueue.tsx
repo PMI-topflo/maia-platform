@@ -45,6 +45,10 @@ interface Draft {
   drive_file_id:               string | null
   pushed_at:                   string | null
   pushed_by:                   string | null
+  hold_requested_items:        string[] | null
+  hold_ticket_id:              number | null
+  hold_requested_at:           string | null
+  hold_note:                   string | null
   created_at:                  string
   updated_at:                  string
 }
@@ -96,6 +100,7 @@ const TABS: Array<{ key: string; label: string }> = [
   // audit checklist assigns the vendor and its duplicate guard hard-blocks
   // marking a duplicate ready, so neither needs its own tab.
   { key: 'pending_review',    label: 'Pending review' },
+  { key: 'on_hold',           label: 'On hold' },
   { key: 'ready_to_push',     label: 'Ready to push' },
   { key: 'pushed_to_cinc',    label: 'Pushed' },
   { key: 'rejected',          label: 'Rejected' },
@@ -689,9 +694,24 @@ function DraftCard(props: {
     }
   }
 
+  // Put-on-hold modal + release-from-hold.
+  const [holdOpen, setHoldOpen] = useState(false)
+  async function releaseHold() {
+    setBusy(true); setMsg(null)
+    try {
+      const res = await fetch(`/api/admin/invoices/intake/${draft.id}/hold`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      onMutate()
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : String(err))
+    } finally { setBusy(false) }
+  }
+
   const isPushed   = draft.status === 'pushed_to_cinc'
   const isRejected = draft.status === 'rejected'
-  const readOnly   = isPushed || isRejected
+  const isOnHold   = draft.status === 'on_hold'
+  const readOnly   = isPushed || isRejected || isOnHold
 
   // ── AP audit checklist (inline) ────────────────────────────────────
   // Each audited field carries its own green-check toggle, rendered beside
@@ -874,6 +894,24 @@ function DraftCard(props: {
           Rejected. {draft.rejected_reason && <em>&quot;{draft.rejected_reason}&quot;</em>}
         </div>
       )}
+      {isOnHold && (
+        <div style={{ padding: 10, marginBottom: 12, background: '#fffbeb', borderLeft: '3px solid #f59e0b', fontSize: 13, color: '#92400e' }}>
+          ⏸ <strong>On hold</strong> — waiting on vendor documents
+          {draft.hold_requested_at && ` (since ${new Date(draft.hold_requested_at).toLocaleDateString()})`}.
+          {draft.hold_requested_items && draft.hold_requested_items.length > 0 && (
+            <div style={{ marginTop: 4 }}>Requested: <strong>{draft.hold_requested_items.join(' · ')}</strong></div>
+          )}
+          {draft.hold_note && <div style={{ marginTop: 2, fontStyle: 'italic' }}>{draft.hold_note}</div>}
+          <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button onClick={releaseHold} disabled={busy} style={{ fontSize: 12, fontWeight: 600, padding: '4px 10px', border: '1px solid #059669', borderRadius: 4, background: '#fff', color: '#065f46', cursor: 'pointer' }}>
+              ▸ Release from hold (→ Pending review)
+            </button>
+            {draft.hold_ticket_id && (
+              <a href={`/admin/tickets/${draft.hold_ticket_id}`} style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>View follow-up ticket →</a>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* PDF preview — inline so Karen can visually verify the invoice
           before reviewing extracted fields. Iframe is the simplest
@@ -916,6 +954,7 @@ function DraftCard(props: {
               {draft.status === 'ready_to_push' && (
                 <button onClick={() => push(false)} disabled={busy} style={btnPrimary()}>Push to CINC</button>
               )}
+              <button onClick={() => setHoldOpen(true)} disabled={busy} style={btnSecondary()}>⏸ Put on hold</button>
               <button onClick={reject} disabled={busy} style={btnDanger()}>Reject</button>
             </>
           ) : (
@@ -1409,6 +1448,128 @@ function DraftCard(props: {
           onUnready={() => persistChecklist(checked, { statusChange: 'pending_review' })}
         />
       )}
+
+      {holdOpen && (
+        <HoldModal
+          draftId={draft.id}
+          vendorName={vendorNameForCtx || draft.matched_vendor_name || draft.extracted_vendor_name || ''}
+          onClose={() => setHoldOpen(false)}
+          onDone={() => { setHoldOpen(false); onMutate() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Put-on-hold modal ────────────────────────────────────────────────
+// Staff check off which vendor documents they're requesting (COI / license /
+// W-9 / ACH / Other), optionally create a follow-up work order, and email the
+// vendor a tokenized upload link. Posts to /intake/[id]/hold.
+const HOLD_ITEMS = [
+  'Certificate of Insurance (COI)',
+  'Business / contractor license',
+  'W-9',
+  'ACH / banking info',
+  'Workers’ comp certificate',
+]
+function HoldModal({ draftId, vendorName, onClose, onDone }: {
+  draftId: number
+  vendorName: string
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [selected, setSelected] = useState<string[]>([])
+  const [other, setOther]       = useState('')
+  const [note, setNote]         = useState('')
+  const [createTicket, setCreateTicket] = useState(true)
+  const [emailVendor, setEmailVendor]   = useState(false)
+  const [vendorEmail, setVendorEmail]   = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err,  setErr]  = useState<string | null>(null)
+
+  function toggle(item: string) {
+    setSelected(s => s.includes(item) ? s.filter(x => x !== item) : [...s, item])
+  }
+
+  async function submit() {
+    const items = [...selected, ...(other.trim() ? [other.trim()] : [])]
+    if (items.length === 0) { setErr('Check at least one document to request.'); return }
+    if (emailVendor && !vendorEmail.trim()) { setErr('Enter the vendor email, or turn off the email toggle.'); return }
+    setBusy(true); setErr(null)
+    try {
+      const res = await fetch(`/api/admin/invoices/intake/${draftId}/hold`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items, note: note.trim() || null, createTicket, emailVendor, vendorEmail: vendorEmail.trim() || null }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      if (data?.warning) { alert(data.warning) }
+      onDone()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 10, maxWidth: 480, width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: 22, boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
+        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>⏸ Put invoice on hold</div>
+        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+          Hold this invoice until {vendorName || 'the vendor'} provides the documents below. We&rsquo;ll move it to the <strong>On hold</strong> tab.
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Documents requested</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+          {HOLD_ITEMS.map(item => (
+            <label key={item} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={selected.includes(item)} onChange={() => toggle(item)} />
+              {item}
+            </label>
+          ))}
+          <input
+            type="text"
+            value={other}
+            onChange={e => setOther(e.target.value)}
+            placeholder="Other (type a document)"
+            style={{ marginTop: 2, padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+          />
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Note (optional)</div>
+        <textarea
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          rows={2}
+          placeholder="Anything to add for the vendor or the follow-up ticket"
+          style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, marginBottom: 14, resize: 'vertical' }}
+        />
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 8, cursor: 'pointer' }}>
+          <input type="checkbox" checked={createTicket} onChange={e => setCreateTicket(e.target.checked)} />
+          Create a follow-up work order ticket
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 8, cursor: 'pointer' }}>
+          <input type="checkbox" checked={emailVendor} onChange={e => setEmailVendor(e.target.checked)} />
+          Email the vendor an upload link
+        </label>
+        {emailVendor && (
+          <input
+            type="email"
+            value={vendorEmail}
+            onChange={e => setVendorEmail(e.target.value)}
+            placeholder="vendor@example.com"
+            style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, marginBottom: 6 }}
+          />
+        )}
+
+        {err && <div style={{ color: '#b91c1c', fontSize: 12, marginTop: 8 }}>{err}</div>}
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
+          <button onClick={onClose} disabled={busy} style={btnSecondary()}>Cancel</button>
+          <button onClick={submit} disabled={busy} style={btnPrimary()}>{busy ? 'Saving…' : 'Put on hold'}</button>
+        </div>
+      </div>
     </div>
   )
 }
