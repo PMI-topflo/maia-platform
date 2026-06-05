@@ -76,7 +76,7 @@ interface ScheduledPayment {
 }
 interface UpcomingCinc { vendorName: string | null; invoiceNumber: string | null; amount: number; dueDate: string | null; scheduledPayDate: string | null; account: string }
 interface UpcomingRecurring { key: string; displayName: string; avgAmount: number; lastSeenMonth: string; projectedDate?: string }
-interface UpcomingScheduled { vendorName: string | null; invoiceNumber: string | null; amount: number; scheduledPayDate: string }
+interface UpcomingScheduled { draftId?: number; vendorName: string | null; invoiceNumber: string | null; amount: number; scheduledPayDate: string }
 
 interface ForecastSummary {
   bankAccountId:          number
@@ -302,6 +302,45 @@ export default function ReconciliationView(props: Props) {
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { setFutureBusy(false) }
   }
+  // ── "To Pay in CINC" box (Jonathan) ────────────────────────────────
+  const [payBusyKey, setPayBusyKey] = useState<string | null>(null)
+  const [doneBusy,   setDoneBusy]   = useState(false)
+
+  /** Mark an EFT invoice paid: reconcile it in MAIA (+ post unsent MAIA
+   *  drafts to CINC Ready-for-Payment), then refresh the lists. */
+  async function markEftPaid(
+    item: { kind: 'cinc' | 'scheduled'; invoiceNumber: string | null; amount: number; vendorName: string | null; draftId?: number },
+    key:  string,
+  ) {
+    if (!assoc) return
+    setPayBusyKey(key); setError(null); setInfo(null)
+    try {
+      const r = await fetch('/api/admin/reconciliation/mark-paid', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assoc, ...item }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d?.error ?? `HTTP ${r.status}`)
+      if (d.cinc?.error) setInfo(`Reconciled in MAIA. ⚠️ Posting to CINC failed: ${d.cinc.error}`)
+      else setInfo(`Marked paid${d.cinc?.posted ? ' + posted to CINC (Ready for Payment)' : ''}${d.ticket ? ` · logged to ${d.ticket.ticketNumber}` : ''}.`)
+      await Promise.all([loadUpcoming(), loadEntries()])
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setPayBusyKey(null) }
+  }
+
+  /** "Done for today" — roll up everything this staffer reconciled / paid
+   *  today into their daily reconciliation ticket and resolve it. */
+  async function markDoneForToday() {
+    setDoneBusy(true); setError(null); setInfo(null)
+    try {
+      const r = await fetch('/api/admin/reconciliation/done', { method: 'POST' })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d?.error ?? `HTTP ${r.status}`)
+      setInfo(`✓ Logged to ${d.ticketNumber}: ${d.totalReconciled} reconciled${d.totalPaid ? ` · ${d.totalPaid} paid` : ''} today.`)
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setDoneBusy(false) }
+  }
+
   async function markScheduledPaid(id: number) {
     await fetch(`/api/admin/reconciliation/scheduled/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'mark_paid' }) })
     await loadUpcoming()
@@ -542,6 +581,14 @@ export default function ReconciliationView(props: Props) {
             style={{ padding: '6px 12px', border: '1px solid #6b7280', borderRadius: 4, background: '#fff', color: '#111', fontSize: 13, cursor: assoc && banks.length > 0 ? 'pointer' : 'default' }}
           >
             + Manual entry
+          </button>
+          <button
+            onClick={markDoneForToday}
+            disabled={doneBusy}
+            title="Log today's reconciled + paid totals to your daily reconciliation ticket and mark it done"
+            style={{ padding: '6px 12px', border: '1px solid #16a34a', borderRadius: 4, background: doneBusy ? '#bbf7d0' : '#16a34a', color: '#fff', fontSize: 13, cursor: doneBusy ? 'default' : 'pointer' }}
+          >
+            {doneBusy ? 'Logging…' : '✓ Done for today'}
           </button>
         </div>
       </header>
@@ -792,6 +839,67 @@ export default function ReconciliationView(props: Props) {
         Running-balance columns are computed: starting balance = current CINC balance − sum of this month&apos;s entries for that account, then walked forward chronologically. Account columns highlighted black/bold = touched in that row; gray = carried forward unchanged.
       </p>
 
+      {/* ── To Pay in CINC (Jonathan's worklist) ─────────────────────── */}
+      {assoc && (upCinc.length > 0 || upScheduled.length > 0) && (
+        <div style={{ marginTop: 28 }}>
+          <div style={{ marginBottom: 8 }}>
+            <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>To Pay in CINC <span style={{ fontSize: 11, fontWeight: 500, color: '#6b7280' }}>· {upCinc.length + upScheduled.length} invoice(s) for {assoc}</span></h2>
+            <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6b7280' }}>
+              Approved invoices awaiting payment. Pay them in CINC, then click <strong>Mark Paid</strong> here — that reconciles the line, stamps it paid, and (for MAIA drafts not yet in CINC) posts them to <em>Ready for Payment</em>. Each paid invoice leaves this box and rolls into your daily ticket.
+            </p>
+          </div>
+          <div style={{ overflowX: 'auto', border: '1px solid #fed7aa', borderRadius: 4, background: '#fff7ed' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ background: '#ffedd5' }}>
+                  <Th>Pay by</Th><Th>Source</Th><Th>Vendor/Payee</Th><Th>Description</Th><Th right>Amount</Th><Th>Action</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {upCinc.map((c, i) => {
+                  const key = `pc-${i}`
+                  return (
+                    <tr key={key} style={{ borderTop: '1px solid #fed7aa' }}>
+                      <Td>{c.scheduledPayDate ? formatMD(c.scheduledPayDate) : (c.dueDate ? formatMD(c.dueDate) : '—')}</Td>
+                      <Td><span style={{ fontSize: 9, color: '#1e40af', background: '#dbeafe', padding: '1px 5px', borderRadius: 3 }}>CINC · ready for payment</span></Td>
+                      <Td>{c.vendorName ?? ''}</Td>
+                      <Td>{c.invoiceNumber ? `Inv.#${c.invoiceNumber}` : ''} <span style={{ color: '#9ca3af' }}>· {c.account}</span></Td>
+                      <Td right><span style={{ color: '#991b1b', fontVariantNumeric: 'tabular-nums' }}>${fmt$(c.amount)} ⬇</span></Td>
+                      <Td>
+                        <button
+                          onClick={() => void markEftPaid({ kind: 'cinc', invoiceNumber: c.invoiceNumber, amount: c.amount, vendorName: c.vendorName }, key)}
+                          disabled={payBusyKey === key}
+                          style={{ fontSize: 10, color: '#fff', border: '1px solid #16a34a', background: payBusyKey === key ? '#86efac' : '#16a34a', borderRadius: 3, padding: '2px 8px', cursor: payBusyKey === key ? 'default' : 'pointer' }}
+                        >{payBusyKey === key ? 'Marking…' : 'Mark Paid'}</button>
+                      </Td>
+                    </tr>
+                  )
+                })}
+                {upScheduled.map((s, i) => {
+                  const key = `ps-${i}`
+                  return (
+                    <tr key={key} style={{ borderTop: '1px solid #fed7aa', background: '#fdf4ff' }}>
+                      <Td>{formatMD(s.scheduledPayDate)}</Td>
+                      <Td><span style={{ fontSize: 9, color: '#6d28d9', background: '#ede9fe', padding: '1px 5px', borderRadius: 3 }}>MAIA · not in CINC yet</span></Td>
+                      <Td>{s.vendorName ?? ''}</Td>
+                      <Td>{s.invoiceNumber ? `Inv.#${s.invoiceNumber}` : ''} <span style={{ color: '#9ca3af' }}>· will post to Ready-for-Payment</span></Td>
+                      <Td right><span style={{ color: '#991b1b', fontVariantNumeric: 'tabular-nums' }}>${fmt$(s.amount)} ⬇</span></Td>
+                      <Td>
+                        <button
+                          onClick={() => void markEftPaid({ kind: 'scheduled', invoiceNumber: s.invoiceNumber, amount: s.amount, vendorName: s.vendorName, draftId: s.draftId }, key)}
+                          disabled={payBusyKey === key}
+                          style={{ fontSize: 10, color: '#fff', border: '1px solid #16a34a', background: payBusyKey === key ? '#86efac' : '#16a34a', borderRadius: 3, padding: '2px 8px', cursor: payBusyKey === key ? 'default' : 'pointer' }}
+                        >{payBusyKey === key ? 'Marking…' : 'Mark Paid'}</button>
+                      </Td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* ── Upcoming Payments (future / scheduled) ───────────────────── */}
       {assoc && (
         <div style={{ marginTop: 28 }}>
@@ -799,8 +907,8 @@ export default function ReconciliationView(props: Props) {
             <div>
               <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Upcoming Payments</h2>
               <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6b7280' }}>
-                Future / not-yet-paid: CINC approved-unpaid invoices, MAIA recurring estimates, and your manual entries (e.g. insurance installments).
-                Unpaid items carry forward into later months until marked paid. {upLoading && <span style={{ color: '#9ca3af' }}>· loading…</span>}
+                Forecasting view: MAIA recurring estimates (auto-draft utilities/insurance, projected to their expected pay-day) and your manual future entries (e.g. insurance installments).
+                Invoices that are ready to pay now live in the “To Pay in CINC” box above. {upLoading && <span style={{ color: '#9ca3af' }}>· loading…</span>}
               </p>
             </div>
             <button
@@ -853,8 +961,8 @@ export default function ReconciliationView(props: Props) {
                 </tr>
               </thead>
               <tbody>
-                {!upLoading && upManual.length === 0 && upCinc.length === 0 && upRecurring.length === 0 && upScheduled.length === 0 && (
-                  <tr><td colSpan={8} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>Nothing upcoming. Add a future payment, or CINC approved-unpaid invoices will appear here.</td></tr>
+                {!upLoading && upManual.length === 0 && upRecurring.length === 0 && (
+                  <tr><td colSpan={8} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>Nothing upcoming. Add a future payment, or MAIA recurring estimates will appear here. (Invoices ready to pay show in the “To Pay in CINC” box above.)</td></tr>
                 )}
                 {/* Manual scheduled payments */}
                 {upManual.map(m => {
@@ -874,40 +982,6 @@ export default function ReconciliationView(props: Props) {
                         <button onClick={() => void deleteScheduled(m.id, false)} title="Delete" style={{ fontSize: 11, color: '#9ca3af', border: 'none', background: 'transparent', cursor: 'pointer' }}>×</button>
                         {m.series_id && <button onClick={() => void deleteScheduled(m.id, true)} title="Delete whole series" style={{ fontSize: 9, color: '#9ca3af', border: 'none', background: 'transparent', cursor: 'pointer' }}>×series</button>}
                       </Td>
-                    </tr>
-                  )
-                })}
-                {/* CINC approved-unpaid invoices */}
-                {upCinc.map((c, i) => (
-                  <tr key={`c-${i}`} style={{ borderTop: '1px solid #f3f4f6', background: '#f8fafc' }}>
-                    <Td>
-                      {c.scheduledPayDate
-                        ? <>{formatMD(c.scheduledPayDate)}<span style={{ marginLeft: 4, fontSize: 9, color: '#1e40af', background: '#dbeafe', padding: '0 4px', borderRadius: 3 }}>scheduled</span>
-                            {c.dueDate && c.dueDate.slice(0, 10) !== c.scheduledPayDate.slice(0, 10) && <span style={{ marginLeft: 4, color: '#9ca3af', fontSize: 9 }}>due {formatMD(c.dueDate)}</span>}</>
-                        : (c.dueDate ? formatMD(c.dueDate) : '—')}
-                    </Td>
-                    <Td><span style={{ fontSize: 9, color: '#1e40af', background: '#dbeafe', padding: '1px 5px', borderRadius: 3 }}>CINC · approved</span></Td>
-                    <Td>{c.vendorName ?? ''}</Td>
-                    <Td>{c.invoiceNumber ? `Inv.#${c.invoiceNumber}` : ''} <span style={{ color: '#9ca3af' }}>· {c.account}</span></Td>
-                    <Td></Td>
-                    <Td right><span style={{ color: '#991b1b', fontVariantNumeric: 'tabular-nums' }}>${fmt$(c.amount)} ⬇</span></Td>
-                    <Td><span style={{ fontSize: 10, color: '#1e40af' }}>ready to pay</span></Td>
-                    <Td></Td>
-                  </tr>
-                ))}
-                {/* MAIA scheduled — audited invoices not yet pushed to CINC */}
-                {upScheduled.map((s, i) => {
-                  const carried = s.scheduledPayDate.slice(0, 7) < month
-                  return (
-                    <tr key={`s-${i}`} style={{ borderTop: '1px solid #f3f4f6', background: '#f5f3ff' }}>
-                      <Td>{formatMD(s.scheduledPayDate)}{carried && <span style={{ marginLeft: 4, fontSize: 9, color: '#b45309', background: '#fef3c7', padding: '0 4px', borderRadius: 3 }}>carried</span>}</Td>
-                      <Td><span style={{ fontSize: 9, color: '#6d28d9', background: '#ede9fe', padding: '1px 5px', borderRadius: 3 }}>MAIA · scheduled</span></Td>
-                      <Td>{s.vendorName ?? ''}</Td>
-                      <Td>{s.invoiceNumber ? `Inv.#${s.invoiceNumber}` : ''} <span style={{ color: '#9ca3af' }}>· not pushed yet</span></Td>
-                      <Td></Td>
-                      <Td right><span style={{ color: '#991b1b', fontVariantNumeric: 'tabular-nums' }}>${fmt$(s.amount)} ⬇</span></Td>
-                      <Td><span style={{ fontSize: 10, color: '#6d28d9' }}>scheduled</span></Td>
-                      <Td></Td>
                     </tr>
                   )
                 })}

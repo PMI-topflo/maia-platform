@@ -1305,6 +1305,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS invoice_intake_drafts_gmail_msg_att_uniq
   WHERE gmail_message_id IS NOT NULL;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'reconciliation_paid_and_daily_tickets',
+    label:       'Reconciliation — paid stamp + daily tickets',
+    description: 'bank_reconciliation_entries.paid_at/paid_by (Jonathan marks EFT invoices paid) + tickets.recon_date (one daily reconciliation ticket per staffer per day, partial-unique) — powers the "To Pay in CINC" box + the per-person daily reconciliation ticket for the monthly report.',
+    filename:    '20260605_reconciliation_paid_and_daily_tickets.sql',
+    artifact:    { type: 'column', table: 'bank_reconciliation_entries', column: 'paid_by' },
+    sql: `ALTER TABLE public.bank_reconciliation_entries
+  ADD COLUMN IF NOT EXISTS paid_at timestamptz,
+  ADD COLUMN IF NOT EXISTS paid_by text;
+ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS recon_date date;
+CREATE UNIQUE INDEX IF NOT EXISTS tickets_recon_daily_uniq
+  ON public.tickets (assignee_email, recon_date)
+  WHERE recon_date IS NOT NULL;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

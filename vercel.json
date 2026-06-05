@@ -35,6 +35,10 @@
     {
       "path": "/api/cron/daily-staff-news",
       "schedule": "0 9,10 * * 1-5"
+    },
+    {
+      "path": "/api/cron/reconciliation-daily-tickets",
+      "schedule": "0 10,11 * * 1-5"
     }
   ]
 }
