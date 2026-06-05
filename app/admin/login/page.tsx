@@ -8,6 +8,17 @@ type Step = 'email' | 'code' | 'success'
 const inputCls = 'w-full bg-[#1a1a1a] border border-[#333] text-white placeholder:text-[#555] rounded-[2px] px-3 py-2.5 text-sm focus:outline-none focus:border-[#f26a1b] focus:shadow-[0_0_0_3px_rgba(242,106,27,.18)] transition-shadow'
 const labelCls = 'block mb-1 text-[0.62rem] font-medium uppercase tracking-[0.1em] text-[#9ca3af] [font-family:var(--font-mono)]'
 
+// Where to land after auth: honor ?return= when it's a safe internal /admin
+// deep link (e.g. a ticket link from a MAIA email), else the dashboard.
+function postLoginDest(): string {
+  if (typeof window === 'undefined') return '/admin'
+  const raw = new URLSearchParams(window.location.search).get('return')
+  if (raw && raw.startsWith('/admin') && !raw.startsWith('//') && !raw.startsWith('/admin/login')) {
+    return raw
+  }
+  return '/admin'
+}
+
 export default function AdminLoginPage() {
   const [step,     setStep]     = useState<Step>('email')
   const [email,    setEmail]    = useState('')
@@ -23,7 +34,7 @@ export default function AdminLoginPage() {
       .then(r => r.json())
       .then((d: { valid: boolean; session?: { persona: string } }) => {
         if (d.valid && d.session?.persona === 'staff') {
-          window.location.replace('/admin')
+          window.location.replace(postLoginDest())
         }
       })
       .catch(() => {})
@@ -65,7 +76,7 @@ export default function AdminLoginPage() {
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? 'Incorrect code'); return }
       setStep('success')
-      setTimeout(() => { window.location.replace('/admin') }, 900)
+      setTimeout(() => { window.location.replace(postLoginDest()) }, 900)
     } catch { setError('Network error — please try again') } finally { setBusy(false) }
   }
 

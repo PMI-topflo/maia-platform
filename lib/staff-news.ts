@@ -207,13 +207,23 @@ function sectionBlock(s: NewsSection, appUrl: string): string {
   const m = s.metrics
   const quiet = m.ticketsOpened + m.woOpened + m.ticketsResolved + m.woResolved + m.ticketsOpen + m.woOpen === 0
   const improveUrl = `${appUrl}/improve?from=${encodeURIComponent(s.name)}`
+  // Deep link into MAIA filtered to this person's work (or all tickets for
+  // the Unassigned bucket). After login the staff land right here, not the
+  // dashboard, thanks to the ?return= handling in the staff login.
+  const workUrl = s.email
+    ? `${appUrl}/admin/tickets?assignee=${encodeURIComponent(s.email)}`
+    : `${appUrl}/admin/tickets`
+  const nameHtml = `${esc(s.name)}${s.role ? `<span style="font-size:11px;font-weight:400;color:#6b7280"> · ${esc(s.role)}</span>` : ''}`
   return `<tr><td style="padding:16px 28px 4px">
     <div style="border:1px solid #e6e8ec;border-radius:10px;padding:14px 16px;background:#fbfcfe">
-      <div style="font-size:16px;font-weight:700;color:${NAVY}">${esc(s.name)}${s.role ? `<span style="font-size:11px;font-weight:400;color:#6b7280"> · ${esc(s.role)}</span>` : ''}</div>
+      <div style="font-size:16px;font-weight:700;color:${NAVY}"><a href="${esc(workUrl)}" style="color:${NAVY};text-decoration:none">${nameHtml}</a></div>
       ${quiet ? `<div style="font-size:12px;color:#9ca3af;margin-top:6px">No tickets or work orders this week.</div>` : ''}
       ${metricRow('Tickets', m.ticketsOpened, m.ticketsResolved, m.ticketsOpen, m.ticketsLate)}
       ${metricRow('Work orders', m.woOpened, m.woResolved, m.woOpen, m.woLate)}
-      ${s.email ? `<div style="margin-top:10px"><a href="${esc(improveUrl)}" style="font-size:11px;color:${ORANGE};text-decoration:none;font-weight:600">💡 Suggest a MAIA improvement →</a></div>` : ''}
+      <div style="margin-top:10px;font-size:11px">
+        <a href="${esc(workUrl)}" style="color:${ORANGE};text-decoration:none;font-weight:600">Open in MAIA →</a>
+        ${s.email ? `<a href="${esc(improveUrl)}" style="color:${ORANGE};text-decoration:none;font-weight:600;margin-left:14px">💡 Suggest a MAIA improvement →</a>` : ''}
+      </div>
     </div>
   </td></tr>`
 }
