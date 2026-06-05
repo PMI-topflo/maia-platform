@@ -30,10 +30,10 @@ export async function middleware(req: NextRequest) {
     const dest = req.nextUrl.clone()
     dest.pathname = route.loginPath
     dest.search   = ''
-    // Owner/board: pass ?return= so the homepage can resume the user's original destination
-    if (route.loginPath === '/') {
-      dest.searchParams.set('return', pathname + req.nextUrl.search)
-    }
+    // Pass ?return= so the login page can resume the user's original
+    // destination after auth (e.g. a deep link to /admin/tickets/123 from a
+    // MAIA email). Applies to the homepage login AND the staff login.
+    dest.searchParams.set('return', pathname + req.nextUrl.search)
     return NextResponse.redirect(dest)
   }
 
