@@ -1291,6 +1291,20 @@ NOTIFY pgrst, 'reload schema';`,
   ADD COLUMN IF NOT EXISTS extracted_at       timestamptz;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'invoice_intake_per_attachment_uniq',
+    label:       'Invoice intake — per-attachment dedupe (multi-PDF fix)',
+    description: 'invoice_intake_drafts.gmail_attachment_id + a unique index on (gmail_message_id, coalesce(gmail_attachment_id,\'\')) replacing the per-email index — fixes multi-PDF emails creating only one draft (PDFs 2..N were hitting the gmail_message_id unique index and being swallowed as 23505).',
+    filename:    '20260605_invoice_intake_per_attachment_uniq.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'gmail_attachment_id' },
+    sql: `ALTER TABLE public.invoice_intake_drafts
+  ADD COLUMN IF NOT EXISTS gmail_attachment_id text;
+DROP INDEX IF EXISTS public.invoice_intake_drafts_gmail_msg_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS invoice_intake_drafts_gmail_msg_att_uniq
+  ON public.invoice_intake_drafts (gmail_message_id, coalesce(gmail_attachment_id, ''))
+  WHERE gmail_message_id IS NOT NULL;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
