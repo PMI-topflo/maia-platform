@@ -199,24 +199,48 @@ export async function POST(
     } catch { /* fall back to CINC default */ }
   }
 
+  // Shared invoice payload — reused if we have to retry with a different
+  // pay method (see the ACH fallback below).
+  const baseInvoice = {
+    associationCode:      draft.extracted_association_code as string,
+    vendorId:             parseInt(draft.matched_cinc_vendor_id as string, 10),
+    invoiceNumber:        draft.extracted_invoice_number    as string,
+    invoiceDate:          draft.extracted_invoice_date      as string,
+    dueDate:              (draft.due_date ?? null) as string | null,
+    amount:               draft.extracted_amount            as number,
+    noteDescription:      (draft.observation_note ?? null) as string | null,
+    workOrderNumber:      (draft.work_order_number ?? null) as number | null,
+    payFromBankAccountId: payFromBankAccountId,
+  }
+
   let cincInvoiceId: number
+  // Surfaced to Karen when we had to fall back from ACH to Check.
+  let payByWarning: string | null = null
   try {
-    const created = await createInvoice({
-      associationCode:      draft.extracted_association_code as string,
-      vendorId:             parseInt(draft.matched_cinc_vendor_id as string, 10),
-      invoiceNumber:        draft.extracted_invoice_number    as string,
-      invoiceDate:          draft.extracted_invoice_date      as string,
-      dueDate:              (draft.due_date ?? null) as string | null,
-      amount:               draft.extracted_amount            as number,
-      payByType:            payByType,
-      noteDescription:      (draft.observation_note ?? null) as string | null,
-      workOrderNumber:      (draft.work_order_number ?? null) as number | null,
-      payFromBankAccountId: payFromBankAccountId,
-    })
+    const created = await createInvoice({ ...baseInvoice, payByType })
     cincInvoiceId = created.invoiceId
   } catch (err) {
     const message = err instanceof CincApiError ? err.message : (err as Error).message
-    return NextResponse.json({ error: `CINC createInvoice failed: ${message}` }, { status: 502 })
+    // ACH was selected but the vendor has NO ACH banking set up in CINC, so
+    // CINC 400s with "Selected Pay To cannot be paid via ACH, since it
+    // doesn't have ACH Information setup." A 400 means nothing was created,
+    // so it's safe to retry as Check — the only method CINC can use for this
+    // vendor — and warn Karen (she can add the vendor's ACH in CINC if ACH
+    // was truly intended; future invoices will then use it).
+    const achUnavailable = /cannot be paid via ach|ach information/i.test(message)
+    if (achUnavailable && (payByType ?? '').toUpperCase() === 'ACH') {
+      try {
+        const created = await createInvoice({ ...baseInvoice, payByType: 'Check' })
+        cincInvoiceId = created.invoiceId
+        payByWarning = `Pushed as Check, NOT ACH — this vendor has no ACH banking on file in CINC. To pay by ACH, add the vendor's routing + account in CINC; future invoices will then use ACH.`
+        console.warn(`[invoice-push] ACH unavailable for vendor ${draft.matched_cinc_vendor_id}; pushed draft ${id} as Check`)
+      } catch (err2) {
+        const m2 = err2 instanceof CincApiError ? err2.message : (err2 as Error).message
+        return NextResponse.json({ error: `CINC createInvoice failed: ACH was rejected (no ACH on file) and the Check retry also failed: ${m2}` }, { status: 502 })
+      }
+    } else {
+      return NextResponse.json({ error: `CINC createInvoice failed: ${message}` }, { status: 502 })
+    }
   }
 
   // Push the GL expense item Karen selected. Without this, the invoice
@@ -413,7 +437,7 @@ export async function POST(
   // Surface non-fatal warnings so Karen knows if any post-create step
   // didn't land. driveWarning + expenseItemWarning can both fire on the
   // same push; concatenate so we don't lose either.
-  const warnings = [attachWarning, driveWarning, expenseItemWarning].filter(Boolean)
+  const warnings = [payByWarning, attachWarning, driveWarning, expenseItemWarning].filter(Boolean)
   if (warnings.length > 0) {
     return NextResponse.json({
       ok:       true,
