@@ -1453,6 +1453,8 @@ function DraftCard(props: {
         <HoldModal
           draftId={draft.id}
           vendorName={vendorNameForCtx || draft.matched_vendor_name || draft.extracted_vendor_name || ''}
+          vendorId={vendorId || draft.matched_cinc_vendor_id || null}
+          assoc={assoc || null}
           onClose={() => setHoldOpen(false)}
           onDone={() => { setHoldOpen(false); onMutate() }}
         />
@@ -1465,16 +1467,22 @@ function DraftCard(props: {
 // Staff check off which vendor documents they're requesting (COI / license /
 // W-9 / ACH / Other), optionally create a follow-up work order, and email the
 // vendor a tokenized upload link. Posts to /intake/[id]/hold.
-const HOLD_ITEMS = [
-  'Certificate of Insurance (COI)',
-  'Business / contractor license',
-  'W-9',
-  'ACH / banking info',
-  'Workers’ comp certificate',
+type HoldItemKey = 'coi' | 'license' | 'w9' | 'ach' | null
+const HOLD_ITEMS: { label: string; key: HoldItemKey }[] = [
+  { label: 'Certificate of Insurance (COI)', key: 'coi' },
+  { label: 'Business / contractor license', key: 'license' },
+  { label: 'W-9',                            key: 'w9' },
+  { label: 'ACH / banking info',             key: 'ach' },
+  { label: 'Workers’ comp certificate',      key: null },
 ]
-function HoldModal({ draftId, vendorName, onClose, onDone }: {
+interface ComplianceItem { onFile: boolean; valid?: boolean | null; expiration?: string | null }
+type ComplianceStatus = Record<'ach' | 'w9' | 'coi' | 'license', ComplianceItem>
+
+function HoldModal({ draftId, vendorName, vendorId, assoc, onClose, onDone }: {
   draftId: number
   vendorName: string
+  vendorId?: string | null
+  assoc?: string | null
   onClose: () => void
   onDone: () => void
 }) {
@@ -1486,9 +1494,43 @@ function HoldModal({ draftId, vendorName, onClose, onDone }: {
   const [vendorEmail, setVendorEmail]   = useState('')
   const [busy, setBusy] = useState(false)
   const [err,  setErr]  = useState<string | null>(null)
+  const [comp, setComp]         = useState<ComplianceStatus | null>(null)
+  const [compLoading, setCompLoading] = useState(false)
+
+  // Pre-check what's already on file in CINC so we only request what's
+  // missing or expired (default-select those; leave on-file & valid ones off).
+  useEffect(() => {
+    if (!vendorId) { setSelected([]); return }
+    let live = true
+    setCompLoading(true)
+    fetch(`/api/admin/vendors/${vendorId}/compliance${assoc ? `?assoc=${encodeURIComponent(assoc)}` : ''}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: ComplianceStatus | null) => {
+        if (!live) return
+        setComp(data)
+        if (data) {
+          const needed = HOLD_ITEMS.filter(it => {
+            if (!it.key) return false
+            const s = data[it.key]
+            return !s?.onFile || s.valid === false   // missing OR expired
+          }).map(it => it.label)
+          setSelected(needed)
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (live) setCompLoading(false) })
+    return () => { live = false }
+  }, [vendorId, assoc])
 
   function toggle(item: string) {
     setSelected(s => s.includes(item) ? s.filter(x => x !== item) : [...s, item])
+  }
+  function statusChip(key: HoldItemKey): React.ReactNode {
+    if (!key || !comp) return null
+    const s = comp[key]
+    if (!s?.onFile) return <span style={{ fontSize: 11, color: '#b91c1c', fontWeight: 600 }}>❌ missing</span>
+    if (s.valid === false) return <span style={{ fontSize: 11, color: '#b45309', fontWeight: 600 }}>⚠️ expired{s.expiration ? ` ${new Date(s.expiration).toLocaleDateString()}` : ''}</span>
+    return <span style={{ fontSize: 11, color: '#059669', fontWeight: 600 }}>✅ on file{s.expiration ? ` · valid to ${new Date(s.expiration).toLocaleDateString()}` : ''}</span>
   }
 
   async function submit() {
@@ -1519,12 +1561,17 @@ function HoldModal({ draftId, vendorName, onClose, onDone }: {
           Hold this invoice until {vendorName || 'the vendor'} provides the documents below. We&rsquo;ll move it to the <strong>On hold</strong> tab.
         </div>
 
-        <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Documents requested</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+          Documents requested
+          {compLoading && <span style={{ fontWeight: 400, color: '#9ca3af' }}> · checking CINC…</span>}
+          {comp && <span style={{ fontWeight: 400, color: '#9ca3af' }}> · pre-checked what&rsquo;s missing/expired in CINC</span>}
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-          {HOLD_ITEMS.map(item => (
-            <label key={item} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={selected.includes(item)} onChange={() => toggle(item)} />
-              {item}
+          {HOLD_ITEMS.map(({ label, key }) => (
+            <label key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={selected.includes(label)} onChange={() => toggle(label)} />
+              <span>{label}</span>
+              <span style={{ marginLeft: 'auto' }}>{statusChip(key)}</span>
             </label>
           ))}
           <input
