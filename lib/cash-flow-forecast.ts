@@ -152,8 +152,30 @@ function currentMonth(): string {
   return new Date().toISOString().slice(0, 7)
 }
 
+/** Is this GL account a cash/asset account (not an expense)? CINC numbers
+ *  cash + assets in the 1x range (10- operating, 12- reserve, 13- special,
+ *  etc.); expenses + liabilities are 5x/6x/7x/8x/9x. Used to tell a real
+ *  expense debit apart from the other leg of an inter-account transfer. */
+function isAssetAccount(accountNumber: string | null | undefined): boolean {
+  return /^1\d?-/.test((accountNumber ?? '').trim())
+}
+
 /** Analyse the last `LOOKBACK_MONTHS` of glTransactions for one bank
- *  account and return the vendors meeting the recurring threshold. */
+ *  account and return the vendors meeting the recurring threshold.
+ *
+ *  Keyed off the EXPENSE-side description, not the cash-credit line's.
+ *  CINC sometimes stamps a cash disbursement's credit line with the
+ *  funding bank account's NAME instead of the payee — e.g. GK7's utility
+ *  and insurance payments post a credit described "CSB - Cash Operating -
+ *  1950" (that's Crystal Hills' bank account, the counterpart name), while
+ *  the real payee lives on the paired expense debit ("Pol.#… Insurance",
+ *  "Acct.#… Electricity"). Bucketing by the cash-credit description both
+ *  leaked a foreign account into the estimates AND fragmented genuine
+ *  recurring expenses. So: for each cash outflow whose own description is a
+ *  bank-account/transfer label, recover the payee from the matching expense
+ *  debit (same date, same amount, on a non-asset account). Genuine
+ *  transfers (e.g. "Funds Transfer" — cash-to-cash, no expense leg) find no
+ *  match and are dropped. */
 async function detectRecurring(
   assocCode:        string,
   cashGl:           string,
@@ -161,29 +183,43 @@ async function detectRecurring(
 ): Promise<RecurringVendor[]> {
   const fromDate = startOfMonthMinusN(LOOKBACK_MONTHS)
   const toDate   = isoDate(new Date())
-  const txs      = await listGlTransactionsByDate({
-    assocCode,
-    fromDate,
-    toDate,
-    accountNumber: cashGl,
-  })
+  // ALL accounts (no accountNumber) so we can see each cash credit's paired
+  // expense debit, not just the cash line in isolation.
+  const txs      = await listGlTransactionsByDate({ assocCode, fromDate, toDate })
 
-  // Bucket outflows by vendor key. Outflow = CreditAmount > 0
-  // (see CINC sign convention notes in bank-reconciliation-sync.ts).
+  // Index expense debits by "YYYY-MM-DD|amount" so a mislabeled cash credit
+  // can recover its real payee from the offsetting expense line. Amount is
+  // rounded to cents to avoid float-equality misses.
+  const amtKey = (date: string, amount: number) => `${date.slice(0, 10)}|${Math.round(Math.abs(amount) * 100)}`
+  const expenseByAmtDate = new Map<string, string>()  // amtKey → expense description
+  for (const tx of txs) {
+    const debit = typeof tx.DebitAmount === 'number' ? Math.abs(tx.DebitAmount) : 0
+    if (debit <= 0 || !tx.TransactionDate || !tx.Description) continue
+    if (isAssetAccount(tx.AccountNumber)) continue   // skip the other leg of a transfer
+    const k = amtKey(tx.TransactionDate, debit)
+    if (!expenseByAmtDate.has(k)) expenseByAmtDate.set(k, tx.Description.trim().replace(/\s+/g, ' '))
+  }
+
+  // Bucket outflows by vendor key. Outflow = a credit on THIS bank's cash GL
+  // (CINC sign convention: payments post as positive CreditAmount).
   const buckets = new Map<string, VendorBucket>()
   for (const tx of txs) {
+    if (tx.AccountNumber !== cashGl) continue
     if (tx.GLTransID != null && excludeGlTransIds.has(tx.GLTransID)) continue
     const credit = typeof tx.CreditAmount === 'number' ? tx.CreditAmount : 0
     if (credit <= 0) continue
     if (!tx.TransactionDate || !tx.Description) continue
 
-    // Skip inter-account transfers / sweeps — they're not vendor bills and
-    // their description is the counterpart account name (which may belong to
-    // a DIFFERENT association), so projecting them as a recurring vendor is
-    // both wrong and confusing.
-    if (INTERNAL_MOVEMENT_RE.test(tx.Description)) continue
+    // Resolve the real payee description. If the cash-credit line is a
+    // bank-account/transfer label, look through to the paired expense debit.
+    let desc = tx.Description.trim().replace(/\s+/g, ' ')
+    if (INTERNAL_MOVEMENT_RE.test(desc)) {
+      const recovered = expenseByAmtDate.get(amtKey(tx.TransactionDate, credit))
+      if (!recovered) continue           // genuine transfer (no expense leg) — not a vendor
+      desc = recovered
+    }
 
-    const key  = vendorKey(tx.Description)
+    const key = vendorKey(desc)
     if (!key) continue
 
     let bucket = buckets.get(key)
@@ -193,8 +229,7 @@ async function detectRecurring(
     }
 
     // Track display name candidates.
-    const cleaned = tx.Description.trim().replace(/\s+/g, ' ')
-    bucket.displayNames.set(cleaned, (bucket.displayNames.get(cleaned) ?? 0) + 1)
+    bucket.displayNames.set(desc, (bucket.displayNames.get(desc) ?? 0) + 1)
 
     const month = monthOf(tx.TransactionDate)
     if (!bucket.amountsByMonth.has(month)) bucket.amountsByMonth.set(month, [])
