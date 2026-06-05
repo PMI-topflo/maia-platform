@@ -1546,6 +1546,19 @@ export function detectInvoiceTrigger(body: string): boolean {
   )
 }
 
+// Forgiving subject-based trigger: a staff email whose SUBJECT is about
+// invoices (e.g. "Invoices", "Fwd: Invoice #123", "May invoices to process")
+// routes its PDF/image attachments to intake even without an @maia phrase.
+// Guards: skip ticket-thread replies (a "TKT-YYYY-NNNN" subject is an
+// existing ticket, not a fresh invoice batch) so we never hijack those.
+const INVOICE_SUBJECT_REGEX = /\binvoices?\b/i
+const TICKET_REF_REGEX      = /\bTKT-\d{4}-\d{3,}\b/i
+export function detectInvoiceSubjectTrigger(subject: string | null | undefined): boolean {
+  const s = (subject ?? '').trim()
+  if (!s || TICKET_REF_REGEX.test(s)) return false
+  return INVOICE_SUBJECT_REGEX.test(s)
+}
+
 // Matches @maia append TKT-YYYY-NNNN (4+ digit suffix). Captures the
 // ticket number so the caller can resolve it to a ticket id. Case
 // insensitive on the keyword; the captured ticket_number is uppercased
@@ -2319,9 +2332,22 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     // removed (it kept swallowing @maia DB-update commands that
     // happened to CC billing@). Returns early so we don't ALSO try to
     // open a ticket or run freeform Claude on the same message.
-    if (allowed && detectInvoiceTrigger(parsed.body)) {
-      const hasPdf = parsed.attachments.some(a => a.mimeType.toLowerCase() === 'application/pdf')
-      if (hasPdf) {
+    // Subject-based fallback: a staff email titled about invoices (no @maia
+    // phrase) still routes its attachments to intake — UNLESS it's a
+    // structured command or a ticket reply, which must not be hijacked.
+    const invoiceBySubject =
+      !trigger &&
+      !detectTicketTrigger(parsed.body) &&
+      !detectAppendTrigger(parsed.body) &&
+      detectInvoiceSubjectTrigger(parsed.subject)
+    if (allowed && (detectInvoiceTrigger(parsed.body) || invoiceBySubject)) {
+      // PDFs OR images (photos/scans) both count now — intake converts
+      // images to PDF on the way in.
+      const hasDoc = parsed.attachments.some(a => {
+        const mt = a.mimeType.toLowerCase()
+        return mt === 'application/pdf' || mt.startsWith('image/') || /\.(pdf|jpe?g|png|heic|heif|webp)$/i.test(a.filename)
+      })
+      if (hasDoc) {
         // Lazy import — the intake module also imports a few things
         // back from this file, and a top-level import would create a
         // small circular reference.
@@ -2332,10 +2358,10 @@ export async function processEmailCommand(messageId: string): Promise<void> {
         )
         return
       }
-      // Trigger present but no PDF — guide the sender. Falls through
+      // Trigger present but no PDF/image — guide the sender. Falls through
       // to the freeform handler so they get a real reply (the prompt
       // will explain what's missing).
-      console.warn(`[MAIA] invoice trigger from ${parsed.senderEmail} but no PDF attached — falling through`)
+      console.warn(`[MAIA] invoice trigger from ${parsed.senderEmail} but no PDF/image attached — falling through`)
     }
 
     // Tickets are created only when staff initiate them via an explicit
