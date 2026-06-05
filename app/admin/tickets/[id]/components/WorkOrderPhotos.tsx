@@ -78,6 +78,7 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
   const [error,       setError]       = useState<string | null>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
+  const [cincAtt,     setCincAtt]     = useState<Attachment | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchPhotos = useCallback(async (forceRefresh: boolean) => {
@@ -279,10 +280,16 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
                     <span className="text-3xl leading-none" aria-hidden>{fileIcon(att)}</span>
                     <span className="line-clamp-2 break-all px-1 text-[10px] font-medium text-gray-700">{att.filename}</span>
                   </a>
-                  <div className="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-wide">
+                  <div className="flex flex-wrap items-center justify-center gap-2 text-[9px] font-semibold uppercase tracking-wide">
                     <a href={att.signed_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800">Open ↗</a>
                     <span className="text-gray-300" aria-hidden>·</span>
                     <a href={downloadHref(att)} download={att.filename} className="text-blue-600 hover:text-blue-800">⬇ Download</a>
+                    {(att.extracted_doc_type === 'ach' || att.extracted_doc_type === 'w9') && (
+                      <>
+                        <span className="text-gray-300" aria-hidden>·</span>
+                        <button onClick={() => setCincAtt(att)} className="text-emerald-700 hover:text-emerald-900">→ CINC</button>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -326,6 +333,15 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
         </div>
       )}
 
+      {cincAtt && (
+        <CincVendorModal
+          ticketId={ticketId}
+          att={cincAtt}
+          onClose={() => setCincAtt(null)}
+          onDone={() => { setCincAtt(null); void fetchPhotos(false) }}
+        />
+      )}
+
       {lightboxIdx !== null && attachments[lightboxIdx] && (
         <Lightbox
           attachments={attachments}
@@ -335,6 +351,119 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
           onNext={() => setLightboxIdx(i => (i !== null && i < attachments.length - 1 ? i + 1 : i))}
         />
       )}
+    </div>
+  )
+}
+
+// ── Apply-to-CINC-vendor modal ───────────────────────────────────────
+// Previews the extracted ACH/W-9 values (masked) vs the current CINC
+// vendor record, lets staff pick which fields to write, then POSTs the
+// approved field KEYS (the server re-reads full values to push to CINC).
+interface CincRow { key: string; label: string; current: string | null; extracted: string | null; changed: boolean }
+function CincVendorModal({ ticketId, att, onClose, onDone }: {
+  ticketId: number
+  att: Attachment
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [loading, setLoading] = useState(true)
+  const [busy,    setBusy]    = useState(false)
+  const [err,     setErr]     = useState<string | null>(null)
+  const [info,    setInfo]    = useState<string | null>(null)
+  const [rows,    setRows]    = useState<CincRow[]>([])
+  const [vendorName, setVendorName] = useState<string | null>(null)
+  const [picked,  setPicked]  = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    let live = true
+    ;(async () => {
+      setLoading(true); setErr(null); setInfo(null)
+      try {
+        const res = await fetch(`/api/admin/work-orders/${ticketId}/attachments/${att.id}/cinc-vendor`, { cache: 'no-store' })
+        const data = await res.json()
+        if (!live) return
+        if (!res.ok) { setErr(data?.error ?? `HTTP ${res.status}`); return }
+        if (data.needsVendor || data.unsupported) { setInfo(data.message); return }
+        setVendorName(data.vendorName ?? null)
+        setRows(data.rows ?? [])
+        // Default-check only the fields that actually change.
+        const init: Record<string, boolean> = {}
+        for (const r of (data.rows as CincRow[])) init[r.key] = r.changed
+        setPicked(init)
+      } catch (e) {
+        if (live) setErr(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (live) setLoading(false)
+      }
+    })()
+    return () => { live = false }
+  }, [ticketId, att.id])
+
+  async function apply() {
+    const keys = Object.keys(picked).filter(k => picked[k])
+    if (keys.length === 0) { setErr('Pick at least one field to apply.'); return }
+    setBusy(true); setErr(null)
+    try {
+      const res = await fetch(`/api/admin/work-orders/${ticketId}/attachments/${att.id}/cinc-vendor`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      onDone()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally { setBusy(false) }
+  }
+
+  const label = att.extracted_doc_type === 'ach' ? 'ACH banking' : 'W-9'
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/45 p-4">
+      <div onClick={e => e.stopPropagation()} className="w-full max-w-lg rounded-lg bg-white p-5 shadow-2xl">
+        <div className="text-base font-bold text-gray-900">Apply {label} to CINC vendor</div>
+        <div className="mt-1 text-xs text-gray-500">
+          {vendorName ? <>Vendor: <strong>{vendorName}</strong>. </> : null}
+          Review what we read off <span className="font-mono">{att.filename}</span> and choose what to write. Sensitive numbers are masked here; the full values are written to CINC, never shown or stored.
+        </div>
+
+        {loading && <div className="mt-4 text-sm text-gray-500">Reading document…</div>}
+        {info && <div className="mt-4 rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">{info}</div>}
+
+        {!loading && !info && rows.length > 0 && (
+          <table className="mt-4 w-full text-sm">
+            <thead>
+              <tr className="text-[11px] uppercase tracking-wide text-gray-400">
+                <th className="w-8"></th>
+                <th className="py-1 text-left font-semibold">Field</th>
+                <th className="py-1 text-left font-semibold">Current in CINC</th>
+                <th className="py-1 text-left font-semibold">From document</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.key} className="border-t border-gray-100">
+                  <td className="py-1.5">
+                    <input type="checkbox" checked={!!picked[r.key]} onChange={e => setPicked(p => ({ ...p, [r.key]: e.target.checked }))} />
+                  </td>
+                  <td className="py-1.5 font-medium text-gray-700">{r.label}</td>
+                  <td className="py-1.5 font-mono text-gray-500">{r.current ?? <span className="text-gray-300">— empty</span>}</td>
+                  <td className={`py-1.5 font-mono ${r.changed ? 'font-semibold text-emerald-700' : 'text-gray-500'}`}>{r.extracted ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {err && <div className="mt-3 text-sm text-red-600">{err}</div>}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} disabled={busy} className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+          {!info && (
+            <button onClick={apply} disabled={busy || loading} className="rounded bg-[#f26a1b] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#d85a14] disabled:opacity-50">
+              {busy ? 'Applying…' : 'Apply to CINC'}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
