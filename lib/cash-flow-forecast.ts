@@ -62,6 +62,14 @@ export interface RecurringVendor {
   /** True if we haven't seen this group in the current calendar month
    *  yet — implies an upcoming projection. */
   pendingThisMonth:  boolean
+  /** Every YYYY-MM in the lookback window this group was seen (paid) in.
+   *  Lets the Upcoming feed decide, for ANY viewed month, whether this
+   *  recurring payment has already happened that month. */
+  seenMonths:        string[]
+  /** Typical day-of-month the payment lands on (median of observed days,
+   *  1–28 clamped). Used to place the estimate on a real date in the month
+   *  it's projected into, instead of a vague "~ this month". */
+  typicalDay:        number
 }
 
 export interface ApprovedUnpaidLineItem {
@@ -117,6 +125,7 @@ interface VendorBucket {
   key:           string
   displayNames:  Map<string, number>   // Description → count, pick most common
   amountsByMonth: Map<string, number[]>  // YYYY-MM → amounts seen
+  days:          number[]                // day-of-month of each occurrence
 }
 
 function monthOf(isoDate: string): string {
@@ -224,7 +233,7 @@ async function detectRecurring(
 
     let bucket = buckets.get(key)
     if (!bucket) {
-      bucket = { key, displayNames: new Map(), amountsByMonth: new Map() }
+      bucket = { key, displayNames: new Map(), amountsByMonth: new Map(), days: [] }
       buckets.set(key, bucket)
     }
 
@@ -234,6 +243,8 @@ async function detectRecurring(
     const month = monthOf(tx.TransactionDate)
     if (!bucket.amountsByMonth.has(month)) bucket.amountsByMonth.set(month, [])
     bucket.amountsByMonth.get(month)!.push(credit)
+    const day = parseInt(tx.TransactionDate.slice(8, 10), 10)
+    if (Number.isFinite(day)) bucket.days.push(day)
   }
 
   // Filter to recurring vendors and compute summary stats.
@@ -261,6 +272,12 @@ async function detectRecurring(
     const lastSeenMonth  = sortedMonths[sortedMonths.length - 1]
     const pendingThisMonth = !bucket.amountsByMonth.has(thisMonth)
 
+    // Median day-of-month, clamped to 1–28 so projecting into any month
+    // (incl. February) always lands on a real date.
+    const sortedDays = [...bucket.days].sort((a, b) => a - b)
+    const medDay     = sortedDays.length ? sortedDays[Math.floor(sortedDays.length / 2)] : 1
+    const typicalDay = Math.min(28, Math.max(1, medDay))
+
     result.push({
       key:               bucket.key,
       displayName:       bestName,
@@ -268,6 +285,8 @@ async function detectRecurring(
       monthsSeen,
       lastSeenMonth,
       pendingThisMonth,
+      seenMonths:        sortedMonths,
+      typicalDay,
     })
   }
 
