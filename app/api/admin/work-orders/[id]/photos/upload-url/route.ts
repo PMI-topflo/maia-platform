@@ -62,7 +62,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: `Ticket lookup failed: ${ticketErr.message}` }, { status: 500 })
   }
   if (!ticket)                       return NextResponse.json({ error: 'Ticket not found' }, { status: 404 })
-  if (ticket.type !== 'work_order')  return NextResponse.json({ error: 'Not a work order' }, { status: 400 })
+  // Any ticket type may have files attached (vendor docs, etc.), not just
+  // work orders — so we don't reject non-work_order tickets here.
 
   const bucket = await ensureWorkOrderBucket()
   if (!bucket.ok) {
