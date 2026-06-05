@@ -76,17 +76,32 @@ export async function handleInvoiceIntake(
     return { created: 0, skipped: 0, reason: bucket.reason }
   }
 
-  // Idempotency: if a draft already exists for this gmail message, no-op.
-  // Without this guard, Pub/Sub redeliveries + dual-mailbox processing
-  // would each create another draft for the same email.
-  const { data: existing } = await supabaseAdmin
+  // Idempotency + incremental reprocess. The dedupe key is now
+  // (gmail_message_id, gmail_attachment_id) — one draft PER ATTACHMENT,
+  // not per email. So a multi-PDF email creates one draft per PDF, and a
+  // Pub/Sub redelivery (or a manual reprocess) only fills in attachments
+  // that don't already have a draft.
+  //
+  // Why this changed: the old guard early-returned the moment ANY draft
+  // existed for the message, and the table's unique index was on
+  // gmail_message_id alone — so for a multi-PDF email only the first PDF
+  // ever inserted and the rest hit 23505 and were swallowed (the bug).
+  //
+  // Legacy rows created before the per-attachment migration carry a NULL
+  // gmail_attachment_id. If EVERY existing draft for this message is
+  // legacy (no attachment id), treat the email as already fully processed
+  // — the old one-draft-per-email behavior — so we never duplicate it.
+  const { data: existingRows } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('id')
+    .select('gmail_attachment_id')
     .eq('gmail_message_id', parsed.messageId)
-    .limit(1)
-    .maybeSingle()
-  if (existing) {
-    return { created: 0, skipped: 0, reason: 'already-processed' }
+  const existed = existingRows ?? []
+  const doneAttachmentIds = new Set(
+    existed.map(r => r.gmail_attachment_id as string | null).filter(Boolean) as string[],
+  )
+  if (existed.length > 0 && doneAttachmentIds.size === 0) {
+    console.log(`[invoice-intake] msg=${parsed.messageId} already has a legacy draft — skipping`)
+    return { created: 0, skipped: parsed.attachments.length, reason: 'already-processed' }
   }
 
   // Eligible = PDFs OR images (photos/scans), each under the size cap.
@@ -95,8 +110,18 @@ export async function handleInvoiceIntake(
   const eligible = parsed.attachments.filter(a =>
     (a.mimeType.toLowerCase() === 'application/pdf' || isInvoiceImage(a)) && a.size <= MAX_PDF_BYTES,
   )
-  if (eligible.length === 0) {
-    return { created: 0, skipped: parsed.attachments.length, reason: 'no eligible PDF/image attachments' }
+  // Skip attachments that already produced a draft (redelivery / reprocess).
+  const todo = eligible.filter(a => !doneAttachmentIds.has(a.attachmentId))
+  console.log(
+    `[invoice-intake] msg=${parsed.messageId} attachments=${parsed.attachments.length} ` +
+    `eligible=${eligible.length} alreadyDrafted=${eligible.length - todo.length} toProcess=${todo.length}`,
+  )
+  if (todo.length === 0) {
+    return {
+      created: 0,
+      skipped: parsed.attachments.length,
+      reason:  existed.length ? 'already-processed' : 'no eligible PDF/image attachments',
+    }
   }
 
   // Vendor + association lookups happen once per email, not per PDF.
@@ -107,7 +132,7 @@ export async function handleInvoiceIntake(
 
   let created    = 0
   let needsVendor = false
-  for (const att of eligible) {
+  for (const att of todo) {
     try {
       // Convert image attachments to a one-page PDF up front; PDFs pass through.
       let pdfBytes: Buffer | undefined
@@ -125,6 +150,7 @@ export async function handleInvoiceIntake(
       const ok = await processOnePdf({
         parsed, att, vendors, assocHintFromEmail: assocHint, fetchAttachment, pdfBytes, displayName,
       })
+      console.log(`[invoice-intake] → ${att.filename} (${att.mimeType}, ${(att.size / 1024).toFixed(0)}KB): ${ok}`)
       if (ok === 'created')      created++
       if (ok === 'needs_vendor') { created++; needsVendor = true }
     } catch (err) {
@@ -132,6 +158,7 @@ export async function handleInvoiceIntake(
         err instanceof Error ? err.message : err)
     }
   }
+  console.log(`[invoice-intake] msg=${parsed.messageId} done: created=${created} needsVendor=${needsVendor}`)
 
   // Brief vendor-facing ack. Idempotency: we already checked the
   // gmail_message_id at the top; if we got here we created at least
@@ -234,6 +261,7 @@ async function processOnePdf(opts: {
 
   const { error: insertErr } = await supabaseAdmin.from('invoice_intake_drafts').insert({
     gmail_message_id:           parsed.messageId,
+    gmail_attachment_id:        att.attachmentId,   // per-attachment dedupe key
     pdf_storage_key:            upload.error ? null : storageKey,
     extracted_vendor_name:      extracted.vendorName,
     matched_cinc_vendor_id:     matched ? String(matched.VendorId) : null,
