@@ -33,6 +33,18 @@ const LOOKBACK_MONTHS         = 3
 const AMOUNT_TOLERANCE        = 0.15  // ±15% when matching recurring vendors
 const MIN_MONTHS_FOR_RECURRING = 2     // moderate heuristic: 2 of last 3 months
 
+// Internal money movements that post as cash-GL credits (outflows) but
+// are NOT vendor bills, so they must not appear as "recurring vendor"
+// estimates in Upcoming Payments. CINC books inter-account transfers with
+// the COUNTERPART bank account's name as the description (e.g. GK7's
+// operating ledger shows "CSB - Cash Operating - 1950", which is another
+// association's cash account) — that leaked a foreign account into GK7's
+// estimates. "Funds Transfer", sweeps, and wire/ACH transfers are the
+// same class. Real vendor lines here are "Inv.#…" / "Acct.#… - <utility>",
+// none of which contain these phrases, so this is a safe exclusion.
+const INTERNAL_MOVEMENT_RE =
+  /\b(funds?\s+transfer|cash\s+(operating|reserve|special)|transfer\s+(to|from|between|of)|inter[-\s]?account|wire\s+transfer|ach\s+transfer|sweep|opening\s+balance|beginning\s+balance)\b/i
+
 // ── Public types ────────────────────────────────────────────────────
 
 export interface RecurringVendor {
@@ -164,6 +176,12 @@ async function detectRecurring(
     const credit = typeof tx.CreditAmount === 'number' ? tx.CreditAmount : 0
     if (credit <= 0) continue
     if (!tx.TransactionDate || !tx.Description) continue
+
+    // Skip inter-account transfers / sweeps — they're not vendor bills and
+    // their description is the counterpart account name (which may belong to
+    // a DIFFERENT association), so projecting them as a recurring vendor is
+    // both wrong and confusing.
+    if (INTERNAL_MOVEMENT_RE.test(tx.Description)) continue
 
     const key  = vendorKey(tx.Description)
     if (!key) continue
