@@ -18,49 +18,14 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { resolveStaffByLoginEmail, trustedDomainVariants } from '@/lib/staff-lookup'
-import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
-import { normalizePdf } from '@/lib/pdf-normalize'
 
 export const dynamic = 'force-dynamic'
 
-const STORAGE_BUCKET = 'invoice-intake-pdfs'
-
-/** Build the canonical renamed filename for the Drive copy. */
-function canonicalInvoiceFilename(o: { association: string; short: string; invoiceNo: string; amount: number }): string {
-  const safe = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32)
-  const amt  = o.amount.toFixed(2).replace(/\.00$/, '')
-  return `${safe(o.association)}_${safe(o.short)}_${safe(o.invoiceNo)}_$${amt}.pdf`
-}
-
-/** Mirror the renamed PDF into the Drive "INVOICE TO INPUT" folder at the
- *  Transfer-to-Push step (so it lands there before Karen even pushes).
- *  Returns the new drive_file_id, or an error string to surface to the UI.
- *  Skips if already mirrored or required fields are missing. */
-async function mirrorDraftToDrive(row: IntakeDraftRow): Promise<{ driveFileId?: string; warning?: string }> {
-  const existing  = row.drive_file_id as string | null
-  if (existing) return { driveFileId: existing }
-  const storageKey = row.pdf_storage_key
-  const assoc      = row.extracted_association_code as string | null
-  const invNo      = row.extracted_invoice_number   as string | null
-  const amount     = row.extracted_amount           as number | null
-  const short      = row.matched_vendor_short_name  as string | null
-  const id         = row.id as number
-  if (!storageKey || !assoc || !invNo || amount == null) {
-    return {}   // not enough to name/mirror yet; nothing to warn about
-  }
-  try {
-    const { data: blob, error: dlErr } = await supabaseAdmin.storage.from(STORAGE_BUCKET).download(storageKey)
-    if (dlErr || !blob) return { warning: `Drive mirror skipped: storage download failed (${dlErr?.message ?? 'no blob'}).` }
-    const rawBuf = Buffer.from(await blob.arrayBuffer())
-    const norm   = await normalizePdf(rawBuf).catch(() => null)
-    const filename = canonicalInvoiceFilename({ association: assoc, short: short ?? 'Vendor', invoiceNo: invNo, amount })
-    const mirror = await uploadInvoiceToDrive({ filename, pdfBuffer: norm?.buffer ?? rawBuf })
-    await supabaseAdmin.from('invoice_intake_drafts').update({ drive_file_id: mirror.driveFileId }).eq('id', id)
-    return { driveFileId: mirror.driveFileId }
-  } catch (err) {
-    return { warning: `Drive mirror failed: ${(err as Error).message}` }
-  }
-}
+// NOTE: the renamed-PDF Drive mirror used to run HERE at the Transfer-to-Push
+// (ready_to_push) step. It now runs ONLY when Karen presses "Push to CINC"
+// (app/api/admin/invoices/intake/[id]/push), so a file lands in INVOICE TO
+// INPUT only for invoices that were actually pushed — not the moment Isabela
+// marks one ready. (Manual re-mirror still available via the remirror route.)
 
 const APP_URL        = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const KAREN_ALERT_TO = process.env.MAIA_BILLING_ALERT_TO ?? 'billing@topfloridaproperties.com'
@@ -285,17 +250,14 @@ export async function PATCH(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   // Re-attach the preview URL so the card keeps showing the PDF after an edit.
   const row = (data ?? null) as unknown as IntakeDraftRow | null
-  // On Transfer-to-Push: mirror the renamed PDF into the Drive "INVOICE TO
-  // INPUT" folder NOW (not only at CINC-push), and email Karen. The Drive
-  // warning (if any) is surfaced to the UI so a real failure is visible
-  // instead of a silent null drive_file_id.
-  let driveWarning: string | null = null
-  let driveFileId:  string | null = (row?.drive_file_id as string | null) ?? null
+  // On Transfer-to-Push (ready_to_push): just email Karen it's ready for her
+  // approval. The Drive mirror is NO LONGER done here — it happens only when
+  // Karen presses "Push to CINC", so the renamed PDF lands in INVOICE TO INPUT
+  // exactly for invoices that were actually pushed.
+  const driveWarning: string | null = null
+  const driveFileId:  string | null = (row?.drive_file_id as string | null) ?? null
   if (patch.status === 'ready_to_push' && row) {
     void notifyKarenReady(row, (patch.audit_ready_by as string | null) ?? null).catch(() => null)
-    const mirror = await mirrorDraftToDrive(row)
-    if (mirror.driveFileId) driveFileId = mirror.driveFileId
-    if (mirror.warning)     driveWarning = mirror.warning
   }
   const signed = row?.pdf_storage_key ? await buildSignedUrls([row.pdf_storage_key]) : null
   const draft = { ...row, drive_file_id: driveFileId, pdf_signed_url: row?.pdf_storage_key ? (signed?.get(row.pdf_storage_key) ?? null) : null }

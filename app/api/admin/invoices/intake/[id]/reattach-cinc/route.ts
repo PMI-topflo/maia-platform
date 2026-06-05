@@ -18,8 +18,8 @@ import { normalizePdf } from '@/lib/pdf-normalize'
 export const dynamic = 'force-dynamic'
 
 const STORAGE_BUCKET = 'invoice-intake-pdfs'
-const CINC_ATTACH_TARGET_BYTES = 700_000             // normalize target (keeps uploads fast)
-const CINC_ATTACH_MAX_BYTES    = 24 * 1024 * 1024    // hard refusal — just under CINC's documented 25 MB limit
+const CINC_ATTACH_TARGET_BYTES = 700_000      // normalize target (keeps uploads fast)
+const CINC_ATTACH_MAX_BYTES    = 1_000_000    // hard refusal — CINC's ~1 MB FILE limit (gate on file size, not base64)
 
 function canonicalInvoiceFilename(o: { association: string; short: string; invoiceNo: string; amount: number }): string {
   const safe = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32)
@@ -53,7 +53,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const buf    = norm?.buffer ?? rawBuf
   const pdfBase64 = buf.toString('base64')
   if (buf.length > CINC_ATTACH_MAX_BYTES) {
-    return NextResponse.json({ error: `PDF is ${(buf.length / 1024 / 1024).toFixed(1)} MB even after compression — over CINC's 25 MB attachment limit. Replace it with a smaller scan.`, pdfTooLarge: true, normalizeNote: norm?.note ?? 'normalize returned nothing' }, { status: 413 })
+    return NextResponse.json({ error: `PDF is ${(buf.length / 1024 / 1024).toFixed(2)} MB even after compression — over CINC's ~1 MB attachment limit. Replace it with a smaller scan.`, pdfTooLarge: true, normalizeNote: norm?.note ?? 'normalize returned nothing' }, { status: 413 })
   }
 
   const filename = canonicalInvoiceFilename({
