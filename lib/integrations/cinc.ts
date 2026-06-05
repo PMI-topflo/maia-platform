@@ -2001,6 +2001,59 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<CreateIn
   return { invoiceId }
 }
 
+/** POST /accounting/approvedInvoices — create an invoice DIRECTLY in
+ *  "Ready for Payment" status (skips the PENDING APPROVAL → approve step).
+ *  Used when Jonathan marks a MAIA-scheduled draft paid: the draft isn't in
+ *  CINC's payment queue yet, so we post it here so CINC will actually pay
+ *  it. (CINC has no "mark Paid" write — Paid is set by CINC's payment run;
+ *  this is the furthest forward MAIA can move an invoice via the API.)
+ *
+ *  Body shape per CINC Swagger: AssocCode + VendorID + InvoiceNumber +
+ *  InvoiceDate + TotalInvoiceAmount + ApprovalDate + PayFromBankAccountID +
+ *  PayByType + ExpenseItems[{ GLNumber, Description, Amount }]. Returns the
+ *  new CINC InvoiceID. Best-effort: throws CincApiError on a non-2xx so the
+ *  caller can still reconcile locally and surface the failure. */
+export interface ApprovedInvoiceInput {
+  associationCode:       string
+  vendorId:              number
+  invoiceNumber:         string
+  invoiceDate:           string   // YYYY-MM-DD
+  amount:                number
+  approvalDate?:         string | null   // defaults to invoiceDate
+  payFromBankAccountId?: number | null
+  payByType?:            string | null
+  checkMemo?:            string | null
+  expenseItems?:         CreateExpenseItemInput[]
+}
+
+export async function postApprovedInvoice(input: ApprovedInvoiceInput): Promise<{ invoiceId: number }> {
+  const body: Record<string, unknown> = {
+    AssocCode:            input.associationCode.toUpperCase(),
+    VendorID:             input.vendorId,
+    InvoiceNumber:        input.invoiceNumber,
+    InvoiceDate:          input.invoiceDate,
+    TotalInvoiceAmount:   input.amount,
+    ApprovalDate:         input.approvalDate ?? input.invoiceDate,
+    PayFromBankAccountID: input.payFromBankAccountId ?? 0,
+    CheckMemo:            (input.checkMemo ?? '').slice(0, 1000),
+    PayByType:            input.payByType ?? '',
+    ChargeBack:           false,
+    ExpenseItems:         (input.expenseItems ?? []).map(it => ({
+      GLNumber:    it.glNumber,
+      Description: it.description.slice(0, 100),
+      Amount:      it.amount,
+    })),
+  }
+  const result = await call<Array<{ InvoiceID?: number; Invoice?: { InvoiceID?: number } }> | { InvoiceID?: number; Invoice?: { InvoiceID?: number } }>(
+    '/management/1/accounting/approvedInvoices',
+    { method: 'POST', json: body },
+  )
+  const row      = Array.isArray(result) ? result[0] : result
+  const invoiceId = row?.InvoiceID ?? row?.Invoice?.InvoiceID
+  if (!invoiceId) throw new CincApiError('postApprovedInvoice succeeded but response had no InvoiceID')
+  return { invoiceId }
+}
+
 /** POST /accounting/expenseItems — record the GL allocation lines for
  *  a CINC invoice. Called right after createInvoice so the GL pick
  *  Karen made in MAIA actually lands as an expense item in CINC

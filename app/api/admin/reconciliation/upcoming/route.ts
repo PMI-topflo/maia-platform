@@ -76,7 +76,7 @@ export async function GET(req: Request) {
 
   const { data: schedDrafts } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('extracted_invoice_number, matched_vendor_name, matched_vendor_short_name, extracted_amount, scheduled_pay_date, status')
+    .select('id, extracted_invoice_number, matched_vendor_name, matched_vendor_short_name, extracted_amount, scheduled_pay_date, status')
     .eq('extracted_association_code', assoc)
     .in('status', ['ready_to_push', 'pushed_to_cinc'])
     .not('scheduled_pay_date', 'is', null)
@@ -143,6 +143,7 @@ export async function GET(req: Request) {
   const scheduled = (schedDrafts ?? [])
     .filter(d => d.status === 'ready_to_push' && typeof d.scheduled_pay_date === 'string' && d.scheduled_pay_date < nextMonthFirst)
     .map(d => ({
+      draftId:          d.id as number,
       vendorName:       d.matched_vendor_name ?? d.matched_vendor_short_name ?? null,
       invoiceNumber:    d.extracted_invoice_number ?? null,
       amount:           typeof d.extracted_amount === 'number' ? d.extracted_amount : 0,
