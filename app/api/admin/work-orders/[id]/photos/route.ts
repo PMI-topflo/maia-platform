@@ -30,7 +30,9 @@ import { normalizeStoredFile } from '@/lib/normalize-stored-file'
 
 export const runtime = 'nodejs'
 
-/** Look up a ticket and confirm it is a work order. */
+/** Look up a ticket for the attachments flow. Any ticket type is allowed —
+ *  files attach by ticket_id (vendor portal, email, staff upload), not only
+ *  to work orders. */
 async function loadWorkOrder(ticketId: number) {
   const { data, error } = await supabaseAdmin
     .from('tickets')
@@ -39,7 +41,6 @@ async function loadWorkOrder(ticketId: number) {
     .maybeSingle()
   if (error)  return { error: `Ticket lookup failed: ${error.message}`, status: 500 as const }
   if (!data)  return { error: 'Ticket not found', status: 404 as const }
-  if (data.type !== 'work_order') return { error: 'Not a work order', status: 400 as const }
   return { ticket: data }
 }
 
@@ -69,9 +70,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   if (!ticket) {
     return NextResponse.json({ error: 'Ticket not found' }, { status: 404 })
   }
-  if (ticket.type !== 'work_order') {
-    return NextResponse.json({ error: 'Not a work order' }, { status: 400 })
-  }
+  // Attachments live in work_order_attachments keyed by ticket_id and serve
+  // ANY ticket — vendor-portal uploads (W-9/COI/ACH/estimates), email +
+  // staff files. A work order reclassified to a ticket must keep showing
+  // them, so we no longer reject non-work_order tickets here. CINC photo
+  // mirroring below is still gated on having a CINC work-order id.
 
   const url     = new URL(req.url)
   const refresh = url.searchParams.get('refresh') === '1'
