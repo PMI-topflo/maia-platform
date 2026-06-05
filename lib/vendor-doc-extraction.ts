@@ -48,9 +48,15 @@ Return a SINGLE JSON object and nothing else (no prose, no markdown fences):
 
 CRITICAL RULES:
 - Dates MUST be ISO YYYY-MM-DD (convert "5/1/2026" → "2026-05-01").
-- NEVER output a full Tax ID / EIN / SSN or full bank routing/account number. Output only the LAST 4 digits, prefixed with "••" (e.g. "••1234"). If you can only see part, give what you have, still masked.
+%%SENSITIVE%%
 - Omit any field you can't read; do not guess. Use a string for every value you include.
 - If it isn't clearly one of the listed types, use "other" with confidence below 0.3.`
+
+const MASK_CLAUSE  = `- NEVER output a full Tax ID / EIN / SSN or full bank routing/account number. Output only the LAST 4 digits, prefixed with "••" (e.g. "••1234"). If you can only see part, give what you have, still masked.`
+const FULL_CLAUSE  = `- Output the COMPLETE values exactly as printed, including full routing and account numbers and full Tax ID / EIN — do NOT mask or truncate. (These are needed to update the vendor's banking record and are not stored.)`
+function promptFor(mask: boolean): string {
+  return PROMPT.replace('%%SENSITIVE%%', mask ? MASK_CLAUSE : FULL_CLAUSE)
+}
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
 const conf = (v: unknown): number => {
@@ -78,12 +84,19 @@ function maskValue(v: string): string {
 
 /** Extract structured data from a vendor document buffer (PDF or image).
  *  Returns null only when extraction is not applicable (not a PDF/image)
- *  or the API is unavailable — callers treat null as "skip, no harm". */
+ *  or the API is unavailable — callers treat null as "skip, no harm".
+ *
+ *  `opts.mask` (default true) masks sensitive values to last-4 for STORAGE.
+ *  Pass `mask: false` ONLY for a transient server-side push to CINC (the
+ *  full Routing/Account/EIN are needed to write the vendor record) — the
+ *  unmasked result must never be persisted or returned to the browser. */
 export async function extractVendorDocument(
   buf: Buffer,
   filename: string,
   contentType?: string | null,
+  opts: { mask?: boolean } = {},
 ): Promise<VendorDocExtraction | null> {
+  const mask = opts.mask !== false
   if (!process.env.ANTHROPIC_API_KEY) return null
 
   const isPdf = buf.subarray(0, 5).toString('latin1') === '%PDF-' || (contentType ?? '').includes('pdf')
@@ -102,7 +115,7 @@ export async function extractVendorDocument(
       model:      EXTRACT_MODEL,
       max_tokens: 600,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      messages: [{ role: 'user', content: [block as any, { type: 'text', text: PROMPT }] }],
+      messages: [{ role: 'user', content: [block as any, { type: 'text', text: promptFor(mask) }] }],
     })
     text = msg.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('').trim()
   } catch {
@@ -121,7 +134,7 @@ export async function extractVendorDocument(
   if (obj.fields && typeof obj.fields === 'object') {
     for (const [k, v] of Object.entries(obj.fields as Record<string, unknown>)) {
       const s = str(v)
-      if (s) fields[k] = maskValue(s)
+      if (s) fields[k] = mask ? maskValue(s) : s
     }
   }
 

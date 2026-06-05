@@ -414,9 +414,39 @@ Vendor master data + insurance documents + licenses. Insurance file uploads come
 | `GET /management/1/vendorsBasic` | Basic info for all vendors or one |
 | `PATCH /management/1/vendors/vendor` | Update vendor with info provided |
 | `GET /management/1/vendor/{vendorId}/contacts` | All vendor contact info |
-| `GET /management/1/vendor/{vendorId}/accounts` | All vendor account info |
+| `GET /management/1/vendor/{vendorId}/accounts` | Vendor GL-account mapping **per association** — NOT banking |
 | `GET /management/1/vendors/correspondenceType` | All vendor correspondence types |
 | `PUT /management/1/vendors/vendorContact` | Update or create vendor contact. Comments for primary contacts won't display in CINC |
+
+#### Verified write/read models (Swagger-confirmed 2026-06-04)
+
+**`PATCH /management/1/vendors/vendor`** — body. Only `VendorID` is required; send just the
+fields you want to change (this is how `updateVendorShortName()` writes `UserDefined1` alone).
+**Banking (ACH) + W-9 + 1099 are all writable here:**
+```jsonc
+{
+  "VendorID": 0,          // required
+  "Name": "string", "Status": 0, "VendorTypeID": "string",
+  "TaxID": "string", "Exempt": true,                 // W-9
+  "Print1099Type": 0, "Ten99Box10": true,            // 1099
+  "Phone1": "string", "Phone2": "string", "Fax": "string",
+  "Address1": "string", "Address2": "string", "City": "string", "State": "string", "ZipCode": "string",
+  "Email": "string", "NotificationEmail": "string",
+  "Dba": "string", "CheckName": "string",
+  "ConsolodateChecks": true, "AutoAprvLimit": 0, "NetTerm": 0,
+  "Routing": "string", "Account": "string", "AccountType": 0,   // ACH banking (AccountType int)
+  "UserDefined1": "string", "UserDefined2": "string", "UserDefined3": "string", "UserDefined4": "string"
+}
+```
+ACH/banking is READ back from `GET /management/1/vendors` (`Routing`/`Account`/`AccountType`), NOT from `/accounts`.
+
+**`GET /management/1/vendor/{vendorId}/accounts`** → per-association GL mapping (not banking):
+```jsonc
+[ { "VendorId": 0, "AssociationId": 0, "AssocCode": "string", "AssociationName": "string", "AccountNumber": "string", "GlAccount": "string" } ]
+```
+
+**`GET /management/1/vendor/{vendorId}/contacts`** → `[ { ContactId, VendorId, Name, Title, Address1, Address2, TypeId, TypeName, ... } ]`
+**`PUT /management/1/vendors/vendorContact`** → `{ VendorID, ContactId, Name, Title, Address1, Address2, TypeID, Phone, Cell, Fax, ... }`
 
 ### Insurance (file upload — 10 MB cap)
 
@@ -428,15 +458,30 @@ Vendor master data + insurance documents + licenses. Insurance file uploads come
 | `PATCH /management/1/vendors/vendorInsuranceUpdateByteArray` | Same but file as ByteArray. FilePath + FileSize fields determined programmatically. 10 MB max (pre-conversion) |
 | `PUT /management/1/vendors/vendorInsuranceUpdateByteArray` | Same as above but PUT |
 | `DELETE /management/1/vendors/vendorInsuranceAttachments` | Delete a collection of vendor insurance attachments |
-| `GET /management/1/vendors/vendorInsuranceTypes` | List of vendor insurance types |
+| `GET /management/1/vendors/vendorInsuranceTypes` | List of vendor insurance types (`InsuranceID` / `InsuranceTypeDescription`) |
+
+#### Verified models (2026-06-04)
+
+**COI push** — prefer `PATCH /management/1/vendors/vendorInsuranceUpdateByteArray` (file as base64 in JSON body, mirrors how we attach invoice PDFs — no multipart). Body:
+```jsonc
+{ "VendorId": 0, "InsuranceId": 0,        // InsuranceId = insurance TYPE id from vendorInsuranceTypes
+  "AccountNumber": "string",              // policy #
+  "isRequired": true, "Expiration": "2026-06-04T00:00:00Z", "InsuranceCarrier": "string",
+  "File": "string", "FileName": "string" } // File = byte array; FilePath/FileSize auto
+```
+`GET /management/1/vendors/vendorInsurance?vendorId=&returnFiles=` → existing rows (`VendorInsuranceId`, ...).
 
 ### Licenses
 
 | Method + path | Purpose |
 |---------------|---------|
-| `GET /management/1/vendors/vendorLicenses` | List of vendor licenses |
+| `GET /management/1/vendors/vendorLicenses` | List of vendor licenses (`VendorLicenseId`, `LicenseType`, `LicenseTypeName`, `LicenseNumber`, `LicenseExpiration`) |
 | `POST /management/1/vendors/vendorLicense` | Create a vendor license |
 | `PATCH /management/1/vendors/vendorLicense` | Update vendor license info |
+
+#### Verified models (2026-06-04)
+**License create** — `POST vendorLicense` body: `{ VendorId, LicenseType (int), LicenseNumber, LicenseExpiration (ISO), LicenseDescription, IsLicenseRequired (bool) }`.
+**License update** — `PATCH vendorLicense` body: same + `VendorLicenseId` (from `GET vendorLicenses?vendorId=`).
 
 ### Coverage + status
 
@@ -465,7 +510,7 @@ Vendor master data + insurance documents + licenses. Insurance file uploads come
 
 | Method + path | Purpose | Wrapper in `lib/integrations/cinc.ts` |
 |---------------|---------|----------------------------------------|
-| `GET /management/1/workOrderStatuses` | List of WO statuses (reference data) | (no wrapper yet) |
+| `GET /management/1/workOrderStatuses` | List of WO statuses (reference data) | `listWorkOrderStatuses()` (internal → `getOpenWorkOrderStatusId()`, `findCincStatusIdForTicketStatus()`) |
 | `GET /management/1/workOrderTypes` | List of WO types (reference data) | `listWorkOrderTypes()`, `getDefaultWorkOrderTypeId()`, `getOpenWorkOrderStatusId()` |
 | `GET /management/1/workOrders?workOrderId={id}` | Fetch one WO with notes + contacts + vendor (no attachments inline) | `getWorkOrderById()` |
 | `GET /management/1/workOrders?createdFromDate={iso}` | List WOs created since a cursor | `listWorkOrdersCreatedSince()` |
@@ -476,8 +521,31 @@ Vendor master data + insurance documents + licenses. Insurance file uploads come
 | `POST /management/1/linkedWorkOrder` | Create a WO linked to a homeowner or common area | `createLinkedWorkOrder()` |
 | `POST /management/1/unlinkedWorkOrder` | Create a WO for an unlinked work location (no homeowner/common-area link) | (no wrapper yet) |
 | `PATCH /management/1/workOrderStatus` | Update WO status | `updateWorkOrderStatus()` |
-| `PATCH /management/1/workOrderStatusReopen` | Reopen a closed/completed WO | (no wrapper yet) |
+| `PATCH /management/1/workOrderStatusReopen` | Reopen a closed/completed WO | ✅ inside `updateWorkOrderStatus()` (auto-picks reopen vs status) |
 | `PATCH /management/1/workOrderDetails` | Update type, description, dates, work location. **Use the dedicated PATCH endpoints for status or vendor, not this one** | `updateWorkOrderDetails()` |
+
+### Verified write bodies (Swagger-confirmed 2026-06-04, API v1.40.0)
+
+**`POST /management/1/workOrderAttachment`** — push a file INTO a CINC WO. `workOrderId` is a **query** param; body is an **array** (batch upload). `file` is a byte array (base64). ≤25 MB.
+```jsonc
+// ?workOrderId={id}
+[ { "fileName": "string", "file": "string" } ]   // file = base64 bytes
+```
+
+**`POST /management/1/unlinkedWorkOrder`** — create a WO for a work location not tied to a homeowner/common area. **Still requires `assocId`** (does NOT bypass AssocId resolution). Good for ad-hoc locations + the monthly recurring-rollup WO.
+```jsonc
+{
+  "assocId": 0, "workOrderTypeId": 0, "workOrderStatusId": 0,
+  "description": "string", "estimateTotal": 0,
+  "dueDate": "ISO", "followUpDate": "ISO",
+  "workLocationName": "string", "addressLine1": "string", "addressLine2": "string",
+  "city": "string", "state": "string", "zip": "string",
+  "contactEmail": "string", "contactPhone": "string",
+  "additionalContacts": [ { "addlContactName": "string", "addlContactEmail": "string", "addlContactPhone": "string" } ],
+  "vendorId": 0, "vendorName": "string",
+  "notes": { "noteDescription": "string", "isNotePublic": true, "isNoteEmailedToWorkLocation": true, "isNoteEmailedToVendor": true }
+}
+```
 
 ### Bidirectional photo sync opportunity (tasks 2 + 3)
 

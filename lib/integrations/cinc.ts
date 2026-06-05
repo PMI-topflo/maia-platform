@@ -971,6 +971,42 @@ export async function updateVendorShortName(vendorId: number, shortName: string)
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Vendor record write — PATCH /management/1/vendors/vendor. Only VendorID
+// is required; we send ONLY the fields the caller passes, so unrelated
+// data is never clobbered. Used by the "Apply to CINC vendor" action to
+// write ACH banking (Routing/Account/AccountType) + W-9 (TaxID/Exempt/
+// 1099) extracted from a vendor-uploaded document.
+//
+// NOTE on field name: Swagger's PATCH body uses `VendorID` (capital D),
+// while updateVendorShortName above uses `VendorId` and works — CINC
+// accepts both casings. We send `VendorID` per the documented model.
+// ─────────────────────────────────────────────────────────────────────
+export interface VendorRecordWrite {
+  TaxID?:          string | null
+  Exempt?:         boolean | null
+  VendorTypeID?:   string | null
+  Print1099Type?:  number | null
+  Ten99Box10?:     boolean | null
+  CheckName?:      string | null
+  Email?:          string | null
+  NotificationEmail?: string | null
+  NetTerm?:        number | null
+  Routing?:        string | null
+  Account?:        string | null
+  AccountType?:    number | null
+}
+
+export async function updateVendorRecord(vendorId: number, fields: VendorRecordWrite): Promise<void> {
+  // Drop undefined keys so we only PATCH what the caller set.
+  const body: Record<string, unknown> = { VendorID: vendorId }
+  for (const [k, v] of Object.entries(fields)) {
+    if (v !== undefined) body[k] = v
+  }
+  await call<unknown>('/management/1/vendors/vendor', { method: 'PATCH', json: body })
+  invalidateVendorCache()
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Single-vendor detail — used by the invoice intake card to show
 // Karen the CINC-side defaults (payment method, terms, 1099 status,
 // banking) so she can verify her Pay By selection matches CINC's
