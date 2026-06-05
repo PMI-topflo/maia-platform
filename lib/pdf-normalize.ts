@@ -181,6 +181,42 @@ async function jpegsToPdf(
 }
 
 /**
+ * Wrap a single image (JPG/PNG/HEIC/WebP/…) into a one-page PDF, downscaled
+ * and JPEG-recompressed so the result is small enough for storage + the CINC
+ * attach (~1 MB cap). Used by invoice intake when a vendor sends an invoice
+ * as a photo/scan instead of a PDF. Throws if the bytes aren't a readable image.
+ */
+export async function imageToPdf(buf: Buffer, opts: { targetBytes?: number } = {}): Promise<Buffer> {
+  const targetBytes = opts.targetBytes ?? PDF_TARGET_BYTES   // ~900 KB, CINC-attach-safe
+  // Progressively smaller dimension + quality passes until the resulting
+  // one-page PDF is under target; keep the smallest if none get there.
+  const passes = [
+    { maxDim: 2200, quality: 80 },
+    { maxDim: 1800, quality: 72 },
+    { maxDim: 1500, quality: 64 },
+    { maxDim: 1200, quality: 55 },
+    { maxDim: 1000, quality: 48 },
+  ]
+  let best: Buffer | null = null
+  for (const p of passes) {
+    const pipe = sharp(buf).rotate()   // bake in EXIF orientation
+    const meta = await pipe.metadata()
+    const longest = Math.max(meta.width ?? 0, meta.height ?? 0)
+    const sized = longest > p.maxDim
+      ? pipe.resize({ width: p.maxDim, height: p.maxDim, fit: 'inside', withoutEnlargement: true })
+      : pipe
+    const jpeg = await sized.jpeg({ quality: p.quality, mozjpeg: true }).toBuffer()
+    const dims = await sharp(jpeg).metadata()
+    const pdf  = await jpegsToPdf([{ jpeg, width: dims.width ?? 1000, height: dims.height ?? 1000 }])
+    if (!best || pdf.length < best.length) best = pdf
+    if (pdf.length <= targetBytes) {
+      return pdf
+    }
+  }
+  return best as Buffer   // smallest achieved, even if still slightly over target
+}
+
+/**
  * Normalize a PDF to <= targetBytes when it exceeds the budget. Returns
  * the original buffer untouched if it's already small enough, if it's not
  * a PDF, or if anything in the pipeline fails.

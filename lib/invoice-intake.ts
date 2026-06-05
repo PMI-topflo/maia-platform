@@ -28,7 +28,13 @@ import {
   checkDuplicateInvoice,
 } from '@/lib/integrations/cinc'
 import { extractInvoiceFields } from '@/lib/invoice-extraction'
-import { normalizePdf, PDF_TARGET_BYTES } from '@/lib/pdf-normalize'
+import { normalizePdf, imageToPdf, PDF_TARGET_BYTES } from '@/lib/pdf-normalize'
+
+// Invoices sometimes arrive as a phone photo / scan instead of a PDF.
+const INVOICE_IMAGE_RE = /\.(jpe?g|png|heic|heif|webp)$/i
+function isInvoiceImage(a: { mimeType: string; filename: string }): boolean {
+  return a.mimeType.toLowerCase().startsWith('image/') || INVOICE_IMAGE_RE.test(a.filename)
+}
 
 const STORAGE_BUCKET           = 'invoice-intake-pdfs'
 const MAX_PDF_BYTES            = 25 * 1024 * 1024   // CINC's hard limit
@@ -83,11 +89,14 @@ export async function handleInvoiceIntake(
     return { created: 0, skipped: 0, reason: 'already-processed' }
   }
 
-  const pdfs = parsed.attachments.filter(a =>
-    a.mimeType.toLowerCase() === 'application/pdf' && a.size <= MAX_PDF_BYTES,
+  // Eligible = PDFs OR images (photos/scans), each under the size cap.
+  // Images are converted to a one-page PDF below so the rest of the
+  // pipeline (storage + CINC attach) is unchanged.
+  const eligible = parsed.attachments.filter(a =>
+    (a.mimeType.toLowerCase() === 'application/pdf' || isInvoiceImage(a)) && a.size <= MAX_PDF_BYTES,
   )
-  if (pdfs.length === 0) {
-    return { created: 0, skipped: parsed.attachments.length, reason: 'no eligible PDF attachments' }
+  if (eligible.length === 0) {
+    return { created: 0, skipped: parsed.attachments.length, reason: 'no eligible PDF/image attachments' }
   }
 
   // Vendor + association lookups happen once per email, not per PDF.
@@ -98,10 +107,23 @@ export async function handleInvoiceIntake(
 
   let created    = 0
   let needsVendor = false
-  for (const att of pdfs) {
+  for (const att of eligible) {
     try {
+      // Convert image attachments to a one-page PDF up front; PDFs pass through.
+      let pdfBytes: Buffer | undefined
+      let displayName = att.filename
+      if (isInvoiceImage(att)) {
+        try {
+          pdfBytes = await imageToPdf(await fetchAttachment(att.attachmentId))
+          displayName = att.filename.replace(INVOICE_IMAGE_RE, '') + '.pdf'
+        } catch (convErr) {
+          console.warn(`[invoice-intake] image→PDF failed for ${att.filename}, skipping:`,
+            convErr instanceof Error ? convErr.message : convErr)
+          continue
+        }
+      }
       const ok = await processOnePdf({
-        parsed, att, vendors, assocHintFromEmail: assocHint, fetchAttachment,
+        parsed, att, vendors, assocHintFromEmail: assocHint, fetchAttachment, pdfBytes, displayName,
       })
       if (ok === 'created')      created++
       if (ok === 'needs_vendor') { created++; needsVendor = true }
@@ -135,10 +157,13 @@ async function processOnePdf(opts: {
   vendors:            Awaited<ReturnType<typeof listVendorsFull>>
   assocHintFromEmail: string | null
   fetchAttachment:    (attachmentId: string) => Promise<Buffer>
+  pdfBytes?:          Buffer   // already-converted PDF (image attachments); skips fetch
+  displayName?:       string   // filename to store/show (image → .pdf)
 }): Promise<'created' | 'needs_vendor' | 'skipped'> {
-  const { parsed, att, vendors, assocHintFromEmail, fetchAttachment } = opts
+  const { parsed, att, vendors, assocHintFromEmail, fetchAttachment, pdfBytes } = opts
+  const fileName = opts.displayName ?? att.filename
 
-  const rawBuf = await fetchAttachment(att.attachmentId)
+  const rawBuf = pdfBytes ?? await fetchAttachment(att.attachmentId)
 
   // Normalize oversized scans ONCE, here at intake, so every downstream
   // copy (storage / CINC attach / Drive mirror) is the small version.
@@ -147,16 +172,16 @@ async function processOnePdf(opts: {
   // small, isn't a PDF, or the pipeline fails (see lib/pdf-normalize.ts).
   const norm = await normalizePdf(rawBuf)
   if (norm.changed) {
-    console.log(`[invoice-intake] normalized ${att.filename}: ${norm.note}`)
+    console.log(`[invoice-intake] normalized ${fileName}: ${norm.note}`)
   } else if (norm.originalBytes > PDF_TARGET_BYTES) {
-    console.warn(`[invoice-intake] ${att.filename} still ${(norm.originalBytes / 1e6).toFixed(1)}MB: ${norm.note}`)
+    console.warn(`[invoice-intake] ${fileName} still ${(norm.originalBytes / 1e6).toFixed(1)}MB: ${norm.note}`)
   }
   const buf  = norm.buffer
   const b64  = buf.toString('base64')
 
   // Storage first (so we can re-push later even if extraction/CINC errors).
   // Path includes message + attachment id for uniqueness across retries.
-  const storageKey = `${parsed.messageId}/${att.attachmentId}/${safeFilename(att.filename)}`
+  const storageKey = `${parsed.messageId}/${att.attachmentId}/${safeFilename(fileName)}`
   const upload = await supabaseAdmin.storage
     .from(STORAGE_BUCKET)
     .upload(storageKey, buf, { contentType: 'application/pdf', upsert: true })
