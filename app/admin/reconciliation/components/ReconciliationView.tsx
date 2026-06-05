@@ -75,7 +75,7 @@ interface ScheduledPayment {
   notes:            string | null
 }
 interface UpcomingCinc { vendorName: string | null; invoiceNumber: string | null; amount: number; dueDate: string | null; scheduledPayDate: string | null; account: string }
-interface UpcomingRecurring { key: string; displayName: string; avgAmount: number; lastSeenMonth: string }
+interface UpcomingRecurring { key: string; displayName: string; avgAmount: number; lastSeenMonth: string; projectedDate?: string }
 interface UpcomingScheduled { vendorName: string | null; invoiceNumber: string | null; amount: number; scheduledPayDate: string }
 
 interface ForecastSummary {
@@ -914,7 +914,7 @@ export default function ReconciliationView(props: Props) {
                 {/* MAIA recurring estimates */}
                 {upRecurring.map((r, i) => (
                   <tr key={`r-${i}`} style={{ borderTop: '1px solid #f3f4f6', background: '#fffdf7' }}>
-                    <Td>~ {month}</Td>
+                    <Td>{r.projectedDate ? `~ ${formatMD(r.projectedDate)}` : `~ ${month}`}</Td>
                     <Td><span style={{ fontSize: 9, color: '#92400e', background: '#fef3c7', padding: '1px 5px', borderRadius: 3 }}>MAIA estimate</span></Td>
                     <Td>{r.displayName}</Td>
                     <Td><span style={{ color: '#9ca3af' }}>recurring · last seen {r.lastSeenMonth}</span></Td>

@@ -92,7 +92,10 @@ export async function GET(req: Request) {
   // ── 2 + 3. CINC approved-unpaid + recurring, aggregated across the
   //          association's bank accounts (fault-tolerant). ────────────
   const cincByInvoice = new Map<string, { vendorName: string | null; invoiceNumber: string | null; amount: number; dueDate: string | null; scheduledPayDate: string | null; account: string }>()
-  const recurringByKey = new Map<string, { key: string; displayName: string; avgAmount: number; lastSeenMonth: string }>()
+  const recurringByKey = new Map<string, { key: string; displayName: string; avgAmount: number; lastSeenMonth: string; projectedDate: string }>()
+  // The current calendar month — recurring estimates are only projected for
+  // the current or a future month (past months show real ledger activity).
+  const thisMonth = new Date().toISOString().slice(0, 7)
 
   try {
     const banks = await listAssociationBankAccounts(assoc)
@@ -113,12 +116,21 @@ export async function GET(req: Request) {
           })
         }
       }
-      for (const v of f.recurringVendors) {
-        if (!v.pendingThisMonth) continue
-        if (dismissedKeys.has(v.key)) continue   // staff dismissed this estimate
-        const existing = recurringByKey.get(v.key)
-        if (!existing || v.avgAmount > existing.avgAmount) {
-          recurringByKey.set(v.key, { key: v.key, displayName: v.displayName, avgAmount: v.avgAmount, lastSeenMonth: v.lastSeenMonth })
+      // Project each recurring (EFT/auto-draft) estimate into the month it's
+      // actually expected to be paid, on its typical day. Show it for the
+      // viewed month only when (a) we're looking at the current or a future
+      // month and (b) it hasn't already been paid that month. This is what
+      // makes auto-draft utilities/insurance land in the right month instead
+      // of always piling onto "this month".
+      if (month >= thisMonth) {
+        for (const v of f.recurringVendors) {
+          if (dismissedKeys.has(v.key)) continue          // staff dismissed this estimate
+          if (v.seenMonths.includes(month)) continue       // already paid in the viewed month
+          const projectedDate = `${month}-${String(v.typicalDay).padStart(2, '0')}`
+          const existing = recurringByKey.get(v.key)
+          if (!existing || v.avgAmount > existing.avgAmount) {
+            recurringByKey.set(v.key, { key: v.key, displayName: v.displayName, avgAmount: v.avgAmount, lastSeenMonth: v.lastSeenMonth, projectedDate })
+          }
         }
       }
     }
@@ -137,11 +149,32 @@ export async function GET(req: Request) {
       scheduledPayDate: d.scheduled_pay_date as string,
     }))
 
+  // ── Dedup recurring estimates against REAL upcoming payments ────────
+  // Once an actual EFT payment for this period exists — a CINC approved-
+  // unpaid invoice, a MAIA-pushed/scheduled draft, or a manual entry that
+  // falls in the viewed month — MAIA's recurring *estimate* for the same
+  // spend is a duplicate and must drop out (the user's "the pushed EFT
+  // invoice deletes the projected one for that month"). We match on amount
+  // within the same ±15% tolerance the detector uses, since the estimate's
+  // description (a GL line) rarely matches the invoice's vendor name.
+  const cincList = [...cincByInvoice.values()]
+  const realAmountsThisMonth: number[] = []
+  for (const c of cincList) {
+    const m = (c.scheduledPayDate ?? c.dueDate ?? '').slice(0, 7)
+    if (!m || m === month) realAmountsThisMonth.push(c.amount)   // undated approved-unpaid counts as near-term
+  }
+  for (const s of scheduled)        if (s.scheduledPayDate.slice(0, 7) === month) realAmountsThisMonth.push(s.amount)
+  for (const m of (manual ?? []))   if (m.due_month === month)                    realAmountsThisMonth.push(Number(m.amount))
+
+  const recurring = [...recurringByKey.values()].filter(r =>
+    !realAmountsThisMonth.some(a => a > 0 && Math.abs(a - r.avgAmount) / r.avgAmount <= 0.15),
+  )
+
   return NextResponse.json({
     assoc, month,
     manual:    manual ?? [],
-    cinc:      [...cincByInvoice.values()],
-    recurring: [...recurringByKey.values()],
+    cinc:      cincList,
+    recurring,
     scheduled,
   })
 }
