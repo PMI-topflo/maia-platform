@@ -32,13 +32,15 @@ import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
 import { normalizePdf } from '@/lib/pdf-normalize'
 import { trustedDomainVariants } from '@/lib/staff-lookup'
 
-// CINC base64-encodes the attachment in its payload and rejects models over
-// ~1 MB. base64 inflates bytes ~33%, so we target a smaller BINARY size and
-// gate on the ENCODED length. If a scan can't be squeezed under this, we
-// refuse to push (no CINC invoice without its PDF) rather than silently
-// creating a PDF-less invoice.
+// CINC rejects invoice attachments over ~1 MB. The bug wasn't the limit —
+// it was WHAT we measured: the old gate compared the BASE64-encoded length
+// (which is ~33% larger than the file) to 1 MB, so a 736 KB FILE looked like
+// 1.00 MB and was refused even though CINC accepts it. We now gate on the
+// actual FILE size. normalizePdf still shrinks oversized phone scans first
+// (it intentionally leaves born-digital text PDFs — e.g. a Breezeline e-bill
+// — alone, since rasterizing would destroy their text layer).
 const CINC_ATTACH_TARGET_BYTES = 700_000      // binary target fed to normalizePdf
-const CINC_ATTACH_MAX_B64      = 1_000_000     // hard ceiling on the base64 payload
+const CINC_ATTACH_MAX_BYTES    = 1_000_000    // hard refusal — CINC's ~1 MB FILE limit
 
 // Window for the cross-invoice double-pay guard: a same vendor + amount +
 // association invoice already pushed/queued within this many days hard-blocks
@@ -136,9 +138,9 @@ export async function POST(
   const norm = await normalizePdf(rawBuf, { targetBytes: CINC_ATTACH_TARGET_BYTES }).catch(() => null)
   const buf  = norm?.buffer ?? rawBuf
   const pdfBase64 = buf.toString('base64')
-  if (pdfBase64.length > CINC_ATTACH_MAX_B64) {
+  if (buf.length > CINC_ATTACH_MAX_BYTES) {
     return NextResponse.json({
-      error: `Invoice PDF is ${(buf.length / 1024 / 1024).toFixed(1)} MB even after compression — over CINC's attachment limit. Replace it with a smaller / single-page scan and try again. Nothing was pushed to CINC.`,
+      error: `Invoice PDF is ${(buf.length / 1024 / 1024).toFixed(2)} MB even after compression — over CINC's ~1 MB attachment limit. Replace it with a smaller / single-page scan and try again. Nothing was pushed to CINC.`,
       pdfTooLarge: true,
       normalizeNote: norm?.note ?? 'normalize returned nothing',
     }, { status: 413 })
