@@ -843,12 +843,16 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           )
         })()}
 
-        {ticket.type === 'work_order' && (
-          <WorkOrderPhotos
-            ticketId={ticket.id}
-            hasCincWorkOrderId={!!ticket.cinc_workorder_id}
-          />
-        )}
+        {/* Photos & files — vendor-portal uploads (W-9 / COI / ACH / estimates),
+            plus email + staff attachments. Rendered for ALL ticket types, not
+            just work orders: attachments live in work_order_attachments keyed
+            by ticket_id, so a work order reclassified to a ticket must keep
+            showing its vendor docs (download links + thumbnails). The CINC
+            photo-sync affordance stays gated on hasCincWorkOrderId inside. */}
+        <WorkOrderPhotos
+          ticketId={ticket.id}
+          hasCincWorkOrderId={!!ticket.cinc_workorder_id}
+        />
 
         {ticket.type === 'work_order' && (() => {
           const sync = (ticket.sync_status ?? {}) as Record<string, { ok?: boolean; last_error?: string; last_synced_at?: string }>
