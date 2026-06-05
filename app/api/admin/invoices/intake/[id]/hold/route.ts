@@ -61,7 +61,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!ticketId && body.createTicket !== false) {
     try {
       const t = await createTicket({
-        type:            'work_order',
+        // A "vendor docs needed" follow-up is an admin/paperwork chase, NOT
+        // field maintenance — so it's a ticket, not a work order.
+        type:            'ticket',
         channel_origin:  'internal',
         priority:        'normal',
         association_code: assoc,

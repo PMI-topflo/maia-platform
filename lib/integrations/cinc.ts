@@ -1095,6 +1095,154 @@ export async function getCincVendorDetail(vendorId: number): Promise<CincVendorD
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Vendor compliance — insurance (COI) + licenses, read + push.
+// Powers: the On-Hold pre-check (don't ask for docs already on file &
+// valid), Paola's vendor-compliance audit, and the "Apply to CINC" COI/
+// license push from a vendor upload.
+// ─────────────────────────────────────────────────────────────────────
+const asStr  = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
+const asNum  = (v: unknown): number | null => (typeof v === 'number' ? v : (typeof v === 'string' && v.trim() ? Number(v) : null))
+function isoOrNull(v: unknown): string | null {
+  const s = asStr(v); if (!s) return null
+  const d = new Date(s); return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+function notExpired(iso: string | null): boolean | null {
+  if (!iso) return null
+  return new Date(iso).getTime() >= Date.now()
+}
+
+export interface CincVendorInsurance {
+  VendorInsuranceId: number | null
+  InsuranceTypeId:   number | null
+  policyNumber:      string | null
+  carrier:           string | null
+  expiration:        string | null   // ISO
+  assocCode:         string | null
+}
+export async function getVendorInsurances(vendorId: number): Promise<CincVendorInsurance[]> {
+  const raw = await call<unknown>('/management/1/vendors/vendorInsurance', {
+    method: 'GET', query: { vendorId: String(vendorId), returnFiles: 'false' },
+  }).catch(err => { if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) return null; throw err })
+  if (!raw) return []
+  const rows = Array.isArray(raw) ? raw : ((raw as { VendorInsurances?: unknown[] }).VendorInsurances ?? [])
+  return (rows as Record<string, unknown>[]).map(r => ({
+    VendorInsuranceId: asNum(r.VendorInsuranceId),
+    InsuranceTypeId:   asNum(r.InsuranceTypeId ?? r.InsuranceId),
+    policyNumber:      asStr(r.AccountNumber),
+    carrier:          asStr(r.InsuranceCarrier),
+    expiration:       isoOrNull(r.Expiration),
+    assocCode:        asStr(r.AssocCode),
+  }))
+}
+
+export interface CincVendorLicense {
+  VendorLicenseId: number | null
+  licenseType:     number | null
+  licenseTypeName: string | null
+  licenseNumber:   string | null
+  expiration:      string | null   // ISO
+}
+export async function getVendorLicenses(vendorId: number): Promise<CincVendorLicense[]> {
+  const raw = await call<unknown>('/management/1/vendors/vendorLicenses', {
+    method: 'GET', query: { vendorId: String(vendorId) },
+  }).catch(err => { if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) return null; throw err })
+  if (!raw) return []
+  const rows = Array.isArray(raw) ? raw : ((raw as { VendorLicenses?: unknown[] }).VendorLicenses ?? [])
+  return (rows as Record<string, unknown>[]).map(r => ({
+    VendorLicenseId: asNum(r.VendorLicenseId),
+    licenseType:     asNum(r.LicenseType),
+    licenseTypeName: asStr(r.LicenseTypeName),
+    licenseNumber:   asStr(r.LicenseNumber),
+    expiration:      isoOrNull(r.LicenseExpiration),
+  }))
+}
+
+let _insTypesCache: { types: { id: number; description: string }[]; expiresAt: number } | null = null
+export async function listVendorInsuranceTypes(): Promise<{ id: number; description: string }[]> {
+  if (_insTypesCache && _insTypesCache.expiresAt > Date.now()) return _insTypesCache.types
+  const raw = await call<unknown>('/management/1/vendors/vendorInsuranceTypes', { method: 'GET', query: {} }).catch(() => [])
+  const types = (Array.isArray(raw) ? raw : []).map(r => ({
+    id: asNum((r as Record<string, unknown>).InsuranceID) ?? 0,
+    description: asStr((r as Record<string, unknown>).InsuranceTypeDescription) ?? '',
+  })).filter(t => t.id)
+  _insTypesCache = { types, expiresAt: Date.now() + 60 * 60_000 }
+  return types
+}
+
+/** Aggregate read of a vendor's compliance state from CINC — what's on
+ *  file and whether it's still valid. `assocCode` (optional) narrows the
+ *  COI check to the insurance row(s) covering that association. */
+export interface VendorComplianceStatus {
+  vendorId: number
+  ach:      { onFile: boolean }
+  w9:       { onFile: boolean }
+  coi:      { onFile: boolean; expiration: string | null; valid: boolean | null; carrier: string | null }
+  license:  { onFile: boolean; expiration: string | null; valid: boolean | null }
+}
+export async function getVendorComplianceStatus(vendorId: number, assocCode?: string | null): Promise<VendorComplianceStatus> {
+  const [detail, insurances, licenses] = await Promise.all([
+    getCincVendorDetail(vendorId).catch(() => null),
+    getVendorInsurances(vendorId).catch(() => []),
+    getVendorLicenses(vendorId).catch(() => []),
+  ])
+  // COI: prefer a row scoped to this association, else the latest-expiring.
+  const relevant = assocCode
+    ? insurances.filter(i => (i.assocCode ?? '').toUpperCase() === assocCode.toUpperCase())
+    : insurances
+  const pool = relevant.length ? relevant : insurances
+  const coi = pool.slice().sort((a, b) => (b.expiration ?? '').localeCompare(a.expiration ?? ''))[0] ?? null
+  const lic = licenses.slice().sort((a, b) => (b.expiration ?? '').localeCompare(a.expiration ?? ''))[0] ?? null
+  return {
+    vendorId,
+    ach:     { onFile: !!(detail?.Routing && detail?.Account) },
+    w9:      { onFile: !!(detail?.TaxID && String(detail.TaxID).trim()) },
+    coi:     { onFile: !!coi, expiration: coi?.expiration ?? null, valid: notExpired(coi?.expiration ?? null), carrier: coi?.carrier ?? null },
+    license: { onFile: !!lic, expiration: lic?.expiration ?? null, valid: notExpired(lic?.expiration ?? null) },
+  }
+}
+
+/** Create a vendor license — POST /management/1/vendors/vendorLicense. */
+export async function createVendorLicense(input: {
+  vendorId: number; licenseType: number; licenseNumber?: string | null
+  licenseExpiration?: string | null; licenseDescription?: string | null; isLicenseRequired?: boolean
+}): Promise<void> {
+  await call<unknown>('/management/1/vendors/vendorLicense', {
+    method: 'POST',
+    json: {
+      VendorId:           input.vendorId,
+      LicenseType:        input.licenseType,
+      LicenseNumber:      input.licenseNumber ?? null,
+      LicenseExpiration:  input.licenseExpiration ?? null,
+      LicenseDescription: input.licenseDescription ?? null,
+      IsLicenseRequired:  input.isLicenseRequired ?? true,
+    },
+  })
+  invalidateVendorCache()
+}
+
+/** Push a COI (with the PDF as a byte array) into the vendor's CINC
+ *  insurance record — PATCH /vendors/vendorInsuranceUpdateByteArray. */
+export async function updateVendorInsuranceFile(input: {
+  vendorId: number; insuranceTypeId: number; policyNumber?: string | null
+  carrier?: string | null; expiration?: string | null; isRequired?: boolean
+  fileBase64: string; fileName: string
+}): Promise<void> {
+  await call<unknown>('/management/1/vendors/vendorInsuranceUpdateByteArray', {
+    method: 'PATCH',
+    json: {
+      VendorId:         input.vendorId,
+      InsuranceId:      input.insuranceTypeId,
+      AccountNumber:    input.policyNumber ?? null,
+      isRequired:       input.isRequired ?? true,
+      Expiration:       input.expiration ?? null,
+      InsuranceCarrier: input.carrier ?? null,
+      File:             input.fileBase64,
+      FileName:         input.fileName,
+    },
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Vendor accounts — GET /management/1/vendor/{vendorId}/accounts.
 // Per association, the vendor's CINC account number + the GL account it's
 // normally booked to. Powers the invoice-intake "suggested GL line" (match
