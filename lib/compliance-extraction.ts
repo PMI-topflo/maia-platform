@@ -14,6 +14,7 @@
 // =====================================================================
 
 import Anthropic from '@anthropic-ai/sdk'
+import { assertClaudeBudget } from '@/lib/anthropic-guard'
 
 const EXTRACT_MODEL = 'claude-haiku-4-5-20251001'
 
@@ -90,6 +91,7 @@ export async function extractComplianceDates(
     : { type: 'image' as const, source: { type: 'base64' as const, media_type: (mediaTypeFor(contentType)) , data: b64 } }
 
   const anthropic = new Anthropic()
+  await assertClaudeBudget('compliance-extraction')
   const msg = await anthropic.messages.create({
     model:      EXTRACT_MODEL,
     max_tokens: 400,

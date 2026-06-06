@@ -13,6 +13,7 @@
 
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { assertClaudeBudget } from '@/lib/anthropic-guard'
 import { addonStaffEmail } from '@/lib/addon-token'
 import { detectAssociationCode } from '@/lib/maia-command-processor'
 
@@ -42,6 +43,7 @@ export async function POST(req: Request) {
   if (process.env.ANTHROPIC_API_KEY && combined) {
     try {
       const anthropic = new Anthropic()
+      await assertClaudeBudget('route')
       const msg = await anthropic.messages.create({
         model: MODEL,
         max_tokens: 150,

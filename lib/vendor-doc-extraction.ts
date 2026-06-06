@@ -16,6 +16,7 @@
 // =====================================================================
 
 import Anthropic from '@anthropic-ai/sdk'
+import { assertClaudeBudget } from '@/lib/anthropic-guard'
 
 const EXTRACT_MODEL = 'claude-haiku-4-5-20251001'
 
@@ -111,6 +112,7 @@ export async function extractVendorDocument(
   let text = ''
   try {
     const anthropic = new Anthropic()
+    await assertClaudeBudget('vendor-doc-extraction')
     const msg = await anthropic.messages.create({
       model:      EXTRACT_MODEL,
       max_tokens: 600,

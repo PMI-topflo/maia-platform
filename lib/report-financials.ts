@@ -12,6 +12,7 @@
 // =====================================================================
 
 import Anthropic from '@anthropic-ai/sdk'
+import { assertClaudeBudget } from '@/lib/anthropic-guard'
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { normalizeUpload } from '@/lib/pdf-normalize'
@@ -124,6 +125,7 @@ export async function extractFinancialFigures(pdfBase64: string): Promise<Financ
     throw new Error('ANTHROPIC_API_KEY is not configured')
   }
   const anthropic = new Anthropic()
+  await assertClaudeBudget('report-financials')
   const msg = await anthropic.messages.create({
     model:      EXTRACT_MODEL,
     max_tokens: 1600,

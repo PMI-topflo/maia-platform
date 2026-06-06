@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { assertClaudeBudget } from '@/lib/anthropic-guard'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
@@ -229,6 +230,7 @@ RESPONSE RULES:
 
   let reply = ''
   try {
+    await assertClaudeBudget('chat')
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 512,

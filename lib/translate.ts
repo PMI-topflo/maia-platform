@@ -6,6 +6,7 @@
 // =====================================================================
 
 import Anthropic from '@anthropic-ai/sdk'
+import { assertClaudeBudget } from '@/lib/anthropic-guard'
 
 const MODEL = 'claude-haiku-4-5-20251001'
 
@@ -23,6 +24,7 @@ export async function translateToEnglish(text: string | null | undefined, source
   try {
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
     const from = sourceLang && LANG_NAMES[sourceLang] ? ` from ${LANG_NAMES[sourceLang]}` : ''
+    await assertClaudeBudget('translate')
     const resp = await anthropic.messages.create({
       model: MODEL, max_tokens: 1200,
       system: `Translate the user's text${from} to English. Output ONLY the English translation — no preamble, no quotes. If it is already English, return it unchanged.`,
