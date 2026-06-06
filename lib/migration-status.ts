@@ -1348,6 +1348,18 @@ end $$;
 grant execute on function public.record_ai_call(int) to service_role;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'gmail_cooldown',
+    label:       'Gmail 429 self-healing cooldown',
+    description: 'maia_watch_state.gmail_cooldown_until + staff_gmail_accounts.gmail_cooldown_until — when the webhook hits a Gmail rate-limit (429) it parks a cooldown until the Retry-After time and skips Gmail calls until then, so the per-user quota resets instead of being kept hot (2026-06-06 maia@ stall).',
+    filename:    '20260606_gmail_cooldown.sql',
+    artifact:    { type: 'column', table: 'maia_watch_state', column: 'gmail_cooldown_until' },
+    sql: `ALTER TABLE public.maia_watch_state
+  ADD COLUMN IF NOT EXISTS gmail_cooldown_until timestamptz;
+ALTER TABLE public.staff_gmail_accounts
+  ADD COLUMN IF NOT EXISTS gmail_cooldown_until timestamptz;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
