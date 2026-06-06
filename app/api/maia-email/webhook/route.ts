@@ -74,6 +74,21 @@ async function dismissEmailsDeletedInGmail(messageIds: string[]): Promise<number
 //
 // Required env vars: GMAIL_PUBSUB_SECRET
 
+// True when an error is a Gmail per-user rate limit (429 / RESOURCE_EXHAUSTED).
+function isRateLimit(msg: string): boolean {
+  return /\b429\b|rate.?limit|too many requests|quota|resource_exhausted/i.test(msg)
+}
+
+// When Gmail rate-limits us it returns "Retry after <ISO timestamp>". Park a
+// cooldown until then (+ a 30s buffer) so we stop hitting Gmail and let the
+// per-user quota reset. Falls back to now+5min if no timestamp is present.
+function cooldownUntil(msg: string): string {
+  const m = msg.match(/Retry after (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/)
+  const base = m ? new Date(m[1]).getTime() : Date.now() + 5 * 60_000
+  const until = Number.isFinite(base) ? base : Date.now() + 5 * 60_000
+  return new Date(until + 30_000).toISOString()
+}
+
 export async function POST(req: NextRequest) {
   // EMERGENCY KILL SWITCH — set MAIA_WEBHOOK_DISABLED=1 in the environment to
   // make this endpoint ack every Pub/Sub delivery (200) and do NOTHING: no
@@ -122,7 +137,7 @@ export async function POST(req: NextRequest) {
   // fetch-then-find in JS is cheap and avoids ilike wildcard pitfalls.
   const { data: staffAccounts } = await supabaseAdmin
     .from('staff_gmail_accounts')
-    .select('gmail_address, refresh_token, access_token, token_expiry, history_id')
+    .select('gmail_address, refresh_token, access_token, token_expiry, history_id, gmail_cooldown_until')
     .eq('active', true)
   const staffAccount = (staffAccounts ?? []).find(
     a => typeof a.gmail_address === 'string' && a.gmail_address.toLowerCase() === emailAddress,
@@ -136,11 +151,19 @@ export async function POST(req: NextRequest) {
   // Main PMI account — existing logic
   const { data: state } = await supabaseAdmin
     .from('maia_watch_state')
-    .select('last_history_id')
+    .select('last_history_id, gmail_cooldown_until')
     .eq('id', 1)
     .maybeSingle()
 
   const lastHistoryId = state?.last_history_id
+
+  // Self-healing cooldown: if we recently got rate-limited, ACK without
+  // touching Gmail until the Retry-After time passes — so the per-user quota
+  // gets a quiet window to reset instead of being re-tripped on every
+  // notification. The cursor stays put; we resume once the cooldown expires.
+  if (state?.gmail_cooldown_until && new Date(state.gmail_cooldown_until as string).getTime() > Date.now()) {
+    return NextResponse.json({ ok: true, cooling_down_until: state.gmail_cooldown_until })
+  }
 
   // First-ever notification: just establish the baseline.
   if (!lastHistoryId) {
@@ -156,12 +179,15 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[maia-webhook] History API error:', msg)
-    // Gmail RATE LIMIT (429): ACK with 200 so Pub/Sub does NOT redeliver.
-    // Redelivering on a 429 just re-hits the already-rate-limited History
-    // endpoint, amplifying the limit into a self-sustaining error storm.
-    // The cursor stays put (we never advanced), so the next notification —
-    // after the limit clears — catches up from the same point.
-    if (/\b429\b|rate.?limit|too many requests|quota/i.test(msg)) {
+    // Gmail RATE LIMIT (429): park a cooldown until the Retry-After time and
+    // ACK with 200. Redelivering on a 429 just re-hits the already-limited
+    // endpoint (amplifying it); skipping Gmail entirely until the cooldown
+    // expires lets the quota reset. Cursor stays put → catches up after.
+    if (isRateLimit(msg)) {
+      await supabaseAdmin
+        .from('maia_watch_state')
+        .upsert({ id: 1, gmail_cooldown_until: cooldownUntil(msg), updated_at: new Date().toISOString() })
+      console.warn(`[maia-webhook] Gmail rate-limited — cooling down until ${cooldownUntil(msg)}`)
       return NextResponse.json({ ok: true, rateLimited: true })
     }
     // Other transient errors: 500 so Pub/Sub retries from the same cursor.
@@ -239,6 +265,7 @@ type StaffAccountRow = {
   access_token:  string | null
   token_expiry:  string | null
   history_id:    string | null
+  gmail_cooldown_until?: string | null
 }
 
 async function getValidStaffToken(account: StaffAccountRow): Promise<string> {
@@ -257,6 +284,12 @@ async function getValidStaffToken(account: StaffAccountRow): Promise<string> {
 }
 
 async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId: string) {
+  // Self-healing cooldown — skip Gmail entirely while this account is rate-
+  // limited, so its per-user quota can reset (same as the main-account path).
+  if (account.gmail_cooldown_until && new Date(account.gmail_cooldown_until).getTime() > Date.now()) {
+    return
+  }
+
   const lastHistoryId = account.history_id
   if (!lastHistoryId) {
     // First notification — set baseline, nothing to process yet
@@ -294,7 +327,17 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error(`[staff-gmail] History API error for ${account.gmail_address}:`, msg)
-    return  // transient (incl. 429) — no 500 here, so no Pub/Sub redelivery storm on this path
+    // On a Gmail rate-limit, park a cooldown so we stop hitting this account's
+    // quota until the Retry-After passes (lets it reset). Other errors: just
+    // return (no 500, so no Pub/Sub redelivery storm on this path).
+    if (isRateLimit(msg)) {
+      await supabaseAdmin
+        .from('staff_gmail_accounts')
+        .update({ gmail_cooldown_until: cooldownUntil(msg), updated_at: new Date().toISOString() })
+        .eq('gmail_address', account.gmail_address)
+      console.warn(`[staff-gmail] ${account.gmail_address} rate-limited — cooling down until ${cooldownUntil(msg)}`)
+    }
+    return
   }
 
   let messageIds  = changes.added
