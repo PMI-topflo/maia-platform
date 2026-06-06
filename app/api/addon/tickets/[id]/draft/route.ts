@@ -12,6 +12,7 @@
 
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { assertClaudeBudget } from '@/lib/anthropic-guard'
 import { addonStaffEmail } from '@/lib/addon-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 
@@ -72,6 +73,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   try {
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    await assertClaudeBudget('route')
     const resp = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 800,

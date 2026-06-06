@@ -12,6 +12,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import Anthropic from '@anthropic-ai/sdk'
+import { assertClaudeBudget } from '@/lib/anthropic-guard'
 
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
@@ -116,6 +117,7 @@ in one short line rather than omitting the section. Do not invent figures. ${fin
   const anthropic = new Anthropic()
   let reportMarkdown: string
   try {
+    await assertClaudeBudget('route')
     const msg = await anthropic.messages.create({
       model:      'claude-sonnet-4-20250514',
       max_tokens: 4000,

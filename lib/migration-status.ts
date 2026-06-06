@@ -1321,6 +1321,33 @@ CREATE UNIQUE INDEX IF NOT EXISTS tickets_recon_daily_uniq
   WHERE recon_date IS NOT NULL;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'ai_call_circuit_breaker',
+    label:       'Global Claude circuit breaker',
+    description: 'ai_call_log table + record_ai_call(p_cap) function — global rolling 5-minute cap on Claude API calls (backs lib/anthropic-guard.ts). Applying this ARMS the breaker; until then the guard fails open. Backstop against runaway API spend (2026-06-06 webhook-loop incident).',
+    filename:    '20260606_ai_call_circuit_breaker.sql',
+    artifact:    { type: 'table', table: 'ai_call_log' },
+    sql: `create table if not exists public.ai_call_log (
+  minute_bucket timestamptz primary key,
+  call_count    int not null default 0
+);
+create index if not exists ai_call_log_recent_idx on public.ai_call_log (minute_bucket desc);
+grant select, insert, update, delete on public.ai_call_log to service_role;
+create or replace function public.record_ai_call(p_cap int)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare total int;
+begin
+  insert into public.ai_call_log (minute_bucket, call_count)
+    values (date_trunc('minute', now()), 1)
+    on conflict (minute_bucket) do update set call_count = public.ai_call_log.call_count + 1;
+  select coalesce(sum(call_count), 0) into total
+    from public.ai_call_log where minute_bucket > now() - interval '5 minutes';
+  delete from public.ai_call_log where minute_bucket < now() - interval '1 hour';
+  return total <= p_cap;
+end $$;
+grant execute on function public.record_ai_call(int) to service_role;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

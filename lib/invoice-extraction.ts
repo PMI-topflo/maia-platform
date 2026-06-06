@@ -15,6 +15,7 @@
 // =====================================================================
 
 import Anthropic from '@anthropic-ai/sdk'
+import { assertClaudeBudget } from '@/lib/anthropic-guard'
 
 const EXTRACT_MODEL = 'claude-haiku-4-5-20251001'
 
@@ -56,6 +57,7 @@ export async function extractInvoiceFields(pdfBase64: string): Promise<Extracted
     throw new Error('ANTHROPIC_API_KEY is not configured')
   }
   const anthropic = new Anthropic()
+  await assertClaudeBudget('invoice-extraction')
   const msg = await anthropic.messages.create({
     model:      EXTRACT_MODEL,
     max_tokens: 600,

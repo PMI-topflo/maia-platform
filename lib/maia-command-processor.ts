@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { assertClaudeBudget } from '@/lib/anthropic-guard'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { logEmail } from '@/lib/email-logger'
@@ -297,6 +298,7 @@ Return ONLY valid JSON, no markdown, no explanation:
 }`
 
 async function extractWithClaude(emailContent: string): Promise<ExtractedRecord> {
+  await assertClaudeBudget('maia-command-processor')
   const message = await anthropic.messages.create({
     model:      'claude-haiku-4-5-20251001',
     max_tokens: 1024,
@@ -1296,6 +1298,7 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
 
     const skillsBlock = await buildSkillsPromptBlock('internal')
     const officeBlock = buildOfficeHoursBlock()
+    await assertClaudeBudget('maia-command-processor')
     const message = await anthropic.messages.create({
       model:      'claude-sonnet-4-20250514',
       max_tokens: 1024,
@@ -1668,6 +1671,7 @@ Return ONLY valid JSON, no markdown:
 }`
 
 async function extractBoardUpdate(emailContent: string): Promise<ExtractedBoardUpdate> {
+  await assertClaudeBudget('maia-command-processor')
   const message = await anthropic.messages.create({
     model:       'claude-haiku-4-5-20251001',
     max_tokens:  1024,
