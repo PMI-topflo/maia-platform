@@ -74,7 +74,23 @@ async function dismissEmailsDeletedInGmail(messageIds: string[]): Promise<number
 //
 // Required env vars: GMAIL_PUBSUB_SECRET
 
+// Hard cap on messages processed per webhook invocation. A normal Pub/Sub
+// notification covers a few new messages; anything beyond this in a single
+// call is throttled so one invocation can't fan out into dozens of Claude
+// calls — and can't blow the 60s Pub/Sub ack deadline, which previously let
+// the SAME batch get redelivered + reprocessed indefinitely (a runaway Haiku
+// loop). Excess messages are picked up by the next notification / resync.
+const MAX_MESSAGES_PER_INVOCATION = 15
+
 export async function POST(req: NextRequest) {
+  // EMERGENCY KILL SWITCH — set MAIA_WEBHOOK_DISABLED=1 in the environment to
+  // make this endpoint ack every Pub/Sub delivery (200) and do NOTHING: no
+  // Gmail fetch, no Claude calls. Instantly halts any processing loop /
+  // runaway API spend. Pub/Sub stops redelivering because we ack with 200.
+  if (process.env.MAIA_WEBHOOK_DISABLED === '1') {
+    return NextResponse.json({ ok: true, disabled: true })
+  }
+
   const secret = process.env.GMAIL_PUBSUB_SECRET
   if (secret) {
     const token = req.nextUrl.searchParams.get('token')
@@ -182,6 +198,28 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Cap the batch so one invocation can't fan out into dozens of Claude
+  // calls or blow the ack deadline. Excess is caught by the next sync.
+  let capped = false
+  if (messageIds.length > MAX_MESSAGES_PER_INVOCATION) {
+    capped = true
+    console.warn(`[maia-webhook] capping ${messageIds.length} messages to ${MAX_MESSAGES_PER_INVOCATION} this invocation`)
+    messageIds = messageIds.slice(0, MAX_MESSAGES_PER_INVOCATION)
+  }
+
+  // Advance the cursor BEFORE processing. The Gmail history fetch already
+  // succeeded (a fetch error 500s above and Pub/Sub retries from the same
+  // cursor), so we have the message ids in hand. Committing the new cursor
+  // now means a Pub/Sub redelivery — or a slow batch that overruns the 60s
+  // ack deadline — can't replay this same batch and re-call Claude on every
+  // message. Reprocessing was the runaway-cost loop; processEmailCommand is
+  // already idempotent (UNIQUE on gmail_message_id), so the worst case of an
+  // early advance is a rare missed message, recoverable via resync — far
+  // cheaper than an infinite reprocess.
+  await supabaseAdmin
+    .from('maia_watch_state')
+    .upsert({ id: 1, last_history_id: newHistoryId, updated_at: new Date().toISOString() })
+
   for (const id of messageIds) {
     try {
       await processEmailCommand(id)
@@ -199,13 +237,7 @@ export async function POST(req: NextRequest) {
     dismissed = await dismissEmailsDeletedInGmail(changes.removed)
   }
 
-  // Advance the cursor only after we got the messages back. If the request
-  // above 500'd, we never reach here, so Pub/Sub retries with the same start.
-  await supabaseAdmin
-    .from('maia_watch_state')
-    .upsert({ id: 1, last_history_id: newHistoryId, updated_at: new Date().toISOString() })
-
-  return NextResponse.json({ ok: true, processed: messageIds.length, dismissed })
+  return NextResponse.json({ ok: true, processed: messageIds.length, dismissed, capped })
 }
 
 // ── Staff account email processing ───────────────────────────────────────────
@@ -287,6 +319,18 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
       return
     }
   }
+
+  // Cap + advance the cursor BEFORE processing — same anti-runaway-loop fix
+  // as the main account path. A redelivery (or a batch that overruns the 60s
+  // ack deadline) must not replay the same messages and re-call Claude.
+  if (messageIds.length > MAX_MESSAGES_PER_INVOCATION) {
+    console.warn(`[staff-gmail] capping ${messageIds.length} messages to ${MAX_MESSAGES_PER_INVOCATION} for ${account.gmail_address}`)
+    messageIds = messageIds.slice(0, MAX_MESSAGES_PER_INVOCATION)
+  }
+  await supabaseAdmin
+    .from('staff_gmail_accounts')
+    .update({ history_id: newHistoryId, updated_at: new Date().toISOString() })
+    .eq('gmail_address', account.gmail_address)
 
   for (const id of messageIds) {
     try {
