@@ -234,7 +234,10 @@ RESPONSE RULES:
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 512,
-      system: systemPrompt,
+      // Prompt caching: the system prompt (instructions + skills block) is
+      // identical across every turn of a conversation, so cache it — turns
+      // 2+ within the 5-min window bill its input tokens at ~10% on a hit.
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
       messages: messages.map((m: { role: string; content: string }) => ({
         role: m.role as 'user' | 'assistant',
         content: m.content,

@@ -1299,10 +1299,20 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
     const skillsBlock = await buildSkillsPromptBlock('internal')
     const officeBlock = buildOfficeHoursBlock()
     await assertClaudeBudget('maia-command-processor')
+    // Prompt caching: the big static prefix (general instructions + office
+    // hours + skills + escalation) is identical across freeform calls, so we
+    // mark it cache_control:ephemeral — repeated calls within the 5-min cache
+    // window bill its input tokens at ~10% on a hit (this is Sonnet, the
+    // priciest model). The per-email DETECTED ASSOCIATION block varies, so it
+    // goes last as a separate, uncached block (keeping the cached prefix stable).
+    const staticSystem = GENERAL_SYSTEM_PROMPT + officeBlock + skillsBlock + ESCALATION_INSTRUCTION
     const message = await anthropic.messages.create({
       model:      'claude-sonnet-4-20250514',
       max_tokens: 1024,
-      system:     GENERAL_SYSTEM_PROMPT + assocBlock + officeBlock + skillsBlock + ESCALATION_INSTRUCTION,
+      system: [
+        { type: 'text', text: staticSystem, cache_control: { type: 'ephemeral' } },
+        ...(assocBlock ? [{ type: 'text' as const, text: assocBlock }] : []),
+      ],
       messages,
     })
 
