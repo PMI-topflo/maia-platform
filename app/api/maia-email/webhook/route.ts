@@ -154,9 +154,17 @@ export async function POST(req: NextRequest) {
   try {
     changes = await fetchGmailHistory(lastHistoryId)
   } catch (err) {
-    // Transient Gmail API error — return non-200 so Pub/Sub retries with the
-    // same notification (and our cursor stays put).
-    console.error('[maia-webhook] History API error:', err)
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[maia-webhook] History API error:', msg)
+    // Gmail RATE LIMIT (429): ACK with 200 so Pub/Sub does NOT redeliver.
+    // Redelivering on a 429 just re-hits the already-rate-limited History
+    // endpoint, amplifying the limit into a self-sustaining error storm.
+    // The cursor stays put (we never advanced), so the next notification —
+    // after the limit clears — catches up from the same point.
+    if (/\b429\b|rate.?limit|too many requests|quota/i.test(msg)) {
+      return NextResponse.json({ ok: true, rateLimited: true })
+    }
+    // Other transient errors: 500 so Pub/Sub retries from the same cursor.
     return NextResponse.json({ ok: false, error: 'history_fetch_failed' }, { status: 500 })
   }
 
@@ -263,7 +271,20 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
   try {
     accessToken = await getValidStaffToken(account)
   } catch (err) {
-    console.error(`[staff-gmail] Token refresh failed for ${account.gmail_address}:`, err)
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error(`[staff-gmail] Token refresh failed for ${account.gmail_address}:`, msg)
+    // A revoked / expired refresh token (Google `invalid_grant`) is permanent:
+    // it will fail on EVERY future notification, churning oauth2 calls + error
+    // logs until someone re-auths. Deactivate the account so we stop retrying;
+    // the staff Gmail re-connect flow sets active=true again with a fresh
+    // token. Other (transient) errors just log + retry on the next push.
+    if (/invalid_grant/i.test(msg)) {
+      await supabaseAdmin
+        .from('staff_gmail_accounts')
+        .update({ active: false, last_watch_error: msg.slice(0, 500), last_watch_error_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('gmail_address', account.gmail_address)
+      console.warn(`[staff-gmail] deactivated ${account.gmail_address} (dead refresh token — reconnect to re-enable)`)
+    }
     return
   }
 
@@ -271,8 +292,9 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
   try {
     changes = await fetchGmailHistoryWithToken(lastHistoryId, accessToken)
   } catch (err) {
-    console.error(`[staff-gmail] History API error for ${account.gmail_address}:`, err)
-    return
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error(`[staff-gmail] History API error for ${account.gmail_address}:`, msg)
+    return  // transient (incl. 429) — no 500 here, so no Pub/Sub redelivery storm on this path
   }
 
   let messageIds  = changes.added
