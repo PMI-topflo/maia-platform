@@ -74,14 +74,6 @@ async function dismissEmailsDeletedInGmail(messageIds: string[]): Promise<number
 //
 // Required env vars: GMAIL_PUBSUB_SECRET
 
-// Hard cap on messages processed per webhook invocation. A normal Pub/Sub
-// notification covers a few new messages; anything beyond this in a single
-// call is throttled so one invocation can't fan out into dozens of Claude
-// calls — and can't blow the 60s Pub/Sub ack deadline, which previously let
-// the SAME batch get redelivered + reprocessed indefinitely (a runaway Haiku
-// loop). Excess messages are picked up by the next notification / resync.
-const MAX_MESSAGES_PER_INVOCATION = 15
-
 export async function POST(req: NextRequest) {
   // EMERGENCY KILL SWITCH — set MAIA_WEBHOOK_DISABLED=1 in the environment to
   // make this endpoint ack every Pub/Sub delivery (200) and do NOTHING: no
@@ -198,15 +190,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Cap the batch so one invocation can't fan out into dozens of Claude
-  // calls or blow the ack deadline. Excess is caught by the next sync.
-  let capped = false
-  if (messageIds.length > MAX_MESSAGES_PER_INVOCATION) {
-    capped = true
-    console.warn(`[maia-webhook] capping ${messageIds.length} messages to ${MAX_MESSAGES_PER_INVOCATION} this invocation`)
-    messageIds = messageIds.slice(0, MAX_MESSAGES_PER_INVOCATION)
-  }
-
   // Advance the cursor BEFORE processing. The Gmail history fetch already
   // succeeded (a fetch error 500s above and Pub/Sub retries from the same
   // cursor), so we have the message ids in hand. Committing the new cursor
@@ -237,7 +220,7 @@ export async function POST(req: NextRequest) {
     dismissed = await dismissEmailsDeletedInGmail(changes.removed)
   }
 
-  return NextResponse.json({ ok: true, processed: messageIds.length, dismissed, capped })
+  return NextResponse.json({ ok: true, processed: messageIds.length, dismissed })
 }
 
 // ── Staff account email processing ───────────────────────────────────────────
@@ -320,13 +303,9 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
     }
   }
 
-  // Cap + advance the cursor BEFORE processing — same anti-runaway-loop fix
-  // as the main account path. A redelivery (or a batch that overruns the 60s
-  // ack deadline) must not replay the same messages and re-call Claude.
-  if (messageIds.length > MAX_MESSAGES_PER_INVOCATION) {
-    console.warn(`[staff-gmail] capping ${messageIds.length} messages to ${MAX_MESSAGES_PER_INVOCATION} for ${account.gmail_address}`)
-    messageIds = messageIds.slice(0, MAX_MESSAGES_PER_INVOCATION)
-  }
+  // Advance the cursor BEFORE processing — same anti-runaway-loop fix as the
+  // main account path. A redelivery (or a batch that overruns the 60s ack
+  // deadline) must not replay the same messages and re-call Claude.
   await supabaseAdmin
     .from('staff_gmail_accounts')
     .update({ history_id: newHistoryId, updated_at: new Date().toISOString() })
