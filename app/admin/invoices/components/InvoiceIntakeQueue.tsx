@@ -102,7 +102,7 @@ const TABS: Array<{ key: string; label: string }> = [
   { key: 'pending_review',    label: 'Pending review' },
   { key: 'on_hold',           label: 'On hold' },
   { key: 'ready_to_push',     label: 'Ready to push' },
-  { key: 'pushed_to_cinc',    label: 'Pushed' },
+  { key: 'pushed_to_cinc',    label: 'Archived' },   // pushed-to-CINC invoices are the archive (renamed from 'Pushed')
   { key: 'rejected',          label: 'Rejected' },
 ]
 
