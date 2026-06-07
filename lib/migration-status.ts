@@ -1360,6 +1360,20 @@ ALTER TABLE public.staff_gmail_accounts
   ADD COLUMN IF NOT EXISTS gmail_cooldown_until timestamptz;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'invoice_dedup_by_filename',
+    label:       'Invoice intake dedup by stable filename',
+    description: 'invoice_intake_drafts.attachment_filename + unique index (gmail_message_id, attachment_filename). Fixes the 2026-06-07 mass-duplicate incident: Gmail attachmentId is volatile (changes every fetch), so the old (message_id, attachment_id) dedup never matched and each reprocess inserted a fresh dup. Filename is stable. Apply BEFORE re-enabling maia@ intake.',
+    filename:    '20260607_invoice_dedup_by_filename.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'attachment_filename' },
+    sql: `ALTER TABLE public.invoice_intake_drafts
+  ADD COLUMN IF NOT EXISTS attachment_filename text;
+DROP INDEX IF EXISTS public.invoice_intake_drafts_gmail_msg_att_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS invoice_intake_drafts_msg_filename_uniq
+  ON public.invoice_intake_drafts (gmail_message_id, attachment_filename)
+  WHERE attachment_filename IS NOT NULL;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

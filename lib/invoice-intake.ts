@@ -91,16 +91,22 @@ export async function handleInvoiceIntake(
   // gmail_attachment_id. If EVERY existing draft for this message is
   // legacy (no attachment id), treat the email as already fully processed
   // — the old one-draft-per-email behavior — so we never duplicate it.
+  // Dedup on the STABLE attachment FILENAME, NOT Gmail's attachmentId —
+  // attachmentId changes on every messages.get, so keying on it let every
+  // reprocess insert a fresh duplicate (the 2026-06-07 88×-dup incident).
   const { data: existingRows } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('gmail_attachment_id')
+    .select('attachment_filename')
     .eq('gmail_message_id', parsed.messageId)
   const existed = existingRows ?? []
-  const doneAttachmentIds = new Set(
-    existed.map(r => r.gmail_attachment_id as string | null).filter(Boolean) as string[],
+  const doneFilenames = new Set(
+    existed.map(r => r.attachment_filename as string | null).filter(Boolean) as string[],
   )
-  if (existed.length > 0 && doneAttachmentIds.size === 0) {
-    console.log(`[invoice-intake] msg=${parsed.messageId} already has a legacy draft — skipping`)
+  // Rows from before this fix carry a NULL attachment_filename. If EVERY
+  // existing draft for this message is legacy (no filename), treat the email
+  // as already fully processed — never re-duplicate it.
+  if (existed.length > 0 && doneFilenames.size === 0) {
+    console.log(`[invoice-intake] msg=${parsed.messageId} already has a legacy/pre-fix draft — skipping`)
     return { created: 0, skipped: parsed.attachments.length, reason: 'already-processed' }
   }
 
@@ -110,8 +116,9 @@ export async function handleInvoiceIntake(
   const eligible = parsed.attachments.filter(a =>
     (a.mimeType.toLowerCase() === 'application/pdf' || isInvoiceImage(a)) && a.size <= MAX_PDF_BYTES,
   )
-  // Skip attachments that already produced a draft (redelivery / reprocess).
-  const todo = eligible.filter(a => !doneAttachmentIds.has(a.attachmentId))
+  // Skip attachments that already produced a draft (redelivery / reprocess) —
+  // matched by stable filename.
+  const todo = eligible.filter(a => !doneFilenames.has(a.filename))
   console.log(
     `[invoice-intake] msg=${parsed.messageId} attachments=${parsed.attachments.length} ` +
     `eligible=${eligible.length} alreadyDrafted=${eligible.length - todo.length} toProcess=${todo.length}`,
@@ -207,8 +214,10 @@ async function processOnePdf(opts: {
   const b64  = buf.toString('base64')
 
   // Storage first (so we can re-push later even if extraction/CINC errors).
-  // Path includes message + attachment id for uniqueness across retries.
-  const storageKey = `${parsed.messageId}/${att.attachmentId}/${safeFilename(fileName)}`
+  // Path keyed by message + FILENAME (stable). NOT attachmentId — that
+  // changes per fetch, so it used to orphan a new file on every reprocess.
+  // upsert:true means a reprocess overwrites the same object in place.
+  const storageKey = `${parsed.messageId}/${safeFilename(fileName)}`
   const upload = await supabaseAdmin.storage
     .from(STORAGE_BUCKET)
     .upload(storageKey, buf, { contentType: 'application/pdf', upsert: true })
@@ -261,7 +270,8 @@ async function processOnePdf(opts: {
 
   const { error: insertErr } = await supabaseAdmin.from('invoice_intake_drafts').insert({
     gmail_message_id:           parsed.messageId,
-    gmail_attachment_id:        att.attachmentId,   // per-attachment dedupe key
+    gmail_attachment_id:        att.attachmentId,   // kept for reference (volatile — NOT the dedup key)
+    attachment_filename:        att.filename,       // STABLE per-attachment dedup key
     pdf_storage_key:            upload.error ? null : storageKey,
     extracted_vendor_name:      extracted.vendorName,
     matched_cinc_vendor_id:     matched ? String(matched.VendorId) : null,
