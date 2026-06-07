@@ -47,6 +47,15 @@ const MAIN_ACCOUNT = 'maia@pmitop.com'
 // gap is small; this just bounds a pathological run.
 const BACKFILL_CAP = 300
 
+function isRateLimit(msg: string): boolean {
+  return /\b429\b|rate.?limit|too many requests|quota|resource_exhausted/i.test(msg)
+}
+function cooldownUntil(msg: string): string {
+  const m = msg.match(/Retry after (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/)
+  const base = m ? new Date(m[1]).getTime() : Date.now() + 5 * 60_000
+  return new Date((Number.isFinite(base) ? base : Date.now() + 5 * 60_000) + 30_000).toISOString()
+}
+
 interface InboundRow {
   id:               string
   gmail_message_id: string | null
@@ -68,6 +77,17 @@ export async function POST(
   const addr      = decodeURIComponent(email).trim().toLowerCase()
   if (!addr.includes('@')) {
     return NextResponse.json({ error: 'Invalid email' }, { status: 400 })
+  }
+
+  // Respect the Gmail cooldown — if this account was recently rate-limited,
+  // don't hit Gmail again (that re-trips it). Report and bail.
+  const cdField = addr === MAIN_ACCOUNT
+    ? (await supabaseAdmin.from('maia_watch_state').select('gmail_cooldown_until').eq('id', 1).maybeSingle()).data
+    : (await supabaseAdmin.from('staff_gmail_accounts').select('gmail_cooldown_until').ilike('gmail_address', addr).maybeSingle()).data
+  const cd = (cdField as Record<string, unknown> | null)?.gmail_cooldown_until as string | null
+  if (cd && new Date(cd).getTime() > Date.now()) {
+    const mins = Math.max(0, Math.round((new Date(cd).getTime() - Date.now()) / 60000))
+    return NextResponse.json({ ok: false, coolingDown: true, cooldownUntil: cd, error: `Gmail is rate-limiting this account — cooling down ~${mins} min (until ${cd}). Sync skipped so the limit can reset; it auto-resumes.` })
   }
 
   // 1. The live INBOX: message ids (authoritative) plus a best-effort
@@ -96,7 +116,18 @@ export async function POST(
       inboxIds = new Set(live.ids); inboxDates = live.dates
     }
   } catch (err) {
-    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : String(err) })
+    const m = err instanceof Error ? err.message : String(err)
+    // On a Gmail 429, record a cooldown so the panel + future syncs back off.
+    if (isRateLimit(m)) {
+      const until = cooldownUntil(m)
+      if (addr === MAIN_ACCOUNT) {
+        await supabaseAdmin.from('maia_watch_state').upsert({ id: 1, gmail_cooldown_until: until, updated_at: new Date().toISOString() })
+      } else {
+        await supabaseAdmin.from('staff_gmail_accounts').update({ gmail_cooldown_until: until, updated_at: new Date().toISOString() }).ilike('gmail_address', addr)
+      }
+      return NextResponse.json({ ok: false, coolingDown: true, cooldownUntil: until, error: `Gmail rate-limited this account — cooling down until ${until}. Sync skipped so the limit can reset.` })
+    }
+    return NextResponse.json({ ok: false, error: m })
   }
 
   const fetchMsg = (id: string) =>

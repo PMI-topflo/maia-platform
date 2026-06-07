@@ -11,6 +11,7 @@ interface BatchResult {
   batch_size: number
 }
 
+interface GmailHealth { level: 'ok' | 'cooling' | 'warn' | 'error' | 'off'; text: string; cooldownUntil: string | null }
 interface GmailAccount {
   id: string
   gmail_address: string
@@ -22,7 +23,18 @@ interface GmailAccount {
   last_watch_renewed_at?: string | null
   last_watch_error?:      string | null
   last_watch_error_at?:   string | null
+  logged_30d?:            number
+  health?:                GmailHealth
 }
+interface GmailMain {
+  gmail_address: string
+  logged_30d?:   number
+  health?:       GmailHealth
+}
+// Passive-health badge colors (no Gmail call — derived from the DB).
+const HEALTH_BG: Record<GmailHealth['level'], string> = { ok: '#f0fdf4', cooling: '#eff6ff', warn: '#fffbeb', error: '#fef2f2', off: '#f3f4f6' }
+const HEALTH_BD: Record<GmailHealth['level'], string> = { ok: '#bbf7d0', cooling: '#bfdbfe', warn: '#fde68a', error: '#fecaca', off: '#e5e7eb' }
+const HEALTH_FG: Record<GmailHealth['level'], string> = { ok: '#15803d', cooling: '#1d4ed8', warn: '#92400e', error: '#991b1b', off: '#6b7280' }
 
 export default function AdminToolsPage() {
   const [running, setRunning]     = useState(false)
@@ -34,6 +46,7 @@ export default function AdminToolsPage() {
 
   // Gmail accounts state
   const [gmailAccounts, setGmailAccounts]       = useState<GmailAccount[]>([])
+  const [gmailMain, setGmailMain]               = useState<GmailMain | null>(null)
   const [gmailLoading, setGmailLoading]         = useState(true)
   const [gmailMsg, setGmailMsg]                 = useState<string | null>(null)
 
@@ -228,7 +241,7 @@ export default function AdminToolsPage() {
     // Fetch connected accounts
     fetch('/api/admin/gmail-accounts')
       .then(r => r.json())
-      .then(d => setGmailAccounts(d.accounts ?? []))
+      .then(d => { setGmailAccounts(d.accounts ?? []); setGmailMain(d.main ?? null) })
       .catch(() => setGmailMsg('Failed to load connected accounts'))
       .finally(() => setGmailLoading(false))
 
@@ -270,6 +283,7 @@ export default function AdminToolsPage() {
       // even after the server stamped the invalid_grant error.
       const r = await fetch('/api/admin/gmail-accounts').then(x => x.json())
       setGmailAccounts(r.accounts ?? [])
+      setGmailMain(r.main ?? null)
 
       if (data.ok) {
         setGmailMsg(`✅ ${gmail_address} watch renewed`)
@@ -615,6 +629,15 @@ export default function AdminToolsPage() {
                   <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: 2 }}>
                     The @maia command channel — separate from the connected staff inboxes below.
                   </div>
+                  {/* PASSIVE health — derived from the DB on load, no Gmail call.
+                      Glance here to see status without clicking Diagnose (which
+                      hits Gmail live and can re-trip a rate limit). */}
+                  {gmailMain?.health && (
+                    <div style={{ marginTop: 6, padding: '6px 9px', borderRadius: 4, fontSize: '0.72rem', fontWeight: 600,
+                      background: HEALTH_BG[gmailMain.health.level], border: `1px solid ${HEALTH_BD[gmailMain.health.level]}`, color: HEALTH_FG[gmailMain.health.level] }}>
+                      {gmailMain.health.text}
+                    </div>
+                  )}
                   {diagnosis['maia@pmitop.com'] && (() => {
                     const d    = diagnosis['maia@pmitop.com']
                     const bad  = !!d.error || /BREAK FOUND|FAILED/.test(d.verdict)
@@ -732,6 +755,13 @@ export default function AdminToolsPage() {
                           <span> · last renewed {new Date(acct.last_watch_renewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                         )}
                       </div>
+                      {/* PASSIVE health (DB-derived, no Gmail call) — incl. cooldown. */}
+                      {acct.health && (
+                        <div style={{ marginTop: 6, padding: '5px 8px', borderRadius: 4, fontSize: '0.72rem', fontWeight: 600,
+                          background: HEALTH_BG[acct.health.level], border: `1px solid ${HEALTH_BD[acct.health.level]}`, color: HEALTH_FG[acct.health.level] }}>
+                          {acct.health.text}
+                        </div>
+                      )}
                       {acct.last_watch_error && (
                         <div style={{
                           marginTop: 6, padding: '6px 8px',
