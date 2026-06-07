@@ -105,6 +105,13 @@ export interface StaffMember {
   role:  string | null
 }
 
+export interface TicketPager {
+  prevId:   number | null   // newer sibling (up the list)
+  nextId:   number | null   // older sibling (down the list)
+  position: number          // 1-based index within the sequence
+  total:    number
+}
+
 export interface TicketDetailData {
   ticket:           TicketRecord
   messages:         MessageRecord[]
@@ -113,6 +120,7 @@ export interface TicketDetailData {
   staff:            StaffMember[]
   associationName:  string | null
   associations:     AssociationOption[]
+  pager:            TicketPager | null
 }
 
 const STATUS_OPTIONS   = ['open', 'pending', 'waiting_external', 'resolved', 'closed']
@@ -169,7 +177,7 @@ function fmtAddress(wo: WorkOrderRecord): string | null {
 
 export default function TicketDetailClient({ data }: { data: TicketDetailData }) {
   const router = useRouter()
-  const { ticket, messages, events, workOrder, staff, associationName, associations } = data
+  const { ticket, messages, events, workOrder, staff, associationName, associations, pager } = data
 
   const [status,        setStatus]        = useState(ticket.status)
   const [priority,      setPriority]      = useState(ticket.priority)
@@ -308,6 +316,22 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
       .finally(() => setWoTypesLoading(false))
   }, [ticket.type, woTypes.length, woTypesLoading])
 
+  // Keyboard pager: ← previous, → next sibling. Ignored while typing in a
+  // field or with a modifier held, so it never hijacks normal editing.
+  useEffect(() => {
+    if (!pager) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const el  = e.target as HTMLElement | null
+      const tag = el?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
+      if (e.key === 'ArrowLeft'  && pager.prevId) { e.preventDefault(); router.push(`/admin/tickets/${pager.prevId}`) }
+      if (e.key === 'ArrowRight' && pager.nextId) { e.preventDefault(); router.push(`/admin/tickets/${pager.nextId}`) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pager, router])
+
   async function patch(field: string, value: string | null) {
     setSaving(field)
     setError(null)
@@ -445,6 +469,35 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
                 ? '→ Reclassify as ticket'
                 : '→ Reclassify as work order'}
           </button>
+
+          {/* Prev/next pager — walk siblings of the same type without
+              returning to the list. ← arrows are also bound to the
+              keyboard below (when not typing). */}
+          {pager && (
+            <div className="ml-auto flex items-center gap-1 shrink-0">
+              {pager.prevId ? (
+                <Link
+                  href={`/admin/tickets/${pager.prevId}`}
+                  className="flex h-6 w-6 items-center justify-center rounded border border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                  title="Previous (newer) — ←" aria-label="Previous"
+                >‹</Link>
+              ) : (
+                <span className="flex h-6 w-6 items-center justify-center rounded border border-gray-100 text-gray-300" aria-disabled>‹</span>
+              )}
+              <span className="font-mono text-xs tabular-nums text-gray-500 min-w-[3.5rem] text-center">
+                {pager.position} / {pager.total}
+              </span>
+              {pager.nextId ? (
+                <Link
+                  href={`/admin/tickets/${pager.nextId}`}
+                  className="flex h-6 w-6 items-center justify-center rounded border border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                  title="Next (older) — →" aria-label="Next"
+                >›</Link>
+              ) : (
+                <span className="flex h-6 w-6 items-center justify-center rounded border border-gray-100 text-gray-300" aria-disabled>›</span>
+              )}
+            </div>
+          )}
         </div>
 
         <h1 className="text-2xl font-semibold text-gray-900 mb-1">{ticket.subject ?? '(no subject)'}</h1>
