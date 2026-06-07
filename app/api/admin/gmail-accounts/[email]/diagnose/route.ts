@@ -49,6 +49,27 @@ function escapeLike(s: string): string {
   return s.replace(/[%_\\]/g, c => `\\${c}`)
 }
 
+// Gmail per-user rate limit (429 / RESOURCE_EXHAUSTED) — NOT a token failure.
+function isRateLimit(msg: string): boolean {
+  return /\b429\b|rate.?limit|too many requests|quota|resource_exhausted/i.test(msg)
+}
+// Parse "Retry after <ISO>" → cooldown timestamp (+30s); fallback now+5min.
+function cooldownUntil(msg: string): string {
+  const m = msg.match(/Retry after (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/)
+  const base = m ? new Date(m[1]).getTime() : Date.now() + 5 * 60_000
+  return new Date((Number.isFinite(base) ? base : Date.now() + 5 * 60_000) + 30_000).toISOString()
+}
+// The report shown when an account is in cooldown — no Gmail call made.
+function coolingReport(account: string, until: string): DiagnoseReport {
+  const mins = Math.max(0, Math.round((new Date(until).getTime() - Date.now()) / 60000))
+  return {
+    account, storedHistoryId: null, watchExpiry: null, watchExpired: false, lastWatchError: null,
+    tokenOk: false, tokenError: null, liveHistoryId: null, messagesTotal: null,
+    recentInboxCount: null, emailLogs30d: 0,
+    verdict: `Cooling down — Gmail rate-limited this account; it auto-resumes in ~${mins} min (until ${until}). This is NOT a token problem — do not reconnect. Avoid Diagnose/Sync until then so the limit can reset.`,
+  }
+}
+
 // A processing cursor more than this far behind the live mailbox means
 // notifications have stopped being processed. Healthy inboxes sit within
 // a few dozen of live (notifications are near-real-time); a gap in the
@@ -101,11 +122,15 @@ export async function POST(
   // Main MAIA inbox — env-var credentials + maia_watch_state cursor,
   // not a connected staff account. Diagnosed with the env-token helpers.
   if (addr === MAIN_ACCOUNT) {
-    const { data: ws } = await supabaseAdmin
-      .from('maia_watch_state')
-      .select('last_history_id, watch_expiry')
-      .eq('id', 1)
-      .maybeSingle()
+    let ws = (await supabaseAdmin.from('maia_watch_state').select('last_history_id, watch_expiry, gmail_cooldown_until').eq('id', 1).maybeSingle()).data as Record<string, unknown> | null
+    if (!ws) ws = (await supabaseAdmin.from('maia_watch_state').select('last_history_id, watch_expiry').eq('id', 1).maybeSingle()).data as Record<string, unknown> | null
+
+    // Respect the cooldown — if Gmail recently rate-limited us, do NOT call
+    // Gmail again (that just re-trips it). Report the cooldown instead.
+    const cd = (ws as Record<string, unknown> | null)?.gmail_cooldown_until as string | null
+    if (cd && new Date(cd).getTime() > Date.now()) {
+      return NextResponse.json({ ok: true, report: coolingReport(MAIN_ACCOUNT, cd) })
+    }
 
     const report: DiagnoseReport = {
       account:          MAIN_ACCOUNT,
@@ -136,7 +161,15 @@ export async function POST(
       report.liveHistoryId = String(profile.historyId)
       report.messagesTotal = profile.messagesTotal
     } catch (err) {
-      report.tokenError = err instanceof Error ? err.message : String(err)
+      const m = err instanceof Error ? err.message : String(err)
+      report.tokenError = m
+      // A 429 here is a rate limit, not a token failure — record a cooldown
+      // and report it as such instead of "must be reconnected".
+      if (isRateLimit(m)) {
+        const until = cooldownUntil(m)
+        await supabaseAdmin.from('maia_watch_state').upsert({ id: 1, gmail_cooldown_until: until, updated_at: new Date().toISOString() })
+        return NextResponse.json({ ok: true, report: coolingReport(MAIN_ACCOUNT, until) })
+      }
     }
     if (report.tokenOk) {
       try {
@@ -150,15 +183,20 @@ export async function POST(
   }
 
   // Load the connected account (case-insensitive — see the webhook).
-  const { data: accounts } = await supabaseAdmin
-    .from('staff_gmail_accounts')
-    .select('gmail_address, refresh_token, history_id, watch_expiry, last_watch_error')
-    .eq('active', true)
+  const STAFF_SEL = 'gmail_address, refresh_token, history_id, watch_expiry, last_watch_error'
+  let accounts = (await supabaseAdmin.from('staff_gmail_accounts').select(`${STAFF_SEL}, gmail_cooldown_until`).eq('active', true)).data as Record<string, unknown>[] | null
+  if (!accounts) accounts = (await supabaseAdmin.from('staff_gmail_accounts').select(STAFF_SEL).eq('active', true)).data as Record<string, unknown>[] | null
   const account = (accounts ?? []).find(
     a => typeof a.gmail_address === 'string' && (a.gmail_address as string).toLowerCase() === addr,
   )
   if (!account) {
     return NextResponse.json({ error: 'No active connected account for that address' }, { status: 404 })
+  }
+
+  // Respect the cooldown — don't re-hit Gmail while rate-limited.
+  const acctCd = (account as Record<string, unknown>).gmail_cooldown_until as string | null
+  if (acctCd && new Date(acctCd).getTime() > Date.now()) {
+    return NextResponse.json({ ok: true, report: coolingReport(account.gmail_address as string, acctCd) })
   }
 
   const report: DiagnoseReport = {
@@ -187,13 +225,20 @@ export async function POST(
   report.emailLogs30d = logCount ?? 0
 
   // Refresh the token and hit the Gmail API live.
+  const setCooldownAndReport = async (m: string) => {
+    const until = cooldownUntil(m)
+    await supabaseAdmin.from('staff_gmail_accounts').update({ gmail_cooldown_until: until, updated_at: new Date().toISOString() }).eq('gmail_address', account.gmail_address as string)
+    return NextResponse.json({ ok: true, report: coolingReport(account.gmail_address as string, until) })
+  }
   let accessToken = ''
   try {
     const refreshed = await refreshStaffToken(account.refresh_token as string)
     accessToken     = refreshed.access_token
     report.tokenOk  = true
   } catch (err) {
-    report.tokenError = err instanceof Error ? err.message : String(err)
+    const m = err instanceof Error ? err.message : String(err)
+    report.tokenError = m
+    if (isRateLimit(m)) return setCooldownAndReport(m)
   }
 
   if (report.tokenOk) {
@@ -202,7 +247,9 @@ export async function POST(
       report.liveHistoryId = String(profile.historyId)
       report.messagesTotal = profile.messagesTotal
     } catch (err) {
-      report.tokenError = err instanceof Error ? err.message : String(err)
+      const m = err instanceof Error ? err.message : String(err)
+      report.tokenError = m
+      if (isRateLimit(m)) return setCooldownAndReport(m)
     }
     try {
       const recent           = await listRecentInboxMessagesWithToken(accessToken, 20)
