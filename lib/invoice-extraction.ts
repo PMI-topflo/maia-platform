@@ -33,7 +33,7 @@ const EXTRACTION_PROMPT = `You are extracting structured data from an invoice PD
 
 Return a SINGLE JSON object and nothing else (no prose, no markdown fences). Schema:
 {
-  "vendor_name":      string or null   // the company sending the invoice (NOT the recipient / customer)
+  "vendor_name":      string or null   // the company that ISSUED the invoice (letterhead/"From" at the TOP, the party to be PAID), NOT the Bill-To customer
   "invoice_number":   string or null   // sometimes "Invoice #", "Inv No.", "1473", etc.
   "amount":           number or null   // the total amount due, in dollars (e.g. 2250.00). NOT a subtotal, NOT a previous balance — the new amount owed.
   "invoice_date":     string or null   // ISO YYYY-MM-DD — when the invoice was issued
@@ -43,7 +43,8 @@ Return a SINGLE JSON object and nothing else (no prose, no markdown fences). Sch
 }
 
 Rules:
-- vendor_name is the SENDER. Property-management company names ("PMI Top Florida Properties", "Top Florida Properties") are the RECIPIENT, not the vendor. Skip them.
+- vendor_name is the ISSUER of the invoice — the company on the letterhead/logo at the TOP, the party to be PAID. The "Bill To" / "Ship To" party is the CUSTOMER and is NEVER the vendor.
+- "PMI Top Florida Properties" / "Top Florida Properties" is USUALLY the Bill-To customer on a vendor's bill — in that case it is NOT the vendor, so return the actual issuer. BUT when PMI Top Florida Properties is the ISSUER (its name/logo is the letterhead at the top and an ASSOCIATION is the Bill To — e.g. management-fee or "RVP-####" invoices billed to a condo/HOA association), then "PMI Top Florida Properties" IS the vendor_name. Decide by WHO ISSUED it (top), not by the name.
 - amount must be the FINAL amount owed for THIS invoice. Ignore "previous balance", "previous payment", "subtotal" — return the BOTTOM-LINE total.
 - For invoice_number, strip any "INV-" / "#" prefix and return only the identifier (e.g. "1473", not "Invoice #1473").
 - If the document isn't an invoice (a statement, a receipt, a memo), set all fields to null and confidence below 0.3.
