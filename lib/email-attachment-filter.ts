@@ -20,9 +20,10 @@ export interface EmailAttachmentLike {
 }
 
 const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|bmp|heic|heif|tiff?)$/i
-// Logo / signature / letterhead / auto-named embedded graphics.
+// Explicit logo / signature / letterhead words. NOTE: do NOT treat auto-named
+// files (image_1234.jpg, IMG_5678.JPG) as logos — phone cameras name REAL
+// photos that way too. Size is the reliable discriminator below.
 const LOGO_NAME_RE = /(logo|signature|sig\d*\b|icon|banner|emblem|crest|letterhead)/i
-const AUTO_NAME_RE = /^(image|img|att|inline|oledata|part|cid)[-_]?\d*\.[a-z0-9]+$/i
 
 // A standalone attached image at least this big is treated as a real photo/scan.
 const REAL_PHOTO_MIN_BYTES  = 40 * 1024
@@ -39,10 +40,24 @@ export function isImageAttachment(a: EmailAttachmentLike): boolean {
  *  attachments are always real documents and are never filtered here. */
 export function isSignatureOrLogoImage(a: EmailAttachmentLike): boolean {
   if (!isImageAttachment(a)) return false
-  const name = a.filename ?? ''
-  if (LOGO_NAME_RE.test(name) || AUTO_NAME_RE.test(name)) return true
+  if (LOGO_NAME_RE.test(a.filename ?? '')) return true                          // explicit logo/signature name
   const size = typeof a.size === 'number' ? a.size : undefined
-  if (size != null && size < REAL_PHOTO_MIN_BYTES) return true                  // tiny graphic
+  if (size != null && size < REAL_PHOTO_MIN_BYTES) return true                  // tiny graphic (signature logo)
   if (a.inline && size != null && size < INLINE_REAL_MIN_BYTES) return true     // embedded + not a big photo
   return false
+}
+
+/** Collapse the SAME attachment quoted repeatedly down a forwarded thread
+ *  (Gmail surfaces each quoted copy as its own part) to one entry, keyed by
+ *  filename+size. Prevents a single photo from being saved/processed 128×. */
+export function dedupeAttachments<T extends EmailAttachmentLike>(list: T[]): T[] {
+  const seen = new Set<string>()
+  const out: T[] = []
+  for (const a of list) {
+    const key = `${a.filename ?? ''}|${a.size ?? ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(a)
+  }
+  return out
 }
