@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -686,6 +686,44 @@ export function ApplicationsTable({ applications: initialApps, documentLookup }:
     );
   }
 
+  // In-card stepper: move the open application to the prev/next row in the
+  // current filtered list, so you can review applications one at a time
+  // without collapsing + hunting for the next one.
+  const openIdx = expandedId ? filtered.findIndex((a) => a.id === expandedId) : -1;
+
+  const step = useCallback((delta: number) => {
+    setExpandedId((cur) => {
+      if (!cur) return cur;
+      const i = filtered.findIndex((a) => a.id === cur);
+      if (i === -1) return cur;
+      const next = i + delta;
+      if (next < 0 || next >= filtered.length) return cur;
+      return filtered[next].id;
+    });
+  }, [filtered]);
+
+  // ←/→ step between applications; ignored while typing in a field so it
+  // never hijacks the notes box or an email override input.
+  useEffect(() => {
+    if (!expandedId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); step(-1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expandedId, step]);
+
+  // Keep the open row in view as you step (it may be off-screen).
+  useEffect(() => {
+    if (!expandedId) return;
+    document.getElementById(`app-row-${expandedId}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [expandedId]);
+
   const tabs: { key: FilterTab; label: string }[] = [
     { key: 'all', label: 'All' },
     { key: 'pending', label: 'Pending Review' },
@@ -730,7 +768,7 @@ export function ApplicationsTable({ applications: initialApps, documentLookup }:
         {filtered.map((app) => {
           const isOpen = expandedId === app.id;
           return (
-            <div key={app.id}>
+            <div key={app.id} id={`app-row-${app.id}`}>
               {/* Row */}
               <div
                 className={`bg-white px-5 py-4 flex flex-wrap items-center gap-x-6 gap-y-2 ${
@@ -777,13 +815,39 @@ export function ApplicationsTable({ applications: initialApps, documentLookup }:
                 </button>
               </div>
 
-              {/* Inline detail panel */}
+              {/* Inline detail panel — with a prev/next stepper so you can
+                  review applications one at a time (←/→ keys work too). */}
               {isOpen && (
-                <DetailPanel
-                  app={app}
-                  documentLookup={documentLookup}
-                  onDecisionSaved={(updated) => handleDecisionSaved(app.id, updated)}
-                />
+                <>
+                  <div className="flex items-center justify-between gap-3 border-l-4 border-[#f26a1b] bg-orange-50 px-5 py-2">
+                    <span className="text-xs font-medium text-gray-500 tabular-nums">
+                      Application {openIdx + 1} of {filtered.length}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => step(-1)}
+                        disabled={openIdx <= 0}
+                        title="Previous application — ←"
+                        className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:border-[#f26a1b] hover:text-[#f26a1b] disabled:opacity-40 disabled:hover:border-gray-300 disabled:hover:text-gray-700"
+                      >‹ Prev</button>
+                      <button
+                        onClick={() => step(1)}
+                        disabled={openIdx >= filtered.length - 1}
+                        title="Next application — →"
+                        className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:border-[#f26a1b] hover:text-[#f26a1b] disabled:opacity-40 disabled:hover:border-gray-300 disabled:hover:text-gray-700"
+                      >Next ›</button>
+                      <button
+                        onClick={() => setExpandedId(null)}
+                        className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:border-gray-400"
+                      >Close</button>
+                    </div>
+                  </div>
+                  <DetailPanel
+                    app={app}
+                    documentLookup={documentLookup}
+                    onDecisionSaved={(updated) => handleDecisionSaved(app.id, updated)}
+                  />
+                </>
               )}
             </div>
           );

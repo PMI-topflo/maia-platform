@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 type TabKey = 'pending-agents' | 'pending-vendors' | 'all'
 
@@ -161,6 +161,40 @@ function RegistrationList({ items }: {
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
 
+  // In-card stepper: move the open registration to the prev/next item so
+  // you can review them one at a time (←/→ keys work too).
+  const openIdx = expanded ? items.findIndex(i => i.id === expanded) : -1
+
+  const step = useCallback((delta: number) => {
+    setExpanded(cur => {
+      if (!cur) return cur
+      const i = items.findIndex(it => it.id === cur)
+      if (i === -1) return cur
+      const next = i + delta
+      if (next < 0 || next >= items.length) return cur
+      return items[next].id
+    })
+  }, [items])
+
+  useEffect(() => {
+    if (!expanded) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const el = e.target as HTMLElement | null
+      const tag = el?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); step(-1) }
+      if (e.key === 'ArrowRight') { e.preventDefault(); step(1) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [expanded, step])
+
+  useEffect(() => {
+    if (!expanded) return
+    document.getElementById(`reg-row-${expanded}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [expanded])
+
   if (items.length === 0) {
     return <p style={{ color: '#9ca3af', fontSize: '0.875rem', textAlign: 'center', padding: '2rem' }}>No registrations in this category.</p>
   }
@@ -168,7 +202,7 @@ function RegistrationList({ items }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       {items.map(item => (
-        <div key={item.id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden' }}>
+        <div key={item.id} id={`reg-row-${item.id}`} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden' }}>
           <div
             onClick={() => setExpanded(expanded === item.id ? null : item.id)}
             style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.875rem 1rem', cursor: 'pointer' }}
@@ -194,6 +228,26 @@ function RegistrationList({ items }: {
 
           {expanded === item.id && (
             <div style={{ borderTop: '1px solid #f3f4f6', padding: '1rem', background: '#f9fafb' }}>
+              {/* Prev/next stepper — review registrations one at a time (←/→). */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.875rem' }}>
+                <span style={{ fontSize: '0.68rem', color: '#9ca3af', fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>
+                  {openIdx + 1} of {items.length}
+                </span>
+                <div style={{ display: 'flex', gap: '0.375rem' }}>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); step(-1) }}
+                    disabled={openIdx <= 0}
+                    title="Previous — ←"
+                    style={{ padding: '0.25rem 0.6rem', fontSize: '0.68rem', border: '1px solid #d1d5db', borderRadius: '3px', background: '#fff', color: openIdx <= 0 ? '#d1d5db' : '#374151', cursor: openIdx <= 0 ? 'default' : 'pointer' }}
+                  >‹ Prev</button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); step(1) }}
+                    disabled={openIdx >= items.length - 1}
+                    title="Next — →"
+                    style={{ padding: '0.25rem 0.6rem', fontSize: '0.68rem', border: '1px solid #d1d5db', borderRadius: '3px', background: '#fff', color: openIdx >= items.length - 1 ? '#d1d5db' : '#374151', cursor: openIdx >= items.length - 1 ? 'default' : 'pointer' }}
+                  >Next ›</button>
+                </div>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', marginBottom: '1rem', fontSize: '0.8rem' }}>
                 {item.email && <div><span style={{ color: '#9ca3af' }}>Email: </span><a href={`mailto:${item.email}`} style={{ color: '#f26a1b' }}>{item.email}</a></div>}
                 {item.phone && <div><span style={{ color: '#9ca3af' }}>Phone: </span><a href={`tel:${item.phone}`} style={{ color: '#f26a1b' }}>{item.phone}</a></div>}
