@@ -135,34 +135,37 @@ export async function POST(req: NextRequest) {
   // mis-routing the notification to the main-account path so the staff
   // inbox captures nothing. The connected-account set is tiny, so a
   // fetch-then-find in JS is cheap and avoids ilike wildcard pitfalls.
-  const { data: staffAccounts } = await supabaseAdmin
-    .from('staff_gmail_accounts')
-    .select('gmail_address, refresh_token, access_token, token_expiry, history_id, gmail_cooldown_until')
-    .eq('active', true)
+  // RESILIENT SELECT: try with gmail_cooldown_until, but fall back to the
+  // base columns if that column hasn't been migrated yet. Selecting a
+  // missing column errors the WHOLE query (data=null), which would route
+  // every notification down the wrong path and silently take MAIA down —
+  // exactly the "code deployed before migration" outage we just had. The
+  // fallback degrades to "no cooldown" instead of breaking.
+  const STAFF_BASE = 'gmail_address, refresh_token, access_token, token_expiry, history_id'
+  let staffAccounts = (await supabaseAdmin.from('staff_gmail_accounts').select(`${STAFF_BASE}, gmail_cooldown_until`).eq('active', true)).data as Record<string, unknown>[] | null
+  if (!staffAccounts) staffAccounts = (await supabaseAdmin.from('staff_gmail_accounts').select(STAFF_BASE).eq('active', true)).data as Record<string, unknown>[] | null
   const staffAccount = (staffAccounts ?? []).find(
-    a => typeof a.gmail_address === 'string' && a.gmail_address.toLowerCase() === emailAddress,
+    a => typeof a.gmail_address === 'string' && (a.gmail_address as string).toLowerCase() === emailAddress,
   ) ?? null
 
   if (staffAccount) {
-    await processStaffAccountEmails(staffAccount, newHistoryId)
+    await processStaffAccountEmails(staffAccount as StaffAccountRow, newHistoryId)
     return NextResponse.json({ ok: true, account: emailAddress })
   }
 
-  // Main PMI account — existing logic
-  const { data: state } = await supabaseAdmin
-    .from('maia_watch_state')
-    .select('last_history_id, gmail_cooldown_until')
-    .eq('id', 1)
-    .maybeSingle()
+  // Main PMI account — existing logic. Resilient select, same reason as above.
+  let state = (await supabaseAdmin.from('maia_watch_state').select('last_history_id, gmail_cooldown_until').eq('id', 1).maybeSingle()).data as Record<string, unknown> | null
+  if (!state) state = (await supabaseAdmin.from('maia_watch_state').select('last_history_id').eq('id', 1).maybeSingle()).data as Record<string, unknown> | null
 
-  const lastHistoryId = state?.last_history_id
+  const lastHistoryId = state?.last_history_id as string | undefined
 
   // Self-healing cooldown: if we recently got rate-limited, ACK without
   // touching Gmail until the Retry-After time passes — so the per-user quota
   // gets a quiet window to reset instead of being re-tripped on every
   // notification. The cursor stays put; we resume once the cooldown expires.
-  if (state?.gmail_cooldown_until && new Date(state.gmail_cooldown_until as string).getTime() > Date.now()) {
-    return NextResponse.json({ ok: true, cooling_down_until: state.gmail_cooldown_until })
+  const cooldown = state?.gmail_cooldown_until as string | undefined
+  if (cooldown && new Date(cooldown).getTime() > Date.now()) {
+    return NextResponse.json({ ok: true, cooling_down_until: cooldown })
   }
 
   // First-ever notification: just establish the baseline.
