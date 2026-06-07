@@ -575,8 +575,8 @@ export async function findOrCreateTicket(input: IngestInput): Promise<Ticket> {
 // ---------------------------------------------------------------------
 export async function enqueueOutbox(
   entityId:   number,
-  entityType: 'ticket' | 'ticket_message',
-  operation:  'create' | 'update' | 'update_details' | 'update_status' | 'append_message' | 'close',
+  entityType: 'ticket' | 'ticket_message' | 'work_order_attachment',
+  operation:  'create' | 'update' | 'update_details' | 'update_status' | 'append_message' | 'close' | 'push_photo',
   target:     'rentvine' | 'cinc' = 'rentvine',
   payload:    Record<string, unknown> = {},
 ): Promise<void> {

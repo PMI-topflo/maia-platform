@@ -5,24 +5,26 @@
 // (entity_type, operation) pair selects the action.
 //
 // Phase A surface — CINC only:
-//   ('ticket',         'create')         → cinc.createLinkedWorkOrder
-//   ('ticket',         'update_details') → cinc.updateWorkOrderDetails
-//   ('ticket',         'update_status')  → cinc.updateWorkOrderStatus
-//   ('ticket_message', 'append_message') → cinc.addWorkOrderNote
+//   ('ticket',               'create')         → cinc.createLinkedWorkOrder
+//   ('ticket',               'update_details') → cinc.updateWorkOrderDetails
+//   ('ticket',               'update_status')  → cinc.updateWorkOrderStatus
+//   ('ticket_message',       'append_message') → cinc.addWorkOrderNote
+//   ('work_order_attachment','push_photo')     → cinc.pushWorkOrderAttachments
 //
 // Anything else is logged and marked failed so it doesn't retry forever.
 // Rentvine handlers slot in here when their endpoint catalog lands.
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { STORAGE_BUCKET } from '@/lib/work-order-attachments'
 import * as cinc from './cinc'
 
 interface OutboxRow {
   id:           number
   target:       'cinc' | 'rentvine'
-  entity_type:  'ticket' | 'ticket_message'
+  entity_type:  'ticket' | 'ticket_message' | 'work_order_attachment'
   entity_id:    number
-  operation:    'create' | 'update' | 'update_details' | 'update_status' | 'append_message' | 'close'
+  operation:    'create' | 'update' | 'update_details' | 'update_status' | 'append_message' | 'close' | 'push_photo'
   payload:      Record<string, unknown>
   attempts:     number
 }
@@ -93,14 +95,15 @@ async function handleCincTicketCreate(ticketId: number): Promise<void> {
     throw new Error(`ticket ${ticketId} has no association_code; CINC requires one`)
   }
 
+  const fullContext = `${t.subject ?? ''}\n\n${t.summary ?? ''}`.trim()
   const { workOrderId } = await cinc.createLinkedWorkOrder({
     associationCode: t.association_code,
-    description:     `${t.subject ?? ''}\n\n${t.summary ?? ''}`.trim(),
+    description:     fullContext,                 // CINC truncates to a 100-char title
     dueDate:         t.due_at,
     contactEmail:    t.contact_email,
     contactPhone:    t.contact_phone,
     contactName:     t.contact_name,
-    initialNote:     t.summary,
+    initialNote:     fullContext || t.summary,    // full subject+summary preserved in the note
     workOrderTypeId: t.work_order_type_id,
   })
 
@@ -111,6 +114,43 @@ async function handleCincTicketCreate(ticketId: number): Promise<void> {
       sync_status:       { ...(t as Record<string, unknown>).sync_status as object, cinc: { ok: true, last_synced_at: new Date().toISOString() } },
     })
     .eq('id', ticketId)
+
+  // The WO is now linked — backfill any photos that arrived (by email or
+  // staff upload) before it had a cinc_workorder_id to push to.
+  await enqueuePendingPhotoPushes(ticketId)
+}
+
+/** Enqueue a push_photo outbox event for every MAIA-origin attachment on
+ *  this ticket that hasn't been pushed to CINC yet. Idempotent: the
+ *  push handler re-checks cinc_pushed_at, and queuing a second event for
+ *  an already-pushed photo just no-ops on drain. Used on first link
+ *  (above) and by the manual backfill route. Returns how many it queued. */
+export async function enqueuePendingPhotoPushes(ticketId: number): Promise<number> {
+  const { data: pending, error } = await supabaseAdmin
+    .from('work_order_attachments')
+    .select('id')
+    .eq('ticket_id', ticketId)
+    .in('source', ['email', 'staff_upload'])
+    .is('cinc_pushed_at', null)
+  if (error) {
+    console.error(`[outbox] backfill select failed for ticket ${ticketId}:`, error.message)
+    return 0
+  }
+  if (!pending || pending.length === 0) return 0
+
+  const rows = pending.map(a => ({
+    target:      'cinc',
+    entity_type: 'work_order_attachment',
+    entity_id:   ticketId,
+    operation:   'push_photo',
+    payload:     { attachmentId: a.id as string },
+  }))
+  const { error: insErr } = await supabaseAdmin.from('integration_outbox').insert(rows)
+  if (insErr) {
+    console.error(`[outbox] backfill enqueue failed for ticket ${ticketId}:`, insErr.message)
+    return 0
+  }
+  return rows.length
 }
 
 /** Mirror local edits to fields CINC stores on the work order
@@ -225,6 +265,52 @@ async function handleCincMessageAppend(messageId: number): Promise<void> {
     .eq('id', messageId)
 }
 
+/** Push one MAIA-origin work-order photo INTO the linked CINC work order.
+ *  entity_id is the ticket id; payload.attachmentId names the row. Guards:
+ *    - skip if the attachment was deleted before the drain reached it
+ *    - skip source='cinc' (came FROM CINC — pushing back would duplicate)
+ *    - skip if already pushed (cinc_pushed_at set)
+ *    - throw if the WO isn't linked yet (rare race; retry until it links)
+ *  Stamps cinc_pushed_at on success so re-drains never double-push. */
+async function handleCincWorkOrderPhotoPush(ticketId: number, attachmentId: string): Promise<void> {
+  if (!attachmentId) throw new Error(`push_photo for ticket ${ticketId} missing attachmentId`)
+
+  const { data: att, error } = await supabaseAdmin
+    .from('work_order_attachments')
+    .select('id, ticket_id, source, storage_path, filename, cinc_pushed_at')
+    .eq('id', attachmentId)
+    .maybeSingle()
+  if (error) throw new Error(`attachment ${attachmentId} lookup failed: ${error.message}`)
+  if (!att)                       return  // deleted before we got here
+  if (att.cinc_pushed_at)         return  // already pushed
+  if (att.source === 'cinc')      return  // never push CINC-origin back
+  if (att.ticket_id !== ticketId) return  // payload/ticket mismatch — drop
+
+  const { data: t } = await supabaseAdmin
+    .from('tickets')
+    .select('cinc_workorder_id')
+    .eq('id', ticketId)
+    .maybeSingle()
+  if (!t?.cinc_workorder_id) {
+    // Not linked yet. Throw so the row retries; once the create handler
+    // links the WO it also backfills, so this resolves either way.
+    throw new Error(`ticket ${ticketId} has no cinc_workorder_id yet`)
+  }
+
+  const { data: blob, error: dlErr } = await supabaseAdmin.storage
+    .from(STORAGE_BUCKET)
+    .download(att.storage_path)
+  if (dlErr || !blob) throw new Error(`download ${att.storage_path} failed: ${dlErr?.message ?? 'no data'}`)
+
+  const base64 = Buffer.from(await blob.arrayBuffer()).toString('base64')
+  await cinc.pushWorkOrderAttachments(Number(t.cinc_workorder_id), [{ fileName: att.filename, file: base64 }])
+
+  await supabaseAdmin
+    .from('work_order_attachments')
+    .update({ cinc_pushed_at: new Date().toISOString() })
+    .eq('id', attachmentId)
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Main dispatch
 // ─────────────────────────────────────────────────────────────────────
@@ -239,6 +325,8 @@ export async function processOne(row: OutboxRow): Promise<void> {
         await handleCincTicketUpdateStatus(row.entity_id)
       } else if (row.entity_type === 'ticket_message' && row.operation === 'append_message') {
         await handleCincMessageAppend(row.entity_id)
+      } else if (row.entity_type === 'work_order_attachment' && row.operation === 'push_photo') {
+        await handleCincWorkOrderPhotoPush(row.entity_id, String(row.payload?.attachmentId ?? ''))
       } else {
         // Status-update sync etc. — wired in Phase A.5
         throw new Error(`Unhandled cinc op: ${row.entity_type}/${row.operation}`)

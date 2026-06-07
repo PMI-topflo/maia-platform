@@ -7,6 +7,7 @@ import { listAllCincAssociations, type CincAssociationMeta } from '@/lib/integra
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../components/AdminNav'
 import OnboardButton from './OnboardButton'
+import ResyncWorkOrdersButton from './ResyncWorkOrdersButton'
 
 export const metadata = { title: 'CINC Sync — PMI Top Florida' }
 export const dynamic = 'force-dynamic'
@@ -83,11 +84,14 @@ export default async function CincSyncIndexPage() {
       </SiteHeader>
 
       <main className="max-w-screen-xl mx-auto px-6 py-6">
-        <header className="mb-6 border-l-4 border-[#f26a1b] pl-4">
-          <h1 className="text-xl font-semibold text-gray-900">CINC Sync</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Compare each association&apos;s owners and board members against CINC. Click an association to see a side-by-side diff and selectively apply changes.
-          </p>
+        <header className="mb-6 flex items-start justify-between gap-4 border-l-4 border-[#f26a1b] pl-4">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">CINC Sync</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Compare each association&apos;s owners and board members against CINC. Click an association to see a side-by-side diff and selectively apply changes.
+            </p>
+          </div>
+          <ResyncWorkOrdersButton />
         </header>
 
         {/* CINC-only section — associations that exist upstream but

@@ -172,14 +172,12 @@ export async function getOpenWorkOrderStatusId(): Promise<number> {
 // Association ID lookup
 //
 // CINC's create-work-order body wants a numeric `assocId`, but we only
-// have our string `association_code`. Until we wire a dedicated
-// /associations endpoint or store CINC's id on our `associations`
-// table, the workaround here is: query GET /workOrders?assocCode=<code>
-// and grab `AssocId` off the first matching row. Cached per container.
-//
-// Edge case: if there are NO existing CINC work orders for this
-// association, we can't derive the id this way. Caller falls back to
-// throwing → outbox row marks as failed → staff investigates.
+// have our string `association_code`. Primary lookup: GET
+// /workOrders?assocCode=<code> and grab `AssocId` off the first matching
+// row. Fallback (when the association has no work orders in CINC yet):
+// GET /associations?assocCode=<code>, which exposes the AssocId
+// regardless of WO count. Cached per container. Returns null only if the
+// code is unknown to CINC entirely.
 // ─────────────────────────────────────────────────────────────────────
 const _assocIdCache = new Map<string, number>()
 
@@ -256,9 +254,23 @@ export async function findAssocIdByCode(assocCode: string): Promise<number | nul
   }).catch(() => [] as CincWorkOrder[])
 
   const hit = list.find(w => w.AssocCode?.toUpperCase() === key && w.AssocId)
-  if (!hit) return null
-  _assocIdCache.set(key, hit.AssocId)
-  return hit.AssocId
+  if (hit) {
+    _assocIdCache.set(key, hit.AssocId)
+    return hit.AssocId
+  }
+
+  // Fallback: an association with ZERO work orders in CINC returns nothing
+  // above, which used to force "manually create one WO first". But the
+  // /associations endpoint exposes the AssocId regardless of WO count, so
+  // resolve from there instead. Verified 2026-06-07: for every association
+  // we sync, the AssocId from /associations is identical to the one on its
+  // existing work orders — so this is safe and removes the manual-seed step.
+  const meta = await getAssociationMeta(key).catch(() => null)
+  if (meta?.AssocId) {
+    _assocIdCache.set(key, meta.AssocId)
+    return meta.AssocId
+  }
+  return null
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -300,11 +312,17 @@ export async function createLinkedWorkOrder(
     )
   }
 
+  // CINC's WorkOrder.Description column caps at 100 chars and hard-rejects
+  // (400 "description should not exceed 100 characters") — it does NOT
+  // silently truncate. Collapse whitespace and cap at 100 for the title;
+  // the full subject+summary rides along in `notes` (4000-char limit).
+  const description = input.description.replace(/\s+/g, ' ').trim().slice(0, 100)
+
   const body: Record<string, unknown> = {
     assocId,
     workOrderTypeId:   typeId,
     workOrderStatusId: statusId,
-    description:       input.description.slice(0, 1000),
+    description,
     contactEmail:      input.contactEmail ?? undefined,
     contactPhone:      input.contactPhone ?? undefined,
     vendorName:        input.vendorName   ?? undefined,
@@ -2251,4 +2269,29 @@ export async function attachInvoicePdf(opts: {
   const imageId = result.ImageID ?? result.ImageId
   if (!imageId) throw new CincApiError('attachInvoicePdf succeeded but response had no ImageID')
   return { imageId }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Push photos/files INTO a CINC work order (MAIA → CINC).
+//
+// Counterpart to listWorkOrderAttachments (the CINC → MAIA mirror). CINC
+// renames files on upload (file<hash>.png) and returns no attachment id,
+// so we can't dedupe against what's already there — the caller guards
+// double-pushes with the work_order_attachments.cinc_pushed_at stamp.
+//
+// POST /management/1/workOrderAttachment  (singular — the plural is GET).
+//   - workOrderId is a QUERY param.
+//   - Body is an ARRAY (batch): [{ fileName, file }], file = base64 bytes,
+//     ≤ 25 MB each (our stored photos are already ≤ 4 MB post-compression).
+// ─────────────────────────────────────────────────────────────────────
+export async function pushWorkOrderAttachments(
+  workOrderId: number,
+  files: Array<{ fileName: string; file: string /* base64 */ }>,
+): Promise<void> {
+  if (files.length === 0) return
+  await call<unknown>('/management/1/workOrderAttachment', {
+    method: 'POST',
+    query:  { workOrderId },
+    json:   files,
+  })
 }
