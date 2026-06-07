@@ -45,7 +45,7 @@ export default async function TicketDetailPage(props: PageProps) {
 
   if (!ticket) notFound()
 
-  const [workOrder, associationName] = await Promise.all([
+  const [workOrder, associationName, siblingRows] = await Promise.all([
     ticket.type === 'work_order'
       ? supabaseAdmin.from('work_order_details').select('*').eq('ticket_id', ticketId).maybeSingle().then(r => r.data)
       : Promise.resolve(null),
@@ -57,7 +57,29 @@ export default async function TicketDetailPage(props: PageProps) {
           .maybeSingle()
           .then(r => r.data?.association_name as string | undefined ?? null)
       : Promise.resolve(null),
+    // Prev/next pager: walk this ticket's siblings of the SAME type in the
+    // same order the list shows them (updated_at DESC, non-archived). Lets
+    // staff page through work orders / tickets without bouncing to the list.
+    supabaseAdmin
+      .from('tickets')
+      .select('id')
+      .eq('type', ticket.type)
+      .is('archived_at', null)
+      .order('updated_at', { ascending: false })
+      .limit(500)
+      .then(r => r.data ?? []),
   ])
+
+  // Locate the current ticket among its siblings to build the pager. If it
+  // isn't in the set (e.g. it's archived), we simply don't show a pager.
+  const siblingIds = (siblingRows as Array<{ id: number }>).map(s => s.id)
+  const pagerIdx   = siblingIds.indexOf(ticketId)
+  const pager = pagerIdx === -1 ? null : {
+    prevId:   pagerIdx > 0 ? siblingIds[pagerIdx - 1] : null,
+    nextId:   pagerIdx < siblingIds.length - 1 ? siblingIds[pagerIdx + 1] : null,
+    position: pagerIdx + 1,
+    total:    siblingIds.length,
+  }
 
   const data: TicketDetailData = {
     ticket,
@@ -68,6 +90,7 @@ export default async function TicketDetailPage(props: PageProps) {
     associationName,
     associations: ((assocList ?? []) as Array<{ association_code: string; association_name: string }>)
       .filter(a => a.association_code && a.association_name),
+    pager,
   }
 
   // Work-order detail pages share the /admin/tickets/[id] route, so
