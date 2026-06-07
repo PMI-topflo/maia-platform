@@ -1,6 +1,13 @@
 # Spec — Push work-order photos MAIA → CINC
 
-_Status: 🔴 not built. Drafted 2026-06-07. Companion to `docs/ROADMAP.md` (CINC sync gaps)._
+_Status: ✅ built 2026-06-07. Companion to `docs/ROADMAP.md` (CINC sync gaps)._
+
+> **Shipped** — migration `20260607_wo_photos_to_cinc.sql` (`work_order_attachments.cinc_pushed_at`
+> + widened `integration_outbox` entity_type CHECK), `cinc.pushWorkOrderAttachments`, outbox
+> handler `('work_order_attachment','push_photo')` with backfill-on-link, auto-enqueue from the
+> email + staff-upload paths, manual backfill route `POST …/photos/push-to-cinc`, and a
+> "↗ Push N to CINC" button + "✓ CINC" indicator on the WO photos widget.
+> **Apply the migration in Supabase before this drains** (it's registered in `lib/migration-status.ts`).
 
 ## Problem / goal
 Today MAIA work-order sync is **one-way for photos**: we **mirror CINC's photos → MAIA**

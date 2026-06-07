@@ -10,6 +10,7 @@ import {
   findOpenTicketByGmailThread,
   findOpenTicketBySubject,
   appendMessage,
+  enqueueOutbox,
   type TicketPriority,
   type TicketType,
 } from '@/lib/tickets'
@@ -1934,7 +1935,7 @@ async function attachEmailPhotosToWorkOrder(
 
   const { data: ticket } = await supabaseAdmin
     .from('tickets')
-    .select('type')
+    .select('type, cinc_workorder_id')
     .eq('id', ticketId)
     .maybeSingle()
   if (!ticket || ticket.type !== 'work_order') return
@@ -1951,6 +1952,10 @@ async function attachEmailPhotosToWorkOrder(
       })
       if (!result.ok) {
         console.error(`[wo-photos] email photo "${att.filename}" → WO ${ticketId} failed: ${result.error}`)
+      } else if (ticket.cinc_workorder_id) {
+        // Mirror the photo OUT to CINC when the WO is linked. No-op when
+        // CINC sync is off; backfills on link otherwise.
+        await enqueueOutbox(ticketId, 'work_order_attachment', 'push_photo', 'cinc', { attachmentId: result.id })
       }
     } catch (err) {
       console.error(`[wo-photos] email photo "${att.filename}" → WO ${ticketId} error:`,

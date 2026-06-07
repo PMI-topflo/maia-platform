@@ -1374,6 +1374,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS invoice_intake_drafts_msg_filename_uniq
   WHERE attachment_filename IS NOT NULL;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'woa_cinc_pushed_at',
+    label:       'WO photos → CINC push',
+    description: 'work_order_attachments.cinc_pushed_at (idempotency stamp so a MAIA-origin photo is pushed into CINC exactly once) + widens the integration_outbox entity_type CHECK to allow the new ("work_order_attachment","push_photo") outbox event. Apply before deploying the WO-photo push.',
+    filename:    '20260607_wo_photos_to_cinc.sql',
+    artifact:    { type: 'column', table: 'work_order_attachments', column: 'cinc_pushed_at' },
+    sql: `ALTER TABLE public.work_order_attachments
+  ADD COLUMN IF NOT EXISTS cinc_pushed_at timestamptz;
+
+-- Allow the new outbox event kind ('work_order_attachment','push_photo').
+ALTER TABLE public.integration_outbox
+  DROP CONSTRAINT IF EXISTS chk_outbox_entity_type;
+ALTER TABLE public.integration_outbox
+  ADD CONSTRAINT chk_outbox_entity_type
+  CHECK (entity_type IN ('ticket', 'ticket_message', 'work_order_attachment'));
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

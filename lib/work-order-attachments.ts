@@ -77,6 +77,7 @@ export interface WorkOrderAttachmentRow {
   file_size_bytes:     number
   cinc_filename:       string | null
   cinc_created_date:   string | null
+  cinc_pushed_at:      string | null
   uploaded_by_email:   string | null
   mirrored_at:         string
   created_at:          string

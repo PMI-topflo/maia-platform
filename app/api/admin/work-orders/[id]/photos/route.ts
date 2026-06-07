@@ -27,6 +27,7 @@ import {
   STORAGE_BUCKET,
 } from '@/lib/work-order-attachments'
 import { normalizeStoredFile } from '@/lib/normalize-stored-file'
+import { enqueueOutbox } from '@/lib/tickets'
 
 export const runtime = 'nodejs'
 
@@ -176,6 +177,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   })
   if (!rec.ok) {
     return NextResponse.json({ error: rec.error }, { status: 500 })
+  }
+
+  // Mirror the photo OUT to CINC when this WO is linked there. No-op when
+  // CINC_SYNC_ENABLED is off or the WO has no cinc_workorder_id yet (it'll
+  // backfill once the create handler links it).
+  if (wo.ticket.cinc_workorder_id) {
+    await enqueueOutbox(ticketId, 'work_order_attachment', 'push_photo', 'cinc', { attachmentId: rec.id })
   }
 
   const attachments = await listAttachmentsWithUrls(ticketId)

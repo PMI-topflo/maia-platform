@@ -18,6 +18,7 @@ interface Attachment {
   file_size_bytes:    number
   signed_url:         string
   cinc_created_date:  string | null
+  cinc_pushed_at?:    string | null
   created_at:         string
   extracted_doc_type?: string | null
   extracted_data?:     { confidence?: number; summary?: string | null; fields?: Record<string, string> } | null
@@ -74,6 +75,8 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
   const [loading,     setLoading]     = useState(true)
   const [refreshing,  setRefreshing]  = useState(false)
   const [uploading,   setUploading]   = useState(false)
+  const [pushing,     setPushing]     = useState(false)
+  const [pushNote,    setPushNote]    = useState<string | null>(null)
   const [busyDelete,  setBusyDelete]  = useState<string | null>(null)
   const [error,       setError]       = useState<string | null>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -164,6 +167,29 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
     }
   }, [ticketId])
 
+  // Backfill: push any MAIA-origin photos not yet in CINC. New photos push
+  // automatically on arrival; this re-queues anything still pending (e.g.
+  // photos added before the WO was CINC-linked, or a failed push).
+  const pushToCinc = useCallback(async () => {
+    setPushing(true)
+    setPushNote(null)
+    setError(null)
+    try {
+      const res  = await fetch(`/api/admin/work-orders/${ticketId}/photos/push-to-cinc`, { method: 'POST' })
+      const data = await res.json() as { queued?: number; error?: string }
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      setPushNote(
+        (data.queued ?? 0) === 0
+          ? 'All photos already synced to CINC.'
+          : `Queued ${data.queued} photo${data.queued === 1 ? '' : 's'} to push to CINC.`,
+      )
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setPushing(false)
+    }
+  }, [ticketId])
+
   const deletePhoto = useCallback(async (attachmentId: string) => {
     if (!window.confirm('Delete this photo? This cannot be undone.')) return
     setBusyDelete(attachmentId)
@@ -195,6 +221,12 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
     return () => window.removeEventListener('keydown', onKey)
   }, [lightboxIdx, attachments.length])
 
+  // MAIA-origin photos still awaiting their push to CINC. Drives the
+  // "Push N to CINC" backfill affordance — hidden once everything's synced.
+  const unpushedCount = attachments.filter(
+    a => a.source !== 'cinc' && isImage(a) && !a.cinc_pushed_at,
+  ).length
+
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4">
       <div className="flex items-center justify-between mb-3">
@@ -220,6 +252,16 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
           >
             {uploading ? 'Uploading…' : '+ Add files'}
           </button>
+          {hasCincWorkOrderId && unpushedCount > 0 && (
+            <button
+              onClick={() => void pushToCinc()}
+              disabled={pushing}
+              className="text-xs font-medium text-emerald-700 hover:text-emerald-900 disabled:text-gray-400"
+              title="Upload MAIA's photos into the linked CINC work order"
+            >
+              {pushing ? 'Pushing…' : `↗ Push ${unpushedCount} to CINC`}
+            </button>
+          )}
           {hasCincWorkOrderId && (
             <button
               onClick={() => void fetchPhotos(true)}
@@ -232,6 +274,10 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
           )}
         </div>
       </div>
+
+      {pushNote && (
+        <div className="mb-3 text-xs text-emerald-700">{pushNote}</div>
+      )}
 
       {loading && (
         <div className="text-xs text-gray-500">Loading photos…</div>
@@ -294,8 +340,12 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
                 </div>
               )}
               {att.source !== 'cinc' && (
-                <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-white">
+                <span
+                  className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-white"
+                  title={att.cinc_pushed_at ? 'Synced to CINC' : undefined}
+                >
                   {SOURCE_LABEL[att.source]}
+                  {att.cinc_pushed_at && <span className="ml-1 text-emerald-300" aria-hidden>✓ CINC</span>}
                 </span>
               )}
               {att.extracted_doc_type && DOC_TYPE_BADGE[att.extracted_doc_type] && (
