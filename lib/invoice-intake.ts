@@ -28,6 +28,7 @@ import {
   checkDuplicateInvoice,
 } from '@/lib/integrations/cinc'
 import { extractInvoiceFields } from '@/lib/invoice-extraction'
+import { isSignatureOrLogoImage } from '@/lib/email-attachment-filter'
 import { normalizePdf, imageToPdf, PDF_TARGET_BYTES } from '@/lib/pdf-normalize'
 
 // Invoices sometimes arrive as a phone photo / scan instead of a PDF.
@@ -114,7 +115,10 @@ export async function handleInvoiceIntake(
   // Images are converted to a one-page PDF below so the rest of the
   // pipeline (storage + CINC attach) is unchanged.
   const eligible = parsed.attachments.filter(a =>
-    (a.mimeType.toLowerCase() === 'application/pdf' || isInvoiceImage(a)) && a.size <= MAX_PDF_BYTES,
+    a.size <= MAX_PDF_BYTES &&
+    // PDFs are always real invoices; images only if they're not a vendor
+    // signature/logo graphic embedded in the email body.
+    (a.mimeType.toLowerCase() === 'application/pdf' || (isInvoiceImage(a) && !isSignatureOrLogoImage(a))),
   )
   // Skip attachments that already produced a draft (redelivery / reprocess) —
   // matched by stable filename.

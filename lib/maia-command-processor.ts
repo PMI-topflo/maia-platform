@@ -23,6 +23,7 @@ import {
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
 import { saveWorkOrderAttachmentBytes, isImageFilename } from '@/lib/work-order-attachments'
+import { isSignatureOrLogoImage } from '@/lib/email-attachment-filter'
 import { normalizeUpload } from '@/lib/pdf-normalize'
 import { isValidTicketCategory } from '@/lib/ticket-categories'
 
@@ -96,7 +97,7 @@ export interface ParsedEmail {
   body:         string
   to:           string[]
   cc:           string[]
-  attachments:  Array<{ filename: string; mimeType: string; attachmentId: string; size: number }>
+  attachments:  Array<{ filename: string; mimeType: string; attachmentId: string; size: number; inline: boolean }>
 }
 
 // ── Header / address helpers ──────────────────────────────────────────────────
@@ -150,7 +151,11 @@ function collectAttachments(parts: GmailMessagePart[] | undefined): ParsedEmail[
   if (!parts) return out
   for (const p of parts) {
     if (p.filename && p.body.attachmentId) {
-      out.push({ filename: p.filename, mimeType: p.mimeType, attachmentId: p.body.attachmentId, size: p.body.size })
+      // Inline = embedded in the HTML body (Content-ID present, or inline
+      // disposition) — i.e. a signature/logo graphic, not a real attachment.
+      const disp   = hdr(p.headers, 'Content-Disposition')
+      const inline = /inline/i.test(disp) || !!hdr(p.headers, 'Content-ID')
+      out.push({ filename: p.filename, mimeType: p.mimeType, attachmentId: p.body.attachmentId, size: p.body.size, inline })
     }
     if (p.parts) out.push(...collectAttachments(p.parts))
   }
@@ -1922,7 +1927,9 @@ async function attachEmailPhotosToWorkOrder(
   fetchAttachment?: (attachmentId: string) => Promise<Buffer>,
 ): Promise<void> {
   if (!fetchAttachment) return
-  const images = parsed.attachments.filter(a => isImageFilename(a.filename))
+  // Real photos/scans only — skip vendor signature/logo graphics embedded in
+  // the email (and quoted repeatedly down a forwarded thread).
+  const images = parsed.attachments.filter(a => isImageFilename(a.filename) && !isSignatureOrLogoImage(a))
   if (images.length === 0) return
 
   const { data: ticket } = await supabaseAdmin
