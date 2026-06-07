@@ -23,7 +23,7 @@ import {
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
 import { saveWorkOrderAttachmentBytes, isImageFilename } from '@/lib/work-order-attachments'
-import { isSignatureOrLogoImage } from '@/lib/email-attachment-filter'
+import { isSignatureOrLogoImage, dedupeAttachments } from '@/lib/email-attachment-filter'
 import { normalizeUpload } from '@/lib/pdf-normalize'
 import { isValidTicketCategory } from '@/lib/ticket-categories'
 
@@ -1929,7 +1929,7 @@ async function attachEmailPhotosToWorkOrder(
   if (!fetchAttachment) return
   // Real photos/scans only — skip vendor signature/logo graphics embedded in
   // the email (and quoted repeatedly down a forwarded thread).
-  const images = parsed.attachments.filter(a => isImageFilename(a.filename) && !isSignatureOrLogoImage(a))
+  const images = dedupeAttachments(parsed.attachments.filter(a => isImageFilename(a.filename) && !isSignatureOrLogoImage(a)))
   if (images.length === 0) return
 
   const { data: ticket } = await supabaseAdmin

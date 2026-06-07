@@ -89,6 +89,25 @@ function cooldownUntil(msg: string): string {
   return new Date(until + 30_000).toISOString()
 }
 
+// Of the given Gmail message ids, return only those NOT already in email_logs
+// — i.e. genuinely new/unprocessed. Used to stop a recovery RESYNC (recent-
+// inbox rescan after a stale/empty history fetch) from RE-handling old mail:
+// re-handling re-creates invoice drafts whose originals were deleted and
+// re-acks the vendor (the 2026-06-07 "AB Electric re-added itself" report).
+// A truly missed message was never logged, so it still passes through.
+// Fails OPEN (returns all) on a lookup error — better to rarely reprocess
+// than to drop genuinely new mail.
+async function filterUnseenMessages(ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return ids
+  const { data, error } = await supabaseAdmin
+    .from('email_logs')
+    .select('gmail_message_id')
+    .in('gmail_message_id', ids)
+  if (error) return ids
+  const seen = new Set((data ?? []).map(r => r.gmail_message_id as string))
+  return ids.filter(id => !seen.has(id))
+}
+
 export async function POST(req: NextRequest) {
   // EMERGENCY KILL SWITCH — set MAIA_WEBHOOK_DISABLED=1 in the environment to
   // make this endpoint ack every Pub/Sub delivery (200) and do NOTHING: no
@@ -224,6 +243,19 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error('[maia-webhook] inbox scan fallback error:', err)
       return NextResponse.json({ ok: false, error: 'inbox_scan_failed' }, { status: 500 })
+    }
+  }
+
+  // A RESYNC (stale cursor or empty history → recent-inbox rescan) re-lists
+  // mail we may have already handled. Process ONLY messages we've never logged
+  // — re-handling an old email re-creates invoice drafts whose originals were
+  // deleted and re-acks the vendor. Genuinely missed mail isn't logged, so it
+  // still gets through. The normal path (real new history) is left untouched.
+  if (staleReplay || changes.added.length === 0) {
+    const before = messageIds.length
+    messageIds = await filterUnseenMessages(messageIds)
+    if (messageIds.length < before) {
+      console.log(`[maia-webhook] resync: skipped ${before - messageIds.length} already-seen, processing ${messageIds.length} new`)
     }
   }
 
@@ -368,6 +400,16 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
     } catch (err) {
       console.error(`[staff-gmail] inbox scan fallback error for ${account.gmail_address}:`, err)
       return
+    }
+  }
+
+  // RESYNC de-dup (same as the main account path): only handle never-seen
+  // messages, so a recent-inbox rescan doesn't re-ingest old mail.
+  if (staleReplay || changes.added.length === 0) {
+    const before = messageIds.length
+    messageIds = await filterUnseenMessages(messageIds)
+    if (messageIds.length < before) {
+      console.log(`[staff-gmail] resync ${account.gmail_address}: skipped ${before - messageIds.length} already-seen, processing ${messageIds.length} new`)
     }
   }
 
