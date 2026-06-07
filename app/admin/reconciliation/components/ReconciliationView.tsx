@@ -306,6 +306,12 @@ export default function ReconciliationView(props: Props) {
   const [payBusyKey, setPayBusyKey] = useState<string | null>(null)
   const [doneBusy,   setDoneBusy]   = useState(false)
 
+  // Confirm gate before Mark Paid — the actual payment happens in CINC, so
+  // we make Jonathan confirm he's already done it there before we reconcile
+  // and stamp it paid here. NO leaves the line untouched.
+  type PayItem = { kind: 'cinc' | 'scheduled'; invoiceNumber: string | null; amount: number; vendorName: string | null; draftId?: number }
+  const [confirmPay, setConfirmPay] = useState<{ item: PayItem; key: string } | null>(null)
+
   /** Mark an EFT invoice paid: reconcile it in MAIA (+ post unsent MAIA
    *  drafts to CINC Ready-for-Payment), then refresh the lists. */
   async function markEftPaid(
@@ -867,7 +873,7 @@ export default function ReconciliationView(props: Props) {
                       <Td right><span style={{ color: '#991b1b', fontVariantNumeric: 'tabular-nums' }}>${fmt$(c.amount)} ⬇</span></Td>
                       <Td>
                         <button
-                          onClick={() => void markEftPaid({ kind: 'cinc', invoiceNumber: c.invoiceNumber, amount: c.amount, vendorName: c.vendorName }, key)}
+                          onClick={() => setConfirmPay({ item: { kind: 'cinc', invoiceNumber: c.invoiceNumber, amount: c.amount, vendorName: c.vendorName }, key })}
                           disabled={payBusyKey === key}
                           style={{ fontSize: 10, color: '#fff', border: '1px solid #16a34a', background: payBusyKey === key ? '#86efac' : '#16a34a', borderRadius: 3, padding: '2px 8px', cursor: payBusyKey === key ? 'default' : 'pointer' }}
                         >{payBusyKey === key ? 'Marking…' : 'Mark Paid'}</button>
@@ -886,7 +892,7 @@ export default function ReconciliationView(props: Props) {
                       <Td right><span style={{ color: '#991b1b', fontVariantNumeric: 'tabular-nums' }}>${fmt$(s.amount)} ⬇</span></Td>
                       <Td>
                         <button
-                          onClick={() => void markEftPaid({ kind: 'scheduled', invoiceNumber: s.invoiceNumber, amount: s.amount, vendorName: s.vendorName, draftId: s.draftId }, key)}
+                          onClick={() => setConfirmPay({ item: { kind: 'scheduled', invoiceNumber: s.invoiceNumber, amount: s.amount, vendorName: s.vendorName, draftId: s.draftId }, key })}
                           disabled={payBusyKey === key}
                           style={{ fontSize: 10, color: '#fff', border: '1px solid #16a34a', background: payBusyKey === key ? '#86efac' : '#16a34a', borderRadius: 3, padding: '2px 8px', cursor: payBusyKey === key ? 'default' : 'pointer' }}
                         >{payBusyKey === key ? 'Marking…' : 'Mark Paid'}</button>
@@ -1088,6 +1094,40 @@ export default function ReconciliationView(props: Props) {
               title="Invoice detail"
               style={{ flex: 1, width: '100%', border: 'none' }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Confirm-paid-in-CINC gate. The money actually moves in CINC, so
+          Jonathan confirms he's done that before MAIA reconciles + stamps it
+          paid. NO closes and leaves the line exactly as it was. */}
+      {confirmPay && (
+        <div
+          onClick={() => setConfirmPay(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.55)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        >
+          <div
+            onClick={ev => ev.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 8, width: 'min(420px, 94vw)', padding: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.35)' }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>Have you marked this invoice PAID IN CINC?</div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6, lineHeight: 1.45 }}>
+              {confirmPay.item.vendorName ?? 'This invoice'}
+              {confirmPay.item.invoiceNumber ? ` · Inv.#${confirmPay.item.invoiceNumber}` : ''}
+              {' · $'}{fmt$(confirmPay.item.amount)}.
+              <br />
+              Only click <strong>Yes</strong> once the payment is actually recorded in CINC. This reconciles the line and stamps it paid here.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+              <button
+                onClick={() => setConfirmPay(null)}
+                style={{ fontSize: 13, fontWeight: 600, color: '#374151', background: '#fff', border: '1px solid #d1d5db', borderRadius: 4, padding: '6px 16px', cursor: 'pointer' }}
+              >No</button>
+              <button
+                onClick={() => { const c = confirmPay; setConfirmPay(null); void markEftPaid(c.item, c.key) }}
+                style={{ fontSize: 13, fontWeight: 700, color: '#fff', background: '#16a34a', border: '1px solid #16a34a', borderRadius: 4, padding: '6px 16px', cursor: 'pointer' }}
+              >Yes, paid in CINC</button>
+            </div>
           </div>
         </div>
       )}
