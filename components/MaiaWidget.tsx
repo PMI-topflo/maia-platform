@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import Image from 'next/image'
 import AddressSearch from '@/components/AddressSearch'
 import type { AddressResult } from '@/app/api/address-search/route'
 
@@ -773,7 +772,17 @@ export default function MaiaWidget({ embedded = false }: { embedded?: boolean })
       >
         {open
           ? <span style={{ color: '#fff', fontSize: '1rem', fontFamily: 'var(--font-mono)' }}>✕</span>
-          : <Image src="/pmi-logo-white.png" alt="PMI" width={56} height={36} style={{ objectFit: 'contain' }} />
+          : (
+            // Maia mark — white speech bubble + voicewave + AI spark cue.
+            <svg viewBox="0 0 48 48" width="30" height="30" aria-hidden="true">
+              <rect x="4" y="6" width="40" height="28" rx="11" fill="#fff" />
+              <path d="M13 31 L13 41 L23 32 Z" fill="#fff" />
+              <rect x="13" y="15.5" width="4" height="9" rx="2" fill="#e85d26" />
+              <rect x="19" y="12.5" width="4" height="15" rx="2" fill="#e85d26" />
+              <rect x="25" y="10.5" width="4" height="19" rx="2" fill="#e85d26" />
+              <path transform="translate(35,20) scale(0.58)" d="M0,-10 C0,-4 4,0 10,0 C4,0 0,4 0,10 C0,4 -4,0 -10,0 C-4,0 0,-4 0,-10 Z" fill="#e85d26" />
+            </svg>
+          )
         }
       </button>
     </>

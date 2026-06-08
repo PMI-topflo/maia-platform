@@ -73,9 +73,8 @@ export default function AdminSidebar() {
   return (
     <aside className="fixed left-0 top-0 z-40 hidden h-screen w-[232px] flex-col overflow-y-auto border-r border-gray-200 bg-white md:flex">
       {/* Brand */}
-      <Link href="/admin" className="flex h-16 items-center gap-2 border-b border-gray-100 px-4">
-        <Image src="/maia-mark.svg" alt="Maia" width={30} height={30} />
-        <Image src="/maia-wordmark-spark.svg" alt="Maia" width={66} height={24} />
+      <Link href="/admin" className="flex h-16 items-center border-b border-gray-100 px-4">
+        <Image src="/pmi-logo.png" alt="PMI Top Florida Properties" width={150} height={40} style={{ objectFit: 'contain' }} />
       </Link>
 
       <nav className="flex-1 p-2.5">
