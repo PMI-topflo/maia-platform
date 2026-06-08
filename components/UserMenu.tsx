@@ -123,9 +123,9 @@ export default function UserMenu() {
         title={`Signed in as ${display}`}
         style={{
           display: 'flex', alignItems: 'center', gap: '0.5rem',
-          background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
-          color: '#fff', borderRadius: 4, padding: '0.35rem 0.6rem',
-          fontFamily: 'var(--font-mono)', fontSize: '0.65rem', letterSpacing: '0.04em',
+          background: '#f8fafc', border: '1px solid #e2e8f0',
+          color: '#334155', borderRadius: 6, padding: '0.35rem 0.6rem',
+          fontFamily: 'var(--font-body)', fontSize: '0.78rem', fontWeight: 500,
           cursor: 'pointer',
         }}
       >

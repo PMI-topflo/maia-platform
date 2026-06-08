@@ -32,7 +32,7 @@ interface Props {
   activeOverride?: string
 }
 
-const TAB_BASE = '[font-family:var(--font-mono)] text-[0.68rem] uppercase tracking-[0.06em] px-2.5 py-1.5 rounded-[2px] transition-colors whitespace-nowrap'
+const TAB_BASE = '[font-family:var(--font-body)] text-sm font-medium px-2.5 py-1.5 rounded-md transition-colors whitespace-nowrap'
 
 export default function AdminNav({ activeOverride }: Props = {}) {
   const pathname = usePathname()
@@ -52,8 +52,8 @@ export default function AdminNav({ activeOverride }: Props = {}) {
             className={[
               TAB_BASE,
               active
-                ? 'text-white border border-white/40'
-                : 'text-white/65 hover:text-white border border-transparent hover:border-white/20',
+                ? 'text-[#c2410c] bg-[#fff7ed] font-semibold'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100',
             ].join(' ')}
           >
             {item.label}
