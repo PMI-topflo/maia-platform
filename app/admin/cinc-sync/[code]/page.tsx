@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { getContactsAndConsentFlag, getAssociationMeta, listAssociationBankAccounts } from '@/lib/integrations/cinc'
+import { getContactsAndConsentFlag, getAssociationMeta, listAssociationBankAccounts, getAssociationBudget } from '@/lib/integrations/cinc'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../../components/AdminNav'
 import AssociationHubClient, { type AssociationHubData } from './AssociationHubClient'
@@ -49,6 +49,7 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     contactsFlagOn,
     meta,
     bankAccounts,
+    budget,
     { data: boardRows },
     { data: woRows },
     { count: docCount },
@@ -57,6 +58,7 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     getContactsAndConsentFlag().catch(() => null),
     getAssociationMeta(upperCode).catch(() => null),
     listAssociationBankAccounts(upperCode).catch(() => []),
+    getAssociationBudget(upperCode).catch(() => []),
     supabaseAdmin.from('association_board_members').select('id, name, email, role').eq('association_code', upperCode).eq('active', true),
     supabaseAdmin.from('tickets').select('id, ticket_number, subject, status, priority, due_at').eq('type', 'work_order').eq('association_code', upperCode).is('archived_at', null).order('updated_at', { ascending: false }).limit(50),
     supabaseAdmin.from('association_documents').select('id', { count: 'exact', head: true }).eq('association_code', upperCode).is('archived_at', null),
@@ -72,6 +74,7 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     bankAccounts:   (bankAccounts ?? []).map(a => ({ description: a.description, last4: a.last4, kind: a.kind, bankBalance: a.bankBalance, restricted: a.restricted })),
     board:          (boardRows ?? []) as AssociationHubData['board'],
     workOrders,
+    budget:         (budget ?? []) as AssociationHubData['budget'],
     openWorkOrders: workOrders.filter(w => OPEN_WO_STATUSES.includes(w.status)).length,
     openInvoices:   invoiceCount ?? 0,
     docCount:       docCount ?? 0,

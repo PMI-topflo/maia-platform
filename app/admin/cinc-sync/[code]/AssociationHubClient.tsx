@@ -15,6 +15,7 @@ import SyncPreviewClient from './SyncPreviewClient'
 export interface HubBankAccount { description: string; last4: string | null; kind: string; bankBalance: number | null; restricted: boolean }
 export interface HubBoardMember { id: string; name: string | null; email: string | null; role: string | null }
 export interface HubWorkOrder { id: number; ticket_number: string; subject: string | null; status: string; priority: string; due_at: string | null }
+export interface HubBudgetLine { id: string; number: string | null; name: string; budget: number | null; actual: number | null; remaining: number | null }
 
 export interface AssociationHubData {
   code:          string
@@ -24,9 +25,18 @@ export interface AssociationHubData {
   bankAccounts:  HubBankAccount[]
   board:         HubBoardMember[]
   workOrders:    HubWorkOrder[]
+  budget:        HubBudgetLine[]
   openWorkOrders: number
   openInvoices:  number
   docCount:      number
+}
+
+type Rag = 'ok' | 'warn' | 'bad' | 'none'
+interface VendorRow { id: number; name: string; coi: Rag; w9: Rag; ach: Rag; license: Rag }
+const RAG_DOT:   Record<Rag, string> = { ok: 'bg-emerald-500', warn: 'bg-amber-500', bad: 'bg-red-500', none: 'bg-gray-300' }
+const RAG_LABEL: Record<Rag, string> = { ok: 'OK', warn: 'Expiring', bad: 'Expired', none: 'Missing' }
+function RagPill({ s }: { s: Rag }) {
+  return <span className="inline-flex items-center gap-1 text-[11px] text-gray-600"><span className={`h-2 w-2 rounded-full ${RAG_DOT[s]}`} />{RAG_LABEL[s]}</span>
 }
 
 const money = (n: number | null | undefined) => n == null ? '—' : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -36,7 +46,7 @@ const STATUS_STYLES: Record<string, string> = {
   waiting_external: 'bg-blue-100 text-blue-800', resolved: 'bg-slate-100 text-slate-700', closed: 'bg-gray-200 text-gray-600',
 }
 
-const TABS = ['Overview', 'Board & Owners', 'Work Orders', 'Financials', 'Documents & Compliance', 'Reports'] as const
+const TABS = ['Overview', 'Board & Owners', 'Vendors', 'Work Orders', 'Financials', 'Budget', 'Documents & Compliance', 'Reports'] as const
 type Tab = typeof TABS[number]
 
 export default function AssociationHubClient({ data }: { data: AssociationHubData }) {
@@ -44,6 +54,30 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
   const [actionsOpen, setActionsOpen] = useState(false)
   const { code } = data
   const bankTotal = data.bankAccounts.reduce((s, a) => s + (a.bankBalance ?? 0), 0)
+
+  // Vendors tab — lazy-loaded (N×3 CINC calls) on first open, triggered
+  // from the tab click (not an effect) so we never setState in an effect.
+  const [vendors, setVendors] = useState<VendorRow[] | null>(null)
+  const [vendorsLoading, setVendorsLoading] = useState(false)
+  const [vendorsErr, setVendorsErr] = useState<string | null>(null)
+  const [vendorsTruncated, setVendorsTruncated] = useState(false)
+  function loadVendors() {
+    if (vendors !== null || vendorsLoading) return
+    setVendorsLoading(true); setVendorsErr(null)
+    fetch(`/api/admin/cinc/association-vendors?assoc=${encodeURIComponent(code)}`)
+      .then(r => r.json())
+      .then((d: { vendors?: VendorRow[]; truncated?: boolean; error?: string }) => {
+        if (d.error) throw new Error(d.error)
+        setVendors(d.vendors ?? []); setVendorsTruncated(!!d.truncated)
+      })
+      .catch(e => setVendorsErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => setVendorsLoading(false))
+  }
+
+  function selectTab(t: Tab) {
+    setTab(t)
+    if (t === 'Vendors') loadVendors()
+  }
 
   const ACTIONS: { label: string; href: string }[] = [
     { label: 'New work order',  href: '/admin/work-orders' },
@@ -84,9 +118,9 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
       {/* Tabs */}
       <div className="mb-5 flex flex-wrap gap-1 border-b border-gray-200">
         {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)} className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${tab === t ? 'border-[#f26a1b] text-[#f26a1b]' : 'border-transparent text-gray-500 hover:text-gray-900'}`}>{t}</button>
+          <button key={t} onClick={() => selectTab(t)} className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${tab === t ? 'border-[#f26a1b] text-[#f26a1b]' : 'border-transparent text-gray-500 hover:text-gray-900'}`}>{t}</button>
         ))}
-        <span className="ml-2 self-center text-[11px] text-gray-300">Maintenance · Projects · Inspections · Budget — coming next</span>
+        <span className="ml-2 self-center text-[11px] text-gray-300">Maintenance · Projects · Inspections — coming next</span>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_1fr]">
@@ -151,6 +185,37 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
             </div>
           )}
 
+          {tab === 'Vendors' && (
+            <Card title="Vendors serving this association">
+              {vendorsLoading && <p className="text-xs text-gray-400">Loading vendor compliance from CINC…</p>}
+              {vendorsErr && <p className="text-xs text-red-600">{vendorsErr}</p>}
+              {vendors && vendors.length === 0 && !vendorsLoading && <Empty>No vendors on this association in CINC.</Empty>}
+              {vendors && vendors.length > 0 && (
+                <table className="w-full text-sm">
+                  <thead><tr className="text-[11px] uppercase tracking-wide text-gray-400">
+                    <th className="pb-1 text-left font-semibold">Vendor</th>
+                    <th className="pb-1 text-left font-semibold">COI</th>
+                    <th className="pb-1 text-left font-semibold">W-9</th>
+                    <th className="pb-1 text-left font-semibold">ACH</th>
+                    <th className="pb-1 text-left font-semibold">License</th>
+                  </tr></thead>
+                  <tbody>
+                    {vendors.map(v => (
+                      <tr key={v.id} className="border-t border-gray-100">
+                        <td className="py-1.5 font-medium text-gray-900">{v.name}</td>
+                        <td className="py-1.5"><RagPill s={v.coi} /></td>
+                        <td className="py-1.5"><RagPill s={v.w9} /></td>
+                        <td className="py-1.5"><RagPill s={v.ach} /></td>
+                        <td className="py-1.5"><RagPill s={v.license} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {vendorsTruncated && <p className="mt-2 text-[11px] text-gray-400">Showing the first 30 vendors.</p>}
+            </Card>
+          )}
+
           {tab === 'Work Orders' && (
             <Card title="Work orders" action="Open list →" actionHref={`/admin/work-orders?association=${code}`}>
               {data.workOrders.length === 0 ? <Empty>No work orders for this association.</Empty> : <WorkOrderTable rows={data.workOrders} />}
@@ -181,6 +246,50 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
               </Card>
             </>
           )}
+
+          {tab === 'Budget' && (() => {
+            const lines = data.budget.filter(l => (l.budget ?? 0) !== 0 || (l.actual ?? 0) !== 0)
+            const totalB = lines.reduce((s, l) => s + (l.budget ?? 0), 0)
+            const totalA = lines.reduce((s, l) => s + (l.actual ?? 0), 0)
+            return (
+              <>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <Stat label="Annual budget" value={money(totalB)} />
+                  <Stat label="Actual YTD" value={money(totalA)} />
+                  <Stat label="Remaining" value={money(totalB - totalA)} />
+                </div>
+                <Card title="Budget vs actual (YTD)" action="Reconciliation →" actionHref={`/admin/reconciliation?assoc=${code}`}>
+                  {lines.length === 0 ? <Empty>No budget returned by CINC for this association.</Empty> : (
+                    <table className="w-full text-sm">
+                      <thead><tr className="text-[11px] uppercase tracking-wide text-gray-400">
+                        <th className="pb-1 text-left font-semibold">GL category</th>
+                        <th className="pb-1 text-right font-semibold">Budget</th>
+                        <th className="pb-1 text-right font-semibold">Actual</th>
+                        <th className="pb-1 text-right font-semibold">Remaining</th>
+                        <th className="pb-1"></th>
+                      </tr></thead>
+                      <tbody>
+                        {lines.map(l => {
+                          const b = l.budget ?? 0, a = l.actual ?? 0, rem = l.remaining ?? (b - a)
+                          const pct = b > 0 ? Math.min(100, (a / b) * 100) : (a > 0 ? 100 : 0)
+                          const over = a > b && b > 0
+                          return (
+                            <tr key={l.id} className="border-t border-gray-100">
+                              <td className="py-1.5 text-gray-900">{l.name}{l.number && <span className="text-gray-400"> · {l.number}</span>}</td>
+                              <td className="py-1.5 text-right tabular-nums">{money(l.budget)}</td>
+                              <td className="py-1.5 text-right tabular-nums">{money(l.actual)}</td>
+                              <td className={`py-1.5 text-right tabular-nums ${rem < 0 ? 'text-red-600' : 'text-gray-700'}`}>{money(rem)}</td>
+                              <td className="py-1.5"><div className="h-2 w-24 rounded bg-gray-100"><div className={`h-2 rounded ${over ? 'bg-red-400' : 'bg-emerald-400'}`} style={{ width: `${pct}%` }} /></div></td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </Card>
+              </>
+            )
+          })()}
 
           {tab === 'Documents & Compliance' && (
             <Card title="Documents & compliance">
