@@ -31,10 +31,10 @@ export default function SiteHeader({ children }: SiteHeaderProps) {
           is the nav row's job, not duplicated text next to the brand). */}
       <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none', flexShrink: 0 }}>
         <Image
-          src="/pmi-logo.png"
-          alt="PMI Top Florida Properties"
-          width={130}
-          height={40}
+          src="/maia-logo-primary.svg"
+          alt="Maia by PMI Top Florida Properties"
+          width={168}
+          height={32}
           style={{ objectFit: 'contain', objectPosition: 'left center', flexShrink: 0 }}
           priority
         />
