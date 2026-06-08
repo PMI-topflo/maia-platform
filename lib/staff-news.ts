@@ -18,9 +18,31 @@ import { fetchStaffList } from '@/lib/staff-list'
 import { sendEmail } from '@/lib/gmail'
 
 const NAVY   = '#1f2a44'
-const ORANGE = '#f26a1b'
+const ORANGE = '#e85d26'   // Maia brand orange
 const RED     = '#b91c1c'
 const GREEN   = '#15803d'
+
+// ── "New in Maia" feed ──────────────────────────────────────────────
+// Staff-facing changelog shown at the top of the Daily News. Items
+// within the last 7 days render automatically; add new entries here (a
+// short, non-technical title + blurb, ISO date) and old ones drop off.
+export interface WhatsNewItem { date: string; title: string; blurb: string }
+export const WHATS_NEW: WhatsNewItem[] = [
+  { date: '2026-06-08', title: 'New look + left menu', blurb: 'A lighter, easier-to-read top bar and a new left sidebar with menus & submenus. Say hi to Maia — your assistant, by PMI Top Florida Properties.' },
+  { date: '2026-06-08', title: 'Association Hub', blurb: 'One page per association — board, owners, work orders, financials, documents and reports all together. Open it from Associations → an association.' },
+  { date: '2026-06-07', title: 'Work-order photos sync to CINC', blurb: 'Photos you add to a work order now upload into the linked CINC work order automatically.' },
+  { date: '2026-06-07', title: 'Faster ticket navigation', blurb: 'Ticket and work-order pages now have ‹ prev / next › arrows (and ← → keys) so you can step through them without going back to the list.' },
+  { date: '2026-06-07', title: 'Reconciliation safety check', blurb: 'Marking an invoice paid now asks "Have you marked it PAID IN CINC?" first — so nothing gets marked paid by mistake.' },
+  { date: '2026-06-07', title: 'Step through applications & registrations', blurb: 'Use ‹ prev / next › or the arrow keys to review applicants and registrations one at a time.' },
+]
+
+/** Items from the last `days` days, newest first. */
+export function recentWhatsNew(nowIso: string, days = 7): WhatsNewItem[] {
+  const cutoff = new Date(nowIso).getTime() - days * 86_400_000
+  return WHATS_NEW
+    .filter(i => new Date(`${i.date}T12:00:00Z`).getTime() >= cutoff)
+    .sort((a, b) => b.date.localeCompare(a.date))
+}
 
 // "Late" age fallback (hours) when a ticket has no explicit due_at, by
 // priority. due_at, when set, always wins.
@@ -231,7 +253,8 @@ function sectionBlock(s: NewsSection, appUrl: string): string {
 export function buildStaffNewsEmail(data: StaffNewsData, appUrl: string): { subject: string; html: string; text: string } {
   const dateLabel = etDateLabel(data.generatedIso)
   const t = data.totals
-  const subject = `PMI Top Florida Daily News — ${dateLabel}`
+  const subject = `Maia Daily News — ${dateLabel}`
+  const news = recentWhatsNew(data.generatedIso)
 
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${esc(subject)}</title></head>
@@ -239,11 +262,28 @@ export function buildStaffNewsEmail(data: StaffNewsData, appUrl: string): { subj
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f5f5f7;padding:24px 0"><tr><td align="center">
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="background:#ffffff;border-radius:10px;max-width:600px;width:100%">
 
-    <tr><td style="background:${NAVY};padding:24px 28px;color:#ffffff;border-top-left-radius:10px;border-top-right-radius:10px">
-      <div style="font-size:11px;letter-spacing:0.12em;color:#aab3c5;text-transform:uppercase">PMI Top Florida Properties</div>
-      <div style="font-size:23px;font-weight:700;margin-top:6px;color:#ffffff">📣 Daily News</div>
-      <div style="font-size:13px;color:#d7dbe4;margin-top:2px">${esc(dateLabel)} · week-to-date since Monday</div>
+    <tr><td style="padding:22px 28px 18px;background:#ffffff;border-bottom:1px solid #ececf0;border-top-left-radius:10px;border-top-right-radius:10px">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td style="vertical-align:middle;padding-right:12px">
+          <img src="${esc(appUrl)}/icon-192.png" width="42" height="42" alt="Maia" style="display:block;border-radius:10px" />
+        </td>
+        <td style="vertical-align:middle">
+          <div style="font-size:22px;font-weight:800;color:#0f172a;line-height:1.05">Maia <span style="color:${ORANGE}">&#10022;</span></div>
+          <div style="font-size:11px;color:#6b7280;letter-spacing:0.03em;margin-top:2px">by PMI Top Florida Properties</div>
+        </td>
+      </tr></table>
+      <div style="font-size:13px;color:#6b7280;margin-top:14px">📣 <strong style="color:#0f172a">Daily News</strong> · ${esc(dateLabel)} · week-to-date since Monday</div>
     </td></tr>
+
+    ${news.length ? `<tr><td style="padding:16px 28px 0">
+      <div style="border:1px solid #ffe2d2;border-radius:10px;padding:14px 16px;background:#fff7ed">
+        <div style="font-size:13px;font-weight:800;color:${ORANGE}">&#10022; New in Maia &middot; this week</div>
+        ${news.map(it => `<div style="padding:8px 0;border-top:1px solid #ffe9da">
+          <div style="font-size:13px;font-weight:700;color:${NAVY}">${esc(it.title)}</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:2px;line-height:1.5">${esc(it.blurb)}</div>
+        </div>`).join('')}
+      </div>
+    </td></tr>` : ''}
 
     <tr><td style="padding:18px 28px 0">
       <div style="font-size:11px;font-weight:600;color:${NAVY};margin-bottom:4px">TEAM THIS WEEK</div>
@@ -260,7 +300,7 @@ export function buildStaffNewsEmail(data: StaffNewsData, appUrl: string): { subj
     <tr><td style="padding:16px 28px 22px;border-top:1px solid #eceff4">
       <p style="font-size:11px;color:#9ca3af;margin:14px 0 0">
         "Late" = past its due date, or open longer than its priority window (urgent 1d · high 3d · normal 7d · low 14d).<br/>
-        MAIA · PMI Top Florida Properties · <a href="${esc(appUrl)}" style="color:#9ca3af;text-decoration:none">${esc(appUrl.replace(/^https?:\/\//, ''))}</a>
+        Maia · by PMI Top Florida Properties · <a href="${esc(appUrl)}" style="color:#9ca3af;text-decoration:none">${esc(appUrl.replace(/^https?:\/\//, ''))}</a>
       </p>
     </td></tr>
 
@@ -269,9 +309,10 @@ export function buildStaffNewsEmail(data: StaffNewsData, appUrl: string): { subj
 </body></html>`
 
   const text = [
-    `PMI Top Florida Daily News — ${dateLabel}`,
+    `Maia Daily News — ${dateLabel}`,
     `Week-to-date since Monday.`,
     '',
+    ...(news.length ? ['New in Maia this week:', ...news.map(it => `  • ${it.title} — ${it.blurb}`), ''] : []),
     ...data.sections.map(s => {
       const m = s.metrics
       return `${s.name}${s.role ? ` (${s.role})` : ''}\n` +
@@ -279,8 +320,8 @@ export function buildStaffNewsEmail(data: StaffNewsData, appUrl: string): { subj
         `  Work orders — opened ${m.woOpened}, resolved ${m.woResolved}, open ${m.woOpen}, late ${m.woLate}`
     }),
     '',
-    `Suggest a MAIA improvement: ${appUrl}/improve`,
-    'MAIA · PMI Top Florida Properties',
+    `Suggest a Maia improvement: ${appUrl}/improve`,
+    'Maia · by PMI Top Florida Properties',
   ].join('\n')
 
   return { subject, html, text }
