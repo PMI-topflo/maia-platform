@@ -1521,6 +1521,52 @@ CREATE POLICY "service_role_all_association_inspections"
   ON public.association_inspections FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'pmi_staff_setup_fields',
+    label:       'Staff Setup profile fields',
+    description: 'pmi_staff.alias + personal_phone + working_hours (per-weekday check-in/out + flexible lunch minutes as JSON) for the Staff Setup page.',
+    filename:    '20260608_staff_setup.sql',
+    artifact:    { type: 'column', table: 'pmi_staff', column: 'working_hours' },
+    sql: `ALTER TABLE public.pmi_staff
+  ADD COLUMN IF NOT EXISTS alias          text,
+  ADD COLUMN IF NOT EXISTS personal_phone text,
+  ADD COLUMN IF NOT EXISTS working_hours  jsonb;
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'staff_tasks',
+    label:       'Staff tasks / reminders',
+    description: 'staff_tasks table — recurring tasks per staffer (MAIA-created + manual; daily/weekly/monthly/yearly/on-expiry) behind the Staff Setup page; feeds the MAIA Daily News journal.',
+    filename:    '20260608_staff_setup.sql',
+    artifact:    { type: 'table', table: 'staff_tasks' },
+    sql: `CREATE TABLE IF NOT EXISTS public.staff_tasks (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  assignee_email  text        NOT NULL,
+  title           text        NOT NULL,
+  source          text        NOT NULL DEFAULT 'manual',
+  recurrence      text        NOT NULL DEFAULT 'once',
+  next_due        date,
+  expiry_date     date,
+  notes           text,
+  source_ref      text,
+  active          boolean     NOT NULL DEFAULT true,
+  created_by      text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_staff_task_source CHECK (source     IN ('manual','maia')),
+  CONSTRAINT chk_staff_task_recur  CHECK (recurrence IN ('once','daily','weekly','monthly','yearly','on_expiry'))
+);
+CREATE INDEX IF NOT EXISTS staff_tasks_assignee_idx
+  ON public.staff_tasks (assignee_email) WHERE active;
+CREATE UNIQUE INDEX IF NOT EXISTS staff_tasks_source_ref_uniq
+  ON public.staff_tasks (source_ref) WHERE source_ref IS NOT NULL;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.staff_tasks
+  TO anon, authenticated, service_role;
+ALTER TABLE public.staff_tasks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_staff_tasks" ON public.staff_tasks;
+CREATE POLICY "service_role_all_staff_tasks"
+  ON public.staff_tasks FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
