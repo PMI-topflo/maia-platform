@@ -25,7 +25,7 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
 
   const { data: assocRow } = await supabaseAdmin
     .from('associations')
-    .select('association_code, association_name')
+    .select('association_code, association_name, service_type')
     .eq('association_code', upperCode)
     .maybeSingle()
 
@@ -54,6 +54,7 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     { data: woRows },
     { count: docCount },
     { count: invoiceCount },
+    { count: ownersCount },
   ] = await Promise.all([
     getContactsAndConsentFlag().catch(() => null),
     getAssociationMeta(upperCode).catch(() => null),
@@ -63,6 +64,7 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     supabaseAdmin.from('tickets').select('id, ticket_number, subject, status, priority, due_at').eq('type', 'work_order').eq('association_code', upperCode).is('archived_at', null).order('updated_at', { ascending: false }).limit(50),
     supabaseAdmin.from('association_documents').select('id', { count: 'exact', head: true }).eq('association_code', upperCode).is('archived_at', null),
     supabaseAdmin.from('invoice_intake_drafts').select('id', { count: 'exact', head: true }).eq('extracted_association_code', upperCode).in('status', OPEN_INVOICE_STATUSES),
+    supabaseAdmin.from('owners').select('id', { count: 'exact', head: true }).eq('association_code', upperCode).or('status.neq.previous,status.is.null'),
   ])
 
   const workOrders = (woRows ?? []) as AssociationHubData['workOrders']
@@ -71,6 +73,8 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     name:           assocRow.association_name,
     units:          meta?.Numberofunits ?? null,
     type:           null,
+    serviceType:    (assocRow as { service_type?: string | null }).service_type ?? null,
+    ownersCount:    ownersCount ?? 0,
     bankAccounts:   (bankAccounts ?? []).map(a => ({ description: a.description, last4: a.last4, kind: a.kind, bankBalance: a.bankBalance, restricted: a.restricted })),
     board:          (boardRows ?? []) as AssociationHubData['board'],
     workOrders,

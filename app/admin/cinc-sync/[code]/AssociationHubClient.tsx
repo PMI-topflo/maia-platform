@@ -25,6 +25,8 @@ export interface AssociationHubData {
   name:          string
   units:         number | null
   type:          string | null
+  serviceType:   string | null
+  ownersCount:   number
   bankAccounts:  HubBankAccount[]
   board:         HubBoardMember[]
   workOrders:    HubWorkOrder[]
@@ -40,6 +42,15 @@ const RAG_DOT:   Record<Rag, string> = { ok: 'bg-emerald-500', warn: 'bg-amber-5
 const RAG_LABEL: Record<Rag, string> = { ok: 'OK', warn: 'Expiring', bad: 'Expired', none: 'Missing' }
 function RagPill({ s }: { s: Rag }) {
   return <span className="inline-flex items-center gap-1 text-[11px] text-gray-600"><span className={`h-2 w-2 rounded-full ${RAG_DOT[s]}`} />{RAG_LABEL[s]}</span>
+}
+
+// Service-level chip — FM (full management) / BK (bookkeeping), same as the
+// associations directory list.
+function ServiceBadge({ s }: { s: string | null }) {
+  const n = (s ?? '').toLowerCase()
+  if (n.includes('full') || n === 'fm') return <span className="inline-flex rounded border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[10px] font-mono font-semibold uppercase text-emerald-800">FM</span>
+  if (n.includes('book') || n.includes('financial') || n === 'bk') return <span className="inline-flex rounded border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-mono font-semibold uppercase text-amber-800">BK</span>
+  return <span className="font-mono text-[10px] text-gray-300">—</span>
 }
 
 const money = (n: number | null | undefined) => n == null ? '—' : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -103,6 +114,12 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
             <span className="font-mono rounded bg-gray-100 px-1.5 py-0.5">{code}</span>
             {data.type && <span>· {data.type}</span>}
             {data.units != null && <span>· {data.units} units</span>}
+          </div>
+          {/* At-a-glance service level + scale, same info as the directory list. */}
+          <div className="mt-2 flex flex-wrap items-center gap-5 text-xs">
+            <span className="inline-flex items-center gap-1.5"><span className="text-[10px] uppercase tracking-wide text-gray-400">Service</span><ServiceBadge s={data.serviceType} /></span>
+            <span className="inline-flex items-center gap-1.5"><span className="text-[10px] uppercase tracking-wide text-gray-400">Owners</span><span className="font-semibold text-gray-900 tabular-nums">{data.ownersCount}</span></span>
+            <span className="inline-flex items-center gap-1.5"><span className="text-[10px] uppercase tracking-wide text-gray-400">Board</span><span className="font-semibold text-gray-900 tabular-nums">{data.board.length}</span></span>
           </div>
         </div>
         <div className="flex items-center gap-2">
