@@ -1392,6 +1392,37 @@ ALTER TABLE public.integration_outbox
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'preventive_schedules',
+    label:       'Preventive maintenance schedules',
+    description: 'preventive_schedules table — per-association recurring maintenance tasks (cadence: weekly/monthly/quarterly/semiannual/annual) behind the Association Hub Maintenance tab + calendar. Apply before the Maintenance tab can save schedules.',
+    filename:    '20260608_preventive_schedules.sql',
+    artifact:    { type: 'table', table: 'preventive_schedules' },
+    sql: `CREATE TABLE IF NOT EXISTS public.preventive_schedules (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code text        NOT NULL,
+  task             text        NOT NULL,
+  cadence          text        NOT NULL,
+  weekday          integer,
+  day_of_month     integer,
+  start_date       date        NOT NULL,
+  vendor_name      text,
+  notes            text,
+  active           boolean     NOT NULL DEFAULT true,
+  created_by       text,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_prev_cadence CHECK (cadence IN ('weekly','monthly','quarterly','semiannual','annual'))
+);
+CREATE INDEX IF NOT EXISTS preventive_schedules_assoc_idx
+  ON public.preventive_schedules (association_code) WHERE active;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.preventive_schedules
+  TO anon, authenticated, service_role;
+ALTER TABLE public.preventive_schedules ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_preventive_schedules" ON public.preventive_schedules;
+CREATE POLICY "service_role_all_preventive_schedules"
+  ON public.preventive_schedules FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
