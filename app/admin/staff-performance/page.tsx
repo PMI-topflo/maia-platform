@@ -6,6 +6,7 @@
 // the client for charts + table + range switching.
 // =====================================================================
 
+import Link from 'next/link'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { fetchStaffList } from '@/lib/staff-list'
 import SiteHeader from '@/components/SiteHeader'
@@ -95,6 +96,9 @@ export default async function StaffPerformancePage({
         <AdminNav />
       </SiteHeader>
       <main className="max-w-screen-2xl mx-auto px-6 py-6">
+        <div className="mb-3 flex justify-end">
+          <Link href="/admin/staff-setup" className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:border-[#f26a1b] hover:text-[#f26a1b]">⚙ Staff Setup →</Link>
+        </div>
         <StaffPerformanceClient
           rows={rows}
           activeRange={rangeKey}
