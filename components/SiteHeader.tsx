@@ -1,4 +1,5 @@
 import Image from 'next/image'
+import Link from 'next/link'
 import UserMenu from './UserMenu'
 
 interface SiteHeaderProps {
@@ -15,27 +16,29 @@ export default function SiteHeader({ children }: SiteHeaderProps) {
       position:       'sticky',
       top:            0,
       zIndex:         50,
-      background:     '#0d0d0d',
-      height:         64,
+      background:     '#ffffff',
+      borderBottom:   '1px solid #e5e7eb',
+      boxShadow:      '0 1px 2px rgba(0,0,0,0.04)',
+      minHeight:      64,
       display:        'flex',
       alignItems:     'center',
       justifyContent: 'space-between',
-      padding:        '0 1.5rem',
+      padding:        '0.5rem 1.5rem',
       gap:            '1rem',
     }}>
 
       {/* Left — logo only (subtitle removed; identifying the section
           is the nav row's job, not duplicated text next to the brand). */}
-      <a href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none', flexShrink: 0 }}>
+      <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none', flexShrink: 0 }}>
         <Image
-          src="/pmi-logo-white.png"
+          src="/pmi-logo.png"
           alt="PMI Top Florida Properties"
           width={130}
           height={40}
           style={{ objectFit: 'contain', objectPosition: 'left center', flexShrink: 0 }}
           priority
         />
-      </a>
+      </Link>
 
       {/* Right — optional slot + account menu (phones removed; freed
           horizontal space for the admin nav). The group grows (flex:1)
