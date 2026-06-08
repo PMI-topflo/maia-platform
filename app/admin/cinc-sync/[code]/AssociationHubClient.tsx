@@ -11,6 +11,7 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import SyncPreviewClient from './SyncPreviewClient'
+import MaintenanceTab from './MaintenanceTab'
 
 export interface HubBankAccount { description: string; last4: string | null; kind: string; bankBalance: number | null; restricted: boolean }
 export interface HubBoardMember { id: string; name: string | null; email: string | null; role: string | null }
@@ -46,7 +47,7 @@ const STATUS_STYLES: Record<string, string> = {
   waiting_external: 'bg-blue-100 text-blue-800', resolved: 'bg-slate-100 text-slate-700', closed: 'bg-gray-200 text-gray-600',
 }
 
-const TABS = ['Overview', 'Board & Owners', 'Vendors', 'Work Orders', 'Financials', 'Budget', 'Documents & Compliance', 'Reports'] as const
+const TABS = ['Overview', 'Board & Owners', 'Vendors', 'Work Orders', 'Maintenance', 'Financials', 'Budget', 'Documents & Compliance', 'Reports'] as const
 type Tab = typeof TABS[number]
 
 export default function AssociationHubClient({ data }: { data: AssociationHubData }) {
@@ -120,7 +121,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
         {TABS.map(t => (
           <button key={t} onClick={() => selectTab(t)} className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${tab === t ? 'border-[#f26a1b] text-[#f26a1b]' : 'border-transparent text-gray-500 hover:text-gray-900'}`}>{t}</button>
         ))}
-        <span className="ml-2 self-center text-[11px] text-gray-300">Maintenance · Projects · Inspections — coming next</span>
+        <span className="ml-2 self-center text-[11px] text-gray-300">Projects · Inspections — coming next</span>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_1fr]">
@@ -221,6 +222,8 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
               {data.workOrders.length === 0 ? <Empty>No work orders for this association.</Empty> : <WorkOrderTable rows={data.workOrders} />}
             </Card>
           )}
+
+          {tab === 'Maintenance' && <MaintenanceTab assoc={code} openWorkOrders={data.openWorkOrders} />}
 
           {tab === 'Financials' && (
             <>
