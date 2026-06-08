@@ -8,6 +8,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { fetchStaffList } from '@/lib/staff-list'
 import SiteHeader from '@/components/SiteHeader'
+import ResyncWorkOrdersButton from '../../components/ResyncWorkOrdersButton'
 import AdminNav from '../../components/AdminNav'
 import TicketListClient, { type TicketRow } from './TicketListClient'
 
@@ -132,6 +133,11 @@ export async function renderTicketsList(
         <AdminNav />
       </SiteHeader>
       <main className="max-w-screen-2xl mx-auto px-6 py-6">
+        {defaultType === 'work_order' && (
+          <div className="mb-3 flex justify-end">
+            <ResyncWorkOrdersButton />
+          </div>
+        )}
         <TicketListClient
           rows={rows}
           associations={associations ?? []}
