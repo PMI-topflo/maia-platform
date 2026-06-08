@@ -7,9 +7,8 @@ import { listAllCincAssociations, type CincAssociationMeta } from '@/lib/integra
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../components/AdminNav'
 import OnboardButton from './OnboardButton'
-import ResyncWorkOrdersButton from './ResyncWorkOrdersButton'
 
-export const metadata = { title: 'CINC Sync — PMI Top Florida' }
+export const metadata = { title: 'Associations — PMI Top Florida' }
 export const dynamic = 'force-dynamic'
 
 export default async function CincSyncIndexPage() {
@@ -84,14 +83,11 @@ export default async function CincSyncIndexPage() {
       </SiteHeader>
 
       <main className="max-w-screen-xl mx-auto px-6 py-6">
-        <header className="mb-6 flex items-start justify-between gap-4 border-l-4 border-[#f26a1b] pl-4">
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">CINC Sync</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Compare each association&apos;s owners and board members against CINC. Click an association to see a side-by-side diff and selectively apply changes.
-            </p>
-          </div>
-          <ResyncWorkOrdersButton />
+        <header className="mb-6 border-l-4 border-[#f26a1b] pl-4">
+          <h1 className="text-xl font-semibold text-gray-900">Associations</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Click an association to open its hub — board &amp; owners, work orders, financials, budget, maintenance, documents and reports.
+          </p>
         </header>
 
         {/* CINC-only section — associations that exist upstream but
@@ -151,43 +147,27 @@ export default async function CincSyncIndexPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Code</th>
                 <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Association</th>
                 <th className="text-center text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Service</th>
                 <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Owners</th>
                 <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Board</th>
                 <th className="text-center text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Docs</th>
-                <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 [font-family:var(--font-mono)]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {(associations ?? []).map(a => (
                 <tr key={a.association_code} className="hover:bg-gray-50">
-                  <td className="px-4 py-2 font-mono text-xs text-gray-500">{a.association_code}</td>
-                  <td className="px-4 py-2 text-gray-800">{a.association_name}</td>
-                  <td className="px-4 py-2 text-center">
-                    <ServiceTypeBadge serviceType={a.service_type} />
+                  <td className="px-4 py-2">
+                    {/* Whole name opens the association hub. */}
+                    <Link href={`/admin/cinc-sync/${a.association_code}`} className="group inline-flex items-center gap-2">
+                      <span className="font-mono text-[10px] text-gray-500 bg-gray-100 rounded px-1.5 py-0.5">{a.association_code}</span>
+                      <span className="font-medium text-gray-900 group-hover:text-[#f26a1b] group-hover:underline">{a.association_name}</span>
+                    </Link>
                   </td>
+                  <td className="px-4 py-2 text-center"><ServiceTypeBadge serviceType={a.service_type} /></td>
                   <td className="px-4 py-2 text-right text-gray-600">{ownerByCode[a.association_code] ?? 0}</td>
                   <td className="px-4 py-2 text-right text-gray-600">{boardByCode[a.association_code] ?? 0}</td>
-                  <td className="px-4 py-2 text-center">
-                    <DocsCountBadge count={docsByCode[a.association_code] ?? 0} />
-                  </td>
-                  <td className="px-4 py-2 text-right whitespace-nowrap">
-                    <Link
-                      href={`/admin/cinc-sync/${a.association_code}/documents`}
-                      className="text-indigo-700 hover:text-indigo-900 hover:underline text-xs font-mono uppercase tracking-wide mr-3"
-                    >
-                      📄 Docs
-                    </Link>
-                    <Link
-                      href={`/admin/cinc-sync/${a.association_code}`}
-                      className="text-[#f26a1b] hover:underline text-xs font-mono uppercase tracking-wide"
-                      title="View owners + board for this association, with edit + view-as actions"
-                    >
-                      👤 Owners →
-                    </Link>
-                  </td>
+                  <td className="px-4 py-2 text-center"><DocsCountBadge count={docsByCode[a.association_code] ?? 0} /></td>
                 </tr>
               ))}
             </tbody>
