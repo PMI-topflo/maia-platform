@@ -41,7 +41,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     .from('preventive_schedules')
     .update(patch)
     .eq('id', id)
-    .select('id, association_code, task, cadence, weekday, day_of_month, start_date, vendor_name, notes, active')
+    .select('id, association_code, task, category, cadence, weekday, day_of_month, start_date, vendor_name, notes, active')
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ schedule: data })

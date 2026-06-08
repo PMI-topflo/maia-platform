@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react'
 import {
   occurrencesInWindow, ymd, cadenceSummary, nextDue,
-  CADENCES, CADENCE_LABEL, WEEKDAY_LABEL,
+  CADENCES, CADENCE_LABEL, WEEKDAY_LABEL, GOVERNANCE_TASKS,
   type PreventiveSchedule, type Cadence, type CalEvent,
 } from '@/lib/preventive-maintenance'
 
@@ -22,6 +22,9 @@ const EVK: Record<Cadence, string> = {
   semiannual: 'bg-amber-100 text-amber-800',
   annual:     'bg-sky-100 text-sky-800',
 }
+// Governance dates (budget prep, elections…) stand out from maintenance.
+const GOV_STYLE = 'bg-[#fae8ff] text-[#86198f] font-semibold'
+const evStyle = (e: CalEvent) => e.category === 'governance' ? GOV_STYLE : EVK[e.cadence]
 type View = '3day' | 'week' | 'month'
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const fmtShort = (d: Date) => `${MONTHS[d.getMonth()]} ${d.getDate()}`
@@ -47,6 +50,7 @@ export default function MaintenanceTab({ assoc, openWorkOrders }: { assoc: strin
   const [view, setView] = useState<View>('week')
   const [anchor, setAnchor] = useState<Date>(() => new Date())
   const [addOpen, setAddOpen] = useState(false)
+  const [addGovOpen, setAddGovOpen] = useState(false)
 
   useEffect(() => {
     let live = true
@@ -62,6 +66,8 @@ export default function MaintenanceTab({ assoc, openWorkOrders }: { assoc: strin
   }, [assoc])
 
   const list = schedules ?? []
+  const maint = list.filter(s => s.category !== 'governance')
+  const gov   = list.filter(s => s.category === 'governance')
   const days = span(anchor, view)
   const events = occurrencesInWindow(list, days[0], days[days.length - 1])
   const byDay = new Map<string, CalEvent[]>()
@@ -127,7 +133,7 @@ export default function MaintenanceTab({ assoc, openWorkOrders }: { assoc: strin
                 return (
                   <div key={i} className={`min-h-[78px] p-1 ${out ? 'bg-gray-50' : 'bg-white'} ${ymd(d) === today ? 'ring-1 ring-inset ring-[#f26a1b]' : ''}`}>
                     <div className={`text-[11px] ${out ? 'text-gray-300' : 'text-gray-500'}`}>{d.getDate()}</div>
-                    {evs.slice(0, 3).map((e, j) => <div key={j} className={`mt-0.5 truncate rounded px-1 py-0.5 text-[10px] ${EVK[e.cadence]}`} title={e.task}>{e.task}</div>)}
+                    {evs.slice(0, 3).map((e, j) => <div key={j} className={`mt-0.5 truncate rounded px-1 py-0.5 text-[10px] ${evStyle(e)}`} title={e.task}>{e.task}</div>)}
                   </div>
                 )
               })}
@@ -144,7 +150,7 @@ export default function MaintenanceTab({ assoc, openWorkOrders }: { assoc: strin
                   </div>
                   <div className={`space-y-1 p-1.5 ${view === '3day' ? 'min-h-[160px]' : 'min-h-[120px]'}`}>
                     {evs.length === 0 ? <div className="text-[10px] text-gray-300">—</div> : evs.map((e, j) => (
-                      <div key={j} className={`rounded px-1.5 py-1 text-[11px] ${EVK[e.cadence]}`} title={e.vendor ?? undefined}>{e.task}{e.vendor && <span className="block text-[9px] opacity-70">{e.vendor}</span>}</div>
+                      <div key={j} className={`rounded px-1.5 py-1 text-[11px] ${evStyle(e)}`} title={e.vendor ?? undefined}>{e.task}{e.vendor && <span className="block text-[9px] opacity-70">{e.vendor}</span>}</div>
                     ))}
                   </div>
                 </div>
@@ -154,25 +160,54 @@ export default function MaintenanceTab({ assoc, openWorkOrders }: { assoc: strin
         )}
         <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-gray-500">
           {CADENCES.map(c => <span key={c} className="inline-flex items-center gap-1"><span className={`h-2.5 w-2.5 rounded ${EVK[c].split(' ')[0]}`} />{CADENCE_LABEL[c]}</span>)}
+          <span className="inline-flex items-center gap-1"><span className={`h-2.5 w-2.5 rounded ${GOV_STYLE.split(' ')[0]}`} />Governance</span>
         </div>
       </div>
 
-      {/* Schedule list */}
+      {/* Governance dates (per condo docs) */}
+      <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="mb-1 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-900">Governance dates <span className="font-normal text-gray-400">· per condo docs</span></h3>
+          <button onClick={() => setAddGovOpen(true)} className="text-xs font-medium text-[#86198f] hover:text-[#a21caf]">+ Add governance date</button>
+        </div>
+        <p className="mb-2 text-[11px] text-gray-400">Annual milestones from the governing documents — budget preparation, elections, annual meeting, reserve study.</p>
+        {!loading && gov.length === 0 && <p className="text-xs text-gray-400">No governance dates yet. Add the association&apos;s budget-prep and election dates.</p>}
+        {gov.length > 0 && (
+          <table className="w-full text-sm">
+            <thead><tr className="text-[11px] uppercase tracking-wide text-gray-400">
+              <th className="pb-1 text-left font-semibold">Milestone</th><th className="pb-1 text-left font-semibold">When</th>
+              <th className="pb-1 text-left font-semibold">Next</th><th className="pb-1"></th>
+            </tr></thead>
+            <tbody>
+              {gov.map(s => (
+                <tr key={s.id} className="border-t border-gray-100">
+                  <td className="py-1.5 font-medium text-gray-900">{s.task}</td>
+                  <td className="py-1.5 text-gray-500">{cadenceSummary(s)}</td>
+                  <td className="py-1.5 text-gray-700">{nextDue(s) ?? '—'}</td>
+                  <td className="py-1.5 text-right"><button onClick={() => removeSchedule(s.id)} className="text-xs text-gray-400 hover:text-red-600">Remove</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Preventive maintenance schedule list */}
       <div className="rounded-lg border border-gray-200 bg-white p-4">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">Preventive maintenance schedule</h3>
           <button onClick={() => setAddOpen(true)} className="text-xs font-medium text-[#f26a1b] hover:text-[#d85a14]">+ Add schedule</button>
         </div>
         {error && <p className="text-xs text-red-600">{error}</p>}
-        {!loading && list.length === 0 && <p className="text-xs text-gray-400">No preventive schedules yet. Add one to populate the calendar.</p>}
-        {list.length > 0 && (
+        {!loading && maint.length === 0 && <p className="text-xs text-gray-400">No preventive schedules yet. Add one to populate the calendar.</p>}
+        {maint.length > 0 && (
           <table className="w-full text-sm">
             <thead><tr className="text-[11px] uppercase tracking-wide text-gray-400">
               <th className="pb-1 text-left font-semibold">Task</th><th className="pb-1 text-left font-semibold">Cadence</th>
               <th className="pb-1 text-left font-semibold">Vendor</th><th className="pb-1 text-left font-semibold">Next due</th><th className="pb-1"></th>
             </tr></thead>
             <tbody>
-              {list.map(s => (
+              {maint.map(s => (
                 <tr key={s.id} className="border-t border-gray-100">
                   <td className="py-1.5 font-medium text-gray-900">{s.task}</td>
                   <td className="py-1.5 text-gray-500">{cadenceSummary(s)}</td>
@@ -191,6 +226,13 @@ export default function MaintenanceTab({ assoc, openWorkOrders }: { assoc: strin
           assoc={assoc}
           onClose={() => setAddOpen(false)}
           onCreated={s => { setSchedules(prev => [...(prev ?? []), s]); setAddOpen(false) }}
+        />
+      )}
+      {addGovOpen && (
+        <AddGovernanceModal
+          assoc={assoc}
+          onClose={() => setAddGovOpen(false)}
+          onCreated={s => { setSchedules(prev => [...(prev ?? []), s]); setAddGovOpen(false) }}
         />
       )}
     </>
@@ -271,4 +313,57 @@ function AddScheduleModal({ assoc, onClose, onCreated }: { assoc: string; onClos
 }
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-gray-400">{label}</span>{children}</label>
+}
+
+// Governance dates are annual milestones from the condo docs. The picked
+// date sets the month + day; it recurs every year (cadence='annual').
+function AddGovernanceModal({ assoc, onClose, onCreated }: { assoc: string; onClose: () => void; onCreated: (s: PreventiveSchedule) => void }) {
+  const [task, setTask] = useState<string>(GOVERNANCE_TASKS[0])
+  const [date, setDate] = useState(ymd(new Date()))
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function save() {
+    setBusy(true); setErr(null)
+    try {
+      const res = await fetch('/api/admin/maintenance/schedules', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          association_code: assoc, task, category: 'governance',
+          cadence: 'annual', start_date: date,
+          day_of_month: Math.min(28, Math.max(1, Number(date.slice(8, 10)))),
+          notes: notes.trim() || null,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      onCreated(data.schedule as PreventiveSchedule)
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/45 p-4">
+      <div onClick={e => e.stopPropagation()} className="w-full max-w-md rounded-lg bg-white p-5 shadow-2xl">
+        <div className="text-base font-bold text-gray-900">Add governance date</div>
+        <div className="mt-1 text-xs text-gray-500">Annual milestone from this association&apos;s condo docs. Repeats every year on the date you pick.</div>
+        <div className="mt-4 space-y-3">
+          <Field label="Milestone">
+            <select value={task} onChange={e => setTask(e.target.value)} className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
+              {GOVERNANCE_TASKS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Date (per docs)"><input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full rounded border border-gray-300 px-2.5 py-1.5 text-sm" /></Field>
+            <Field label="Notes (optional)"><input value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. 45 days before AGM" className="w-full rounded border border-gray-300 px-2.5 py-1.5 text-sm" /></Field>
+          </div>
+        </div>
+        {err && <div className="mt-3 text-sm text-red-600">{err}</div>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} disabled={busy} className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+          <button onClick={save} disabled={busy} className="rounded bg-[#86198f] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#a21caf] disabled:opacity-50">{busy ? 'Saving…' : 'Add date'}</button>
+        </div>
+      </div>
+    </div>
+  )
 }
