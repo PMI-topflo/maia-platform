@@ -75,8 +75,93 @@ const ACTIONS = [
   { label: 'Edit Association',        hint: 'type, statute, service level' },
 ]
 
-const TABS = ['Overview', 'Board & Owners', 'Vendors', 'Work Orders', 'Financials', 'Documents & Compliance', 'Communications', 'Reports'] as const
+const TABS = ['Overview', 'Board & Owners', 'Vendors', 'Work Orders', 'Maintenance', 'Projects', 'Inspections', 'Financials', 'Budget', 'Documents & Compliance', 'Communications', 'Reports'] as const
 type Tab = typeof TABS[number]
+
+// ── Projects + Inspections sample data ──────────────────────────────
+const PROJECTS = [
+  { name: 'Roof replacement — Bldg A', status: 'In progress', vendor: 'Apex Roofing', budget: 185000, spent: 96000, target: 'Aug 2026', pct: 52 },
+  { name: '40-year recertification',   status: 'Bidding',     vendor: '—',            budget: 42000,  spent: 0,     target: 'Dec 2026', pct: 10 },
+  { name: 'Lobby & hallway repaint',   status: 'Planning',    vendor: 'ColorPro',     budget: 28000,  spent: 0,     target: 'Oct 2026', pct: 0 },
+  { name: 'Pool deck resurfacing',     status: 'Complete',    vendor: 'AquaDeck',     budget: 21000,  spent: 20450, target: 'Apr 2026', pct: 100 },
+]
+const PROJ_STATUS: Record<string, string> = {
+  'Planning':    'bg-gray-100 text-gray-700',
+  'Bidding':     'bg-amber-100 text-amber-800',
+  'In progress': 'bg-blue-100 text-blue-800',
+  'Complete':    'bg-emerald-100 text-emerald-800',
+}
+
+const INSPECTIONS = [
+  { type: 'Milestone inspection (SB-4D)', last: '2025-12-01', next: '2035-12-01', status: 'ok',      who: 'StructEng FL' },
+  { type: 'Reserve study',                last: '2024-03-15', next: '2027-03-15', status: 'ok',      who: 'AccuReserve' },
+  { type: 'Fire alarm / sprinkler',       last: '2026-03-18', next: '2026-09-18', status: 'due',     who: 'SafeGuard Fire' },
+  { type: 'Elevator certification',       last: '2025-06-12', next: '2026-06-12', status: 'overdue', who: 'ThyssenKrupp' },
+  { type: 'Backflow / water',             last: '2026-01-20', next: '2027-01-20', status: 'ok',      who: 'Vista Plumbing' },
+]
+const INSP_STATUS: Record<string, string> = { ok: 'bg-emerald-100 text-emerald-800', due: 'bg-amber-100 text-amber-800', overdue: 'bg-red-100 text-red-800' }
+const INSP_LABEL:  Record<string, string> = { ok: 'Current', due: 'Due soon', overdue: 'Overdue' }
+
+// ── Maintenance / calendar / budget sample data ─────────────────────
+const PREVENTIVE = [
+  { name: 'Pool chemical service', cadence: 'Weekly · Mon',     vendor: 'AquaPro',        next: 'Jun 8' },
+  { name: 'Elevator inspection',   cadence: 'Monthly',          vendor: 'ThyssenKrupp',   next: 'Jun 12' },
+  { name: 'Fire alarm test',       cadence: 'Quarterly',        vendor: 'SafeGuard Fire', next: 'Jun 18' },
+  { name: 'HVAC filter change',    cadence: 'Monthly',          vendor: 'CoolAir HVAC',   next: 'Jun 25' },
+  { name: 'Roof / gutter inspection', cadence: 'Annual',        vendor: 'Apex Roofing',   next: 'Nov 3' },
+]
+
+const BY_CATEGORY = [
+  { c: 'Landscaping', n: 8 }, { c: 'Plumbing', n: 6 }, { c: 'HVAC', n: 5 },
+  { c: 'Electrical', n: 4 }, { c: 'Cleaning', n: 3 },
+]
+const EXPIRING_INS = [
+  { v: 'Testa & Sons Signs', days: 21 },
+  { v: 'Hidden Eyes LLC',    days: -33 },
+]
+const BUDGET = [
+  { cat: 'R&M — General',  b: 48000, a: 31200 },
+  { cat: 'Landscaping',    b: 36000, a: 34500 },
+  { cat: 'Pool',           b: 18000, a: 9800 },
+  { cat: 'Elevator',       b: 12000, a: 11000 },
+  { cat: 'Insurance',      b: 96000, a: 96000 },
+  { cat: 'Utilities',      b: 54000, a: 41200 },
+]
+
+// Calendar events keyed by June-2026 day number.
+const CAL_EVENTS: Record<number, { t: string; k: string }[]> = {
+  1:  [{ t: 'Pool service', k: 'pool' }],
+  3:  [{ t: 'Landscaping', k: 'land' }],
+  8:  [{ t: 'Pool service', k: 'pool' }],
+  9:  [{ t: 'Pressure-wash garage', k: 'clean' }],
+  10: [{ t: 'Landscaping', k: 'land' }],
+  12: [{ t: 'Elevator inspection', k: 'insp' }],
+  15: [{ t: 'Pool service', k: 'pool' }],
+  17: [{ t: 'Landscaping', k: 'land' }],
+  18: [{ t: 'Fire alarm test', k: 'safety' }],
+  22: [{ t: 'Pool service', k: 'pool' }],
+  24: [{ t: 'Landscaping', k: 'land' }],
+  25: [{ t: 'HVAC filter change', k: 'hvac' }],
+  29: [{ t: 'Pool service', k: 'pool' }],
+}
+const EVK: Record<string, string> = {
+  pool:   'bg-teal-100 text-teal-800',
+  land:   'bg-green-100 text-green-800',
+  insp:   'bg-indigo-100 text-indigo-800',
+  safety: 'bg-red-100 text-red-800',
+  hvac:   'bg-amber-100 text-amber-800',
+  clean:  'bg-sky-100 text-sky-800',
+}
+// Sun-start month grid for June 2026 (Jun 1 = Monday). o = outside month.
+const MONTH: { d: number; o?: boolean }[] = [
+  { d: 31, o: true }, { d: 1 }, { d: 2 }, { d: 3 }, { d: 4 }, { d: 5 }, { d: 6 },
+  { d: 7 }, { d: 8 }, { d: 9 }, { d: 10 }, { d: 11 }, { d: 12 }, { d: 13 },
+  { d: 14 }, { d: 15 }, { d: 16 }, { d: 17 }, { d: 18 }, { d: 19 }, { d: 20 },
+  { d: 21 }, { d: 22 }, { d: 23 }, { d: 24 }, { d: 25 }, { d: 26 }, { d: 27 },
+  { d: 28 }, { d: 29 }, { d: 30 }, { d: 1, o: true }, { d: 2, o: true }, { d: 3, o: true }, { d: 4, o: true },
+]
+const WEEK_DAYS: readonly (readonly [string, number])[]  = [['Sun', 7], ['Mon', 8], ['Tue', 9], ['Wed', 10], ['Thu', 11], ['Fri', 12], ['Sat', 13]]
+const THREE_DAYS: readonly (readonly [string, number])[] = [['Mon', 8], ['Tue', 9], ['Wed', 10]]
 
 const money = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
@@ -281,6 +366,107 @@ export default function AssociationHubMockup() {
             </Card>
           )}
 
+          {tab === 'Maintenance' && (
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Stat label="Open" value="5" tone="neutral" />
+                <Stat label="Overdue" value="1" tone="warn" />
+                <Stat label="Completed (30d)" value="7" tone="ok" />
+                <Stat label="Cost (30d)" value="$8,207" tone="neutral" />
+              </div>
+
+              <CalendarMock />
+
+              <Card title="Preventive maintenance schedule" action="+ Add schedule">
+                <Table head={['Task', 'Cadence', 'Vendor', 'Next due', '']}>
+                  {PREVENTIVE.map(p => (
+                    <tr key={p.name} className="border-t border-gray-100">
+                      <Td className="font-medium text-gray-900">{p.name}</Td>
+                      <Td className="text-gray-500">{p.cadence}</Td>
+                      <Td className="text-gray-500">{p.vendor}</Td>
+                      <Td>{p.next}</Td>
+                      <Td className="text-right"><LinkBtn>Edit</LinkBtn></Td>
+                    </tr>
+                  ))}
+                </Table>
+                <FeedsFrom>NEW: preventive schedules → auto-generate recurring work orders + calendar events</FeedsFrom>
+              </Card>
+
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <Card title="Work orders by category">
+                  {BY_CATEGORY.map(c => (
+                    <div key={c.c} className="mb-1.5">
+                      <div className="flex justify-between text-xs text-gray-600"><span>{c.c}</span><span>{c.n}</span></div>
+                      <div className="h-2 rounded bg-gray-100"><div className="h-2 rounded bg-[#f26a1b]" style={{ width: `${(c.n / 8) * 100}%` }} /></div>
+                    </div>
+                  ))}
+                  <FeedsFrom>tickets grouped by work-order type</FeedsFrom>
+                </Card>
+                <Card title="Vendors with expiring insurance">
+                  <ul className="divide-y divide-gray-100 text-sm">
+                    {EXPIRING_INS.map(v => (
+                      <li key={v.v} className="flex items-center justify-between py-2">
+                        <span className="text-gray-900">{v.v}</span>
+                        <span className={v.days < 0 ? 'text-red-600' : 'text-amber-600'}>{v.days < 0 ? `expired ${-v.days}d ago` : `in ${v.days} days`}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <FeedsFrom>CINC vendor compliance — COI expiry</FeedsFrom>
+                </Card>
+              </div>
+            </>
+          )}
+
+          {tab === 'Projects' && (
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Stat label="Active projects" value="3" tone="neutral" />
+                <Stat label="In bidding" value="1" tone="warn" />
+                <Stat label="Committed budget" value="$276,000" tone="neutral" />
+                <Stat label="Spent to date" value="$116,450" tone="ok" />
+              </div>
+              <Card title="Capital & large projects" action="+ New project">
+                <Table head={['Project', 'Status', 'Vendor', 'Budget', 'Spent', 'Progress', 'Target']}>
+                  {PROJECTS.map(p => (
+                    <tr key={p.name} className="border-t border-gray-100">
+                      <Td className="font-medium text-gray-900">{p.name}</Td>
+                      <Td><span className={`rounded px-1.5 py-0.5 text-[10px] uppercase ${PROJ_STATUS[p.status]}`}>{p.status}</span></Td>
+                      <Td className="text-gray-500">{p.vendor}</Td>
+                      <Td>{money(p.budget)}</Td>
+                      <Td>{money(p.spent)}</Td>
+                      <Td>
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-16 rounded bg-gray-100"><div className="h-2 rounded bg-[#f26a1b]" style={{ width: `${p.pct}%` }} /></div>
+                          <span className="text-[11px] text-gray-500">{p.pct}%</span>
+                        </div>
+                      </Td>
+                      <Td className="text-gray-500">{p.target}</Td>
+                    </tr>
+                  ))}
+                </Table>
+                <FeedsFrom>NEW: a project = grouped work orders + budget + board approval; ties into the estimates board report</FeedsFrom>
+              </Card>
+            </>
+          )}
+
+          {tab === 'Inspections' && (
+            <Card title="Inspections & compliance certifications" action="+ Add inspection">
+              <Table head={['Inspection', 'Last done', 'Next due', 'Status', 'Inspector', '']}>
+                {INSPECTIONS.map(it => (
+                  <tr key={it.type} className="border-t border-gray-100">
+                    <Td className="font-medium text-gray-900">{it.type}</Td>
+                    <Td className="text-gray-500">{it.last}</Td>
+                    <Td>{it.next}</Td>
+                    <Td><span className={`rounded px-1.5 py-0.5 text-[10px] uppercase ${INSP_STATUS[it.status]}`}>{INSP_LABEL[it.status]}</span></Td>
+                    <Td className="text-gray-500">{it.who}</Td>
+                    <Td className="text-right"><LinkBtn>Report</LinkBtn></Td>
+                  </tr>
+                ))}
+              </Table>
+              <FeedsFrom>NEW: inspection/cert tracking (SB-4D milestone, reserve study, fire, elevator) + deadline alerts → /safety + documents</FeedsFrom>
+            </Card>
+          )}
+
           {tab === 'Financials' && (
             <>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -293,6 +479,34 @@ export default function AssociationHubMockup() {
                   <tr className="border-t border-gray-100"><Td>6/8</Td><Td>Testa &amp; Sons Signs</Td><Td className="font-mono text-xs">#86554</Td><Td className="text-red-700">$411.95</Td></tr>
                 </Table>
                 <FeedsFrom>reconciliation upcoming payments + invoice intake + forecast/budget</FeedsFrom>
+              </Card>
+            </>
+          )}
+
+          {tab === 'Budget' && (
+            <>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <Stat label="Annual budget" value="$324,000" tone="neutral" />
+                <Stat label="Actual YTD" value="$223,700" tone="ok" />
+                <Stat label="Reserve contribution" value="$60,000 / yr" tone="neutral" />
+              </div>
+              <Card title="Budget vs actual (YTD)" action="Open in reconciliation →">
+                <Table head={['GL category', 'Budget', 'Actual', 'Variance', '']}>
+                  {BUDGET.map(b => {
+                    const v = b.b - b.a
+                    const pct = Math.min(100, (b.a / b.b) * 100)
+                    return (
+                      <tr key={b.cat} className="border-t border-gray-100">
+                        <Td className="text-gray-900">{b.cat}</Td>
+                        <Td>{money(b.b)}</Td>
+                        <Td>{money(b.a)}</Td>
+                        <Td className={v < 0 ? 'text-red-600' : 'text-emerald-700'}>{v < 0 ? '−' : ''}{money(Math.abs(v))}</Td>
+                        <Td><div className="h-2 w-24 rounded bg-gray-100"><div className={`h-2 rounded ${b.a > b.b ? 'bg-red-400' : 'bg-emerald-400'}`} style={{ width: `${pct}%` }} /></div></Td>
+                      </tr>
+                    )
+                  })}
+                </Table>
+                <FeedsFrom>CINC budget lines + GL actuals + reconciliation</FeedsFrom>
               </Card>
             </>
           )}
@@ -389,4 +603,75 @@ function LinkBtn({ children }: { children: React.ReactNode }) {
 function Pill({ s }: { s: string }) {
   const r = RAG[s] ?? RAG.none
   return <span className="inline-flex items-center gap-1 text-[11px] text-gray-600"><span className={`h-2 w-2 rounded-full ${r.dot}`} />{r.label}</span>
+}
+
+// ── Maintenance calendar (3-day / week / month) ─────────────────────
+function CalendarMock() {
+  const [view, setView] = useState<'3day' | 'week' | 'month'>('week')
+  return (
+    <Card title="Maintenance calendar" action="+ Schedule preventive task">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-sm font-medium text-gray-700">June 2026</div>
+        <div className="inline-flex overflow-hidden rounded border border-gray-200 text-xs">
+          {(['3day', 'week', 'month'] as const).map(v => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`px-2.5 py-1 ${view === v ? 'bg-[#f26a1b] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+            >{v === '3day' ? '3 days' : v === 'week' ? 'Week' : 'Month'}</button>
+          ))}
+        </div>
+      </div>
+      {view === 'month' && <MonthGrid />}
+      {view === 'week'  && <DayCols days={WEEK_DAYS} />}
+      {view === '3day'  && <DayCols days={THREE_DAYS} wide />}
+      <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-gray-500">
+        <Legend k="pool" label="Pool" /><Legend k="land" label="Landscaping" />
+        <Legend k="insp" label="Inspection" /><Legend k="safety" label="Safety / Fire" />
+        <Legend k="hvac" label="HVAC" /><Legend k="clean" label="Cleaning" />
+      </div>
+      <FeedsFrom>NEW: preventive schedules + recurring work orders rendered as calendar events</FeedsFrom>
+    </Card>
+  )
+}
+function MonthGrid() {
+  const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  return (
+    <div>
+      <div className="grid grid-cols-7 text-center text-[10px] uppercase tracking-wide text-gray-400">
+        {dow.map(d => <div key={d} className="pb-1">{d}</div>)}
+      </div>
+      <div className="grid grid-cols-7 gap-px overflow-hidden rounded bg-gray-200">
+        {MONTH.map((c, i) => (
+          <div key={i} className={`min-h-[78px] p-1 ${c.o ? 'bg-gray-50' : 'bg-white'}`}>
+            <div className={`text-[11px] ${c.o ? 'text-gray-300' : 'text-gray-500'}`}>{c.d}</div>
+            {!c.o && (CAL_EVENTS[c.d] ?? []).slice(0, 2).map((e, j) => (
+              <div key={j} className={`mt-0.5 truncate rounded px-1 py-0.5 text-[10px] ${EVK[e.k]}`}>{e.t}</div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+function DayCols({ days, wide }: { days: readonly (readonly [string, number])[]; wide?: boolean }) {
+  return (
+    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
+      {days.map(([dowLabel, d]) => (
+        <div key={d} className="rounded border border-gray-200">
+          <div className="border-b border-gray-100 bg-gray-50 px-2 py-1 text-center text-[11px] text-gray-500">
+            {dowLabel} <span className="font-semibold text-gray-800">{d}</span>
+          </div>
+          <div className={`space-y-1 p-1.5 ${wide ? 'min-h-[160px]' : 'min-h-[120px]'}`}>
+            {(CAL_EVENTS[d] ?? []).map((e, i) => (
+              <div key={i} className={`rounded px-1.5 py-1 text-[11px] ${EVK[e.k]}`}>{e.t}</div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+function Legend({ k, label }: { k: string; label: string }) {
+  return <span className="inline-flex items-center gap-1"><span className={`h-2.5 w-2.5 rounded ${EVK[k].split(' ')[0]}`} />{label}</span>
 }

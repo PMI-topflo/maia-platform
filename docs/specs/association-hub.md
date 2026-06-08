@@ -14,7 +14,7 @@ view. The net-new build is vendor + board **communication & management**.
 - **Header**: breadcrumb · association name (with switcher) · `Run Monthly Report` · **Actions ▾** dropdown.
 - **Actions menu**: New Work Order · Add Invoice/Bill · Message Board Members · Email a Vendor · Add Owner · Upload Document · Record Insurance/COI · Run Monthly Report · Reconcile Month · Sync from CINC · Edit Association.
 - **Left identity rail** (always visible): financial snapshot (operating/reserve, open invoices, upcoming payments, open WOs, vendors, expiring COIs) + board officers.
-- **Tabs**: Overview · Board & Owners · Vendors · Work Orders · Financials · Documents & Compliance · Communications · Reports.
+- **Tabs**: Overview · Board & Owners · Vendors · Work Orders · Maintenance · Projects · Inspections · Financials · Budget · Documents & Compliance · Communications · Reports.
 
 ## Tab → data source (most already built)
 | Tab | Source | Status |
@@ -23,7 +23,11 @@ view. The net-new build is vendor + board **communication & management**.
 | Board & Owners | CINC board members + `/admin/board-setup`; CINC homeowners + `/admin/owners` | ✅ exists |
 | Vendors | CINC vendor compliance (COI/W-9/ACH/license) + request-for-estimate | 🟡 compliance read exists; estimate flow new |
 | Work Orders | `tickets` (type=work_order) filtered to assoc | ✅ exists |
+| Maintenance | maintenance stats + **calendar (3-day/week/month)** + preventive schedule + by-category/expiring-COI | 🟡 stats from tickets; calendar + preventive schedules **net-new** |
+| Projects | capital/large projects = grouped WOs + budget + board approval | 🔴 **net-new** (ties to estimates board report) |
+| Inspections | SB-4D milestone, reserve study, fire, elevator certs + deadline alerts | 🟡 `/safety` exists; cert tracking + alerts net-new |
 | Financials | CINC bank balances + invoice intake + reconciliation + forecast/budget | ✅ exists |
+| Budget | CINC budget lines vs GL actuals (variance) | 🟡 forecast/budget data exists; variance view net-new |
 | Documents & Compliance | `/cinc-sync/[code]/documents` · `/insurance` · `/safety` | ✅ exists |
 | Communications | vendor + board threads (email capture via maia@ + Gmail add-on) | 🔴 **net-new** |
 | Reports | `/admin/reports/monthly?assoc=` | ✅ exists |
