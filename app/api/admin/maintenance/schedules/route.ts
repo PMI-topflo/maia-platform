@@ -15,7 +15,7 @@ import { CADENCES, type Cadence } from '@/lib/preventive-maintenance'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const SELECT = 'id, association_code, task, cadence, weekday, day_of_month, start_date, vendor_name, notes, active'
+const SELECT = 'id, association_code, task, category, cadence, weekday, day_of_month, start_date, vendor_name, notes, active'
 
 async function requireStaff() {
   const cookieStore = await cookies()
@@ -63,10 +63,12 @@ export async function POST(req: Request) {
 
   const uploadedBy = typeof session.userId === 'string' && session.userId.includes('@') ? session.userId.toLowerCase() : null
 
+  const category = body.category === 'governance' ? 'governance' : 'maintenance'
+
   const { data, error } = await supabaseAdmin
     .from('preventive_schedules')
     .insert({
-      association_code: assoc, task, cadence,
+      association_code: assoc, task, category, cadence,
       weekday, day_of_month: dayOfMonth, start_date: start,
       vendor_name: (String(body.vendor_name ?? '').trim() || null),
       notes:       (String(body.notes ?? '').trim() || null),

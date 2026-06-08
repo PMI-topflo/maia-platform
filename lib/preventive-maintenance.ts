@@ -12,10 +12,13 @@
 
 export type Cadence = 'weekly' | 'monthly' | 'quarterly' | 'semiannual' | 'annual'
 
+export type ScheduleCategory = 'maintenance' | 'governance'
+
 export interface PreventiveSchedule {
   id:               string
   association_code: string
   task:             string
+  category:         ScheduleCategory
   cadence:          Cadence
   weekday:          number | null   // 0..6 (Sun..Sat) for weekly
   day_of_month:     number | null   // 1..28 for monthly+
@@ -24,6 +27,10 @@ export interface PreventiveSchedule {
   notes:            string | null
   active:           boolean
 }
+
+// Governance milestones from the condo docs (annual). Staff pick from
+// these when adding a governance date.
+export const GOVERNANCE_TASKS = ['Budget preparation', 'Annual election', 'Annual meeting', 'Reserve study due'] as const
 
 export const CADENCES: Cadence[] = ['weekly', 'monthly', 'quarterly', 'semiannual', 'annual']
 export const CADENCE_LABEL: Record<Cadence, string> = {
@@ -45,7 +52,7 @@ function parseYmd(s: string): Date {
 /** Midnight-local timestamp for a date (drops time-of-day). */
 function dayMs(d: Date): number { return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() }
 
-export interface CalEvent { date: string; scheduleId: string; task: string; cadence: Cadence; vendor: string | null }
+export interface CalEvent { date: string; scheduleId: string; task: string; cadence: Cadence; category: ScheduleCategory; vendor: string | null }
 
 /** Occurrences of the active schedules within [start, end] inclusive. */
 export function occurrencesInWindow(schedules: PreventiveSchedule[], start: Date, end: Date): CalEvent[] {
@@ -56,7 +63,7 @@ export function occurrencesInWindow(schedules: PreventiveSchedule[], start: Date
   for (const s of schedules) {
     if (!s.active) continue
     const anchor = parseYmd(s.start_date)
-    const push = (d: Date) => out.push({ date: ymd(d), scheduleId: s.id, task: s.task, cadence: s.cadence, vendor: s.vendor_name })
+    const push = (d: Date) => out.push({ date: ymd(d), scheduleId: s.id, task: s.task, cadence: s.cadence, category: s.category, vendor: s.vendor_name })
 
     if (s.cadence === 'weekly') {
       const wd = s.weekday ?? anchor.getDay()
