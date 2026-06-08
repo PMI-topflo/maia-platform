@@ -1567,6 +1567,39 @@ CREATE POLICY "service_role_all_staff_tasks"
   ON public.staff_tasks FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'compliance_records',
+    label:       'Compliance matrix records',
+    description: 'compliance_records table — per-(association[, unit]) applicability + status for the Compliance matrix (association + owner/unit scopes). Catalog lives in lib/compliance-taxonomy.ts.',
+    filename:    '20260608_compliance_records.sql',
+    artifact:    { type: 'table', table: 'compliance_records' },
+    sql: `CREATE TABLE IF NOT EXISTS public.compliance_records (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  scope            text        NOT NULL DEFAULT 'association',
+  association_code text        NOT NULL,
+  unit_ref         text        NOT NULL DEFAULT '',
+  item_key         text        NOT NULL,
+  applicable       boolean     NOT NULL DEFAULT true,
+  status           text        NOT NULL DEFAULT 'missing',
+  expiry_date      date,
+  notes            text,
+  updated_by       text,
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_compliance_scope  CHECK (scope  IN ('association','unit')),
+  CONSTRAINT chk_compliance_status CHECK (status IN ('current','expiring','pending','missing','non_compliant','na'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS compliance_records_uniq
+  ON public.compliance_records (scope, association_code, unit_ref, item_key);
+CREATE INDEX IF NOT EXISTS compliance_records_assoc_idx
+  ON public.compliance_records (association_code, scope);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.compliance_records
+  TO anon, authenticated, service_role;
+ALTER TABLE public.compliance_records ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_compliance_records" ON public.compliance_records;
+CREATE POLICY "service_role_all_compliance_records"
+  ON public.compliance_records FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
