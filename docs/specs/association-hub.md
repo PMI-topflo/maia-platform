@@ -1,7 +1,10 @@
 # Spec — Association Hub (RentVine-style unified per-association view)
 
-_Status: 🎨 mockup for review. Drafted 2026-06-07. Clickable mockup at
-`/admin/associations/mockup` (sample data, no wiring)._
+_Status: 🟡 partially built. Drafted 2026-06-07. The real hub shipped on
+`/admin/cinc-sync/[code]` (PR #314) with the data-backed tabs wired; the design
+mockup routes were removed once it landed. Remaining net-new tabs
+(Maintenance/Calendar, Projects, Inspections, Budget, Communications) still
+need their own data models — see the build phases below._
 
 ## Goal
 RentVine gives one screen per property — header + **Actions** menu + tabbed
