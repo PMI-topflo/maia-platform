@@ -62,11 +62,14 @@ export interface NewsMetrics {
   woLate:          number
 }
 
+export interface NewsTask { title: string; due: string | null; overdue: boolean }
+
 export interface NewsSection {
   name:    string
   email:   string | null   // null for the Unassigned bucket
   role:    string | null
   metrics: NewsMetrics
+  tasks:   NewsTask[]      // "your tasks coming up" (MAIA + manual)
 }
 
 export interface StaffNewsData {
@@ -145,11 +148,11 @@ export async function gatherStaffNews(now = new Date()): Promise<StaffNewsData> 
   const staff = (await fetchStaffList()).filter(isHumanStaff)
   // localPart → section index (active staff get their own section).
   const sections: NewsSection[] = staff.map(s => ({
-    name: s.name, email: s.email, role: s.role, metrics: emptyMetrics(),
+    name: s.name, email: s.email, role: s.role, metrics: emptyMetrics(), tasks: [],
   }))
   const idxByLocal = new Map<string, number>()
   sections.forEach((s, i) => { const lp = localPart(s.email); if (lp) idxByLocal.set(lp, i) })
-  const unassigned: NewsSection = { name: 'Team · Unassigned', email: null, role: null, metrics: emptyMetrics() }
+  const unassigned: NewsSection = { name: 'Team · Unassigned', email: null, role: null, metrics: emptyMetrics(), tasks: [] }
 
   // Rows we need: everything currently open, plus anything opened or
   // resolved since Monday. Skip archived. (Two queries OR-ed in app code
@@ -192,6 +195,26 @@ export async function gatherStaffNews(now = new Date()): Promise<StaffNewsData> 
     }
   }
 
+  // ── "Your tasks coming up" — active staff_tasks per person ──────────
+  const todayEt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(now)
+  const horizon = new Date(nowMs + 10 * 86_400_000)
+  const horizonEt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(horizon)
+  const { data: taskRows } = await supabaseAdmin.from('staff_tasks')
+    .select('assignee_email, title, next_due, recurrence').eq('active', true)
+  for (const tk of (taskRows ?? []) as { assignee_email: string | null; title: string | null; next_due: string | null; recurrence: string | null }[]) {
+    const i = idxByLocal.get(localPart(tk.assignee_email))
+    if (i == null || !tk.title) continue
+    // show overdue/today, anything due within ~10 days, recurring (daily/weekly), or undated
+    const due = tk.next_due
+    const recurring = tk.recurrence === 'daily' || tk.recurrence === 'weekly'
+    if (due && due > horizonEt && !recurring) continue
+    sections[i].tasks.push({ title: tk.title, due, overdue: !!due && due < todayEt })
+  }
+  for (const s of sections) {
+    s.tasks.sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999'))
+    if (s.tasks.length > 6) s.tasks = s.tasks.slice(0, 6)
+  }
+
   const ordered = [...sections, unassigned]
   const totals = ordered.reduce((acc, s) => {
     for (const k of Object.keys(acc) as (keyof NewsMetrics)[]) acc[k] += s.metrics[k]
@@ -225,6 +248,24 @@ function metricRow(label: string, opened: number, resolved: number, open: number
     </tr></table>`
 }
 
+// "Your tasks coming up" — MAIA-generated + manual staff tasks, overdue
+// flagged red. Empty → nothing renders.
+function tasksBlock(tasks: NewsTask[], appUrl: string): string {
+  if (!tasks.length) return ''
+  const fmtDue = (t: NewsTask) => {
+    if (!t.due) return ''
+    const d = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }).format(new Date(`${t.due}T12:00:00Z`))
+    return `<span style="font-size:10px;color:${t.overdue ? RED : '#6b7280'};font-weight:${t.overdue ? 700 : 400};margin-left:6px">${t.overdue ? 'overdue · ' : ''}${esc(d)}</span>`
+  }
+  const rows = tasks.map(t => `<div style="padding:4px 0;border-top:1px solid #eef0f4;font-size:12px;color:${NAVY}">
+      <span style="color:${ORANGE}">&#10022;</span> ${esc(t.title)}${fmtDue(t)}</div>`).join('')
+  return `<div style="margin-top:10px">
+    <div style="font-size:11px;font-weight:600;color:${NAVY}">Your tasks coming up</div>
+    ${rows}
+    <div style="margin-top:6px"><a href="${esc(appUrl)}/admin/staff-setup" style="font-size:10px;color:${ORANGE};text-decoration:none;font-weight:600">Manage tasks →</a></div>
+  </div>`
+}
+
 function sectionBlock(s: NewsSection, appUrl: string): string {
   const m = s.metrics
   const quiet = m.ticketsOpened + m.woOpened + m.ticketsResolved + m.woResolved + m.ticketsOpen + m.woOpen === 0
@@ -242,6 +283,7 @@ function sectionBlock(s: NewsSection, appUrl: string): string {
       ${quiet ? `<div style="font-size:12px;color:#9ca3af;margin-top:6px">No tickets or work orders this week.</div>` : ''}
       ${metricRow('Tickets', m.ticketsOpened, m.ticketsResolved, m.ticketsOpen, m.ticketsLate)}
       ${metricRow('Work orders', m.woOpened, m.woResolved, m.woOpen, m.woLate)}
+      ${tasksBlock(s.tasks, appUrl)}
       <div style="margin-top:10px;font-size:11px">
         <a href="${esc(workUrl)}" style="color:${ORANGE};text-decoration:none;font-weight:600">Open in MAIA →</a>
         ${s.email ? `<a href="${esc(improveUrl)}" style="color:${ORANGE};text-decoration:none;font-weight:600;margin-left:14px">💡 Suggest a MAIA improvement →</a>` : ''}
