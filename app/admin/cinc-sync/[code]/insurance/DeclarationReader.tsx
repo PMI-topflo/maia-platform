@@ -16,6 +16,12 @@ interface Coverage {
 }
 interface Row extends Coverage { include: boolean }
 interface Source { storage_path: string; filename: string; mime: string }
+interface OwnerCand { account_number: string; name: string; unit_number: string | null }
+interface UnitSuggestion {
+  owner_name: string | null; unit_number: string | null; carrier: string | null; policy_number: string | null
+  effective_date: string | null; expiration_date: string | null
+  candidates: OwnerCand[]; account: string; busy?: boolean; err?: string | null
+}
 
 const confBadge = (c: number) =>
   c >= 0.8 ? 'bg-emerald-100 text-emerald-800' : c >= 0.5 ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'
@@ -32,10 +38,11 @@ export default function DeclarationReader({ assocCode, assocName, onApplied }: {
   const [error, setError] = useState<string | null>(null)
   const [warn, setWarn] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  const [unit, setUnit] = useState<UnitSuggestion | null>(null)
 
   async function handleFile(f: File | null) {
     if (!f) return
-    setBusy('reading'); setError(null); setWarn(null); setRows(null); setDone(null)
+    setBusy('reading'); setError(null); setWarn(null); setRows(null); setDone(null); setUnit(null)
     try {
       // 1) upload the declaration to storage (under .../insurance/other/)
       const urlRes = await fetch(`/api/admin/associations/${assocCode}/insurance/upload-url`, {
@@ -60,9 +67,21 @@ export default function DeclarationReader({ assocCode, assocName, onApplied }: {
       const kind = ex.document_kind as string | undefined
       const seen = (ex.association_name as string | null) ?? null
 
-      // Guard: this screen is for the ASSOCIATION's master policy only.
+      // This screen is for the ASSOCIATION's master policy — but instead of a
+      // dead-end, route a unit-owner HO-6 to the right unit.
       if (kind === 'unit_owner') {
-        setError(`This is a unit-owner HO-6 policy${seen ? ` (named insured: ${seen})` : ''} — not the association's master insurance. It belongs to the unit owner, so it wasn't filed here. File HO-6 / unit policies under the owner's unit instead.`)
+        const up = (ex.unit_policy ?? {}) as Partial<UnitSuggestion>
+        const ownerName = up.owner_name ?? seen
+        let candidates: OwnerCand[] = []
+        if (ownerName) {
+          candidates = await fetch(`/api/admin/associations/${assocCode}/owners/search?name=${encodeURIComponent(ownerName)}`)
+            .then(r => r.json()).then(d => (d.candidates ?? []) as OwnerCand[]).catch(() => [])
+        }
+        setUnit({
+          owner_name: ownerName, unit_number: up.unit_number ?? null, carrier: up.carrier ?? null,
+          policy_number: up.policy_number ?? null, effective_date: up.effective_date ?? null, expiration_date: up.expiration_date ?? null,
+          candidates, account: candidates[0]?.account_number ?? '',
+        })
         setBusy(null); return
       }
       if (kind === 'other') {
@@ -105,6 +124,24 @@ export default function DeclarationReader({ assocCode, assocName, onApplied }: {
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setBusy(null) }
   }
 
+  function patchUnit(p: Partial<UnitSuggestion>) { setUnit(u => u ? { ...u, ...p } : u) }
+  async function fileUnit() {
+    if (!unit || !source) return
+    if (!unit.account) { patchUnit({ err: 'Pick the unit/owner this policy belongs to.' }); return }
+    patchUnit({ busy: true, err: null })
+    try {
+      const res = await fetch(`/api/admin/associations/${assocCode}/unit-insurance`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_number: unit.account, carrier: unit.carrier, policy_number: unit.policy_number, effective_date: unit.effective_date, expiration_date: unit.expiration_date, source_path: source.storage_path }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d?.error ?? 'could not file unit insurance')
+      const who = unit.candidates.find(c => c.account_number === unit.account)
+      setUnit(null); setSource(null)
+      setDone(`Filed as ${who?.name ?? unit.account}'s HO-6 unit insurance${who?.unit_number ? ` (unit ${who.unit_number})` : ''}.`)
+    } catch (e) { patchUnit({ busy: false, err: e instanceof Error ? e.message : String(e) }) }
+  }
+
   return (
     <div className="rounded-lg border border-[#f26a1b]/30 bg-[#fff8f4]">
       <button onClick={() => setOpen(o => !o)} className="flex w-full items-center justify-between px-4 py-3 text-left">
@@ -123,7 +160,32 @@ export default function DeclarationReader({ assocCode, assocName, onApplied }: {
           {done && <div className="mt-3 rounded bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{done}</div>}
           {error && <div className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">⚠ {error}</div>}
           {warn && <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">⚠ {warn}</div>}
-          {note && rows && <div className="mt-3 text-[11px] text-gray-500">MAIA ({model}): {note}</div>}
+          {note && (rows || unit) && <div className="mt-3 text-[11px] text-gray-500">MAIA ({model}): {note}</div>}
+
+          {/* Unit-owner HO-6 detected → suggest filing it on the right unit */}
+          {unit && (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+              <div className="text-sm font-semibold text-amber-900">This is a unit-owner HO-6 — not association master insurance.</div>
+              <div className="mt-1 text-xs text-amber-800">MAIA read it as <strong>{unit.owner_name ?? 'a unit owner'}</strong>{unit.unit_number ? ` · unit ${unit.unit_number}` : ''}. File it as that owner&apos;s HO-6 instead:</div>
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <Labeled label="Unit / owner">
+                  <select value={unit.account} onChange={e => patchUnit({ account: e.target.value, err: null })} className="w-full rounded border border-amber-400 bg-white px-1.5 py-1 text-[11px]">
+                    <option value="">— select unit —</option>
+                    {unit.candidates.map(c => <option key={c.account_number} value={c.account_number}>{c.name}{c.unit_number ? ` · ${c.unit_number}` : ''} ({c.account_number})</option>)}
+                  </select>
+                </Labeled>
+                <Labeled label="Carrier"><input value={unit.carrier ?? ''} onChange={e => patchUnit({ carrier: e.target.value || null })} className="w-full rounded border border-gray-300 px-1.5 py-1 text-[11px]" /></Labeled>
+                <Labeled label="Policy #"><input value={unit.policy_number ?? ''} onChange={e => patchUnit({ policy_number: e.target.value || null })} className="w-full rounded border border-gray-300 px-1.5 py-1 text-[11px]" /></Labeled>
+                <Labeled label="Expiration"><input type="date" value={unit.expiration_date ?? ''} onChange={e => patchUnit({ expiration_date: e.target.value || null })} className="w-full rounded border border-gray-300 px-1.5 py-1 text-[11px]" /></Labeled>
+              </div>
+              {unit.candidates.length === 0 && <div className="mt-2 text-[11px] text-amber-700">No owner matched &quot;{unit.owner_name}&quot; in this association — pick the unit manually, or this policy may belong to another association.</div>}
+              {unit.err && <div className="mt-2 text-[11px] text-red-600">{unit.err}</div>}
+              <div className="mt-3 flex items-center justify-end gap-2">
+                <button onClick={() => setUnit(null)} disabled={unit.busy} className="text-xs text-gray-500 hover:text-gray-700">Dismiss</button>
+                <button onClick={fileUnit} disabled={unit.busy} className="rounded bg-[#f26a1b] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#d85a14] disabled:opacity-50">{unit.busy ? 'Filing…' : 'File as unit HO-6'}</button>
+              </div>
+            </div>
+          )}
 
           {rows && (
             <div className="mt-3 space-y-2">
@@ -158,6 +220,9 @@ export default function DeclarationReader({ assocCode, assocName, onApplied }: {
   )
 }
 
+function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label className="block"><span className="mb-0.5 block text-[9px] uppercase tracking-wide text-gray-400">{label}</span>{children}</label>
+}
 function Fld({ label, v, on, type }: { label: string; v: string; on: (v: string) => void; type?: string }) {
   return (
     <label className="block">

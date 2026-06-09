@@ -32,10 +32,19 @@ export interface ExtractedCoverage {
   confidence:          number        // 0..1 for THIS coverage
 }
 export type DocumentKind = 'association_master' | 'unit_owner' | 'other'
+export interface UnitPolicy {
+  owner_name:      string | null
+  unit_number:     string | null
+  carrier:         string | null
+  policy_number:   string | null
+  effective_date:  string | null
+  expiration_date: string | null
+}
 export interface DeclarationExtraction {
   coverages:        ExtractedCoverage[]
   document_kind:    DocumentKind       // association master policy vs a unit-owner HO-6
   association_name: string | null      // the named insured / association as printed on the doc
+  unit_policy:      UnitPolicy | null  // when document_kind = unit_owner, the HO-6 details
   confidence:       number             // overall 0..1
   note:             string | null
   model:            string             // which model produced the kept result
@@ -75,6 +84,14 @@ Return a SINGLE JSON object and nothing else (no prose, no markdown fences):
 {
   "document_kind":    "association_master" | "unit_owner" | "other",
   "association_name": string|null,   // the named insured exactly as printed
+  "unit_policy": {                    // fill ONLY when document_kind = "unit_owner" (else null)
+    "owner_name":      string|null,   // the unit owner / named insured
+    "unit_number":     string|null,   // unit / apartment number if printed
+    "carrier":         string|null,
+    "policy_number":   string|null,
+    "effective_date":  string|null,   // ISO YYYY-MM-DD
+    "expiration_date": string|null    // ISO YYYY-MM-DD
+  },
   "coverages": [
     {
       "policy_type":         string,   // EXACTLY one of the keys above
@@ -119,7 +136,19 @@ function parse(text: string): Omit<DeclarationExtraction, 'model'> | null {
       confidence:          conf(rec.confidence),
     })
   }
-  return { coverages, document_kind, association_name: str(obj.association_name), confidence: conf(obj.confidence), note: str(obj.note) }
+  let unit_policy: UnitPolicy | null = null
+  if (document_kind === 'unit_owner') {
+    const up = (obj.unit_policy ?? {}) as Record<string, unknown>
+    unit_policy = {
+      owner_name:      str(up.owner_name) ?? str(obj.association_name),
+      unit_number:     str(up.unit_number),
+      carrier:         str(up.carrier),
+      policy_number:   str(up.policy_number),
+      effective_date:  isoDate(up.effective_date),
+      expiration_date: isoDate(up.expiration_date),
+    }
+  }
+  return { coverages, document_kind, association_name: str(obj.association_name), unit_policy, confidence: conf(obj.confidence), note: str(obj.note) }
 }
 
 async function runModel(model: string, block: unknown, prompt: string) {
@@ -157,7 +186,7 @@ export async function extractInsuranceDeclaration(buf: Buffer, contentType?: str
   await assertClaudeBudget('insurance-declaration-escalate')
   const second = await runModel(SONNET, block, prompt)
   if (second && (second.coverages.length > 0 || second.document_kind !== 'association_master' || !first)) return { ...second, model: SONNET }
-  return first ? { ...first, model: HAIKU } : { coverages: [], document_kind: 'other', association_name: null, confidence: 0, note: null, model: SONNET }
+  return first ? { ...first, model: HAIKU } : { coverages: [], document_kind: 'other', association_name: null, unit_policy: null, confidence: 0, note: null, model: SONNET }
 }
 
 function mediaTypeFor(contentType?: string | null): 'image/jpeg' | 'image/png' | 'image/webp' {
