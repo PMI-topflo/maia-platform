@@ -23,6 +23,7 @@ import {
   listVendorsFull,
   getAssociationBudget,
   getCincInvoice,
+  lookupPriorInvoiceMethod,
   type CincGlTransaction,
 } from '@/lib/integrations/cinc'
 
@@ -62,6 +63,8 @@ export async function GET(req: Request) {
   const assoc      = (url.searchParams.get('assoc') ?? '').trim().toUpperCase()
   const vendorName = (url.searchParams.get('vendorName') ?? '').trim()
   const invoiceNo  = (url.searchParams.get('invoiceNumber') ?? '').trim()
+  const accountNo  = (url.searchParams.get('accountNumber') ?? '').trim()
+  const invoiceDt  = (url.searchParams.get('invoiceDate') ?? '').trim()
   const amount     = parseFloat(url.searchParams.get('amount') ?? '')
   const draftId    = parseInt(url.searchParams.get('draftId') ?? '', 10)
   if (!Number.isFinite(vendorId) || !assoc) {
@@ -282,6 +285,20 @@ export async function GET(req: Request) {
       if (pbt) { suggestedPayBy = { method: pbt, source: `last invoice #${row.extracted_invoice_number ?? row.cinc_invoice_id}` }; break }
     }
   } catch { /* best-effort — never block the screen */ }
+
+  // Fallback for vendors we've never pushed via MAIA (e.g. Xfinity): if the
+  // invoice number embeds the billing period, derive the PRIOR month's number
+  // and read the actual Pay By off CINC's paid invoice. No push needed.
+  if (!suggestedPayBy && (accountNo || invoiceNo)) {
+    try {
+      const prior = await lookupPriorInvoiceMethod({
+        invoiceNumber: invoiceNo || null,
+        accountNumber: accountNo || null,
+        aroundDate:    invoiceDt || null,
+      })
+      if (prior) suggestedPayBy = { method: prior.payByType, source: `CINC invoice #${prior.invoiceNumber}` }
+    } catch { /* best-effort */ }
+  }
 
   return NextResponse.json({ suggestedGl, suggestedPayBy, recentPayments, duplicate, scanned })
 }

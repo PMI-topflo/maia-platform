@@ -26,6 +26,7 @@ export interface ExtractedInvoice {
   invoiceDate:     string | null   // ISO YYYY-MM-DD
   dueDate:         string | null   // ISO YYYY-MM-DD
   associationHint: string | null   // any assoc-code-like token (3-6 caps) found
+  accountNumber:   string | null   // utility/customer account number on the bill (FPL, water, cable…)
   confidence:      number          // 0..1 — how confident the model is that this is an invoice and the fields are correct
 }
 
@@ -39,6 +40,7 @@ Return a SINGLE JSON object and nothing else (no prose, no markdown fences). Sch
   "invoice_date":     string or null   // ISO YYYY-MM-DD — when the invoice was issued
   "due_date":         string or null   // ISO YYYY-MM-DD — when payment is due (often "Net 30" from invoice_date)
   "association_hint": string or null   // any 3-6 letter all-caps code on the document that looks like a property association code (e.g. "SP", "ESSI", "VENETIAN1"). Null if none.
+  "account_number":   string or null   // the CUSTOMER / UTILITY ACCOUNT NUMBER identifying the service or property (utilities: FPL, water/sewer, Xfinity/cable, electric, gas). Labeled "Account Number", "Account #", "Acct No", "Customer Number". Return it EXACTLY as printed (keep any dashes/spaces). This is NOT the invoice number. Null if the bill has no account number.
   "confidence":       number           // 0..1. 1.0 = clearly an invoice with all fields. 0.0 = doesn't look like an invoice. 0.5 = some fields missing or ambiguous.
 }
 
@@ -47,6 +49,7 @@ Rules:
 - "PMI Top Florida Properties" / "Top Florida Properties" is USUALLY the Bill-To customer on a vendor's bill — in that case it is NOT the vendor, so return the actual issuer. BUT when PMI Top Florida Properties is the ISSUER (its name/logo is the letterhead at the top and an ASSOCIATION is the Bill To — e.g. management-fee or "RVP-####" invoices billed to a condo/HOA association), then "PMI Top Florida Properties" IS the vendor_name. Decide by WHO ISSUED it (top), not by the name.
 - amount must be the FINAL amount owed for THIS invoice. Ignore "previous balance", "previous payment", "subtotal" — return the BOTTOM-LINE total.
 - For invoice_number, strip any "INV-" / "#" prefix and return only the identifier (e.g. "1473", not "Invoice #1473").
+- account_number and invoice_number are DIFFERENT. Utilities reuse the same account number every month but have a new invoice/bill number each time. If only one number is present and the bill is a utility, it is usually the account_number — put it there, not in invoice_number.
 - If the document isn't an invoice (a statement, a receipt, a memo), set all fields to null and confidence below 0.3.
 - Dates: be strict about ISO format. If the document shows "5/23/2026", convert to "2026-05-23".`
 
@@ -91,6 +94,7 @@ function emptyResult(_reason: string): ExtractedInvoice {
     invoiceDate:     null,
     dueDate:         null,
     associationHint: null,
+    accountNumber:   null,
     confidence:      0,
   }
 }
@@ -138,6 +142,7 @@ function parseExtractionJson(raw: string): ExtractedInvoice {
     invoiceDate:     date(obj.invoice_date),
     dueDate:         date(obj.due_date),
     associationHint: str(obj.association_hint),
+    accountNumber:   str(obj.account_number),
     confidence:      conf(obj.confidence),
   }
 }

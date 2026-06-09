@@ -28,6 +28,7 @@ import {
   checkDuplicateInvoice,
 } from '@/lib/integrations/cinc'
 import { extractInvoiceFields } from '@/lib/invoice-extraction'
+import { lookupAccountRoute } from '@/lib/account-routing'
 import { isSignatureOrLogoImage, dedupeAttachments } from '@/lib/email-attachment-filter'
 import { normalizePdf, imageToPdf, PDF_TARGET_BYTES } from '@/lib/pdf-normalize'
 
@@ -233,7 +234,26 @@ async function processOnePdf(opts: {
   let   assoc     = (assocHintFromEmail ?? extracted.associationHint ?? '').toUpperCase() || null
 
   // Vendor matching — null when extractor couldn't find a vendor name.
-  const matched = extracted.vendorName ? fuzzyMatchVendor(extracted.vendorName, vendors) : null
+  let matched = extracted.vendorName ? fuzzyMatchVendor(extracted.vendorName, vendors) : null
+
+  // Account-number routing (utilities). The account number off the bill is
+  // unique to a service location, so it resolves the right vendor + association
+  // + GL even when the name is ambiguous (Xfinity vs Comcast Business). A known
+  // route OVERRIDES the fuzzy name match.
+  let routeGlId:   string | null = null
+  let routeGlName: string | null = null
+  let routePayBy:  string | null = null
+  const route = await lookupAccountRoute(extracted.accountNumber).catch(() => null)
+  if (route) {
+    if (route.cincVendorId) {
+      const routeVendor = vendors.find(v => String(v.VendorId) === route.cincVendorId)
+      if (routeVendor) matched = routeVendor
+    }
+    if (route.associationCode) assoc = route.associationCode
+    if (route.glAccountId) { routeGlId = route.glAccountId; routeGlName = route.glAccountName }
+    if (route.payByType) routePayBy = route.payByType
+    console.log(`[invoice-intake] account# "${extracted.accountNumber}" → routed to ${matched?.VendorName ?? '?'} / ${assoc ?? '?'}${routeGlId ? ` / GL ${routeGlName}` : ''}${routePayBy ? ` / ${routePayBy}` : ''}`)
+  }
 
   // Auto-association fallback: when neither the email text nor the PDF named
   // an association, infer it from this vendor's own confirmed history in
@@ -285,9 +305,12 @@ async function processOnePdf(opts: {
     extracted_amount:           extracted.amount,
     extracted_association_code: assoc,
     extracted_invoice_date:     extracted.invoiceDate,
+    extracted_account_number:   extracted.accountNumber,
     extraction_confidence:      extracted.confidence,
     status,
     cinc_dup_invoice_id:        cincDupId,
+    ...(routeGlId ? { gl_account_id: routeGlId, gl_account_name: routeGlName } : {}),
+    ...(routePayBy ? { pay_by_type: routePayBy } : {}),
   })
 
   if (insertErr) {
@@ -381,6 +404,7 @@ export async function createInvoiceDraftFromUpload(opts: {
     extracted_amount:           extracted?.amount ?? null,
     extracted_association_code: assoc,
     extracted_invoice_date:     extracted?.invoiceDate ?? null,
+    extracted_account_number:   extracted?.accountNumber ?? null,
     extraction_confidence:      extracted?.confidence ?? null,
     status,
     cinc_dup_invoice_id:        cincDupId,

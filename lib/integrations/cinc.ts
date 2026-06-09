@@ -1717,6 +1717,51 @@ export async function findInvoiceIdByNumber(opts: {
   return (match?.InvoiceId ?? match?.InvoiceID) ?? null
 }
 
+/** Read the payment method (PayByType) a vendor was actually paid by, from a
+ *  PRIOR invoice in CINC — without us having pushed it. CINC's invoice search
+ *  matches by EXACT invoice number, so this leans on the fact that utility
+ *  invoice numbers embed the billing period. We build candidate numbers for
+ *  recent prior months and search each; the search ROW carries PayByType, so
+ *  no second fetch. Candidate prefixes come from:
+ *    • the account number's last 6/7 digits (CINC's observed convention is
+ *      "<tail>-<MMYYYY>", e.g. Xfinity "246788-062025" for account …0246788);
+ *    • an already period-formatted invoice number ("<prefix><MMYYYY>").
+ *  Best-effort → null when nothing matches. */
+export async function lookupPriorInvoiceMethod(opts: {
+  invoiceNumber?: string | null
+  accountNumber?: string | null
+  aroundDate?:    string | null   // the current bill's date (YYYY-MM-DD)
+  monthsBack?:    number          // how many prior months to try (default 6)
+}): Promise<{ payByType: string; invoiceNumber: string; assocCode: string | null } | null> {
+  const prefixes = new Set<string>()
+  const acctDigits = (opts.accountNumber ?? '').replace(/\D/g, '')
+  if (acctDigits.length >= 6) { prefixes.add(`${acctDigits.slice(-6)}-`); prefixes.add(`${acctDigits.slice(-7)}-`) }
+  const im = /^(.*?)(?:0[1-9]|1[0-2])(\d{4})$/.exec((opts.invoiceNumber ?? '').replace(/\s+/g, ''))
+  if (im && im[1]) prefixes.add(im[1])
+  if (prefixes.size === 0) return null
+
+  const center = opts.aroundDate ? new Date(opts.aroundDate) : new Date()
+  if (Number.isNaN(center.getTime())) return null
+  const monthsBack = Math.max(1, Math.min(opts.monthsBack ?? 6, 14))
+  type Row = { InvoiceNumber?: string | null; AssocCode?: string | null; PayByType?: string | null }
+  for (let i = 1; i <= monthsBack; i++) {
+    const d    = new Date(center.getFullYear(), center.getMonth() - i, 15)
+    const mm   = String(d.getMonth() + 1).padStart(2, '0')
+    const yyyy = d.getFullYear()
+    const from = new Date(d.getTime() - 45 * 86_400_000).toISOString().slice(0, 10)
+    const to   = new Date(d.getTime() + 45 * 86_400_000).toISOString().slice(0, 10)
+    for (const prefix of prefixes) {
+      const candidate = `${prefix}${mm}${yyyy}`
+      const rows = await call<Row[]>('/management/associations/1/invoices', {
+        method: 'GET', query: { InvoiceDateFrom: from, InvoiceDateTo: to, InvoiceNumber: candidate },
+      }).catch(() => [] as Row[])
+      const hit = (Array.isArray(rows) ? rows : []).find(r => (r.PayByType ?? '').trim())
+      if (hit) return { payByType: (hit.PayByType ?? '').trim(), invoiceNumber: hit.InvoiceNumber ?? candidate, assocCode: hit.AssocCode ?? null }
+    }
+  }
+  return null
+}
+
 /** Raw CINC InvoicePaymentVm per Swagger probe. Returned by
  *  GET /management/associations/1/invoicePayments?invoiceId=N. */
 export interface CincInvoicePayment {
