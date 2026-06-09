@@ -306,6 +306,16 @@ function buildFilenamePreview(opts: { assoc: string; short: string; invNo: strin
   return `${safe(opts.assoc) || 'ASSOC'}_${safe(opts.short) || 'Vendor'}_${safe(opts.invNo) || 'INV'}_$${amt}.pdf`
 }
 
+// Format a YYYY-MM-DD date string in LOCAL time. `new Date('2026-06-15')`
+// parses as UTC midnight and renders one day earlier in ET — which made the
+// date look like it shifted back a day after the card flipped to read mode.
+function fmtDate(s: string | null | undefined): string {
+  if (!s) return ''
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(s)
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 function DraftCard(props: {
   draft:        Draft
   vendors:      Vendor[]
@@ -323,7 +333,6 @@ function DraftCard(props: {
   const [amount, setAmount]       = useState<string>(draft.extracted_amount != null ? String(draft.extracted_amount) : '')
   const [invDate, setInvDate]     = useState<string>(draft.extracted_invoice_date ?? '')
   const [dueDate, setDueDate]     = useState<string>(draft.due_date ?? '')
-  const [schedDate, setSchedDate] = useState<string>(draft.scheduled_pay_date ?? '')
   const [glId, setGlId]           = useState<string>(draft.gl_account_id   ?? '')
   const [glName, setGlName]       = useState<string>(draft.gl_account_name ?? '')
   const [payBy, setPayBy]         = useState<string>(draft.pay_by_type     ?? '')
@@ -419,7 +428,10 @@ function DraftCard(props: {
   // default since the vast majority of invoices pay from operating.
   // She can override to Reserve/Special before pushing.
   useEffect(() => {
-    if (mode !== 'edit' || !assoc || bankLoadedFor === assoc || bankLoading) return
+    // Load in ANY mode (not just edit) so the read-only "ready to push" card
+    // can resolve the picked account to its DESCRIPTION/number instead of
+    // showing the bare BankAccountID.
+    if (!assoc || bankLoadedFor === assoc || bankLoading) return
     setBankLoading(true); setBankError(null)
     fetch(`/api/admin/cinc/bank-accounts?assoc=${encodeURIComponent(assoc)}`, { cache: 'no-store' })
       .then(r => r.json())
@@ -428,10 +440,9 @@ function DraftCard(props: {
         const accounts: BankAccountOption[] = data.accounts ?? []
         setBankOptions(accounts)
         setBankLoadedFor(assoc)
-        // Auto-select operating if nothing chosen yet. listAssociation
-        // BankAccounts sorts operating first, so we can just pick the
-        // first 'operating' kind we see.
-        if (!bankId) {
+        // Default to the Operating account (SSB Operating) when nothing is
+        // chosen yet — only while editing, never override a pushed pick.
+        if (mode === 'edit' && !bankId) {
           const operating = accounts.find(a => a.kind === 'operating')
           if (operating) setBankId(String(operating.id))
         }
@@ -542,7 +553,6 @@ function DraftCard(props: {
     setAmount   (draft.extracted_amount != null ? String(draft.extracted_amount) : '')
     setInvDate  (draft.extracted_invoice_date     ?? '')
     setDueDate  (draft.due_date                    ?? '')
-    setSchedDate(draft.scheduled_pay_date          ?? '')
     setGlId     (draft.gl_account_id   ?? '')
     setGlName   (draft.gl_account_name ?? '')
     setPayBy    (draft.pay_by_type     ?? '')
@@ -566,7 +576,7 @@ function DraftCard(props: {
       extracted_association_code:  assoc || null,
       extracted_invoice_date:      invDate || null,
       due_date:                    dueDate || null,
-      scheduled_pay_date:          schedDate || null,
+      scheduled_pay_date:          dueDate || null,
       gl_account_id:               glId   || null,
       gl_account_name:             glName || null,
       pay_by_type:                 payBy  || null,
@@ -760,8 +770,13 @@ function DraftCard(props: {
     if (mode !== 'edit' || !assoc || glLoadedFor !== assoc) return
     if (glAutoAppliedFor === assoc) return
     const sg = auditCtx?.suggestedGl
-    if (!sg?.accountNumber) return
-    const hit = glOptions.find(o => o.number === sg.accountNumber)
+    if (!sg || (!sg.accountNumber && !sg.glAccount)) return
+    // The GL number lives in accountNumber for the ledger-derived source but
+    // in glAccount for the CINC-vendor-account source — match either, loosely
+    // (formats like "64-5791-00" vs "64579100" should still hit).
+    const norm = (s: string | null | undefined) => (s ?? '').replace(/[^0-9a-z]/gi, '').toLowerCase()
+    const keys = [norm(sg.accountNumber), norm(sg.glAccount)].filter(Boolean)
+    const hit = glOptions.find(o => keys.includes(norm(o.number)))
     if (!hit) return
     setGlAutoAppliedFor(assoc)            // mark attempted regardless, so a manual clear sticks
     if (glId) return                      // never override an existing choice
@@ -769,7 +784,7 @@ function DraftCard(props: {
     setGlId(hit.id); setGlName(hit.name); setGlAutoFilled(true)
   }, [mode, assoc, glLoadedFor, glOptions, auditCtx, glId, glAutoAppliedFor])
 
-  const REQUIRED_CHECKS = ['association', 'vendor', 'short_name', 'amount', 'payment_method', 'gl_account', 'bank_account', 'scheduled_date', 'filename']
+  const REQUIRED_CHECKS = ['association', 'vendor', 'short_name', 'amount', 'payment_method', 'gl_account', 'bank_account', 'due_date', 'filename']
   const requiredOk = REQUIRED_CHECKS.every(k => checked[k])
   const allReady   = requiredOk && !!checked['duplicate'] && !hardDup
 
@@ -804,13 +819,14 @@ function DraftCard(props: {
     void persistChecklist(next, { includeValues: mode === 'edit' })
   }
 
-  // Let the funds check move the scheduled payment date to an affordable
-  // month without leaving view mode — persists scheduled_pay_date directly.
+  // Let the funds check move the (due) payment date to an affordable month
+  // without leaving view mode. One date now: we persist due_date and mirror
+  // scheduled_pay_date to it so the reconciliation "Upcoming Payments" follows.
   async function updateScheduledDate(date: string) {
-    setSchedDate(date)
+    setDueDate(date)
     setAuditBusy(true); setAuditMsg(null)
     try {
-      const res = await fetch('/api/admin/invoices/intake', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: draft.id, scheduled_pay_date: date || null }) })
+      const res = await fetch('/api/admin/invoices/intake', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: draft.id, due_date: date || null, scheduled_pay_date: date || null }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
     } catch (e) { setAuditMsg(e instanceof Error ? e.message : String(e)) } finally { setAuditBusy(false) }
@@ -1069,14 +1085,11 @@ function DraftCard(props: {
               style={{ width: '100%', padding: 6 }}
             />
           ) : (
-            <ReadOnlyValue
-              value={invDate ? new Date(invDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
-              placeholder="—"
-            />
+            <ReadOnlyValue value={fmtDate(invDate)} placeholder="—" />
           )}
         </Field>
 
-        <Field label="Payment due date (per invoice)" right={fieldCheck('due_date', !!dueDate)}>
+        <Field label="Payment due date" right={fieldCheck('due_date', !!dueDate)}>
           {mode === 'edit' ? (
             <input
               type="date"
@@ -1086,32 +1099,7 @@ function DraftCard(props: {
               style={{ width: '100%', padding: 6 }}
             />
           ) : (
-            <ReadOnlyValue
-              value={dueDate ? new Date(dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
-              placeholder="— not set —"
-            />
-          )}
-        </Field>
-
-        <Field label="Scheduled payment date" right={fieldCheck('scheduled_date', !!schedDate)}>
-          {mode === 'edit' ? (
-            <>
-              <input
-                type="date"
-                value={schedDate}
-                onChange={e => setSchedDate(e.target.value)}
-                disabled={readOnly}
-                style={{ width: '100%', padding: 6 }}
-              />
-              <div style={{ marginTop: 4, color: '#6b7280', fontSize: 11 }}>
-                When PMI plans to pay. Drives the reconciliation &quot;Upcoming Payments&quot; section + cash-flow timing; defer it to a month with funds.
-              </div>
-            </>
-          ) : (
-            <ReadOnlyValue
-              value={schedDate ? new Date(schedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
-              placeholder="— not set —"
-            />
+            <ReadOnlyValue value={fmtDate(dueDate)} placeholder="— not set —" />
           )}
         </Field>
 
@@ -1262,8 +1250,10 @@ function DraftCard(props: {
                 {glHint ? (
                   <div style={{ marginTop: 4, color: glAutoFilled ? '#15803d' : '#2563eb', fontSize: 11, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     {(() => {
-                      const num = auditCtx?.suggestedGl?.accountNumber
-                      const hit = num ? glOptions.find(o => o.number === num) : null
+                      const sg = auditCtx?.suggestedGl
+                      const norm = (s: string | null | undefined) => (s ?? '').replace(/[^0-9a-z]/gi, '').toLowerCase()
+                      const keys = [norm(sg?.accountNumber), norm(sg?.glAccount)].filter(Boolean)
+                      const hit = keys.length ? glOptions.find(o => keys.includes(norm(o.number))) : null
                       // Suggestion already applied (auto-filled or matched a
                       // manual pick): show a confirm nudge, no "Use it".
                       if (hit && glId === hit.id) {
@@ -1321,18 +1311,15 @@ function DraftCard(props: {
                       : '— pick a bank account —'}
                   </option>
                   {bankOptions.map(b => {
-                    const kindLabel =
-                      b.kind === 'operating' ? 'Operating'
-                      : b.kind === 'reserve' ? 'Reserve'
-                      : b.kind === 'special' ? 'Special Assessment'
-                      : 'Other'
-                    const last4 = b.last4 ? ` …${b.last4}` : ''
-                    const bal   = b.bankBalance != null
+                    // Show CINC's account DESCRIPTION ("SSB - Operating - 8614")
+                    // + its Cash account number — never the internal BankAccountID.
+                    const num = b.cashGl ? `  ·  ${b.cashGl}` : ''
+                    const bal = b.bankBalance != null
                       ? `  ·  $${b.bankBalance.toLocaleString('en-US', { maximumFractionDigits: 0 })} available`
                       : ''
                     return (
                       <option key={b.id} value={String(b.id)}>
-                        {kindLabel}{last4}{bal}
+                        {b.description}{num}{bal}
                       </option>
                     )
                   })}
@@ -1374,8 +1361,9 @@ function DraftCard(props: {
               <ReadOnlyValue
                 value={(() => {
                   const sel = bankOptions.find(b => String(b.id) === bankId)
-                    ?? (draft.pay_from_bank_account_id != null ? { description: `BankAccountID ${draft.pay_from_bank_account_id}` } as Partial<BankAccountOption> : null)
-                  return sel?.description ?? ''
+                  if (sel) return `${sel.description}${sel.cashGl ? `  ·  ${sel.cashGl}` : ''}`
+                  // accounts not loaded yet → show nothing rather than the bare ID
+                  return bankLoading ? 'Loading account…' : ''
                 })()}
                 placeholder={assoc ? '— not set (CINC default: Operating) —' : '— pick association first —'}
               />
@@ -1414,17 +1402,17 @@ function DraftCard(props: {
           to the scheduled month using all open invoices + account run-rate,
           and lets them move the date to an affordable month. */}
       {showAudit && mode === 'view' && assoc && (
-        (checked['amount'] && checked['scheduled_date'] && bankId && amount) ? (
+        (checked['amount'] && checked['due_date'] && bankId && amount) ? (
           <FundsCheck
             assoc={assoc}
             bankAccountId={parseInt(bankId, 10)}
             pushAmount={parseFloat(amount) || 0}
-            scheduledDate={schedDate}
+            scheduledDate={dueDate}
             onChooseDate={updateScheduledDate}
           />
         ) : (
           <div style={{ marginTop: 12, padding: '10px 12px', background: '#f1f5f9', border: '1px dashed #cbd5e1', borderRadius: 6, fontSize: 12, color: '#475569' }}>
-            💰 <strong>Funds check</strong> — confirm the <strong>Amount</strong> and <strong>Scheduled payment date</strong> above{!bankId ? ', and pick a pay-from account,' : ''} to check whether the account will have the money on that date.
+            💰 <strong>Funds check</strong> — confirm the <strong>Amount</strong> and <strong>Payment due date</strong> above{!bankId ? ', and pick a pay-from account,' : ''} to check whether the account will have the money on that date.
           </div>
         )
       )}

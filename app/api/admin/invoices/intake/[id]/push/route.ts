@@ -25,7 +25,6 @@ import {
   getCincInvoice,
   listAssociationBankAccounts,
   getAssociationBudget,
-  getCincVendorDetail,
   CincApiError,
 } from '@/lib/integrations/cinc'
 import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
@@ -188,16 +187,12 @@ export async function POST(
   // picked; null means "let CINC default to operating" (BankAccountID 0).
   const payFromBankAccountId = (draft.pay_from_bank_account_id ?? null) as number | null
 
-  // Pay-by method: use what Karen set on the draft; otherwise fall back to
-  // the VENDOR's CINC default (e.g. ACH) instead of letting CINC default
-  // everything to Check. Best-effort — null lets CINC apply its own default.
-  let payByType = (draft.pay_by_type ?? null) as string | null
-  if (!payByType) {
-    try {
-      const vd = await getCincVendorDetail(parseInt(draft.matched_cinc_vendor_id as string, 10))
-      payByType = vd?.DefaultPmtMethod ?? null
-    } catch { /* fall back to CINC default */ }
-  }
+  // Pay-by method: send ONLY what Karen explicitly picked on the draft.
+  // We used to fall back to a DERIVED vendor default (ACH if Routing+Account
+  // present, else Check) — but that guess didn't match the vendor's actual
+  // Pay-By configured in CINC, so it pushed the WRONG method. Now we send
+  // null when Karen didn't choose, and let CINC apply the vendor's own setup.
+  const payByType = (draft.pay_by_type ?? null) as string | null
 
   // Shared invoice payload — reused if we have to retry with a different
   // pay method (see the ACH fallback below).
