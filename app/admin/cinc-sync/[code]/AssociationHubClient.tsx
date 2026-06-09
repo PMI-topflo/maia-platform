@@ -14,6 +14,7 @@ import SyncPreviewClient from './SyncPreviewClient'
 import MaintenanceTab from './MaintenanceTab'
 import ProjectsTab from './ProjectsTab'
 import InspectionsTab from './InspectionsTab'
+import ComplianceMatrix from './ComplianceMatrix'
 
 export interface HubBankAccount { description: string; last4: string | null; kind: string; bankBalance: number | null; restricted: boolean }
 export interface HubBoardMember { id: string; name: string | null; email: string | null; role: string | null }
@@ -317,13 +318,14 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
           })()}
 
           {tab === 'Documents & Compliance' && (
-            <Card title="Documents & compliance">
+            <div className="space-y-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <DocLink href={`/admin/cinc-sync/${code}/documents`} icon="📄" label="Documents" sub={`${data.docCount} on file`} />
                 <DocLink href={`/admin/cinc-sync/${code}/insurance`} icon="🛡" label="Insurance" sub="Policies & COIs" />
                 <DocLink href={`/admin/cinc-sync/${code}/safety`} icon="🏗" label="Safety" sub="Milestone / SB-4D" />
               </div>
-            </Card>
+              <ComplianceMatrix assocCode={code} />
+            </div>
           )}
 
           {tab === 'Reports' && (
