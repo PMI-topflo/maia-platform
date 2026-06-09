@@ -28,6 +28,7 @@ const NAV: Node[] = [
   ] },
   { type: 'group', label: 'Associations', icon: '🏢', items: [
     { label: 'Associations', href: '/admin/cinc-sync' },
+    { label: 'Document Inbox', href: '/admin/documents/inbox' },
     { label: 'Owners', href: '/admin/owners' },
     { label: 'Board Setup', href: '/admin/board-setup' },
     { label: 'Ownership History', href: '/admin/ownership-history' },
