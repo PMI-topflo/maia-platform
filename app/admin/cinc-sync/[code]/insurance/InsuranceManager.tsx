@@ -12,6 +12,7 @@
 // =====================================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import DeclarationReader from './DeclarationReader'
 import {
   POLICY_TYPES,
   policyStatus,
@@ -111,6 +112,9 @@ export default function InsuranceManager({ assocCode }: Props) {
           {summary.onFile} on file · {summary.missing} missing · {summary.waived} waived · {POLICY_TYPES.length} total
         </div>
       </div>
+
+      {/* MAIA — read one declaration → split into per-coverage rows */}
+      <DeclarationReader assocCode={assocCode} onApplied={refresh} />
 
       {error && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</div>}
       {loading && <div className="text-sm text-gray-500">Loading policies…</div>}
