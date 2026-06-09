@@ -32,10 +32,28 @@ function defaultHours(): HoursRow[] {
 
 export default function StaffSetupClient({ staff }: { staff: StaffMember[] }) {
   const [selId, setSelId] = useState(staff[0]?.id ?? '')
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
   const selected = staff.find(s => s.id === selId) ?? staff[0]
   if (!selected) return <p className="text-sm text-gray-500">No staff members found.</p>
 
+  async function syncTasks() {
+    setSyncing(true); setSyncMsg(null)
+    try {
+      const res = await fetch('/api/admin/staff-tasks/sync', { method: 'POST' })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d?.error ?? 'sync failed')
+      setSyncMsg(`MAIA synced: ${d.created} new · ${d.updated} updated · ${d.closed} closed. Reloading…`)
+      setTimeout(() => window.location.reload(), 1200)
+    } catch (e) { setSyncMsg(e instanceof Error ? e.message : String(e)); setSyncing(false) }
+  }
+
   return (
+    <div>
+    <div className="mb-3 flex flex-wrap items-center justify-end gap-3">
+      {syncMsg && <span className="text-xs text-gray-500">{syncMsg}</span>}
+      <button onClick={syncTasks} disabled={syncing} className="rounded border border-[#f26a1b] px-3 py-1.5 text-sm font-medium text-[#c2410c] hover:bg-[#fff4ee] disabled:opacity-50">{syncing ? 'Syncing…' : '✦ Sync MAIA tasks'}</button>
+    </div>
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[260px_1fr]">
       <aside className="rounded-lg border border-gray-200 bg-white p-2">
         {staff.map(p => (
@@ -49,6 +67,7 @@ export default function StaffSetupClient({ staff }: { staff: StaffMember[] }) {
 
       {/* key remounts the editor with fresh form state when the selection changes */}
       <StaffEditor key={selected.id} staff={selected} allStaff={staff} />
+    </div>
     </div>
   )
 }

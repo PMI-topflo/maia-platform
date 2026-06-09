@@ -56,12 +56,21 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (docErr || !doc) return NextResponse.json({ error: 'intake row not found' }, { status: 404 })
 
   const expiry = dateOrNull(body.expiration_date)
+  const newStatus = statusFromExpiry(expiry)
   const { error: upErr } = await supabaseAdmin.from('compliance_records').upsert({
     scope: 'association', association_code: assoc, unit_ref: '', item_key: itemKey,
-    applicable: true, status: statusFromExpiry(expiry), expiry_date: expiry,
+    applicable: true, status: newStatus, expiry_date: expiry,
     source_path: doc.storage_path, updated_by: actor(session),
   }, { onConflict: 'scope,association_code,unit_ref,item_key' })
   if (upErr) return NextResponse.json({ error: `could not write compliance record: ${upErr.message}` }, { status: 500 })
+
+  // Filing a satisfying doc closes the matching compliance task right away
+  // (the daily sync would too, but this is immediate). Expired/pending docs
+  // leave the task open as a renewal reminder.
+  if (newStatus === 'current' || newStatus === 'expiring') {
+    await supabaseAdmin.from('staff_tasks').update({ active: false })
+      .eq('source', 'maia').eq('source_ref', `compliance:${assoc}:${itemKey}`)
+  }
 
   const { error } = await supabaseAdmin.from('document_intake').update({
     status: 'applied', applied_association_code: assoc, applied_item_key: itemKey,

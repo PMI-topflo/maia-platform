@@ -33,6 +33,10 @@
       "schedule": "0 14 * * 5"
     },
     {
+      "path": "/api/cron/sync-staff-tasks",
+      "schedule": "30 8 * * 1-5"
+    },
+    {
       "path": "/api/cron/daily-staff-news",
       "schedule": "0 9,10 * * 1-5"
     },
