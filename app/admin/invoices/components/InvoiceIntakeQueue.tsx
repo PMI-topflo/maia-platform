@@ -368,9 +368,17 @@ function DraftCard(props: {
   // Payment-method options for the selected association — same lazy
   // pattern as the GL list. CINC returns assoc-specific PayByType
   // values (check, ACH, etc.) we have to send verbatim on createInvoice.
-  const [payByOptions, setPayByOptions] = useState<PayByOption[]>([])
-  const [payByLoading, setPayByLoading] = useState(false)
-  const [payByLoadedFor, setPayByLoadedFor] = useState<string>('')
+  // The vendor PAYMENT METHODS (CINC's per-vendor "Default Pmt Method" has
+  // exactly these three). NOT the association payByTypes — those mix in
+  // transaction types like "Bank Adjustment" / "NSF Fee" that aren't vendor
+  // payment methods. CINC's API doesn't expose the vendor's saved default, so
+  // we leave it blank and let CINC apply the vendor's setup on push; Karen can
+  // override here. Available immediately on vendor match (no association needed).
+  const [payByOptions] = useState<PayByOption[]>([
+    { value: 'Check', label: 'Check' },
+    { value: 'ACH',   label: 'ACH' },
+    { value: 'EFT',   label: 'EFT' },
+  ])
 
   // Open CINC work orders for the (assoc, vendor) pair — Karen links
   // a maintenance invoice to an existing WO so it shows up under that
@@ -386,18 +394,6 @@ function DraftCard(props: {
   // CINC default BEFORE pushing. Lazy-fetched when vendorId is set.
   // Read-only: payment-method changes require bank/ACH setup in CINC,
   // not in MAIA.
-  const [vendorDetail, setVendorDetail] = useState<{
-    VendorName:         string
-    Dba?:               string | null
-    NetTerm?:           number | null
-    AutoAprvLimit?:     number | null
-    Routing?:           string | null
-    Account?:           string | null
-    DefaultPmtMethod:   'ACH' | 'Check'
-  } | null>(null)
-  const [vendorDetailLoading,  setVendorDetailLoading]  = useState(false)
-  const [vendorDetailLoadedFor, setVendorDetailLoadedFor] = useState<string>('')
-
   // Mode toggle. Cards open in view mode so the data is presented as
   // information first, with Edit as the explicit affordance to change
   // anything. Push / Reject only available in view mode (you can't
@@ -472,47 +468,7 @@ function DraftCard(props: {
       .finally(() => setWoLoading(false))
   }, [mode, assoc, vendorId, woLoadedKey, woLoading])
 
-  // Lazy-load payByTypes for the assoc, same pattern.
-  useEffect(() => {
-    if (mode !== 'edit' || !assoc || payByLoadedFor === assoc || payByLoading) return
-    setPayByLoading(true)
-    fetch(`/api/admin/cinc/pay-by-types?assoc=${encodeURIComponent(assoc)}`, { cache: 'no-store' })
-      .then(r => r.json())
-      .then(data => {
-        if (!data?.error) setPayByOptions(data.types ?? [])
-        setPayByLoadedFor(assoc)
-      })
-      .catch(() => { /* swallow — fall back to the manual text input */ })
-      .finally(() => setPayByLoading(false))
-  }, [mode, assoc, payByLoadedFor, payByLoading])
-
-  // Lazy-load the CINC vendor profile when a vendor is matched. Same
-  // pattern as the other CINC fetches. Fires in BOTH edit and view
-  // modes — Karen wants to see the CINC default at all times, not
-  // only while editing. Skips when vendorId is blank (unmatched).
-  useEffect(() => {
-    if (!vendorId)                                return
-    if (vendorDetailLoadedFor === vendorId)       return
-    if (vendorDetailLoading)                      return
-    setVendorDetailLoading(true)
-    fetch(`/api/admin/cinc/vendor?vendorId=${encodeURIComponent(vendorId)}`, { cache: 'no-store' })
-      .then(r => r.json())
-      .then(data => {
-        if (!data?.error && data?.vendor) setVendorDetail(data.vendor)
-        else                              setVendorDetail(null)
-        setVendorDetailLoadedFor(vendorId)
-      })
-      .catch(() => { setVendorDetail(null) })
-      .finally(() => setVendorDetailLoading(false))
-  }, [vendorId, vendorDetailLoadedFor, vendorDetailLoading])
-
-  // Reset vendor detail when the matched vendor changes — avoids
-  // showing the previous vendor's banking on the new one for a beat.
-  useEffect(() => {
-    if (vendorDetailLoadedFor && vendorDetailLoadedFor !== vendorId) {
-      setVendorDetail(null)
-    }
-  }, [vendorId, vendorDetailLoadedFor])
+  // (Payment methods are a fixed Check/ACH/EFT list — see payByOptions above.)
 
   // Auto-suggest an observation note when Karen picks a payment method
   // and hasn't typed her own. Karen can always overwrite. Format follows
@@ -1107,36 +1063,22 @@ function DraftCard(props: {
           )}
         </Field>
 
-        {/* Payment method — CINC's PayByType values per association.
-            Falls back to a free-text input if CINC returns no options
-            (mis-configured assoc — Karen can still type something the
-            CINC team will accept). */}
-        <Field label="Payment method" right={fieldCheck('payment_method', !!payBy)}>
+        {/* Payment method — the vendor's three methods (Check / ACH / EFT).
+            Left blank = CINC applies the vendor's saved Default Pmt Method
+            on push (CINC's API doesn't expose it to pre-fill here). */}
+        <Field label="Payment method">
           {mode === 'edit' ? (
-            payByOptions.length > 0 ? (
               <select
                 value={payBy}
                 onChange={e => setPayBy(e.target.value)}
                 disabled={readOnly}
                 style={{ width: '100%', padding: 6 }}
               >
-                <option value="">
-                  {payByLoading ? 'Loading payment methods…' : '— pick payment method —'}
-                </option>
+                <option value="">— CINC uses the vendor&apos;s default —</option>
                 {payByOptions.map(p => (
                   <option key={p.value} value={p.value}>{p.label}</option>
                 ))}
               </select>
-            ) : (
-              <input
-                type="text"
-                value={payBy}
-                onChange={e => setPayBy(e.target.value)}
-                disabled={readOnly}
-                placeholder={payByLoading ? 'Loading…' : 'e.g. Check / ACH'}
-                style={{ width: '100%', padding: 6 }}
-              />
-            )
           ) : (
             <ReadOnlyValue value={payBy} placeholder="— CINC applies the vendor's setup —" />
           )}

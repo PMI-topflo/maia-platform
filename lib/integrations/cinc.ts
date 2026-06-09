@@ -2017,7 +2017,12 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<CreateIn
     NoteDescription:      (input.noteDescription ?? '').slice(0, 1000),
     PayFromBankAccountID: input.payFromBankAccountId ?? 0,
     Memo:                 (input.memo ?? '').slice(0, 1000),
-    PayByType:            input.payByType ?? '',
+  }
+  // Only send PayByType when staff explicitly picked one. OMITTING it (vs
+  // sending an empty string) makes CINC apply the VENDOR's saved Default Pmt
+  // Method — the correct method per vendor — instead of forcing a guess.
+  if (typeof input.payByType === 'string' && input.payByType.trim()) {
+    body.PayByType = input.payByType.trim()
   }
   // Only send WorkOrderNumber when this invoice is actually linked to a
   // work order. CINC rejects a 0/blank value with 400 "Invalid Work Order
