@@ -1024,6 +1024,21 @@ export async function updateVendorRecord(vendorId: number, fields: VendorRecordW
   invalidateVendorCache()
 }
 
+/** CINC's read-only vendor-type catalog (GET /vendors/vendorType). Used to
+ *  assign a VendorTypeID to a vendor — CINC has no create-type endpoint, so
+ *  trades CINC lacks are handled as MAIA-local overrides instead. */
+export interface CincVendorType { id: string; name: string }
+export async function listVendorTypes(): Promise<CincVendorType[]> {
+  const raw = await call<Array<Record<string, unknown>>>('/management/1/vendors/vendorType', { method: 'GET', query: {} }).catch(() => [])
+  return (raw ?? [])
+    .map(t => ({
+      id:   String(t.VendorTypeID ?? t.VendorTypeId ?? t.Id ?? t.ID ?? t.Value ?? ''),
+      name: String(t.Description ?? t.VendorTypeName ?? t.Name ?? t.Text ?? '').trim(),
+    }))
+    .filter(t => t.id && t.name)
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Single-vendor detail — used by the invoice intake card to show
 // Karen the CINC-side defaults (payment method, terms, 1099 status,

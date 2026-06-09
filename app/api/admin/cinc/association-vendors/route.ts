@@ -11,6 +11,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { listVendorsForAssociation, getVendorComplianceStatus, listVendorsFull } from '@/lib/integrations/cinc'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -43,16 +44,25 @@ export async function GET(req: Request) {
 
   // Trade/type per vendor — CINC carries it as VendorType on the full
   // catalog (cached 1h), keyed by VendorId. Names-only assoc list lacks it.
+  // A MAIA-local override (assigned type or a trade CINC lacks) wins.
   const full = await listVendorsFull().catch(() => [])
   const tradeById = new Map<number, string>()
   for (const v of full) if (v.VendorType && v.VendorType.trim()) tradeById.set(v.VendorId, v.VendorType.trim())
 
+  const ids = vendors.map(v => v.VendorId)
+  const { data: overrides } = await supabaseAdmin.from('vendor_trade_overrides').select('vendor_id, trade, source').in('vendor_id', ids.length ? ids : [-1])
+  const overrideById = new Map<number, { trade: string; source: string }>()
+  for (const o of overrides ?? []) overrideById.set(Number(o.vendor_id), { trade: String(o.trade), source: String(o.source) })
+
   const rows = await Promise.all(vendors.map(async v => {
     const c = await getVendorComplianceStatus(v.VendorId, assoc).catch(() => null)
+    const ov = overrideById.get(v.VendorId)
+    const trade = ov?.trade ?? tradeById.get(v.VendorId) ?? null
     return {
-      id:      v.VendorId,
-      name:    v.VendorName,
-      trade:   tradeById.get(v.VendorId) ?? null,
+      id:          v.VendorId,
+      name:        v.VendorName,
+      trade,
+      tradeSource: ov?.source ?? (tradeById.get(v.VendorId) ? 'cinc' : null),
       coi:     c ? dated(c.coi.onFile, c.coi.valid, c.coi.expiration) : ('none' as Rag),
       w9:      (c?.w9.onFile ? 'ok' : 'none') as Rag,
       ach:     (c?.ach.onFile ? 'ok' : 'none') as Rag,

@@ -15,6 +15,7 @@ import MaintenanceTab from './MaintenanceTab'
 import ProjectsTab from './ProjectsTab'
 import InspectionsTab from './InspectionsTab'
 import ComplianceMatrix from './ComplianceMatrix'
+import VendorTradeCell from './VendorTradeCell'
 
 export interface HubBankAccount { description: string; last4: string | null; kind: string; bankBalance: number | null; restricted: boolean }
 export interface HubBoardMember { id: string; name: string | null; email: string | null; role: string | null }
@@ -38,7 +39,7 @@ export interface AssociationHubData {
 }
 
 type Rag = 'ok' | 'warn' | 'bad' | 'none'
-interface VendorRow { id: number; name: string; trade: string | null; coi: Rag; w9: Rag; ach: Rag; license: Rag }
+interface VendorRow { id: number; name: string; trade: string | null; tradeSource: string | null; coi: Rag; w9: Rag; ach: Rag; license: Rag }
 const RAG_DOT:   Record<Rag, string> = { ok: 'bg-emerald-500', warn: 'bg-amber-500', bad: 'bg-red-500', none: 'bg-gray-300' }
 const RAG_LABEL: Record<Rag, string> = { ok: 'OK', warn: 'Expiring', bad: 'Expired', none: 'Missing' }
 function RagPill({ s }: { s: Rag }) {
@@ -237,7 +238,10 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
                       {shown.map(v => (
                         <tr key={v.id} className="border-t border-gray-100">
                           <td className="py-1.5 font-medium text-gray-900">{v.name}</td>
-                          <td className="py-1.5 text-gray-600">{v.trade ?? <span className="text-gray-300">—</span>}</td>
+                          <td className="py-1.5 text-gray-600">
+                            <VendorTradeCell vendorId={v.id} trade={v.trade} tradeSource={v.tradeSource}
+                              onSaved={(trade, source) => setVendors(prev => prev?.map(x => x.id === v.id ? { ...x, trade, tradeSource: source } : x) ?? prev)} />
+                          </td>
                           <td className="py-1.5"><RagPill s={v.coi} /></td>
                           <td className="py-1.5"><RagPill s={v.w9} /></td>
                           <td className="py-1.5"><RagPill s={v.ach} /></td>

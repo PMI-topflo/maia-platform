@@ -1686,6 +1686,27 @@ CREATE POLICY "service_role_all_estimate_requests"        ON public.estimate_req
 CREATE POLICY "service_role_all_estimate_request_vendors" ON public.estimate_request_vendors FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'vendor_trade_overrides',
+    label:       'Vendor trade overrides',
+    description: 'vendor_trade_overrides — assign a CINC vendor type (pushed to CINC) or a MAIA-local trade (e.g. ROOFER) CINC lacks, for filtering + RFQ. Keyed by CINC VendorId.',
+    filename:    '20260609_vendor_trade_overrides.sql',
+    artifact:    { type: 'table', table: 'vendor_trade_overrides' },
+    sql: `CREATE TABLE IF NOT EXISTS public.vendor_trade_overrides (
+  vendor_id    bigint      PRIMARY KEY,
+  trade        text        NOT NULL,
+  cinc_type_id text,
+  source       text        NOT NULL DEFAULT 'local',
+  updated_by   text,
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_vto_source CHECK (source IN ('cinc','local'))
+);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.vendor_trade_overrides TO anon, authenticated, service_role;
+ALTER TABLE public.vendor_trade_overrides ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_vendor_trade_overrides" ON public.vendor_trade_overrides;
+CREATE POLICY "service_role_all_vendor_trade_overrides" ON public.vendor_trade_overrides FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
