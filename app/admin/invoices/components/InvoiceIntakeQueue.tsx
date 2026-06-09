@@ -440,10 +440,13 @@ function DraftCard(props: {
         const accounts: BankAccountOption[] = data.accounts ?? []
         setBankOptions(accounts)
         setBankLoadedFor(assoc)
-        // Default to the Operating account (SSB Operating) when nothing is
-        // chosen yet — only while editing, never override a pushed pick.
+        // Default to the SouthState (SSB) Operating account when nothing is
+        // chosen yet — prefer SSB among operating accounts (some assocs also
+        // carry a CSB operating account). Only while editing; never override
+        // a pushed pick.
         if (mode === 'edit' && !bankId) {
-          const operating = accounts.find(a => a.kind === 'operating')
+          const ops = accounts.filter(a => a.kind === 'operating')
+          const operating = ops.find(a => /\bssb\b|south\s*state/i.test(a.description)) ?? ops[0]
           if (operating) setBankId(String(operating.id))
         }
       })
@@ -784,7 +787,7 @@ function DraftCard(props: {
     setGlId(hit.id); setGlName(hit.name); setGlAutoFilled(true)
   }, [mode, assoc, glLoadedFor, glOptions, auditCtx, glId, glAutoAppliedFor])
 
-  const REQUIRED_CHECKS = ['association', 'vendor', 'short_name', 'amount', 'payment_method', 'gl_account', 'bank_account', 'due_date', 'filename']
+  const REQUIRED_CHECKS = ['association', 'vendor', 'invoice_number', 'short_name', 'amount', 'gl_account', 'bank_account', 'due_date', 'filename']
   const requiredOk = REQUIRED_CHECKS.every(k => checked[k])
   const allReady   = requiredOk && !!checked['duplicate'] && !hardDup
 
@@ -929,17 +932,16 @@ function DraftCard(props: {
         </div>
       )}
 
-      {/* PDF preview — inline so Karen can visually verify the invoice
-          before reviewing extracted fields. Iframe is the simplest
-          embed that handles every browser's PDF viewer; fixed height
-          keeps the card scannable. Falls back to a download link if
-          the signed URL is missing (storage upload failed at intake). */}
+      {/* PDF + form SIDE BY SIDE — Karen reads the bill (left) while
+          reviewing the fields (right). Stacks on narrow screens (flexWrap). */}
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div style={{ flex: '1 1 360px', minWidth: 300, position: 'sticky', top: 12 }}>
       {draft.pdf_signed_url ? (
-        <div style={{ marginBottom: 14 }}>
+        <div>
           <iframe
             src={draft.pdf_signed_url}
             title={`Invoice ${draft.id}`}
-            style={{ width: '100%', height: 480, border: '1px solid #e5e7eb', borderRadius: 4, background: '#f9fafb' }}
+            style={{ width: '100%', height: '82vh', minHeight: 460, border: '1px solid #e5e7eb', borderRadius: 4, background: '#f9fafb' }}
           />
           <div style={{ marginTop: 4, textAlign: 'right' }}>
             <a href={draft.pdf_signed_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#6b7280', textDecoration: 'none' }}>
@@ -948,14 +950,16 @@ function DraftCard(props: {
           </div>
         </div>
       ) : (
-        <div style={{ marginBottom: 14, padding: 12, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 4, fontSize: 12, color: '#991b1b' }}>
+        <div style={{ padding: 12, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 4, fontSize: 12, color: '#991b1b' }}>
           PDF preview not available — the original upload to storage failed at intake.
           The data below was extracted from the email body, not the PDF.
         </div>
       )}
+      </div>
 
-      {/* Action bar — directly under the invoice image so the reviewer can
-          act without scrolling past every field. */}
+      {/* RIGHT column — actions + fields */}
+      <div style={{ flex: '1.6 1 460px', minWidth: 340 }}>
+      {/* Action bar — at the top of the form column. */}
       {!readOnly && (
         <div style={{ marginBottom: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {mode === 'view' ? (
@@ -1043,7 +1047,7 @@ function DraftCard(props: {
           )}
         </Field>
 
-        <Field label="Invoice #">
+        <Field label="Invoice #" right={fieldCheck('invoice_number', !!invNo)}>
           {mode === 'edit' ? (
             <input
               type="text"
@@ -1134,74 +1138,9 @@ function DraftCard(props: {
               />
             )
           ) : (
-            <ReadOnlyValue value={payBy} placeholder="— not set —" />
-          )}
-          <VendorPmtHint
-            loading={vendorDetailLoading}
-            vendor={vendorDetail}
-            selectedPayBy={payBy}
-            vendorMatched={!!vendorId}
-          />
-        </Field>
-
-        {/* Observation — free text Karen edits. Maps to CINC's
-            NoteDescription so the CINC processor sees it when viewing
-            the invoice. Auto-suggested from the payment method. */}
-        <Field label="Observation (CINC NoteDescription)">
-          {mode === 'edit' ? (
-            <input
-              type="text"
-              value={note}
-              onChange={e => setNote(e.target.value)}
-              disabled={readOnly}
-              placeholder="Tell the CINC team how to process this invoice"
-              maxLength={1000}
-              style={{ width: '100%', padding: 6 }}
-            />
-          ) : (
-            <ReadOnlyValue value={note} placeholder="— none —" />
+            <ReadOnlyValue value={payBy} placeholder="— CINC applies the vendor's setup —" />
           )}
         </Field>
-
-        {/* Work-order link (optional) — Karen ties a maintenance invoice
-            to an existing CINC work order so the WO history shows the
-            spend. Loaded from CINC when vendor + assoc are both set;
-            otherwise the dropdown is disabled. Spans both columns
-            because WO descriptions can be long. */}
-        <div style={{ gridColumn: '1 / -1' }}>
-          <Field label="Link to work order (optional)" right={fieldCheck('work_order', !!woNumber)}>
-            {mode === 'edit' ? (
-              <select
-                value={woNumber}
-                onChange={e => setWoNumber(e.target.value)}
-                disabled={readOnly || !vendorId || !assoc}
-                style={{ width: '100%', padding: 6 }}
-              >
-                <option value="">
-                  {!vendorId || !assoc ? '— pick vendor + association first —'
-                  : woLoading           ? 'Loading open work orders from CINC…'
-                  : woOptions.length === 0
-                    ? 'No open work orders for this vendor at this association'
-                    : '— no work order (standalone invoice) —'}
-                </option>
-                {woOptions.map(wo => {
-                  const desc = wo.description ? ` · ${wo.description.slice(0, 60)}` : ''
-                  const when = wo.createdDate ? ` · ${new Date(wo.createdDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''
-                  return (
-                    <option key={wo.number} value={String(wo.number)}>
-                      WO-{wo.number}{desc}{when}
-                    </option>
-                  )
-                })}
-              </select>
-            ) : (
-              <ReadOnlyValue
-                value={woNumber ? `WO-${woNumber}` : ''}
-                placeholder="— none (standalone invoice) —"
-              />
-            )}
-          </Field>
-        </div>
 
         {/* GL — spans both columns so long account names fit. Source is
             the association's CINC budget, fetched lazily on first edit. */}
@@ -1370,7 +1309,67 @@ function DraftCard(props: {
             )}
           </Field>
         </div>
+
+        {/* Observation — free text Karen edits. Maps to CINC's
+            NoteDescription so the CINC processor sees it when viewing
+            the invoice. */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <Field label="Observation (CINC NoteDescription)">
+            {mode === 'edit' ? (
+              <input
+                type="text"
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                disabled={readOnly}
+                placeholder="Tell the CINC team how to process this invoice"
+                maxLength={1000}
+                style={{ width: '100%', padding: 6 }}
+              />
+            ) : (
+              <ReadOnlyValue value={note} placeholder="— none —" />
+            )}
+          </Field>
+        </div>
+
+        {/* Work-order link (optional) — Karen ties a maintenance invoice
+            to an existing CINC work order so the WO history shows the spend. */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <Field label="Link to work order (optional)" right={fieldCheck('work_order', !!woNumber)}>
+            {mode === 'edit' ? (
+              <select
+                value={woNumber}
+                onChange={e => setWoNumber(e.target.value)}
+                disabled={readOnly || !vendorId || !assoc}
+                style={{ width: '100%', padding: 6 }}
+              >
+                <option value="">
+                  {!vendorId || !assoc ? '— pick vendor + association first —'
+                  : woLoading           ? 'Loading open work orders from CINC…'
+                  : woOptions.length === 0
+                    ? 'No open work orders for this vendor at this association'
+                    : '— no work order (standalone invoice) —'}
+                </option>
+                {woOptions.map(wo => {
+                  const desc = wo.description ? ` · ${wo.description.slice(0, 60)}` : ''
+                  const when = wo.createdDate ? ` · ${new Date(wo.createdDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''
+                  return (
+                    <option key={wo.number} value={String(wo.number)}>
+                      WO-{wo.number}{desc}{when}
+                    </option>
+                  )
+                })}
+              </select>
+            ) : (
+              <ReadOnlyValue
+                value={woNumber ? `WO-${woNumber}` : ''}
+                placeholder="— none (standalone invoice) —"
+              />
+            )}
+          </Field>
+        </div>
       </div>
+      </div>{/* end right column */}
+      </div>{/* end PDF + form side-by-side */}
 
       {/* Filename preview — what will be written to CINC + Drive on push.
           Live-updates as fields change in edit mode so Karen sees exactly
