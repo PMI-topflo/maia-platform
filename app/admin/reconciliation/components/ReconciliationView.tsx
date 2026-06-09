@@ -184,7 +184,10 @@ export default function ReconciliationView(props: Props) {
   // The order applies to BOTH the forecast cards at the top AND the
   // running-balance columns in the ledger table.
   function isSsbAccount(bank: BankAccountOption): boolean {
-    return /\bSSB\b/i.test(bank.description ?? '')
+    // Match the "SSB" abbreviation AND the full "SouthState" / "South State"
+    // name — accounts renamed in CINC may use either form, and they're all
+    // 100% CINC-connected, so they belong on top.
+    return /\bSSB\b|south\s*state/i.test(bank.description ?? '')
   }
   function bankSortKey(bank: BankAccountOption): number {
     // Lower = appears first.
