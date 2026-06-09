@@ -43,6 +43,7 @@ export default function Uploader({ token, lang = 'en' }: { token: string; lang?:
   const [suggestions, setSuggestions] = useState('')
   const [busy, setBusy]            = useState(false)
   const [done, setDone]            = useState<string | null>(null)
+  const [results, setResults]      = useState<{ name: string; ok: boolean; message: string }[]>([])
   const [error, setError]          = useState<string | null>(null)
 
   const reportLabel = category === 'photos' ? t.reportPhotos : t.reportNote
@@ -61,6 +62,7 @@ export default function Uploader({ token, lang = 'en' }: { token: string; lang?:
       const res = await fetch(`/api/vendor/upload/${token}`, { method: 'POST', body: fd })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j?.error ?? `Upload failed (${res.status})`)
+      setResults(Array.isArray(j.results) ? j.results : [])
       setDone(t.thanks(j.saved ?? files.length))
       setFiles([]); setReport(''); setSuggestions('')
     } catch (e) {
@@ -74,8 +76,17 @@ export default function Uploader({ token, lang = 'en' }: { token: string; lang?:
     return (
       <div style={{ padding: 14, background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, fontSize: 14, color: '#065f46' }}>
         ✓ {done}
+        {results.length > 0 && (
+          <ul style={{ margin: '12px 0 0', padding: 0, listStyle: 'none' }}>
+            {results.map((r, i) => (
+              <li key={i} style={{ fontSize: 12, color: r.ok ? '#065f46' : '#991b1b', padding: '3px 0', borderTop: i ? '1px solid #d1fae5' : 'none' }}>
+                {r.message} <span style={{ color: '#6b7280' }}>— {r.name}</span>
+              </li>
+            ))}
+          </ul>
+        )}
         <div style={{ marginTop: 10 }}>
-          <button onClick={() => setDone(null)} style={linkBtn}>{t.uploadMore}</button>
+          <button onClick={() => { setDone(null); setResults([]) }} style={linkBtn}>{t.uploadMore}</button>
         </div>
       </div>
     )

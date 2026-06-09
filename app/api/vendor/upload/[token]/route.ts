@@ -57,47 +57,60 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const saved: string[] = []
   const failed: string[] = []
   const detected: string[] = []   // AI-classified doc types, for the staff note
+  const results: { name: string; ok: boolean; message: string }[] = []   // per-file verdict for the vendor
+
+  async function fileInvoice(buf: Buffer, name: string) {
+    return createInvoiceDraftFromUpload({
+      ticketId: ticketId!, associationCode: ticket!.association_code, vendorName: wod?.vendor_name ?? null,
+      workOrderNumber: woNumber !== null && Number.isFinite(woNumber) ? woNumber : null, buf, filename: name,
+    })
+  }
+
   for (const file of files) {
-    if (!ALLOWED.test(file.name)) { failed.push(`${file.name} (type not allowed)`); continue }
+    if (!ALLOWED.test(file.name)) { failed.push(`${file.name} (type not allowed)`); results.push({ name: file.name, ok: false, message: verdict('rejected', null, lang) }); continue }
     const buf = Buffer.from(await file.arrayBuffer())
-    if (buf.byteLength > MAX_BYTES) { failed.push(`${file.name} (over 25 MB)`); continue }
+    if (buf.byteLength > MAX_BYTES) { failed.push(`${file.name} (over 25 MB)`); results.push({ name: file.name, ok: false, message: verdict('toobig', null, lang) }); continue }
 
     try {
-      if (category === 'invoice') {
-        const r = await createInvoiceDraftFromUpload({
-          ticketId, associationCode: ticket.association_code, vendorName: wod?.vendor_name ?? null,
-          workOrderNumber: Number.isFinite(woNumber) ? woNumber : null, buf, filename: file.name,
-        })
-        r.ok ? saved.push(file.name) : failed.push(file.name)
-      } else {
-        // Read the document with Claude FIRST, on the original (best-quality)
-        // bytes — before saveWorkOrderFile compresses it. Skip pure job-photo
-        // batches. Never let a slow/failed extraction block the upload.
-        const extraction = category === 'photos'
-          ? null
-          : await extractVendorDocument(buf, file.name, file.type || null).catch(() => null)
+      // Read it FIRST (best-quality bytes), unless it's a pure job photo.
+      const extraction = category === 'photos'
+        ? null
+        : await extractVendorDocument(buf, file.name, file.type || null).catch(() => null)
+      // Route by what MAIA DETECTS, not just the tab the vendor picked: an
+      // invoice always goes to intake; everything else lands as a WO file.
+      const isInvoice = category === 'invoice' || extraction?.docType === 'invoice'
 
-        const r = await saveWorkOrderFile({
-          ticketId, source: 'staff_upload', bytes: buf, filename: file.name,
-          contentType: file.type || null, uploadedByEmail: `vendor-portal:${wod?.vendor_name ?? 'vendor'}`,
-        })
-        if (r.ok) {
-          saved.push(file.name)
-          if (extraction && extraction.confidence >= 0.3 && extraction.docType !== 'other') {
-            await supabaseAdmin.from('work_order_attachments').update({
-              extracted_doc_type: extraction.docType,
-              extracted_data:     { confidence: extraction.confidence, summary: extraction.summary, fields: extraction.fields },
-              extracted_at:       new Date().toISOString(),
-            }).eq('id', r.id).then(() => null, () => null)
-            const exp = extraction.fields.expiration_date
-            detected.push(`${vendorDocTypeLabel(extraction.docType)}${exp ? ` (exp ${exp})` : ''} — ${file.name}`)
-          }
-        } else {
-          failed.push(`${file.name} (${(r as { error: string }).error})`)
+      if (isInvoice) {
+        const r = await fileInvoice(buf, file.name)
+        if (r.ok) { saved.push(file.name); detected.push(`Invoice — ${file.name}`); results.push({ name: file.name, ok: true, message: verdict('invoice', extraction?.fields ?? null, lang) }) }
+        else { failed.push(file.name); results.push({ name: file.name, ok: false, message: verdict('unreadable', null, lang) }) }
+        continue
+      }
+
+      const r = await saveWorkOrderFile({
+        ticketId, source: 'staff_upload', bytes: buf, filename: file.name,
+        contentType: file.type || null, uploadedByEmail: `vendor-portal:${wod?.vendor_name ?? 'vendor'}`,
+      })
+      if (r.ok) {
+        saved.push(file.name)
+        const dt = extraction && extraction.confidence >= 0.3 && extraction.docType !== 'other' ? extraction.docType : (category === 'photos' ? 'photo' : 'estimate')
+        if (extraction && extraction.confidence >= 0.3 && extraction.docType !== 'other') {
+          await supabaseAdmin.from('work_order_attachments').update({
+            extracted_doc_type: extraction.docType,
+            extracted_data:     { confidence: extraction.confidence, summary: extraction.summary, fields: extraction.fields },
+            extracted_at:       new Date().toISOString(),
+          }).eq('id', r.id).then(() => null, () => null)
+          const exp = extraction.fields.expiration_date
+          detected.push(`${vendorDocTypeLabel(extraction.docType)}${exp ? ` (exp ${exp})` : ''} — ${file.name}`)
         }
+        results.push({ name: file.name, ok: true, message: verdict(dt, extraction?.fields ?? null, lang) })
+      } else {
+        failed.push(`${file.name} (${(r as { error: string }).error})`)
+        results.push({ name: file.name, ok: false, message: verdict('unreadable', null, lang) })
       }
     } catch (e) {
       failed.push(`${file.name} (${(e as Error).message})`)
+      results.push({ name: file.name, ok: false, message: verdict('unreadable', null, lang) })
     }
   }
 
@@ -140,5 +153,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     }).catch(() => null)
   }
 
-  return NextResponse.json({ ok: true, saved: saved.length, failed: failed.length })
+  return NextResponse.json({ ok: true, saved: saved.length, failed: failed.length, results })
+}
+
+// Friendly per-file confirmation the vendor sees — what MAIA recognized the
+// file as. Bilingual (en/es). fields carries amount / expiration_date when known.
+function verdict(kind: string, fields: Record<string, string> | null, lang: string): string {
+  const es = lang === 'es'
+  const exp = fields?.expiration_date
+  const amt = fields?.amount
+  const through = exp ? (es ? ` · vigente hasta ${exp}` : ` · valid through ${exp}`) : ''
+  const expL    = exp ? (es ? ` · vence ${exp}` : ` · exp ${exp}`) : ''
+  const amtL    = amt ? ` · ${amt}` : ''
+  switch (kind) {
+    case 'invoice':   return es ? `✓ Factura recibida — enviada a nuestro equipo${amtL}` : `✓ Invoice received — sent to our team${amtL}`
+    case 'estimate':  return es ? `✓ Estimado recibido${amtL}` : `✓ Estimate received${amtL}`
+    case 'coi':
+    case 'insurance': return es ? `✓ Certificado de seguro (COI) recibido${through}` : `✓ Certificate of Insurance received${through}`
+    case 'w9':        return es ? '✓ Formulario W-9 recibido' : '✓ W-9 received'
+    case 'license':   return es ? `✓ Licencia recibida${expL}` : `✓ License received${expL}`
+    case 'ach':       return es ? '✓ Formulario bancario (ACH) recibido' : '✓ ACH / banking form received'
+    case 'photo':     return es ? '✓ Foto recibida' : '✓ Photo received'
+    case 'rejected':  return es ? '✗ Tipo de archivo no permitido (use PDF o imagen)' : '✗ File type not allowed (use a PDF or image)'
+    case 'toobig':    return es ? '✗ Archivo demasiado grande (máx. 25 MB)' : '✗ File too large (max 25 MB)'
+    case 'unreadable':return es ? '✗ No se pudo leer — suba una versión más clara' : "✗ Couldn't read this — upload a clearer version"
+    default:          return es ? '✓ Archivo recibido' : '✓ File received'
+  }
 }
