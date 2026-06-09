@@ -13,6 +13,7 @@ import DueDateModal from './DueDateModal'
 import ChangeReasonModal from './ChangeReasonModal'
 import SchedulingModal from './SchedulingModal'
 import VendorPickerModal from './VendorPickerModal'
+import RequestEstimatesModal from './RequestEstimatesModal'
 import WorkOrderPhotos from './WorkOrderPhotos'
 import LogMessageModal from './LogMessageModal'
 import RelatedTicketsCard from './RelatedTicketsCard'
@@ -211,6 +212,7 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
   const [showVendorModal,     setShowVendorModal]     = useState(false)
   const [vendorLinkBusy,      setVendorLinkBusy]      = useState(false)
   const [showEditDetails,     setShowEditDetails]     = useState(false)
+  const [showEstimates,       setShowEstimates]       = useState(false)
   const [pushBusy,            setPushBusy]            = useState(false)
 
   async function pushToCinc() {
@@ -839,6 +841,15 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           />
         )}
 
+        {showEstimates && (
+          <RequestEstimatesModal
+            ticketId={ticket.id}
+            assocCode={ticket.association_code}
+            onClose={() => setShowEstimates(false)}
+            onSent={() => { setShowEstimates(false); router.refresh() }}
+          />
+        )}
+
         <LogMessageModal
           ticketId={ticket.id}
           open={logModalOpen}
@@ -891,6 +902,14 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
                 title="Email the vendor a secure link to upload estimate / invoice / job photos"
               >
                 {vendorLinkBusy ? 'Sending…' : '📤 Email vendor upload link'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowEstimates(true)}
+                className="mt-2 w-full rounded bg-[#f26a1b] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#d85a14]"
+                title="Request estimates from vendors — scope + photos, MAIA sends links and follows up"
+              >
+                📨 Request estimates
               </button>
             </Card>
           )

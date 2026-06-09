@@ -37,6 +37,10 @@
       "schedule": "30 8 * * 1-5"
     },
     {
+      "path": "/api/cron/estimate-followups",
+      "schedule": "0 13 * * 1-5"
+    },
+    {
       "path": "/api/cron/daily-staff-news",
       "schedule": "0 9,10 * * 1-5"
     },
