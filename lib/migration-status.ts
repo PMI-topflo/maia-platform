@@ -1707,6 +1707,17 @@ DROP POLICY IF EXISTS "service_role_all_vendor_trade_overrides" ON public.vendor
 CREATE POLICY "service_role_all_vendor_trade_overrides" ON public.vendor_trade_overrides FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'estimate_amounts',
+    label:       'Estimate amounts (comparison)',
+    description: 'estimate_request_vendors.extracted_amount + estimate_summary — captured per vendor estimate for the side-by-side comparison. Requires the estimate_requests tables.',
+    filename:    '20260610_estimate_amounts.sql',
+    artifact:    { type: 'column', table: 'estimate_request_vendors', column: 'extracted_amount' },
+    sql: `ALTER TABLE public.estimate_request_vendors
+  ADD COLUMN IF NOT EXISTS extracted_amount numeric,
+  ADD COLUMN IF NOT EXISTS estimate_summary text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

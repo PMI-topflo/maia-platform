@@ -11,8 +11,15 @@ import { NextResponse } from 'next/server'
 import { verifyEstimateRequestToken } from '@/lib/estimate-request-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { saveWorkOrderFile } from '@/lib/work-order-attachments'
+import { extractVendorDocument } from '@/lib/vendor-doc-extraction'
 import { appendMessage } from '@/lib/tickets'
 import { sendEmail } from '@/lib/gmail'
+
+const toNum = (v: unknown): number | null => {
+  if (v == null) return null
+  const n = Number(String(v).replace(/[$,\s]/g, ''))
+  return Number.isFinite(n) ? n : null
+}
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -53,9 +60,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     if (!file) return NextResponse.json({ error: 'no file' }, { status: 400 })
     if (!ALLOWED.test(file.name)) return NextResponse.json({ error: 'file type not allowed' }, { status: 400 })
     const buf = Buffer.from(await file.arrayBuffer())
+    // Read the estimate's dollar amount (best-quality bytes) for the comparison.
+    const extraction = await extractVendorDocument(buf, file.name, file.type || null).catch(() => null)
+    const amount = extraction ? toNum(extraction.fields.amount) : null
+    const summary = extraction?.summary ?? null
+
     const r = await saveWorkOrderFile({ ticketId: reqRow.ticket_id, source: 'staff_upload', bytes: buf, filename: file.name, contentType: file.type || null, uploadedByEmail: `vendor-estimate:${vname}` })
     if (!r.ok) return NextResponse.json({ error: (r as { error: string }).error }, { status: 500 })
-    await supabaseAdmin.from('estimate_request_vendors').update({ status: 'submitted', submitted_at: new Date().toISOString(), estimate_path: r.id }).eq('id', erv.id)
+    await supabaseAdmin.from('estimate_request_vendors').update({ status: 'submitted', submitted_at: new Date().toISOString(), estimate_path: r.id, extracted_amount: amount, estimate_summary: summary }).eq('id', erv.id)
     await appendMessage(reqRow.ticket_id, { direction: 'internal_note', channel: 'internal', from_addr: `Vendor (${vname})`, body: `💲 ${vname} submitted an estimate (${file.name}) via the request link.` }).catch(() => null)
     await sendEmail({ to: PAOLA, subject: `Estimate received — ${woLabel} — ${vname}`, html: `<p><strong>${vname}</strong> uploaded an estimate for <strong>${woLabel}</strong>.</p><p><a href="${APP}/admin/tickets/${reqRow.ticket_id}">Open the work order →</a></p>` }).catch(() => null)
     return NextResponse.json({ ok: true, status: 'submitted' })

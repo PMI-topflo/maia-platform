@@ -14,6 +14,7 @@ import ChangeReasonModal from './ChangeReasonModal'
 import SchedulingModal from './SchedulingModal'
 import VendorPickerModal from './VendorPickerModal'
 import RequestEstimatesModal from './RequestEstimatesModal'
+import EstimatesComparison from './EstimatesComparison'
 import WorkOrderPhotos from './WorkOrderPhotos'
 import LogMessageModal from './LogMessageModal'
 import RelatedTicketsCard from './RelatedTicketsCard'
@@ -914,6 +915,8 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
             </Card>
           )
         })()}
+
+        {ticket.type === 'work_order' && <EstimatesComparison ticketId={ticket.id} />}
 
         {/* Photos & files — vendor-portal uploads (W-9 / COI / ACH / estimates),
             plus email + staff attachments. Rendered for ALL ticket types, not
