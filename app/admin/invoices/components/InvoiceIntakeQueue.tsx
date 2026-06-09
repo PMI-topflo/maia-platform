@@ -786,7 +786,7 @@ function DraftCard(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auditCtx, vendorId, payByAutoAppliedFor])
 
-  const REQUIRED_CHECKS =['association', 'vendor', 'invoice_number', 'short_name', 'amount', 'gl_account', 'bank_account', 'due_date', 'filename']
+  const REQUIRED_CHECKS =['association', 'vendor', 'invoice_number', 'short_name', 'amount', 'invoice_date', 'gl_account', 'bank_account', 'due_date', 'filename']
   const requiredOk = REQUIRED_CHECKS.every(k => checked[k])
   const allReady   = requiredOk && !!checked['duplicate'] && !hardDup
 
@@ -1060,7 +1060,7 @@ function DraftCard(props: {
           )}
         </Field>
 
-        <Field label="Account # (utility)">
+        <Field label="Account # (utility)" right={fieldCheck('account_number', !!acctNum)}>
           {mode === 'edit' ? (
             <input
               type="text"
@@ -1096,7 +1096,7 @@ function DraftCard(props: {
           )}
         </Field>
 
-        <Field label="Invoice date">
+        <Field label="Invoice date" right={fieldCheck('invoice_date', !!invDate)}>
           {mode === 'edit' ? (
             <input
               type="date"
@@ -1127,7 +1127,7 @@ function DraftCard(props: {
         {/* Payment method — the vendor's three methods (Check / ACH / EFT).
             Left blank = CINC applies the vendor's saved Default Pmt Method
             on push (CINC's API doesn't expose it to pre-fill here). */}
-        <Field label="Payment method">
+        <Field label="Payment method" right={fieldCheck('payment_method', !!payBy)}>
           {mode === 'edit' ? (
               <select
                 value={payBy}

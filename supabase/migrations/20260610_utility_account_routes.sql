@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS public.utility_account_routes (
   association_code     text,
   gl_account_id        text,
   gl_account_name      text,
+  pay_by_type          text,       -- learned payment method for this account (e.g. EFT)
   source               text        NOT NULL DEFAULT 'confirmed',  -- 'cinc_seed' | 'confirmed'
   confirmed_at         timestamptz,
   confirmed_by         text,

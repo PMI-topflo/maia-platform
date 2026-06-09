@@ -22,6 +22,7 @@ export interface AccountRoute {
   associationCode:   string | null
   glAccountId:       string | null
   glAccountName:     string | null
+  payByType:         string | null
   source:            string
 }
 
@@ -44,7 +45,7 @@ export async function lookupAccountRoute(rawAccountNumber: string | null | undef
   if (!norm) return null
   const { data } = await supabaseAdmin
     .from('utility_account_routes')
-    .select('account_number_norm, cinc_vendor_id, vendor_name, association_code, gl_account_id, gl_account_name, source')
+    .select('account_number_norm, cinc_vendor_id, vendor_name, association_code, gl_account_id, gl_account_name, pay_by_type, source')
     .eq('account_number_norm', norm)
     .maybeSingle()
   if (!data) return null
@@ -55,6 +56,7 @@ export async function lookupAccountRoute(rawAccountNumber: string | null | undef
     associationCode:   (data.association_code as string | null) ?? null,
     glAccountId:       (data.gl_account_id as string | null) ?? null,
     glAccountName:     (data.gl_account_name as string | null) ?? null,
+    payByType:         (data.pay_by_type as string | null) ?? null,
     source:            (data.source as string) ?? 'confirmed',
   }
 }
@@ -69,6 +71,7 @@ export async function recordAccountRoute(opts: {
   associationCode?: string | null
   glAccountId?:     string | null
   glAccountName?:   string | null
+  payByType?:       string | null
   source?:          'confirmed' | 'cinc_seed'
   confirmedBy?:     string | null
   /** Skip if a route already exists for this number (used by the seed so it
@@ -91,6 +94,7 @@ export async function recordAccountRoute(opts: {
     association_code:    opts.associationCode ? opts.associationCode.toUpperCase() : null,
     gl_account_id:       opts.glAccountId ?? null,
     gl_account_name:     opts.glAccountName ?? null,
+    pay_by_type:         (opts.payByType ?? '').trim() || null,
     source:              opts.source ?? 'confirmed',
     confirmed_at:        opts.source === 'cinc_seed' ? null : now,
     confirmed_by:        opts.confirmedBy ?? null,

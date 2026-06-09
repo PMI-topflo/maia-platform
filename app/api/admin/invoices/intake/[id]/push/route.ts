@@ -426,6 +426,7 @@ export async function POST(
       associationCode:  (draft.extracted_association_code ?? null) as string | null,
       glAccountId:      (draft.gl_account_id ?? null) as string | null,
       glAccountName:    (draft.gl_account_name ?? null) as string | null,
+      payByType:        payByType,
       source:           'confirmed',
       confirmedBy:      pushedBy,
     })

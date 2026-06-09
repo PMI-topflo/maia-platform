@@ -242,6 +242,7 @@ async function processOnePdf(opts: {
   // route OVERRIDES the fuzzy name match.
   let routeGlId:   string | null = null
   let routeGlName: string | null = null
+  let routePayBy:  string | null = null
   const route = await lookupAccountRoute(extracted.accountNumber).catch(() => null)
   if (route) {
     if (route.cincVendorId) {
@@ -250,7 +251,8 @@ async function processOnePdf(opts: {
     }
     if (route.associationCode) assoc = route.associationCode
     if (route.glAccountId) { routeGlId = route.glAccountId; routeGlName = route.glAccountName }
-    console.log(`[invoice-intake] account# "${extracted.accountNumber}" → routed to ${matched?.VendorName ?? '?'} / ${assoc ?? '?'}${routeGlId ? ` / GL ${routeGlName}` : ''}`)
+    if (route.payByType) routePayBy = route.payByType
+    console.log(`[invoice-intake] account# "${extracted.accountNumber}" → routed to ${matched?.VendorName ?? '?'} / ${assoc ?? '?'}${routeGlId ? ` / GL ${routeGlName}` : ''}${routePayBy ? ` / ${routePayBy}` : ''}`)
   }
 
   // Auto-association fallback: when neither the email text nor the PDF named
@@ -308,6 +310,7 @@ async function processOnePdf(opts: {
     status,
     cinc_dup_invoice_id:        cincDupId,
     ...(routeGlId ? { gl_account_id: routeGlId, gl_account_name: routeGlName } : {}),
+    ...(routePayBy ? { pay_by_type: routePayBy } : {}),
   })
 
   if (insertErr) {
