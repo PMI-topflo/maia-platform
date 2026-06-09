@@ -732,12 +732,13 @@ function DraftCard(props: {
     const p = new URLSearchParams({
       vendorId, assoc, vendorName: vendorNameForCtx,
       invoiceNumber: invNo, amount, draftId: String(draft.id),
+      accountNumber: acctNum, invoiceDate: invDate,
     })
     let live = true
     fetch(`/api/admin/invoices/intake/vendor-context?${p.toString()}`, { cache: 'no-store' })
       .then(r => r.json()).then(d => { if (live) setAuditCtx(d) }).catch(() => { if (live) setAuditCtx(null) })
     return () => { live = false }
-  }, [vendorId, assoc, invNo, amount, vendorNameForCtx, draft.id])
+  }, [vendorId, assoc, invNo, amount, vendorNameForCtx, draft.id, acctNum, invDate])
 
   const dup     = auditCtx?.duplicate
   const hardDup = !!dup?.hasHardDuplicate
