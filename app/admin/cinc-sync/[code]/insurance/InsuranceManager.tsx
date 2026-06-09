@@ -21,7 +21,7 @@ import {
   type RequirementTier,
 } from '@/lib/association-insurance'
 
-interface Props { assocCode: string }
+interface Props { assocCode: string; assocName?: string }
 
 // ─── status + tier presentation ──────────────────────────────────────
 const STATUS_BADGE: Record<PolicyStatus, { label: string; cls: string }> = {
@@ -45,7 +45,7 @@ function money(n: number | null): string {
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 }
 
-export default function InsuranceManager({ assocCode }: Props) {
+export default function InsuranceManager({ assocCode, assocName }: Props) {
   const [policies, setPolicies] = useState<AssociationInsurancePolicy[]>([])
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
@@ -114,7 +114,7 @@ export default function InsuranceManager({ assocCode }: Props) {
       </div>
 
       {/* MAIA — read one declaration → split into per-coverage rows */}
-      <DeclarationReader assocCode={assocCode} onApplied={refresh} />
+      <DeclarationReader assocCode={assocCode} assocName={assocName} onApplied={refresh} />
 
       {error && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</div>}
       {loading && <div className="text-sm text-gray-500">Loading policies…</div>}

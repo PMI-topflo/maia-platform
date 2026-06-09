@@ -88,7 +88,7 @@ export default async function AssociationInsurancePage(
           </p>
         </header>
 
-        <InsuranceManager assocCode={assoc.association_code} />
+        <InsuranceManager assocCode={assoc.association_code} assocName={assoc.association_name ?? undefined} />
       </main>
     </div>
   )

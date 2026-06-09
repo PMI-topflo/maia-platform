@@ -20,7 +20,9 @@ interface Source { storage_path: string; filename: string; mime: string }
 const confBadge = (c: number) =>
   c >= 0.8 ? 'bg-emerald-100 text-emerald-800' : c >= 0.5 ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'
 
-export default function DeclarationReader({ assocCode, onApplied }: { assocCode: string; onApplied: () => void }) {
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\b(inc|llc|association|condominium|condo|the|of|a)\b/g, '').replace(/\s+/g, ' ').trim()
+
+export default function DeclarationReader({ assocCode, assocName, onApplied }: { assocCode: string; assocName?: string; onApplied: () => void }) {
   const [open, setOpen] = useState(true)
   const [busy, setBusy] = useState<null | 'reading' | 'applying'>(null)
   const [rows, setRows] = useState<Row[] | null>(null)
@@ -28,11 +30,12 @@ export default function DeclarationReader({ assocCode, onApplied }: { assocCode:
   const [note, setNote] = useState<string | null>(null)
   const [model, setModel] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [warn, setWarn] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
 
   async function handleFile(f: File | null) {
     if (!f) return
-    setBusy('reading'); setError(null); setRows(null); setDone(null)
+    setBusy('reading'); setError(null); setWarn(null); setRows(null); setDone(null)
     try {
       // 1) upload the declaration to storage (under .../insurance/other/)
       const urlRes = await fetch(`/api/admin/associations/${assocCode}/insurance/upload-url`, {
@@ -53,8 +56,25 @@ export default function DeclarationReader({ assocCode, onApplied }: { assocCode:
       })
       const ex = await exRes.json()
       if (!exRes.ok) throw new Error(ex?.error ?? 'extraction failed')
-      const coverages = (ex.coverages ?? []) as Coverage[]
       setNote(ex.note ?? null); setModel(ex.model ?? null)
+      const kind = ex.document_kind as string | undefined
+      const seen = (ex.association_name as string | null) ?? null
+
+      // Guard: this screen is for the ASSOCIATION's master policy only.
+      if (kind === 'unit_owner') {
+        setError(`This is a unit-owner HO-6 policy${seen ? ` (named insured: ${seen})` : ''} — not the association's master insurance. It belongs to the unit owner, so it wasn't filed here. File HO-6 / unit policies under the owner's unit instead.`)
+        setBusy(null); return
+      }
+      if (kind === 'other') {
+        setError(`MAIA didn't recognize this as an association master insurance policy${seen ? ` (it read "${seen}")` : ''}. Nothing was filed — add coverages manually below if needed.`)
+        setBusy(null); return
+      }
+      // Soft check: does the named insured look like THIS association?
+      if (seen && assocName && norm(seen) && norm(assocName) && !norm(seen).includes(norm(assocName)) && !norm(assocName).includes(norm(seen))) {
+        setWarn(`Heads up — MAIA read the named insured as "${seen}", which doesn't match ${assocName}. Make sure this declaration is for the right association before applying.`)
+      }
+
+      const coverages = (ex.coverages ?? []) as Coverage[]
       if (coverages.length === 0) { setError('MAIA did not find any coverages on this document. Add them manually below.'); setBusy(null); return }
       setRows(coverages.map(c => ({ ...c, include: true })))
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setBusy(null) }
@@ -101,7 +121,8 @@ export default function DeclarationReader({ assocCode, onApplied }: { assocCode:
           </label>
 
           {done && <div className="mt-3 rounded bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{done}</div>}
-          {error && <div className="mt-3 rounded bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
+          {error && <div className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">⚠ {error}</div>}
+          {warn && <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">⚠ {warn}</div>}
           {note && rows && <div className="mt-3 text-[11px] text-gray-500">MAIA ({model}): {note}</div>}
 
           {rows && (
