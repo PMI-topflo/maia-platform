@@ -22,6 +22,7 @@ import {
   checkDuplicateInvoice,
   listVendorsFull,
   getAssociationBudget,
+  getCincInvoice,
   type CincGlTransaction,
 } from '@/lib/integrations/cinc'
 
@@ -261,5 +262,26 @@ export async function GET(req: Request) {
     ourHistory:     ourHistoryCount,
   }
 
-  return NextResponse.json({ suggestedGl, recentPayments, duplicate, scanned })
+  // Suggested payment method — read the vendor's MOST RECENT pushed invoice's
+  // PayByType from CINC (the invoice GET returns the method CINC applied). This
+  // brings the vendor's actual method WITHOUT pushing anything new, and works
+  // even though CINC's vendor record doesn't expose its Default Pmt Method.
+  let suggestedPayBy: { method: string; source: string } | null = null
+  try {
+    const { data: lastPushed } = await supabaseAdmin
+      .from('invoice_intake_drafts')
+      .select('cinc_invoice_id, extracted_invoice_number')
+      .eq('matched_cinc_vendor_id', String(vendorId))
+      .eq('status', 'pushed_to_cinc')
+      .not('cinc_invoice_id', 'is', null)
+      .order('pushed_at', { ascending: false })
+      .limit(3)
+    for (const row of lastPushed ?? []) {
+      const inv = await getCincInvoice(parseInt(String(row.cinc_invoice_id), 10)).catch(() => null)
+      const pbt = (inv?.PayByType ?? '').trim()
+      if (pbt) { suggestedPayBy = { method: pbt, source: `last invoice #${row.extracted_invoice_number ?? row.cinc_invoice_id}` }; break }
+    }
+  } catch { /* best-effort — never block the screen */ }
+
+  return NextResponse.json({ suggestedGl, suggestedPayBy, recentPayments, duplicate, scanned })
 }
