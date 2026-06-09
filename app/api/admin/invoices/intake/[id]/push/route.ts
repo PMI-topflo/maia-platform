@@ -27,6 +27,7 @@ import {
   getAssociationBudget,
   CincApiError,
 } from '@/lib/integrations/cinc'
+import { recordAccountRoute } from '@/lib/account-routing'
 import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
 import { normalizePdf } from '@/lib/pdf-normalize'
 import { trustedDomainVariants } from '@/lib/staff-lookup'
@@ -84,7 +85,7 @@ export async function POST(
 
   const { data: draft, error: loadErr } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('id, status, pdf_storage_key, drive_file_id, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, due_date, scheduled_pay_date, pay_by_type, observation_note, work_order_number, pay_from_bank_account_id, gl_account_id, gl_account_name, extraction_confidence, gmail_message_id')
+    .select('id, status, pdf_storage_key, drive_file_id, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, extracted_account_number, due_date, scheduled_pay_date, pay_by_type, observation_note, work_order_number, pay_from_bank_account_id, gl_account_id, gl_account_name, extraction_confidence, gmail_message_id')
     .eq('id', id)
     .single()
   if (loadErr || !draft) return NextResponse.json({ error: loadErr?.message ?? 'not found' }, { status: 404 })
@@ -206,6 +207,7 @@ export async function POST(
     noteDescription:      (draft.observation_note ?? null) as string | null,
     workOrderNumber:      (draft.work_order_number ?? null) as number | null,
     payFromBankAccountId: payFromBankAccountId,
+    vendorAccountNumber:  (draft.extracted_account_number ?? null) as string | null,
   }
 
   let cincInvoiceId: number
@@ -411,6 +413,24 @@ export async function POST(
       cincInvoiceId,
       driveFileId,
     }, { status: 207 })
+  }
+
+  // Learn the account-number route from this confirmed push, so the next
+  // invoice on the same account auto-routes to this vendor + association + GL
+  // (with the real GL ChartID, not just the seed's GL number). Best-effort.
+  try {
+    await recordAccountRoute({
+      rawAccountNumber: (draft.extracted_account_number ?? null) as string | null,
+      cincVendorId:     (draft.matched_cinc_vendor_id ?? null) as string | null,
+      vendorName:       (draft.matched_vendor_name ?? null) as string | null,
+      associationCode:  (draft.extracted_association_code ?? null) as string | null,
+      glAccountId:      (draft.gl_account_id ?? null) as string | null,
+      glAccountName:    (draft.gl_account_name ?? null) as string | null,
+      source:           'confirmed',
+      confirmedBy:      pushedBy,
+    })
+  } catch (err) {
+    console.warn(`[invoice-push] account-route learn failed: ${(err as Error).message}`)
   }
 
   // Monthly-report ticket. We auto-create + immediately resolve a

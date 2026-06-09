@@ -1766,6 +1766,35 @@ CREATE POLICY "service_role_all_estimate_approvals"        ON public.estimate_ap
 CREATE POLICY "service_role_all_estimate_approval_reviews" ON public.estimate_approval_reviews FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'utility_account_routes',
+    label:       'Utility account routing',
+    description: 'utility_account_routes (account number → vendor + association + GL) + invoice_intake_drafts.extracted_account_number. Routes utility bills by their account number instead of fuzzy vendor name.',
+    filename:    '20260610_utility_account_routes.sql',
+    artifact:    { type: 'table', table: 'utility_account_routes' },
+    sql: `CREATE TABLE IF NOT EXISTS public.utility_account_routes (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_number_norm  text        NOT NULL,
+  account_number_raw   text,
+  cinc_vendor_id       text,
+  vendor_name          text,
+  association_code     text,
+  gl_account_id        text,
+  gl_account_name      text,
+  source               text        NOT NULL DEFAULT 'confirmed',
+  confirmed_at         timestamptz,
+  confirmed_by         text,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS utility_account_routes_norm_uniq ON public.utility_account_routes (account_number_norm);
+ALTER TABLE public.invoice_intake_drafts ADD COLUMN IF NOT EXISTS extracted_account_number text;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.utility_account_routes TO anon, authenticated, service_role;
+ALTER TABLE public.utility_account_routes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_utility_account_routes" ON public.utility_account_routes;
+CREATE POLICY "service_role_all_utility_account_routes" ON public.utility_account_routes FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
