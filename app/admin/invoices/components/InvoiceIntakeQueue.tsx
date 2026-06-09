@@ -354,6 +354,7 @@ function DraftCard(props: {
   // we never fight a manual clear; `glAutoFilled` flags the value as
   // machine-picked so the UI asks for a confirm rather than implying intent.
   const [glAutoAppliedFor, setGlAutoAppliedFor] = useState<string>('')
+  const [payByAutoAppliedFor, setPayByAutoAppliedFor] = useState<string>('')
   const [glAutoFilled, setGlAutoFilled]         = useState(false)
 
   // Bank accounts for the selected association — Operating, Reserve,
@@ -743,7 +744,21 @@ function DraftCard(props: {
     setGlId(hit.id); setGlName(hit.name); setGlAutoFilled(true)
   }, [mode, assoc, glLoadedFor, glOptions, auditCtx, glId, glAutoAppliedFor])
 
-  const REQUIRED_CHECKS = ['association', 'vendor', 'invoice_number', 'short_name', 'amount', 'gl_account', 'bank_account', 'due_date', 'filename']
+  // Auto-fill the PAYMENT METHOD from the vendor's last invoice — vendor-context
+  // reads its PayByType from CINC history, so MAIA brings the method the vendor
+  // was actually paid by (no fake push needed). Fires once per vendor; only when
+  // Karen hasn't already chosen one.
+  useEffect(() => {
+    const sp = auditCtx?.suggestedPayBy?.method
+    if (!sp || !vendorId || payByAutoAppliedFor === vendorId) return
+    setPayByAutoAppliedFor(vendorId)
+    if (payBy) return
+    const hit = payByOptions.find(o => o.value.toLowerCase() === sp.toLowerCase())
+    if (hit) setPayBy(hit.value)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auditCtx, vendorId, payByAutoAppliedFor])
+
+  const REQUIRED_CHECKS =['association', 'vendor', 'invoice_number', 'short_name', 'amount', 'gl_account', 'bank_account', 'due_date', 'filename']
   const requiredOk = REQUIRED_CHECKS.every(k => checked[k])
   const allReady   = requiredOk && !!checked['duplicate'] && !hardDup
 
@@ -1082,6 +1097,15 @@ function DraftCard(props: {
           ) : (
             <ReadOnlyValue value={payBy} placeholder="— CINC applies the vendor's setup —" />
           )}
+          {auditCtx?.suggestedPayBy ? (
+            <div style={{ marginTop: 4, color: '#15803d', fontSize: 11 }}>
+              💡 Vendor was last paid by <strong>{auditCtx.suggestedPayBy.method}</strong> ({auditCtx.suggestedPayBy.source})
+            </div>
+          ) : auditCtx && vendorId ? (
+            <div style={{ marginTop: 4, color: '#92400e', fontSize: 11 }}>
+              ⓘ No payment recorded yet for this vendor — leave blank and CINC will apply the vendor&apos;s saved <strong>Default Pmt Method</strong> on push (set it on the vendor in CINC for a brand-new vendor), or pick one above.
+            </div>
+          ) : null}
         </Field>
 
         {/* GL — spans both columns so long account names fit. Source is
@@ -1734,6 +1758,7 @@ function btnDanger(): React.CSSProperties {
 interface DupHit { source: string; invoiceNumber: string | null; amount: number | null; date: string | null; status: string | null; paid: boolean }
 interface VendorCtx {
   suggestedGl: { glAccount: string | null; accountNumber: string | null; source?: string } | null
+  suggestedPayBy?: { method: string; source: string } | null
   recentPayments: Array<{ date: string | null; description: string | null; amount: number; matchedByName?: boolean }>
   duplicate: { exact: DupHit[]; sameAmount: DupHit[]; anyPaid: boolean; hasHardDuplicate: boolean; amountLabel: string | null }
   scanned?: { cincDuplicates: boolean; ledgerPayments: number; ourHistory: number }
