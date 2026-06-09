@@ -38,7 +38,7 @@ export interface AssociationHubData {
 }
 
 type Rag = 'ok' | 'warn' | 'bad' | 'none'
-interface VendorRow { id: number; name: string; coi: Rag; w9: Rag; ach: Rag; license: Rag }
+interface VendorRow { id: number; name: string; trade: string | null; coi: Rag; w9: Rag; ach: Rag; license: Rag }
 const RAG_DOT:   Record<Rag, string> = { ok: 'bg-emerald-500', warn: 'bg-amber-500', bad: 'bg-red-500', none: 'bg-gray-300' }
 const RAG_LABEL: Record<Rag, string> = { ok: 'OK', warn: 'Expiring', bad: 'Expired', none: 'Missing' }
 function RagPill({ s }: { s: Rag }) {
@@ -76,6 +76,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
   const [vendorsLoading, setVendorsLoading] = useState(false)
   const [vendorsErr, setVendorsErr] = useState<string | null>(null)
   const [vendorsTruncated, setVendorsTruncated] = useState(false)
+  const [vendorTrade, setVendorTrade] = useState('')   // '' = All types
   function loadVendors() {
     if (vendors !== null || vendorsLoading) return
     setVendorsLoading(true); setVendorsErr(null)
@@ -205,36 +206,51 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
             </div>
           )}
 
-          {tab === 'Vendors' && (
+          {tab === 'Vendors' && (() => {
+            const trades = Array.from(new Set((vendors ?? []).map(v => v.trade).filter((t): t is string => !!t))).sort((a, b) => a.localeCompare(b))
+            const shown = (vendors ?? []).filter(v => !vendorTrade || v.trade === vendorTrade)
+            return (
             <Card title="Vendors serving this association">
               {vendorsLoading && <p className="text-xs text-gray-400">Loading vendor compliance from CINC…</p>}
               {vendorsErr && <p className="text-xs text-red-600">{vendorsErr}</p>}
               {vendors && vendors.length === 0 && !vendorsLoading && <Empty>No vendors on this association in CINC.</Empty>}
               {vendors && vendors.length > 0 && (
-                <table className="w-full text-sm">
-                  <thead><tr className="text-[11px] uppercase tracking-wide text-gray-400">
-                    <th className="pb-1 text-left font-semibold">Vendor</th>
-                    <th className="pb-1 text-left font-semibold">COI</th>
-                    <th className="pb-1 text-left font-semibold">W-9</th>
-                    <th className="pb-1 text-left font-semibold">ACH</th>
-                    <th className="pb-1 text-left font-semibold">License</th>
-                  </tr></thead>
-                  <tbody>
-                    {vendors.map(v => (
-                      <tr key={v.id} className="border-t border-gray-100">
-                        <td className="py-1.5 font-medium text-gray-900">{v.name}</td>
-                        <td className="py-1.5"><RagPill s={v.coi} /></td>
-                        <td className="py-1.5"><RagPill s={v.w9} /></td>
-                        <td className="py-1.5"><RagPill s={v.ach} /></td>
-                        <td className="py-1.5"><RagPill s={v.license} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <>
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="text-[11px] uppercase tracking-wide text-gray-400">Trade</span>
+                    <select value={vendorTrade} onChange={e => setVendorTrade(e.target.value)} className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700">
+                      <option value="">All types</option>
+                      {trades.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <span className="text-[11px] text-gray-400">{shown.length} of {vendors.length}</span>
+                  </div>
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-[11px] uppercase tracking-wide text-gray-400">
+                      <th className="pb-1 text-left font-semibold">Vendor</th>
+                      <th className="pb-1 text-left font-semibold">Trade</th>
+                      <th className="pb-1 text-left font-semibold">COI</th>
+                      <th className="pb-1 text-left font-semibold">W-9</th>
+                      <th className="pb-1 text-left font-semibold">ACH</th>
+                      <th className="pb-1 text-left font-semibold">License</th>
+                    </tr></thead>
+                    <tbody>
+                      {shown.map(v => (
+                        <tr key={v.id} className="border-t border-gray-100">
+                          <td className="py-1.5 font-medium text-gray-900">{v.name}</td>
+                          <td className="py-1.5 text-gray-600">{v.trade ?? <span className="text-gray-300">—</span>}</td>
+                          <td className="py-1.5"><RagPill s={v.coi} /></td>
+                          <td className="py-1.5"><RagPill s={v.w9} /></td>
+                          <td className="py-1.5"><RagPill s={v.ach} /></td>
+                          <td className="py-1.5"><RagPill s={v.license} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
               )}
               {vendorsTruncated && <p className="mt-2 text-[11px] text-gray-400">Showing the first 30 vendors.</p>}
             </Card>
-          )}
+          )})()}
 
           {tab === 'Work Orders' && (
             <Card title="Work orders" action="Open list →" actionHref={`/admin/work-orders?association=${code}`}>

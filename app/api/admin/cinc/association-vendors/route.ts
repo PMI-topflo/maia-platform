@@ -10,7 +10,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
-import { listVendorsForAssociation, getVendorComplianceStatus } from '@/lib/integrations/cinc'
+import { listVendorsForAssociation, getVendorComplianceStatus, listVendorsFull } from '@/lib/integrations/cinc'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -41,11 +41,18 @@ export async function GET(req: Request) {
   const all = await listVendorsForAssociation(assoc).catch(() => [])
   const vendors = all.slice(0, MAX_VENDORS)
 
+  // Trade/type per vendor — CINC carries it as VendorType on the full
+  // catalog (cached 1h), keyed by VendorId. Names-only assoc list lacks it.
+  const full = await listVendorsFull().catch(() => [])
+  const tradeById = new Map<number, string>()
+  for (const v of full) if (v.VendorType && v.VendorType.trim()) tradeById.set(v.VendorId, v.VendorType.trim())
+
   const rows = await Promise.all(vendors.map(async v => {
     const c = await getVendorComplianceStatus(v.VendorId, assoc).catch(() => null)
     return {
       id:      v.VendorId,
       name:    v.VendorName,
+      trade:   tradeById.get(v.VendorId) ?? null,
       coi:     c ? dated(c.coi.onFile, c.coi.valid, c.coi.expiration) : ('none' as Rag),
       w9:      (c?.w9.onFile ? 'ok' : 'none') as Rag,
       ach:     (c?.ach.onFile ? 'ok' : 'none') as Rag,
