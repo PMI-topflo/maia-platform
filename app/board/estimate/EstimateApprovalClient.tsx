@@ -18,6 +18,7 @@ const money = (n: number | null) => n == null ? '—' : `$${n.toLocaleString('en
 
 export default function EstimateApprovalClient({ token }: { token: string }) {
   const [data, setData] = useState<Data | null>(null)
+  const [pages, setPages] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState<'idle' | 'approve' | 'revision'>('idle')
   const [redraw, setRedraw] = useState(false)
@@ -32,6 +33,9 @@ export default function EstimateApprovalClient({ token }: { token: string }) {
     fetch(`/api/board/estimate?token=${encodeURIComponent(token)}`).then(r => r.json())
       .then((d: Data & { error?: string }) => { if (!live) return; if (d.error) setError(d.error); else { setData(d); setSig(d.saved_signature ?? null) } })
       .catch(() => setError('Could not load this approval.')).finally(() => { if (live) setLoading(false) })
+    // Inline image preview of the estimate (no download for the board).
+    fetch(`/api/board/estimate/preview?token=${encodeURIComponent(token)}`).then(r => r.json())
+      .then((d: { pages?: string[] }) => { if (live) setPages(d.pages ?? []) }).catch(() => {})
     return () => { live = false }
   }, [token])
 
@@ -65,8 +69,24 @@ export default function EstimateApprovalClient({ token }: { token: string }) {
           <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>{money(a.amount)}</div>
         </div>
         {a.scope && <div style={{ fontSize: 13, color: '#374151', whiteSpace: 'pre-wrap', marginTop: 6 }}>{a.scope}</div>}
-        {data.estimate_url && <div style={{ marginTop: 8 }}><a href={data.estimate_url} target="_blank" rel="noreferrer" style={{ color: '#f26a1b', fontWeight: 600, fontSize: 13 }}>View the estimate PDF →</a></div>}
       </div>
+
+      {/* The estimate itself, shown inline as images — no download needed. */}
+      {pages.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#6b7280', marginBottom: 6 }}>The estimate</div>
+          <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+            {pages.map((src, i) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img key={i} src={src} alt={`Estimate page ${i + 1}`} style={{ display: 'block', width: '100%', borderTop: i ? '1px solid #eee' : 'none' }} />
+            ))}
+          </div>
+          {data.estimate_url && <div style={{ marginTop: 6 }}><a href={data.estimate_url} target="_blank" rel="noreferrer" style={{ color: '#6b7280', fontSize: 12 }}>Open the original file ↗</a></div>}
+        </div>
+      )}
+      {pages.length === 0 && data.estimate_url && (
+        <div style={{ marginBottom: 14 }}><a href={data.estimate_url} target="_blank" rel="noreferrer" style={{ color: '#f26a1b', fontWeight: 600, fontSize: 13 }}>View the estimate →</a></div>
+      )}
 
       {data.comparison.length > 1 && (
         <div style={{ marginBottom: 14 }}>

@@ -166,6 +166,21 @@ async function rasterizeToJpegs(
   return pages
 }
 
+/** Render a PDF buffer to inline JPEG data URLs (one per page, capped), so a
+ *  document can be SHOWN as images instead of forcing a download. Returns []
+ *  on any failure (caller falls back to a link). */
+export async function renderPdfToImageDataUrls(
+  buf: Buffer,
+  opts?: { maxPages?: number; maxPx?: number; quality?: number },
+): Promise<string[]> {
+  try {
+    const pages = await rasterizeToJpegs(buf, opts?.maxPx ?? 1400, opts?.quality ?? 72)
+    return pages.slice(0, opts?.maxPages ?? 8).map(p => `data:image/jpeg;base64,${p.jpeg.toString('base64')}`)
+  } catch {
+    return []
+  }
+}
+
 /** Re-wrap rasterized JPEG pages into a fresh PDF. */
 async function jpegsToPdf(
   pages: Array<{ jpeg: Buffer; width: number; height: number }>,
