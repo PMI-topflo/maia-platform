@@ -45,5 +45,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     amount: v.extracted_amount != null ? Number(v.extracted_amount) : null, summary: v.estimate_summary,
     estimate_url: v.estimate_path ? urlByAtt.get(v.estimate_path) ?? null : null,
   }))
-  return NextResponse.json({ request: { id: reqRow.id, scope: reqRow.scope, status: reqRow.status }, vendors })
+
+  // Latest board approval (if any) for this work order.
+  const { data: appr } = await supabaseAdmin.from('estimate_approvals')
+    .select('id, vendor_name, amount, status, required, created_at').eq('ticket_id', ticketId).order('created_at', { ascending: false }).limit(1).maybeSingle()
+  let approval = null as null | { vendor_name: string | null; amount: number | null; status: string; required: number; approvals: number }
+  if (appr) {
+    const { count } = await supabaseAdmin.from('estimate_approval_reviews').select('id', { count: 'exact', head: true }).eq('approval_id', appr.id).eq('decision', 'approve')
+    approval = { vendor_name: appr.vendor_name, amount: appr.amount != null ? Number(appr.amount) : null, status: appr.status, required: appr.required, approvals: count ?? 0 }
+  }
+
+  return NextResponse.json({ request: { id: reqRow.id, scope: reqRow.scope, status: reqRow.status }, vendors, approval })
 }
