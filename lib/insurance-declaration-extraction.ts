@@ -31,11 +31,14 @@ export interface ExtractedCoverage {
   coverage_amount_usd: number | null
   confidence:          number        // 0..1 for THIS coverage
 }
+export type DocumentKind = 'association_master' | 'unit_owner' | 'other'
 export interface DeclarationExtraction {
-  coverages:  ExtractedCoverage[]
-  confidence: number                 // overall 0..1
-  note:       string | null
-  model:      string                 // which model produced the kept result
+  coverages:        ExtractedCoverage[]
+  document_kind:    DocumentKind       // association master policy vs a unit-owner HO-6
+  association_name: string | null      // the named insured / association as printed on the doc
+  confidence:       number             // overall 0..1
+  note:             string | null
+  model:            string             // which model produced the kept result
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
@@ -57,11 +60,21 @@ function isoDate(v: unknown): string | null {
 
 function buildPrompt(): string {
   const catalog = POLICY_TYPES.map(p => `  "${p.key}" — ${p.label}`).join('\n')
-  return `You are reading a MASTER insurance declaration / policy for a Florida HOA / condominium association. A single declaration page usually bundles SEVERAL coverages. Identify EVERY distinct coverage present and map each to one of these coverage keys:
+  return `You are reading an insurance declaration / policy in the context of a Florida HOA / condominium association.
+
+FIRST decide what KIND of document this is:
+- "association_master" — the NAMED INSURED is the association / HOA / condominium corporation itself (an "Inc"/"Association"/"Condominium Association"); it covers the COMMON elements / building structure / association liability.
+- "unit_owner" — an individual UNIT OWNER's policy: HO-6 / "HO6" / "Unit Owners" / "Condominium Unit-Owners" form; the named insured is a PERSON; coverages are dwelling / personal property / loss of use / personal liability / medical payments. THIS DOES NOT BELONG ON THE ASSOCIATION'S MASTER-INSURANCE SCREEN.
+- "other" — neither.
+
+THEN, only if it is "association_master", identify EVERY distinct coverage present and map each to one of these coverage keys:
 ${catalog}
+(If it is "unit_owner" or "other", return an EMPTY coverages array — do not map a unit owner's homeowner coverages onto association master coverages.)
 
 Return a SINGLE JSON object and nothing else (no prose, no markdown fences):
 {
+  "document_kind":    "association_master" | "unit_owner" | "other",
+  "association_name": string|null,   // the named insured exactly as printed
   "coverages": [
     {
       "policy_type":         string,   // EXACTLY one of the keys above
@@ -80,11 +93,14 @@ Return a SINGLE JSON object and nothing else (no prose, no markdown fences):
 Rules: Convert "5/1/2026" → "2026-05-01". Only include a coverage if it is actually present on the document — do NOT invent rows for coverages that aren't there. If a single carrier covers multiple keys with the same dates, still emit one row per key. Use null for any field not clearly stated. If the document is not insurance, return "coverages": [] and confidence below 0.3.`
 }
 
-function parse(text: string): { coverages: ExtractedCoverage[]; confidence: number; note: string | null } | null {
+function parse(text: string): Omit<DeclarationExtraction, 'model'> | null {
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
   let obj: Record<string, unknown>
   try { obj = JSON.parse(cleaned) as Record<string, unknown> } catch { return null }
-  const rawList = Array.isArray(obj.coverages) ? obj.coverages : []
+  const kindRaw = str(obj.document_kind)
+  const document_kind: DocumentKind = kindRaw === 'unit_owner' || kindRaw === 'other' ? kindRaw : 'association_master'
+  // Defensive: a unit-owner / other doc must NOT carry association coverages.
+  const rawList = document_kind === 'association_master' && Array.isArray(obj.coverages) ? obj.coverages : []
   const coverages: ExtractedCoverage[] = []
   for (const r of rawList) {
     const rec = r as Record<string, unknown>
@@ -103,7 +119,7 @@ function parse(text: string): { coverages: ExtractedCoverage[]; confidence: numb
       confidence:          conf(rec.confidence),
     })
   }
-  return { coverages, confidence: conf(obj.confidence), note: str(obj.note) }
+  return { coverages, document_kind, association_name: str(obj.association_name), confidence: conf(obj.confidence), note: str(obj.note) }
 }
 
 async function runModel(model: string, block: unknown, prompt: string) {
@@ -131,14 +147,17 @@ export async function extractInsuranceDeclaration(buf: Buffer, contentType?: str
 
   await assertClaudeBudget('insurance-declaration')
   const first = await runModel(HAIKU, block, prompt)
-  const firstOk = first && first.coverages.length > 0 && first.confidence >= ESCALATE_BELOW
+  // Accept if confident — either it found association coverages, OR it's
+  // confidently a unit-owner / other doc (no escalation needed to confirm).
+  const firstOk = first && first.confidence >= ESCALATE_BELOW &&
+    (first.coverages.length > 0 || first.document_kind !== 'association_master')
   if (firstOk) return { ...first, model: HAIKU }
 
   // Escalate the same document to Sonnet once.
   await assertClaudeBudget('insurance-declaration-escalate')
   const second = await runModel(SONNET, block, prompt)
-  if (second && (second.coverages.length > 0 || !first)) return { ...second, model: SONNET }
-  return first ? { ...first, model: HAIKU } : { coverages: [], confidence: 0, note: null, model: SONNET }
+  if (second && (second.coverages.length > 0 || second.document_kind !== 'association_master' || !first)) return { ...second, model: SONNET }
+  return first ? { ...first, model: HAIKU } : { coverages: [], document_kind: 'other', association_name: null, confidence: 0, note: null, model: SONNET }
 }
 
 function mediaTypeFor(contentType?: string | null): 'image/jpeg' | 'image/png' | 'image/webp' {
