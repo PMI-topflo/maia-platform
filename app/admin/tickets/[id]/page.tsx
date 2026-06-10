@@ -103,7 +103,7 @@ export default async function TicketDetailPage(props: PageProps) {
       <SiteHeader subtitle="STAFF DASHBOARD">
         <AdminNav activeOverride={navOverride} />
       </SiteHeader>
-      <main className="max-w-screen-xl mx-auto px-6 py-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6">
         <TicketDetailClient data={data} />
       </main>
     </div>

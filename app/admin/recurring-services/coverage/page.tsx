@@ -56,7 +56,7 @@ export default async function CoveragePage() {
     <div className="min-h-screen bg-gray-50">
       <SiteHeader subtitle="RECURRING COVERAGE"><AdminNav /></SiteHeader>
 
-      <main className="max-w-screen-xl mx-auto px-6 py-6 space-y-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6 space-y-6">
         {/* ── This-week summary ── */}
         <section className="bg-white border border-gray-200 rounded-lg p-5">
           <div className="flex items-center justify-between flex-wrap gap-3">

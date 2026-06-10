@@ -446,7 +446,7 @@ export default async function CommunicationsPage({
         <AdminNav />
       </SiteHeader>
 
-      <main className="max-w-screen-xl mx-auto px-6 py-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6">
         <CommunicationsDashboard
           {...data}
           showDismissed={showDismissed}

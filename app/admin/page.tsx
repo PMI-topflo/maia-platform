@@ -318,7 +318,7 @@ export default async function OverviewPage() {
         <AdminNav />
       </SiteHeader>
 
-      <main className="max-w-screen-xl mx-auto px-6 py-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6">
         <ControlPanel
           counts={{
             myTasks:            myTasks.length,

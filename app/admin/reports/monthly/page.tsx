@@ -86,7 +86,7 @@ export default async function MonthlyReportPage({
         <AdminNav />
       </SiteHeader>
 
-      <main className="max-w-screen-xl mx-auto px-6 py-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6">
         <div className="mb-5">
           <h1 className="text-xl font-semibold text-gray-900">Monthly Management Report</h1>
           <p className="text-sm text-gray-500 mt-1">
