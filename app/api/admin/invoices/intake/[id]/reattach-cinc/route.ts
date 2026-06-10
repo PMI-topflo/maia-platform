@@ -49,7 +49,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (dlErr || !blob) return NextResponse.json({ error: `storage download failed: ${dlErr?.message ?? 'no blob'}` }, { status: 500 })
 
   const rawBuf = Buffer.from(await blob.arrayBuffer())
-  const norm   = await normalizePdf(rawBuf, { targetBytes: CINC_ATTACH_TARGET_BYTES }).catch(() => null)
+  const norm   = await normalizePdf(rawBuf, { targetBytes: CINC_ATTACH_TARGET_BYTES, preserveTextPdfs: false }).catch(() => null)
   const buf    = norm?.buffer ?? rawBuf
   const pdfBase64 = buf.toString('base64')
   if (buf.length > CINC_ATTACH_MAX_BYTES) {
