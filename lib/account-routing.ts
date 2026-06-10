@@ -102,6 +102,77 @@ export async function recordAccountRoute(opts: {
   }, { onConflict: 'account_number_norm' })
 }
 
+/** Look up a vendor's learned payment method (from the 12-month backfill). */
+export async function lookupVendorMethod(cincVendorId: string | number | null | undefined): Promise<{ method: string; sampleCount: number } | null> {
+  if (cincVendorId == null) return null
+  const { data } = await supabaseAdmin
+    .from('vendor_payment_methods')
+    .select('pay_by_type, sample_count')
+    .eq('cinc_vendor_id', String(cincVendorId))
+    .maybeSingle()
+  const method = (data?.pay_by_type as string | null) ?? null
+  if (!method) return null
+  return { method, sampleCount: (data?.sample_count as number) ?? 0 }
+}
+
+/** Backfill per-vendor payment methods from CINC. Reads every invoice for each
+ *  active association over the last `months` (default 12) — each row carries
+ *  PayByType + VendorID — aggregates the dominant method per vendor, and upserts
+ *  vendor_payment_methods. One-time / occasional admin action. Best-effort. */
+export async function backfillVendorPaymentMethods(opts?: { months?: number }): Promise<{ associations: number; invoices: number; vendors: number }> {
+  const { listAssociationInvoices } = await import('@/lib/integrations/cinc')
+  const months = Math.max(1, Math.min(opts?.months ?? 12, 24))
+  const { data: assocs } = await supabaseAdmin.from('associations').select('association_code').eq('active', true)
+  const codes = (assocs ?? []).map(a => (a.association_code as string | null)).filter(Boolean) as string[]
+
+  // Date windows ≤ 11 months each (the endpoint caps the range at 366 days).
+  const now = new Date()
+  const windows: Array<{ from: string; to: string }> = []
+  let cursor = now, remaining = months
+  while (remaining > 0) {
+    const chunk = Math.min(remaining, 11)
+    const start = new Date(cursor.getFullYear(), cursor.getMonth() - chunk, cursor.getDate())
+    windows.push({ from: start.toISOString().slice(0, 10), to: cursor.toISOString().slice(0, 10) })
+    cursor = start; remaining -= chunk
+  }
+
+  const agg = new Map<string, { vendorName: string; counts: Map<string, number>; lastDate: string; lastMethod: string }>()
+  let invoices = 0
+  for (const code of codes) {
+    for (const w of windows) {
+      const rows = await listAssociationInvoices({ assocCode: code, fromDate: w.from, toDate: w.to }).catch(() => [])
+      for (const r of rows) {
+        const vid = r.VendorID != null ? String(r.VendorID) : null
+        const pbt = (r.PayByType ?? '').trim()
+        if (!vid || !pbt) continue
+        invoices++
+        let e = agg.get(vid)
+        if (!e) { e = { vendorName: r.Vendor ?? '', counts: new Map(), lastDate: '', lastMethod: '' }; agg.set(vid, e) }
+        e.counts.set(pbt, (e.counts.get(pbt) ?? 0) + 1)
+        const d = (r.InvoiceDate ?? '').slice(0, 10)
+        if (d && d > e.lastDate) { e.lastDate = d; e.lastMethod = pbt }
+        if (r.Vendor) e.vendorName = r.Vendor
+      }
+    }
+  }
+
+  const stamp = new Date().toISOString()
+  for (const [vid, e] of agg) {
+    let dominant = '', bestN = -1, total = 0
+    for (const [m, n] of e.counts) { total += n; if (n > bestN) { dominant = m; bestN = n } }
+    await supabaseAdmin.from('vendor_payment_methods').upsert({
+      cinc_vendor_id:    vid,
+      vendor_name:       e.vendorName || null,
+      pay_by_type:       dominant,
+      sample_count:      total,
+      last_invoice_date: e.lastDate || null,
+      last_method:       e.lastMethod || null,
+      updated_at:        stamp,
+    }, { onConflict: 'cinc_vendor_id' }).then(() => null, () => null)
+  }
+  return { associations: codes.length, invoices, vendors: agg.size }
+}
+
 /** Seed routes from CINC's vendor/{id}/accounts for utility vendors. CINC
  *  stores the real account number for FPL (all assocs), water, etc. — pull it
  *  in so common accounts route from day one. Never clobbers confirmed routes.
