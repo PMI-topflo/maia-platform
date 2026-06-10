@@ -139,10 +139,14 @@ export async function GET(req: Request) {
   //      ledger, then naming it via the association budget.
   //   3. The GL we used on the last MAIA invoice for this vendor.
   let suggestedGl: { glAccount: string | null; accountNumber: string | null; source: string } | null = null
+  // The account number CINC has on file for THIS vendor at THIS association —
+  // the forward direction: pick the association → bring the right account #.
+  let suggestedAccountNumber: string | null = null
   try {
     const accounts = await listVendorAccounts(vendorId)
     const acct = accounts.find(a => a.assocCode === assoc)
     if (acct && acct.glAccount) suggestedGl = { glAccount: acct.glAccount, accountNumber: acct.accountNumber, source: 'CINC vendor account' }
+    if (acct && acct.accountNumber) suggestedAccountNumber = acct.accountNumber
   } catch { /* leave null */ }
 
   if (!suggestedGl && recentPayments.length > 0 && allTxns.length > 0) {
@@ -308,5 +312,5 @@ export async function GET(req: Request) {
     } catch { /* best-effort */ }
   }
 
-  return NextResponse.json({ suggestedGl, suggestedPayBy, recentPayments, duplicate, scanned })
+  return NextResponse.json({ suggestedGl, suggestedAccountNumber, suggestedPayBy, recentPayments, duplicate, scanned })
 }
