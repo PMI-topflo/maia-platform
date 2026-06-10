@@ -82,7 +82,7 @@ export default async function CincSyncIndexPage() {
         <AdminNav />
       </SiteHeader>
 
-      <main className="max-w-screen-xl mx-auto px-6 py-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6">
         <header className="mb-6 border-l-4 border-[#f26a1b] pl-4">
           <h1 className="text-xl font-semibold text-gray-900">Associations</h1>
           <p className="text-sm text-gray-500 mt-1">

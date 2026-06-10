@@ -27,7 +27,7 @@ export default async function DocumentInboxPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <SiteHeader subtitle="STAFF DASHBOARD"><AdminNav /></SiteHeader>
-      <main className="max-w-screen-xl mx-auto px-6 py-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6">
         <div className="mb-1 flex items-center gap-2">
           <h1 className="text-xl font-semibold text-gray-900">Document Inbox</h1>
           <span className="rounded bg-[#f26a1b]/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-[#c2410c]">MAIA</span>

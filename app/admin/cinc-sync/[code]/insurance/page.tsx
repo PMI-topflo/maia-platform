@@ -47,7 +47,7 @@ export default async function AssociationInsurancePage(
     return (
       <div className="min-h-screen bg-gray-50">
         <SiteHeader subtitle="STAFF DASHBOARD"><AdminNav /></SiteHeader>
-        <main className="max-w-screen-xl mx-auto px-6 py-6">
+        <main className="max-w-screen-2xl mx-auto px-6 py-6">
           <Link href="/admin/cinc-sync" className="text-xs text-[#f26a1b] hover:underline [font-family:var(--font-mono)]">
             ← Back to all associations
           </Link>
@@ -63,7 +63,7 @@ export default async function AssociationInsurancePage(
     <div className="min-h-screen bg-gray-50">
       <SiteHeader subtitle="STAFF DASHBOARD"><AdminNav /></SiteHeader>
 
-      <main className="max-w-screen-xl mx-auto px-6 py-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6">
         <div className="flex items-center justify-between gap-4">
           <Link
             href={`/admin/cinc-sync/${assoc.association_code}`}

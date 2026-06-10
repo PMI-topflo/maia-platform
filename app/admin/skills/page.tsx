@@ -15,7 +15,7 @@ export default async function SkillsPage() {
             Tools highlighted so staff know where to navigate back from. */}
         <AdminNav activeOverride="/admin/tools" />
       </SiteHeader>
-      <main className="max-w-screen-xl mx-auto px-6 py-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6">
         <div className="mb-6">
           <h1 className="text-xl font-semibold text-gray-900">MAIA Skills</h1>
           <p className="text-sm text-gray-500 mt-1">

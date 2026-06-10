@@ -22,7 +22,7 @@ export default async function LoginHistoryPage() {
         <AdminNav />
       </SiteHeader>
 
-      <main className="max-w-screen-xl mx-auto px-6 py-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-lg font-semibold text-gray-900">Login History</h1>

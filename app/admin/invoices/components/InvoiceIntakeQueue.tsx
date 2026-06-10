@@ -184,7 +184,7 @@ export default function InvoiceIntakeQueue(props: Props) {
   }
 
   return (
-    <div style={{ maxWidth: 1100, margin: '24px auto', padding: '0 16px', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ maxWidth: 1500, margin: '24px auto', padding: '0 16px', fontFamily: 'system-ui, sans-serif' }}>
       <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>Invoice intake</h1>
         <div style={{ display: 'flex', gap: 8 }}>

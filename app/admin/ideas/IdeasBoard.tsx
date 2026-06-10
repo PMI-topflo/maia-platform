@@ -116,7 +116,7 @@ export default function IdeasBoard() {
   }
 
   return (
-    <div style={{ maxWidth: 1100, margin: '24px auto', padding: '0 16px', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ maxWidth: 1500, margin: '24px auto', padding: '0 16px', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12, gap: 10, flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: NAVY, margin: 0 }}>💡 MAIA Improvement Ideas</h1>
         <div style={{ display: 'flex', gap: 8 }}>

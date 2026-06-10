@@ -17,7 +17,7 @@ export default async function OwnersPage() {
         <AdminHeader associations={associations} />
       </SiteHeader>
 
-      <main className="max-w-screen-xl mx-auto px-6 py-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6">
         <HomeownerDashboard
           associations={associations}
           initialOwners={initialData.owners}

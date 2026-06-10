@@ -33,7 +33,7 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     return (
       <div className="min-h-screen bg-gray-50">
         <SiteHeader subtitle="STAFF DASHBOARD"><AdminNav /></SiteHeader>
-        <main className="max-w-screen-xl mx-auto px-6 py-6">
+        <main className="max-w-screen-2xl mx-auto px-6 py-6">
           <Link href="/admin/cinc-sync" className="text-xs text-[#f26a1b] hover:underline [font-family:var(--font-mono)]">← Back to all associations</Link>
           <div className="mt-4 bg-white border border-amber-200 rounded-lg p-6 text-sm text-amber-800">
             No association found with code <code className="bg-amber-50 px-1 rounded">{upperCode}</code>.
@@ -87,7 +87,7 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
   return (
     <div className="min-h-screen bg-gray-50">
       <SiteHeader subtitle="STAFF DASHBOARD"><AdminNav /></SiteHeader>
-      <main className="max-w-screen-xl mx-auto px-6 py-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6">
         {contactsFlagOn === true && (
           <div className="mb-4 rounded border-l-4 border-red-500 bg-red-50 p-3 text-sm text-red-800">
             <div className="font-semibold">⚠ CINC Contacts and Consent feature is ENABLED on this tenant.</div>

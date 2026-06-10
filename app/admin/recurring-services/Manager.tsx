@@ -95,7 +95,7 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
   }
 
   return (
-    <div style={{ maxWidth: 1000, margin: '24px auto', padding: '0 16px', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ maxWidth: 1500, margin: '24px auto', padding: '0 16px', fontFamily: 'system-ui, sans-serif' }}>
       <h1 style={{ fontSize: 20, fontWeight: 700 }}>Recurring services</h1>
       <p style={{ fontSize: 13, color: '#6b7280', margin: '4px 0 16px' }}>
         Set the fixed weekly vendors for each association and their crew. Weekly visits + upload links come next.
