@@ -255,6 +255,24 @@ async function processOnePdf(opts: {
     console.log(`[invoice-intake] account# "${extracted.accountNumber}" → routed to ${matched?.VendorName ?? '?'} / ${assoc ?? '?'}${routeGlId ? ` / GL ${routeGlName}` : ''}${routePayBy ? ` / ${routePayBy}` : ''}`)
   }
 
+  // Account-number-as-invoice-number fix. Utility bills (Xfinity, etc.) print
+  // the account number prominently and often carry NO distinct invoice number,
+  // so the extractor sometimes lands the account number in the invoice-number
+  // field. When the invoice # IS the account # (or there's an account # but no
+  // invoice #), synthesize a CINC-style "<account-tail6>-<MMYYYY>" number —
+  // unique per month and consistent with how these are entered in CINC.
+  let invoiceNumber = extracted.invoiceNumber
+  {
+    const acctDigits = (extracted.accountNumber ?? '').replace(/\D/g, '')
+    const invDigits  = (extracted.invoiceNumber ?? '').replace(/\D/g, '')
+    const isAccountAsInvoice = acctDigits.length >= 6 && invDigits === acctDigits
+    const dm = /^(\d{4})-(\d{2})-/.exec(extracted.invoiceDate ?? '')
+    if (acctDigits.length >= 6 && dm && (!invoiceNumber || isAccountAsInvoice)) {
+      invoiceNumber = `${acctDigits.slice(-6)}-${dm[2]}${dm[1]}`
+      console.log(`[invoice-intake] synthesized utility invoice# ${invoiceNumber} (account ${extracted.accountNumber})`)
+    }
+  }
+
   // Auto-association fallback: when neither the email text nor the PDF named
   // an association, infer it from this vendor's own confirmed history in
   // MAIA. If every association a human has already approved for this exact
@@ -276,12 +294,12 @@ async function processOnePdf(opts: {
   let cincDupId: string | null = null
   if (!matched) {
     status = 'needs_vendor'
-  } else if (assoc && extracted.invoiceNumber) {
+  } else if (assoc && invoiceNumber) {
     try {
       const dups = await checkDuplicateInvoice({
         associationCode: assoc,
         vendorId:        matched.VendorId,
-        invoiceNumber:   extracted.invoiceNumber,
+        invoiceNumber:   invoiceNumber,
       })
       if (dups.length > 0) {
         status     = 'duplicate_in_cinc'
@@ -301,7 +319,7 @@ async function processOnePdf(opts: {
     matched_cinc_vendor_id:     matched ? String(matched.VendorId) : null,
     matched_vendor_name:        matched?.VendorName  ?? null,
     matched_vendor_short_name:  matched?.UserDefined1 ?? null,
-    extracted_invoice_number:   extracted.invoiceNumber,
+    extracted_invoice_number:   invoiceNumber,
     extracted_amount:           extracted.amount,
     extracted_association_code: assoc,
     extracted_invoice_date:     extracted.invoiceDate,
