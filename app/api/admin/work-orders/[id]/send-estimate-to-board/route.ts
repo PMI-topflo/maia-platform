@@ -30,7 +30,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const { id } = await ctx.params
   const ticketId = parseInt(id, 10)
-  let body: { vendor_request_id?: string }
+  let body: { vendor_request_id?: string; signer_ids?: string[] }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
   const ervId = String(body.vendor_request_id ?? '').trim()
   if (!ervId) return NextResponse.json({ error: 'vendor_request_id is required' }, { status: 400 })
@@ -43,14 +43,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!assoc) return NextResponse.json({ error: 'association unknown for this work order' }, { status: 400 })
   const { data: ticket } = await supabaseAdmin.from('tickets').select('ticket_number').eq('id', ticketId).single()
 
+  // C1: Paola chooses which board members must sign. Default = President only
+  // (the platform already records the approval); fall back to required_signatures
+  // members if there's no President. `required` = number of chosen signers.
+  const signerIds: string[] = Array.isArray(body.signer_ids) ? body.signer_ids.map(String).filter(Boolean) : []
   const { data: config } = await supabaseAdmin.from('association_config').select('required_signatures').eq('association_code', assoc).maybeSingle()
-  const required = config?.required_signatures ?? 1
   const { data: members } = await supabaseAdmin.from('association_board_members')
-    .select('name, email, substitute_active, substitute_name, substitute_email').eq('association_code', assoc).eq('active', true).order('sort_order', { ascending: true })
-  const targets = (members ?? [])
+    .select('id, name, role, email, substitute_active, substitute_name, substitute_email').eq('association_code', assoc).eq('active', true).order('sort_order', { ascending: true })
+  let chosen = members ?? []
+  if (signerIds.length) {
+    chosen = chosen.filter(m => signerIds.includes(m.id as string))
+  } else {
+    const pres = chosen.filter(m => /president/i.test((m.role as string) ?? ''))
+    chosen = pres.length ? pres : chosen.slice(0, config?.required_signatures ?? 1)
+  }
+  const targets = chosen
     .map(m => ({ name: m.substitute_active && m.substitute_name ? m.substitute_name : m.name, email: m.substitute_active && m.substitute_email ? m.substitute_email : m.email }))
     .filter(t => t.email && t.email.includes('@'))
-    .slice(0, required)
+  const required = targets.length || 1
   if (targets.length === 0) return NextResponse.json({ error: 'No active board members with email for this association' }, { status: 400 })
 
   const amount = erv.extracted_amount != null ? Number(erv.extracted_amount) : null

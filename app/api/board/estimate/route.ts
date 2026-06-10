@@ -107,8 +107,17 @@ export async function POST(req: Request) {
   const finalized = approvals >= approval.required
   if (finalized) {
     await supabaseAdmin.from('estimate_approvals').update({ status: 'approved', decided_at: new Date().toISOString() }).eq('id', approval.id)
-    await sendEmail({ to: PAOLA, subject: `Board APPROVED — ${woLabel}`, html: `<p>The board approved the ${approval.vendor_name} estimate (${money(approval.amount != null ? Number(approval.amount) : null)}) for <strong>${woLabel}</strong> (${approvals}/${approval.required}).</p><p><a href="${APP}/admin/tickets/${approval.ticket_id}">Open the work order →</a></p>` }).catch(() => null)
     await appendMessage(approval.ticket_id, { direction: 'internal_note', channel: 'internal', from_addr: 'Board', body: `✅ Board APPROVED the ${approval.vendor_name} estimate (${approvals}/${approval.required}).` }).catch(() => null)
+    // Phase C: build the official signed copy → file on MAIA + CINC work order
+    // → notify board + Paola + winning vendor. Best-effort (never blocks the
+    // approval). Dynamic import so pdf-lib only loads on a finalizing approval.
+    try {
+      const { finalizeEstimateApproval } = await import('@/lib/estimate-approval-pdf')
+      await finalizeEstimateApproval(approval.id)
+    } catch (err) {
+      console.warn(`[board/estimate] signed-copy finalize failed: ${(err as Error).message}`)
+      await sendEmail({ to: PAOLA, subject: `Board APPROVED — ${woLabel}`, html: `<p>The board approved the ${approval.vendor_name} estimate (${money(approval.amount != null ? Number(approval.amount) : null)}) for <strong>${woLabel}</strong> (${approvals}/${approval.required}). The signed-copy generation hit an error — open the work order to file it manually.</p><p><a href="${APP}/admin/tickets/${approval.ticket_id}">Open the work order →</a></p>` }).catch(() => null)
+    }
   } else {
     await appendMessage(approval.ticket_id, { direction: 'internal_note', channel: 'internal', from_addr: `Board (${review.board_member_name})`, body: `✍️ ${review.board_member_name} approved the ${approval.vendor_name} estimate (${approvals}/${approval.required}).` }).catch(() => null)
   }
