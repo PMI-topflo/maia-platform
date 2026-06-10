@@ -8,7 +8,8 @@ import { useEffect, useState } from 'react'
 
 interface VRow { id: string; vendor_name: string | null; status: string; respond_by: string | null; submitted_at: string | null; amount: number | null; summary: string | null; estimate_url: string | null }
 interface Approval { vendor_name: string | null; amount: number | null; status: string; required: number; approvals: number }
-interface Data { request: { id: string; scope: string; status: string } | null; vendors: VRow[]; approval: Approval | null }
+interface BoardMember { id: string; name: string; role: string | null }
+interface Data { request: { id: string; scope: string; status: string } | null; vendors: VRow[]; approval: Approval | null; boardMembers: BoardMember[] }
 
 const money = (n: number | null) => n == null ? '—' : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const STATUS: Record<string, { label: string; cls: string }> = {
@@ -27,11 +28,18 @@ export default function EstimatesComparison({ ticketId }: { ticketId: number }) 
   const [chosen, setChosen] = useState('')
   const [sending, setSending] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [signerIds, setSignerIds] = useState<string[]>([])
 
   useEffect(() => {
     let live = true
     fetch(`/api/admin/work-orders/${ticketId}/estimates`).then(r => r.json())
-      .then((d: Data) => { if (live) setData(d) }).catch(() => {}).finally(() => { if (live) setLoading(false) })
+      .then((d: Data) => {
+        if (!live) return
+        setData(d)
+        // Default the signers to the President (else the first board member).
+        const pres = (d.boardMembers ?? []).filter(m => /president/i.test(m.role ?? ''))
+        setSignerIds((pres.length ? pres : (d.boardMembers ?? []).slice(0, 1)).map(m => m.id))
+      }).catch(() => {}).finally(() => { if (live) setLoading(false) })
     return () => { live = false }
   }, [ticketId])
 
@@ -39,7 +47,7 @@ export default function EstimatesComparison({ ticketId }: { ticketId: number }) 
     if (!chosen) { setMsg('Pick the estimate to send.'); return }
     setSending(true); setMsg(null)
     try {
-      const res = await fetch(`/api/admin/work-orders/${ticketId}/send-estimate-to-board`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ vendor_request_id: chosen }) })
+      const res = await fetch(`/api/admin/work-orders/${ticketId}/send-estimate-to-board`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ vendor_request_id: chosen, signer_ids: signerIds }) })
       const d = await res.json()
       if (!res.ok) throw new Error(d?.error ?? 'failed')
       setMsg(`Sent to ${d.sent} board member(s) — needs ${d.required} approval(s).`)
@@ -87,14 +95,27 @@ export default function EstimatesComparison({ ticketId }: { ticketId: number }) 
           {data.approval.status !== 'revision_requested' && <span> · {data.approval.approvals}/{data.approval.required} signed</span>}
         </div>
       ) : submitted.length > 0 ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Send to board</span>
-          <select value={chosen} onChange={e => { setChosen(e.target.value); setMsg(null) }} className="rounded border border-gray-300 px-2 py-1 text-xs">
-            <option value="">— choose estimate —</option>
-            {submitted.map(v => <option key={v.id} value={v.id}>{v.vendor_name} · {money(v.amount)}</option>)}
-          </select>
-          <button onClick={sendToBoard} disabled={sending} className="rounded bg-[#16a34a] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#15803d] disabled:opacity-50">{sending ? 'Sending…' : '🏛️ Send for approval'}</button>
-          {msg && <span className="text-[11px] text-gray-500">{msg}</span>}
+        <div className="mt-3 border-t border-gray-100 pt-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Send to board</span>
+            <select value={chosen} onChange={e => { setChosen(e.target.value); setMsg(null) }} className="rounded border border-gray-300 px-2 py-1 text-xs">
+              <option value="">— choose estimate —</option>
+              {submitted.map(v => <option key={v.id} value={v.id}>{v.vendor_name} · {money(v.amount)}</option>)}
+            </select>
+            <button onClick={sendToBoard} disabled={sending} className="rounded bg-[#16a34a] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#15803d] disabled:opacity-50">{sending ? 'Sending…' : '🏛️ Send for approval'}</button>
+          </div>
+          {data.boardMembers.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="text-[10px] uppercase tracking-wide text-gray-400">Signers</span>
+              {data.boardMembers.map(m => (
+                <label key={m.id} className="flex items-center gap-1 text-xs text-gray-700">
+                  <input type="checkbox" checked={signerIds.includes(m.id)} onChange={e => setSignerIds(ids => e.target.checked ? [...ids, m.id] : ids.filter(x => x !== m.id))} />
+                  {m.name}{m.role ? <span className="text-gray-400"> ({m.role})</span> : null}
+                </label>
+              ))}
+            </div>
+          )}
+          {msg && <div className="mt-1 text-[11px] text-gray-500">{msg}</div>}
         </div>
       ) : null}
     </div>

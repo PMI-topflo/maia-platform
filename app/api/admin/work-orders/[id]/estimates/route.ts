@@ -20,8 +20,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (!Number.isFinite(ticketId)) return NextResponse.json({ error: 'bad id' }, { status: 400 })
 
   const { data: reqRow } = await supabaseAdmin.from('estimate_requests')
-    .select('id, scope, status, created_at').eq('ticket_id', ticketId).order('created_at', { ascending: false }).limit(1).maybeSingle()
-  if (!reqRow) return NextResponse.json({ request: null, vendors: [] })
+    .select('id, scope, status, created_at, association_code').eq('ticket_id', ticketId).order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (!reqRow) return NextResponse.json({ request: null, vendors: [], boardMembers: [] })
+
+  // Board members for the signer picker (the President is pre-selected by default).
+  const { data: boardRows } = await supabaseAdmin.from('association_board_members')
+    .select('id, name, role').eq('association_code', reqRow.association_code).eq('active', true).order('sort_order', { ascending: true })
+  const boardMembers = (boardRows ?? []).map(m => ({ id: m.id as string, name: m.name as string, role: (m.role as string | null) ?? null }))
 
   const { data: vrows } = await supabaseAdmin.from('estimate_request_vendors')
     .select('id, vendor_name, status, respond_by, submitted_at, extracted_amount, estimate_summary, estimate_path')
@@ -55,5 +60,5 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     approval = { vendor_name: appr.vendor_name, amount: appr.amount != null ? Number(appr.amount) : null, status: appr.status, required: appr.required, approvals: count ?? 0 }
   }
 
-  return NextResponse.json({ request: { id: reqRow.id, scope: reqRow.scope, status: reqRow.status }, vendors, approval })
+  return NextResponse.json({ request: { id: reqRow.id, scope: reqRow.scope, status: reqRow.status }, vendors, approval, boardMembers })
 }
