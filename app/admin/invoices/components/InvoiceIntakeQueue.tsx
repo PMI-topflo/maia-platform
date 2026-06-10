@@ -988,6 +988,32 @@ function DraftCard(props: {
 
       {/* Form / display grid — same fields in both modes. */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13 }}>
+        {/* Association FIRST + emphasized — it's the start of the process
+            (drives the GL budget, bank accounts, pay-by options, routing). */}
+        <div style={{ gridColumn: '1 / -1', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <label style={{ fontSize: 14, fontWeight: 700, color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: 0.5 }}>① Association</label>
+            {fieldCheck('association', !!assoc)}
+          </div>
+          {mode === 'edit' ? (
+            <select
+              value={assoc}
+              onChange={e => setAssoc(e.target.value)}
+              disabled={readOnly}
+              style={{ width: '100%', padding: '10px 12px', fontSize: 16, fontWeight: 600, border: '1px solid #93c5fd', borderRadius: 6, background: '#fff' }}
+            >
+              <option value="">— pick association first —</option>
+              {associations.map(a => (
+                <option key={a.code} value={a.code}>{a.name} ({a.code})</option>
+              ))}
+            </select>
+          ) : (
+            <div style={{ fontSize: 16, fontWeight: 600, color: assoc ? '#0f172a' : '#94a3b8' }}>
+              {(() => { const a = associations.find(x => x.code === assoc); return a ? `${a.name} (${a.code})` : (assoc || '— not set —') })()}
+            </div>
+          )}
+        </div>
+
         <Field label="Vendor (CINC)" right={fieldCheck('vendor', !!vendorId)}>
           {mode === 'edit' ? (
             <>
@@ -1020,30 +1046,6 @@ function DraftCard(props: {
             />
           ) : (
             <ReadOnlyValue value={shortName} placeholder="— not set —" />
-          )}
-        </Field>
-
-        <Field label="Association" right={fieldCheck('association', !!assoc)}>
-          {mode === 'edit' ? (
-            <select
-              value={assoc}
-              onChange={e => setAssoc(e.target.value)}
-              disabled={readOnly}
-              style={{ width: '100%', padding: 6 }}
-            >
-              <option value="">— pick association —</option>
-              {associations.map(a => (
-                <option key={a.code} value={a.code}>{a.name} ({a.code})</option>
-              ))}
-            </select>
-          ) : (
-            <ReadOnlyValue
-              value={(() => {
-                const a = associations.find(x => x.code === assoc)
-                return a ? `${a.name} (${a.code})` : assoc
-              })()}
-              placeholder="— not set —"
-            />
           )}
         </Field>
 
