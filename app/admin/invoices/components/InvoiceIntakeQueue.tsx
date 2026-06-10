@@ -183,11 +183,33 @@ export default function InvoiceIntakeQueue(props: Props) {
     }
   }
 
+  async function backfillMethods() {
+    setBusy(true); setError(null)
+    try {
+      const res = await fetch('/api/admin/invoices/backfill-payment-methods', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      alert(`Payment methods learned for ${data.vendors} vendors from ${data.invoices} paid invoices across ${data.associations} associations (12 mo).`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div style={{ maxWidth: 1100, margin: '24px auto', padding: '0 16px', fontFamily: 'system-ui, sans-serif' }}>
       <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>Invoice intake</h1>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={backfillMethods}
+            disabled={busy}
+            title="Read 12 months of paid invoices from CINC and learn each vendor's payment method. Run once; safe to re-run."
+            style={{ fontSize: 12, padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 4, background: '#fff', cursor: 'pointer' }}
+          >
+            Backfill payment methods
+          </button>
           <button
             onClick={seedAccountRoutes}
             disabled={busy}

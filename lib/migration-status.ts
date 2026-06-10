@@ -1796,6 +1796,27 @@ DROP POLICY IF EXISTS "service_role_all_utility_account_routes" ON public.utilit
 CREATE POLICY "service_role_all_utility_account_routes" ON public.utility_account_routes FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'vendor_payment_methods',
+    label:       'Vendor payment methods',
+    description: 'vendor_payment_methods — per-vendor payment method learned from 12 months of paid CINC invoices, to pre-fill the method for any vendor.',
+    filename:    '20260610_vendor_payment_methods.sql',
+    artifact:    { type: 'table', table: 'vendor_payment_methods' },
+    sql: `CREATE TABLE IF NOT EXISTS public.vendor_payment_methods (
+  cinc_vendor_id     text        PRIMARY KEY,
+  vendor_name        text,
+  pay_by_type        text,
+  sample_count       int         NOT NULL DEFAULT 0,
+  last_invoice_date  date,
+  last_method        text,
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.vendor_payment_methods TO anon, authenticated, service_role;
+ALTER TABLE public.vendor_payment_methods ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_vendor_payment_methods" ON public.vendor_payment_methods;
+CREATE POLICY "service_role_all_vendor_payment_methods" ON public.vendor_payment_methods FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

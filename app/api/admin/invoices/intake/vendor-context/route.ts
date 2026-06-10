@@ -26,6 +26,7 @@ import {
   lookupPriorInvoiceMethod,
   type CincGlTransaction,
 } from '@/lib/integrations/cinc'
+import { lookupVendorMethod } from '@/lib/account-routing'
 
 export const dynamic = 'force-dynamic'
 
@@ -270,7 +271,13 @@ export async function GET(req: Request) {
   // brings the vendor's actual method WITHOUT pushing anything new, and works
   // even though CINC's vendor record doesn't expose its Default Pmt Method.
   let suggestedPayBy: { method: string; source: string } | null = null
+  // Primary: the vendor's learned method from the 12-month backfill (covers
+  // every vendor, from real CINC payment history).
   try {
+    const vm = await lookupVendorMethod(vendorId)
+    if (vm) suggestedPayBy = { method: vm.method, source: `${vm.sampleCount} paid invoice${vm.sampleCount === 1 ? '' : 's'} (12-mo history)` }
+  } catch { /* best-effort */ }
+  if (!suggestedPayBy) try {
     const { data: lastPushed } = await supabaseAdmin
       .from('invoice_intake_drafts')
       .select('cinc_invoice_id, extracted_invoice_number')
@@ -295,6 +302,7 @@ export async function GET(req: Request) {
         invoiceNumber: invoiceNo || null,
         accountNumber: accountNo || null,
         aroundDate:    invoiceDt || null,
+        vendorId,
       })
       if (prior) suggestedPayBy = { method: prior.payByType, source: `CINC invoice #${prior.invoiceNumber}` }
     } catch { /* best-effort */ }

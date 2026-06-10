@@ -1691,6 +1691,42 @@ export async function listOpenInvoices(opts?: { assocCode?: string }): Promise<C
  *  ~11-month window ENDING just after the (payment) date we're given.
  *  Returns null when nothing matches. Works for any status (incl. Paid).
  */
+/** One row of the invoice-search list (per association, date range). Carries
+ *  the payment method directly — no per-invoice fetch needed. */
+export interface CincInvoiceListRow {
+  InvoiceId?:              number | null
+  InvoiceNumber?:          string | null
+  InvoiceDate?:            string | null
+  InvoiceStatus?:          string | null
+  AssocCode?:              string | null
+  VendorID?:               number | null
+  Vendor?:                 string | null
+  PayByType?:              string | null
+  TotalInvoiceAmount?:     number | null
+  BankAccountID?:          number | null
+  BankAccountDescription?: string | null
+}
+
+/** GET /management/associations/1/invoices — list EVERY invoice for an
+ *  association in a date range (≤366 days), each with its PayByType, VendorID,
+ *  status, and bank account. The endpoint requires a date range PLUS one
+ *  filter; `AssociationCode` returns the whole association (any status). Powers
+ *  the 12-month payment-method backfill. Returns [] on 4xx. */
+export async function listAssociationInvoices(opts: {
+  assocCode: string
+  fromDate:  string   // YYYY-MM-DD
+  toDate:    string   // YYYY-MM-DD
+}): Promise<CincInvoiceListRow[]> {
+  const rows = await call<CincInvoiceListRow[]>('/management/associations/1/invoices', {
+    method: 'GET',
+    query:  { InvoiceDateFrom: opts.fromDate, InvoiceDateTo: opts.toDate, AssociationCode: opts.assocCode.toUpperCase() },
+  }).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) return [] as CincInvoiceListRow[]
+    throw err
+  })
+  return Array.isArray(rows) ? rows : []
+}
+
 export async function findInvoiceIdByNumber(opts: {
   invoiceNumber: string
   assocCode?:    string | null
@@ -1731,32 +1767,58 @@ export async function lookupPriorInvoiceMethod(opts: {
   invoiceNumber?: string | null
   accountNumber?: string | null
   aroundDate?:    string | null   // the current bill's date (YYYY-MM-DD)
+  vendorId?:      number | null    // only accept prior invoices for this vendor
   monthsBack?:    number          // how many prior months to try (default 6)
 }): Promise<{ payByType: string; invoiceNumber: string; assocCode: string | null } | null> {
+  const center = opts.aroundDate ? new Date(opts.aroundDate) : new Date()
+  if (Number.isNaN(center.getTime())) return null
+  type Row = { InvoiceNumber?: string | null; AssocCode?: string | null; PayByType?: string | null; VendorID?: number | null }
+  const vid = typeof opts.vendorId === 'number' ? opts.vendorId : null
+
+  const search = async (candidate: string, from: string, to: string) => {
+    const rows = await call<Row[]>('/management/associations/1/invoices', {
+      method: 'GET', query: { InvoiceDateFrom: from, InvoiceDateTo: to, InvoiceNumber: candidate },
+    }).catch(() => [] as Row[])
+    const hit = (Array.isArray(rows) ? rows : []).find(r =>
+      (r.PayByType ?? '').trim() && (vid == null || r.VendorID === vid))
+    return hit ? { payByType: (hit.PayByType ?? '').trim(), invoiceNumber: hit.InvoiceNumber ?? candidate, assocCode: hit.AssocCode ?? null } : null
+  }
+
+  // Strategy A — PERIOD-embedded numbers (utilities): <prefix>-<MMYYYY>, e.g.
+  // Xfinity "246788-062025" off account …0246788. Build candidates for recent
+  // prior months from the account tail and/or a period-formatted invoice #.
   const prefixes = new Set<string>()
   const acctDigits = (opts.accountNumber ?? '').replace(/\D/g, '')
   if (acctDigits.length >= 6) { prefixes.add(`${acctDigits.slice(-6)}-`); prefixes.add(`${acctDigits.slice(-7)}-`) }
   const im = /^(.*?)(?:0[1-9]|1[0-2])(\d{4})$/.exec((opts.invoiceNumber ?? '').replace(/\s+/g, ''))
   if (im && im[1]) prefixes.add(im[1])
-  if (prefixes.size === 0) return null
-
-  const center = opts.aroundDate ? new Date(opts.aroundDate) : new Date()
-  if (Number.isNaN(center.getTime())) return null
   const monthsBack = Math.max(1, Math.min(opts.monthsBack ?? 6, 14))
-  type Row = { InvoiceNumber?: string | null; AssocCode?: string | null; PayByType?: string | null }
-  for (let i = 1; i <= monthsBack; i++) {
+  for (let i = 1; prefixes.size && i <= monthsBack; i++) {
     const d    = new Date(center.getFullYear(), center.getMonth() - i, 15)
     const mm   = String(d.getMonth() + 1).padStart(2, '0')
     const yyyy = d.getFullYear()
     const from = new Date(d.getTime() - 45 * 86_400_000).toISOString().slice(0, 10)
     const to   = new Date(d.getTime() + 45 * 86_400_000).toISOString().slice(0, 10)
     for (const prefix of prefixes) {
-      const candidate = `${prefix}${mm}${yyyy}`
-      const rows = await call<Row[]>('/management/associations/1/invoices', {
-        method: 'GET', query: { InvoiceDateFrom: from, InvoiceDateTo: to, InvoiceNumber: candidate },
-      }).catch(() => [] as Row[])
-      const hit = (Array.isArray(rows) ? rows : []).find(r => (r.PayByType ?? '').trim())
-      if (hit) return { payByType: (hit.PayByType ?? '').trim(), invoiceNumber: hit.InvoiceNumber ?? candidate, assocCode: hit.AssocCode ?? null }
+      const r = await search(`${prefix}${mm}${yyyy}`, from, to)
+      if (r) return r
+    }
+  }
+
+  // Strategy B — SEQUENTIAL numbers (e.g. PMI management fees "RVP-2933"): walk
+  // back the preceding numbers in a wide recent window. Requires a vendorId
+  // filter (or a distinctive lettered prefix) so we never read an unrelated
+  // vendor's invoice that happens to share a numeric stem.
+  const sm = /^(.*?[A-Za-z][-_ ]?)(\d{2,})$/.exec((opts.invoiceNumber ?? '').trim())
+  if (sm && (vid != null || /[A-Za-z]{2,}/.test(sm[1]))) {
+    const prefix = sm[1]
+    const n      = parseInt(sm[2], 10)
+    const width  = sm[2].length
+    const from = new Date(center.getTime() - 150 * 86_400_000).toISOString().slice(0, 10)
+    const to   = new Date(center.getTime() + 20 * 86_400_000).toISOString().slice(0, 10)
+    for (let k = 1; k <= 6 && n - k > 0; k++) {
+      const r = await search(`${prefix}${String(n - k).padStart(width, '0')}`, from, to)
+      if (r) return r
     }
   }
   return null
