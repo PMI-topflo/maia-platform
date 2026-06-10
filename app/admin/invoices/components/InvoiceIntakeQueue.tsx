@@ -169,13 +169,13 @@ export default function InvoiceIntakeQueue(props: Props) {
     }
   }
 
-  async function seedAccountRoutes() {
+  async function backfillMethods() {
     setBusy(true); setError(null)
     try {
-      const res = await fetch('/api/admin/invoices/seed-account-routes', { method: 'POST' })
+      const res = await fetch('/api/admin/invoices/backfill-payment-methods', { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
-      alert(`Account routes seeded from CINC (${data.routesSeeded} routes across ${data.vendorsScanned} utility vendors).`)
+      alert(`Payment methods learned for ${data.vendors} vendors from ${data.invoices} paid invoices across ${data.associations} associations (12 mo).`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -189,12 +189,12 @@ export default function InvoiceIntakeQueue(props: Props) {
         <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>Invoice intake</h1>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
-            onClick={seedAccountRoutes}
+            onClick={backfillMethods}
             disabled={busy}
-            title="Build the utility account-number → vendor/association/GL map from CINC. Run once; safe to re-run."
+            title="Read 12 months of paid invoices from CINC and learn each vendor's payment method. Run once; safe to re-run."
             style={{ fontSize: 12, padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 4, background: '#fff', cursor: 'pointer' }}
           >
-            Seed account routes
+            Backfill payment methods
           </button>
           <button
             onClick={refreshVendorCache}
@@ -381,6 +381,7 @@ function DraftCard(props: {
   // machine-picked so the UI asks for a confirm rather than implying intent.
   const [glAutoAppliedFor, setGlAutoAppliedFor] = useState<string>('')
   const [payByAutoAppliedFor, setPayByAutoAppliedFor] = useState<string>('')
+  const [acctAutoAppliedFor, setAcctAutoAppliedFor]   = useState<string>('')
   const [glAutoFilled, setGlAutoFilled]         = useState(false)
 
   // Bank accounts for the selected association — Operating, Reserve,
@@ -787,6 +788,18 @@ function DraftCard(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auditCtx, vendorId, payByAutoAppliedFor])
 
+  // Auto-fill the ACCOUNT # for this vendor at the chosen association — CINC
+  // stores the account number per (vendor, association), so once both are set
+  // MAIA brings the right one. Fires once per vendor+assoc; never overwrites.
+  useEffect(() => {
+    const sa = auditCtx?.suggestedAccountNumber
+    const key = `${vendorId}|${assoc}`
+    if (!sa || !vendorId || !assoc || acctAutoAppliedFor === key) return
+    setAcctAutoAppliedFor(key)
+    if (!acctNum) setAcctNum(sa)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auditCtx, vendorId, assoc, acctAutoAppliedFor])
+
   const REQUIRED_CHECKS =['association', 'vendor', 'invoice_number', 'short_name', 'amount', 'invoice_date', 'gl_account', 'bank_account', 'due_date', 'filename']
   const requiredOk = REQUIRED_CHECKS.every(k => checked[k])
   const allReady   = requiredOk && !!checked['duplicate'] && !hardDup
@@ -1076,9 +1089,15 @@ function DraftCard(props: {
           ) : (
             <ReadOnlyValue value={acctNum} placeholder="—" />
           )}
-          <div style={{ marginTop: 4, color: '#6b7280', fontSize: 11 }}>
-            Routes future bills on this account to the right vendor + association + GL. Learned automatically on push.
-          </div>
+          {auditCtx?.suggestedAccountNumber && acctNum === auditCtx.suggestedAccountNumber ? (
+            <div style={{ marginTop: 4, color: '#15803d', fontSize: 11 }}>
+              ✓ From CINC — {matchedVendor?.name ?? 'this vendor'}&apos;s account at this association.
+            </div>
+          ) : (
+            <div style={{ marginTop: 4, color: '#6b7280', fontSize: 11 }}>
+              Routes future bills on this account to the right vendor + association + GL. Learned automatically on push.
+            </div>
+          )}
         </Field>
 
         <Field label="Amount ($)" right={fieldCheck('amount', !!amount)}>
@@ -1807,6 +1826,7 @@ function btnDanger(): React.CSSProperties {
 interface DupHit { source: string; invoiceNumber: string | null; amount: number | null; date: string | null; status: string | null; paid: boolean }
 interface VendorCtx {
   suggestedGl: { glAccount: string | null; accountNumber: string | null; source?: string } | null
+  suggestedAccountNumber?: string | null
   suggestedPayBy?: { method: string; source: string } | null
   recentPayments: Array<{ date: string | null; description: string | null; amount: number; matchedByName?: boolean }>
   duplicate: { exact: DupHit[]; sameAmount: DupHit[]; anyPaid: boolean; hasHardDuplicate: boolean; amountLabel: string | null }
