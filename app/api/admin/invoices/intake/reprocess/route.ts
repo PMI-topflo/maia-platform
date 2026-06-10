@@ -46,8 +46,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'messageId is required (the Gmail message id)' }, { status: 400 })
   }
 
-  // force: clear out this message's not-yet-pushed drafts so the whole
-  // email re-extracts from scratch. Never delete pushed drafts.
+  // FETCH FIRST — never delete before we've successfully pulled the message
+  // from Gmail. (2026-06-09 incident: a force-reprocess deleted the drafts,
+  // then the Gmail fetch failed on bad creds, dropping them with no
+  // replacement. Validating the fetch up front makes that impossible.)
+  let parsed: ReturnType<typeof parseGmailMessage>
+  try {
+    const msg = await fetchGmailMessage(messageId)
+    parsed    = parseGmailMessage(msg)
+  } catch (err) {
+    return NextResponse.json(
+      { error: `Gmail fetch failed — nothing was deleted: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 502 },
+    )
+  }
+
+  // force: only NOW (fetch succeeded) clear this message's not-yet-pushed
+  // drafts so the whole email re-extracts. Never delete pushed drafts.
   let deleted = 0
   if (body.force) {
     const { data: del, error: delErr } = await supabaseAdmin
@@ -60,12 +75,8 @@ export async function POST(req: Request) {
     deleted = del?.length ?? 0
   }
 
-  // Fetch + parse the message, then run intake. The fetchAttachment
-  // closure mirrors the live webhook path (env-credential maia@ mailbox).
   let result: Awaited<ReturnType<typeof handleInvoiceIntake>>
   try {
-    const msg    = await fetchGmailMessage(messageId)
-    const parsed = parseGmailMessage(msg)
     result = await handleInvoiceIntake(
       parsed,
       (attId) => fetchGmailAttachmentData(messageId, attId),
