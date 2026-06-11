@@ -29,7 +29,9 @@ export async function GET(req: Request) {
   try {
     const wos = await listOpenWorkOrders({
       assocCode: assoc,
-      vendorId:  vendorId && Number.isFinite(vendorId) ? vendorId : undefined,
+      // vendor is a PREFERENCE (sort first), not a hard filter — CINC WOs often
+      // have no/lagging vendor, which hid the right WO. Show all assoc WOs.
+      vendorPreferred: vendorId && Number.isFinite(vendorId) ? vendorId : undefined,
       includeCompleted: true,   // invoices arrive after the WO is done
     })
     // Slim shape for the dropdown.
