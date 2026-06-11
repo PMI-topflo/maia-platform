@@ -135,7 +135,13 @@ async function upsertWorkOrder(wo: CincWorkOrder): Promise<UpsertCounts> {
     // race with in-flight outbound updates and stomp staff edits if
     // the outbox row hadn't drained yet.
     const patch: Record<string, unknown> = {}
-    if (existing.status               !== status)                                   patch.status               = status
+    // Status: same source-of-truth reasoning as work_order_type above — never
+    // let an inbound refresh DOWNGRADE a MAIA-resolved/closed WO back to a
+    // non-terminal CINC status. CINC routinely lags (staff resolve it here and
+    // the outbox is still draining), and stomping it reverted resolved WOs to
+    // pending. CINC may still ADVANCE status (e.g. → resolved), just not regress.
+    const terminal = (s: string) => s === 'resolved' || s === 'closed'
+    if (existing.status !== status && !(terminal(existing.status) && !terminal(status))) patch.status = status
     if ((existing.subject ?? '')      !== subject)                                  patch.subject              = subject
     if ((existing.summary ?? '')      !== description.slice(0, 500))                patch.summary              = description.slice(0, 500)
     if (Object.keys(patch).length > 0) {
@@ -177,6 +183,16 @@ export async function upsertWorkOrderDetails(ticketId: number, wo: CincWorkOrder
       ? Math.round(wo.EstimateTotal * 100)
       : null
 
+  // Vendor: CINC frequently shows NO vendor on a WO even after staff assigned
+  // one in MAIA, so an inbound refresh must NOT clear it — only overwrite when
+  // CINC actually carries a vendor. Otherwise keep what's already on the row.
+  let vendorName: string | null = wo.Vendor ?? null
+  let vendorId:   number | null = wo.VendorId && wo.VendorId > 0 ? wo.VendorId : null
+  if (!vendorId) {
+    const { data: prev } = await supabaseAdmin.from('work_order_details').select('vendor_name, cinc_vendor_id').eq('ticket_id', ticketId).maybeSingle()
+    if (prev?.cinc_vendor_id) { vendorId = prev.cinc_vendor_id as number; vendorName = (prev.vendor_name as string | null) ?? vendorName }
+  }
+
   const row = {
     ticket_id:           ticketId,
     cinc_ho_id:          wo.HoID                 ?? null,
@@ -187,8 +203,8 @@ export async function upsertWorkOrderDetails(ticketId: number, wo: CincWorkOrder
     city:                wo.City                 ?? null,
     state:               wo.State                ?? null,
     zip:                 wo.Zip                  ?? null,
-    vendor_name:         wo.Vendor               ?? null,
-    cinc_vendor_id:      wo.VendorId && wo.VendorId > 0 ? wo.VendorId : null,
+    vendor_name:         vendorName,
+    cinc_vendor_id:      vendorId,
     scheduled_at:        parseCincTimestamp(wo.IssuedDate),
     cost_cents:          cents,
   }

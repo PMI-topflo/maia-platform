@@ -34,6 +34,7 @@ interface Draft {
   pay_by_type:                 string | null
   observation_note:            string | null
   work_order_number:           number | null
+  wo_partial_payment:          boolean | null
   pay_from_bank_account_id:    number | null
   extraction_confidence:       number | null
   status:                      string
@@ -364,6 +365,7 @@ function DraftCard(props: {
   const [payBy, setPayBy]         = useState<string>(draft.pay_by_type     ?? '')
   const [note, setNote]           = useState<string>(draft.observation_note ?? '')
   const [woNumber, setWoNumber]   = useState<string>(draft.work_order_number != null ? String(draft.work_order_number) : '')
+  const [woPartial, setWoPartial] = useState<boolean>(!!draft.wo_partial_payment)
   const [bankId, setBankId]       = useState<string>(draft.pay_from_bank_account_id != null ? String(draft.pay_from_bank_account_id) : '')
 
   // GL options for the selected association — fetched on demand the
@@ -546,6 +548,7 @@ function DraftCard(props: {
     setPayBy    (draft.pay_by_type     ?? '')
     setNote     (draft.observation_note ?? '')
     setWoNumber (draft.work_order_number != null ? String(draft.work_order_number) : '')
+    setWoPartial(!!draft.wo_partial_payment)
     setBankId   (draft.pay_from_bank_account_id != null ? String(draft.pay_from_bank_account_id) : '')
     setMode('view')
     setMsg(null)
@@ -571,6 +574,7 @@ function DraftCard(props: {
       pay_by_type:                 payBy  || null,
       observation_note:            note   || null,
       work_order_number:           woNumber ? parseInt(woNumber, 10) : null,
+      wo_partial_payment:          woNumber ? woPartial : false,
       pay_from_bank_account_id:    bankId ? parseInt(bankId, 10) : null,
     }
   }
@@ -1380,15 +1384,16 @@ function DraftCard(props: {
                   {!vendorId || !assoc ? '— pick vendor + association first —'
                   : woLoading           ? 'Loading open work orders from CINC…'
                   : woOptions.length === 0
-                    ? 'No open work orders for this vendor at this association'
+                    ? 'No work orders for this vendor here — assign this vendor to the WO in CINC if one exists'
                     : '— no work order (standalone invoice) —'}
                 </option>
                 {woOptions.map(wo => {
-                  const desc = wo.description ? ` · ${wo.description.slice(0, 60)}` : ''
+                  const desc = wo.description ? ` · ${wo.description.slice(0, 50)}` : ''
+                  const st   = wo.status ? ` · ${wo.status}` : ''
                   const when = wo.createdDate ? ` · ${new Date(wo.createdDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''
                   return (
                     <option key={wo.number} value={String(wo.number)}>
-                      WO-{wo.number}{desc}{when}
+                      WO-{wo.number}{desc}{st}{when}
                     </option>
                   )
                 })}
@@ -1399,6 +1404,16 @@ function DraftCard(props: {
                 placeholder="— none (standalone invoice) —"
               />
             )}
+            {woNumber && (mode === 'edit' ? (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12, color: '#374151' }}>
+                <input type="checkbox" checked={woPartial} onChange={e => setWoPartial(e.target.checked)} disabled={readOnly} />
+                Partial / downpayment — keep the work order OPEN (don&apos;t close it on push)
+              </label>
+            ) : woPartial ? (
+              <div style={{ marginTop: 6, fontSize: 11, color: '#92400e' }}>💵 Partial / downpayment — the work order stays open for the balance.</div>
+            ) : (
+              <div style={{ marginTop: 6, fontSize: 11, color: '#6b7280' }}>On push, the linked work order is closed as paid.</div>
+            ))}
           </Field>
         </div>
       </div>

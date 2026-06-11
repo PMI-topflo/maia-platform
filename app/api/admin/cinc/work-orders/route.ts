@@ -30,6 +30,7 @@ export async function GET(req: Request) {
     const wos = await listOpenWorkOrders({
       assocCode: assoc,
       vendorId:  vendorId && Number.isFinite(vendorId) ? vendorId : undefined,
+      includeCompleted: true,   // invoices arrive after the WO is done
     })
     // Slim shape for the dropdown.
     const workOrders = wos.map(w => ({

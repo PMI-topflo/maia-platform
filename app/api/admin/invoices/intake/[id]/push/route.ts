@@ -28,6 +28,7 @@ import {
   CincApiError,
 } from '@/lib/integrations/cinc'
 import { recordAccountRoute } from '@/lib/account-routing'
+import { updateTicket, appendMessage } from '@/lib/tickets'
 import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
 import { normalizePdf } from '@/lib/pdf-normalize'
 import { trustedDomainVariants } from '@/lib/staff-lookup'
@@ -85,7 +86,7 @@ export async function POST(
 
   const { data: draft, error: loadErr } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('id, status, pdf_storage_key, drive_file_id, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, extracted_account_number, due_date, scheduled_pay_date, pay_by_type, observation_note, work_order_number, pay_from_bank_account_id, gl_account_id, gl_account_name, extraction_confidence, gmail_message_id')
+    .select('id, status, pdf_storage_key, drive_file_id, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, extracted_account_number, due_date, scheduled_pay_date, pay_by_type, observation_note, work_order_number, wo_partial_payment, pay_from_bank_account_id, gl_account_id, gl_account_name, extraction_confidence, gmail_message_id')
     .eq('id', id)
     .single()
   if (loadErr || !draft) return NextResponse.json({ error: loadErr?.message ?? 'not found' }, { status: 404 })
@@ -436,6 +437,28 @@ export async function POST(
     })
   } catch (err) {
     console.warn(`[invoice-push] account-route learn failed: ${(err as Error).message}`)
+  }
+
+  // Auto-close the linked work order as PAID. Per process the WO stays open
+  // through the invoice; once the invoice is pushed to CINC (paid), close it.
+  // updateTicket flips the status AND enqueues the CINC status sync. The
+  // inbound sync won't re-open it (terminal statuses are protected). Best-effort.
+  const linkedWoNum = (draft.work_order_number ?? null) as number | null
+  const isPartial   = (draft.wo_partial_payment ?? false) as boolean
+  if (linkedWoNum) {
+    try {
+      const { data: woTicket } = await supabaseAdmin.from('tickets').select('id, status').eq('cinc_workorder_id', String(linkedWoNum)).maybeSingle()
+      const invLabel = `Invoice ${draft.extracted_invoice_number ?? ''} ($${Number(draft.extracted_amount ?? 0).toFixed(2)})`
+      if (woTicket && isPartial) {
+        // Downpayment / partial — record it but leave the WO open for the balance.
+        await appendMessage(woTicket.id as number, { direction: 'internal_note', channel: 'internal', from_addr: 'maia',
+          body: `💵 Partial / downpayment paid — ${invLabel} pushed to CINC (invoice ${cincInvoiceId}). Work order stays OPEN for the balance.` }).catch(() => null)
+      } else if (woTicket && woTicket.status !== 'closed') {
+        await updateTicket(woTicket.id as number, { status: 'closed' }, pushedBy ?? 'maia')
+        await appendMessage(woTicket.id as number, { direction: 'internal_note', channel: 'internal', from_addr: 'maia',
+          body: `✅ Closed — PAID. ${invLabel} pushed to CINC (invoice ${cincInvoiceId}).` }).catch(() => null)
+      }
+    } catch (err) { console.warn(`[invoice-push] WO close/partial failed: ${(err as Error).message}`) }
   }
 
   // Monthly-report ticket. We auto-create + immediately resolve a
