@@ -1851,6 +1851,15 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `ALTER TABLE public.invoice_intake_drafts ADD COLUMN IF NOT EXISTS wo_partial_payment boolean NOT NULL DEFAULT false;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'wo_attachment_phase',
+    label:       'Work-order photo phase (before/after)',
+    description: 'work_order_attachments.phase — tag a photo as before/after so the work order and its report show the job’s progress.',
+    filename:    '20260611_wo_attachment_phase.sql',
+    artifact:    { type: 'column', table: 'work_order_attachments', column: 'phase' },
+    sql: `ALTER TABLE public.work_order_attachments ADD COLUMN IF NOT EXISTS phase text CHECK (phase IS NULL OR phase IN ('before', 'after'));
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
