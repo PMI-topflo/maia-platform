@@ -371,6 +371,11 @@ export async function listOpenWorkOrders(opts: {
   /** Include completed/closed WOs too (NOT void/cancelled). For linking an
    *  invoice to a WO — invoices usually arrive AFTER the work is done. */
   includeCompleted?: boolean
+  /** PREFERENCE (not a hard filter): sort WOs for this vendor first but still
+   *  return the rest. CINC WOs frequently have NO vendor (or one that lags the
+   *  MAIA-side reassignment), so a hard vendor filter hid the right WO. Use this
+   *  for the invoice → WO picker so the WO is always selectable. */
+  vendorPreferred?: number
 }): Promise<CincWorkOrder[]> {
   const list = await call<CincWorkOrder[]>('/management/1/workOrders', {
     method: 'GET',
@@ -378,15 +383,23 @@ export async function listOpenWorkOrders(opts: {
   }).catch(() => [] as CincWorkOrder[])
 
   const open = list.filter(w => {
-    if (opts.vendorId && w.VendorId !== opts.vendorId) return false   // keep the vendor control
+    if (opts.vendorId && w.VendorId !== opts.vendorId) return false   // hard vendor filter (legacy callers)
     const status = (w.WorkOrderStatus ?? '').toLowerCase()
     return opts.includeCompleted
       ? !/void|cancel/.test(status)             // drop only void/cancelled
       : !/complete|closed|void|cancel/.test(status)
   })
 
+  const pref = opts.vendorPreferred
   return open
-    .sort((a, b) => new Date(b.CreatedDate ?? 0).getTime() - new Date(a.CreatedDate ?? 0).getTime())
+    .sort((a, b) => {
+      if (pref) {
+        const am = a.VendorId === pref ? 0 : 1
+        const bm = b.VendorId === pref ? 0 : 1
+        if (am !== bm) return am - bm                 // vendor-matched WOs first
+      }
+      return new Date(b.CreatedDate ?? 0).getTime() - new Date(a.CreatedDate ?? 0).getTime()
+    })
     .slice(0, opts.limit ?? 25)
 }
 
