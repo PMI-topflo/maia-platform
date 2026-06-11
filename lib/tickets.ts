@@ -397,6 +397,15 @@ export async function updateTicket(
   }
 
   if (data.type === 'work_order') {
+    // Just reclassified to a work order → back-fill any photos from the source
+    // email that MAIA skipped at email time (it only auto-attaches when the
+    // ticket is already a work order). Fire-and-forget; never blocks the update.
+    // Dynamic import breaks the tickets ↔ pull-wo-email-photos cycle.
+    if (patch.type === 'work_order' && prev?.type !== 'work_order') {
+      void import('@/lib/pull-wo-email-photos')
+        .then(m => m.pullWorkOrderPhotosFromEmail(ticketId, actorEmail))
+        .catch(() => null)
+    }
     if (process.env.RENTVINE_SYNC_ENABLED === 'true') {
       await enqueueOutbox(ticketId, 'ticket', 'update', 'rentvine')
     }
