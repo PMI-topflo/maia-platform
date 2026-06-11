@@ -2148,7 +2148,7 @@ function FundsCheck({ assoc, bankAccountId, pushAmount, scheduledDate, onChooseD
           <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
             <tbody>
               <tr><td>Current balance</td><td style={{ textAlign: 'right' }}>{fmtUSD(res.currentBalance)}</td></tr>
-              <tr><td>− {res.openInvoiceScope === 'due-by-scheduled' ? `Open invoices due by ${monthLabel(res.scheduledMonth)}` : 'All open invoices in CINC'} ({res.openInvoicesCount})</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmtUSD(res.openInvoicesTotal)}</td></tr>
+              <tr><td>− Open invoices due by {monthLabel(res.scheduledMonth)} ({res.openInvoicesCount})</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmtUSD(res.openInvoicesTotal)}</td></tr>
               <tr><td>− This payment</td><td style={{ textAlign: 'right', color: '#991b1b' }}>−{fmtUSD(res.pushAmount)}</td></tr>
               {res.monthsAhead > 0 && (
                 <tr><td>{res.monthsAhead} month(s) of run-rate net flow (~{fmtUSD(res.avgMonthlyNet)}/mo)</td><td style={{ textAlign: 'right', color: res.avgMonthlyNet >= 0 ? '#065f46' : '#991b1b' }}>{fmtUSD(res.monthsAhead * res.avgMonthlyNet)}</td></tr>
