@@ -136,6 +136,13 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+/** Add `n` days to a YYYY-MM-DD. */
+function addDays(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + n)
+  return isoDate(d)
+}
+
 /** Last calendar day of a YYYY-MM month, as YYYY-MM-DD. (Day 0 of the next
  *  month rolls back to the last day of this one.) */
 function endOfMonthISO(ym: string): string {
@@ -463,6 +470,9 @@ export interface FundsCheckResult {
   /** Lowest projected balance over the horizon + the date it occurs — the
    *  end-of-month / end-of-quarter cash crunch. */
   lowPoint:               { date: string; balance: number }
+  /** Weekly end-of-week balance series (~3 months) for the cash-flow strip,
+   *  each with what's due / what lands that week. */
+  weekly:                 Array<{ weekStart: string; balance: number; due: number; income: number }>
   pushAmount:             number
   scheduledMonth:         string          // YYYY-MM the payment is scheduled in
   monthsAhead:            number
@@ -710,6 +720,25 @@ export async function forecastFundsForDate(opts: {
 
   events.sort((a, b) => a.date.localeCompare(b.date))
 
+  // Weekly series for the cash-flow strip (~3 months). End-of-week balance plus
+  // what's due / what lands that week, so each box can show its detail on hover.
+  const STRIP_WEEKS = 14
+  const weekly: Array<{ weekStart: string; balance: number; due: number; income: number }> = []
+  {
+    let wbal = currentBalance, wi = 0
+    for (let w = 0; w < STRIP_WEEKS; w++) {
+      const weekStart = addDays(todayISO, w * 7)
+      const weekEnd   = addDays(weekStart, 6)
+      let due = 0, income = 0
+      while (wi < events.length && events[wi].date <= weekEnd) {
+        wbal += events[wi].delta
+        if (events[wi].delta < 0) due += -events[wi].delta; else income += events[wi].delta
+        wi++
+      }
+      weekly.push({ weekStart, balance: Math.round(wbal), due: Math.round(due), income: Math.round(income) })
+    }
+  }
+
   // Walk it: snapshot each month-end balance, track the low point (the crunch).
   let bal = currentBalance
   let lowPoint = { date: todayISO, balance: currentBalance }
@@ -752,6 +781,7 @@ export async function forecastFundsForDate(opts: {
     monthsSampled:          flow.sampled,
     incomeProfile:          income,
     lowPoint,
+    weekly,
     pushAmount:             push,
     scheduledMonth,
     monthsAhead,

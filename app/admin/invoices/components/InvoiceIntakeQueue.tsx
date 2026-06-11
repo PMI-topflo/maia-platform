@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import CashFlowStrip from './CashFlowStrip'
 
 interface Vendor      { id: number;  name: string; shortName: string | null; dba?: string | null }
 interface Association { code: string; name: string }
@@ -2031,6 +2032,7 @@ interface FundsResult {
   monthsSampled:          number
   incomeProfile:          { cadence: 'monthly' | 'quarterly' | 'irregular'; avgPeriodIncome: number; typicalDay: number; note: string }
   lowPoint:               { date: string; balance: number }
+  weekly:                 Array<{ weekStart: string; balance: number; due: number; income: number }>
   pushAmount:             number
   scheduledMonth:         string
   monthsAhead:            number
@@ -2108,6 +2110,11 @@ function FundsCheck({ assoc, bankAccountId, pushAmount, scheduledDate, onChooseD
       {Math.round(res.lowPoint.balance) < Math.round(res.projectedAtScheduled) && (
         <div style={{ marginTop: 4, marginLeft: 26, fontSize: 12, fontWeight: 600, color: res.lowPoint.balance < 0 ? '#991b1b' : '#92400e' }}>
           ⚠ Cash-flow low point: dips to {fmtUSD(res.lowPoint.balance)} around {res.lowPoint.date} (bills clear before the next assessment lands).
+        </div>
+      )}
+      {res.weekly && res.weekly.length > 0 && (
+        <div style={{ marginTop: 8, marginLeft: 26, marginRight: 8 }}>
+          <CashFlowStrip weekly={res.weekly} tightBelow={res.avgMonthlyOut || 5000} />
         </div>
       )}
 
