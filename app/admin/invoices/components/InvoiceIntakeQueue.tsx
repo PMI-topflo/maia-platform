@@ -484,7 +484,7 @@ function DraftCard(props: {
   // Lazy-load open WOs for (assoc, vendor) pair. Refetch when either
   // changes — Karen might switch vendor or assoc mid-edit.
   useEffect(() => {
-    if (mode !== 'edit' || !assoc || !vendorId) return
+    if (!assoc || !vendorId) return   // load in view mode too — supports quick-link without editing
     const key = `${assoc}::${vendorId}`
     if (woLoadedKey === key || woLoading) return
     setWoLoading(true)
@@ -591,6 +591,30 @@ function DraftCard(props: {
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
       setMsg('Saved.')
       setMode('view')
+      onMutate()
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Quick-link a work order WITHOUT entering full edit — PATCHes only the WO
+  // link (and the partial-payment flag), saving on select. Lets staff attach a
+  // WO to an invoice from the view screen and just confirm.
+  async function quickLinkWo(value: string) {
+    const next = value ? parseInt(value, 10) : null
+    setBusy(true); setMsg(null)
+    try {
+      const res = await fetch('/api/admin/invoices/intake', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ id: draft.id, work_order_number: next, wo_partial_payment: next ? woPartial : false }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      setWoNumber(value)
+      setMsg(next ? `Linked to WO-${next}.` : 'Work-order link cleared.')
       onMutate()
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err))
@@ -1399,11 +1423,40 @@ function DraftCard(props: {
                   )
                 })}
               </select>
-            ) : (
+            ) : readOnly ? (
               <ReadOnlyValue
                 value={woNumber ? `WO-${woNumber}` : ''}
                 placeholder="— none (standalone invoice) —"
               />
+            ) : (
+              // Quick-link from the view screen — selecting saves immediately,
+              // no need to enter full edit.
+              <select
+                value={woNumber}
+                onChange={e => void quickLinkWo(e.target.value)}
+                disabled={busy || !vendorId || !assoc}
+                style={{ width: '100%', padding: 6 }}
+              >
+                <option value="">
+                  {!vendorId || !assoc ? '— pick vendor + association first —'
+                  : woLoading           ? 'Loading work orders from CINC…'
+                  : busy                ? 'Linking…'
+                  : woOptions.length === 0
+                    ? 'No work orders for this association in CINC'
+                    : '— no work order (standalone invoice) —'}
+                </option>
+                {woOptions.map(wo => {
+                  const desc = wo.description ? ` · ${wo.description.slice(0, 40)}` : ''
+                  const ven  = ` · ${wo.vendor ?? 'no vendor'}`
+                  const st   = wo.status ? ` · ${wo.status}` : ''
+                  const when = wo.createdDate ? ` · ${new Date(wo.createdDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''
+                  return (
+                    <option key={wo.number} value={String(wo.number)}>
+                      WO-{wo.number}{desc}{ven}{st}{when}
+                    </option>
+                  )
+                })}
+              </select>
             )}
             {woNumber && (mode === 'edit' ? (
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12, color: '#374151' }}>
