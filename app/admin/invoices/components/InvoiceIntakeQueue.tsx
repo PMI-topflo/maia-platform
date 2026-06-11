@@ -1382,18 +1382,19 @@ function DraftCard(props: {
               >
                 <option value="">
                   {!vendorId || !assoc ? '— pick vendor + association first —'
-                  : woLoading           ? 'Loading open work orders from CINC…'
+                  : woLoading           ? 'Loading work orders from CINC…'
                   : woOptions.length === 0
-                    ? 'No work orders for this vendor here — assign this vendor to the WO in CINC if one exists'
+                    ? 'No work orders for this association in CINC'
                     : '— no work order (standalone invoice) —'}
                 </option>
                 {woOptions.map(wo => {
-                  const desc = wo.description ? ` · ${wo.description.slice(0, 50)}` : ''
+                  const desc = wo.description ? ` · ${wo.description.slice(0, 40)}` : ''
+                  const ven  = ` · ${wo.vendor ?? 'no vendor'}`
                   const st   = wo.status ? ` · ${wo.status}` : ''
                   const when = wo.createdDate ? ` · ${new Date(wo.createdDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''
                   return (
                     <option key={wo.number} value={String(wo.number)}>
-                      WO-{wo.number}{desc}{st}{when}
+                      WO-{wo.number}{desc}{ven}{st}{when}
                     </option>
                   )
                 })}
