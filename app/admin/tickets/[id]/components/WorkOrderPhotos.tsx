@@ -185,6 +185,21 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
     } catch (err) { setError((err as Error).message) }
   }, [ticketId])
 
+  // Pull image attachments from the source email thread — for WOs classified
+  // after the email arrived (MAIA only auto-attaches at email time).
+  const [pullingEmail, setPullingEmail] = useState(false)
+  const pullFromEmail = useCallback(async () => {
+    setPullingEmail(true); setPushNote(null); setError(null)
+    try {
+      const res  = await fetch(`/api/admin/work-orders/${ticketId}/photos/pull-from-email`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? 'failed')
+      if (data.attachments) setAttachments(data.attachments)
+      setPushNote(data.note ?? `Pulled ${data.added ?? 0} photo(s).`)
+    } catch (err) { setError((err as Error).message) }
+    finally { setPullingEmail(false) }
+  }, [ticketId])
+
   // Backfill: push any MAIA-origin photos not yet in CINC. New photos push
   // automatically on arrival; this re-queues anything still pending (e.g.
   // photos added before the WO was CINC-linked, or a failed push).
@@ -287,6 +302,14 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
             title="Upload photos or files (PDF, doc) from this device"
           >
             {uploading ? 'Uploading…' : '+ Add files'}
+          </button>
+          <button
+            onClick={() => void pullFromEmail()}
+            disabled={pullingEmail}
+            className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-400"
+            title="Re-fetch image attachments from the source email (for WOs classified after the email arrived)"
+          >
+            {pullingEmail ? 'Pulling…' : '📥 Pull from email'}
           </button>
           {hasCincWorkOrderId && unpushedCount > 0 && (
             <button
