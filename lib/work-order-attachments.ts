@@ -84,6 +84,7 @@ export interface WorkOrderAttachmentRow {
   extracted_doc_type:  string | null
   extracted_data:      { confidence?: number; summary?: string | null; fields?: Record<string, string> } | null
   extracted_at:        string | null
+  phase:               'before' | 'after' | null
 }
 
 export interface WorkOrderAttachmentWithUrl extends WorkOrderAttachmentRow {
@@ -235,6 +236,7 @@ export async function recordWorkOrderAttachment(opts: {
   mimeType?:        string
   fileSizeBytes:    number
   uploadedByEmail?: string | null
+  phase?:           'before' | 'after' | null
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const id = globalThis.crypto.randomUUID()
   const { error } = await supabaseAdmin.from('work_order_attachments').insert({
@@ -246,6 +248,7 @@ export async function recordWorkOrderAttachment(opts: {
     mime_type:         opts.mimeType || mimeFor(opts.filename),
     file_size_bytes:   opts.fileSizeBytes,
     uploaded_by_email: opts.uploadedByEmail ?? null,
+    phase:             opts.phase ?? null,
   })
   if (error) return { ok: false, error: error.message }
   return { ok: true, id }

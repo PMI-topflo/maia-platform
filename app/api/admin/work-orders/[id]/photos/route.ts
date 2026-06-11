@@ -132,9 +132,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const wo = await loadWorkOrder(ticketId)
   if ('error' in wo) return NextResponse.json({ error: wo.error }, { status: wo.status })
 
-  let body: { storage_path?: string; filename?: string; mime_type?: string; file_size_bytes?: number }
+  let body: { storage_path?: string; filename?: string; mime_type?: string; file_size_bytes?: number; phase?: string }
   try { body = await req.json() }
   catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }) }
+  const phase = body.phase === 'before' || body.phase === 'after' ? body.phase : null
 
   const storagePath = (body.storage_path ?? '').trim()
   const filename    = (body.filename ?? '').trim()
@@ -174,6 +175,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     mimeType:        (body.mime_type ?? '').trim() || undefined,
     fileSizeBytes:   effectiveSize,
     uploadedByEmail: uploadedBy,
+    phase,
   })
   if (!rec.ok) {
     return NextResponse.json({ error: rec.error }, { status: 500 })
@@ -185,6 +187,36 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (wo.ticket.cinc_workorder_id) {
     await enqueueOutbox(ticketId, 'work_order_attachment', 'push_photo', 'cinc', { attachmentId: rec.id })
   }
+
+  const attachments = await listAttachmentsWithUrls(ticketId)
+  return NextResponse.json({ ok: true, attachments })
+}
+
+// ---------------------------------------------------------------------
+// PATCH /api/admin/work-orders/[id]/photos
+// Tag an existing attachment as a 'before' / 'after' photo (or clear it).
+// Body: { attachment_id, phase: 'before' | 'after' | null }
+// ---------------------------------------------------------------------
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const token   = (await cookies()).get(SESSION_COOKIE)?.value
+  const session = token ? await verifySession(token) : null
+  if (!session || session.persona !== 'staff') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id } = await ctx.params
+  const ticketId = parseInt(id, 10)
+  if (!Number.isFinite(ticketId)) return NextResponse.json({ error: 'bad id' }, { status: 400 })
+
+  let body: { attachment_id?: string; phase?: string | null }
+  try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }) }
+  const attachmentId = (body.attachment_id ?? '').trim()
+  if (!attachmentId) return NextResponse.json({ error: 'attachment_id is required' }, { status: 400 })
+  const phase = body.phase === 'before' || body.phase === 'after' ? body.phase : null
+
+  const { data: row } = await supabaseAdmin.from('work_order_attachments').select('id, ticket_id').eq('id', attachmentId).maybeSingle()
+  if (!row || row.ticket_id !== ticketId) return NextResponse.json({ error: 'attachment does not belong to this work order' }, { status: 400 })
+
+  const { error: updErr } = await supabaseAdmin.from('work_order_attachments').update({ phase }).eq('id', attachmentId)
+  if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 })
 
   const attachments = await listAttachmentsWithUrls(ticketId)
   return NextResponse.json({ ok: true, attachments })

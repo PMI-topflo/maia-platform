@@ -22,6 +22,7 @@ interface Attachment {
   created_at:         string
   extracted_doc_type?: string | null
   extracted_data?:     { confidence?: number; summary?: string | null; fields?: Record<string, string> } | null
+  phase?:              'before' | 'after' | null
 }
 
 const DOC_TYPE_BADGE: Record<string, string> = {
@@ -83,6 +84,8 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
   const [cincAtt,     setCincAtt]     = useState<Attachment | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const pendingPhaseRef = useRef<'before' | 'after' | null>(null)
+  const pickFiles = (phase: 'before' | 'after' | null) => { pendingPhaseRef.current = phase; fileInputRef.current?.click() }
 
   const fetchPhotos = useCallback(async (forceRefresh: boolean) => {
     if (forceRefresh) setRefreshing(true); else setLoading(true)
@@ -118,7 +121,7 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
   // the bytes straight to Supabase Storage (bypasses Vercel's 4.5 MB
   // body limit so full-resolution phone photos go through), then POST
   // the metadata so MAIA records the work_order_attachments row.
-  const uploadFiles = useCallback(async (files: File[]) => {
+  const uploadFiles = useCallback(async (files: File[], phase: 'before' | 'after' | null = null) => {
     if (files.length === 0) return
     setUploading(true)
     setError(null)
@@ -154,6 +157,7 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
             filename:        file.name,
             mime_type:       file.type || undefined,
             file_size_bytes: file.size,
+            phase:           phase ?? undefined,
           }),
         })
         const metaData = await metaRes.json()
@@ -165,6 +169,20 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
     } finally {
       setUploading(false)
     }
+  }, [ticketId])
+
+  // Tag an existing photo as before/after (or clear) — used for emailed/CINC
+  // photos that arrived without a phase (e.g. the resident's complaint photo).
+  const setPhase = useCallback(async (attachmentId: string, phase: 'before' | 'after' | null) => {
+    try {
+      const res = await fetch(`/api/admin/work-orders/${ticketId}/photos`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attachment_id: attachmentId, phase }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? 'failed')
+      setAttachments(data.attachments ?? [])
+    } catch (err) { setError((err as Error).message) }
   }, [ticketId])
 
   // Backfill: push any MAIA-origin photos not yet in CINC. New photos push
@@ -241,11 +259,29 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
             onChange={(e) => {
               const files = Array.from(e.target.files ?? [])
               e.target.value = ''   // let the same file be picked again
-              void uploadFiles(files)
+              const phase = pendingPhaseRef.current
+              pendingPhaseRef.current = null
+              void uploadFiles(files, phase)
             }}
           />
           <button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => pickFiles('before')}
+            disabled={uploading}
+            className="rounded border border-amber-300 px-2 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:text-gray-400"
+            title="Upload BEFORE photos (the issue / starting condition)"
+          >
+            + Before
+          </button>
+          <button
+            onClick={() => pickFiles('after')}
+            disabled={uploading}
+            className="rounded border border-emerald-300 px-2 py-0.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:text-gray-400"
+            title="Upload AFTER photos (the completed work)"
+          >
+            + After
+          </button>
+          <button
+            onClick={() => pickFiles(null)}
             disabled={uploading}
             className="text-xs font-medium text-[#f26a1b] hover:text-[#d85a14] disabled:text-gray-400"
             title="Upload photos or files (PDF, doc) from this device"
@@ -301,6 +337,17 @@ export default function WorkOrderPhotos({ ticketId, hasCincWorkOrderId }: Props)
               key={att.id}
               className="group relative aspect-square overflow-hidden rounded border border-gray-200 bg-gray-50 hover:border-blue-400"
             >
+              {att.phase && (
+                <span className={`pointer-events-none absolute top-1 left-1 z-10 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white ${att.phase === 'before' ? 'bg-amber-600' : 'bg-emerald-600'}`}>
+                  {att.phase}
+                </span>
+              )}
+              {isImage(att) && (
+                <div className="absolute top-1 right-1 z-10 hidden gap-0.5 group-hover:flex">
+                  <button onClick={() => void setPhase(att.id, att.phase === 'before' ? null : 'before')} className={`rounded px-1 py-0.5 text-[9px] font-bold ${att.phase === 'before' ? 'bg-amber-600 text-white' : 'border border-amber-300 bg-white/90 text-amber-700'}`} title="Tag as BEFORE">B</button>
+                  <button onClick={() => void setPhase(att.id, att.phase === 'after' ? null : 'after')} className={`rounded px-1 py-0.5 text-[9px] font-bold ${att.phase === 'after' ? 'bg-emerald-600 text-white' : 'border border-emerald-300 bg-white/90 text-emerald-700'}`} title="Tag as AFTER">A</button>
+                </div>
+              )}
               {isImage(att) ? (
                 <button
                   onClick={() => setLightboxIdx(idx)}
