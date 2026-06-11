@@ -1817,6 +1817,31 @@ DROP POLICY IF EXISTS "service_role_all_vendor_payment_methods" ON public.vendor
 CREATE POLICY "service_role_all_vendor_payment_methods" ON public.vendor_payment_methods FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'service_issues',
+    label:       'Service issues',
+    description: 'service_issues — recurring-service complaints routed to the vendor’s next visit instead of a standalone work order.',
+    filename:    '20260611_service_issues.sql',
+    artifact:    { type: 'table', table: 'service_issues' },
+    sql: `CREATE TABLE IF NOT EXISTS public.service_issues (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_id bigint NOT NULL, association_code text NOT NULL,
+  recurring_service_id bigint, service_visit_id bigint,
+  cinc_vendor_id text, vendor_name text, vendor_email text, service_type text,
+  next_visit_date date, issue_summary text, paola_note text,
+  issue_photo_path text, resolution_photo_path text,
+  status text NOT NULL DEFAULT 'sent', created_by text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  vendor_resolved_at timestamptz, confirmed_at timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS service_issues_ticket_idx ON public.service_issues (ticket_id);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.service_issues TO anon, authenticated, service_role;
+ALTER TABLE public.service_issues ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_service_issues" ON public.service_issues;
+CREATE POLICY "service_role_all_service_issues" ON public.service_issues FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

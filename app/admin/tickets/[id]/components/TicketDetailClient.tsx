@@ -13,6 +13,7 @@ import DueDateModal from './DueDateModal'
 import ChangeReasonModal from './ChangeReasonModal'
 import SchedulingModal from './SchedulingModal'
 import VendorPickerModal from './VendorPickerModal'
+import RecurringServiceIssueModal from './RecurringServiceIssueModal'
 import RequestEstimatesModal from './RequestEstimatesModal'
 import EstimatesComparison from './EstimatesComparison'
 import WorkOrderPhotos from './WorkOrderPhotos'
@@ -211,6 +212,7 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
 
   const [showSchedulingModal, setShowSchedulingModal] = useState(false)
   const [showVendorModal,     setShowVendorModal]     = useState(false)
+  const [showServiceIssue,    setShowServiceIssue]    = useState(false)
   const [vendorLinkBusy,      setVendorLinkBusy]      = useState(false)
   const [showEditDetails,     setShowEditDetails]     = useState(false)
   const [showEstimates,       setShowEstimates]       = useState(false)
@@ -894,6 +896,13 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
           />
         )}
 
+        {showServiceIssue && (
+          <RecurringServiceIssueModal
+            ticketId={ticket.id}
+            onClose={(sent) => { setShowServiceIssue(false); if (sent) router.refresh() }}
+          />
+        )}
+
         <LogMessageModal
           ticketId={ticket.id}
           open={logModalOpen}
@@ -954,6 +963,14 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
                 title="Request estimates from vendors — scope + photos, MAIA sends links and follows up"
               >
                 📨 Request estimates
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowServiceIssue(true)}
+                className="mt-2 w-full rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                title="Recurring-service complaint? Route it to the vendor's next scheduled visit instead of a new work order."
+              >
+                🔁 Recurring-service issue
               </button>
             </Card>
           )
