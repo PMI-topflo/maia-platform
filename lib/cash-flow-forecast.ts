@@ -550,14 +550,24 @@ export async function forecastFundsForDate(opts: {
   // month, so invoices not yet due don't deflate a near-term check).
   const allOpen = await listOpenInvoices({ assocCode: opts.assocCode }).catch(() => [])
   const schedCutoff = endOfMonthISO(scheduledMonth)   // YYYY-MM-DD, last day of scheduled month
+  const balanceOf = (o: typeof allOpen[number]) => typeof o.Balance === 'number' ? o.Balance : (typeof o.InvoiceAmount === 'number' ? o.InvoiceAmount : 0)
   const open = openInvoiceScope === 'due-by-scheduled'
     ? allOpen.filter(o => !o.DueDate || o.DueDate.slice(0, 10) <= schedCutoff)
     : allOpen
-  const openInvoicesTotal = open.reduce((s, o) => s + (typeof o.Balance === 'number' ? o.Balance : (typeof o.InvoiceAmount === 'number' ? o.InvoiceAmount : 0)), 0)
-  if (open.length > 0) {
-    caveats.push(openInvoiceScope === 'due-by-scheduled'
-      ? `Counts the ${open.length} open invoice(s) due by ${monthOf(schedCutoff)} (of ${allOpen.length} total open) as near-term outflows.`
-      : `Counts all ${open.length} open invoice(s) in CINC for this association as near-term outflows (some may draw from a different account).`)
+  // Distribute each open invoice into the month it's actually DUE. Counting
+  // ALL open invoices in the current month wrongly deflated near-term
+  // projections — e.g. six future insurance installments dated Jul–Nov all hit
+  // June. An invoice with no due date counts immediately (conservative).
+  const dueByTotal = (cutoff: string) => open
+    .filter(o => !o.DueDate || o.DueDate.slice(0, 10) <= cutoff)
+    .reduce((s, o) => s + balanceOf(o), 0)
+  // What's actually committed by the scheduled month — this is what the math
+  // panel shows being subtracted (kept consistent with projectedAtScheduled).
+  const dueByScheduled    = open.filter(o => !o.DueDate || o.DueDate.slice(0, 10) <= schedCutoff)
+  const openInvoicesTotal = dueByScheduled.reduce((s, o) => s + balanceOf(o), 0)
+  const deferredCount     = open.length - dueByScheduled.length
+  if (dueByScheduled.length > 0 || deferredCount > 0) {
+    caveats.push(`Counts ${dueByScheduled.length} open invoice(s) due by ${monthOf(schedCutoff)} against that month${deferredCount > 0 ? `; ${deferredCount} more due later reduce later months only` : ''}.`)
   }
 
   const flow = bank?.cashGl
@@ -572,7 +582,7 @@ export async function forecastFundsForDate(opts: {
   // run-rate net flow for each FULL month beyond the current one.
   const project = (ym: string): number => {
     const ahead = Math.max(0, monthsBetween(nowYm, ym))
-    return currentBalance - openInvoicesTotal - push + ahead * flow.avgNet
+    return currentBalance - dueByTotal(endOfMonthISO(ym)) - push + ahead * flow.avgNet
   }
 
   // Affordability horizon starting this month.
@@ -595,7 +605,7 @@ export async function forecastFundsForDate(opts: {
     bankAccountDescription: bank?.description ?? `Account ${opts.bankAccountId}`,
     currentBalance,
     openInvoicesTotal,
-    openInvoicesCount:      open.length,
+    openInvoicesCount:      dueByScheduled.length,
     avgMonthlyNet:          flow.avgNet,
     avgMonthlyIn:           flow.avgIn,
     avgMonthlyOut:          flow.avgOut,
