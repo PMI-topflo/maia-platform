@@ -49,8 +49,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (dlErr || !blob) return NextResponse.json({ error: `storage download failed: ${dlErr?.message ?? 'no blob'}` }, { status: 500 })
 
   const rawBuf = Buffer.from(await blob.arrayBuffer())
-  const norm   = await normalizePdf(rawBuf, { targetBytes: CINC_ATTACH_TARGET_BYTES, preserveTextPdfs: false }).catch(() => null)
-  const buf    = norm?.buffer ?? rawBuf
+  // Keep the text layer intact by default (rasterizing can blank form PDFs);
+  // only rasterize if the text-preserved result is still over CINC's limit.
+  let norm = await normalizePdf(rawBuf, { targetBytes: CINC_ATTACH_TARGET_BYTES }).catch(() => null)
+  let buf  = norm?.buffer ?? rawBuf
+  if (buf.length > CINC_ATTACH_MAX_BYTES) {
+    const raster = await normalizePdf(rawBuf, { targetBytes: CINC_ATTACH_TARGET_BYTES, preserveTextPdfs: false }).catch(() => null)
+    if (raster && raster.buffer.length < buf.length) { norm = raster; buf = raster.buffer }
+  }
   const pdfBase64 = buf.toString('base64')
   if (buf.length > CINC_ATTACH_MAX_BYTES) {
     return NextResponse.json({ error: `PDF is ${(buf.length / 1024 / 1024).toFixed(2)} MB even after compression — over CINC's ~1 MB attachment limit. Replace it with a smaller scan.`, pdfTooLarge: true, normalizeNote: norm?.note ?? 'normalize returned nothing' }, { status: 413 })

@@ -136,12 +136,17 @@ export async function POST(
   // before any CINC invoice exists — so we never create a PDF-less invoice
   // (the bug that left CINC 16272 with no attachment). Karen can re-upload a
   // smaller/clearer scan and retry.
-  // preserveTextPdfs:false — a born-digital invoice that's OVER CINC's limit
-  // (image-heavy utility bills with charts/QR coupons) must be rasterized to
-  // fit; a flattened scan is fine for a CINC check-request attachment. Small
-  // text PDFs are still returned untouched (they're already under budget).
-  const norm = await normalizePdf(rawBuf, { targetBytes: CINC_ATTACH_TARGET_BYTES, preserveTextPdfs: false }).catch(() => null)
-  const buf  = norm?.buffer ?? rawBuf
+  // Keep the text layer INTACT by default. Rasterizing a born-digital PDF can
+  // drop its text / form-field content — that shipped BLANK invoice PDFs to
+  // CINC (e.g. utility-bill forms rendered as empty templates). Only fall back
+  // to rasterizing (preserveTextPdfs:false) when the text-preserved result is
+  // STILL over CINC's ~1 MB limit — i.e. a genuinely image-heavy oversized bill.
+  let norm = await normalizePdf(rawBuf, { targetBytes: CINC_ATTACH_TARGET_BYTES }).catch(() => null)
+  let buf  = norm?.buffer ?? rawBuf
+  if (buf.length > CINC_ATTACH_MAX_BYTES) {
+    const raster = await normalizePdf(rawBuf, { targetBytes: CINC_ATTACH_TARGET_BYTES, preserveTextPdfs: false }).catch(() => null)
+    if (raster && raster.buffer.length < buf.length) { norm = raster; buf = raster.buffer }
+  }
   const pdfBase64 = buf.toString('base64')
   if (buf.length > CINC_ATTACH_MAX_BYTES) {
     return NextResponse.json({
