@@ -622,6 +622,49 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
 
       {/* Side panel — controls + metadata */}
       <aside className="space-y-4">
+        {ticket.type === 'work_order' && (
+          <>
+            {/* Association + Vendor lead the work-order sidebar — set these
+                first; everything downstream (GL, invoice linking) follows. */}
+            <Card title="① Association">
+              <select
+                value={ticket.association_code ?? ''}
+                onChange={e => void patch('association_code', e.target.value || null)}
+                disabled={saving === 'association_code'}
+                className="w-full border border-blue-300 rounded px-2 py-2 text-sm font-semibold bg-white"
+              >
+                <option value="">— pick association —</option>
+                {associations.map(a => (
+                  <option key={a.association_code} value={a.association_code}>{a.association_name} ({a.association_code})</option>
+                ))}
+              </select>
+            </Card>
+
+            <Card title="② Vendor">
+              <div className="flex items-center justify-between gap-2">
+                <span className={`text-sm font-semibold ${workOrder?.vendor_name ? 'text-gray-900' : 'text-gray-400'}`}>
+                  {workOrder?.vendor_name ?? 'No vendor assigned'}
+                </span>
+                {workOrder && (
+                  <button
+                    type="button"
+                    onClick={() => setShowVendorModal(true)}
+                    className="rounded border border-[#f26a1b] px-2 py-1 text-[11px] font-semibold text-[#f26a1b] hover:bg-[#f26a1b] hover:text-white"
+                  >
+                    {workOrder.vendor_name ? 'Reassign' : 'Assign vendor'}
+                  </button>
+                )}
+              </div>
+              {workOrder && !workOrder.vendor_name && (
+                <div className="mt-1 text-[10px] text-amber-700">Assign the vendor so its invoices can link to this work order.</div>
+              )}
+              {!workOrder && (
+                <div className="mt-1 text-[10px] text-gray-500">Create the work order in CINC first to assign a vendor.</div>
+              )}
+            </Card>
+          </>
+        )}
+
         <Card title="Status">
           <select
             value={status}
