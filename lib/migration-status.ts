@@ -1842,6 +1842,15 @@ DROP POLICY IF EXISTS "service_role_all_service_issues" ON public.service_issues
 CREATE POLICY "service_role_all_service_issues" ON public.service_issues FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'invoice_wo_partial_payment',
+    label:       'Invoice partial-payment flag',
+    description: 'invoice_intake_drafts.wo_partial_payment — a downpayment leaves the linked work order open; a final invoice closes it as paid.',
+    filename:    '20260611_invoice_wo_partial.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'wo_partial_payment' },
+    sql: `ALTER TABLE public.invoice_intake_drafts ADD COLUMN IF NOT EXISTS wo_partial_payment boolean NOT NULL DEFAULT false;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

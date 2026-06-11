@@ -88,7 +88,7 @@ const SELECT_COLUMNS = `
   extracted_account_number,
   due_date, scheduled_pay_date,
   gl_account_id, gl_account_name,
-  pay_by_type, observation_note, work_order_number,
+  pay_by_type, observation_note, work_order_number, wo_partial_payment,
   pay_from_bank_account_id,
   extraction_confidence, status, rejected_reason,
   audit_checklist, audit_ready_by, audit_ready_at,
@@ -167,6 +167,7 @@ interface PatchBody {
   pay_by_type?:                string | null
   observation_note?:           string | null
   work_order_number?:          number | null
+  wo_partial_payment?:         boolean | null
   pay_from_bank_account_id?:   number | null
   audit_checklist?:            Record<string, boolean> | null
   status?:                     string   // 'ready_to_push' | 'pending_review'
@@ -213,7 +214,7 @@ export async function PATCH(req: Request) {
     'extracted_account_number',
     'due_date', 'scheduled_pay_date',
     'gl_account_id', 'gl_account_name',
-    'pay_by_type', 'observation_note', 'work_order_number',
+    'pay_by_type', 'observation_note', 'work_order_number', 'wo_partial_payment',
     'pay_from_bank_account_id', 'audit_checklist',
   ]
   for (const k of writable) {

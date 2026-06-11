@@ -368,6 +368,9 @@ export async function listOpenWorkOrders(opts: {
   assocCode: string
   vendorId?: number
   limit?:    number
+  /** Include completed/closed WOs too (NOT void/cancelled). For linking an
+   *  invoice to a WO — invoices usually arrive AFTER the work is done. */
+  includeCompleted?: boolean
 }): Promise<CincWorkOrder[]> {
   const list = await call<CincWorkOrder[]>('/management/1/workOrders', {
     method: 'GET',
@@ -375,9 +378,11 @@ export async function listOpenWorkOrders(opts: {
   }).catch(() => [] as CincWorkOrder[])
 
   const open = list.filter(w => {
-    if (opts.vendorId && w.VendorId !== opts.vendorId) return false
+    if (opts.vendorId && w.VendorId !== opts.vendorId) return false   // keep the vendor control
     const status = (w.WorkOrderStatus ?? '').toLowerCase()
-    return !/complete|closed|void|cancel/.test(status)
+    return opts.includeCompleted
+      ? !/void|cancel/.test(status)             // drop only void/cancelled
+      : !/complete|closed|void|cancel/.test(status)
   })
 
   return open
