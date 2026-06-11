@@ -2029,6 +2029,8 @@ interface FundsResult {
   avgMonthlyIn:           number
   avgMonthlyOut:          number
   monthsSampled:          number
+  incomeProfile:          { cadence: 'monthly' | 'quarterly' | 'irregular'; avgPeriodIncome: number; typicalDay: number; note: string }
+  lowPoint:               { date: string; balance: number }
   pushAmount:             number
   scheduledMonth:         string
   monthsAhead:            number
@@ -2098,6 +2100,16 @@ function FundsCheck({ assoc, bankAccountId, pushAmount, scheduledDate, onChooseD
       <div style={{ marginTop: 4, marginLeft: 26 }}>
         Projected <strong>{res.bankAccountDescription}</strong> balance at end of {monthLabel(res.scheduledMonth)} (after this payment) = <strong>{fmtUSD(res.projectedAtScheduled)}</strong>.
       </div>
+      <div style={{ marginTop: 4, marginLeft: 26, fontSize: 12, color: '#4b5563' }}>
+        📈 {res.incomeProfile.cadence === 'monthly' ? `Monthly assessments ≈ ${fmtUSD(res.incomeProfile.avgPeriodIncome)} (~day ${res.incomeProfile.typicalDay})`
+          : res.incomeProfile.cadence === 'quarterly' ? `Quarterly assessments ≈ ${fmtUSD(res.incomeProfile.avgPeriodIncome)}`
+          : 'Income cadence unclear — using average net flow'} — factored into the projection.
+      </div>
+      {Math.round(res.lowPoint.balance) < Math.round(res.projectedAtScheduled) && (
+        <div style={{ marginTop: 4, marginLeft: 26, fontSize: 12, fontWeight: 600, color: res.lowPoint.balance < 0 ? '#991b1b' : '#92400e' }}>
+          ⚠ Cash-flow low point: dips to {fmtUSD(res.lowPoint.balance)} around {res.lowPoint.date} (bills clear before the next assessment lands).
+        </div>
+      )}
 
       {/* Move-the-date affordance */}
       <div style={{ marginTop: 10, marginLeft: 26, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

@@ -458,6 +458,11 @@ export interface FundsCheckResult {
   avgMonthlyIn:           number
   avgMonthlyOut:          number
   monthsSampled:          number
+  /** Learned assessment-collection behaviour (monthly vs quarterly + amount). */
+  incomeProfile:          IncomeProfile
+  /** Lowest projected balance over the horizon + the date it occurs — the
+   *  end-of-month / end-of-quarter cash crunch. */
+  lowPoint:               { date: string; balance: number }
   pushAmount:             number
   scheduledMonth:         string          // YYYY-MM the payment is scheduled in
   monthsAhead:            number
@@ -516,6 +521,113 @@ async function averageMonthlyNetFlow(assocCode: string, cashGl: string, months =
   return { avgNet: avgIn - avgOut, avgIn, avgOut, sampled }
 }
 
+// ── Income behaviour (assessment receivables) ───────────────────────
+// The end-of-month / end-of-quarter cash crunch comes from TIMING: bills are
+// due before the assessment deposit lands. To model it we learn each
+// association's collection BEHAVIOUR from the last `lookback` months of cash
+// deposits — how much comes in, how often (monthly vs quarterly), and around
+// which day — then project those inflows onto the forecast timeline.
+
+export interface IncomeProfile {
+  cadence:          'monthly' | 'quarterly' | 'irregular'
+  /** Typical $ collected per assessment landing. */
+  avgPeriodIncome:  number
+  /** Day-of-month the deposit typically lands (median, 1–28). */
+  typicalDay:       number
+  monthsSampled:    number
+  incomeMonthsSeen: number
+  lastIncomeMonth:  string | null
+  note:             string
+}
+
+/** Add `n` months to a YYYY-MM. */
+function addMonthsYm(ym: string, n: number): string {
+  const [y, m] = ym.split('-').map(Number)
+  return ymKey(new Date(Date.UTC(y, m - 1 + n, 1)))
+}
+
+/** A YYYY-MM-DD on `ym` at `day`, clamped to the month's last day. */
+function dayInMonth(ym: string, day: number): string {
+  const target = `${ym}-${String(Math.max(1, day)).padStart(2, '0')}`
+  const eom = endOfMonthISO(ym)
+  return target > eom ? eom : target
+}
+
+/** Learn the assessment-income behaviour from cash-GL deposits. Deposits post
+ *  as NEGATIVE DebitAmount (CINC convention, verified live). */
+async function detectIncomeProfile(assocCode: string, cashGl: string | null | undefined, lookback = 6): Promise<IncomeProfile> {
+  const empty: IncomeProfile = { cadence: 'irregular', avgPeriodIncome: 0, typicalDay: 1, monthsSampled: 0, incomeMonthsSeen: 0, lastIncomeMonth: null, note: 'Income behaviour unknown.' }
+  if (!cashGl) return { ...empty, note: 'No cash GL — income behaviour unknown.' }
+
+  const now  = new Date()
+  const to   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1) - 86400000)        // last day of prev month
+  const from = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth() - (lookback - 1), 1))
+  let txs: CincGlTransaction[] = []
+  try { txs = await listGlTransactionsByDate({ assocCode, fromDate: isoDate(from), toDate: isoDate(to), accountNumber: cashGl }) } catch { return empty }
+
+  const incomeByMonth = new Map<string, number>()
+  const days: number[] = []
+  const monthsTouched = new Set<string>()
+  for (const tx of txs) {
+    if (!tx.TransactionDate) continue
+    monthsTouched.add(monthOf(tx.TransactionDate))
+    const d = typeof tx.DebitAmount === 'number' ? tx.DebitAmount : 0
+    if (d >= 0) continue                                   // only deposits (money IN)
+    const m = monthOf(tx.TransactionDate)
+    incomeByMonth.set(m, (incomeByMonth.get(m) ?? 0) + Math.abs(d))
+    const day = parseInt(tx.TransactionDate.slice(8, 10), 10)
+    if (Number.isFinite(day)) days.push(day)
+  }
+  const monthsSampled = monthsTouched.size
+  if (incomeByMonth.size === 0) return { ...empty, monthsSampled, note: 'No deposits seen in the last 6 months.' }
+
+  // "Income months" = months whose deposits are a meaningful share of the
+  // biggest month (filters out tiny incidental credits). The COUNT of these
+  // tells monthly vs quarterly apart.
+  const maxIncome    = Math.max(...incomeByMonth.values())
+  const incomeMonths = [...incomeByMonth.entries()].filter(([, v]) => v >= maxIncome * 0.25).map(([m]) => m).sort()
+  const incomeMonthsSeen = incomeMonths.length
+  const avgPeriodIncome  = incomeMonths.reduce((s, m) => s + incomeByMonth.get(m)!, 0) / incomeMonthsSeen
+  const sortedDays = [...days].sort((a, b) => a - b)
+  const typicalDay = Math.min(28, Math.max(1, sortedDays[Math.floor(sortedDays.length / 2)] || 1))
+  const lastIncomeMonth = incomeMonths[incomeMonths.length - 1]
+
+  let cadence: IncomeProfile['cadence']
+  if (incomeMonthsSeen >= lookback - 1)                       cadence = 'monthly'
+  else if (incomeMonthsSeen >= 1 && incomeMonthsSeen <= Math.ceil(lookback / 3) + 1) cadence = 'quarterly'
+  else                                                        cadence = 'irregular'
+
+  const note = cadence === 'monthly'
+    ? `Monthly assessments ≈ $${Math.round(avgPeriodIncome).toLocaleString()} around day ${typicalDay}.`
+    : cadence === 'quarterly'
+      ? `Quarterly assessments ≈ $${Math.round(avgPeriodIncome).toLocaleString()} (last landed ${lastIncomeMonth}).`
+      : `Irregular deposits — income timing uncertain; using average net flow instead.`
+  return { cadence, avgPeriodIncome, typicalDay, monthsSampled, incomeMonthsSeen, lastIncomeMonth, note }
+}
+
+/** Project expected assessment deposits as dated events between `afterISO`
+ *  (exclusive) and the end of `toYm` (inclusive), from a learned profile. */
+function projectIncomeEvents(profile: IncomeProfile, afterISO: string, toYm: string): Array<{ date: string; amount: number }> {
+  if (profile.avgPeriodIncome <= 0 || profile.cadence === 'irregular') return []
+  const out: Array<{ date: string; amount: number }> = []
+  const fromYm = afterISO.slice(0, 7)
+  const step   = profile.cadence === 'monthly' ? 1 : 3
+  // For quarterly, walk the 3-month cadence from the last landing; for monthly,
+  // start at the current month.
+  let ym = profile.cadence === 'quarterly' && profile.lastIncomeMonth
+    ? addMonthsYm(profile.lastIncomeMonth, step)
+    : fromYm
+  // Fast-forward to the horizon window.
+  while (monthsBetween(ym, fromYm) > 0) ym = addMonthsYm(ym, step)
+  let guard = 0
+  while (monthsBetween(ym, toYm) >= 0 && guard++ < 60) {
+    const date = dayInMonth(ym, profile.typicalDay)
+    if (date > afterISO) out.push({ date, amount: profile.avgPeriodIncome })
+    ym = addMonthsYm(ym, step)
+  }
+  return out
+}
+
 export async function forecastFundsForDate(opts: {
   assocCode:        string
   bankAccountId:    number
@@ -554,50 +666,78 @@ export async function forecastFundsForDate(opts: {
   const open = openInvoiceScope === 'due-by-scheduled'
     ? allOpen.filter(o => !o.DueDate || o.DueDate.slice(0, 10) <= schedCutoff)
     : allOpen
-  // Distribute each open invoice into the month it's actually DUE. Counting
-  // ALL open invoices in the current month wrongly deflated near-term
-  // projections — e.g. six future insurance installments dated Jul–Nov all hit
-  // June. An invoice with no due date counts immediately (conservative).
-  const dueByTotal = (cutoff: string) => open
-    .filter(o => !o.DueDate || o.DueDate.slice(0, 10) <= cutoff)
-    .reduce((s, o) => s + balanceOf(o), 0)
-  // What's actually committed by the scheduled month — this is what the math
-  // panel shows being subtracted (kept consistent with projectedAtScheduled).
-  const dueByScheduled    = open.filter(o => !o.DueDate || o.DueDate.slice(0, 10) <= schedCutoff)
-  const openInvoicesTotal = dueByScheduled.reduce((s, o) => s + balanceOf(o), 0)
-  const deferredCount     = open.length - dueByScheduled.length
-  if (dueByScheduled.length > 0 || deferredCount > 0) {
-    caveats.push(`Counts ${dueByScheduled.length} open invoice(s) due by ${monthOf(schedCutoff)} against that month${deferredCount > 0 ? `; ${deferredCount} more due later reduce later months only` : ''}.`)
-  }
 
+  // Typical monthly spend (outflow run-rate) + learned assessment behaviour.
   const flow = bank?.cashGl
     ? await averageMonthlyNetFlow(opts.assocCode, bank.cashGl, runRateMonths)
     : { avgNet: 0, avgIn: 0, avgOut: 0, sampled: 0 }
-  if (!bank?.cashGl) caveats.push('No Cash GL on this account — future-month run-rate skipped.')
-  else if (flow.sampled === 0) caveats.push('No recent ledger history — future-month run-rate unavailable (showing current balance only).')
-  else caveats.push(`Future months use this account's average net flow over ${flow.sampled} month(s): ${flow.avgNet >= 0 ? '+' : ''}${Math.round(flow.avgNet).toLocaleString()} / month.`)
+  const income = await detectIncomeProfile(opts.assocCode, bank?.cashGl)
 
-  // Project the balance at end of a given month: current balance, less the
-  // counted open invoices (this-month commitments) and this push, plus the
-  // run-rate net flow for each FULL month beyond the current one.
-  const project = (ym: string): number => {
-    const ahead = Math.max(0, monthsBetween(nowYm, ym))
-    return currentBalance - dueByTotal(endOfMonthISO(ym)) - push + ahead * flow.avgNet
+  // ── Dated timeline ───────────────────────────────────────────────
+  // Bills hit on their DUE date; assessments land on the learned cadence.
+  // Walking this (vs a flat monthly net) surfaces the end-of-month / end-of-
+  // quarter DIP — the balance falls as bills clear, then recovers when the
+  // assessment deposit lands.
+  const todayISO = isoDate(new Date())
+  const lastYm   = addMonthsYm(nowYm, horizonMonths - 1)
+  type Ev = { date: string; delta: number; kind: 'bill' | 'income' | 'push' | 'recurring' }
+  const events: Ev[] = []
+
+  // Known open invoices, on their due date (past-due / undated → today).
+  for (const o of open) {
+    const dd = o.DueDate ? o.DueDate.slice(0, 10) : todayISO
+    events.push({ date: dd < todayISO ? todayISO : dd, delta: -balanceOf(o), kind: 'bill' })
+  }
+  // This push.
+  events.push({ date: (opts.scheduledDate || todayISO).slice(0, 10), delta: -push, kind: 'push' })
+  // Expected assessment income on the learned cadence (receivables behaviour).
+  for (const inc of projectIncomeEvents(income, todayISO, lastYm)) events.push({ date: inc.date, delta: +inc.amount, kind: 'income' })
+  // Recurring spend NOT yet invoiced: top each future month's KNOWN bills up to
+  // the typical monthly spend (so far months aren't under-counted), placed
+  // mid-month. max() avoids double-counting bills already entered.
+  if (flow.avgOut > 0) {
+    for (let i = 0; i <= horizonMonths; i++) {
+      const ym = addMonthsYm(nowYm, i)
+      const lo = i === 0 ? todayISO : dayInMonth(ym, 1)
+      const hi = endOfMonthISO(ym)
+      const billed = open
+        .filter(o => { const dd = o.DueDate ? o.DueDate.slice(0, 10) : todayISO; return dd >= lo && dd <= hi })
+        .reduce((s, o) => s + balanceOf(o), 0)
+      const shortfall = Math.max(0, flow.avgOut - billed)
+      if (shortfall > 0) events.push({ date: dayInMonth(ym, 15), delta: -shortfall, kind: 'recurring' })
+    }
   }
 
-  // Affordability horizon starting this month.
+  events.sort((a, b) => a.date.localeCompare(b.date))
+
+  // Walk it: snapshot each month-end balance, track the low point (the crunch).
+  let bal = currentBalance
+  let lowPoint = { date: todayISO, balance: currentBalance }
   const horizon: MonthProjection[] = []
-  const base = new Date()
+  let ei = 0
   for (let i = 0; i < horizonMonths; i++) {
-    const d = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + i, 1))
-    const ym = ymKey(d)
-    const projectedBalance = project(ym)
-    horizon.push({ month: ym, monthsAhead: i, projectedBalance, affordableAfterPush: projectedBalance >= 0 })
+    const ym  = addMonthsYm(nowYm, i)
+    const eom = endOfMonthISO(ym)
+    while (ei < events.length && events[ei].date <= eom) {
+      bal += events[ei].delta
+      if (bal < lowPoint.balance) lowPoint = { date: events[ei].date, balance: bal }
+      ei++
+    }
+    horizon.push({ month: ym, monthsAhead: i, projectedBalance: bal, affordableAfterPush: bal >= 0 })
   }
 
   const monthsAhead    = Math.max(0, monthsBetween(nowYm, scheduledMonth))
-  const projectedAtScheduled = project(scheduledMonth)
+  const projectedAtScheduled = horizon.find(h => h.month === scheduledMonth)?.projectedBalance ?? bal
   const earliest = horizon.find(h => h.affordableAfterPush)?.month ?? null
+
+  // Display totals (what's committed by the scheduled month) + caveats.
+  const dueByScheduled    = open.filter(o => !o.DueDate || o.DueDate.slice(0, 10) <= schedCutoff)
+  const openInvoicesTotal = dueByScheduled.reduce((s, o) => s + balanceOf(o), 0)
+  caveats.push(income.note)
+  if (flow.avgOut > 0) caveats.push(`Future months also assume ≈ $${Math.round(flow.avgOut).toLocaleString()}/mo typical recurring spend where bills aren't entered yet.`)
+  if (Math.round(lowPoint.balance) < Math.round(projectedAtScheduled)) {
+    caveats.push(`Cash dips to ${lowPoint.balance < 0 ? '−' : ''}$${Math.abs(Math.round(lowPoint.balance)).toLocaleString()} around ${lowPoint.date} before the next assessment lands.`)
+  }
 
   return {
     associationCode:        opts.assocCode.toUpperCase(),
@@ -610,6 +750,8 @@ export async function forecastFundsForDate(opts: {
     avgMonthlyIn:           flow.avgIn,
     avgMonthlyOut:          flow.avgOut,
     monthsSampled:          flow.sampled,
+    incomeProfile:          income,
+    lowPoint,
     pushAmount:             push,
     scheduledMonth,
     monthsAhead,
