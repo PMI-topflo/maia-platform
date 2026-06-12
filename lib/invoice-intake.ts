@@ -324,6 +324,7 @@ async function processOnePdf(opts: {
     extracted_association_code: assoc,
     extracted_invoice_date:     extracted.invoiceDate,
     extracted_account_number:   extracted.accountNumber,
+    extracted_description:      extracted.description,
     extraction_confidence:      extracted.confidence,
     status,
     cinc_dup_invoice_id:        cincDupId,

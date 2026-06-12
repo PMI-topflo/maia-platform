@@ -124,6 +124,28 @@ async function call<T>(
   return res.status === 204 ? (undefined as unknown as T) : (await res.json() as T)
 }
 
+/** Fetch a CINC document binary by ImageID — the invoice/attachment scan that
+ *  lives behind GET /management/1/document/{ImageID}. Returns the raw bytes +
+ *  content type (PDF/image), or null on failure. */
+export async function getCincDocument(imageId: number): Promise<{ bytes: Buffer; contentType: string } | null> {
+  const url = `${API_BASE}/management/1/document/${imageId}`
+  let res = await fetch(url, { headers: { Authorization: `Bearer ${await getToken()}`, Accept: '*/*' } })
+  if (res.status === 401) { _token = null; res = await fetch(url, { headers: { Authorization: `Bearer ${await getToken()}`, Accept: '*/*' } }) }
+  if (!res.ok) return null
+  const bytes = Buffer.from(await res.arrayBuffer())
+  let contentType = res.headers.get('content-type') ?? ''
+  // CINC sometimes returns octet-stream; sniff the magic bytes so the browser
+  // renders it inline (PDF / PNG / JPEG) instead of downloading.
+  if (!contentType || /octet-stream/i.test(contentType)) {
+    const sig = bytes.subarray(0, 4).toString('latin1')
+    contentType = sig === '%PDF' ? 'application/pdf'
+      : sig.startsWith('\x89PNG') ? 'image/png'
+      : sig.startsWith('\xFF\xD8') ? 'image/jpeg'
+      : 'application/octet-stream'
+  }
+  return { bytes, contentType }
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Lookups (cached per container)
 // ─────────────────────────────────────────────────────────────────────

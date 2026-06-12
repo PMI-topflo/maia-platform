@@ -135,6 +135,26 @@ export default async function CincInvoicePage({ params, searchParams }: Props) {
           </span>
         </div>
 
+        {/* Invoice document — the actual scan/PDF, shown up top so staff see
+            it immediately. CINC stores it behind an ImageID; we stream it via
+            /api/admin/cinc/document/[imageId]. */}
+        {invoice.AttachmentInfo && invoice.AttachmentInfo.length > 0 && invoice.AttachmentInfo[0]?.ImageID != null && (
+          <div style={{ marginBottom: 14, border: '1px solid #e5e7eb', borderRadius: 6, overflow: 'hidden', background: '#f9fafb' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', borderBottom: '1px solid #e5e7eb' }}>
+              <span style={{ fontWeight: 600, color: '#374151', fontSize: 12 }}>📄 {invoice.AttachmentInfo[0].FileName ?? 'Invoice document'}</span>
+              <a href={`/api/admin/cinc/document/${invoice.AttachmentInfo[0].ImageID}`} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 12 }}>Open in new tab ↗</a>
+            </div>
+            <iframe src={`/api/admin/cinc/document/${invoice.AttachmentInfo[0].ImageID}`} title="Invoice document" style={{ width: '100%', height: 520, border: 'none', display: 'block', background: '#fff' }} />
+            {invoice.AttachmentInfo.length > 1 && (
+              <div style={{ padding: '6px 10px', fontSize: 11, color: '#6b7280', borderTop: '1px solid #e5e7eb' }}>
+                More:{invoice.AttachmentInfo.slice(1).map((a, i) => a.ImageID != null ? (
+                  <a key={i} href={`/api/admin/cinc/document/${a.ImageID}`} target="_blank" rel="noreferrer" style={{ color: '#2563eb', marginLeft: 8 }}>{a.FileName ?? `#${a.ImageID}`}</a>
+                ) : null)}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* MAIA provenance — only shown if this invoice came from MAIA */}
         {mailDraft && (
           <div style={{ padding: 10, marginBottom: 14, background: '#ecfdf5', border: '1px solid #86efac', borderRadius: 4, fontSize: 12, color: '#065f46' }}>
@@ -304,18 +324,15 @@ export default async function CincInvoicePage({ params, searchParams }: Props) {
           )}
         </Section>
 
-        {/* Attachments — CINC stores ImageID; the binary is at
-            /document/{ImageID} but we don't currently fetch the raw
-            bytes here. If MAIA pushed this invoice we link to the
-            Drive copy at the top. CINC-side attachments are listed
-            here for reference. */}
+        {/* Attachments are previewed up top; this is just the open links. */}
         {invoice.AttachmentInfo && invoice.AttachmentInfo.length > 0 && (
           <Section title={`CINC attachments (${invoice.AttachmentInfo.length})`}>
             <ul style={{ listStyle: 'disc', paddingLeft: 18, margin: 0, fontSize: 12 }}>
               {invoice.AttachmentInfo.map((a, i) => (
                 <li key={a.ImageID ?? i}>
-                  {a.FileName ?? `Attachment #${a.ImageID}`}
-                  {a.ImageID != null && <span style={{ color: '#6b7280' }}> (ImageID {a.ImageID})</span>}
+                  {a.ImageID != null ? (
+                    <a href={`/api/admin/cinc/document/${a.ImageID}`} target="_blank" rel="noreferrer" style={{ color: '#2563eb' }}>{a.FileName ?? `Attachment #${a.ImageID}`}</a>
+                  ) : (a.FileName ?? 'Attachment')}
                 </li>
               ))}
             </ul>

@@ -27,6 +27,7 @@ export interface ExtractedInvoice {
   dueDate:         string | null   // ISO YYYY-MM-DD
   associationHint: string | null   // any assoc-code-like token (3-6 caps) found
   accountNumber:   string | null   // utility/customer account number on the bill (FPL, water, cable…)
+  description:     string | null   // SHORT summary of what the invoice is FOR (work/items billed), from the body
   confidence:      number          // 0..1 — how confident the model is that this is an invoice and the fields are correct
 }
 
@@ -41,6 +42,7 @@ Return a SINGLE JSON object and nothing else (no prose, no markdown fences). Sch
   "due_date":         string or null   // ISO YYYY-MM-DD — when payment is due (often "Net 30" from invoice_date)
   "association_hint": string or null   // any 3-6 letter all-caps code on the document that looks like a property association code (e.g. "SP", "ESSI", "VENETIAN1"). Null if none.
   "account_number":   string or null   // the CUSTOMER / UTILITY ACCOUNT NUMBER identifying the service or property (utilities: FPL, water/sewer, Xfinity/cable, electric, gas). Labeled "Account Number", "Account #", "Acct No", "Customer Number". Return it EXACTLY as printed (keep any dashes/spaces). This is NOT the invoice number. Null if the bill has no account number.
+  "description":      string or null   // a SHORT plain-English summary of what the invoice is FOR — the work performed or items billed, read from the line items / body (e.g. "2 units roof leaks", "Monthly pest control", "Backflow test & certification", "June management & portal fees"). Keep it under ~80 characters. Null if the body doesn't say.
   "confidence":       number           // 0..1. 1.0 = clearly an invoice with all fields. 0.0 = doesn't look like an invoice. 0.5 = some fields missing or ambiguous.
 }
 
@@ -95,6 +97,7 @@ function emptyResult(_reason: string): ExtractedInvoice {
     dueDate:         null,
     associationHint: null,
     accountNumber:   null,
+    description:     null,
     confidence:      0,
   }
 }
@@ -143,6 +146,7 @@ function parseExtractionJson(raw: string): ExtractedInvoice {
     dueDate:         date(obj.due_date),
     associationHint: str(obj.association_hint),
     accountNumber:   str(obj.account_number),
+    description:     str(obj.description),
     confidence:      conf(obj.confidence),
   }
 }

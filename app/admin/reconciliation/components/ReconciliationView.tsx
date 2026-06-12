@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import CashFlowStrip, { type CashWeek } from '../../invoices/components/CashFlowStrip'
 
 interface Association { code: string; name: string }
 
@@ -139,6 +140,7 @@ export default function ReconciliationView(props: Props) {
 
   const [forecasts,        setForecasts]        = useState<Map<number, ForecastSummary>>(new Map())
   const [forecastsLoading, setForecastsLoading] = useState(false)
+  const [strips,           setStrips]           = useState<Map<number, CashWeek[]>>(new Map())
 
   const [error,      setError]      = useState<string | null>(null)
   const [info,       setInfo]       = useState<string | null>(null)
@@ -373,7 +375,7 @@ export default function ReconciliationView(props: Props) {
 
   // ── Forecasts (one per bank account, fetched in parallel) ────────
   const loadForecasts = useCallback(async () => {
-    if (!assoc || banks.length === 0) { setForecasts(new Map()); return }
+    if (!assoc || banks.length === 0) { setForecasts(new Map()); setStrips(new Map()); return }
     setForecastsLoading(true)
     try {
       const results = await Promise.all(banks.map(b =>
@@ -388,6 +390,17 @@ export default function ReconciliationView(props: Props) {
         }
       }
       setForecasts(map)
+
+      // Weekly cash-flow strips for operating accounts (income-aware forecast).
+      const opBanks = banks.filter(b => b.kind === 'operating')
+      const stripResults = await Promise.all(opBanks.map(b =>
+        fetch(`/api/admin/cinc/funds-check?assoc=${encodeURIComponent(assoc)}&account=${b.id}`, { cache: 'no-store' })
+          .then(r => r.json()).catch(() => null)))
+      const sMap = new Map<number, CashWeek[]>()
+      for (const s of stripResults) {
+        if (s && typeof s.bankAccountId === 'number' && Array.isArray(s.weekly)) sMap.set(s.bankAccountId, s.weekly)
+      }
+      setStrips(sMap)
     } catch { /* silent — forecasts are informational */ }
     finally { setForecastsLoading(false) }
   }, [assoc, banks])
@@ -582,7 +595,7 @@ export default function ReconciliationView(props: Props) {
             onClick={e => { if (!assoc) e.preventDefault() }}
             style={{ padding: '6px 12px', border: '1px solid #16a34a', borderRadius: 4, background: '#fff', color: '#16a34a', fontSize: 13, textDecoration: 'none', cursor: assoc ? 'pointer' : 'default' }}
           >
-            Download CSV
+            ⬇ Download spreadsheet
           </a>
           <button
             onClick={() => setShowAdd(true)}
@@ -662,6 +675,7 @@ export default function ReconciliationView(props: Props) {
           banks={ssbBanks}
           forecasts={forecasts}
           forecastsLoading={forecastsLoading}
+          strips={strips}
         />
       )}
       {otherBanks.length > 0 && (
@@ -697,40 +711,38 @@ export default function ReconciliationView(props: Props) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
           <thead>
             <tr style={{ background: '#f3f4f6' }}>
-              <Th stickyIndex={0}>Effective Date</Th>
-              <Th stickyIndex={1}>Vendor/Payee</Th>
-              <Th stickyIndex={2}>Description</Th>
-              <Th stickyIndex={3}>Invoice #</Th>
-              <Th stickyIndex={4} right>Amount</Th>
-              <Th stickyIndex={5}>Paid Type</Th>
-              <Th stickyIndex={6}>Notes</Th>
-              <Th stickyIndex={7}>Invoice</Th>
-              <Th stickyIndex={8}>PMI Coord.</Th>
+              <Th stickyIndex={0}>Rec.</Th>
+              <Th stickyIndex={1}>Effective Date</Th>
+              <Th stickyIndex={2}>Vendor/Payee</Th>
+              <Th stickyIndex={3}>Description</Th>
+              <Th stickyIndex={4}>Invoice #</Th>
+              <Th stickyIndex={5} right>Amount</Th>
+              <Th stickyIndex={6}>Paid Type</Th>
+              <Th stickyIndex={7}>Notes</Th>
               {sortedBanks.map(b => (
                 <Th key={b.id} right>{b.description}</Th>
               ))}
               <Th>Src</Th>
-              <Th>Rec.</Th>
               <Th></Th>
             </tr>
           </thead>
           <tbody>
             {entriesLoading && (
-              <tr><td colSpan={13 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>Loading…</td></tr>
+              <tr><td colSpan={11 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>Loading…</td></tr>
             )}
             {!entriesLoading && entries.length === 0 && (
-              <tr><td colSpan={13 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>
+              <tr><td colSpan={11 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>
                 {assoc ? 'No entries this month. Click "Sync now" to pull CINC payments, or "+ Manual entry" to add a row.' : 'Pick an association above.'}
               </td></tr>
             )}
             {/* Starting balance row */}
             {entries.length > 0 && (
               <tr style={{ background: '#fefce8', borderTop: '1px solid #f3f4f6', fontWeight: 600 }}>
-                <Td colSpan={9} stickyIndex={0} stickyWidth={STICKY_TOTAL} bg="#fefce8">Starting balance — {new Date(month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })}</Td>
+                <Td colSpan={8} stickyIndex={0} stickyWidth={STICKY_TOTAL} bg="#fefce8">Starting balance — {new Date(month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })}</Td>
                 {sortedBanks.map(b => (
                   <Td key={b.id} right><span style={{ fontVariantNumeric: 'tabular-nums', color: '#111827' }}>${fmt$(startingBalances.get(b.id) ?? 0)}</span></Td>
                 ))}
-                <Td></Td><Td></Td><Td></Td>
+                <Td></Td><Td></Td>
               </tr>
             )}
             {entries.map((e, idx) => {
@@ -738,10 +750,18 @@ export default function ReconciliationView(props: Props) {
               const rowBg = e.reconciled_at ? '#f0fdf4' : '#fff'
               return (
                 <tr key={e.id} style={{ background: rowBg, borderTop: '1px solid #f3f4f6' }}>
-                  <Td stickyIndex={0} bg={rowBg}>{formatMD(e.effective_date)}</Td>
-                  <Td stickyIndex={1} bg={rowBg}>{e.vendor_payee ?? ''}</Td>
-                  <Td stickyIndex={2} bg={rowBg}>{e.description ?? ''}</Td>
-                  <Td stickyIndex={3} bg={rowBg}>
+                  <Td stickyIndex={0} bg={rowBg} center>
+                    <input
+                      type="checkbox"
+                      checked={!!e.reconciled_at}
+                      disabled={savingRowId === e.id}
+                      onChange={ev => updateEntry(e.id, { reconciled: ev.target.checked })}
+                    />
+                  </Td>
+                  <Td stickyIndex={1} bg={rowBg}>{formatMD(e.effective_date)}</Td>
+                  <Td stickyIndex={2} bg={rowBg}>{e.vendor_payee ?? ''}</Td>
+                  <Td stickyIndex={3} bg={rowBg}>{e.description ?? ''}</Td>
+                  <Td stickyIndex={4} bg={rowBg}>
                     {e.invoice_number ? (
                       <a
                         href={invoiceHref(e) ?? '#'}
@@ -755,13 +775,13 @@ export default function ReconciliationView(props: Props) {
                       ''
                     )}
                   </Td>
-                  <Td stickyIndex={4} right bg={rowBg}>
+                  <Td stickyIndex={5} right bg={rowBg}>
                     <span style={{ color: e.amount < 0 ? '#991b1b' : '#166534', fontVariantNumeric: 'tabular-nums' }}>
                       ${fmt$(Math.abs(e.amount))}
                       {e.amount < 0 ? ' ⬇' : e.amount > 0 ? ' ⬆' : ''}
                     </span>
                   </Td>
-                  <Td stickyIndex={5} bg={rowBg}>
+                  <Td stickyIndex={6} bg={rowBg}>
                     <InlineNote
                       initial={e.paid_type ?? ''}
                       placeholder="ACH / Check / …"
@@ -769,36 +789,12 @@ export default function ReconciliationView(props: Props) {
                       onSave={v => updateEntry(e.id, { paid_type: v || null })}
                     />
                   </Td>
-                  <Td stickyIndex={6} bg={rowBg}>
+                  <Td stickyIndex={7} bg={rowBg}>
                     <InlineNote
                       initial={e.additional_notes ?? ''}
                       placeholder="Add note…"
                       saving={savingRowId === e.id}
                       onSave={v => updateEntry(e.id, { additional_notes: v || null })}
-                    />
-                  </Td>
-                  <Td stickyIndex={7} bg={rowBg}>
-                    {e.invoice_attached_url ? (
-                      <a href={e.invoice_attached_url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: 10 }}>PDF</a>
-                    ) : e.invoice_number ? (
-                      <a
-                        href={invoiceHref(e) ?? '#'}
-                        onClick={ev => onInvoiceLinkClick(ev, invoiceHref(e))}
-                        style={{ color: '#2563eb', fontSize: 10 }}
-                        title="Open CINC invoice detail"
-                      >
-                        details
-                      </a>
-                    ) : (
-                      <span style={{ color: '#9ca3af', fontSize: 10 }}>—</span>
-                    )}
-                  </Td>
-                  <Td stickyIndex={8} bg={rowBg}>
-                    <InlineNote
-                      initial={e.pmi_coordinator_notes ?? ''}
-                      placeholder="PMI…"
-                      saving={savingRowId === e.id}
-                      onSave={v => updateEntry(e.id, { pmi_coordinator_notes: v || null })}
                     />
                   </Td>
                   {sortedBanks.map(b => {
@@ -820,14 +816,6 @@ export default function ReconciliationView(props: Props) {
                     <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 3, background: e.source === 'cinc' ? '#dbeafe' : '#fef3c7', color: e.source === 'cinc' ? '#1e40af' : '#92400e' }}>
                       {e.source === 'cinc' ? 'CINC' : 'Manual'}
                     </span>
-                  </Td>
-                  <Td>
-                    <input
-                      type="checkbox"
-                      checked={!!e.reconciled_at}
-                      disabled={savingRowId === e.id}
-                      onChange={ev => updateEntry(e.id, { reconciled: ev.target.checked })}
-                    />
                   </Td>
                   <Td>
                     {e.source === 'manual' && (
@@ -1154,6 +1142,7 @@ function BankGroupCards(props: {
   banks:           BankAccountOption[]
   forecasts:       Map<number, ForecastSummary>
   forecastsLoading: boolean
+  strips?:         Map<number, CashWeek[]>
 }) {
   if (props.banks.length === 0) return null
   return (
@@ -1196,6 +1185,16 @@ function BankGroupCards(props: {
           )
         })}
       </div>
+      {props.strips && props.banks.filter(b => b.kind === 'operating').map(b => {
+        const wk = props.strips!.get(b.id)
+        if (!wk || wk.length === 0) return null
+        return (
+          <div key={b.id} style={{ marginTop: 12, padding: 10, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 4 }}>
+            <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>{b.description} · 3-month cash flow</div>
+            <CashFlowStrip weekly={wk} />
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -1205,7 +1204,7 @@ function BankGroupCards(props: {
 // Notes, Invoice, PMI Coord. — so they stay visible while scrolling right
 // across many bank-account columns.
 // `left` is the cumulative offset; `STICKY_TOTAL` is the full frozen width.
-const STICKY_W = [92, 130, 220, 92, 96, 100, 150, 60, 120]
+const STICKY_W = [44, 92, 130, 220, 92, 96, 100, 150]
 const STICKY_LEFT = STICKY_W.reduce<number[]>((acc, w, i) => { acc.push(i === 0 ? 0 : acc[i - 1] + STICKY_W[i - 1]); return acc }, [])
 const STICKY_TOTAL = STICKY_W.reduce((s, w) => s + w, 0)
 
@@ -1218,11 +1217,11 @@ function Th({ children, right, stickyIndex }: { children?: React.ReactNode; righ
   }}>{children}</th>
 }
 
-function Td({ children, right, colSpan, stickyIndex, bg, stickyWidth }: { children?: React.ReactNode; right?: boolean; colSpan?: number; stickyIndex?: number; bg?: string; stickyWidth?: number }) {
+function Td({ children, right, center, colSpan, stickyIndex, bg, stickyWidth }: { children?: React.ReactNode; right?: boolean; center?: boolean; colSpan?: number; stickyIndex?: number; bg?: string; stickyWidth?: number }) {
   const s = stickyIndex != null
   const w = stickyWidth ?? (s ? STICKY_W[stickyIndex] : undefined)
   return <td colSpan={colSpan} style={{
-    padding: '4px 6px', textAlign: right ? 'right' : 'left', verticalAlign: 'top', whiteSpace: 'nowrap',
+    padding: '4px 6px', textAlign: center ? 'center' : right ? 'right' : 'left', verticalAlign: 'top', whiteSpace: 'nowrap',
     ...(s ? { position: 'sticky' as const, left: STICKY_LEFT[stickyIndex], width: w, minWidth: w, background: bg ?? '#fff', zIndex: 2 } : {}),
   }}>{children}</td>
 }
