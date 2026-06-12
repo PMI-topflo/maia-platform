@@ -641,6 +641,17 @@ export default function ReconciliationView(props: Props) {
         </label>
       </div>
 
+      {assoc && (
+        <div style={{ marginBottom: 14, paddingBottom: 8, borderBottom: '2px solid #2563eb' }}>
+          <div style={{ fontSize: 26, fontWeight: 700, color: '#111827', lineHeight: 1.1 }}>
+            {props.associations.find(a => a.code === assoc)?.name ?? assoc}
+          </div>
+          <div style={{ fontSize: 15, color: '#6b7280', marginTop: 3 }}>
+            {assoc}{month ? ` · ${new Date(`${month}-01`).toLocaleString('en-US', { month: 'long', year: 'numeric' })}` : ''}
+          </div>
+        </div>
+      )}
+
       {error     && <div style={{ padding: 10, marginBottom: 10, background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 4, color: '#991b1b', fontSize: 13 }}>{error}</div>}
       {info      && <div style={{ padding: 10, marginBottom: syncErrors.length > 0 ? 4 : 10, background: '#dcfce7', border: '1px solid #86efac', borderRadius: 4, color: '#166534', fontSize: 13 }}>{info}</div>}
       {syncErrors.length > 0 && (
