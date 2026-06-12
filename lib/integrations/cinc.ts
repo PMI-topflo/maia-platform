@@ -127,23 +127,36 @@ async function call<T>(
 /** Fetch a CINC document binary by ImageID — the invoice/attachment scan that
  *  lives behind GET /management/1/document/{ImageID}. Returns the raw bytes +
  *  content type (PDF/image), or null on failure. */
-export async function getCincDocument(imageId: number): Promise<{ bytes: Buffer; contentType: string } | null> {
+export async function getCincDocument(imageId: number): Promise<{ bytes: Buffer; contentType: string; filename?: string } | null> {
   const url = `${API_BASE}/management/1/document/${imageId}`
-  let res = await fetch(url, { headers: { Authorization: `Bearer ${await getToken()}`, Accept: '*/*' } })
-  if (res.status === 401) { _token = null; res = await fetch(url, { headers: { Authorization: `Bearer ${await getToken()}`, Accept: '*/*' } }) }
+  let res = await fetch(url, { headers: { Authorization: `Bearer ${await getToken()}`, Accept: 'application/json' } })
+  if (res.status === 401) { _token = null; res = await fetch(url, { headers: { Authorization: `Bearer ${await getToken()}`, Accept: 'application/json' } }) }
   if (!res.ok) return null
-  const bytes = Buffer.from(await res.arrayBuffer())
-  let contentType = res.headers.get('content-type') ?? ''
-  // CINC sometimes returns octet-stream; sniff the magic bytes so the browser
-  // renders it inline (PDF / PNG / JPEG) instead of downloading.
-  if (!contentType || /octet-stream/i.test(contentType)) {
-    const sig = bytes.subarray(0, 4).toString('latin1')
-    contentType = sig === '%PDF' ? 'application/pdf'
-      : sig.startsWith('\x89PNG') ? 'image/png'
-      : sig.startsWith('\xFF\xD8') ? 'image/jpeg'
-      : 'application/octet-stream'
+
+  const sniff = (bytes: Buffer, name = ''): string => {
+    const sig = bytes.subarray(0, 4).toString('latin1'); const n = name.toLowerCase()
+    if (sig === '%PDF' || n.endsWith('.pdf'))            return 'application/pdf'
+    if (sig.startsWith('\x89PNG') || n.endsWith('.png')) return 'image/png'
+    if (sig.startsWith('\xFF\xD8') || /\.jpe?g$/.test(n)) return 'image/jpeg'
+    return 'application/octet-stream'
   }
-  return { bytes, contentType }
+
+  const ct = res.headers.get('content-type') ?? ''
+  // CINC returns JSON: [{ FileName, FileType, FileData (base64) }] — decode the
+  // base64 to the real binary (NOT raw bytes, despite the endpoint name).
+  if (/json/i.test(ct)) {
+    let parsed: unknown
+    try { parsed = await res.json() } catch { return null }
+    const arr = (Array.isArray(parsed) ? parsed : [parsed]) as Array<{ FileName?: string; FileData?: string }>
+    const file = arr.find(f => f?.FileData) ?? arr[0]
+    if (!file?.FileData) return null
+    const bytes = Buffer.from(file.FileData, 'base64')
+    return { bytes, contentType: sniff(bytes, file.FileName ?? ''), filename: file.FileName ?? undefined }
+  }
+
+  // Fallback: a raw-binary response.
+  const bytes = Buffer.from(await res.arrayBuffer())
+  return { bytes, contentType: (ct && !/octet-stream/i.test(ct)) ? ct : sniff(bytes) }
 }
 
 // ─────────────────────────────────────────────────────────────────────
