@@ -25,6 +25,7 @@ interface Draft {
   matched_vendor_short_name:   string | null
   extracted_invoice_number:    string | null
   extracted_account_number:    string | null
+  extracted_description:       string | null
   extracted_amount:            number | null
   extracted_association_code:  string | null
   extracted_invoice_date:      string | null
@@ -358,6 +359,7 @@ function DraftCard(props: {
   const [assoc, setAssoc]         = useState<string>(draft.extracted_association_code ?? '')
   const [invNo, setInvNo]         = useState<string>(draft.extracted_invoice_number ?? '')
   const [acctNum, setAcctNum]     = useState<string>(draft.extracted_account_number ?? '')
+  const [descr, setDescr]         = useState<string>(draft.extracted_description ?? '')
   const [amount, setAmount]       = useState<string>(draft.extracted_amount != null ? String(draft.extracted_amount) : '')
   const [invDate, setInvDate]     = useState<string>(draft.extracted_invoice_date ?? '')
   const [dueDate, setDueDate]     = useState<string>(draft.due_date ?? '')
@@ -541,6 +543,7 @@ function DraftCard(props: {
     setAssoc    (draft.extracted_association_code ?? '')
     setInvNo    (draft.extracted_invoice_number   ?? '')
     setAcctNum  (draft.extracted_account_number   ?? '')
+    setDescr    (draft.extracted_description       ?? '')
     setAmount   (draft.extracted_amount != null ? String(draft.extracted_amount) : '')
     setInvDate  (draft.extracted_invoice_date     ?? '')
     setDueDate  (draft.due_date                    ?? '')
@@ -565,6 +568,7 @@ function DraftCard(props: {
       matched_vendor_short_name:   shortName || null,
       extracted_invoice_number:    invNo || null,
       extracted_account_number:    acctNum || null,
+      extracted_description:       descr   || null,
       extracted_amount:            amount ? parseFloat(amount) : null,
       extracted_association_code:  assoc || null,
       extracted_invoice_date:      invDate || null,
@@ -1127,6 +1131,24 @@ function DraftCard(props: {
               Routes future bills on this account to the right vendor + association + GL. Learned automatically on push.
             </div>
           )}
+        </Field>
+
+        <Field label="Description (what MAIA read)" right={fieldCheck('description', !!descr)}>
+          {mode === 'edit' ? (
+            <textarea
+              value={descr}
+              onChange={e => setDescr(e.target.value)}
+              disabled={readOnly}
+              rows={2}
+              placeholder="what the invoice is FOR — e.g. 2 units roof leaks"
+              style={{ width: '100%', padding: 6, resize: 'vertical' }}
+            />
+          ) : (
+            <ReadOnlyValue value={descr} placeholder="—" />
+          )}
+          <div style={{ marginTop: 4, color: '#6b7280', fontSize: 11 }}>
+            MAIA&apos;s read of the invoice body — adjust or approve. Flows to reconciliation &amp; reports.
+          </div>
         </Field>
 
         <Field label="Amount ($)" right={fieldCheck('amount', !!amount)}>

@@ -1860,6 +1860,15 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `ALTER TABLE public.work_order_attachments ADD COLUMN IF NOT EXISTS phase text CHECK (phase IS NULL OR phase IN ('before', 'after'));
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'invoice_description',
+    label:       'Invoice description (MAIA read)',
+    description: 'invoice_intake_drafts.extracted_description — what MAIA read the invoice is FOR (e.g. "2 units roof leaks"); shown on intake + reconciliation.',
+    filename:    '20260611_invoice_description.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'extracted_description' },
+    sql: `ALTER TABLE public.invoice_intake_drafts ADD COLUMN IF NOT EXISTS extracted_description text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

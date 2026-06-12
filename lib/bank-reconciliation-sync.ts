@@ -81,6 +81,7 @@ interface DraftRow {
   extracted_invoice_number:    string | null
   extracted_amount:            number | null
   extracted_invoice_date:      string | null
+  extracted_description:       string | null
   pay_from_bank_account_id:    number | null
   pay_by_type:                 string | null
   gl_account_name:             string | null
@@ -265,7 +266,7 @@ export async function syncReconciliationForAssoc(
   // trips to Supabase.
   const { data: draftsRaw } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('id, cinc_invoice_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_invoice_date, pay_from_bank_account_id, pay_by_type, gl_account_name, drive_file_id')
+    .select('id, cinc_invoice_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_invoice_date, extracted_description, pay_from_bank_account_id, pay_by_type, gl_account_name, drive_file_id')
     .eq('extracted_association_code', associationCode.toUpperCase())
     .eq('status', 'pushed_to_cinc')
   const drafts = (draftsRaw ?? []) as DraftRow[]
@@ -398,7 +399,10 @@ export async function syncReconciliationForAssoc(
                                       ?? matchedDraft?.matched_vendor_short_name
                                       ?? (parsedInvNum ? (payeeByInvoiceNum.get(parsedInvNum.toLowerCase()) ?? vendorByInvoiceNum.get(parsedInvNum.toLowerCase()) ?? null) : null)
                                       ?? inferVendorPayee(tx.Description ?? null, isOutflow),
-        description:                ((tx.Description ?? '').trim() || matchedDraft?.gl_account_name || null),
+        // Prefer what MAIA actually READ from the invoice body (e.g. "2 units
+        // roof leaks") for MAIA-pushed invoices; otherwise the raw CINC posting
+        // text. The Inv.# lives in its own column now.
+        description:                (matchedDraft?.extracted_description?.trim() || (tx.Description ?? '').trim() || matchedDraft?.gl_account_name || null),
         // Populate the Invoice # column for CINC-native rows too, parsed
         // from the "Inv.#NNN" token in the description.
         invoice_number:             matchedDraft?.extracted_invoice_number ?? parsedInvNum ?? null,
