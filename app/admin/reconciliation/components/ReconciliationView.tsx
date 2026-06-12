@@ -420,7 +420,7 @@ export default function ReconciliationView(props: Props) {
       const sumOfMonth = entries
         .filter(e => e.bank_account_id === b.id)
         .reduce((s, e) => s + e.amount, 0)
-      const current = b.cincBalance ?? b.bankBalance ?? 0
+      const current = b.bankBalance ?? b.cincBalance ?? 0
       map.set(b.id, current - sumOfMonth)
     }
     return map
@@ -1157,7 +1157,7 @@ function BankGroupCards(props: {
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(props.banks.length, 4)}, 1fr)`, gap: 8 }}>
         {props.banks.map(b => {
           const f      = props.forecasts.get(b.id)
-          const eom    = f?.projectedEomBalance ?? (b.cincBalance ?? b.bankBalance ?? 0)
+          const eom    = f?.projectedEomBalance ?? (b.bankBalance ?? b.cincBalance ?? 0)
           const danger = f?.willOverdraw ?? false
           const tight  = !danger && eom < 1000
           const bg     = danger ? '#fee2e2' : tight ? '#fef3c7' : '#fff'
@@ -1166,7 +1166,7 @@ function BankGroupCards(props: {
             <div key={b.id} style={{ padding: 10, background: bg, border: `1px solid ${border}`, borderRadius: 4, fontSize: 11 }}>
               <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 4, color: '#111827' }}>{b.description}</div>
               <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>Current</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', fontVariantNumeric: 'tabular-nums' }}>${fmt$(b.cincBalance ?? b.bankBalance)}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', fontVariantNumeric: 'tabular-nums' }}>${fmt$(b.bankBalance ?? b.cincBalance)}</div>
               {f && (
                 <>
                   <div style={{ marginTop: 6, fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>EOM projection</div>

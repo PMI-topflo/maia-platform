@@ -338,9 +338,9 @@ export async function forecastEndOfMonthBalance(opts: {
     }
   }
 
-  const currentBalance = bank.cincBalance ?? bank.bankBalance ?? 0
-  if (bank.cincBalance == null && bank.bankBalance != null) {
-    caveats.push('Using bank-reported balance — CINC reconciled balance unavailable.')
+  const currentBalance = bank.bankBalance ?? bank.cincBalance ?? 0
+  if (bank.bankBalance == null && bank.cincBalance != null) {
+    caveats.push('Using CINC book balance — bank-reported balance unavailable from CINC.')
   }
 
   // ── Approved unpaid (MAIA-pushed invoices only) ─────────────────
@@ -657,9 +657,9 @@ export async function forecastFundsForDate(opts: {
   const banks = await listAssociationBankAccounts(opts.assocCode)
   const bank  = banks.find(b => b.id === opts.bankAccountId) ?? banks.find(b => b.kind === 'operating') ?? banks[0]
 
-  const currentBalance = bank ? (bank.cincBalance ?? bank.bankBalance ?? 0) : 0
-  if (bank && bank.cincBalance == null && bank.bankBalance != null) {
-    caveats.push('Using bank-reported balance — CINC reconciled balance unavailable.')
+  const currentBalance = bank ? (bank.bankBalance ?? bank.cincBalance ?? 0) : 0
+  if (bank && bank.bankBalance == null && bank.cincBalance != null) {
+    caveats.push('Using CINC book balance — bank-reported balance unavailable from CINC.')
   }
 
   const nowYm          = ymKey(new Date())
