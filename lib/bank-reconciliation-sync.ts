@@ -37,6 +37,7 @@ import {
   listAssociationBankAccounts,
   listGlTransactionsByDate,
   listOpenInvoices,
+  listAssociationInvoices,
   CincApiError,
   type CincGlTransaction,
   type BankAccountOption,
@@ -287,6 +288,19 @@ export async function syncReconciliationForAssoc(
     }
   } catch { /* non-fatal — enrichment only */ }
 
+  // PAID/closed invoices aren't in listOpenInvoices, so their vendor was lost
+  // (e.g. "Inv.#15101 - Meeting Expense" showed no vendor). listAssociationInvoices
+  // enumerates ALL invoices in the window — paid too — each carrying the Vendor
+  // name, so we can fill the gap. One call per assoc per sync.
+  const vendorByInvoiceNum = new Map<string, string>()
+  try {
+    for (const inv of await listAssociationInvoices({ assocCode: associationCode, fromDate, toDate })) {
+      const num = (inv.InvoiceNumber ?? '').trim()
+      const ven = (inv.Vendor ?? '').trim()
+      if (num && ven && !vendorByInvoiceNum.has(num.toLowerCase())) vendorByInvoiceNum.set(num.toLowerCase(), ven)
+    }
+  } catch { /* non-fatal — enrichment only */ }
+
   // ── Per-bank sync ──────────────────────────────────────────────────
   for (const bank of syncable) {
     stats.bankAccountsTried++
@@ -382,7 +396,7 @@ export async function syncReconciliationForAssoc(
         // description heuristic → null. Never echoes the description.
         vendor_payee:               matchedDraft?.matched_vendor_name
                                       ?? matchedDraft?.matched_vendor_short_name
-                                      ?? (parsedInvNum ? payeeByInvoiceNum.get(parsedInvNum.toLowerCase()) ?? null : null)
+                                      ?? (parsedInvNum ? (payeeByInvoiceNum.get(parsedInvNum.toLowerCase()) ?? vendorByInvoiceNum.get(parsedInvNum.toLowerCase()) ?? null) : null)
                                       ?? inferVendorPayee(tx.Description ?? null, isOutflow),
         description:                ((tx.Description ?? '').trim() || matchedDraft?.gl_account_name || null),
         // Populate the Invoice # column for CINC-native rows too, parsed
