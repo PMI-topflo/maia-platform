@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import CashFlowStrip, { type CashWeek } from '../../invoices/components/CashFlowStrip'
 
 interface Association { code: string; name: string }
 
@@ -139,6 +140,7 @@ export default function ReconciliationView(props: Props) {
 
   const [forecasts,        setForecasts]        = useState<Map<number, ForecastSummary>>(new Map())
   const [forecastsLoading, setForecastsLoading] = useState(false)
+  const [strips,           setStrips]           = useState<Map<number, CashWeek[]>>(new Map())
 
   const [error,      setError]      = useState<string | null>(null)
   const [info,       setInfo]       = useState<string | null>(null)
@@ -373,7 +375,7 @@ export default function ReconciliationView(props: Props) {
 
   // ── Forecasts (one per bank account, fetched in parallel) ────────
   const loadForecasts = useCallback(async () => {
-    if (!assoc || banks.length === 0) { setForecasts(new Map()); return }
+    if (!assoc || banks.length === 0) { setForecasts(new Map()); setStrips(new Map()); return }
     setForecastsLoading(true)
     try {
       const results = await Promise.all(banks.map(b =>
@@ -388,6 +390,17 @@ export default function ReconciliationView(props: Props) {
         }
       }
       setForecasts(map)
+
+      // Weekly cash-flow strips for operating accounts (income-aware forecast).
+      const opBanks = banks.filter(b => b.kind === 'operating')
+      const stripResults = await Promise.all(opBanks.map(b =>
+        fetch(`/api/admin/cinc/funds-check?assoc=${encodeURIComponent(assoc)}&account=${b.id}`, { cache: 'no-store' })
+          .then(r => r.json()).catch(() => null)))
+      const sMap = new Map<number, CashWeek[]>()
+      for (const s of stripResults) {
+        if (s && typeof s.bankAccountId === 'number' && Array.isArray(s.weekly)) sMap.set(s.bankAccountId, s.weekly)
+      }
+      setStrips(sMap)
     } catch { /* silent — forecasts are informational */ }
     finally { setForecastsLoading(false) }
   }, [assoc, banks])
@@ -662,6 +675,7 @@ export default function ReconciliationView(props: Props) {
           banks={ssbBanks}
           forecasts={forecasts}
           forecastsLoading={forecastsLoading}
+          strips={strips}
         />
       )}
       {otherBanks.length > 0 && (
@@ -1154,6 +1168,7 @@ function BankGroupCards(props: {
   banks:           BankAccountOption[]
   forecasts:       Map<number, ForecastSummary>
   forecastsLoading: boolean
+  strips?:         Map<number, CashWeek[]>
 }) {
   if (props.banks.length === 0) return null
   return (
@@ -1196,6 +1211,16 @@ function BankGroupCards(props: {
           )
         })}
       </div>
+      {props.strips && props.banks.filter(b => b.kind === 'operating').map(b => {
+        const wk = props.strips!.get(b.id)
+        if (!wk || wk.length === 0) return null
+        return (
+          <div key={b.id} style={{ marginTop: 12, padding: 10, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 4 }}>
+            <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>{b.description} · 3-month cash flow</div>
+            <CashFlowStrip weekly={wk} />
+          </div>
+        )
+      })}
     </div>
   )
 }
