@@ -28,6 +28,11 @@ const GREEN   = '#15803d'
 // short, non-technical title + blurb, ISO date) and old ones drop off.
 export interface WhatsNewItem { date: string; title: string; blurb: string }
 export const WHATS_NEW: WhatsNewItem[] = [
+  { date: '2026-06-15', title: 'Find any invoice — new search bar', blurb: 'On Invoice intake there’s now a search bar at the top: type an invoice number, vendor, amount, association or account number to find an invoice in ANY tab — including ones already processed, pushed or paid.' },
+  { date: '2026-06-15', title: 'Cash-flow forecast on Reconciliation', blurb: 'Each association now shows a 3-month cash-flow graph on the reconciliation page — click a bank account to see its runway and the end-of-month / end-of-quarter dip, with the income (assessments) factored in. Bank balances now follow the bank-reported figure.' },
+  { date: '2026-06-15', title: 'Download reconciliation as a spreadsheet', blurb: 'The reconciliation page’s “Download spreadsheet” button now gives a colorful Excel/Sheets file that mirrors the page — totals, all columns, per-bank running balances, reconciled rows in green.' },
+  { date: '2026-06-15', title: 'MAIA reads what each invoice is FOR', blurb: 'MAIA now reads a short description of the work from the invoice body (e.g. “2 units roof leaks”). Review/approve it on the invoice editor; it flows to the reconciliation Description.' },
+  { date: '2026-06-15', title: 'New maintenance guide in Help', blurb: 'Help now has a full guide for work orders, estimate requests, recurring services and board approval — every step, all in one place. Open it from the left menu → Help.' },
   { date: '2026-06-08', title: 'New look + left menu', blurb: 'A lighter, easier-to-read top bar and a new left sidebar with menus & submenus. Say hi to Maia — your assistant, by PMI Top Florida Properties.' },
   { date: '2026-06-08', title: 'Association Hub', blurb: 'One page per association — board, owners, work orders, financials, documents and reports all together. Open it from Associations → an association.' },
   { date: '2026-06-07', title: 'Work-order photos sync to CINC', blurb: 'Photos you add to a work order now upload into the linked CINC work order automatically.' },
@@ -39,8 +44,11 @@ export const WHATS_NEW: WhatsNewItem[] = [
 /** Items from the last `days` days, newest first. */
 export function recentWhatsNew(nowIso: string, days = 7): WhatsNewItem[] {
   const cutoff = new Date(nowIso).getTime() - days * 86_400_000
+  const today  = nowIso.slice(0, 10)
   return WHATS_NEW
-    .filter(i => new Date(`${i.date}T12:00:00Z`).getTime() >= cutoff)
+    // Within the last `days` AND not future-dated — so an item can be scheduled
+    // for a future date (e.g. announce on Monday) and stays hidden until then.
+    .filter(i => i.date <= today && new Date(`${i.date}T12:00:00Z`).getTime() >= cutoff)
     .sort((a, b) => b.date.localeCompare(a.date))
 }
 
