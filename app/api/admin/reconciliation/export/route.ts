@@ -66,7 +66,7 @@ export async function GET(req: Request) {
   if (!assoc) return NextResponse.json({ error: 'assoc query param required' }, { status: 400 })
 
   let banks: BankAccountOption[] = []
-  let assocName = assoc
+  const assocName = assoc
   try {
     banks = await listAssociationBankAccounts(assoc)
   } catch { /* CINC down — still export the entries */ }
