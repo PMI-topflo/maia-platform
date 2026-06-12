@@ -719,8 +719,6 @@ export default function ReconciliationView(props: Props) {
               <Th stickyIndex={5} right>Amount</Th>
               <Th stickyIndex={6}>Paid Type</Th>
               <Th stickyIndex={7}>Notes</Th>
-              <Th stickyIndex={8}>Invoice</Th>
-              <Th stickyIndex={9}>PMI Coord.</Th>
               {sortedBanks.map(b => (
                 <Th key={b.id} right>{b.description}</Th>
               ))}
@@ -730,17 +728,17 @@ export default function ReconciliationView(props: Props) {
           </thead>
           <tbody>
             {entriesLoading && (
-              <tr><td colSpan={13 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>Loading…</td></tr>
+              <tr><td colSpan={11 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>Loading…</td></tr>
             )}
             {!entriesLoading && entries.length === 0 && (
-              <tr><td colSpan={13 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>
+              <tr><td colSpan={11 + banks.length} style={{ padding: 12, textAlign: 'center', color: '#9ca3af' }}>
                 {assoc ? 'No entries this month. Click "Sync now" to pull CINC payments, or "+ Manual entry" to add a row.' : 'Pick an association above.'}
               </td></tr>
             )}
             {/* Starting balance row */}
             {entries.length > 0 && (
               <tr style={{ background: '#fefce8', borderTop: '1px solid #f3f4f6', fontWeight: 600 }}>
-                <Td colSpan={10} stickyIndex={0} stickyWidth={STICKY_TOTAL} bg="#fefce8">Starting balance — {new Date(month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })}</Td>
+                <Td colSpan={8} stickyIndex={0} stickyWidth={STICKY_TOTAL} bg="#fefce8">Starting balance — {new Date(month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })}</Td>
                 {sortedBanks.map(b => (
                   <Td key={b.id} right><span style={{ fontVariantNumeric: 'tabular-nums', color: '#111827' }}>${fmt$(startingBalances.get(b.id) ?? 0)}</span></Td>
                 ))}
@@ -797,30 +795,6 @@ export default function ReconciliationView(props: Props) {
                       placeholder="Add note…"
                       saving={savingRowId === e.id}
                       onSave={v => updateEntry(e.id, { additional_notes: v || null })}
-                    />
-                  </Td>
-                  <Td stickyIndex={8} bg={rowBg}>
-                    {e.invoice_attached_url ? (
-                      <a href={e.invoice_attached_url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: 10 }}>PDF</a>
-                    ) : e.invoice_number ? (
-                      <a
-                        href={invoiceHref(e) ?? '#'}
-                        onClick={ev => onInvoiceLinkClick(ev, invoiceHref(e))}
-                        style={{ color: '#2563eb', fontSize: 10 }}
-                        title="Open CINC invoice detail"
-                      >
-                        details
-                      </a>
-                    ) : (
-                      <span style={{ color: '#9ca3af', fontSize: 10 }}>—</span>
-                    )}
-                  </Td>
-                  <Td stickyIndex={9} bg={rowBg}>
-                    <InlineNote
-                      initial={e.pmi_coordinator_notes ?? ''}
-                      placeholder="PMI…"
-                      saving={savingRowId === e.id}
-                      onSave={v => updateEntry(e.id, { pmi_coordinator_notes: v || null })}
                     />
                   </Td>
                   {sortedBanks.map(b => {
@@ -1230,7 +1204,7 @@ function BankGroupCards(props: {
 // Notes, Invoice, PMI Coord. — so they stay visible while scrolling right
 // across many bank-account columns.
 // `left` is the cumulative offset; `STICKY_TOTAL` is the full frozen width.
-const STICKY_W = [44, 92, 130, 220, 92, 96, 100, 150, 60, 120]
+const STICKY_W = [44, 92, 130, 220, 92, 96, 100, 150]
 const STICKY_LEFT = STICKY_W.reduce<number[]>((acc, w, i) => { acc.push(i === 0 ? 0 : acc[i - 1] + STICKY_W[i - 1]); return acc }, [])
 const STICKY_TOTAL = STICKY_W.reduce((s, w) => s + w, 0)
 
