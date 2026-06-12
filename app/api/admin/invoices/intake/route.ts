@@ -106,10 +106,11 @@ type IntakeDraftRow = { pdf_storage_key: string | null } & Record<string, unknow
 export async function GET(req: Request) {
   const url       = new URL(req.url)
   const status    = url.searchParams.get('status') ?? 'pending_review'
+  const search    = (url.searchParams.get('search') ?? '').trim()
   const limitRaw  = parseInt(url.searchParams.get('limit') ?? '50', 10)
   const limit     = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, limitRaw)) : 50
 
-  if (status !== 'all' && !VALID_STATUSES.has(status)) {
+  if (!search && status !== 'all' && !VALID_STATUSES.has(status)) {
     return NextResponse.json({ error: `invalid status "${status}"` }, { status: 400 })
   }
 
@@ -117,11 +118,29 @@ export async function GET(req: Request) {
     .from('invoice_intake_drafts')
     .select(SELECT_COLUMNS)
     .order('created_at', { ascending: false })
-    .limit(limit)
+    .limit(search ? 100 : limit)
 
+  if (search) {
+    // Cross-status search (any tab): invoice #, vendor, association, account #,
+    // description — plus exact amount when the term is numeric. PostgREST .or()
+    // uses '*' as the ilike wildcard; sanitize commas/wildcards out of the term.
+    const term = search.replace(/[,%*()]/g, ' ').trim()
+    const pat  = `*${term}*`
+    const ors  = [
+      `extracted_invoice_number.ilike.${pat}`,
+      `matched_vendor_name.ilike.${pat}`,
+      `matched_vendor_short_name.ilike.${pat}`,
+      `extracted_association_code.ilike.${pat}`,
+      `extracted_account_number.ilike.${pat}`,
+      `extracted_description.ilike.${pat}`,
+    ]
+    const num = parseFloat(term.replace(/[^0-9.]/g, ''))
+    if (Number.isFinite(num) && num > 0) ors.push(`extracted_amount.eq.${num}`)
+    query = query.or(ors.join(','))
+  }
   // 'Pending review' folds in no-vendor + CINC-duplicate drafts (no separate
   // tabs); the audit checklist handles vendor assignment + the duplicate guard.
-  if (status === 'pending_review')      query = query.in('status', ['pending_review', 'needs_vendor', 'duplicate_in_cinc'])
+  else if (status === 'pending_review') query = query.in('status', ['pending_review', 'needs_vendor', 'duplicate_in_cinc'])
   else if (status !== 'all')            query = query.eq('status', status)
 
   const { data, error } = await query

@@ -129,6 +129,8 @@ export default function InvoiceIntakeQueue(props: Props) {
   const [counts, setCounts] = useState<Record<string, number>>(props.initialCounts)
   const [busy,   setBusy]   = useState(false)
   const [error,  setError]  = useState<string | null>(null)
+  const [searchTerm,   setSearchTerm]   = useState('')
+  const [searchActive, setSearchActive] = useState(false)
 
   const fetchTab = useCallback(async (s: string) => {
     setBusy(true); setError(null)
@@ -149,7 +151,32 @@ export default function InvoiceIntakeQueue(props: Props) {
     }
   }, [])
 
+  // Cross-status search — find an invoice in ANY tab (processed / pushed /
+  // rejected / on hold) by number, vendor, amount, association, account #.
+  const runSearch = useCallback(async (term: string) => {
+    const q = term.trim()
+    if (!q) return
+    setBusy(true); setError(null)
+    try {
+      const res = await fetch(`/api/admin/invoices/intake?search=${encodeURIComponent(q)}`, { cache: 'no-store' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      setDrafts((data.drafts ?? []) as Draft[])
+      setIdx(0)
+      setSearchActive(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }, [])
+
+  function clearSearch() {
+    setSearchTerm(''); setSearchActive(false); setIdx(0); void fetchTab(status)
+  }
+
   function switchTab(s: string) {
+    setSearchActive(false); setSearchTerm('')
     setStatus(s)
     setIdx(0)   // start at the first invoice of the new tab
     const params = new URLSearchParams(searchParams.toString())
@@ -209,7 +236,24 @@ export default function InvoiceIntakeQueue(props: Props) {
         </div>
       </header>
 
-      <div role="tablist" style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e5e7eb', marginBottom: 16 }}>
+      <form onSubmit={e => { e.preventDefault(); void runSearch(searchTerm) }} style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          placeholder="🔍 Find any invoice — number, vendor, amount, association, account #…"
+          style={{ flex: '0 1 460px', padding: '7px 11px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+        />
+        <button type="submit" disabled={busy || !searchTerm.trim()}
+          style={{ fontSize: 12, padding: '7px 14px', border: '1px solid #2563eb', background: busy ? '#bfdbfe' : '#2563eb', color: '#fff', borderRadius: 6, cursor: 'pointer' }}>Search all</button>
+        {searchActive && (
+          <>
+            <button type="button" onClick={clearSearch} style={{ fontSize: 12, padding: '7px 12px', border: '1px solid #d1d5db', background: '#fff', borderRadius: 6, cursor: 'pointer' }}>✕ Clear</button>
+            <span style={{ fontSize: 12, color: '#6b7280' }}>{drafts.length} result{drafts.length === 1 ? '' : 's'} across all statuses</span>
+          </>
+        )}
+      </form>
+
+      <div role="tablist" style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e5e7eb', marginBottom: 16, opacity: searchActive ? 0.5 : 1 }}>
         {TABS.map(t => {
           const active = t.key === status
           // Pending review folds in no-vendor + CINC-duplicate drafts (no separate tabs).
