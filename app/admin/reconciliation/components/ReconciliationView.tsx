@@ -193,11 +193,14 @@ export default function ReconciliationView(props: Props) {
   }
   function bankSortKey(bank: BankAccountOption): number {
     // Lower = appears first.
-    //   0-9   : SSB Operating (one or more — sub-sort by description)
-    //   10-19 : Other SSB accounts (reserve / SA / etc.)
-    //   100+  : Non-SSB accounts
+    //   0   : the SSB account literally named "Operating" — ALWAYS first/left
+    //   5   : other operating-kind SSB accounts (e.g. "Manors Club")
+    //   10  : other SSB accounts (reserve / SA / generator / etc.)
+    //   100+: non-SSB accounts
     if (isSsbAccount(bank)) {
-      return bank.kind === 'operating' ? 0 : 10
+      if (/\boperating\b/i.test(bank.description ?? '')) return 0
+      if (bank.kind === 'operating')                     return 5
+      return 10
     }
     return 100
   }
@@ -390,22 +393,30 @@ export default function ReconciliationView(props: Props) {
         }
       }
       setForecasts(map)
-
-      // Weekly cash-flow strips for operating accounts (income-aware forecast).
-      const opBanks = banks.filter(b => b.kind === 'operating')
-      const stripResults = await Promise.all(opBanks.map(b =>
-        fetch(`/api/admin/cinc/funds-check?assoc=${encodeURIComponent(assoc)}&account=${b.id}`, { cache: 'no-store' })
-          .then(r => r.json()).catch(() => null)))
-      const sMap = new Map<number, CashWeek[]>()
-      for (const s of stripResults) {
-        if (s && typeof s.bankAccountId === 'number' && Array.isArray(s.weekly)) sMap.set(s.bankAccountId, s.weekly)
-      }
-      setStrips(sMap)
     } catch { /* silent — forecasts are informational */ }
     finally { setForecastsLoading(false) }
   }, [assoc, banks])
 
   useEffect(() => { void loadForecasts() }, [loadForecasts])
+
+  // Cash-flow strip: ONE graph at a time for the SELECTED bank account. Lazily
+  // fetch its weekly series on click; default to the operating account.
+  const [selectedStrip, setSelectedStrip] = useState<number | null>(null)
+  const loadStrip = useCallback(async (accountId: number) => {
+    setSelectedStrip(accountId)
+    if (strips.has(accountId)) return
+    try {
+      const s = await fetch(`/api/admin/cinc/funds-check?assoc=${encodeURIComponent(assoc)}&account=${accountId}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null)
+      if (s && Array.isArray(s.weekly)) setStrips(prev => new Map(prev).set(accountId, s.weekly))
+    } catch { /* silent */ }
+  }, [assoc, strips])
+
+  useEffect(() => {
+    if (banks.length === 0) { setSelectedStrip(null); setStrips(new Map()); return }
+    const op = banks.find(b => /\boperating\b/i.test(b.description)) ?? banks.find(b => b.kind === 'operating') ?? banks[0]
+    if (op) void loadStrip(op.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assoc, banks])
 
   // ── Per-row running balance ───────────────────────────────────────
   // For each bank account, start at (currentBalance − sum_of_entries_in_window)
@@ -687,6 +698,8 @@ export default function ReconciliationView(props: Props) {
           forecasts={forecasts}
           forecastsLoading={forecastsLoading}
           strips={strips}
+          selectedStrip={selectedStrip}
+          onSelectStrip={loadStrip}
         />
       )}
       {otherBanks.length > 0 && (
@@ -1154,6 +1167,8 @@ function BankGroupCards(props: {
   forecasts:       Map<number, ForecastSummary>
   forecastsLoading: boolean
   strips?:         Map<number, CashWeek[]>
+  selectedStrip?:  number | null
+  onSelectStrip?:  (id: number) => void
 }) {
   if (props.banks.length === 0) return null
   return (
@@ -1173,8 +1188,16 @@ function BankGroupCards(props: {
           const tight  = !danger && eom < 1000
           const bg     = danger ? '#fee2e2' : tight ? '#fef3c7' : '#fff'
           const border = danger ? '#fca5a5' : tight ? '#fcd34d' : '#e5e7eb'
+          const selectable = !!props.onSelectStrip
+          const selected   = props.selectedStrip === b.id
           return (
-            <div key={b.id} style={{ padding: 10, background: bg, border: `1px solid ${border}`, borderRadius: 4, fontSize: 11 }}>
+            <div key={b.id}
+              onClick={selectable ? () => props.onSelectStrip!(b.id) : undefined}
+              title={selectable ? 'Show this account’s cash-flow graph' : undefined}
+              style={{ padding: 10, background: bg, borderRadius: 4, fontSize: 11,
+                border: selected ? '2px solid #2563eb' : `1px solid ${border}`,
+                cursor: selectable ? 'pointer' : 'default',
+                boxShadow: selected ? '0 0 0 1px #2563eb' : 'none' }}>
               <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 4, color: '#111827' }}>{b.description}</div>
               <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>Current</div>
               <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', fontVariantNumeric: 'tabular-nums' }}>${fmt$(b.bankBalance ?? b.cincBalance)}</div>
@@ -1196,16 +1219,18 @@ function BankGroupCards(props: {
           )
         })}
       </div>
-      {props.strips && props.banks.filter(b => b.kind === 'operating').map(b => {
-        const wk = props.strips!.get(b.id)
-        if (!wk || wk.length === 0) return null
+      {(() => {
+        const id = props.selectedStrip
+        const b  = id != null ? props.banks.find(x => x.id === id) : undefined
+        if (!b) return null
+        const wk = props.strips?.get(b.id)
         return (
-          <div key={b.id} style={{ marginTop: 12, padding: 10, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 4 }}>
-            <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>{b.description} · 3-month cash flow</div>
-            <CashFlowStrip weekly={wk} />
+          <div style={{ marginTop: 12, padding: 10, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 4 }}>
+            <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>{b.description} · 3-month cash flow <span style={{ textTransform: 'none', letterSpacing: 0, color: '#9ca3af' }}>· click any account above to switch</span></div>
+            {wk && wk.length > 0 ? <CashFlowStrip weekly={wk} /> : <div style={{ fontSize: 11, color: '#6b7280', padding: '10px 0' }}>Loading cash flow…</div>}
           </div>
         )
-      })}
+      })()}
     </div>
   )
 }
