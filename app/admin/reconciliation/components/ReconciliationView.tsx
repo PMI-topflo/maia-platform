@@ -595,7 +595,7 @@ export default function ReconciliationView(props: Props) {
             onClick={e => { if (!assoc) e.preventDefault() }}
             style={{ padding: '6px 12px', border: '1px solid #16a34a', borderRadius: 4, background: '#fff', color: '#16a34a', fontSize: 13, textDecoration: 'none', cursor: assoc ? 'pointer' : 'default' }}
           >
-            Download CSV
+            ⬇ Download spreadsheet
           </a>
           <button
             onClick={() => setShowAdd(true)}
