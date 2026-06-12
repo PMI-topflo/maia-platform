@@ -103,7 +103,7 @@ export async function GET(req: Request) {
     sumByAccount.set(r.bank_account_id, (sumByAccount.get(r.bank_account_id) ?? 0) + r.amount)
   }
   const startingByAccount = new Map<number, number>()
-  for (const b of banks) startingByAccount.set(b.id, (b.cincBalance ?? b.bankBalance ?? 0) - (sumByAccount.get(b.id) ?? 0))
+  for (const b of banks) startingByAccount.set(b.id, (b.bankBalance ?? b.cincBalance ?? 0) - (sumByAccount.get(b.id) ?? 0))
 
   const monthLabel = month ? new Date(`${month}-01`).toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'All'
 

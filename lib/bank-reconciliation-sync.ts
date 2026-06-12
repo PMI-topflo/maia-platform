@@ -58,6 +58,15 @@ function parseInvoiceNumber(description: string | null): string | null {
   return m ? m[1].trim() : null
 }
 
+// CINC books some vendor payments with the FUNDING bank account's NAME on the
+// cash-credit line (e.g. "CSB - Cash Operating - 1956") instead of the payee —
+// the real vendor + invoice live on the paired EXPENSE DEBIT (same date +
+// amount, non-asset GL). This flags those mislabeled lines so we recover the
+// real description from the expense leg. (Lafayette Arms is the clearest case.)
+const BANK_LABEL_RE = /\b(funds?\s+transfer|cash\s+(operating|reserve|special)|transfer\s+(to|from|between|of)|inter[-\s]?account|wire\s+transfer|ach\s+transfer|sweep|opening\s+balance|beginning\s+balance)\b/i
+const isAssetGl = (n?: string | null) => /^1\d?-/.test((n ?? '').trim())          // 1x = cash/asset
+const amtDateKey = (date: string, amount: number) => `${date.slice(0, 10)}|${Math.round(Math.abs(amount) * 100)}`
+
 export interface ReconSyncStats {
   associationCode:    string
   bankAccountsTried:  number
@@ -302,6 +311,20 @@ export async function syncReconciliationForAssoc(
     }
   } catch { /* non-fatal — enrichment only */ }
 
+  // Index expense debits by amount+date so a cash line mislabeled with a bank
+  // account name (LFA) can recover its real payee/invoice from the expense leg.
+  // One ALL-accounts GL pull per assoc per sync.
+  const expenseByAmtDate = new Map<string, string>()
+  try {
+    for (const tx of await listGlTransactionsByDate({ assocCode: associationCode, fromDate, toDate })) {
+      const debit = typeof tx.DebitAmount === 'number' ? Math.abs(tx.DebitAmount) : 0
+      if (debit <= 0 || !tx.TransactionDate || !tx.Description) continue
+      if (isAssetGl(tx.AccountNumber)) continue                 // skip the other leg of a transfer
+      const k = amtDateKey(tx.TransactionDate, debit)
+      if (!expenseByAmtDate.has(k)) expenseByAmtDate.set(k, tx.Description.trim().replace(/\s+/g, ' '))
+    }
+  } catch { /* non-fatal — enrichment only */ }
+
   // ── Per-bank sync ──────────────────────────────────────────────────
   for (const bank of syncable) {
     stats.bankAccountsTried++
@@ -364,7 +387,14 @@ export async function syncReconciliationForAssoc(
       }
       if (matchedDraft) stats.draftMatches++
 
-      const parsedInvNum = parseInvoiceNumber(tx.Description ?? null)
+      // If the cash line is mislabeled with a bank-account name, recover the
+      // real description from the paired expense debit (same date + amount).
+      let effectiveDesc = (tx.Description ?? '').trim()
+      if (effectiveDesc && BANK_LABEL_RE.test(effectiveDesc)) {
+        const recovered = expenseByAmtDate.get(amtDateKey(effectiveDate, amount))
+        if (recovered) effectiveDesc = recovered
+      }
+      const parsedInvNum = parseInvoiceNumber(effectiveDesc || null)
 
       // Build the row. Structural fields are sourced from CINC + the
       // matched draft (if any). Notes/reconciled state are not touched
@@ -398,11 +428,11 @@ export async function syncReconciliationForAssoc(
         vendor_payee:               matchedDraft?.matched_vendor_name
                                       ?? matchedDraft?.matched_vendor_short_name
                                       ?? (parsedInvNum ? (payeeByInvoiceNum.get(parsedInvNum.toLowerCase()) ?? vendorByInvoiceNum.get(parsedInvNum.toLowerCase()) ?? null) : null)
-                                      ?? inferVendorPayee(tx.Description ?? null, isOutflow),
+                                      ?? inferVendorPayee(effectiveDesc || null, isOutflow),
         // Prefer what MAIA actually READ from the invoice body (e.g. "2 units
         // roof leaks") for MAIA-pushed invoices; otherwise the raw CINC posting
         // text. The Inv.# lives in its own column now.
-        description:                (matchedDraft?.extracted_description?.trim() || (tx.Description ?? '').trim() || matchedDraft?.gl_account_name || null),
+        description:                (matchedDraft?.extracted_description?.trim() || effectiveDesc || matchedDraft?.gl_account_name || null),
         // Populate the Invoice # column for CINC-native rows too, parsed
         // from the "Inv.#NNN" token in the description.
         invoice_number:             matchedDraft?.extracted_invoice_number ?? parsedInvNum ?? null,
