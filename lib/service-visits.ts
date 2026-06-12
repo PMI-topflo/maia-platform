@@ -386,14 +386,42 @@ export async function listLatestVisitPerService(): Promise<CoverageRow[]> {
 // English — the report they write back is translated to English anyway).
 function crewMessage(lang: string, svc: string, assoc: string, weekOf: string, link: string, name: string) {
   const btn = (label: string) => `<p style="margin:20px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:11px 20px;border-radius:6px;font-weight:600">${label}</a></p><p style="color:#6b7280;font-size:12px">${link}</p>`
-  if (lang === 'es') return {
-    short:   `PMI: por favor suba las fotos de ${svc} de esta semana y un breve informe para ${assoc} (semana del ${weekOf}): ${link}`,
-    subject: `Suba las fotos de ${svc} de esta semana — ${assoc}`,
-    html:    `<p>Hola ${name},</p><p>Por favor suba las fotos de <strong>${svc}</strong> de esta semana y un breve informe para <strong>${assoc}</strong> (semana del ${weekOf}).</p>${btn('Subir fotos e informe')}`,
-  }
-  return {
-    short:   `PMI: please upload this week's ${svc} photos + a brief report for ${assoc} (week of ${weekOf}): ${link}`,
-    subject: `Upload this week's ${svc} photos — ${assoc}`,
-    html:    `<p>Hi ${name},</p><p>Please upload this week's <strong>${svc}</strong> photos and a brief report for <strong>${assoc}</strong> (week of ${weekOf}).</p>${btn('Upload photos & report')}`,
+  const wrap = (rtl: boolean, body: string) => rtl ? `<div dir="rtl">${body}</div>` : body
+  switch (lang) {
+    case 'es': return {
+      short:   `PMI: por favor suba las fotos de ${svc} de esta semana y un breve informe para ${assoc} (semana del ${weekOf}): ${link}`,
+      subject: `Suba las fotos de ${svc} de esta semana — ${assoc}`,
+      html:    `<p>Hola ${name},</p><p>Por favor suba las fotos de <strong>${svc}</strong> de esta semana y un breve informe para <strong>${assoc}</strong> (semana del ${weekOf}).</p>${btn('Subir fotos e informe')}`,
+    }
+    case 'pt': return {
+      short:   `PMI: por favor envie as fotos de ${svc} desta semana + um breve relatório para ${assoc} (semana de ${weekOf}): ${link}`,
+      subject: `Envie as fotos de ${svc} desta semana — ${assoc}`,
+      html:    `<p>Olá ${name},</p><p>Por favor envie as fotos de <strong>${svc}</strong> desta semana e um breve relatório para <strong>${assoc}</strong> (semana de ${weekOf}).</p>${btn('Enviar fotos e relatório')}`,
+    }
+    case 'fr': return {
+      short:   `PMI : veuillez envoyer les photos de ${svc} de cette semaine + un bref rapport pour ${assoc} (semaine du ${weekOf}) : ${link}`,
+      subject: `Envoyez les photos de ${svc} de cette semaine — ${assoc}`,
+      html:    `<p>Bonjour ${name},</p><p>Veuillez envoyer les photos de <strong>${svc}</strong> de cette semaine et un bref rapport pour <strong>${assoc}</strong> (semaine du ${weekOf}).</p>${btn('Envoyer les photos et le rapport')}`,
+    }
+    case 'he': return {
+      short:   `PMI: אנא העלו את תמונות ${svc} של השבוע + דוח קצר עבור ${assoc} (השבוע של ${weekOf}): ${link}`,
+      subject: `העלו את תמונות ${svc} של השבוע — ${assoc}`,
+      html:    wrap(true, `<p>שלום ${name},</p><p>אנא העלו את תמונות <strong>${svc}</strong> של השבוע ודוח קצר עבור <strong>${assoc}</strong> (השבוע של ${weekOf}).</p>${btn('העלאת תמונות ודוח')}`),
+    }
+    case 'ru': return {
+      short:   `PMI: пожалуйста, загрузите фото ${svc} за эту неделю + краткий отчёт для ${assoc} (неделя ${weekOf}): ${link}`,
+      subject: `Загрузите фото ${svc} за эту неделю — ${assoc}`,
+      html:    `<p>Здравствуйте, ${name},</p><p>Пожалуйста, загрузите фото <strong>${svc}</strong> за эту неделю и краткий отчёт для <strong>${assoc}</strong> (неделя ${weekOf}).</p>${btn('Загрузить фото и отчёт')}`,
+    }
+    case 'ht': return {
+      short:   `PMI: tanpri voye foto ${svc} semèn sa a + yon ti rapò pou ${assoc} (semèn ${weekOf}): ${link}`,
+      subject: `Voye foto ${svc} semèn sa a — ${assoc}`,
+      html:    `<p>Bonjou ${name},</p><p>Tanpri voye foto <strong>${svc}</strong> semèn sa a ak yon ti rapò pou <strong>${assoc}</strong> (semèn ${weekOf}).</p>${btn('Voye foto ak rapò')}`,
+    }
+    default: return {
+      short:   `PMI: please upload this week's ${svc} photos + a brief report for ${assoc} (week of ${weekOf}): ${link}`,
+      subject: `Upload this week's ${svc} photos — ${assoc}`,
+      html:    `<p>Hi ${name},</p><p>Please upload this week's <strong>${svc}</strong> photos and a brief report for <strong>${assoc}</strong> (week of ${weekOf}).</p>${btn('Upload photos & report')}`,
+    }
   }
 }

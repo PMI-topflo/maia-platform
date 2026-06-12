@@ -18,22 +18,29 @@ interface Props { params: Promise<{ token: string }>; searchParams: Promise<{ la
 const T = {
   en: { wo: 'Work order', fallbackTitle: 'Upload your files', vendor: 'Vendor', intro: 'Upload your <b>estimate</b>, <b>invoice</b>, or <b>job photos</b> for this work order. PDF, JPG, PNG accepted.', expired: 'This upload link is invalid or has expired. Please ask PMI for a new link.', notFound: 'This work order could not be found.' },
   es: { wo: 'Orden de trabajo', fallbackTitle: 'Suba sus archivos', vendor: 'Proveedor', intro: 'Suba su <b>estimado</b>, <b>factura</b> o <b>fotos del trabajo</b> para esta orden. Se aceptan PDF, JPG, PNG.', expired: 'Este enlace no es válido o ha expirado. Pida a PMI un nuevo enlace.', notFound: 'No se encontró esta orden de trabajo.' },
+  pt: { wo: 'Ordem de serviço', fallbackTitle: 'Envie seus arquivos', vendor: 'Fornecedor', intro: 'Envie seu <b>orçamento</b>, <b>fatura</b> ou <b>fotos do trabalho</b> para esta ordem. Aceitamos PDF, JPG, PNG.', expired: 'Este link de envio é inválido ou expirou. Peça um novo à PMI.', notFound: 'Não foi possível encontrar esta ordem de serviço.' },
+  fr: { wo: 'Bon de travail', fallbackTitle: 'Téléversez vos fichiers', vendor: 'Prestataire', intro: 'Téléversez votre <b>devis</b>, <b>facture</b> ou <b>photos du travail</b> pour ce bon de travail. PDF, JPG, PNG acceptés.', expired: 'Ce lien de téléversement est invalide ou a expiré. Demandez-en un nouveau à PMI.', notFound: 'Ce bon de travail est introuvable.' },
+  he: { wo: 'הזמנת עבודה', fallbackTitle: 'העלו את הקבצים שלכם', vendor: 'ספק', intro: 'העלו את <b>הצעת המחיר</b>, <b>החשבונית</b> או <b>תמונות העבודה</b> עבור הזמנת עבודה זו. ניתן להעלות PDF, JPG, PNG.', expired: 'קישור ההעלאה אינו תקף או שפג תוקפו. בקשו מ-PMI קישור חדש.', notFound: 'לא ניתן למצוא את הזמנת העבודה.' },
+  ru: { wo: 'Заказ-наряд', fallbackTitle: 'Загрузите файлы', vendor: 'Подрядчик', intro: 'Загрузите <b>смету</b>, <b>счёт</b> или <b>фото работ</b> для этого заказа-наряда. Принимаются PDF, JPG, PNG.', expired: 'Эта ссылка для загрузки недействительна или истекла. Запросите новую у PMI.', notFound: 'Этот заказ-наряд не найден.' },
+  ht: { wo: 'Lòd travay', fallbackTitle: 'Voye fichye ou yo', vendor: 'Founisè', intro: 'Voye <b>estimasyon</b>, <b>fakti</b>, oswa <b>foto travay</b> ou pou lòd travay sa a. Nou aksepte PDF, JPG, PNG.', expired: 'Lyen sa a pa valab oswa li ekspire. Tanpri mande PMI yon nouvo lyen.', notFound: 'Nou pa jwenn lòd travay sa a.' },
 } as const
 
 export default async function VendorUploadPage({ params, searchParams }: Props) {
   const { token } = await params
-  const lang = (((await searchParams)?.lang) === 'es' ? 'es' : 'en') as keyof typeof T
+  const rawLang = ((await searchParams)?.lang) ?? 'en'
+  const lang = (['es', 'pt', 'fr', 'he', 'ru', 'ht'].includes(rawLang) ? rawLang : 'en') as keyof typeof T
   const t = T[lang]
+  const dir = lang === 'he' ? 'rtl' : 'ltr'
   const ticketId = await verifyVendorUploadToken(token)
 
-  if (!ticketId) return <Shell><Bad>{t.expired}</Bad></Shell>
+  if (!ticketId) return <Shell dir={dir}><Bad>{t.expired}</Bad></Shell>
 
   const { data: ticket } = await supabaseAdmin
     .from('tickets')
     .select('id, ticket_number, subject, association_code, status')
     .eq('id', ticketId)
     .single()
-  if (!ticket) return <Shell><Bad>{t.notFound}</Bad></Shell>
+  if (!ticket) return <Shell dir={dir}><Bad>{t.notFound}</Bad></Shell>
 
   const { data: wod } = await supabaseAdmin
     .from('work_order_details')
@@ -44,7 +51,7 @@ export default async function VendorUploadPage({ params, searchParams }: Props) 
   const where = [wod?.work_location_name, wod?.address_line1, [wod?.city, wod?.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ')
 
   return (
-    <Shell>
+    <Shell dir={dir}>
       <div style={{ fontSize: 12, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.wo} {ticket.ticket_number}</div>
       <h1 style={{ fontSize: 20, fontWeight: 700, margin: '6px 0 2px' }}>{ticket.subject || t.fallbackTitle}</h1>
       {where && <div style={{ fontSize: 13, color: '#4b5563' }}>{where}</div>}
@@ -55,9 +62,9 @@ export default async function VendorUploadPage({ params, searchParams }: Props) 
   )
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({ children, dir = 'ltr' }: { children: React.ReactNode; dir?: 'ltr' | 'rtl' }) {
   return (
-    <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif', padding: '32px 16px' }}>
+    <div dir={dir} style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif', padding: '32px 16px' }}>
       <div style={{ maxWidth: 560, margin: '0 auto', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#f26a1b', marginBottom: 14 }}>PMI Top Florida Properties</div>
         {children}

@@ -11,7 +11,7 @@ import { assertClaudeBudget } from '@/lib/anthropic-guard'
 const MODEL = 'claude-haiku-4-5-20251001'
 
 const LANG_NAMES: Record<string, string> = {
-  en: 'English', es: 'Spanish', pt: 'Portuguese', ht: 'Haitian Creole', fr: 'French',
+  en: 'English', es: 'Spanish', pt: 'Portuguese', fr: 'French', he: 'Hebrew', ru: 'Russian', ht: 'Haitian Creole',
 }
 
 /** Translate free text to English. No-op for empty text, English source,

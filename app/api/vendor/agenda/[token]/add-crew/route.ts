@@ -29,7 +29,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     phone:              b.phone ? String(b.phone).trim() : null,
     email:              b.email ? String(b.email).trim() : null,
     preferred_channel:  ['email', 'sms', 'whatsapp'].includes(String(b.preferred_channel)) ? String(b.preferred_channel) : 'whatsapp',
-    preferred_language: ['en', 'es', 'pt', 'ht', 'fr'].includes(String(b.preferred_language)) ? String(b.preferred_language) : 'es',
+    preferred_language: ['en', 'es', 'pt', 'fr', 'he', 'ru', 'ht'].includes(String(b.preferred_language)) ? String(b.preferred_language) : 'es',
   })
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 })
   return NextResponse.json({ ok: true, employee: { id: r.row.id, name: r.row.name } })

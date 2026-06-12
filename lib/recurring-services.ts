@@ -12,7 +12,7 @@ export const SERVICE_TYPES = ['Landscaping', 'Pool', 'Janitorial', 'Pest Control
 export const CADENCES = ['daily', 'weekly', 'biweekly', 'monthly'] as const
 export const BILLING_CADENCES = ['per_visit', 'weekly', 'monthly'] as const
 export const CHANNELS = ['email', 'sms', 'whatsapp'] as const
-export const LANGUAGES = ['en', 'es', 'pt', 'ht', 'fr'] as const   // English, Spanish, Portuguese, Haitian Creole, French
+export const LANGUAGES = ['en', 'es', 'pt', 'fr', 'he', 'ru', 'ht'] as const   // resident 6 (en/es/pt/fr/he/ru) + Haitian Creole for South-FL crews
 
 export interface RecurringService {
   id:               number

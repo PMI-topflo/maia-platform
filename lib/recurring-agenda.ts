@@ -24,13 +24,37 @@ export function nextMonday(from: Date = new Date()): string {
 
 function agendaEmail(lang: string, svc: RecurringService, weekOf: string, link: string) {
   const btn = (label: string) => `<p style="margin:20px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:11px 20px;border-radius:6px;font-weight:600">${label}</a></p><p style="color:#6b7280;font-size:12px">${link}</p>`
-  if (lang === 'es') return {
-    subject: `Confirme el equipo de ${svc.service_type} para la semana del ${weekOf} — ${svc.association_code}`,
-    html: `<p>Hola${svc.vendor_name ? ' ' + svc.vendor_name : ''},</p><p>Por favor confirme qué empleados realizarán el servicio de <strong>${svc.service_type}</strong> en <strong>${svc.association_code}</strong> la próxima semana (semana del ${weekOf}) y el día previsto.</p>${btn('Confirmar agenda de la próxima semana')}`,
-  }
-  return {
-    subject: `Confirm next week's ${svc.service_type} crew — week of ${weekOf} — ${svc.association_code}`,
-    html: `<p>Hello${svc.vendor_name ? ' ' + svc.vendor_name : ''},</p><p>Please confirm which employees will perform the <strong>${svc.service_type}</strong> service at <strong>${svc.association_code}</strong> next week (week of ${weekOf}) and the planned day.</p>${btn("Confirm next week's agenda")}`,
+  const name = svc.vendor_name ? ' ' + svc.vendor_name : ''
+  const wrap = (rtl: boolean, body: string) => rtl ? `<div dir="rtl">${body}</div>` : body
+  switch (lang) {
+    case 'es': return {
+      subject: `Confirme el equipo de ${svc.service_type} para la semana del ${weekOf} — ${svc.association_code}`,
+      html: `<p>Hola${name},</p><p>Por favor confirme qué empleados realizarán el servicio de <strong>${svc.service_type}</strong> en <strong>${svc.association_code}</strong> la próxima semana (semana del ${weekOf}) y el día previsto.</p>${btn('Confirmar agenda de la próxima semana')}`,
+    }
+    case 'pt': return {
+      subject: `Confirme a equipe de ${svc.service_type} para a semana de ${weekOf} — ${svc.association_code}`,
+      html: `<p>Olá${name},</p><p>Por favor confirme quais funcionários realizarão o serviço de <strong>${svc.service_type}</strong> em <strong>${svc.association_code}</strong> na próxima semana (semana de ${weekOf}) e o dia previsto.</p>${btn('Confirmar agenda da próxima semana')}`,
+    }
+    case 'fr': return {
+      subject: `Confirmez l'équipe de ${svc.service_type} pour la semaine du ${weekOf} — ${svc.association_code}`,
+      html: `<p>Bonjour${name},</p><p>Veuillez confirmer quels employés effectueront le service de <strong>${svc.service_type}</strong> à <strong>${svc.association_code}</strong> la semaine prochaine (semaine du ${weekOf}) et le jour prévu.</p>${btn("Confirmer l'agenda de la semaine prochaine")}`,
+    }
+    case 'he': return {
+      subject: `אשרו את צוות ${svc.service_type} לשבוע של ${weekOf} — ${svc.association_code}`,
+      html: wrap(true, `<p>שלום${name},</p><p>אנא אשרו אילו עובדים יבצעו את שירות <strong>${svc.service_type}</strong> ב־<strong>${svc.association_code}</strong> בשבוע הבא (השבוע של ${weekOf}) ואת היום המתוכנן.</p>${btn('אישור סדר היום לשבוע הבא')}`),
+    }
+    case 'ru': return {
+      subject: `Подтвердите бригаду ${svc.service_type} на неделю ${weekOf} — ${svc.association_code}`,
+      html: `<p>Здравствуйте${name},</p><p>Пожалуйста, подтвердите, какие сотрудники выполнят услугу <strong>${svc.service_type}</strong> в <strong>${svc.association_code}</strong> на следующей неделе (неделя ${weekOf}) и планируемый день.</p>${btn('Подтвердить план на следующую неделю')}`,
+    }
+    case 'ht': return {
+      subject: `Konfime ekip ${svc.service_type} pou semèn ${weekOf} la — ${svc.association_code}`,
+      html: `<p>Bonjou${name},</p><p>Tanpri konfime ki anplwaye ki pral fè sèvis <strong>${svc.service_type}</strong> nan <strong>${svc.association_code}</strong> semèn pwochèn (semèn ${weekOf}) ak jou ki planifye a.</p>${btn('Konfime ajanda semèn pwochèn')}`,
+    }
+    default: return {
+      subject: `Confirm next week's ${svc.service_type} crew — week of ${weekOf} — ${svc.association_code}`,
+      html: `<p>Hello${name},</p><p>Please confirm which employees will perform the <strong>${svc.service_type}</strong> service at <strong>${svc.association_code}</strong> next week (week of ${weekOf}) and the planned day.</p>${btn("Confirm next week's agenda")}`,
+    }
   }
 }
 
