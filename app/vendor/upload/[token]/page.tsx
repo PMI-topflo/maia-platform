@@ -7,13 +7,16 @@
 // =====================================================================
 
 import { verifyVendorUploadToken } from '@/lib/vendor-upload-token'
+import { verifyCrewToken } from '@/lib/crew-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { LANGUAGES } from '@/lib/recurring-services'
 import Uploader from './Uploader'
+import VendorLangBar from '@/components/VendorLangBar'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Upload to PMI Top Florida' }
 
-interface Props { params: Promise<{ token: string }>; searchParams: Promise<{ lang?: string }> }
+interface Props { params: Promise<{ token: string }>; searchParams: Promise<{ lang?: string; e?: string }> }
 
 const T = {
   en: { wo: 'Work order', fallbackTitle: 'Upload your files', vendor: 'Vendor', intro: 'Upload your <b>estimate</b>, <b>invoice</b>, or <b>job photos</b> for this work order. PDF, JPG, PNG accepted.', expired: 'This upload link is invalid or has expired. Please ask PMI for a new link.', notFound: 'This work order could not be found.' },
@@ -27,10 +30,32 @@ const T = {
 
 export default async function VendorUploadPage({ params, searchParams }: Props) {
   const { token } = await params
-  const rawLang = ((await searchParams)?.lang) ?? 'en'
+  const sp = await searchParams
+  const rawLang = sp?.lang ?? 'en'
   const lang = (['es', 'pt', 'fr', 'he', 'ru', 'ht'].includes(rawLang) ? rawLang : 'en') as keyof typeof T
   const t = T[lang]
   const dir = lang === 'he' ? 'rtl' : 'ltr'
+
+  // Per-employee token (?e=) — identifies the crew member so they can save
+  // the chosen language as their default for future messages.
+  const eTok = sp?.e
+  let defaultLang: string | null = null
+  if (eTok) {
+    const employeeId = await verifyCrewToken(eTok)
+    if (employeeId) {
+      const { data: emp } = await supabaseAdmin.from('vendor_employees').select('preferred_language').eq('id', employeeId).maybeSingle()
+      defaultLang = emp?.preferred_language ?? null
+    }
+  }
+  const langBar = (
+    <VendorLangBar
+      current={lang}
+      defaultLang={defaultLang}
+      langs={[...LANGUAGES]}
+      saveEndpoint={eTok ? `/api/vendor/crew/${encodeURIComponent(eTok)}/language` : null}
+    />
+  )
+
   const ticketId = await verifyVendorUploadToken(token)
 
   if (!ticketId) return <Shell dir={dir}><Bad>{t.expired}</Bad></Shell>
@@ -52,6 +77,7 @@ export default async function VendorUploadPage({ params, searchParams }: Props) 
 
   return (
     <Shell dir={dir}>
+      {langBar}
       <div style={{ fontSize: 12, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.wo} {ticket.ticket_number}</div>
       <h1 style={{ fontSize: 20, fontWeight: 700, margin: '6px 0 2px' }}>{ticket.subject || t.fallbackTitle}</h1>
       {where && <div style={{ fontSize: 13, color: '#4b5563' }}>{where}</div>}
