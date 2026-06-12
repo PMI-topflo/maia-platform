@@ -347,6 +347,48 @@ ORDER BY push_count DESC;`}
           </p>
         </Section>
 
+        <Section title="5b · Maintenance — work orders, estimates, recurring & board (full guide)">
+          <p className="text-xs text-gray-500 mb-3">Legend: <span className="text-green-700">✅ live now</span> · <span className="text-amber-700">⏳ coming soon</span></p>
+
+          <p className="text-sm font-semibold text-gray-900 mb-1">A · Work orders</p>
+          <ul className="text-sm text-gray-700 space-y-1 list-disc pl-5 mb-3">
+            <li>A maintenance email becomes a <strong>ticket</strong> → classify it as a <strong>Work order</strong> and set the <strong>Work order type</strong> (Roof Repair, Fire safety…).</li>
+            <li>The sidebar leads with <strong>① Association</strong> then <strong>② Vendor</strong> — set those first.</li>
+            <li>If it shows &ldquo;Not in CINC yet,&rdquo; click <strong>＋ Create work order in CINC</strong>, then <strong>② Vendor → Assign / Reassign</strong>. The vendor must be on the WO in CINC for an invoice to link to it (the card warns when it&apos;s missing). Edits sync to CINC.</li>
+            <li><strong>Photos:</strong> <strong>+ Before / + After</strong> to upload, or tag a photo with <strong>B / A</strong>. <strong>📥 Pull from email</strong> re-fetches the source email&apos;s photos (auto-runs when a ticket becomes a work order later).</li>
+            <li>When the linked <strong>invoice is pushed/paid</strong>, MAIA <strong>auto-closes the WO as paid</strong> — a <strong>downpayment</strong> invoice keeps it open for the balance.</li>
+          </ul>
+
+          <p className="text-sm font-semibold text-gray-900 mb-1">B · Estimate requests</p>
+          <ul className="text-sm text-gray-700 space-y-1 list-disc pl-5 mb-3">
+            <li><strong>📨 Request estimates</strong> → pick vendors + scope + photos; MAIA emails each a <strong>secure upload link</strong> and follows up.</li>
+            <li>Uploads appear in the <strong>Estimates</strong> comparison (lowest flagged) → choose one → <strong>Send to board</strong>.</li>
+          </ul>
+
+          <p className="text-sm font-semibold text-gray-900 mb-1">C · Board approval</p>
+          <ul className="text-sm text-gray-700 space-y-1 list-disc pl-5 mb-3">
+            <li><strong>Send to board</strong> shows the board members with checkboxes — the <strong>President is pre-checked</strong>; pick the signers.</li>
+            <li>Each gets a <strong>&ldquo;Review &amp; sign&rdquo;</strong> email link; the approval needs all chosen signers.</li>
+            <li>On final approval MAIA builds the <strong>signed PDF</strong> (estimate + a Board Approval page with each signer&apos;s name·title·date·signature), <strong>files it on the work order</strong> (MAIA + CINC), and <strong>emails the board, you, and the winning vendor</strong> an award notice.</li>
+            <li><span className="text-amber-700">⏳</span> Coming next: auto-request the winner&apos;s missing W-9 / license / COI; a scheduling link onto the association calendar; loser notices.</li>
+          </ul>
+
+          <p className="text-sm font-semibold text-gray-900 mb-1">D · Recurring services</p>
+          <ul className="text-sm text-gray-700 space-y-1 list-disc pl-5 mb-3">
+            <li>Recurring vendors (pool, landscaping, pest…) have a cadence; visits show on the <strong>association calendar</strong>. The <strong>vendor agenda link</strong> confirms next week&apos;s crew + day, and crew get photo-upload links.</li>
+            <li><strong>Recurring-service complaint:</strong> on the ticket, <strong>🔁 Recurring-service issue</strong> → pick the service, add your note, optional resident email → MAIA emails the vendor (with the resident&apos;s photo + your note, <em>&ldquo;fix on your next visit&rdquo;</em>), emails you, and acknowledges the resident — no separate work order.</li>
+            <li><span className="text-amber-700">⏳</span> Coming next: vendor marks <strong>Resolved + after-photo</strong> on their visit → you 1-click confirm (or auto-confirm after 5 days).</li>
+          </ul>
+
+          <p className="text-sm font-semibold text-gray-900 mb-1">E · Emails MAIA sends to vendors</p>
+          <ul className="text-sm text-gray-700 space-y-1 list-disc pl-5">
+            <li><strong>📤 Email vendor upload link</strong> — upload estimate / invoice / photos to a WO.</li>
+            <li><strong>📨 Request estimates</strong> — quote request + follow-ups.</li>
+            <li><strong>Board award</strong> — award notice + signed-PDF link.</li>
+            <li><strong>🔁 Recurring-service issue</strong> — &ldquo;fix on next visit&rdquo; + the resident&apos;s photo + your note.</li>
+          </ul>
+        </Section>
+
         {/* Known gaps */}
         <Section title="6 · Known gaps">
           <ul className="text-sm text-gray-700 space-y-2 list-disc pl-5">
