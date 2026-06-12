@@ -6,7 +6,7 @@ const SERVICE_TYPES = ['Landscaping', 'Pool', 'Janitorial', 'Pest Control', 'Oth
 const CADENCES = ['daily', 'weekly', 'biweekly', 'monthly']
 const BILLING = ['monthly', 'weekly', 'per_visit']
 const CHANNELS = ['email', 'sms', 'whatsapp']
-const LANGS = [['en', 'English'], ['es', 'Español'], ['pt', 'Português'], ['ht', 'Kreyòl'], ['fr', 'Français']]
+const LANGS = [['en', 'English'], ['es', 'Español'], ['pt', 'Português'], ['fr', 'Français'], ['he', 'עברית'], ['ru', 'Русский'], ['ht', 'Kreyòl']]
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 interface Assoc { code: string; name: string }
