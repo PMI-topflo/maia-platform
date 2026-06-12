@@ -8,6 +8,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { createTicket } from '@/lib/tickets'
 import { signVendorUploadToken } from '@/lib/vendor-upload-token'
+import { signCrewToken } from '@/lib/crew-token'
 import { sendEmail } from '@/lib/gmail'
 import { sendSMSStrict, sendWhatsAppStrict } from '@/lib/twilio-send'
 import { listVendorEmployees, type RecurringService } from '@/lib/recurring-services'
@@ -111,7 +112,8 @@ export async function sendCrewUploadLinks(visitId: number, employeeIds?: string[
   let sent = 0
   for (const e of crew) {
     const lang = e.preferred_language || 'en'
-    const link = `${APP_URL}/vendor/upload/${token}?lang=${encodeURIComponent(lang)}`
+    const eTok = await signCrewToken(e.id)   // identifies this crew member so they can save a default language
+    const link = `${APP_URL}/vendor/upload/${token}?lang=${encodeURIComponent(lang)}&e=${encodeURIComponent(eTok)}`
     const m = crewMessage(lang, svc, v.association_code, v.week_of, link, e.name)
     try {
       if (e.preferred_channel === 'sms' && e.phone)            { await sendSMSStrict(e.phone, m.short); sent++; results.push(`${e.name}: sms`) }

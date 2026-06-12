@@ -6,12 +6,14 @@
 import { verifyAgendaToken } from '@/lib/agenda-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { nextMonday } from '@/lib/recurring-agenda'
+import { LANGUAGES } from '@/lib/recurring-services'
 import AgendaForm from './AgendaForm'
+import VendorLangBar from '@/components/VendorLangBar'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Confirm agenda — PMI Top Florida' }
 
-interface Props { params: Promise<{ token: string }> }
+interface Props { params: Promise<{ token: string }>; searchParams: Promise<{ lang?: string }> }
 
 const T = {
   en: { wo: 'Service', expired: 'This link is invalid or has expired. Please ask PMI for a new one.', notFound: 'Service not found.' },
@@ -23,7 +25,7 @@ const T = {
   ht: { wo: 'Sèvis', expired: 'Lyen sa a pa valab oswa li ekspire. Tanpri mande PMI yon nouvo.', notFound: 'Sèvis la pa jwenn.' },
 } as const
 
-export default async function AgendaPage({ params }: Props) {
+export default async function AgendaPage({ params, searchParams }: Props) {
   const { token } = await params
   const serviceId = await verifyAgendaToken(token)
   if (!serviceId) return <Shell><Bad>{T.en.expired} / {T.es.expired}</Bad></Shell>
@@ -31,7 +33,11 @@ export default async function AgendaPage({ params }: Props) {
   const { data: svc } = await supabaseAdmin.from('recurring_services').select('*').eq('id', serviceId).maybeSingle()
   if (!svc) return <Shell><Bad>{T.en.notFound}</Bad></Shell>
 
-  const lang = ((['es', 'pt', 'fr', 'he', 'ru', 'ht'].includes(svc.office_language) ? svc.office_language : 'en')) as keyof typeof T
+  const norm = (l: string | undefined) => (l && ['es', 'pt', 'fr', 'he', 'ru', 'ht'].includes(l) ? l : 'en') as keyof typeof T
+  // Stored default for this service; a ?lang= override lets the office preview
+  // (and then save) another language without changing the record first.
+  const defaultLang = norm(svc.office_language)
+  const lang = norm((await searchParams)?.lang ?? svc.office_language)
 
   // Crew for this vendor (by CINC id when present, else by name).
   let q = supabaseAdmin.from('vendor_employees').select('id, name, preferred_channel, preferred_language').eq('active', true)
@@ -41,6 +47,7 @@ export default async function AgendaPage({ params }: Props) {
 
   return (
     <Shell dir={lang === 'he' ? 'rtl' : 'ltr'}>
+      <VendorLangBar current={lang} defaultLang={defaultLang} langs={[...LANGUAGES]} saveEndpoint={`/api/vendor/agenda/${encodeURIComponent(token)}/office-language`} />
       <div style={{ fontSize: 12, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{T[lang].wo}</div>
       <h1 style={{ fontSize: 20, fontWeight: 700, margin: '6px 0 2px' }}>{svc.service_type} — {svc.association_code}</h1>
       <div style={{ fontSize: 13, color: '#4b5563' }}>{svc.vendor_name}</div>
