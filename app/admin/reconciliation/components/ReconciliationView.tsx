@@ -712,6 +712,9 @@ export default function ReconciliationView(props: Props) {
           banks={otherBanks}
           forecasts={forecasts}
           forecastsLoading={forecastsLoading}
+          strips={strips}
+          selectedStrip={selectedStrip}
+          onSelectStrip={loadStrip}
         />
       )}
 
