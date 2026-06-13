@@ -13,8 +13,8 @@ import {
   type ComplianceStatus, type ComplianceRecord,
 } from '@/lib/compliance-taxonomy'
 
-interface Val { applicable: boolean; status: ComplianceStatus; expiry_date: string | null }
-const DEFAULT: Val = { applicable: true, status: 'missing', expiry_date: null }
+interface Val { applicable: boolean; status: ComplianceStatus; expiry_date: string | null; source_path?: string | null }
+const DEFAULT: Val = { applicable: true, status: 'missing', expiry_date: null, source_path: null }
 const scoreColor = (pct: number | null) =>
   pct == null ? 'bg-gray-100 text-gray-500' : pct >= 90 ? 'bg-emerald-100 text-emerald-800' : pct >= 60 ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
 
@@ -30,10 +30,10 @@ export default function ComplianceMatrix({ assocCode }: { assocCode: string }) {
     let live = true
     fetch(`/api/admin/compliance?assoc=${encodeURIComponent(assocCode)}&scope=association`)
       .then(r => r.json())
-      .then((d: { records?: ComplianceRecord[] }) => {
+      .then((d: { records?: (ComplianceRecord & { source_path?: string | null })[] }) => {
         if (!live) return
         const m = new Map<string, Val>()
-        for (const r of d.records ?? []) m.set(r.item_key, { applicable: r.applicable, status: r.status, expiry_date: r.expiry_date })
+        for (const r of d.records ?? []) m.set(r.item_key, { applicable: r.applicable, status: r.status, expiry_date: r.expiry_date, source_path: r.source_path ?? null })
         setVals(m)
       })
       .catch(() => {})
@@ -106,6 +106,7 @@ export default function ComplianceMatrix({ assocCode }: { assocCode: string }) {
                     <thead><tr className="text-[10px] uppercase tracking-wide text-gray-400">
                       <th className="py-1 text-left font-semibold">Item</th><th className="py-1 text-left font-semibold">Applies</th>
                       <th className="py-1 text-left font-semibold">Status</th><th className="py-1 text-left font-semibold">Expiry</th>
+                      <th className="py-1 text-left font-semibold">Document</th>
                     </tr></thead>
                     <tbody>
                       {cat.items.map(item => {
@@ -130,6 +131,11 @@ export default function ComplianceMatrix({ assocCode }: { assocCode: string }) {
                             <td className="py-1.5">
                               {v.applicable && item.expiry
                                 ? <input type="date" value={v.expiry_date ?? ''} onChange={e => set(item.key, { expiry_date: e.target.value || null })} className="rounded border border-gray-300 px-1.5 py-0.5 text-[11px]" />
+                                : <span className="text-[11px] text-gray-300">—</span>}
+                            </td>
+                            <td className="py-1.5">
+                              {v.source_path
+                                ? <a href={`/api/admin/compliance/file?assoc=${encodeURIComponent(assocCode)}&scope=association&item=${encodeURIComponent(item.key)}`} target="_blank" rel="noopener noreferrer" className="text-[11px] font-medium text-[#c2410c] hover:underline">📎 View</a>
                                 : <span className="text-[11px] text-gray-300">—</span>}
                             </td>
                           </tr>

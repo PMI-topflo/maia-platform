@@ -13,7 +13,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const SELECT = 'item_key, applicable, status, expiry_date, notes'
+const SELECT = 'item_key, applicable, status, expiry_date, notes, source_path'
 const STATUSES = ['current', 'expiring', 'pending', 'missing', 'non_compliant', 'na']
 const SCOPES = ['association', 'unit']
 const dateOrNull = (v: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : null

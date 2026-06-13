@@ -1,59 +1,58 @@
 // =====================================================================
 // app/admin/audit/page.tsx
 //
-// Compliance audit dashboard. Server Component for the data fetch,
-// Client Component for the interactive table.
+// Compliance Hub. One place to: upload any association document (MAIA reads
+// it and files it after review), pick an association to see its full document
+// set (present / missing, with the filed file) including Sunbiz, and review
+// the unit-level lease / insurance / CoU / violation table.
+// Server Component for the data fetch; client for the interactive hub.
 // =====================================================================
 
-import { createClient } from '@supabase/supabase-js';
-import SiteHeader from '@/components/SiteHeader';
-import AdminNav from '../components/AdminNav';
-import { AuditTable } from './AuditTable';
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
+import { verifySession, SESSION_COOKIE } from '@/lib/session'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import SiteHeader from '@/components/SiteHeader'
+import AdminNav from '../components/AdminNav'
+import { AuditTable } from './AuditTable'
+import ComplianceHubClient from './ComplianceHubClient'
+import type { AssocOpt } from '../documents/inbox/DocumentInboxClient'
 
-export const metadata = { title: 'Compliance Audit — PMI Top Florida' };
-export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Compliance Hub — PMI Top Florida' }
+export const dynamic = 'force-dynamic'
 
-async function getData() {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY!,
-    { auth: { persistSession: false } }
-  );
+export default async function AuditPage(props: { searchParams: Promise<{ association?: string }> }) {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value
+  const session = token ? await verifySession(token) : null
+  if (!session || session.persona !== 'staff') redirect('/')
 
-  // Pull from the v_unit_compliance view + join homeowner address
-  const { data: compliance } = await supabase
-    .from('v_unit_compliance')
-    .select('*');
+  const { association } = await props.searchParams
 
-  // Get homeowner addresses
-  const { data: homeowners } = await supabase
-    .from('owners')
-    .select('account_number, association_code, association_name, street_number, address, unit_number, first_name, last_name, emails');
+  const [
+    { data: compliance },
+    { data: homeowners },
+    { data: alerts },
+    { data: configs },
+    { data: assocRows },
+  ] = await Promise.all([
+    supabaseAdmin.from('v_unit_compliance').select('*'),
+    supabaseAdmin.from('owners').select('account_number, association_code, association_name, street_number, address, unit_number, first_name, last_name, emails'),
+    supabaseAdmin.from('compliance_alerts').select('account_number, severity, alert_type, message, days_delta').is('resolved_at', null),
+    supabaseAdmin.from('association_config').select('association_code, is_master, requires_cou'),
+    supabaseAdmin.from('associations').select('association_code, association_name').order('association_name'),
+  ])
 
-  // Get active alerts grouped by account
-  const { data: alerts } = await supabase
-    .from('compliance_alerts')
-    .select('account_number, severity, alert_type, message, days_delta')
-    .is('resolved_at', null);
+  const associations: AssocOpt[] = (assocRows ?? []).map(a => ({ code: String(a.association_code), name: String(a.association_name ?? a.association_code) }))
 
-  // Get association config (for hiding LCLUB/VPREC)
-  const { data: configs } = await supabase
-    .from('association_config')
-    .select('association_code, is_master, requires_cou');
-
-  return {
-    compliance: compliance ?? [],
-    homeowners: homeowners ?? [],
-    alerts: alerts ?? [],
-    configs: configs ?? [],
-  };
-}
-
-export default async function AuditPage(props: {
-  searchParams: Promise<{ association?: string }>;
-}) {
-  const { association } = await props.searchParams;
-  const data = await getData();
+  const unitsView = (
+    <AuditTable
+      compliance={compliance ?? []}
+      homeowners={homeowners ?? []}
+      alerts={alerts ?? []}
+      configs={configs ?? []}
+      initialAssociation={association}
+    />
+  )
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -62,15 +61,15 @@ export default async function AuditPage(props: {
       </SiteHeader>
 
       <main className="max-w-screen-2xl mx-auto px-6 py-6">
-        <header className="mb-6 border-l-4 border-[#f26a1b] pl-4">
-          <h1 className="text-xl font-semibold text-gray-900">Compliance Audit</h1>
+        <header className="mb-5 border-l-4 border-[#f26a1b] pl-4">
+          <h1 className="text-xl font-semibold text-gray-900">Compliance Hub</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Lease, insurance, Lauderhill Certificate of Use, and violation tracking
+            Upload any association document — MAIA reads it and files it after your review. Pick an association to see its full document set (present &amp; missing), including Sunbiz.
           </p>
         </header>
 
-        <AuditTable {...data} initialAssociation={association} />
+        <ComplianceHubClient associations={associations} initialAssociation={association ?? null} unitsView={unitsView} />
       </main>
     </div>
-  );
+  )
 }
