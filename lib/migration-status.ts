@@ -1719,6 +1719,23 @@ NOTIFY pgrst, 'reload schema';`,
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'estimate_award_outcome',
+    label:       'Estimate award outcome',
+    description: 'estimate_request_vendors.outcome + outcome_notified_at — marks the awarded winner vs not-selected vendors so award/loser notices and the winner missing-doc request fire exactly once.',
+    filename:    '20260612_estimate_award_outcome.sql',
+    artifact:    { type: 'column', table: 'estimate_request_vendors', column: 'outcome' },
+    sql: `ALTER TABLE public.estimate_request_vendors
+  ADD COLUMN IF NOT EXISTS outcome             text,
+  ADD COLUMN IF NOT EXISTS outcome_notified_at timestamptz;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_estreqv_outcome') THEN
+    ALTER TABLE public.estimate_request_vendors
+      ADD CONSTRAINT chk_estreqv_outcome CHECK (outcome IS NULL OR outcome IN ('won','lost'));
+  END IF;
+END $$;
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'estimate_board_approval',
     label:       'Estimate board approval',
     description: 'estimate_approvals + estimate_approval_reviews + association_board_members.signature_image — board e-sign approval of a chosen vendor estimate.',

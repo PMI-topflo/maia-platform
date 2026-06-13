@@ -31,8 +31,9 @@ export async function GET(req: Request) {
     const since = now - new Date(v.last_followup_at ?? v.created_at).getTime()
     if (since < 2 * DAY) continue
 
-    const { data: reqRow } = await supabaseAdmin.from('estimate_requests').select('ticket_id, association_code, scope').eq('id', v.request_id).single()
+    const { data: reqRow } = await supabaseAdmin.from('estimate_requests').select('ticket_id, association_code, scope, status').eq('id', v.request_id).single()
     if (!reqRow) continue
+    if (reqRow.status === 'closed') continue   // a winner was awarded — stop chasing
     const { data: ticket } = await supabaseAdmin.from('tickets').select('ticket_number').eq('id', reqRow.ticket_id).single()
     const woLabel = `${ticket?.ticket_number ?? `WO ${reqRow.ticket_id}`}${reqRow.association_code ? ` · ${reqRow.association_code}` : ''}`
     const link = `${APP}/vendor/estimate/${await signEstimateRequestToken(v.id)}`

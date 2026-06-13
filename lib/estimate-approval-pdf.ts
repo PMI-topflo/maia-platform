@@ -14,11 +14,13 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { saveWorkOrderFile, STORAGE_BUCKET } from '@/lib/work-order-attachments'
-import { pushWorkOrderAttachments } from '@/lib/integrations/cinc'
+import { pushWorkOrderAttachments, getVendorComplianceStatus } from '@/lib/integrations/cinc'
+import { signVendorUploadToken } from '@/lib/vendor-upload-token'
 import { sendEmail } from '@/lib/gmail'
 import { appendMessage } from '@/lib/tickets'
 
 const PAOLA = 'service@topfloridaproperties.com'
+const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const ORANGE = '#f26a1b'
 const money = (n: number | null) => n == null ? '—' : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const esc = (s: string) => (s ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
@@ -86,7 +88,20 @@ async function appendApprovalPage(doc: PDFDocument, ctx: {
     { x: 56, y: Math.max(y, 40), size: 8, font: helv, color: gray })
 }
 
-export interface FinalizeResult { ok: boolean; attachmentId?: string; cincPushed: boolean; emailed: number; note?: string }
+/** Which compliance docs the awarded vendor is missing or has expired in CINC.
+ *  Returns human-readable labels for the request email (empty = all good). */
+async function missingComplianceDocs(vendorId: number | null, assocCode: string | null): Promise<string[]> {
+  if (!vendorId) return []
+  const s = await getVendorComplianceStatus(vendorId, assocCode).catch(() => null)
+  if (!s) return []
+  const out: string[] = []
+  if (!s.w9.onFile) out.push('W-9 / tax form')
+  if (!s.coi.onFile || s.coi.valid === false) out.push('Certificate of Insurance (COI)')
+  if (!s.license.onFile || s.license.valid === false) out.push('Trade / business license')
+  return out
+}
+
+export interface FinalizeResult { ok: boolean; attachmentId?: string; cincPushed: boolean; emailed: number; docsRequested?: string[]; losersNotified?: number; note?: string }
 
 /** Build + file the signed approval copy and notify. Best-effort. */
 export async function finalizeEstimateApproval(approvalId: string): Promise<FinalizeResult> {
@@ -174,20 +189,80 @@ export async function finalizeEstimateApproval(approvalId: string): Promise<Fina
     }).then(() => { emailed += 1 }, () => null)
   }
 
-  // Winning vendor award notice (best-effort; needs a vendor email — looked up
-  // from the estimate request vendor row when present).
-  const { data: vrow } = await supabaseAdmin.from('estimate_request_vendors').select('vendor_email').eq('id', a.vendor_request_id).maybeSingle()
-  const vendorEmail = (vrow?.vendor_email as string | null) ?? null
-  if (vendorEmail && vendorEmail.includes('@')) {
+  // ── C4: award notice to the winning vendor + auto-request any missing
+  //        compliance docs (W-9 / COI / license) via the upload link. ──
+  // `outcome_notified_at` makes this fire exactly once even if finalize retries.
+  // vendor_email/vendor_id are read in a column-safe query so a not-yet-applied
+  // migration can never blank out the award email; the outcome flag is read
+  // best-effort separately.
+  const { data: winner } = await supabaseAdmin.from('estimate_request_vendors')
+    .select('vendor_email, vendor_id').eq('id', a.vendor_request_id).maybeSingle()
+  const vendorEmail = (winner?.vendor_email as string | null) ?? null
+  const winnerVendorId = winner?.vendor_id != null ? Number(winner.vendor_id) : null
+  let alreadyNotified = false
+  try {
+    const { data: o } = await supabaseAdmin.from('estimate_request_vendors').select('outcome_notified_at').eq('id', a.vendor_request_id).maybeSingle()
+    alreadyNotified = !!o?.outcome_notified_at
+  } catch { /* column may predate the migration — treat as not notified */ }
+
+  let docsRequested: string[] = []
+  if (vendorEmail && vendorEmail.includes('@') && !alreadyNotified) {
+    docsRequested = await missingComplianceDocs(winnerVendorId, a.association_code as string | null)
+    let docsBlock = ''
+    if (docsRequested.length) {
+      const uploadLink = `${APP}/vendor/upload/${await signVendorUploadToken(a.ticket_id as number)}`
+      const list = docsRequested.map(d => `<li>${esc(d)}</li>`).join('')
+      docsBlock = `<p style="margin-top:18px">Before we schedule the work, please send us the following so your vendor file is current:</p>
+        <ul>${list}</ul>
+        <p><a href="${uploadLink}" style="display:inline-block;background:${ORANGE};color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700">Upload your documents →</a></p>`
+    }
     await sendEmail({
       to: vendorEmail, replyTo: PAOLA,
       subject: `You've been awarded — ${esc(a.vendor_name as string ?? '')} · ${woLabel}`,
-      html: `<p>Congratulations — the board approved your estimate of <strong>${money(amount)}</strong> for <strong>${esc(woLabel)}</strong> at ${esc(associationName)}.</p>${dl}<p>Our coordinator will follow up with next steps.</p><p style="font-size:12px;color:#6b7280">Reply to reach PMI Top Florida Properties.</p>`,
+      html: `<p>Congratulations — the board approved your estimate of <strong>${money(amount)}</strong> for <strong>${esc(woLabel)}</strong> at ${esc(associationName)}.</p>${dl}${docsBlock}<p>Our coordinator will follow up with next steps.</p><p style="font-size:12px;color:#6b7280">Reply to reach PMI Top Florida Properties.</p>`,
     }).then(() => { emailed += 1 }, () => null)
+    await supabaseAdmin.from('estimate_request_vendors')
+      .update({ outcome: 'won', outcome_notified_at: new Date().toISOString() }).eq('id', a.vendor_request_id)
+      .then(() => null, () => null)
+  }
+
+  // ── C6: not-selected notices to the OTHER vendors who actually quoted. ──
+  // Only those who submitted an estimate (have a file or status 'submitted');
+  // vendors who never responded just get the request closed (no awkward note).
+  // Idempotency here is per-loser-row (outcome_notified_at), so this loop is
+  // independent of the winner's flag — a partial prior run still finishes.
+  let losersNotified = 0
+  const loserNames: string[] = []
+  if (a.request_id) {
+    const { data: others } = await supabaseAdmin.from('estimate_request_vendors')
+      .select('id, vendor_name, vendor_email, status, estimate_path, outcome_notified_at')
+      .eq('request_id', a.request_id).neq('id', a.vendor_request_id)
+    for (const v of (others ?? []) as { id: string; vendor_name: string | null; vendor_email: string | null; status: string | null; estimate_path: string | null; outcome_notified_at: string | null }[]) {
+      const quoted = v.status === 'submitted' || !!v.estimate_path
+      if (!quoted || v.outcome_notified_at) continue
+      if (v.vendor_email && v.vendor_email.includes('@')) {
+        await sendEmail({
+          to: v.vendor_email, replyTo: PAOLA,
+          subject: `Update on your estimate — ${woLabel}`,
+          html: `<p>Hello${v.vendor_name ? ` ${esc(v.vendor_name)}` : ''},</p>
+            <p>Thank you for submitting an estimate for <strong>${esc(woLabel)}</strong> at ${esc(associationName)}. After review, the board has selected another vendor for this project.</p>
+            <p>We genuinely appreciate the time you put into your proposal and look forward to inviting you to quote on future work.</p>
+            <p style="font-size:12px;color:#6b7280">PMI Top Florida Properties</p>`,
+        }).then(() => { emailed += 1; losersNotified += 1 }, () => null)
+        if (v.vendor_name) loserNames.push(v.vendor_name)
+      }
+      await supabaseAdmin.from('estimate_request_vendors')
+        .update({ outcome: 'lost', outcome_notified_at: new Date().toISOString() }).eq('id', v.id)
+        .then(() => null, () => null)
+    }
+    // Close the request so the follow-up cron stops nudging undecided vendors.
+    await supabaseAdmin.from('estimate_requests').update({ status: 'closed' }).eq('id', a.request_id).then(() => null, () => null)
   }
 
   await appendMessage(a.ticket_id as number, { direction: 'internal_note', channel: 'internal', from_addr: 'maia',
-    body: `📄 Official board-approved copy filed${cincPushed ? ' (MAIA + CINC)' : ''} for ${a.vendor_name} (${money(amount)}). Signed by ${signers.map(s => s.name).join(', ')}.${vendorEmail ? ' Award notice sent to the vendor.' : ''}` }).catch(() => null)
+    body: `📄 Official board-approved copy filed${cincPushed ? ' (MAIA + CINC)' : ''} for ${a.vendor_name} (${money(amount)}). Signed by ${signers.map(s => s.name).join(', ')}.`
+      + (vendorEmail ? ` Award notice sent to the vendor${docsRequested.length ? ` (requested: ${docsRequested.join(', ')})` : ''}.` : '')
+      + (losersNotified ? ` Not-selected notices sent to ${loserNames.join(', ') || `${losersNotified} vendor(s)`}.` : '') }).catch(() => null)
 
-  return { ok: true, attachmentId, cincPushed, emailed }
+  return { ok: true, attachmentId, cincPushed, emailed, docsRequested, losersNotified }
 }
