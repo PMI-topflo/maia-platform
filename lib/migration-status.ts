@@ -1601,6 +1601,20 @@ CREATE POLICY "service_role_all_compliance_records"
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'document_intake_unit',
+    label:       'Document intake — unit scope',
+    description: 'document_intake unit-scope columns (suggested/applied scope + unit_ref + label) so MAIA can classify a document to an owner/unit and file it at compliance_records scope=unit.',
+    filename:    '20260613_document_intake_unit.sql',
+    artifact:    { type: 'column', table: 'document_intake', column: 'suggested_scope' },
+    sql: `ALTER TABLE public.document_intake
+  ADD COLUMN IF NOT EXISTS suggested_scope      text,
+  ADD COLUMN IF NOT EXISTS suggested_unit_ref   text,
+  ADD COLUMN IF NOT EXISTS suggested_unit_label text,
+  ADD COLUMN IF NOT EXISTS applied_scope        text,
+  ADD COLUMN IF NOT EXISTS applied_unit_ref     text;
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'document_intake',
     label:       'MAIA Document Inbox',
     description: 'document_intake table (bulk upload → MAIA classifies → review/apply) + compliance_records.source_path linking an applied item to its source file.',

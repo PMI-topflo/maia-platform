@@ -13,6 +13,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import DocumentInboxClient, { type AssocOpt } from '../documents/inbox/DocumentInboxClient'
 import ComplianceMatrix from '../cinc-sync/[code]/ComplianceMatrix'
+import AssociationUnitDocs from './AssociationUnitDocs'
 
 type Tab = 'docs' | 'units'
 
@@ -62,6 +63,13 @@ export default function ComplianceHubClient({
               ? <ComplianceMatrix key={assoc} assocCode={assoc} />
               : <p className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-500">Pick an association to see its full document set — what&apos;s on file (with the document) and what&apos;s missing, including Sunbiz, insurance, DBPR, tax and more.</p>}
           </section>
+
+          {assoc && (
+            <section>
+              <h2 className="mb-3 text-sm font-semibold text-gray-900">Unit / owner documents</h2>
+              <AssociationUnitDocs key={assoc} assocCode={assoc} />
+            </section>
+          )}
         </div>
       )}
     </div>
