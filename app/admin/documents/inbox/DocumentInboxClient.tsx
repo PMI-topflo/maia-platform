@@ -54,6 +54,11 @@ export default function DocumentInboxClient({ associations }: { associations: As
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [preview, setPreview] = useState<Set<string>>(new Set())
+
+  function togglePreview(id: string) {
+    setPreview(p => { const s = new Set(p); if (s.has(id)) s.delete(id); else s.add(id); return s })
+  }
 
   async function ensureOwners(code: string) {
     if (!code || owners[code]) return
@@ -94,9 +99,10 @@ export default function DocumentInboxClient({ associations }: { associations: As
         const exRes = await fetch('/api/admin/documents/inbox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ storage_path: urlData.storage_path, filename: f.name, mime_type: f.type || 'application/pdf' }) })
         const ex = await exRes.json()
         if (!exRes.ok) throw new Error(ex?.error ?? 'classification failed')
-        const row = toRow(ex.row as RawRow)
-        setRows(rs => [row, ...rs])
-        if (scopeOfCat(row.category) === 'unit' && row.association_code) ensureOwners(row.association_code)
+        // One file can yield several rows (MAIA split a multi-policy packet).
+        const newRows = ((ex.rows ?? (ex.row ? [ex.row] : [])) as RawRow[]).map(toRow)
+        setRows(rs => [...newRows, ...rs])
+        for (const row of newRows) if (scopeOfCat(row.category) === 'unit' && row.association_code) ensureOwners(row.association_code)
       } catch (e) { setError(`${f.name}: ${e instanceof Error ? e.message : String(e)}`) }
       setUploading({ done: i + 1, total: list.length })
     }
@@ -191,8 +197,15 @@ export default function DocumentInboxClient({ associations }: { associations: As
                         {row.unit_label && !row.unit_ref && <p className="mt-1 text-[10px] text-gray-500">MAIA read: “{row.unit_label}” — pick the matching owner.</p>}
                       </div>
                     )}
+                    {preview.has(row.id) && (
+                      <div className="mt-2 overflow-hidden rounded border border-gray-200">
+                        <iframe src={`/api/admin/documents/inbox/${row.id}`} title={`Preview ${row.filename ?? ''}`} className="h-[28rem] w-full bg-gray-50" />
+                      </div>
+                    )}
                     {row.err && <div className="mt-2 text-[11px] text-red-600">{row.err}</div>}
                     <div className="mt-2 flex items-center justify-end gap-2">
+                      <button onClick={() => togglePreview(row.id)} className="mr-auto text-xs font-medium text-[#c2410c] hover:underline">{preview.has(row.id) ? 'Hide preview' : '👁 Preview document'}</button>
+                      <a href={`/api/admin/documents/inbox/${row.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-gray-700">Open ↗</a>
                       <button onClick={() => dismiss(row.id)} disabled={row.busy} className="text-xs text-gray-400 hover:text-red-600">Dismiss</button>
                       <button onClick={() => apply(row)} disabled={row.busy} className="rounded bg-[#f26a1b] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#d85a14] disabled:opacity-50">{row.busy ? 'Filing…' : 'File it'}</button>
                     </div>

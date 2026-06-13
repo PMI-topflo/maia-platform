@@ -29,7 +29,7 @@ export async function matchOwnerInAssociation(assocCode: string, seen: string | 
   if (owners.length === 0) return null
 
   const seenN  = ' ' + norm(seen) + ' '
-  const digits = seen.match(/\d{3,}/g) ?? []
+  const digits: string[] = seen.match(/\d{3,}/g) ?? []
 
   // 1) exact account number on the document — strongest signal.
   for (const o of owners) {
