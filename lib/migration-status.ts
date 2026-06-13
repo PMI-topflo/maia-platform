@@ -1615,6 +1615,18 @@ NOTIFY pgrst, 'reload schema';`,
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'document_intake_split',
+    label:       'Document intake — packet split',
+    description: 'document_intake split-tracking columns (source_storage_path + page_start/page_end) so a multi-policy PDF split into per-policy files can be merged back ("Append to previous").',
+    filename:    '20260613_document_intake_split.sql',
+    artifact:    { type: 'column', table: 'document_intake', column: 'source_storage_path' },
+    sql: `ALTER TABLE public.document_intake
+  ADD COLUMN IF NOT EXISTS source_storage_path text,
+  ADD COLUMN IF NOT EXISTS page_start          int,
+  ADD COLUMN IF NOT EXISTS page_end            int;
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'document_intake',
     label:       'MAIA Document Inbox',
     description: 'document_intake table (bulk upload → MAIA classifies → review/apply) + compliance_records.source_path linking an applied item to its source file.',
