@@ -109,7 +109,7 @@ Return a SINGLE JSON object and nothing else (no prose, no markdown fences):
   "items": [                            // ONE entry per distinct policy/coverage/item
     {
       "scope":           "association" or "unit",
-      "unit_seen":       string or null,   // for UNIT items: owner name / unit # / account # read on it
+      "unit_seen":       string or null,   // for UNIT items: EVERYTHING that identifies the owner/unit — the OWNER/insured/landlord name (PREFER the owner over any tenant), the unit/apartment number, the property street address + ZIP, and any account #
       "category":        string or null,   // category key
       "item_key":        string or null,   // item key from that category
       "doc_type":        string or null,   // short label, e.g. "General Liability (ACORD 126)", "Property (ACORD 140)", "Umbrella"
