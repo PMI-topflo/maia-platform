@@ -12,7 +12,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { assertClaudeBudget } from '@/lib/anthropic-guard'
-import { categoriesForScope, COMPLIANCE_TAXONOMY } from '@/lib/compliance-taxonomy'
+import { COMPLIANCE_TAXONOMY } from '@/lib/compliance-taxonomy'
 
 const HAIKU  = 'claude-haiku-4-5-20251001'
 const SONNET = 'claude-sonnet-4-20250514'
@@ -23,6 +23,8 @@ export interface AssociationRef { code: string; name: string }
 export interface DocumentClassification {
   association_code: string | null   // matched code from the provided list, or null when unsure
   association_seen: string | null   // the name/address MAIA read on the document
+  scope:            'association' | 'unit' | null   // association-wide vs a specific owner/unit
+  unit_seen:        string | null   // owner name / account # / unit # MAIA read (for owner match)
   category:         string | null   // compliance category key
   item_key:         string | null   // compliance item key
   doc_type:         string | null   // human label
@@ -46,34 +48,39 @@ function isoDate(v: unknown): string | null {
 }
 
 const VALID_ITEMS = new Set(COMPLIANCE_TAXONOMY.flatMap(c => c.items.map(i => i.key)))
-const VALID_CATS  = new Set(categoriesForScope('association').map(c => c.key))
+const VALID_CATS  = new Set(COMPLIANCE_TAXONOMY.map(c => c.key))
+const ITEM_SCOPE  = new Map(COMPLIANCE_TAXONOMY.flatMap(c => c.items.map(i => [i.key, c.scope] as const)))
 
 function buildPrompt(assocs: AssociationRef[]): string {
   const assocList = assocs.map(a => `  ${a.code} — ${a.name}`).join('\n')
-  const taxonomy = categoriesForScope('association')
-    .map(c => `${c.key} (${c.label}):\n` + c.items.map(i => `    ${i.key} — ${i.label}`).join('\n'))
+  const taxonomy = COMPLIANCE_TAXONOMY
+    .map(c => `${c.key} (${c.label}) [scope: ${c.scope}]:\n` + c.items.map(i => `    ${i.key} — ${i.label}`).join('\n'))
     .join('\n')
   return `You are filing a document for a Florida HOA / condominium management company. Read the document and classify it.
 
 KNOWN ASSOCIATIONS (match by the association name or property address printed on the document — return the CODE):
 ${assocList}
 
-COMPLIANCE CATEGORIES and their items (pick the single best item this document satisfies):
+A document is either ASSOCIATION-wide (applies to the whole association — insurance, Sunbiz, tax, audits) or UNIT-level (belongs to one owner/unit — a lease, HO-6 policy, tenant registration, pet/vehicle registration, an owner's acknowledgement).
+
+COMPLIANCE CATEGORIES and their items (each tagged association or unit — pick the single best item this document satisfies):
 ${taxonomy}
 
 Return a SINGLE JSON object and nothing else (no prose, no markdown fences):
 {
   "association_code": string or null,   // EXACT code from the list above; null if you cannot tell which association
   "association_seen": string or null,   // the association name / address text you read
+  "scope":            "association" or "unit" or null,   // matches the chosen item's scope
+  "unit_seen":        string or null,   // for UNIT docs: the owner full name, unit number, and/or account number printed on it (verbatim) so we can match the owner; null for association docs
   "category":         string or null,   // category key from the list
   "item_key":         string or null,   // item key from that category
-  "doc_type":         string or null,   // short human label, e.g. "SIRS report", "Master property dec page", "Fire alarm inspection"
+  "doc_type":         string or null,   // short human label, e.g. "Residential lease", "HO-6 policy", "SIRS report", "Fire alarm inspection"
   "effective_date":   string or null,   // ISO YYYY-MM-DD — issue / effective / inspection date
-  "expiration_date":  string or null,   // ISO YYYY-MM-DD — expiration / next-due / renewal date if stated
+  "expiration_date":  string or null,   // ISO YYYY-MM-DD — expiration / next-due / renewal / lease-end date if stated
   "confidence":       number,           // 0..1 overall
   "summary":          string or null    // one short line of what this is
 }
-Rules: Convert "5/1/2026" → "2026-05-01". Only return an association_code that EXACTLY matches one in the list — if the name/address doesn't clearly match one, return null (do NOT guess). Pick the most specific item_key. Use null for anything not clearly present.`
+Rules: Convert "5/1/2026" → "2026-05-01". Only return an association_code that EXACTLY matches one in the list — if the name/address doesn't clearly match one, return null (do NOT guess). Pick the most specific item_key, and set scope to match that item. For UNIT docs, always fill unit_seen with whatever owner/unit identifiers you can read. Use null for anything not clearly present.`
 }
 
 function parse(text: string): Omit<DocumentClassification, 'model'> | null {
@@ -82,11 +89,20 @@ function parse(text: string): Omit<DocumentClassification, 'model'> | null {
   try { o = JSON.parse(cleaned) as Record<string, unknown> } catch { return null }
   const category = str(o.category)
   const itemKey  = str(o.item_key)
+  const validItem = itemKey && VALID_ITEMS.has(itemKey) ? itemKey : null
+  const scopeRaw = str(o.scope)
+  // Trust the item's own scope when we have a valid item; else fall back to
+  // the model's stated scope.
+  const scope: 'association' | 'unit' | null = validItem
+    ? (ITEM_SCOPE.get(validItem) ?? null)
+    : (scopeRaw === 'unit' || scopeRaw === 'association' ? scopeRaw : null)
   return {
     association_code: str(o.association_code),
     association_seen: str(o.association_seen),
+    scope,
+    unit_seen:        str(o.unit_seen),
     category:         category && VALID_CATS.has(category) ? category : null,
-    item_key:         itemKey && VALID_ITEMS.has(itemKey) ? itemKey : null,
+    item_key:         validItem,
     doc_type:         str(o.doc_type),
     effective_date:   isoDate(o.effective_date),
     expiration_date:  isoDate(o.expiration_date),
@@ -127,7 +143,7 @@ export async function classifyDocument(buf: Buffer, contentType: string | null, 
   if (second) return { ...second, model: SONNET }
   return first
     ? { ...first, model: HAIKU }
-    : { association_code: null, association_seen: null, category: null, item_key: null, doc_type: null, effective_date: null, expiration_date: null, confidence: 0, summary: null, model: SONNET }
+    : { association_code: null, association_seen: null, scope: null, unit_seen: null, category: null, item_key: null, doc_type: null, effective_date: null, expiration_date: null, confidence: 0, summary: null, model: SONNET }
 }
 
 function mediaTypeFor(contentType?: string | null): 'image/jpeg' | 'image/png' | 'image/webp' {

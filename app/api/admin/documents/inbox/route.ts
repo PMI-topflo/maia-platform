@@ -11,12 +11,13 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { normalizeUpload } from '@/lib/pdf-normalize'
 import { classifyDocument, type AssociationRef } from '@/lib/document-classifier'
+import { matchOwnerInAssociation } from '@/lib/owner-match'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
 const BUCKET = 'association-documents'
-const SELECT = 'id, storage_path, filename, mime_type, status, suggested_association_code, suggested_category, suggested_item_key, doc_type, effective_date, expiration_date, confidence, summary, model, created_at'
+const SELECT = 'id, storage_path, filename, mime_type, status, suggested_association_code, suggested_category, suggested_item_key, suggested_scope, suggested_unit_ref, suggested_unit_label, doc_type, effective_date, expiration_date, confidence, summary, model, created_at'
 
 async function requireStaff() {
   const token   = (await cookies()).get(SESSION_COOKIE)?.value
@@ -57,9 +58,20 @@ export async function POST(req: Request) {
   try { cls = await classifyDocument(buf, body.mime_type ?? null, assocs) }
   catch (err) { return NextResponse.json({ error: `classification failed: ${(err as Error).message}` }, { status: 502 }) }
 
+  // For a unit-level doc with a known association, try to match the owner MAIA
+  // read so the row pre-selects the right unit; staff can still change it.
+  let unitRef: string | null = null
+  let unitLabel: string | null = null
+  if (cls.scope === 'unit' && cls.association_code) {
+    const owner = await matchOwnerInAssociation(cls.association_code, cls.unit_seen).catch(() => null)
+    if (owner) { unitRef = owner.account_number; unitLabel = owner.label }
+    else if (cls.unit_seen) unitLabel = cls.unit_seen   // show what MAIA read so staff can find the owner
+  }
+
   const { data: row, error } = await supabaseAdmin.from('document_intake').insert({
     storage_path: storagePath, filename: body.filename ?? null, mime_type: body.mime_type ?? null, status: 'review',
     suggested_association_code: cls.association_code, suggested_category: cls.category, suggested_item_key: cls.item_key,
+    suggested_scope: cls.scope, suggested_unit_ref: unitRef, suggested_unit_label: unitLabel,
     doc_type: cls.doc_type, effective_date: cls.effective_date, expiration_date: cls.expiration_date,
     confidence: cls.confidence, summary: cls.summary, model: cls.model, uploaded_by: actor(session),
   }).select(SELECT).single()

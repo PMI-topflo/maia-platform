@@ -49,8 +49,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   const assoc   = String(body.association_code ?? '').trim().toUpperCase()
   const itemKey = String(body.item_key ?? '').trim()
+  const scope   = body.scope === 'unit' ? 'unit' : 'association'
+  const unitRef = scope === 'unit' ? String(body.unit_ref ?? '').trim() : ''
   if (!assoc) return NextResponse.json({ error: 'association_code is required to apply' }, { status: 400 })
   if (!VALID_ITEMS.has(itemKey)) return NextResponse.json({ error: 'a valid compliance item_key is required' }, { status: 400 })
+  if (scope === 'unit' && !unitRef) return NextResponse.json({ error: 'pick the owner/unit this document belongs to' }, { status: 400 })
 
   const { data: doc, error: docErr } = await supabaseAdmin.from('document_intake').select('storage_path, status').eq('id', id).single()
   if (docErr || !doc) return NextResponse.json({ error: 'intake row not found' }, { status: 404 })
@@ -58,22 +61,22 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const expiry = dateOrNull(body.expiration_date)
   const newStatus = statusFromExpiry(expiry)
   const { error: upErr } = await supabaseAdmin.from('compliance_records').upsert({
-    scope: 'association', association_code: assoc, unit_ref: '', item_key: itemKey,
+    scope, association_code: assoc, unit_ref: unitRef, item_key: itemKey,
     applicable: true, status: newStatus, expiry_date: expiry,
     source_path: doc.storage_path, updated_by: actor(session),
   }, { onConflict: 'scope,association_code,unit_ref,item_key' })
   if (upErr) return NextResponse.json({ error: `could not write compliance record: ${upErr.message}` }, { status: 500 })
 
-  // Filing a satisfying doc closes the matching compliance task right away
-  // (the daily sync would too, but this is immediate). Expired/pending docs
-  // leave the task open as a renewal reminder.
-  if (newStatus === 'current' || newStatus === 'expiring') {
+  // Filing a satisfying association doc closes the matching compliance task
+  // right away (the daily sync would too). Expired/pending docs leave it open.
+  if (scope === 'association' && (newStatus === 'current' || newStatus === 'expiring')) {
     await supabaseAdmin.from('staff_tasks').update({ active: false })
       .eq('source', 'maia').eq('source_ref', `compliance:${assoc}:${itemKey}`)
   }
 
   const { error } = await supabaseAdmin.from('document_intake').update({
     status: 'applied', applied_association_code: assoc, applied_item_key: itemKey,
+    applied_scope: scope, applied_unit_ref: unitRef || null,
     applied_at: new Date().toISOString(), applied_by: actor(session),
   }).eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
