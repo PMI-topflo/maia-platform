@@ -89,16 +89,18 @@ async function appendApprovalPage(doc: PDFDocument, ctx: {
 }
 
 /** Which compliance docs the awarded vendor is missing or has expired in CINC.
- *  Returns human-readable labels for the request email (empty = all good). */
-async function missingComplianceDocs(vendorId: number | null, assocCode: string | null): Promise<string[]> {
+ *  `key` drives the self-service deep-link (ach/w9 have a portal tab); `label`
+ *  is the human text for the request email. Empty = all good. */
+interface MissingDoc { key: 'ach' | 'w9' | 'coi' | 'license'; label: string }
+async function missingComplianceDocs(vendorId: number | null, assocCode: string | null): Promise<MissingDoc[]> {
   if (!vendorId) return []
   const s = await getVendorComplianceStatus(vendorId, assocCode).catch(() => null)
   if (!s) return []
-  const out: string[] = []
-  if (!s.ach.onFile) out.push('Direct-deposit (ACH) banking form')
-  if (!s.w9.onFile) out.push('W-9 / tax form')
-  if (!s.coi.onFile || s.coi.valid === false) out.push('Certificate of Insurance (COI)')
-  if (!s.license.onFile || s.license.valid === false) out.push('Trade / business license')
+  const out: MissingDoc[] = []
+  if (!s.ach.onFile) out.push({ key: 'ach', label: 'Direct-deposit (ACH) banking form' })
+  if (!s.w9.onFile) out.push({ key: 'w9', label: 'W-9 / tax form' })
+  if (!s.coi.onFile || s.coi.valid === false) out.push({ key: 'coi', label: 'Certificate of Insurance (COI)' })
+  if (!s.license.onFile || s.license.valid === false) out.push({ key: 'license', label: 'Trade / business license' })
   return out
 }
 
@@ -208,10 +210,15 @@ export async function finalizeEstimateApproval(approvalId: string): Promise<Fina
 
   let docsRequested: string[] = []
   if (vendorEmail && vendorEmail.includes('@') && !alreadyNotified) {
-    docsRequested = await missingComplianceDocs(winnerVendorId, a.association_code as string | null)
+    const missing = await missingComplianceDocs(winnerVendorId, a.association_code as string | null)
+    docsRequested = missing.map(m => m.label)
     let docsBlock = ''
-    if (docsRequested.length) {
-      const uploadLink = `${APP}/vendor/upload/${await signVendorUploadToken(a.ticket_id as number)}`
+    if (missing.length) {
+      // Deep-link the self-service portal to the tabs we actually need (ach/w9);
+      // COI/license are file uploads with no special tab.
+      const need = missing.filter(m => m.key === 'ach' || m.key === 'w9').map(m => m.key)
+      const qs = need.length ? `?need=${need.join(',')}` : ''
+      const uploadLink = `${APP}/vendor/upload/${await signVendorUploadToken(a.ticket_id as number)}${qs}`
       const list = docsRequested.map(d => `<li>${esc(d)}</li>`).join('')
       docsBlock = `<p style="margin-top:18px">Before we schedule the work, please send us the following so your vendor file is current:</p>
         <ul>${list}</ul>
