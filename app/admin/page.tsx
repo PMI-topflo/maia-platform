@@ -7,6 +7,7 @@ import { policyTypeLabel } from '@/lib/association-insurance'
 import { inspectionTypeLabel } from '@/lib/association-safety'
 import { currentReportYear, dueDate, sunbizStatus, statusNeedsAttention as sunbizNeedsAttention } from '@/lib/sunbiz'
 import { getWeeklyCoverage } from '@/lib/service-visits'
+import { countActiveWorkOrderVendors } from '@/lib/vendor-compliance-overview'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from './components/AdminNav'
 import StaffStatsPanel from './components/StaffStatsPanel'
@@ -56,6 +57,9 @@ export default async function OverviewPage() {
   const coveragePromise = getWeeklyCoverage().catch(
     () => ({ week_of: '', rows: [], total: 0, complete: 0, late: 0, missed: 0, sev: 'nominal' as const }),
   )
+  // Vendors on active work orders (cheap, no CINC) — drives the Vendor
+  // Compliance card; the live ACH/W-9/COI/license check runs on its page.
+  const vendorComplianceCountPromise = countActiveWorkOrderVendors()
 
   // 120-day expiry horizon for the documents + permits instrument.
   const horizon = new Date()
@@ -206,6 +210,7 @@ export default async function OverviewPage() {
   ])
 
   const weeklyCoverage = await coveragePromise
+  const vendorComplianceCount = await vendorComplianceCountPromise
 
   const myTasks       = (myTasksRaw       ?? []) as TicketRow[]
   const workOrders    = (workOrdersRaw    ?? []) as TicketRow[]
@@ -335,6 +340,7 @@ export default async function OverviewPage() {
             ownershipTransfers: ownershipTransfers ?? 0,
             building:           buildingItems.length,
             unit:               unitItems.length,
+            vendorCompliance:   vendorComplianceCount,
           }}
           myTasks={myTasks}
           workOrders={workOrders}
