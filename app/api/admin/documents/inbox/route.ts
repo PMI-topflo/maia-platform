@@ -11,7 +11,7 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { normalizeUpload } from '@/lib/pdf-normalize'
 import { classifyDocument, type AssociationRef } from '@/lib/document-classifier'
-import { matchOwnerInAssociation } from '@/lib/owner-match'
+import { resolveOwnerForDocument } from '@/lib/owner-match'
 import { pdfPageCount, splitPdfRange } from '@/lib/pdf-split'
 
 export const dynamic = 'force-dynamic'
@@ -94,19 +94,23 @@ export async function POST(req: Request) {
       }
     }
 
-    // Owner match for unit-scope items.
+    // Resolve the owner/unit for unit-scope items. When MAIA didn't name the
+    // association, the matched owner record supplies it (keyed on unit # / owner
+    // name / property address).
     let unitRef: string | null = null
     let unitLabel: string | null = null
-    if (it.scope === 'unit' && cls.association_code) {
-      const owner = await matchOwnerInAssociation(cls.association_code, it.unit_seen).catch(() => null)
-      if (owner) { unitRef = owner.account_number; unitLabel = owner.label }
+    let resolvedAssoc: string | null = null
+    if (it.scope === 'unit') {
+      const owner = await resolveOwnerForDocument(cls.association_code, it.unit_seen).catch(() => null)
+      if (owner) { unitRef = owner.account_number; unitLabel = owner.label; resolvedAssoc = owner.association_code }
       else if (it.unit_seen) unitLabel = it.unit_seen
     }
+    const assocForRow = resolvedAssoc ?? cls.association_code
 
     const partName = multi && it.doc_type ? `${body.filename ?? 'document'} — ${it.doc_type}` : (body.filename ?? null)
     inserts.push({
       storage_path: path, filename: partName, mime_type: 'application/pdf', status: 'review',
-      suggested_association_code: cls.association_code, suggested_category: it.category, suggested_item_key: it.item_key,
+      suggested_association_code: assocForRow, suggested_category: it.category, suggested_item_key: it.item_key,
       suggested_scope: it.scope, suggested_unit_ref: unitRef, suggested_unit_label: unitLabel,
       doc_type: it.doc_type, effective_date: it.effective_date, expiration_date: it.expiration_date,
       source_storage_path: storagePath, page_start: it.page_start, page_end: it.page_end,
