@@ -16,7 +16,7 @@ import VendorLangBar from '@/components/VendorLangBar'
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Upload to PMI Top Florida' }
 
-interface Props { params: Promise<{ token: string }>; searchParams: Promise<{ lang?: string; e?: string }> }
+interface Props { params: Promise<{ token: string }>; searchParams: Promise<{ lang?: string; e?: string; need?: string }> }
 
 const T = {
   en: { wo: 'Work order', fallbackTitle: 'Upload your files', vendor: 'Vendor', intro: 'Upload your <b>estimate</b>, <b>invoice</b>, or <b>job photos</b> for this work order. PDF, JPG, PNG accepted.', expired: 'This upload link is invalid or has expired. Please ask PMI for a new link.', notFound: 'This work order could not be found.' },
@@ -83,7 +83,7 @@ export default async function VendorUploadPage({ params, searchParams }: Props) 
       {where && <div style={{ fontSize: 13, color: '#4b5563' }}>{where}</div>}
       {wod?.vendor_name && <div style={{ fontSize: 13, color: '#4b5563', marginTop: 2 }}>{t.vendor}: {wod.vendor_name}</div>}
       <p style={{ fontSize: 13, color: '#4b5563', margin: '14px 0 18px', lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: t.intro }} />
-      <Uploader token={token} lang={lang} />
+      <Uploader token={token} lang={lang} need={(sp?.need ?? '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)} />
     </Shell>
   )
 }

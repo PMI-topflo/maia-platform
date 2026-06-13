@@ -91,17 +91,23 @@ const STR = {
   },
 } as const
 
-export default function Uploader({ token, lang = 'en' }: { token: string; lang?: keyof typeof STR }) {
+export default function Uploader({ token, lang = 'en', need = [] }: { token: string; lang?: keyof typeof STR; need?: string[] }) {
   const t = STR[lang] ?? STR.en
+  // Banking (ACH) / Tax (W-9) tabs only appear when MAIA actually requested them
+  // (deep-linked via ?need=ach,w9 from the award / compliance email) — they are
+  // not shown on a plain upload link.
+  const wantAch = need.includes('ach')
+  const wantW9  = need.includes('w9')
   const CATEGORIES = [
     { key: 'estimate', label: t.cats.estimate },
     { key: 'invoice',  label: t.cats.invoice },
     { key: 'photos',   label: t.cats.photos },
-    { key: 'banking',  label: t.cats.banking },
-    { key: 'tax',      label: t.cats.tax },
+    ...(wantAch ? [{ key: 'banking', label: t.cats.banking }] as const : []),
+    ...(wantW9  ? [{ key: 'tax',     label: t.cats.tax }] as const : []),
   ] as const
 
-  const [category, setCategory]    = useState<string>('estimate')
+  // Auto-select the first requested compliance tab so the vendor lands on it.
+  const [category, setCategory]    = useState<string>(wantAch ? 'banking' : wantW9 ? 'tax' : 'estimate')
   const [files, setFiles]          = useState<File[]>([])
   const [report, setReport]        = useState('')
   const [suggestions, setSuggestions] = useState('')
