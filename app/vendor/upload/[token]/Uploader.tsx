@@ -2,10 +2,11 @@
 
 import { useState } from 'react'
 import AchSection from './AchSection'
+import W9Section from './W9Section'
 
 const STR = {
   en: {
-    cats: { estimate: 'Estimate', invoice: 'Invoice', photos: 'Job photos', banking: 'Banking (ACH)' },
+    cats: { estimate: 'Estimate', invoice: 'Invoice', photos: 'Job photos', banking: 'Banking (ACH)', tax: 'Tax (W-9)' },
     reportPhotos: 'Brief report — what work was done?', reportNote: 'Note (optional)',
     reportPh: 'e.g. Mowed and edged front + rear common areas, blew walkways, trimmed hedges by pool gate.',
     notePh: 'Optional note for PMI.',
@@ -17,7 +18,7 @@ const STR = {
     uploadMore: 'Upload more', autoCompress: 'Large photos are compressed automatically. Max 25 MB per file.',
   },
   es: {
-    cats: { estimate: 'Estimado', invoice: 'Factura', photos: 'Fotos del trabajo', banking: 'Banco (ACH)' },
+    cats: { estimate: 'Estimado', invoice: 'Factura', photos: 'Fotos del trabajo', banking: 'Banco (ACH)', tax: 'Impuestos (W-9)' },
     reportPhotos: 'Informe breve — ¿qué trabajo se hizo?', reportNote: 'Nota (opcional)',
     reportPh: 'p. ej. Corté y bordeé las áreas comunes del frente y atrás, soplé las aceras, podé los setos junto a la piscina.',
     notePh: 'Nota opcional para PMI.',
@@ -29,7 +30,7 @@ const STR = {
     uploadMore: 'Subir más', autoCompress: 'Las fotos grandes se comprimen automáticamente. Máx. 25 MB por archivo.',
   },
   pt: {
-    cats: { estimate: 'Orçamento', invoice: 'Fatura', photos: 'Fotos do trabalho', banking: 'Banco (ACH)' },
+    cats: { estimate: 'Orçamento', invoice: 'Fatura', photos: 'Fotos do trabalho', banking: 'Banco (ACH)', tax: 'Imposto (W-9)' },
     reportPhotos: 'Relatório breve — que trabalho foi feito?', reportNote: 'Nota (opcional)',
     reportPh: 'ex. Cortei e aparei as áreas comuns da frente e dos fundos, soprei as calçadas, podei as cercas vivas junto ao portão da piscina.',
     notePh: 'Nota opcional para a PMI.',
@@ -41,7 +42,7 @@ const STR = {
     uploadMore: 'Enviar mais', autoCompress: 'Fotos grandes são compactadas automaticamente. Máx. 25 MB por arquivo.',
   },
   fr: {
-    cats: { estimate: 'Devis', invoice: 'Facture', photos: 'Photos du travail', banking: 'Banque (ACH)' },
+    cats: { estimate: 'Devis', invoice: 'Facture', photos: 'Photos du travail', banking: 'Banque (ACH)', tax: 'Fiscal (W-9)' },
     reportPhotos: 'Bref rapport — quel travail a été effectué ?', reportNote: 'Note (facultatif)',
     reportPh: 'ex. Tondu et bordé les espaces communs avant et arrière, soufflé les allées, taillé les haies près du portail de la piscine.',
     notePh: 'Note facultative pour PMI.',
@@ -53,7 +54,7 @@ const STR = {
     uploadMore: 'Téléverser plus', autoCompress: 'Les grandes photos sont compressées automatiquement. Max 25 Mo par fichier.',
   },
   he: {
-    cats: { estimate: 'הצעת מחיר', invoice: 'חשבונית', photos: 'תמונות העבודה', banking: 'בנק (ACH)' },
+    cats: { estimate: 'הצעת מחיר', invoice: 'חשבונית', photos: 'תמונות העבודה', banking: 'בנק (ACH)', tax: 'מס (W-9)' },
     reportPhotos: 'דוח קצר — איזו עבודה בוצעה?', reportNote: 'הערה (אופציונלי)',
     reportPh: 'לדוגמה: כיסחתי ויישרתי את השטחים המשותפים מלפנים ומאחור, ניקיתי את השבילים, גזמתי את הגדרות החיות ליד שער הבריכה.',
     notePh: 'הערה אופציונלית ל-PMI.',
@@ -65,7 +66,7 @@ const STR = {
     uploadMore: 'העלאת עוד', autoCompress: 'תמונות גדולות נדחסות אוטומטית. מקסימום 25MB לקובץ.',
   },
   ru: {
-    cats: { estimate: 'Смета', invoice: 'Счёт', photos: 'Фото работ', banking: 'Банк (ACH)' },
+    cats: { estimate: 'Смета', invoice: 'Счёт', photos: 'Фото работ', banking: 'Банк (ACH)', tax: 'Налоги (W-9)' },
     reportPhotos: 'Краткий отчёт — какая работа выполнена?', reportNote: 'Заметка (необязательно)',
     reportPh: 'напр. Подстриг и выровнял общие зоны спереди и сзади, продул дорожки, подрезал живую изгородь у ворот бассейна.',
     notePh: 'Необязательная заметка для PMI.',
@@ -77,7 +78,7 @@ const STR = {
     uploadMore: 'Загрузить ещё', autoCompress: 'Большие фото сжимаются автоматически. Макс. 25 МБ на файл.',
   },
   ht: {
-    cats: { estimate: 'Estimasyon', invoice: 'Fakti', photos: 'Foto travay', banking: 'Bank (ACH)' },
+    cats: { estimate: 'Estimasyon', invoice: 'Fakti', photos: 'Foto travay', banking: 'Bank (ACH)', tax: 'Taks (W-9)' },
     reportPhotos: 'Ti rapò — ki travay ki fèt?', reportNote: 'Nòt (opsyonèl)',
     reportPh: 'egz. Mwen koupe ak taye zòn komen devan ak dèyè, soufle wout yo, taye raje bò pòtay pisin nan.',
     notePh: 'Nòt opsyonèl pou PMI.',
@@ -97,6 +98,7 @@ export default function Uploader({ token, lang = 'en' }: { token: string; lang?:
     { key: 'invoice',  label: t.cats.invoice },
     { key: 'photos',   label: t.cats.photos },
     { key: 'banking',  label: t.cats.banking },
+    { key: 'tax',      label: t.cats.tax },
   ] as const
 
   const [category, setCategory]    = useState<string>('estimate')
@@ -167,7 +169,7 @@ export default function Uploader({ token, lang = 'en' }: { token: string; lang?:
         ))}
       </div>
 
-      {category === 'banking' ? <AchSection token={token} lang={lang} /> : (<>
+      {category === 'banking' ? <AchSection token={token} lang={lang} /> : category === 'tax' ? <W9Section token={token} lang={lang} /> : (<>
 
       <input
         type="file"
