@@ -20,7 +20,11 @@ const HAIKU  = 'claude-haiku-4-5-20251001'
 const SONNET = 'claude-sonnet-4-20250514'
 const ESCALATE_BELOW = 0.6
 
-export interface AssociationRef { code: string; name: string }
+export interface AssociationRef {
+  code: string; name: string
+  address?: string | null; city?: string | null; state?: string | null; zip?: string | null
+  aliases?: string[]
+}
 
 export interface DetectedItem {
   scope:           'association' | 'unit'
@@ -65,16 +69,31 @@ const VALID_CATS  = new Set(COMPLIANCE_TAXONOMY.map(c => c.key))
 const ITEM_SCOPE  = new Map(COMPLIANCE_TAXONOMY.flatMap(c => c.items.map(i => [i.key, c.scope] as const)))
 
 function buildPrompt(assocs: AssociationRef[], pageCount: number): string {
-  const assocList = assocs.map(a => `  ${a.code} — ${a.name}`).join('\n')
+  const assocList = assocs.map(a => {
+    const addr = [a.address, [a.city, a.state, a.zip].filter(Boolean).join(' ').trim()].filter(Boolean).join(', ')
+    const al = a.aliases && a.aliases.length ? ` (aka: ${a.aliases.join('; ')})` : ''
+    return `  ${a.code} — ${a.name}${al}${addr ? ` — ${addr}` : ''}`
+  }).join('\n')
   const taxonomy = COMPLIANCE_TAXONOMY
     .map(c => `${c.key} (${c.label}) [scope: ${c.scope}]:\n` + c.items.map(i => `    ${i.key} — ${i.label}`).join('\n'))
     .join('\n')
   return `You are filing documents for a Florida HOA / condominium management company. Read this ${pageCount}-page document and classify it.
 
-KNOWN ASSOCIATIONS (match by the association name or property address printed on the document — return the CODE):
+KNOWN ASSOCIATIONS — match by the association NAME, an alias, OR the PROPERTY ADDRESS (street number + city + ZIP) printed anywhere on the document, and return the CODE. The name is often NOT printed; when it isn't, identify the association by its address. Each entry is "CODE — name (aka aliases) — address":
 ${assocList}
 
 IMPORTANT: a single PDF often BUNDLES MULTIPLE policies or coverages. For example an insurance ACORD packet typically contains separate sections — General Liability, Commercial Property, Umbrella/Excess, Crime, Workers Comp — each on its own page(s)/form. A lease packet may include the lease plus an HO-6 certificate. Identify EVERY distinct compliance item the document satisfies and return one entry per item, with the 1-based PAGE RANGE of that item's pages so we can split the packet into a separate file per policy.
+
+Common insurance sections → the item to use (capture EVERY one present, even a single-page section — do NOT skip Crime):
+  General Liability (ACORD 126) → insurance.general_liability
+  Commercial Property / building (ACORD 140) → insurance.property
+  Umbrella / Excess Liability (ACORD 131) → insurance.umbrella
+  Crime / Fidelity / Employee Dishonesty (ACORD 146/5) → insurance.fidelity
+  Workers Compensation (ACORD 130) → insurance.workers_comp
+  Equipment Breakdown / Inland Marine → insurance.equipment
+  Flood → insurance.flood ; Windstorm → insurance.windstorm ; Cyber → insurance.cyber
+  D&O → insurance.do ; a combined Certificate of Insurance → insurance.coi
+(ACORD 125 is the common application cover — not itself a coverage; skip it.)
 
 A document/section is either ASSOCIATION-wide (insurance, Sunbiz, tax, audits) or UNIT-level (one owner/unit — lease, HO-6, registrations).
 
@@ -166,6 +185,16 @@ export async function classifyDocument(buf: Buffer, contentType: string | null, 
     ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
     : { type: 'image', source: { type: 'base64', media_type: mediaTypeFor(contentType), data: b64 } }
   const prompt = buildPrompt(assocs, pageCount)
+
+  // Multi-page PDFs are usually multi-coverage packets where catching EVERY
+  // section matters — use Sonnet directly for recall. Single-page docs start on
+  // Haiku and escalate only when unsure.
+  const packet = isPdf && pageCount > 2
+  if (packet) {
+    await assertClaudeBudget('document-classify-packet')
+    const s = await runModel(SONNET, block, prompt, pageCount)
+    if (s && s.items.length > 0) return { ...s, model: SONNET }
+  }
 
   await assertClaudeBudget('document-classify')
   const first = await runModel(HAIKU, block, prompt, pageCount)
