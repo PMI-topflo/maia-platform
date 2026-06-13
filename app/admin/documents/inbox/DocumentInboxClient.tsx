@@ -26,6 +26,7 @@ interface Row {
   association_code: string; category: string; item_key: string
   unit_ref: string; unit_label: string | null
   effective_date: string; expiration_date: string
+  source_storage_path: string | null; page_start: number | null; page_end: number | null
   busy?: boolean; err?: string | null
 }
 
@@ -35,6 +36,7 @@ interface RawRow {
   suggested_association_code: string | null; suggested_category: string | null; suggested_item_key: string | null
   suggested_scope: string | null; suggested_unit_ref: string | null; suggested_unit_label: string | null
   effective_date: string | null; expiration_date: string | null
+  source_storage_path: string | null; page_start: number | null; page_end: number | null
 }
 function toRow(r: RawRow): Row {
   const category = r.suggested_category || catOfItem(r.suggested_item_key) || CATS[0].key
@@ -45,6 +47,7 @@ function toRow(r: RawRow): Row {
     item_key: r.suggested_item_key ?? '',
     unit_ref: r.suggested_unit_ref ?? '', unit_label: r.suggested_unit_label,
     effective_date: r.effective_date ?? '', expiration_date: r.expiration_date ?? '',
+    source_storage_path: r.source_storage_path, page_start: r.page_start, page_end: r.page_end,
   }
 }
 
@@ -128,6 +131,23 @@ export default function DocumentInboxClient({ associations }: { associations: As
     setRows(rs => rs.filter(r => r.id !== id))
   }
 
+  // The contiguous split sibling immediately before this piece (same packet,
+  // page_end == this.page_start - 1) — the one to append into.
+  function prevSibling(row: Row): Row | null {
+    if (!row.source_storage_path || row.page_start == null) return null
+    return rows.find(r => r.id !== row.id && r.source_storage_path === row.source_storage_path && r.page_end != null && r.page_end === (row.page_start as number) - 1) ?? null
+  }
+  async function mergePrev(row: Row, prev: Row) {
+    patch(row.id, { busy: true, err: null })
+    try {
+      const res = await fetch(`/api/admin/documents/inbox/${row.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'merge_prev', prev_id: prev.id }) })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j?.error ?? 'merge failed')
+      setRows(rs => rs.filter(r => r.id !== row.id).map(r => r.id === prev.id ? { ...r, page_end: j.page_end ?? r.page_end } : r))
+      setPreview(p => { const s = new Set(p); s.delete(prev.id); return s })   // force preview reload on reopen
+    } catch (e) { patch(row.id, { busy: false, err: e instanceof Error ? e.message : String(e) }) }
+  }
+
   return (
     <div>
       <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#f26a1b]/40 bg-[#fff8f4] px-6 py-8 text-center hover:border-[#f26a1b]">
@@ -149,6 +169,7 @@ export default function DocumentInboxClient({ associations }: { associations: As
                 const scope = scopeOfCat(row.category)
                 const isUnit = scope === 'unit'
                 const ownerOpts = owners[row.association_code] ?? []
+                const prev = prevSibling(row)
                 return (
                   <div key={row.id} className="rounded-lg border border-gray-200 bg-white p-3">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -206,6 +227,7 @@ export default function DocumentInboxClient({ associations }: { associations: As
                     <div className="mt-2 flex items-center justify-end gap-2">
                       <button onClick={() => togglePreview(row.id)} className="mr-auto text-xs font-medium text-[#c2410c] hover:underline">{preview.has(row.id) ? 'Hide preview' : '👁 Preview document'}</button>
                       <a href={`/api/admin/documents/inbox/${row.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-gray-700">Open ↗</a>
+                      {prev && <button onClick={() => mergePrev(row, prev)} disabled={row.busy} title={`Merge these pages into "${prev.doc_type ?? 'the previous document'}"`} className="text-xs text-blue-600 hover:underline">⤢ Append to previous</button>}
                       <button onClick={() => dismiss(row.id)} disabled={row.busy} className="text-xs text-gray-400 hover:text-red-600">Dismiss</button>
                       <button onClick={() => apply(row)} disabled={row.busy} className="rounded bg-[#f26a1b] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#d85a14] disabled:opacity-50">{row.busy ? 'Filing…' : 'File it'}</button>
                     </div>

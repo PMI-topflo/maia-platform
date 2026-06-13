@@ -8,6 +8,7 @@ import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { COMPLIANCE_TAXONOMY } from '@/lib/compliance-taxonomy'
+import { splitPdfRange } from '@/lib/pdf-split'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,7 +61,40 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: true })
   }
 
-  if (body.action !== 'apply') return NextResponse.json({ error: 'action must be apply or dismiss' }, { status: 400 })
+  // Merge this split row INTO the previous one (MAIA over-split one policy into
+  // two consecutive pieces). Re-split the union page range from the original
+  // packet, attach it to the previous row, and drop this piece.
+  if (body.action === 'merge_prev') {
+    const prevId = String(body.prev_id ?? '')
+    if (!prevId) return NextResponse.json({ error: 'prev_id is required' }, { status: 400 })
+    const sel = 'id, source_storage_path, page_start, page_end'
+    const [{ data: cur }, { data: prev }] = await Promise.all([
+      supabaseAdmin.from('document_intake').select(sel).eq('id', id).maybeSingle(),
+      supabaseAdmin.from('document_intake').select(sel).eq('id', prevId).maybeSingle(),
+    ])
+    if (!cur || !prev) return NextResponse.json({ error: 'row not found' }, { status: 404 })
+    if (!cur.source_storage_path || cur.source_storage_path !== prev.source_storage_path)
+      return NextResponse.json({ error: 'these came from different uploads' }, { status: 400 })
+    if (cur.page_start == null || cur.page_end == null || prev.page_start == null || prev.page_end == null)
+      return NextResponse.json({ error: 'no page range to merge' }, { status: 400 })
+
+    const start = Math.min(Number(prev.page_start), Number(cur.page_start))
+    const end   = Math.max(Number(prev.page_end), Number(cur.page_end))
+    const { data: blob } = await supabaseAdmin.storage.from(BUCKET).download(prev.source_storage_path as string)
+    if (!blob) return NextResponse.json({ error: 'source packet not found' }, { status: 404 })
+    const merged = await splitPdfRange(Buffer.from(await blob.arrayBuffer()), start, end)
+    if (!merged) return NextResponse.json({ error: 'could not merge pages' }, { status: 500 })
+
+    const mergedPath = `${(prev.source_storage_path as string).replace(/\.pdf$/i, '')}__merged_p${start}-${end}.pdf`
+    const up = await supabaseAdmin.storage.from(BUCKET).upload(mergedPath, merged, { contentType: 'application/pdf', upsert: true })
+    if (up.error) return NextResponse.json({ error: `merge upload failed: ${up.error.message}` }, { status: 500 })
+
+    await supabaseAdmin.from('document_intake').update({ storage_path: mergedPath, page_start: start, page_end: end }).eq('id', prevId)
+    await supabaseAdmin.from('document_intake').update({ status: 'dismissed' }).eq('id', id)
+    return NextResponse.json({ ok: true, prev_id: prevId, page_start: start, page_end: end })
+  }
+
+  if (body.action !== 'apply') return NextResponse.json({ error: 'action must be apply, merge_prev, or dismiss' }, { status: 400 })
 
   const assoc   = String(body.association_code ?? '').trim().toUpperCase()
   const itemKey = String(body.item_key ?? '').trim()

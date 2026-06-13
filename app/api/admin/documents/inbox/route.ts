@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
 const BUCKET = 'association-documents'
-const SELECT = 'id, storage_path, filename, mime_type, status, suggested_association_code, suggested_category, suggested_item_key, suggested_scope, suggested_unit_ref, suggested_unit_label, doc_type, effective_date, expiration_date, confidence, summary, model, created_at'
+const SELECT = 'id, storage_path, filename, mime_type, status, suggested_association_code, suggested_category, suggested_item_key, suggested_scope, suggested_unit_ref, suggested_unit_label, doc_type, effective_date, expiration_date, source_storage_path, page_start, page_end, confidence, summary, model, created_at'
 
 async function requireStaff() {
   const token   = (await cookies()).get(SESSION_COOKIE)?.value
@@ -44,9 +44,16 @@ export async function POST(req: Request) {
   const storagePath = (body.storage_path ?? '').trim()
   if (!storagePath.startsWith('_inbox/')) return NextResponse.json({ error: 'storage_path must be an inbox staging path' }, { status: 400 })
 
-  // association list for matching
-  const { data: assocRows } = await supabaseAdmin.from('associations').select('association_code, association_name').order('association_name')
-  const assocs: AssociationRef[] = (assocRows ?? []).map(a => ({ code: String(a.association_code), name: String(a.association_name ?? a.association_code) }))
+  // association list for matching — include address + aliases so MAIA can match
+  // by the property address when the association name isn't printed.
+  const { data: assocRows } = await supabaseAdmin.from('associations')
+    .select('association_code, association_name, principal_address, city, state, zip, match_aliases').order('association_name')
+  const assocs: AssociationRef[] = (assocRows ?? []).map(a => ({
+    code: String(a.association_code), name: String(a.association_name ?? a.association_code),
+    address: (a.principal_address as string | null) ?? null, city: (a.city as string | null) ?? null,
+    state: (a.state as string | null) ?? null, zip: (a.zip as string | null) ?? null,
+    aliases: Array.isArray(a.match_aliases) ? (a.match_aliases as string[]) : [],
+  }))
 
   // download + normalize + classify. Use the SAME buffer for page count + any
   // split as we send to Claude, so the model's page numbers line up.
@@ -102,6 +109,7 @@ export async function POST(req: Request) {
       suggested_association_code: cls.association_code, suggested_category: it.category, suggested_item_key: it.item_key,
       suggested_scope: it.scope, suggested_unit_ref: unitRef, suggested_unit_label: unitLabel,
       doc_type: it.doc_type, effective_date: it.effective_date, expiration_date: it.expiration_date,
+      source_storage_path: storagePath, page_start: it.page_start, page_end: it.page_end,
       confidence: it.confidence || cls.confidence, summary: cls.summary, model: cls.model, uploaded_by: actor(session),
     })
   }

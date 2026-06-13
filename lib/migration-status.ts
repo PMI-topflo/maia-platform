@@ -1611,7 +1611,10 @@ NOTIFY pgrst, 'reload schema';`,
   ADD COLUMN IF NOT EXISTS suggested_unit_ref   text,
   ADD COLUMN IF NOT EXISTS suggested_unit_label text,
   ADD COLUMN IF NOT EXISTS applied_scope        text,
-  ADD COLUMN IF NOT EXISTS applied_unit_ref     text;
+  ADD COLUMN IF NOT EXISTS applied_unit_ref     text,
+  ADD COLUMN IF NOT EXISTS source_storage_path  text,
+  ADD COLUMN IF NOT EXISTS page_start           int,
+  ADD COLUMN IF NOT EXISTS page_end             int;
 NOTIFY pgrst, 'reload schema';`,
   },
   {
