@@ -95,6 +95,7 @@ async function missingComplianceDocs(vendorId: number | null, assocCode: string 
   const s = await getVendorComplianceStatus(vendorId, assocCode).catch(() => null)
   if (!s) return []
   const out: string[] = []
+  if (!s.ach.onFile) out.push('Direct-deposit (ACH) banking form')
   if (!s.w9.onFile) out.push('W-9 / tax form')
   if (!s.coi.onFile || s.coi.valid === false) out.push('Certificate of Insurance (COI)')
   if (!s.license.onFile || s.license.valid === false) out.push('Trade / business license')
