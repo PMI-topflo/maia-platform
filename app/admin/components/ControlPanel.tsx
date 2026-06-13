@@ -81,7 +81,7 @@ interface Counts {
   myTasks: number; overdue: number; workOrders: number; invoices: number
   applications: number; registrations: number; unidentified: number; tickets: number
   compliance: number; maiaErrors: number; owners: number; ownershipTransfers: number
-  building: number; unit: number
+  building: number; unit: number; vendorCompliance: number
 }
 
 /** This-week recurring-service reporting health, for the "Recurring Work
@@ -258,6 +258,12 @@ export default function ControlPanel(props: Props) {
           : recurring.total > 0 ? 'all reported' : 'none configured',
       sev: recurring.sev,
       href: '/admin/recurring-services/coverage',
+    },
+    {
+      id: 'vendorcompliance', label: 'Vendor Compliance', value: counts.vendorCompliance,
+      sub: counts.vendorCompliance > 0 ? 'review vendor docs' : 'none active',
+      sev: 'nominal',
+      href: '/admin/vendor-compliance',
     },
     {
       id: 'invoices', label: 'Invoices', value: counts.invoices,
