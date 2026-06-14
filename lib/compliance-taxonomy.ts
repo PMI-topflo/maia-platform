@@ -74,6 +74,7 @@ export const COMPLIANCE_TAXONOMY: ComplianceCategory[] = [
     ['structural', 'Structural Engineer Report'], ['repair_recs', 'Repair Recommendations'],
     ['repair_completion', 'Repair Completion Reports'], ['filings', 'Local Government Filings'],
     ['engineer_certs', 'Engineer Certifications'], ['followup', 'Follow-Up Inspection Reports'],
+    ['recertification', 'Municipal Recertification Report', true], ['building_condition', 'Building Condition Report'],
   ]) },
   { key: 'fire', label: 'Fire Compliance', scope: 'association', items: it('fire', [
     ['alarm', 'Fire Alarm Inspection', true], ['sprinkler', 'Sprinkler Inspection', true],
@@ -108,14 +109,32 @@ export const COMPLIANCE_TAXONOMY: ComplianceCategory[] = [
     ['records_inspection', 'Records Inspection Policy'], ['investment', 'Investment Policy'], ['enforcement', 'Enforcement Policy'],
     ['resolutions', 'Board Resolutions'], ['amendments', 'Recorded Amendments'],
   ]) },
+  { key: 'licenses', label: 'Licenses & Permits', scope: 'association', items: it('licenses', [
+    ['pool', 'Pool Operating Permit / License', true], ['elevator', 'Elevator Operating Certificate', true],
+    ['btr', 'Business Tax Receipt (BTR)', true], ['boiler', 'Boiler Certificate', true],
+    ['generator', 'Generator / Fuel Permit', true], ['signage', 'Signage Permit'],
+    ['other', 'Other State / County Permit', true],
+  ]) },
+  { key: 'meetings', label: 'Meetings', scope: 'association', items: it('meetings', [
+    ['annual_minutes', 'Annual Meeting Minutes', true], ['board_minutes', 'Board Meeting Minutes', true],
+    ['organizational_minutes', 'Organizational Meeting Minutes'], ['budget_minutes', 'Budget Meeting Minutes'],
+    ['election_minutes', 'Election Meeting Minutes'], ['notices', 'Meeting Notices & Agendas'],
+  ]) },
+  { key: 'risk', label: 'Risk Management', scope: 'association', items: it('risk', [
+    ['emergency_plan', 'Emergency / Hurricane Preparedness Plan'], ['claims_log', 'Insurance Claims Log'],
+    ['incident_reports', 'Incident Reports'], ['disaster_recovery', 'Disaster Recovery Plan'],
+  ]) },
 
   // ── Unit / owner scope (the "Gold Standard" 15 registrations) ─────
   { key: 'unit', label: 'Owner Compliance', scope: 'unit', items: it('unit', [
     ['ownership', 'Ownership Verification'], ['contact', 'Contact Information'], ['emergency', 'Emergency Contact'],
-    ['occupancy', 'Occupancy Registration'], ['tenant', 'Tenant Registration', true], ['vehicle', 'Vehicle Registration'],
-    ['pet', 'Pet Registration'], ['ho6', 'HO-6 Insurance', true], ['access', 'Access Credentials'],
-    ['architectural', 'Architectural Records'], ['contractor', 'Contractor Records'], ['move', 'Move-In/Out Records'],
-    ['rules_ack', 'Governing Documents Acknowledgement'], ['leasing', 'Leasing Compliance', true], ['violations', 'Violation History'],
+    ['unit_manager', 'Unit Manager Info'], ['occupancy', 'Occupancy Registration'],
+    ['tenant', 'Tenant Registration & Contact', true], ['vehicle', 'Vehicle Registration'], ['pet', 'Pet Registration'],
+    ['ho6', 'HO-6 Owners Insurance', true], ['ho4', 'HO-4 Renters Insurance (if leased)', true],
+    ['entity_docs', 'LLC / Trust Documents'], ['usage_type', 'Unit Usage Type (commercial)'],
+    ['access', 'Access Control'], ['architectural', 'Architectural (ARC) Requests/Approvals'],
+    ['contractor', 'Contractor Records'], ['move', 'Move-In/Out Records'],
+    ['rules_ack', 'Governing Documents Acknowledgement'], ['leasing', 'Lease Agreement', true], ['violations', 'Violation History'],
   ]) },
 ]
 
