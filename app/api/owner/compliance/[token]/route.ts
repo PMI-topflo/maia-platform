@@ -28,6 +28,16 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const { token } = await ctx.params
   const cx = await ownerContext(token)
   if (!cx) return NextResponse.json({ error: 'invalid or expired link' }, { status: 401 })
+
+  // Record the first click (owner opened their link from the email) — used by
+  // the staff Compliance Outreach page. Fire-and-forget; never blocks the page.
+  void (async () => {
+    const { data: r } = await supabaseAdmin.from('owner_compliance_requests')
+      .select('id, opened_at').eq('association_code', cx.assoc).eq('unit_ref', cx.account).maybeSingle()
+    if (r) { if (!r.opened_at) await supabaseAdmin.from('owner_compliance_requests').update({ opened_at: new Date().toISOString() }).eq('id', r.id) }
+    else await supabaseAdmin.from('owner_compliance_requests').insert({ association_code: cx.assoc, unit_ref: cx.account, opened_at: new Date().toISOString() })
+  })().catch(() => null)
+
   const { occupancy, missing } = await getUnitComplianceState(cx.assoc, cx.account)
   return NextResponse.json({
     ownerName: cx.ownerName, unit: cx.unit, associationName: cx.associationName,

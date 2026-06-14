@@ -1623,6 +1623,16 @@ CREATE POLICY "service_role_all_owner_compliance_requests" ON public.owner_compl
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'owner_request_opened',
+    label:       'Owner request — opened tracking',
+    description: 'owner_compliance_requests.opened_at — records when an owner first opens their self-service link (clicked the email), for the Compliance Outreach page.',
+    filename:    '20260614_owner_request_opened.sql',
+    artifact:    { type: 'column', table: 'owner_compliance_requests', column: 'opened_at' },
+    sql: `ALTER TABLE public.owner_compliance_requests
+  ADD COLUMN IF NOT EXISTS opened_at timestamptz;
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'unit_tenant_contacts',
     label:       'Unit tenant contacts',
     description: 'unit_tenant_contacts table — tenant name/phone/email + lease dates for leased units (owner-provided), powering mass communication, leasing compliance, and the tenant self-service request.',
