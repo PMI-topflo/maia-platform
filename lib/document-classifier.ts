@@ -68,7 +68,8 @@ const VALID_ITEMS = new Set(COMPLIANCE_TAXONOMY.flatMap(c => c.items.map(i => i.
 const VALID_CATS  = new Set(COMPLIANCE_TAXONOMY.map(c => c.key))
 const ITEM_SCOPE  = new Map(COMPLIANCE_TAXONOMY.flatMap(c => c.items.map(i => [i.key, c.scope] as const)))
 
-function buildPrompt(assocs: AssociationRef[], pageCount: number): string {
+function buildPrompt(assocs: AssociationRef[], pageCount: number, contextHint?: string | null): string {
+  const hint = contextHint ? `\nFILING CONTEXT (a hint only — the document itself wins): this file came from "${contextHint}". Folders are often named by association and document type; use it to help pick the association and item when the document is ambiguous.\n` : ''
   const assocList = assocs.map(a => {
     const addr = [a.address, [a.city, a.state, a.zip].filter(Boolean).join(' ').trim()].filter(Boolean).join(', ')
     const al = a.aliases && a.aliases.length ? ` (aka: ${a.aliases.join('; ')})` : ''
@@ -78,7 +79,7 @@ function buildPrompt(assocs: AssociationRef[], pageCount: number): string {
     .map(c => `${c.key} (${c.label}) [scope: ${c.scope}]:\n` + c.items.map(i => `    ${i.key} — ${i.label}`).join('\n'))
     .join('\n')
   return `You are filing documents for a Florida HOA / condominium management company. Read this ${pageCount}-page document and classify it.
-
+${hint}
 KNOWN ASSOCIATIONS — match by the association NAME, an alias, OR the PROPERTY ADDRESS (street number + city + ZIP) printed anywhere on the document, and return the CODE. The name is often NOT printed; when it isn't, identify the association by its address. Each entry is "CODE — name (aka aliases) — address":
 ${assocList}
 
@@ -176,7 +177,7 @@ async function runModel(model: string, block: unknown, prompt: string, pageCount
 
 /** Classify one document buffer against the known associations + catalog,
  *  returning every policy it bundles with page ranges. Haiku → Sonnet once. */
-export async function classifyDocument(buf: Buffer, contentType: string | null, assocs: AssociationRef[], pageCount = 1): Promise<DocumentClassification> {
+export async function classifyDocument(buf: Buffer, contentType: string | null, assocs: AssociationRef[], pageCount = 1, contextHint: string | null = null): Promise<DocumentClassification> {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is not configured')
 
   const isPdf = buf.subarray(0, 5).toString('latin1') === '%PDF-' || (contentType ?? '').includes('pdf')
@@ -184,7 +185,7 @@ export async function classifyDocument(buf: Buffer, contentType: string | null, 
   const block = isPdf
     ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
     : { type: 'image', source: { type: 'base64', media_type: mediaTypeFor(contentType), data: b64 } }
-  const prompt = buildPrompt(assocs, pageCount)
+  const prompt = buildPrompt(assocs, pageCount, contextHint)
 
   // Multi-page PDFs are usually multi-coverage packets where catching EVERY
   // section matters — use Sonnet directly for recall. Single-page docs start on

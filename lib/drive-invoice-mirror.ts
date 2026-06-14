@@ -68,6 +68,9 @@ function drive() {
   return _driveClient
 }
 
+/** Shared Drive v3 client (same auth as the invoice mirror) for other features. */
+export function getDrive() { return drive() }
+
 export interface MirrorResult {
   driveFileId: string
   webViewLink: string | null
