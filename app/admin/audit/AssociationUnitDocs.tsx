@@ -21,6 +21,17 @@ export default function AssociationUnitDocs({ assocCode }: { assocCode: string }
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<string | null>(null)
+  const [reqMsg, setReqMsg] = useState<Record<string, string>>({})
+  const [reqBusy, setReqBusy] = useState<string | null>(null)
+
+  async function requestTenant(account: string) {
+    setReqBusy(account)
+    try {
+      const res = await fetch('/api/admin/compliance/request-tenant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assoc: assocCode, unit_ref: account }) })
+      const j = await res.json()
+      setReqMsg(m => ({ ...m, [account]: res.ok ? `✓ Sent to ${j.sentTo}` : `⚠ ${j.error}` }))
+    } catch (e) { setReqMsg(m => ({ ...m, [account]: `⚠ ${(e as Error).message}` })) } finally { setReqBusy(null) }
+  }
 
   useEffect(() => {
     let live = true
@@ -68,6 +79,13 @@ export default function AssociationUnitDocs({ assocCode }: { assocCode: string }
               </button>
               {isOpen && (
                 <div className="border-t border-gray-100 px-4 py-2">
+                  <div className="mb-2 flex items-center gap-3">
+                    <button onClick={() => requestTenant(o.account_number)} disabled={reqBusy === o.account_number}
+                      className="rounded border border-[#f26a1b] px-2.5 py-1 text-[11px] font-medium text-[#c2410c] hover:bg-[#fff7ed] disabled:opacity-50">
+                      {reqBusy === o.account_number ? 'Sending…' : '✉ Request docs from tenant'}
+                    </button>
+                    {reqMsg[o.account_number] && <span className="text-[11px] text-gray-600">{reqMsg[o.account_number]}</span>}
+                  </div>
                   <table className="w-full text-sm">
                     <tbody>
                       {UNIT_ITEMS.map(item => {
