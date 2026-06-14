@@ -10,6 +10,9 @@
 
 import { useEffect, useState } from 'react'
 import { COMPLIANCE_TAXONOMY } from '@/lib/compliance-taxonomy'
+import DriveImport from './DriveImport'
+
+const isExpired = (d: string) => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < new Date().toISOString().slice(0, 10)
 
 export interface AssocOpt { code: string; name: string }
 interface OwnerOpt { account_number: string; label: string }
@@ -87,6 +90,13 @@ export default function DocumentInboxClient({ associations }: { associations: As
 
   function patch(id: string, p: Partial<Row>) { setRows(rs => rs.map(r => r.id === id ? { ...r, ...p } : r)) }
 
+  function onDriveImported(raws: unknown[]) {
+    const newRows = (raws as RawRow[]).map(toRow)
+    if (newRows.length === 0) return
+    setRows(rs => [...newRows, ...rs])
+    for (const row of newRows) if (scopeOfCat(row.category) === 'unit' && row.association_code) ensureOwners(row.association_code)
+  }
+
   async function onFiles(files: FileList | null) {
     if (!files || files.length === 0) return
     const list = Array.from(files)
@@ -150,6 +160,7 @@ export default function DocumentInboxClient({ associations }: { associations: As
 
   return (
     <div>
+      <div className="mb-3"><DriveImport onImported={onDriveImported} /></div>
       <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#f26a1b]/40 bg-[#fff8f4] px-6 py-8 text-center hover:border-[#f26a1b]">
         <input type="file" accept="application/pdf,image/*" multiple className="hidden" disabled={uploading !== null} onChange={e => onFiles(e.target.files)} />
         <span className="text-sm font-medium text-gray-800">{uploading ? `MAIA is reading… ${uploading.done}/${uploading.total}` : '📥 Drop PDFs here or click to upload (multiple OK)'}</span>
@@ -178,6 +189,7 @@ export default function DocumentInboxClient({ associations }: { associations: As
                         {row.doc_type && <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">{row.doc_type}</span>}
                         <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${isUnit ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'}`}>{isUnit ? 'Unit / owner' : 'Association'}</span>
                         <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${confBadge(row.confidence)}`}>{Math.round(row.confidence * 100)}% sure</span>
+                        {isExpired(row.expiration_date) && <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">⚠ Expired {row.expiration_date}</span>}
                         {row.model && <span className="text-[10px] text-gray-400">{row.model}</span>}
                       </div>
                     </div>
