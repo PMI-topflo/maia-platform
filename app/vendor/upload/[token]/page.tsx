@@ -12,6 +12,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { LANGUAGES } from '@/lib/recurring-services'
 import Uploader from './Uploader'
 import VendorLangBar from '@/components/VendorLangBar'
+import PortalFormHeader from '@/components/PortalFormHeader'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Upload to PMI Top Florida' }
@@ -92,7 +93,7 @@ function Shell({ children, dir = 'ltr' }: { children: React.ReactNode; dir?: 'lt
   return (
     <div dir={dir} style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif', padding: '32px 16px' }}>
       <div style={{ maxWidth: 560, margin: '0 auto', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#f26a1b', marginBottom: 14 }}>PMI Top Florida Properties</div>
+        <PortalFormHeader />
         {children}
       </div>
     </div>
