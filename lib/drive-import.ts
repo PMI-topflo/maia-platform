@@ -29,6 +29,7 @@ export interface DriveFile {
 
 const IMPORTABLE = /^(application\/pdf|image\/(jpeg|png|webp|heic|tiff))$/i
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
+const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut'
 
 /** Extract the folder id from a pasted Drive URL (or accept a raw id). */
 export function extractFolderId(input: string): string | null {
@@ -40,32 +41,48 @@ export function extractFolderId(input: string): string | null {
   return null
 }
 
-/** Recursively list importable files under a folder. Bounded for safety. */
-export async function listFolderFilesRecursive(folderId: string, maxFiles = 800): Promise<DriveFile[]> {
+export interface ScanResult { files: DriveFile[]; foldersScanned: number }
+
+/** Recursively list importable files under a folder, following folder
+ *  shortcuts. BFS over subfolders, carrying the breadcrumb. Bounded. */
+export async function listFolderFilesRecursive(folderId: string, maxFiles = 2000): Promise<ScanResult> {
   const drive = getDrive()
   const out: DriveFile[] = []
-  // BFS over subfolders, carrying the breadcrumb.
+  const seen = new Set<string>()           // guard against shortcut cycles / dupes
   const queue: { id: string; path: string }[] = [{ id: folderId, path: '' }]
+  let foldersScanned = 0
   let guard = 0
-  while (queue.length && out.length < maxFiles && guard < 5000) {
+  while (queue.length && out.length < maxFiles && guard < 20000) {
     guard++
     const { id, path } = queue.shift()!
+    if (seen.has(id)) continue
+    seen.add(id)
+    foldersScanned++
     let pageToken: string | undefined
     do {
       const res = await drive.files.list({
         q: `'${id}' in parents and trashed = false`,
-        fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, size)',
-        pageSize: 200,
+        fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, size, shortcutDetails(targetId, targetMimeType))',
+        pageSize: 1000,
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
         pageToken,
       })
       for (const f of res.data.files ?? []) {
-        if (f.mimeType === FOLDER_MIME) {
-          queue.push({ id: f.id!, path: path ? `${path} / ${f.name}` : (f.name ?? '') })
-        } else if (f.mimeType && IMPORTABLE.test(f.mimeType)) {
+        // Resolve shortcuts to their real target (folders are often linked,
+        // not nested — that's why a recursive scan can miss whole branches).
+        let mime = f.mimeType ?? ''
+        let realId = f.id ?? ''
+        if (mime === SHORTCUT_MIME && f.shortcutDetails) {
+          mime = f.shortcutDetails.targetMimeType ?? mime
+          realId = f.shortcutDetails.targetId ?? realId
+        }
+        if (!realId) continue
+        if (mime === FOLDER_MIME) {
+          queue.push({ id: realId, path: path ? `${path} / ${f.name}` : (f.name ?? '') })
+        } else if (IMPORTABLE.test(mime)) {
           out.push({
-            id: f.id!, name: f.name ?? 'file', mimeType: f.mimeType, path,
+            id: realId, name: f.name ?? 'file', mimeType: mime, path,
             modifiedTime: f.modifiedTime ?? null, size: f.size ? Number(f.size) : null,
           })
           if (out.length >= maxFiles) break
@@ -74,7 +91,7 @@ export async function listFolderFilesRecursive(folderId: string, maxFiles = 800)
       pageToken = res.data.nextPageToken ?? undefined
     } while (pageToken && out.length < maxFiles)
   }
-  return out
+  return { files: out, foldersScanned }
 }
 
 /** Download a Drive file's bytes. */
