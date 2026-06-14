@@ -27,8 +27,8 @@ export async function POST(req: Request) {
   if (!folderId) return NextResponse.json({ error: 'Could not read a Drive folder link. Paste the folder URL.', serviceAccountEmail: sa }, { status: 400 })
 
   try {
-    const files = await listFolderFilesRecursive(folderId)
-    return NextResponse.json({ serviceAccountEmail: sa, folderId, count: files.length, files })
+    const { files, foldersScanned } = await listFolderFilesRecursive(folderId)
+    return NextResponse.json({ serviceAccountEmail: sa, folderId, count: files.length, foldersScanned, files })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     const hint = /not found|404|permission|insufficient/i.test(msg) && sa

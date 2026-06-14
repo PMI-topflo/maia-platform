@@ -17,6 +17,7 @@ export default function DriveImport({ onImported }: { onImported: (rows: unknown
   const [url, setUrl] = useState('')
   const [scanning, setScanning] = useState(false)
   const [files, setFiles] = useState<DFile[] | null>(null)
+  const [foldersScanned, setFoldersScanned] = useState(0)
   const [sa, setSa] = useState<string | null>(null)
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [imp, setImp] = useState<{ done: number; total: number } | null>(null)
@@ -37,6 +38,7 @@ export default function DriveImport({ onImported }: { onImported: (rows: unknown
       if (j.serviceAccountEmail) setSa(j.serviceAccountEmail)
       if (!res.ok) throw new Error(j?.error ?? 'scan failed')
       const fs = (j.files ?? []) as DFile[]
+      setFoldersScanned(Number(j.foldersScanned ?? 0))
       setFiles(fs); setSel(new Set(fs.map(f => f.id)))
       if (fs.length === 0) setError('No PDFs or images found in that folder.')
     } catch (e) { setError((e as Error).message) } finally { setScanning(false) }
@@ -90,7 +92,7 @@ export default function DriveImport({ onImported }: { onImported: (rows: unknown
           {files && files.length > 0 && (
             <div className="mt-3">
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs text-gray-500">{files.length} file(s) · {sel.size} selected</span>
+                <span className="text-xs text-gray-500">{files.length} file(s) across {foldersScanned} folder(s) · {sel.size} selected</span>
                 <div className="flex gap-2">
                   <button onClick={() => setSel(new Set(files.map(f => f.id)))} className="text-xs text-gray-500 hover:underline">All</button>
                   <button onClick={() => setSel(new Set())} className="text-xs text-gray-500 hover:underline">None</button>
