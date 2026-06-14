@@ -5,6 +5,10 @@
       "schedule": "0 9 */6 * *"
     },
     {
+      "path": "/api/cron/owner-compliance-audit",
+      "schedule": "0 13 * * 1"
+    },
+    {
       "path": "/api/cron/compliance-alerts",
       "schedule": "0 10 * * *"
     },

@@ -1601,6 +1601,28 @@ CREATE POLICY "service_role_all_compliance_records"
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'owner_compliance_requests',
+    label:       'Owner compliance requests',
+    description: 'owner_compliance_requests table — paces the audit cron\'s owner-document request/reminder emails (cadence + max reminders + resolved).',
+    filename:    '20260614_owner_compliance_requests.sql',
+    artifact:    { type: 'table', table: 'owner_compliance_requests' },
+    sql: `CREATE TABLE IF NOT EXISTS public.owner_compliance_requests (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code text        NOT NULL,
+  unit_ref         text        NOT NULL,
+  last_sent_at     timestamptz,
+  send_count       int         NOT NULL DEFAULT 0,
+  resolved_at      timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS owner_compliance_requests_uniq ON public.owner_compliance_requests (association_code, unit_ref);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.owner_compliance_requests TO anon, authenticated, service_role;
+ALTER TABLE public.owner_compliance_requests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_owner_compliance_requests" ON public.owner_compliance_requests;
+CREATE POLICY "service_role_all_owner_compliance_requests" ON public.owner_compliance_requests FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'unit_tenant_contacts',
     label:       'Unit tenant contacts',
     description: 'unit_tenant_contacts table — tenant name/phone/email + lease dates for leased units (owner-provided), powering mass communication, leasing compliance, and the tenant self-service request.',
