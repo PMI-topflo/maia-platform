@@ -15,6 +15,7 @@ import MaintenanceTab from './MaintenanceTab'
 import ProjectsTab from './ProjectsTab'
 import InspectionsTab from './InspectionsTab'
 import ComplianceMatrix from './ComplianceMatrix'
+import AssociationUnitDocs from '../../audit/AssociationUnitDocs'
 import VendorTradeCell from './VendorTradeCell'
 
 export interface HubBankAccount { description: string; last4: string | null; kind: string; bankBalance: number | null; restricted: boolean }
@@ -67,6 +68,7 @@ type Tab = typeof TABS[number]
 
 export default function AssociationHubClient({ data }: { data: AssociationHubData }) {
   const [tab, setTab] = useState<Tab>('Overview')
+  const [docScope, setDocScope] = useState<'assoc' | 'unit'>('assoc')
   const [actionsOpen, setActionsOpen] = useState(false)
   const { code } = data
   const bankTotal = data.bankAccounts.reduce((s, a) => s + (a.bankBalance ?? 0), 0)
@@ -339,12 +341,22 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
 
           {tab === 'Documents & Compliance' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <DocLink href={`/admin/cinc-sync/${code}/documents`} icon="📄" label="Documents" sub={`${data.docCount} on file`} />
-                <DocLink href={`/admin/cinc-sync/${code}/insurance`} icon="🛡" label="Insurance" sub="Policies & COIs" />
-                <DocLink href={`/admin/cinc-sync/${code}/safety`} icon="🏗" label="Safety" sub="Milestone / SB-4D" />
+              <div className="flex gap-1 border-b border-gray-200">
+                <button onClick={() => setDocScope('assoc')} className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${docScope === 'assoc' ? 'border-[#f26a1b] text-[#f26a1b]' : 'border-transparent text-gray-500 hover:text-gray-900'}`}>Association documents</button>
+                <button onClick={() => setDocScope('unit')} className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${docScope === 'unit' ? 'border-[#f26a1b] text-[#f26a1b]' : 'border-transparent text-gray-500 hover:text-gray-900'}`}>Unit / owner documents</button>
               </div>
-              <ComplianceMatrix assocCode={code} />
+              {docScope === 'assoc' ? (
+                <>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <DocLink href={`/admin/cinc-sync/${code}/documents`} icon="📄" label="Documents" sub={`${data.docCount} on file`} />
+                    <DocLink href={`/admin/cinc-sync/${code}/insurance`} icon="🛡" label="Insurance" sub="Policies & COIs" />
+                    <DocLink href={`/admin/cinc-sync/${code}/safety`} icon="🏗" label="Safety" sub="Milestone / SB-4D" />
+                  </div>
+                  <ComplianceMatrix assocCode={code} />
+                </>
+              ) : (
+                <AssociationUnitDocs assocCode={code} />
+              )}
             </div>
           )}
 
