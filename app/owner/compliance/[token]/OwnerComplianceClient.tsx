@@ -19,6 +19,20 @@ export default function OwnerComplianceClient({ token }: { token: string }) {
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [tName, setTName] = useState(''); const [tPhone, setTPhone] = useState(''); const [tEmail, setTEmail] = useState('')
+  const [savingTenant, setSavingTenant] = useState(false); const [tenantSaved, setTenantSaved] = useState(false)
+
+  async function saveTenant() {
+    setError(null)
+    if (!tName.trim()) { setError("Enter the tenant's name."); return }
+    setSavingTenant(true)
+    try {
+      const res = await fetch(`/api/owner/compliance/${token}/tenant`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: tName, phone: tPhone, email: tEmail }) })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j?.error ?? 'failed')
+      setS(prev => prev ? { ...prev, missing: j.missing ?? prev.missing } : prev); setTenantSaved(true)
+    } catch (e) { setError((e as Error).message) } finally { setSavingTenant(false) }
+  }
 
   useEffect(() => {
     let alive = true
@@ -82,6 +96,18 @@ export default function OwnerComplianceClient({ token }: { token: string }) {
           )
         })}
       </div>
+
+      {/* Tenant info — only when leased */}
+      {s.occupancy === 'leased' && (
+        <div style={{ border: '1px solid #fed7aa', background: '#fff7ed', borderRadius: 8, padding: 14, marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#9a3412', marginBottom: 8 }}>Your tenant’s contact info</div>
+          <p style={{ fontSize: 12, color: '#9a3412', margin: '0 0 10px' }}>So we can reach your tenant directly for their renters insurance (HO-4) and registrations.</p>
+          <input value={tName} onChange={e => { setTName(e.target.value); setTenantSaved(false) }} placeholder="Tenant full name" style={{ width: '100%', padding: '9px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, marginBottom: 8, boxSizing: 'border-box' }} />
+          <input value={tPhone} onChange={e => { setTPhone(e.target.value); setTenantSaved(false) }} placeholder="Tenant phone" inputMode="tel" style={{ width: '100%', padding: '9px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, marginBottom: 8, boxSizing: 'border-box' }} />
+          <input value={tEmail} onChange={e => { setTEmail(e.target.value); setTenantSaved(false) }} placeholder="Tenant email" inputMode="email" style={{ width: '100%', padding: '9px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, marginBottom: 10, boxSizing: 'border-box' }} />
+          <button onClick={saveTenant} disabled={savingTenant} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: tenantSaved ? '#059669' : '#f26a1b', color: '#fff', fontSize: 13, fontWeight: 600 }}>{savingTenant ? 'Saving…' : tenantSaved ? '✓ Saved — PMI will reach out to your tenant' : 'Save tenant info'}</button>
+        </div>
+      )}
 
       {/* Missing docs */}
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#6b7280', marginBottom: 8 }}>

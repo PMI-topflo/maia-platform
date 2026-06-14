@@ -1601,6 +1601,31 @@ CREATE POLICY "service_role_all_compliance_records"
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'unit_tenant_contacts',
+    label:       'Unit tenant contacts',
+    description: 'unit_tenant_contacts table — tenant name/phone/email + lease dates for leased units (owner-provided), powering mass communication, leasing compliance, and the tenant self-service request.',
+    filename:    '20260614_unit_tenant_contacts.sql',
+    artifact:    { type: 'table', table: 'unit_tenant_contacts' },
+    sql: `CREATE TABLE IF NOT EXISTS public.unit_tenant_contacts (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code text        NOT NULL,
+  unit_ref         text        NOT NULL,
+  tenant_name      text,
+  tenant_phone     text,
+  tenant_email     text,
+  lease_start      date,
+  lease_end        date,
+  updated_by       text,
+  updated_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS unit_tenant_contacts_uniq ON public.unit_tenant_contacts (association_code, unit_ref);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.unit_tenant_contacts TO anon, authenticated, service_role;
+ALTER TABLE public.unit_tenant_contacts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_unit_tenant_contacts" ON public.unit_tenant_contacts;
+CREATE POLICY "service_role_all_unit_tenant_contacts" ON public.unit_tenant_contacts FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'unit_occupancy',
     label:       'Unit occupancy status',
     description: 'unit_occupancy table (owner_occupied / leased / vacant per unit) — drives occupancy-aware required documents + the owner self-service portal.',

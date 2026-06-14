@@ -31,25 +31,30 @@ async function hmacKey(): Promise<CryptoKey> {
   return globalThis.crypto.subtle.importKey('raw', enc.encode(SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify'])
 }
 
-interface OwnerTokenPayload { assoc: string; account: string; scope: 'owner_compliance'; expiresAt: number }
+type PortalScope = 'owner_compliance' | 'tenant_compliance'
+interface PortalTokenPayload { assoc: string; account: string; scope: PortalScope; expiresAt: number }
 export interface OwnerTokenData { assoc: string; account: string }
 
-export async function signOwnerComplianceToken(assoc: string, account: string, ttlMs: number = TTL_MS): Promise<string> {
-  const payload: OwnerTokenPayload = { assoc, account, scope: 'owner_compliance', expiresAt: Date.now() + ttlMs }
+async function sign(scope: PortalScope, assoc: string, account: string, ttlMs: number): Promise<string> {
+  const payload: PortalTokenPayload = { assoc, account, scope, expiresAt: Date.now() + ttlMs }
   const body = b64uEncode(enc.encode(JSON.stringify(payload)))
   const sig  = await globalThis.crypto.subtle.sign('HMAC', await hmacKey(), enc.encode(body))
   return `${body}.${b64uEncode(sig)}`
 }
-
-export async function verifyOwnerComplianceToken(token: string): Promise<OwnerTokenData | null> {
+async function verify(scope: PortalScope, token: string): Promise<OwnerTokenData | null> {
   try {
     const dot = token.lastIndexOf('.')
     if (dot < 0) return null
     const body = token.slice(0, dot)
     const ok   = await globalThis.crypto.subtle.verify('HMAC', await hmacKey(), b64uDecode(token.slice(dot + 1)), enc.encode(body))
     if (!ok) return null
-    const p = JSON.parse(new TextDecoder().decode(b64uDecode(body))) as OwnerTokenPayload
-    if (p.scope !== 'owner_compliance' || p.expiresAt < Date.now() || !p.assoc || !p.account) return null
+    const p = JSON.parse(new TextDecoder().decode(b64uDecode(body))) as PortalTokenPayload
+    if (p.scope !== scope || p.expiresAt < Date.now() || !p.assoc || !p.account) return null
     return { assoc: p.assoc, account: p.account }
   } catch { return null }
 }
+
+export const signOwnerComplianceToken  = (assoc: string, account: string, ttlMs: number = TTL_MS) => sign('owner_compliance', assoc, account, ttlMs)
+export const verifyOwnerComplianceToken = (token: string) => verify('owner_compliance', token)
+export const signTenantComplianceToken  = (assoc: string, account: string, ttlMs: number = TTL_MS) => sign('tenant_compliance', assoc, account, ttlMs)
+export const verifyTenantComplianceToken = (token: string) => verify('tenant_compliance', token)
