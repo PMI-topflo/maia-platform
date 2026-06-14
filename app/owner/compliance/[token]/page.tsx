@@ -6,6 +6,7 @@
 // =====================================================================
 
 import { verifyOwnerComplianceToken } from '@/lib/owner-portal-token'
+import PortalFormHeader from '@/components/PortalFormHeader'
 import OwnerComplianceClient from './OwnerComplianceClient'
 
 export const dynamic = 'force-dynamic'
@@ -18,8 +19,7 @@ export default async function OwnerCompliancePage({ params }: { params: Promise<
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', fontFamily: 'system-ui, sans-serif', padding: '32px 16px' }}>
       <div style={{ maxWidth: 600, margin: '0 auto', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/maia-logo-primary.svg" alt="Maia by PMI Top Florida Properties" style={{ height: 38, marginBottom: 18, display: 'block' }} />
+        <PortalFormHeader />
         {valid
           ? <OwnerComplianceClient token={token} />
           : <p style={{ fontSize: 14, color: '#991b1b' }}>This link is invalid or has expired. Please ask PMI for a new link.</p>}
