@@ -20,7 +20,7 @@ export type AssocKind = 'condo' | 'hoa' | 'commercial' | 'coop'
 const UNIT_ITEMS = categoriesForScope('unit').flatMap(c => c.items)
 const labelFor = (key: string) => UNIT_ITEMS.find(i => i.key === key)?.label ?? key
 
-async function associationKind(assoc: string): Promise<AssocKind> {
+export async function associationKind(assoc: string): Promise<AssocKind> {
   const { data } = await supabaseAdmin.from('associations').select('association_type').eq('association_code', assoc).maybeSingle()
   const t = String(data?.association_type ?? '').toLowerCase()
   if (t.includes('commercial')) return 'commercial'
