@@ -1601,6 +1601,28 @@ CREATE POLICY "service_role_all_compliance_records"
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'unit_occupancy',
+    label:       'Unit occupancy status',
+    description: 'unit_occupancy table (owner_occupied / leased / vacant per unit) — drives occupancy-aware required documents + the owner self-service portal.',
+    filename:    '20260614_unit_occupancy.sql',
+    artifact:    { type: 'table', table: 'unit_occupancy' },
+    sql: `CREATE TABLE IF NOT EXISTS public.unit_occupancy (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code text        NOT NULL,
+  unit_ref         text        NOT NULL,
+  status           text        NOT NULL,
+  updated_by       text,
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_unit_occupancy_status CHECK (status IN ('owner_occupied','leased','vacant'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS unit_occupancy_uniq ON public.unit_occupancy (association_code, unit_ref);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.unit_occupancy TO anon, authenticated, service_role;
+ALTER TABLE public.unit_occupancy ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_unit_occupancy" ON public.unit_occupancy;
+CREATE POLICY "service_role_all_unit_occupancy" ON public.unit_occupancy FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'document_intake_unit',
     label:       'Document intake — unit scope',
     description: 'document_intake unit-scope columns (suggested/applied scope + unit_ref + label) so MAIA can classify a document to an owner/unit and file it at compliance_records scope=unit.',
