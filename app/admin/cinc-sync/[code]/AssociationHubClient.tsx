@@ -9,7 +9,8 @@
 // =====================================================================
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import SyncPreviewClient from './SyncPreviewClient'
 import MaintenanceTab from './MaintenanceTab'
 import ProjectsTab from './ProjectsTab'
@@ -20,7 +21,7 @@ import VendorTradeCell from './VendorTradeCell'
 
 export interface HubBankAccount { description: string; last4: string | null; kind: string; bankBalance: number | null; restricted: boolean }
 export interface HubBoardMember { id: string; name: string | null; email: string | null; role: string | null }
-export interface HubWorkOrder { id: number; ticket_number: string; subject: string | null; status: string; priority: string; due_at: string | null }
+export interface HubWorkOrder { id: number; ticket_number: string; subject: string | null; status: string; priority: string; due_at: string | null; payment_state: string | null; cinc_workorder_id: string | null }
 export interface HubBudgetLine { id: string; number: string | null; name: string; budget: number | null; actual: number | null; remaining: number | null }
 
 export interface AssociationHubData {
@@ -37,6 +38,7 @@ export interface AssociationHubData {
   openWorkOrders: number
   openInvoices:  number
   docCount:      number
+  associations:  { code: string; name: string }[]
 }
 
 type Rag = 'ok' | 'warn' | 'bad' | 'none'
@@ -67,11 +69,45 @@ const TABS = ['Overview', 'Board & Owners', 'Vendors', 'Work Orders', 'Maintenan
 type Tab = typeof TABS[number]
 
 export default function AssociationHubClient({ data }: { data: AssociationHubData }) {
+  const router = useRouter()
   const [tab, setTab] = useState<Tab>('Overview')
   const [docScope, setDocScope] = useState<'assoc' | 'unit'>('assoc')
   const [actionsOpen, setActionsOpen] = useState(false)
   const { code } = data
   const bankTotal = data.bankAccounts.reduce((s, a) => s + (a.bankBalance ?? 0), 0)
+
+  // Per-work-order "Add invoice" upload (one hidden picker; pendingWo holds the
+  // target). On success the WO is marked ready_for_payment and the page refreshes.
+  const woFileRef = useRef<HTMLInputElement>(null)
+  const pendingWoRef = useRef<number | null>(null)
+  const [uploadingWoId, setUploadingWoId] = useState<number | null>(null)
+  const [woMsg, setWoMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+
+  function addInvoiceToWo(woId: number) {
+    pendingWoRef.current = woId
+    setWoMsg(null)
+    woFileRef.current?.click()
+  }
+  async function onWoFile(files: FileList | null) {
+    const woId = pendingWoRef.current
+    if (!files || files.length === 0 || woId == null) return
+    setUploadingWoId(woId); setWoMsg(null)
+    try {
+      const fd = new FormData(); fd.append('file', files[0])
+      const res = await fetch(`/api/admin/work-orders/${woId}/add-invoice`, { method: 'POST', body: fd })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d?.error ?? `HTTP ${res.status}`)
+      setWoMsg({ kind: 'ok', text: d.status === 'needs_vendor'
+        ? 'Invoice added & WO marked ready for payment — but the vendor isn’t in CINC yet, so match it in the Invoice queue before it can be paid.'
+        : 'Invoice added — work order is now Ready for payment and waiting in the Invoice review queue.' })
+      router.refresh()
+    } catch (err) {
+      setWoMsg({ kind: 'err', text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setUploadingWoId(null); pendingWoRef.current = null
+      if (woFileRef.current) woFileRef.current.value = ''
+    }
+  }
 
   // Vendors tab — lazy-loaded (N×3 CINC calls) on first open, triggered
   // from the tab click (not an effect) so we never setState in an effect.
@@ -110,6 +146,8 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
 
   return (
     <div onClick={() => actionsOpen && setActionsOpen(false)}>
+      {/* Hidden picker for per-work-order "Add invoice". */}
+      <input ref={woFileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp,application/pdf,image/*" style={{ display: 'none' }} onChange={e => void onWoFile(e.target.files)} />
       {/* Header */}
       <div className="mb-1 text-xs text-gray-400"><Link href="/admin/cinc-sync" className="hover:text-[#f26a1b]">Associations</Link> / {data.name}</div>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
@@ -128,6 +166,15 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Quick switch to another association without going back to the list. */}
+          <select
+            value={code}
+            onChange={e => { if (e.target.value && e.target.value !== code) router.push(`/admin/cinc-sync/${e.target.value}`) }}
+            title="Switch association"
+            className="max-w-[220px] rounded border border-gray-300 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            {data.associations.map(a => <option key={a.code} value={a.code}>{a.name} ({a.code})</option>)}
+          </select>
           <Link href={`/admin/reports/monthly?assoc=${code}`} className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Run Monthly Report</Link>
           <div className="relative">
             <button onClick={(e) => { e.stopPropagation(); setActionsOpen(o => !o) }} className="rounded bg-[#16a34a] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#15803d]">Actions ▾</button>
@@ -260,7 +307,12 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
 
           {tab === 'Work Orders' && (
             <Card title="Work orders" action="Open list →" actionHref={`/admin/work-orders?association=${code}`}>
-              {data.workOrders.length === 0 ? <Empty>No work orders for this association.</Empty> : <WorkOrderTable rows={data.workOrders} />}
+              {woMsg && (
+                <div className={`mb-3 rounded border px-3 py-2 text-xs ${woMsg.kind === 'ok' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>{woMsg.text}</div>
+              )}
+              {data.workOrders.length === 0 ? <Empty>No work orders for this association.</Empty> : (
+                <WorkOrderTable rows={data.workOrders} showActions uploadingWoId={uploadingWoId} onAddInvoice={addInvoiceToWo} />
+              )}
             </Card>
           )}
 
@@ -372,19 +424,57 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
 }
 
 // ── helpers ─────────────────────────────────────────────────────────
-function WorkOrderTable({ rows }: { rows: HubWorkOrder[] }) {
+function PaymentBadge({ s }: { s: string | null }) {
+  if (s === 'paid')              return <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase bg-emerald-100 text-emerald-800">✓ Paid</span>
+  if (s === 'ready_for_payment') return <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase bg-violet-100 text-violet-800">Ready for payment</span>
+  return <span className="text-gray-300">—</span>
+}
+
+function WorkOrderTable({ rows, showActions, uploadingWoId, onAddInvoice }: {
+  rows: HubWorkOrder[]
+  showActions?: boolean
+  uploadingWoId?: number | null
+  onAddInvoice?: (woId: number) => void
+}) {
   return (
     <table className="w-full text-sm">
-      <thead><tr className="text-[11px] uppercase tracking-wide text-gray-400"><th className="pb-1 text-left font-semibold">Ref</th><th className="pb-1 text-left font-semibold">Subject</th><th className="pb-1 text-left font-semibold">Status</th><th className="pb-1 text-left font-semibold">Due</th></tr></thead>
+      <thead><tr className="text-[11px] uppercase tracking-wide text-gray-400">
+        <th className="pb-1 text-left font-semibold">Ref</th>
+        <th className="pb-1 text-left font-semibold">Subject</th>
+        <th className="pb-1 text-left font-semibold">Status</th>
+        <th className="pb-1 text-left font-semibold">Payment</th>
+        <th className="pb-1 text-left font-semibold">Due</th>
+        {showActions && <th className="pb-1 text-right font-semibold"></th>}
+      </tr></thead>
       <tbody>
-        {rows.map(w => (
+        {rows.map(w => {
+          const paid = w.payment_state === 'paid'
+          const busy = uploadingWoId === w.id
+          return (
           <tr key={w.id} className="border-t border-gray-100">
             <td className="py-1.5"><Link href={`/admin/tickets/${w.id}`} className="font-mono text-xs text-[#f26a1b] hover:underline">{w.ticket_number}</Link></td>
             <td className="py-1.5 text-gray-900">{w.subject ?? '—'}</td>
             <td className="py-1.5"><span className={`rounded px-1.5 py-0.5 text-[10px] uppercase ${STATUS_STYLES[w.status] ?? 'bg-gray-100 text-gray-600'}`}>{w.status.replace('_', ' ')}</span></td>
+            <td className="py-1.5"><PaymentBadge s={w.payment_state} /></td>
             <td className="py-1.5 text-gray-500">{w.due_at ? new Date(w.due_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</td>
+            {showActions && (
+              <td className="py-1.5 text-right">
+                {paid ? (
+                  <span className="text-[11px] text-gray-400">paid</span>
+                ) : (
+                  <button
+                    onClick={() => onAddInvoice?.(w.id)}
+                    disabled={busy}
+                    title="Upload the vendor's invoice for this work order. MAIA reads it, links it to this WO, marks it Ready for payment, and sends it to the Invoice review queue."
+                    className="rounded border border-[#16a34a] px-2 py-1 text-[11px] font-medium text-[#16a34a] hover:bg-emerald-50 disabled:opacity-50"
+                  >
+                    {busy ? 'Reading…' : w.payment_state === 'ready_for_payment' ? '+ Add another invoice' : '+ Add invoice'}
+                  </button>
+                )}
+              </td>
+            )}
           </tr>
-        ))}
+        )})}
       </tbody>
     </table>
   )

@@ -383,7 +383,7 @@ export async function createInvoiceDraftFromUpload(opts: {
   workOrderNumber:  number | null
   buf:              Buffer
   filename:         string
-}): Promise<{ ok: boolean; status: DraftStatus | 'error'; draftId?: number }> {
+}): Promise<{ ok: boolean; status: DraftStatus | 'error'; draftId?: number; reason?: string }> {
   const norm = await normalizePdf(opts.buf)
   const bytes = norm.buffer
   const b64 = bytes.toString('base64')
@@ -429,7 +429,7 @@ export async function createInvoiceDraftFromUpload(opts: {
     cinc_dup_invoice_id:        cincDupId,
   }).select('id').single()
 
-  if (error) { console.error(`[invoice-intake] vendor-portal draft insert failed: ${error.message}`); return { ok: false, status: 'error' } }
+  if (error) { console.error(`[invoice-intake] vendor-portal draft insert failed: ${error.message}`); return { ok: false, status: 'error', reason: error.message } }
   return { ok: true, status, draftId: data?.id as number }
 }
 

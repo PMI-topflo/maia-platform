@@ -1633,6 +1633,17 @@ NOTIFY pgrst, 'reload schema';`,
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'tickets_payment_state',
+    label:       'Work order — payment lifecycle',
+    description: 'tickets.payment_state + paid_at — a WO becomes "ready_for_payment" when an invoice is added to it, and "paid" (closed) when that invoice is pushed to CINC.',
+    filename:    '20260614_tickets_payment_state.sql',
+    artifact:    { type: 'column', table: 'tickets', column: 'payment_state' },
+    sql: `ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS payment_state text,
+  ADD COLUMN IF NOT EXISTS paid_at      timestamptz;
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'unit_tenant_contacts',
     label:       'Unit tenant contacts',
     description: 'unit_tenant_contacts table — tenant name/phone/email + lease dates for leased units (owner-provided), powering mass communication, leasing compliance, and the tenant self-service request.',
