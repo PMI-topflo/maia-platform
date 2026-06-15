@@ -100,7 +100,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
 
   const ACTIONS: { label: string; href: string }[] = [
     { label: 'New work order',  href: '/admin/work-orders' },
-    { label: 'Add invoice',     href: '/admin/invoices' },
+    { label: 'Add invoice',     href: `/admin/invoices?upload=1&assoc=${code}` },
     { label: 'Reconcile month', href: `/admin/reconciliation?assoc=${code}` },
     { label: 'Monthly report',  href: `/admin/reports/monthly?assoc=${code}` },
     { label: 'Documents',       href: `/admin/cinc-sync/${code}/documents` },
