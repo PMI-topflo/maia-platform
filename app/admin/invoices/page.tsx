@@ -18,7 +18,7 @@ const PDF_SIGNED_URL_TTL_S  = 60 * 60      // 1 hour
 export const metadata = { title: 'Invoice intake — PMI Top Florida' }
 export const dynamic  = 'force-dynamic'
 
-interface SP { status?: string }
+interface SP { status?: string; upload?: string; assoc?: string }
 
 interface PageProps {
   searchParams: Promise<SP>
@@ -58,6 +58,8 @@ export default async function InvoicesPage({ searchParams }: PageProps) {
         initialCounts  = {counts}
         vendors        = {vendors}
         associations   = {assocs}
+        initialUploadOpen = {sp.upload === '1'}
+        initialAssoc      = {typeof sp.assoc === 'string' ? sp.assoc : null}
       />
     </div>
   )

@@ -433,6 +433,83 @@ export async function createInvoiceDraftFromUpload(opts: {
   return { ok: true, status, draftId: data?.id as number }
 }
 
+/** Create an invoice-intake draft from a STAFF MANUAL UPLOAD (someone dropped
+ *  a PDF/image on the /admin/invoices page, or used "Add invoice" from an
+ *  association). Mirrors processOnePdf's extraction + vendor-match + duplicate
+ *  pre-check, but the source is a file rather than a Gmail attachment. An
+ *  optional associationCode (e.g. from the association the staffer came from)
+ *  takes precedence over the extractor's guess. Lands in the normal review
+ *  queue (pending_review / needs_vendor / duplicate_in_cinc). No vendor ack
+ *  is sent — there's no inbound sender. */
+export async function createManualInvoiceDraft(opts: {
+  buf:              Buffer
+  filename:         string
+  associationCode?: string | null
+}): Promise<{ ok: boolean; status: DraftStatus | 'error'; draftId?: number; reason?: string }> {
+  const bucket = await ensureBucket()
+  if (!bucket.ok) return { ok: false, status: 'error', reason: bucket.reason }
+
+  // Convert images to a one-page PDF, then normalize oversized scans so every
+  // downstream copy (storage / CINC attach / Drive mirror) is the small version.
+  let pdfBuf = opts.buf
+  let displayName = opts.filename
+  if (INVOICE_IMAGE_RE.test(opts.filename)) {
+    try {
+      pdfBuf = await imageToPdf(opts.buf)
+      displayName = opts.filename.replace(INVOICE_IMAGE_RE, '') + '.pdf'
+    } catch (err) {
+      return { ok: false, status: 'error', reason: `image→PDF failed: ${err instanceof Error ? err.message : err}` }
+    }
+  }
+  const norm = await normalizePdf(pdfBuf)
+  const bytes = norm.buffer
+  const b64 = bytes.toString('base64')
+
+  const uid = globalThis.crypto.randomUUID()
+  const storageKey = `manual-upload/${uid}/${safeFilename(displayName)}`
+  const upload = await supabaseAdmin.storage
+    .from(STORAGE_BUCKET)
+    .upload(storageKey, bytes, { contentType: 'application/pdf', upsert: true })
+  if (upload.error) console.warn(`[invoice-intake] manual upload storage failed: ${upload.error.message}`)
+
+  const extracted = await extractInvoiceFields(b64).catch(() => null)
+  const assoc = (opts.associationCode ?? extracted?.associationHint ?? '').toUpperCase() || null
+
+  const vendors = await listVendorsFull().catch(() => [])
+  const matched = extracted?.vendorName ? fuzzyMatchVendor(extracted.vendorName, vendors) : null
+
+  let status: DraftStatus = matched ? 'pending_review' : 'needs_vendor'
+  let cincDupId: string | null = null
+  if (matched && assoc && extracted?.invoiceNumber) {
+    try {
+      const dups = await checkDuplicateInvoice({ associationCode: assoc, vendorId: matched.VendorId, invoiceNumber: extracted.invoiceNumber })
+      if (dups.length > 0) { status = 'duplicate_in_cinc'; cincDupId = String(dups[0].InvoiceID) }
+    } catch { /* non-fatal */ }
+  }
+
+  const { data, error } = await supabaseAdmin.from('invoice_intake_drafts').insert({
+    gmail_message_id:           `manual-upload:${uid}`,
+    attachment_filename:        displayName,
+    pdf_storage_key:            upload.error ? null : storageKey,
+    extracted_vendor_name:      extracted?.vendorName ?? null,
+    matched_cinc_vendor_id:     matched ? String(matched.VendorId) : null,
+    matched_vendor_name:        matched?.VendorName  ?? null,
+    matched_vendor_short_name:  matched?.UserDefined1 ?? null,
+    extracted_invoice_number:   extracted?.invoiceNumber ?? null,
+    extracted_amount:           extracted?.amount ?? null,
+    extracted_association_code: assoc,
+    extracted_invoice_date:     extracted?.invoiceDate ?? null,
+    extracted_account_number:   extracted?.accountNumber ?? null,
+    extracted_description:      extracted?.description ?? null,
+    extraction_confidence:      extracted?.confidence ?? null,
+    status,
+    cinc_dup_invoice_id:        cincDupId,
+  }).select('id').single()
+
+  if (error) { console.error(`[invoice-intake] manual draft insert failed: ${error.message}`); return { ok: false, status: 'error', reason: error.message } }
+  return { ok: true, status, draftId: data?.id as number }
+}
+
 async function sendVendorAck(parsed: ParsedEmail): Promise<void> {
   const subject = parsed.subject.startsWith('Re:') ? parsed.subject : `Re: ${parsed.subject}`
   const html    = `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#222;max-width:600px;margin:0 auto;padding:20px">

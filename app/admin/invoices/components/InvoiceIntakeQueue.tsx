@@ -116,6 +116,8 @@ interface Props {
   initialCounts: Record<string, number>
   vendors:       Vendor[]
   associations:  Association[]
+  initialUploadOpen?: boolean
+  initialAssoc?:      string | null
 }
 
 export default function InvoiceIntakeQueue(props: Props) {
@@ -131,6 +133,12 @@ export default function InvoiceIntakeQueue(props: Props) {
   const [error,  setError]  = useState<string | null>(null)
   const [searchTerm,   setSearchTerm]   = useState('')
   const [searchActive, setSearchActive] = useState(false)
+  // Manual upload (the "Add invoice" path — same pipeline as email intake).
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploading,  setUploading]  = useState(false)
+  const [uploadMsg,  setUploadMsg]  = useState<string | null>(null)
+  const uploadAssoc = (props.initialAssoc ?? '').toUpperCase() || null
+  const uploadAssocName = uploadAssoc ? (props.associations.find(a => a.code === uploadAssoc)?.name ?? uploadAssoc) : null
 
   const fetchTab = useCallback(async (s: string) => {
     setBusy(true); setError(null)
@@ -213,11 +221,62 @@ export default function InvoiceIntakeQueue(props: Props) {
     }
   }
 
+  async function uploadFiles(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return
+    setUploading(true); setUploadMsg(null); setError(null)
+    try {
+      const fd = new FormData()
+      for (const f of Array.from(fileList)) fd.append('file', f)
+      if (uploadAssoc) fd.append('assoc', uploadAssoc)
+      const res = await fetch('/api/admin/invoices/intake/upload', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      const failed = (data.results ?? []).filter((r: { ok: boolean }) => !r.ok)
+      setUploadMsg(`Added ${data.created} of ${data.total} invoice${data.total === 1 ? '' : 's'} to the review queue${failed.length ? ` — ${failed.length} skipped (${failed.map((r: { filename: string; reason?: string }) => `${r.filename}: ${r.reason}`).join('; ')})` : ''}.`)
+      // Show the new drafts: jump to Pending review and refresh.
+      setSearchActive(false); setSearchTerm('')
+      setStatus('pending_review'); setIdx(0)
+      const params = new URLSearchParams(searchParams.toString()); params.set('status', 'pending_review'); router.replace(`?${params.toString()}`)
+      await fetchTab('pending_review')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  // "Add invoice" from an association deep-links with ?upload=1 — open the
+  // file picker automatically so the staffer lands ready to choose a file.
+  const autoOpenedRef = useRef(false)
+  useEffect(() => {
+    if (props.initialUploadOpen && !autoOpenedRef.current) {
+      autoOpenedRef.current = true
+      fileInputRef.current?.click()
+    }
+  }, [props.initialUploadOpen])
+
   return (
     <div style={{ maxWidth: 1500, margin: '24px auto', padding: '0 16px', fontFamily: 'system-ui, sans-serif' }}>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp,application/pdf,image/*"
+        multiple
+        style={{ display: 'none' }}
+        onChange={e => void uploadFiles(e.target.files)}
+      />
       <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>Invoice intake</h1>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            title="Upload a PDF or photo of an invoice. MAIA reads it (vendor, amount, invoice #, association) and adds it to the review queue — same as an emailed invoice."
+            style={{ fontSize: 12, fontWeight: 600, padding: '6px 12px', border: '1px solid #f26a1b', borderRadius: 4, background: uploading ? '#fed7aa' : '#f26a1b', color: '#fff', cursor: uploading ? 'default' : 'pointer' }}
+          >
+            {uploading ? 'Reading…' : '➕ Add invoice'}
+          </button>
           <button
             onClick={backfillMethods}
             disabled={busy}
@@ -235,6 +294,14 @@ export default function InvoiceIntakeQueue(props: Props) {
           </button>
         </div>
       </header>
+
+      {(uploadAssocName || uploading || uploadMsg) && (
+        <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, fontSize: 13, background: uploading ? '#fff7ed' : '#f0fdf4', border: `1px solid ${uploading ? '#fed7aa' : '#bbf7d0'}`, color: '#374151' }}>
+          {uploadAssocName && <span>New invoices will be tagged to <strong>{uploadAssocName}</strong>{uploadAssoc ? ` (${uploadAssoc})` : ''}. </span>}
+          {uploading && <span>Reading the invoice with MAIA…</span>}
+          {!uploading && uploadMsg && <span>✅ {uploadMsg}</span>}
+        </div>
+      )}
 
       <form onSubmit={e => { e.preventDefault(); void runSearch(searchTerm) }} style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <input
