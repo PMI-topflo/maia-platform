@@ -55,19 +55,29 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     { count: docCount },
     { count: invoiceCount },
     { count: ownersCount },
+    { data: allAssocs },
   ] = await Promise.all([
     getContactsAndConsentFlag().catch(() => null),
     getAssociationMeta(upperCode).catch(() => null),
     listAssociationBankAccounts(upperCode).catch(() => []),
     getAssociationBudget(upperCode).catch(() => []),
     supabaseAdmin.from('association_board_members').select('id, name, email, role').eq('association_code', upperCode).eq('active', true),
-    supabaseAdmin.from('tickets').select('id, ticket_number, subject, status, priority, due_at').eq('type', 'work_order').eq('association_code', upperCode).is('archived_at', null).order('updated_at', { ascending: false }).limit(50),
+    supabaseAdmin.from('tickets').select('id, ticket_number, subject, status, priority, due_at, cinc_workorder_id').eq('type', 'work_order').eq('association_code', upperCode).is('archived_at', null).order('updated_at', { ascending: false }).limit(50),
     supabaseAdmin.from('association_documents').select('id', { count: 'exact', head: true }).eq('association_code', upperCode).is('archived_at', null),
     supabaseAdmin.from('invoice_intake_drafts').select('id', { count: 'exact', head: true }).eq('extracted_association_code', upperCode).in('status', OPEN_INVOICE_STATUSES),
     supabaseAdmin.from('owners').select('id', { count: 'exact', head: true }).eq('association_code', upperCode).or('status.neq.previous,status.is.null'),
+    supabaseAdmin.from('associations').select('association_code, association_name').order('association_name'),
   ])
 
-  const workOrders = (woRows ?? []) as AssociationHubData['workOrders']
+  // Payment lifecycle is best-effort so the WO list never breaks if the
+  // tickets.payment_state migration hasn't been applied yet.
+  const woBase = (woRows ?? []) as Array<{ id: number } & Record<string, unknown>>
+  const payByTicket = new Map<number, string | null>()
+  if (woBase.length > 0) {
+    const { data: ps } = await supabaseAdmin.from('tickets').select('id, payment_state').in('id', woBase.map(w => w.id))
+    for (const r of ps ?? []) payByTicket.set(r.id as number, (r as { payment_state?: string | null }).payment_state ?? null)
+  }
+  const workOrders = woBase.map(w => ({ ...w, payment_state: payByTicket.get(w.id) ?? null })) as AssociationHubData['workOrders']
   const data: AssociationHubData = {
     code:           assocRow.association_code,
     name:           assocRow.association_name,
@@ -82,6 +92,7 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     openWorkOrders: workOrders.filter(w => OPEN_WO_STATUSES.includes(w.status)).length,
     openInvoices:   invoiceCount ?? 0,
     docCount:       docCount ?? 0,
+    associations:   (allAssocs ?? []).map(a => ({ code: String(a.association_code), name: String(a.association_name ?? a.association_code) })),
   }
 
   return (
