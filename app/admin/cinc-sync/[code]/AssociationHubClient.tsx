@@ -234,8 +234,11 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
                 <Stat label="Documents" value={String(data.docCount)} />
               </div>
               <Card title="Recent work orders" action="View all →" actionHref={`/admin/work-orders?association=${code}`}>
+                {woMsg && (
+                  <div className={`mb-3 rounded border px-3 py-2 text-xs ${woMsg.kind === 'ok' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>{woMsg.text}</div>
+                )}
                 {data.workOrders.length === 0 ? <Empty>No work orders for this association.</Empty> : (
-                  <WorkOrderTable rows={data.workOrders.slice(0, 6)} />
+                  <WorkOrderTable rows={data.workOrders.slice(0, 6)} showActions uploadingWoId={uploadingWoId} onAddInvoice={addInvoiceToWo} />
                 )}
               </Card>
               <Card title="Quick links">
