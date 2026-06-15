@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import CashFlowStrip from './CashFlowStrip'
+import BoardApprovalModal from './BoardApprovalModal'
 
 interface Vendor      { id: number;  name: string; shortName: string | null; dba?: string | null }
 interface Association { code: string; name: string }
@@ -36,6 +37,7 @@ interface Draft {
   pay_by_type:                 string | null
   observation_note:            string | null
   work_order_number:           number | null
+  ticket_id:                   number | null
   wo_partial_payment:          boolean | null
   pay_from_bank_account_id:    number | null
   extraction_confidence:       number | null
@@ -480,6 +482,7 @@ function DraftCard(props: {
   const [note, setNote]           = useState<string>(draft.observation_note ?? '')
   const [woNumber, setWoNumber]   = useState<string>(draft.work_order_number != null ? String(draft.work_order_number) : '')
   const [woPartial, setWoPartial] = useState<boolean>(!!draft.wo_partial_payment)
+  const [showApproval, setShowApproval] = useState(false)
   const [bankId, setBankId]       = useState<string>(draft.pay_from_bank_account_id != null ? String(draft.pay_from_bank_account_id) : '')
 
   // GL options for the selected association — fetched on demand the
@@ -1602,9 +1605,22 @@ function DraftCard(props: {
             ) : (
               <div style={{ marginTop: 6, fontSize: 11, color: '#6b7280' }}>On push, the linked work order is closed as paid.</div>
             ))}
+            {/* Board approval — when this invoice is tied to a work order, Karen
+                can pop the board-approved estimate + signatures before paying. */}
+            {(woNumber || draft.ticket_id != null) && (
+              <button
+                type="button"
+                onClick={() => setShowApproval(true)}
+                title="View the board-approved estimate and signatures for this work order"
+                style={{ marginTop: 8, fontSize: 12, fontWeight: 600, padding: '5px 10px', border: '1px solid #7c3aed', borderRadius: 6, background: '#f5f3ff', color: '#6d28d9', cursor: 'pointer' }}
+              >
+                🛡 View board approval
+              </button>
+            )}
           </Field>
         </div>
       </div>
+      {showApproval && <BoardApprovalModal draftId={draft.id} onClose={() => setShowApproval(false)} />}
       </div>{/* end right column */}
       </div>{/* end PDF + form side-by-side */}
 
