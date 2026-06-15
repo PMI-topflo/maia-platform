@@ -517,6 +517,13 @@ async function averageMonthlyNetFlow(assocCode: string, cashGl: string, months =
   const byMonth = new Map<string, { in: number; out: number }>()
   for (const tx of txs) {
     if (!tx.TransactionDate) continue
+    // Skip inter-account transfers / sweeps. Moving money to the association's
+    // OWN reserve / special / club accounts isn't cash leaving (and the
+    // matching deposit isn't real income) — counting them double-charged the
+    // operating run-rate (e.g. MANXI: a $27k transfer + counterpart-name lines
+    // pushed avgMonthlyOut above assessment income, so the projection marched
+    // negative even with a healthy balance). Same exclusion detectRecurring uses.
+    if (tx.Description && INTERNAL_MOVEMENT_RE.test(tx.Description)) continue
     const m = monthOf(tx.TransactionDate)
     const b = byMonth.get(m) ?? { in: 0, out: 0 }
     b.in  += typeof tx.DebitAmount  === 'number' ? Math.abs(tx.DebitAmount)  : 0
@@ -580,6 +587,9 @@ async function detectIncomeProfile(assocCode: string, cashGl: string | null | un
   const monthsTouched = new Set<string>()
   for (const tx of txs) {
     if (!tx.TransactionDate) continue
+    // Don't count a transfer IN from another of the association's accounts as
+    // assessment income — only genuine deposits (see averageMonthlyNetFlow).
+    if (tx.Description && INTERNAL_MOVEMENT_RE.test(tx.Description)) continue
     monthsTouched.add(monthOf(tx.TransactionDate))
     const d = typeof tx.DebitAmount === 'number' ? tx.DebitAmount : 0
     if (d >= 0) continue                                   // only deposits (money IN)
