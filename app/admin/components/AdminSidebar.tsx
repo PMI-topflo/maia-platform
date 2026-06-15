@@ -55,6 +55,7 @@ const NAV: Node[] = [
     { label: 'Tools', href: '/admin/tools' },
   ] },
   { type: 'item', label: 'Help', icon: '?', href: '/admin/help' },
+  { type: 'item', label: 'Operating Manuals', icon: '📘', href: '/admin/help/manuals' },
 ]
 
 function isActive(pathname: string, href: string): boolean {

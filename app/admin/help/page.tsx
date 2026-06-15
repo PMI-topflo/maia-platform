@@ -69,6 +69,15 @@ export default async function HelpPage() {
           </p>
         </div>
 
+        {/* Operating manuals callout */}
+        <Link href="/admin/help/manuals" className="mb-6 flex items-center justify-between rounded-xl border border-[#f26a1b]/40 bg-orange-50 px-5 py-4 transition-colors hover:border-[#f26a1b]">
+          <div>
+            <div className="flex items-center gap-2 text-base font-semibold text-gray-900"><span>📘</span>Operating manuals</div>
+            <p className="mt-0.5 text-sm text-gray-600">Step-by-step guides with screen pictures — Work Orders, Compliance, and Financial.</p>
+          </div>
+          <span className="text-sm font-medium text-[#f26a1b]">Open →</span>
+        </Link>
+
         {/* Quick links grid */}
         <Section title="Quick access">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
