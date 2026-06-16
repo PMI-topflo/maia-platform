@@ -69,15 +69,22 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     supabaseAdmin.from('associations').select('association_code, association_name').order('association_name'),
   ])
 
-  // Payment lifecycle is best-effort so the WO list never breaks if the
-  // tickets.payment_state migration hasn't been applied yet.
+  // Payment lifecycle + vendor-docs flag are best-effort so the WO list never
+  // breaks if the tickets.payment_state / vendor_docs migrations haven't run yet.
   const woBase = (woRows ?? []) as Array<{ id: number } & Record<string, unknown>>
   const payByTicket = new Map<number, string | null>()
+  const docsByTicket = new Map<number, string | null>()
   if (woBase.length > 0) {
-    const { data: ps } = await supabaseAdmin.from('tickets').select('id, payment_state').in('id', woBase.map(w => w.id))
-    for (const r of ps ?? []) payByTicket.set(r.id as number, (r as { payment_state?: string | null }).payment_state ?? null)
+    const ids = woBase.map(w => w.id)
+    const full = await supabaseAdmin.from('tickets').select('id, payment_state, vendor_docs_requested_at').in('id', ids)
+    const fallback = full.data ? null : await supabaseAdmin.from('tickets').select('id, payment_state').in('id', ids)  // pre-migration
+    const ps = (full.data ?? fallback?.data ?? []) as Array<Record<string, unknown>>
+    for (const r of ps) {
+      payByTicket.set(r.id as number, (r.payment_state as string | null) ?? null)
+      docsByTicket.set(r.id as number, (r.vendor_docs_requested_at as string | null) ?? null)
+    }
   }
-  const workOrders = woBase.map(w => ({ ...w, payment_state: payByTicket.get(w.id) ?? null })) as AssociationHubData['workOrders']
+  const workOrders = woBase.map(w => ({ ...w, payment_state: payByTicket.get(w.id) ?? null, vendor_docs_requested_at: docsByTicket.get(w.id) ?? null })) as AssociationHubData['workOrders']
   const data: AssociationHubData = {
     code:           assocRow.association_code,
     name:           assocRow.association_name,

@@ -16,6 +16,7 @@ function toAddresses(to: string | string[]): string[] {
 
 async function sendViaResend({
   to,
+  cc,
   subject,
   html,
   text,
@@ -23,6 +24,7 @@ async function sendViaResend({
   headers,
 }: {
   to: string[]
+  cc?: string[]
   subject: string
   html: string
   text?: string
@@ -41,6 +43,7 @@ async function sendViaResend({
     body: JSON.stringify({
       from: FROM,
       to,
+      ...(cc && cc.length && { cc }),
       subject,
       html,
       ...(text     && { text }),
@@ -463,6 +466,7 @@ export interface SendEmailResult {
 
 export async function sendEmail({
   to,
+  cc,
   subject,
   html,
   text,
@@ -470,6 +474,7 @@ export async function sendEmail({
   headers,
 }: {
   to: string | string[]
+  cc?: string | string[]
   subject: string
   html?: string
   text?: string
@@ -478,6 +483,8 @@ export async function sendEmail({
 }): Promise<SendEmailResult> {
   const addresses = toAddresses(to)
   if (addresses.length === 0) throw new Error('[Email] No recipients provided')
+  // CC addresses (Resend native). Drop any that duplicate a To recipient.
+  const ccAddresses = toAddresses(cc ?? []).filter(c => !addresses.some(a => a.toLowerCase() === c.toLowerCase()))
 
   // Application-level rate limit at the sendEmail boundary. Catches loops
   // through ANY caller (structured-record replies, ticket notifications,
@@ -494,9 +501,10 @@ export async function sendEmail({
 
   let messageId: string | undefined
   if (process.env.RESEND_API_KEY) {
-    messageId = await sendViaResend({ to: addresses, subject, html: body, text, replyTo, headers })
+    messageId = await sendViaResend({ to: addresses, cc: ccAddresses, subject, html: body, text, replyTo, headers })
   } else {
-    await sendViaGmail({ to: addresses, subject, html: body })
+    // Gmail fallback has no separate CC header here — fold CC into recipients.
+    await sendViaGmail({ to: [...addresses, ...ccAddresses], subject, html: body })
   }
 
   // Record AFTER successful provider call so the counter reflects what
