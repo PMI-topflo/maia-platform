@@ -1093,6 +1093,42 @@ export async function listVendorTypes(): Promise<CincVendorType[]> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Create a new vendor — POST /management/1/vendors. Verified live
+// (2026-06-15): body { Name, VendorTypeID, Email, Phone1, Address1, City,
+// State, ZipCode, Status:-1 } → 201 { VendorId, ... }. Only Name is
+// effectively required; VendorTypeID 16 = "Not Assigned". Status -1 = Active.
+// Used by vendor onboarding to create the CINC record before collecting docs.
+// ─────────────────────────────────────────────────────────────────────
+export interface CreateVendorInput {
+  name:          string
+  email?:        string | null
+  phone?:        string | null
+  address1?:     string | null
+  city?:         string | null
+  state?:        string | null
+  zip?:          string | null
+  vendorTypeId?: string | null   // CINC VendorTypeID; defaults to 16 (Not Assigned)
+}
+export async function createVendor(input: CreateVendorInput): Promise<{ vendorId: number }> {
+  const body: Record<string, unknown> = {
+    Name:         input.name,
+    VendorTypeID: input.vendorTypeId ?? '16',
+    Status:       -1,
+  }
+  if (input.email)    body.Email    = input.email
+  if (input.phone)    body.Phone1   = input.phone
+  if (input.address1) body.Address1 = input.address1
+  if (input.city)     body.City     = input.city
+  if (input.state)    body.State    = input.state
+  if (input.zip)      body.ZipCode  = input.zip
+  const res = await call<{ VendorId?: number; VendorID?: number }>('/management/1/vendors', { method: 'POST', json: body })
+  const vendorId = res?.VendorId ?? res?.VendorID
+  if (!vendorId) throw new CincApiError('createVendor: no VendorId in response')
+  invalidateVendorCache()
+  return { vendorId }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Single-vendor detail — used by the invoice intake card to show
 // Karen the CINC-side defaults (payment method, terms, 1099 status,
 // banking) so she can verify her Pay By selection matches CINC's
