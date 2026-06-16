@@ -56,7 +56,8 @@ const STR = {
 
 interface Status { hasVendor: boolean; onFile: boolean; vendorName?: string | null; checkName?: string | null; taxIdLast4?: string | null }
 
-export default function W9Section({ token, lang = 'en' }: { token: string; lang?: string }) {
+export default function W9Section({ token, lang = 'en', apiBase }: { token: string; lang?: string; apiBase?: string }) {
+  const base = apiBase ?? `/api/vendor/upload/${token}`
   const t = STR[(lang === 'es' ? 'es' : 'en')]
   const [phase, setPhase] = useState<'loading' | 'status' | 'entry' | 'review' | 'done'>('loading')
   const [status, setStatus] = useState<Status | null>(null)
@@ -75,17 +76,17 @@ export default function W9Section({ token, lang = 'en' }: { token: string; lang?
 
   useEffect(() => {
     let alive = true
-    fetch(`/api/vendor/upload/${token}/w9`)
+    fetch(`${base}/w9`)
       .then(r => r.json())
       .then((s: Status) => { if (!alive) return; setStatus(s); setPhase(s.onFile ? 'status' : 'entry') })
       .catch(() => { if (alive) setPhase('entry') })
     return () => { alive = false }
-  }, [token])
+  }, [base])
 
   async function confirmUnchanged() {
     setBusy(true); setError(null)
     try {
-      const res = await fetch(`/api/vendor/upload/${token}/w9`, {
+      const res = await fetch(`${base}/w9`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action: 'confirm', taxIdLast4: status?.taxIdLast4 }),
       })
@@ -108,7 +109,7 @@ export default function W9Section({ token, lang = 'en' }: { token: string; lang?
     if (!certify) { setError(t.errCertify); return }
     setBusy(true)
     try {
-      const res = await fetch(`/api/vendor/upload/${token}/w9`, {
+      const res = await fetch(`${base}/w9`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action: 'update', legalName: legalName.trim(), businessName: businessName.trim() || undefined, classification, tinType, tin, authorizedName: name.trim(), authorizedTitle: title.trim(), certify: true }),
       })

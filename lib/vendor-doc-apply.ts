@@ -18,6 +18,28 @@ import {
   createVendorLicense,
   listVendorInsuranceTypes,
 } from '@/lib/integrations/cinc'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+
+// Private bucket for onboarding docs (W-9/ACH PDFs hold full TIN/account).
+const VENDOR_DOCS_BUCKET = 'vendor-docs'
+let _bucketReady = false
+async function ensureVendorDocsBucket(): Promise<void> {
+  if (_bucketReady) return
+  const { data } = await supabaseAdmin.storage.listBuckets()
+  if (!data?.some(b => b.name === VENDOR_DOCS_BUCKET)) {
+    await supabaseAdmin.storage.createBucket(VENDOR_DOCS_BUCKET, { public: false, fileSizeLimit: 25 * 1024 * 1024 }).catch(() => null)
+  }
+  _bucketReady = true
+}
+
+/** Store an onboarding doc (PDF/image) in the private vendor-docs bucket.
+ *  Returns the storage path (best-effort; null on failure). */
+export async function storeVendorDoc(onboardingId: string, bytes: Buffer, filename: string, contentType = 'application/pdf'): Promise<string | null> {
+  await ensureVendorDocsBucket()
+  const path = `${onboardingId}/${Date.now()}-${filename.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 100)}`
+  const { error } = await supabaseAdmin.storage.from(VENDOR_DOCS_BUCKET).upload(path, bytes, { contentType, upsert: true })
+  return error ? null : path
+}
 
 export interface W9Apply { legalName: string; businessName?: string | null; tin: string }
 export async function applyW9ToCinc(vendorId: number, w9: W9Apply): Promise<void> {

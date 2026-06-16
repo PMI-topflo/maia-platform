@@ -10,6 +10,7 @@
 // =====================================================================
 
 import { useEffect, useRef, useState } from 'react'
+import OnboardVendorModal from '@/components/OnboardVendorModal'
 
 interface Compliance {
   vendorName: string | null
@@ -40,6 +41,7 @@ export default function WoComplianceModal({ woId, onClose, onDone }: {
   const [requesting, setRequesting] = useState(false)
   const [requestedNow, setRequestedNow] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [onboard, setOnboard] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -78,6 +80,8 @@ export default function WoComplianceModal({ woId, onClose, onDone }: {
 
   const blocked = c ? (c.canVerify && !c.canUpload) : false
 
+  if (onboard) return <OnboardVendorModal prefill={{ name: c?.vendorName ?? null, email: c?.vendorEmail ?? null }} onClose={() => { setOnboard(false); onClose() }} />
+
   return (
     <div onClick={onClose} className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-slate-900/50 p-6">
       <div onClick={e => e.stopPropagation()} className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-2xl">
@@ -96,7 +100,8 @@ export default function WoComplianceModal({ woId, onClose, onDone }: {
 
               {!c.canVerify ? (
                 <div className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  This vendor isn’t linked to CINC, so ACH/W-9 can’t be verified here. You can still upload, but confirm the vendor’s banking and W-9 before payment.
+                  This vendor isn’t linked to CINC, so ACH/W-9 can’t be verified here.
+                  <div className="mt-2"><button onClick={() => setOnboard(true)} className="rounded bg-[#16a34a] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#15803d]">+ Onboard this vendor</button></div>
                 </div>
               ) : (
                 <div className="mb-3 space-y-1.5">
