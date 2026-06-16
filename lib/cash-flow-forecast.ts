@@ -517,6 +517,13 @@ async function averageMonthlyNetFlow(assocCode: string, cashGl: string, months =
   const byMonth = new Map<string, { in: number; out: number }>()
   for (const tx of txs) {
     if (!tx.TransactionDate) continue
+    // Skip inter-account transfers / sweeps. Moving money to the association's
+    // OWN reserve / special / club accounts isn't cash leaving (and the
+    // matching deposit isn't real income) — counting them double-charged the
+    // operating run-rate (e.g. MANXI: a $27k transfer + counterpart-name lines
+    // pushed avgMonthlyOut above assessment income, so the projection marched
+    // negative even with a healthy balance). Same exclusion detectRecurring uses.
+    if (tx.Description && INTERNAL_MOVEMENT_RE.test(tx.Description)) continue
     const m = monthOf(tx.TransactionDate)
     const b = byMonth.get(m) ?? { in: 0, out: 0 }
     b.in  += typeof tx.DebitAmount  === 'number' ? Math.abs(tx.DebitAmount)  : 0
@@ -580,6 +587,9 @@ async function detectIncomeProfile(assocCode: string, cashGl: string | null | un
   const monthsTouched = new Set<string>()
   for (const tx of txs) {
     if (!tx.TransactionDate) continue
+    // Don't count a transfer IN from another of the association's accounts as
+    // assessment income — only genuine deposits (see averageMonthlyNetFlow).
+    if (tx.Description && INTERNAL_MOVEMENT_RE.test(tx.Description)) continue
     monthsTouched.add(monthOf(tx.TransactionDate))
     const d = typeof tx.DebitAmount === 'number' ? tx.DebitAmount : 0
     if (d >= 0) continue                                   // only deposits (money IN)
@@ -702,9 +712,13 @@ export async function forecastFundsForDate(opts: {
   events.push({ date: (opts.scheduledDate || todayISO).slice(0, 10), delta: -push, kind: 'push' })
   // Expected assessment income on the learned cadence (receivables behaviour).
   for (const inc of projectIncomeEvents(income, todayISO, lastYm)) events.push({ date: inc.date, delta: +inc.amount, kind: 'income' })
-  // Recurring spend NOT yet invoiced: top each future month's KNOWN bills up to
-  // the typical monthly spend (so far months aren't under-counted), placed
-  // mid-month. max() avoids double-counting bills already entered.
+  // Recurring spend NOT yet invoiced: top each month's KNOWN bills up to the
+  // typical monthly spend (so far months aren't under-counted). max() avoids
+  // double-counting bills already entered. SPREAD across ~weekly points within
+  // the month (days 4/11/18/25) instead of one mid-month lump, so the strip
+  // descends smoothly through the month rather than cliff-dropping on day 15.
+  // For the current month only the points on/after today count (the earlier
+  // part of the month has already happened and is in the balance).
   if (flow.avgOut > 0) {
     for (let i = 0; i <= horizonMonths; i++) {
       const ym = addMonthsYm(nowYm, i)
@@ -713,8 +727,21 @@ export async function forecastFundsForDate(opts: {
       const billed = open
         .filter(o => { const dd = o.DueDate ? o.DueDate.slice(0, 10) : todayISO; return dd >= lo && dd <= hi })
         .reduce((s, o) => s + balanceOf(o), 0)
-      const shortfall = Math.max(0, flow.avgOut - billed)
-      if (shortfall > 0) events.push({ date: dayInMonth(ym, 15), delta: -shortfall, kind: 'recurring' })
+      // Current month: only the spend for the days STILL AHEAD — the earlier
+      // part of the month already happened and is in the current balance, so
+      // charging a whole month's avgOut here would double-count it.
+      let monthOut = flow.avgOut
+      if (i === 0) {
+        const daysInMonth = Number(hi.slice(8, 10))
+        const dayToday    = Number(todayISO.slice(8, 10))
+        monthOut = flow.avgOut * Math.max(0, (daysInMonth - dayToday + 1) / daysInMonth)
+      }
+      const shortfall = Math.max(0, monthOut - billed)
+      if (shortfall <= 0) continue
+      const points = [4, 11, 18, 25].map(day => dayInMonth(ym, day)).filter(dt => dt >= lo && dt <= hi)
+      const spread = points.length ? points : [hi]   // late in the month → land it at month-end
+      const per = shortfall / spread.length
+      for (const dt of spread) events.push({ date: dt, delta: -per, kind: 'recurring' })
     }
   }
 
