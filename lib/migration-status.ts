@@ -1644,6 +1644,17 @@ NOTIFY pgrst, 'reload schema';`,
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'tickets_vendor_docs',
+    label:       'Work order — vendor-docs follow-up flag',
+    description: 'tickets.vendor_docs_requested_at + vendor_docs_needed — flags a WO when ACH/W-9 were requested from the vendor (the compliance gate before adding an invoice); clears when the docs land.',
+    filename:    '20260615_tickets_vendor_docs.sql',
+    artifact:    { type: 'column', table: 'tickets', column: 'vendor_docs_requested_at' },
+    sql: `ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS vendor_docs_requested_at timestamptz,
+  ADD COLUMN IF NOT EXISTS vendor_docs_needed       text;
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'unit_tenant_contacts',
     label:       'Unit tenant contacts',
     description: 'unit_tenant_contacts table — tenant name/phone/email + lease dates for leased units (owner-provided), powering mass communication, leasing compliance, and the tenant self-service request.',

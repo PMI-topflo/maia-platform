@@ -16,6 +16,7 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { createInvoiceDraftFromUpload } from '@/lib/invoice-intake'
 import { appendMessage } from '@/lib/tickets'
+import { checkWoVendorCompliance } from '@/lib/wo-vendor-compliance'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -50,6 +51,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     .from('work_order_details').select('vendor_name').eq('ticket_id', id).maybeSingle()
   const woNum = ticket.cinc_workorder_id ? parseInt(String(ticket.cinc_workorder_id), 10) : null
 
+  // Compliance gate: the vendor must have ACH + W-9 on file in CINC before an
+  // invoice can be added. (Vendors not linked to CINC can't be verified and
+  // aren't blocked.) The popup enforces this too; this is the server backstop.
+  const compliance = await checkWoVendorCompliance(id)
+  if (compliance && !compliance.canUpload) {
+    return NextResponse.json({
+      error: `Blocked: ${compliance.vendor.vendorName ?? 'this vendor'} is missing ${compliance.missing.join(' + ')} in CINC. Request it from the vendor first.`,
+      blocked: true,
+      missing: compliance.missing,
+      missingKeys: compliance.missingKeys,
+    }, { status: 409 })
+  }
+
   let result: Awaited<ReturnType<typeof createInvoiceDraftFromUpload>>
   try {
     const buf = Buffer.from(await file.arrayBuffer())
@@ -67,7 +81,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!result.ok) return NextResponse.json({ error: result.reason ?? 'could not read the invoice' }, { status: 502 })
 
   // Mark the WO ready for payment (left open until the invoice is paid in CINC).
-  await supabaseAdmin.from('tickets').update({ payment_state: 'ready_for_payment', updated_at: new Date().toISOString() }).eq('id', id)
+  // Docs are on file (we got past the gate), so clear any follow-up flag.
+  await supabaseAdmin.from('tickets').update({ payment_state: 'ready_for_payment', vendor_docs_requested_at: null, vendor_docs_needed: null, updated_at: new Date().toISOString() }).eq('id', id)
   await appendMessage(id, {
     direction: 'internal_note', channel: 'internal', from_addr: 'maia',
     body: `💳 Invoice added by ${by} — work order is READY FOR PAYMENT. It's in the Invoice Intake review queue${result.status === 'needs_vendor' ? ' (needs a CINC vendor match)' : ''}; the WO will close as PAID once it's pushed to CINC.`,
