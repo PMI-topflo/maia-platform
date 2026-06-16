@@ -61,7 +61,8 @@ function validRouting(rn: string): boolean {
 
 interface Status { hasVendor: boolean; onFile: boolean; vendorName?: string | null; bankName?: string | null; routing?: string | null; accountLast4?: string | null; accountType?: string | null }
 
-export default function AchSection({ token, lang = 'en' }: { token: string; lang?: string }) {
+export default function AchSection({ token, lang = 'en', apiBase }: { token: string; lang?: string; apiBase?: string }) {
+  const base = apiBase ?? `/api/vendor/upload/${token}`
   const t = STR[(lang === 'es' ? 'es' : 'en')]
   const [phase, setPhase] = useState<'loading' | 'status' | 'entry' | 'review' | 'done'>('loading')
   const [status, setStatus] = useState<Status | null>(null)
@@ -82,17 +83,17 @@ export default function AchSection({ token, lang = 'en' }: { token: string; lang
 
   useEffect(() => {
     let alive = true
-    fetch(`/api/vendor/upload/${token}/ach`)
+    fetch(`${base}/ach`)
       .then(r => r.json())
       .then((s: Status) => { if (!alive) return; setStatus(s); setPhase(s.onFile ? 'status' : 'entry') })
       .catch(() => { if (alive) setPhase('entry') })
     return () => { alive = false }
-  }, [token])
+  }, [base])
 
   async function confirmUnchanged() {
     setBusy(true); setError(null)
     try {
-      const res = await fetch(`/api/vendor/upload/${token}/ach`, {
+      const res = await fetch(`${base}/ach`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action: 'confirm', accountLast4: status?.accountLast4 }),
       })
@@ -116,7 +117,7 @@ export default function AchSection({ token, lang = 'en' }: { token: string; lang
     if (!certify) { setError(t.errCertify); return }
     setBusy(true)
     try {
-      const res = await fetch(`/api/vendor/upload/${token}/ach`, {
+      const res = await fetch(`${base}/ach`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action: 'update', bankName: bankName.trim() || undefined, routing, account, accountType, authorizedName: name.trim(), authorizedTitle: title.trim(), certify: true }),
       })

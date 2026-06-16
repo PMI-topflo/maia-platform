@@ -12,6 +12,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import WoComplianceModal from './WoComplianceModal'
+import OnboardVendorModal from '@/components/OnboardVendorModal'
 import SyncPreviewClient from './SyncPreviewClient'
 import MaintenanceTab from './MaintenanceTab'
 import ProjectsTab from './ProjectsTab'
@@ -82,6 +83,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
   const [complianceWoId, setComplianceWoId] = useState<number | null>(null)
   const [woMsg, setWoMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   function addInvoiceToWo(woId: number) { setWoMsg(null); setComplianceWoId(woId) }
+  const [showOnboard, setShowOnboard] = useState(false)
 
   // Vendors tab — lazy-loaded (N×3 CINC calls) on first open, triggered
   // from the tab click (not an effect) so we never setState in an effect.
@@ -128,6 +130,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
           onDone={(m) => { setWoMsg(m); setComplianceWoId(null); router.refresh() }}
         />
       )}
+      {showOnboard && <OnboardVendorModal onClose={() => setShowOnboard(false)} />}
       {/* Header */}
       <div className="mb-1 text-xs text-gray-400"><Link href="/admin/cinc-sync" className="hover:text-[#f26a1b]">Associations</Link> / {data.name}</div>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
@@ -244,6 +247,9 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
             const shown = (vendors ?? []).filter(v => !vendorTrade || v.trade === vendorTrade)
             return (
             <Card title="Vendors serving this association">
+              <div className="mb-3 flex justify-end">
+                <button onClick={() => setShowOnboard(true)} className="rounded bg-[#16a34a] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#15803d]">+ Onboard new vendor</button>
+              </div>
               {vendorsLoading && <p className="text-xs text-gray-400">Loading vendor compliance from CINC…</p>}
               {vendorsErr && <p className="text-xs text-red-600">{vendorsErr}</p>}
               {vendors && vendors.length === 0 && !vendorsLoading && <Empty>No vendors on this association in CINC.</Empty>}

@@ -1086,7 +1086,7 @@ export async function listVendorTypes(): Promise<CincVendorType[]> {
   return (raw ?? [])
     .map(t => ({
       id:   String(t.VendorTypeID ?? t.VendorTypeId ?? t.Id ?? t.ID ?? t.Value ?? ''),
-      name: String(t.Description ?? t.VendorTypeName ?? t.Name ?? t.Text ?? '').trim(),
+      name: String(t.VendorType ?? t.Description ?? t.VendorTypeName ?? t.Name ?? t.Text ?? '').trim(),
     }))
     .filter(t => t.id && t.name)
     .sort((a, b) => a.name.localeCompare(b.name))
