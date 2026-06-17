@@ -41,6 +41,13 @@ export async function storeVendorDoc(onboardingId: string, bytes: Buffer, filena
   return error ? null : path
 }
 
+/** Download a stored onboarding doc from the private vendor-docs bucket. */
+export async function getVendorDoc(path: string): Promise<Buffer | null> {
+  const { data, error } = await supabaseAdmin.storage.from(VENDOR_DOCS_BUCKET).download(path)
+  if (error || !data) return null
+  return Buffer.from(await data.arrayBuffer())
+}
+
 export interface W9Apply { legalName: string; businessName?: string | null; tin: string }
 export async function applyW9ToCinc(vendorId: number, w9: W9Apply): Promise<void> {
   await updateVendorRecord(vendorId, {

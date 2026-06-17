@@ -30,6 +30,7 @@ const NAV: Node[] = [
     { label: 'Associations', href: '/admin/cinc-sync' },
     { label: 'Document Inbox', href: '/admin/documents/inbox' },
     { label: 'Compliance Outreach', href: '/admin/compliance-outreach' },
+    { label: 'Vendor Onboarding', href: '/admin/vendor-onboarding' },
     { label: 'Owners', href: '/admin/owners' },
     { label: 'Board Setup', href: '/admin/board-setup' },
     { label: 'Ownership History', href: '/admin/ownership-history' },
