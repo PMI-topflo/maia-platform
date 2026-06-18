@@ -9,6 +9,7 @@
 // =====================================================================
 
 import { NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import {
   createTicket,
   appendMessage,
@@ -44,6 +45,11 @@ interface CreateBody {
   is_board_request?:     boolean
   initial_note?:         string                // optional — seeds the timeline
   actor_email?:          string                // who is creating it
+  // Work-order details (written to work_order_details when type='work_order').
+  vendor_name?:          string | null
+  vendor_email?:         string | null
+  cinc_vendor_id?:       number | null
+  scheduled_at?:         string | null         // ISO date the vendor is scheduled
 }
 
 export async function POST(req: Request) {
@@ -88,6 +94,21 @@ export async function POST(req: Request) {
       requested_by:         body.requested_by,
       is_board_request:     body.is_board_request,
     })
+
+    // Work-order details: vendor + schedule. Only for work orders, and only
+    // when at least one field is provided. Powers the downstream
+    // Add-invoice / ACH-W9 gate / onboarding flows (they read work_order_details).
+    if ((body.type ?? 'ticket') === 'work_order'
+        && (body.vendor_name || body.vendor_email || body.cinc_vendor_id != null || body.scheduled_at)) {
+      await supabaseAdmin.from('work_order_details').upsert({
+        ticket_id:      ticket.id,
+        vendor_name:    body.vendor_name?.trim()  || null,
+        vendor_email:   body.vendor_email?.trim() || null,
+        cinc_vendor_id: body.cinc_vendor_id ?? null,
+        scheduled_at:   body.scheduled_at || null,
+        updated_at:     new Date().toISOString(),
+      }, { onConflict: 'ticket_id' }).then(() => null, () => null)
+    }
 
     if (body.initial_note?.trim()) {
       await appendMessage(ticket.id, {

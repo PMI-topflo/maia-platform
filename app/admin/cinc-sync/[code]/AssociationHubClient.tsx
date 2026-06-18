@@ -13,6 +13,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import WoComplianceModal from './WoComplianceModal'
 import OnboardVendorModal from '@/components/OnboardVendorModal'
+import NewWorkOrderModal from './NewWorkOrderModal'
 import SyncPreviewClient from './SyncPreviewClient'
 import MaintenanceTab from './MaintenanceTab'
 import ProjectsTab from './ProjectsTab'
@@ -84,6 +85,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
   const [woMsg, setWoMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   function addInvoiceToWo(woId: number) { setWoMsg(null); setComplianceWoId(woId) }
   const [showOnboard, setShowOnboard] = useState(false)
+  const [showNewWO, setShowNewWO] = useState(false)
 
   // Vendors tab — lazy-loaded (N×3 CINC calls) on first open, triggered
   // from the tab click (not an effect) so we never setState in an effect.
@@ -131,6 +133,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
         />
       )}
       {showOnboard && <OnboardVendorModal onClose={() => setShowOnboard(false)} />}
+      {showNewWO && <NewWorkOrderModal assocCode={code} assocName={data.name} onClose={() => setShowNewWO(false)} />}
       {/* Header */}
       <div className="mb-1 text-xs text-gray-400"><Link href="/admin/cinc-sync" className="hover:text-[#f26a1b]">Associations</Link> / {data.name}</div>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
@@ -163,7 +166,9 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
             <button onClick={(e) => { e.stopPropagation(); setActionsOpen(o => !o) }} className="rounded bg-[#16a34a] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#15803d]">Actions ▾</button>
             {actionsOpen && (
               <div onClick={e => e.stopPropagation()} className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
-                {ACTIONS.map(a => <Link key={a.label} href={a.href} className="block px-3 py-1.5 text-sm text-gray-800 hover:bg-gray-50">{a.label}</Link>)}
+                {ACTIONS.map(a => a.label === 'New work order'
+                  ? <button key={a.label} onClick={() => { setActionsOpen(false); setShowNewWO(true) }} className="block w-full px-3 py-1.5 text-left text-sm text-gray-800 hover:bg-gray-50">{a.label}</button>
+                  : <Link key={a.label} href={a.href} className="block px-3 py-1.5 text-sm text-gray-800 hover:bg-gray-50">{a.label}</Link>)}
               </div>
             )}
           </div>
