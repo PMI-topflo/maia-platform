@@ -9,6 +9,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { signVendorUploadToken } from '@/lib/vendor-upload-token'
 import { sendEmail } from '@/lib/gmail'
 import { appendMessage } from '@/lib/tickets'
+import { getAssociationName } from '@/lib/association-name'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 
@@ -32,12 +33,13 @@ export async function sendVendorUploadLink(opts: {
     return { ok: false, error: 'no vendor email — add one on the work order or type it in' }
   }
 
+  const assocName = await getAssociationName(ticket.association_code)
   const token = await signVendorUploadToken(opts.ticketId)
   const link  = `${APP_URL}/vendor/upload/${token}`
 
   const html = `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;color:#222;max-width:600px;margin:0 auto;padding:20px">
 <p>Hello${wod?.vendor_name ? ' ' + wod.vendor_name : ''},</p>
-<p>Please use the secure link below to upload your <strong>estimate, invoice, or job photos</strong> for work order <strong>${ticket.ticket_number}</strong>${ticket.subject ? ` — ${ticket.subject}` : ''}.</p>
+<p>Please use the secure link below to upload your <strong>estimate, invoice, or job photos</strong>${assocName ? ` for <strong>${assocName}</strong>` : ''} (work order <strong>${ticket.ticket_number}</strong>${ticket.subject ? ` — ${ticket.subject}` : ''}).</p>
 <p style="margin:24px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Upload your files</a></p>
 <p style="color:#6b7280;font-size:12px">Or paste this link into your browser:<br>${link}</p>
 <p style="color:#6b7280;font-size:12px">This link is specific to this work order and expires in 30 days.</p>
@@ -45,7 +47,7 @@ export async function sendVendorUploadLink(opts: {
 <p style="color:#9ca3af;font-size:11px;margin:0">PMI Top Florida Properties</p>
 </body></html>`
 
-  await sendEmail({ to: recipient, subject: `Upload your files for ${ticket.ticket_number}`, html })
+  await sendEmail({ to: recipient, subject: `Upload your files${assocName ? ` — ${assocName}` : ` for ${ticket.ticket_number}`}`, html })
 
   await appendMessage(opts.ticketId, {
     direction: 'outbound', channel: 'email', from_addr: opts.sentBy, to_addr: recipient,

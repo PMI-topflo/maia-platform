@@ -14,6 +14,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { signEstimateRequestToken } from '@/lib/estimate-request-token'
 import { sendEmail } from '@/lib/gmail'
 import { appendMessage } from '@/lib/tickets'
+import { getAssociationName } from '@/lib/association-name'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -58,6 +59,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (reqErr || !reqRow) return NextResponse.json({ error: `could not create request: ${reqErr?.message}` }, { status: 500 })
 
   const woLabel = `${ticket.ticket_number}${ticket.association_code ? ` · ${ticket.association_code}` : ''}`
+  const assocName = await getAssociationName(ticket.association_code)
   const sentTo: { name: string; email: string; link: string }[] = []
   for (const v of vendorsIn) {
     const { data: erv } = await supabaseAdmin.from('estimate_request_vendors').insert({
@@ -68,9 +70,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     sentTo.push({ name: v.vendor_name ?? v.vendor_email, email: v.vendor_email, link })
     await sendEmail({
       to: v.vendor_email, replyTo: PAOLA,
-      subject: `Estimate request — ${woLabel}`,
+      subject: `Estimate request${assocName ? ` — ${assocName}` : ` — ${woLabel}`}`,
       html: `<p>Hello${v.vendor_name ? ` ${esc(v.vendor_name)}` : ''},</p>
-        <p>PMI Top Florida Properties is requesting an estimate for work order <strong>${esc(woLabel)}</strong>.</p>
+        <p>PMI Top Florida Properties is requesting an estimate${assocName ? ` for <strong>${esc(assocName)}</strong>` : ''} (work order <strong>${esc(ticket.ticket_number)}</strong>).</p>
         <p><strong>Scope of work:</strong><br>${esc(scope).replace(/\n/g, '<br>')}</p>
         <p>Please review the details and photos, let us know if you'll quote and by when, and upload your estimate:</p>
         <p><a href="${link}" style="background:#f26a1b;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:700">Review & respond →</a></p>

@@ -15,6 +15,7 @@ import { sendEmail } from '@/lib/gmail'
 import { appendMessage } from '@/lib/tickets'
 import { signVendorUploadToken } from '@/lib/vendor-upload-token'
 import { checkWoVendorCompliance, VENDOR_REQUEST_CC } from '@/lib/wo-vendor-compliance'
+import { getAssociationName } from '@/lib/association-name'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,14 +38,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const to = (c.vendor.vendorEmail ?? '').trim()
   if (!to.includes('@')) return NextResponse.json({ error: 'No vendor email on file for this work order — add one first.' }, { status: 400 })
 
+  const assocName = await getAssociationName(c.vendor.associationCode)
+  const forAssoc = assocName ? ` for ${assocName}` : ''
   const uploadToken = await signVendorUploadToken(id)
   const link = `${APP}/vendor/upload/${uploadToken}?need=${c.missingKeys.join(',')}`
   const bulleted = c.missing.map(m => `  • ${m}`).join('\n')
-  const subject = `Documents needed before payment — PMI Top Florida Properties`
+  const subject = `Documents needed before payment${assocName ? ` — ${assocName}` : ''}`
   const textBody =
 `Hello${c.vendor.vendorName ? ` ${c.vendor.vendorName}` : ''},
 
-Before we can process payment on your recent work${c.vendor.ticketNumber ? ` (${c.vendor.ticketNumber})` : ''}, we still need the following on file:
+Before we can process payment on your recent work${forAssoc}${c.vendor.ticketNumber ? ` (${c.vendor.ticketNumber})` : ''}, we still need the following on file:
 
 ${bulleted}
 

@@ -10,7 +10,7 @@ import { redirect } from 'next/navigation'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../../../components/AdminNav'
-import { ManualHeader, Step, P, UI, Tip, Figure, Pin, Frame, TabStrip, Badge, FakeBtn } from '../components/ManualUI'
+import { ManualHeader, Step, P, UI, Tip, Figure, Pin, Frame, TabStrip, Badge, FakeBtn, EmailMock, AssocName } from '../components/ManualUI'
 
 export const metadata = { title: 'Work Order Manual — PMI Top Florida' }
 export const dynamic = 'force-dynamic'
@@ -158,6 +158,76 @@ export default async function WorkOrderManual() {
             </Frame>
           </Figure>
         </Step>
+
+        {/* EMAILS MAIA SENDS */}
+        <div className="mt-10 mb-3 border-t border-gray-200 pt-6">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900"><span>📧</span>Emails Maia sends (vendor &amp; board)</h2>
+          <p className="mt-1 max-w-2xl text-sm text-gray-500">What the vendor and board members receive at each step. <span className="font-medium" style={{ color: '#f26a1b' }}>Every vendor email names the association it&apos;s for</span> (highlighted in orange below) so there&apos;s never confusion about which property the work is on.</p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          {/* 1. Estimate request → vendor */}
+          <div>
+            <div className="mb-1 text-sm font-medium text-gray-900">1. Estimate request → vendor</div>
+            <EmailMock to="vendor@example.com" subject={<>Estimate request — <AssocName>Delvista Condominium Association</AssocName></>}>
+              <p className="mb-2">Hello ABCO Roofing,</p>
+              <p className="mb-2">PMI Top Florida Properties is requesting an estimate for <AssocName>Delvista Condominium Association</AssocName> (work order WO-126).</p>
+              <p className="mb-2"><span className="text-gray-400">Scope of work:</span> Repair roof leak over unit 204…</p>
+              <FakeBtn variant="orange">Review &amp; respond →</FakeBtn>
+            </EmailMock>
+          </div>
+
+          {/* 2. Board approval request → board */}
+          <div>
+            <div className="mb-1 text-sm font-medium text-gray-900">2. Board approval needed → board members</div>
+            <EmailMock to="board members of the association" subject={<>Board approval needed — estimate for TKT-2026-0126 · <AssocName>Delvista Condominium Association</AssocName></>}>
+              <p className="mb-2">Dear Gil Marianowsky,</p>
+              <p className="mb-2">An estimate needs your approval for TKT-2026-0126 · <AssocName>Delvista Condominium Association</AssocName>.</p>
+              <p className="mb-2"><span className="text-gray-400">Vendor</span> ABCO Roofing · <span className="text-gray-400">Amount</span> $1,250.00</p>
+              <FakeBtn variant="orange">Review &amp; sign →</FakeBtn>
+            </EmailMock>
+          </div>
+
+          {/* 3. Awarded → vendor */}
+          <div>
+            <div className="mb-1 text-sm font-medium text-gray-900">3. Awarded → winning vendor</div>
+            <EmailMock to="vendor@example.com" subject={<>You&apos;ve been awarded — ABCO Roofing · TKT-2026-0126 · <AssocName>Delvista Condominium Association</AssocName></>}>
+              <p className="mb-2">Congratulations — the board approved your estimate of <strong>$1,250.00</strong> for TKT-2026-0126 at <AssocName>Delvista Condominium Association</AssocName>.</p>
+              <FakeBtn variant="orange">Download the signed approval →</FakeBtn>
+            </EmailMock>
+          </div>
+
+          {/* 4. Documents needed (ACH/W-9) → vendor */}
+          <div>
+            <div className="mb-1 text-sm font-medium text-gray-900">4. Documents needed before payment → vendor <span className="text-gray-400">(cc Paola)</span></div>
+            <EmailMock to="vendor@example.com" subject={<>Documents needed before payment — <AssocName>Delvista Condominium Association</AssocName></>}>
+              <p className="mb-2">Hello ABCO Roofing,</p>
+              <p className="mb-2">Before we can process payment on your recent work for <AssocName>Delvista Condominium Association</AssocName> (TKT-2026-0126), we still need: W-9, ACH / banking information.</p>
+              <FakeBtn variant="orange">Provide documents →</FakeBtn>
+            </EmailMock>
+          </div>
+
+          {/* 5. Upload link → vendor */}
+          <div>
+            <div className="mb-1 text-sm font-medium text-gray-900">5. Upload-files link → vendor</div>
+            <EmailMock to="vendor@example.com" subject={<>Upload your files — <AssocName>Delvista Condominium Association</AssocName></>}>
+              <p className="mb-2">Hello ABCO Roofing,</p>
+              <p className="mb-2">Please upload your estimate, invoice, or job photos for <AssocName>Delvista Condominium Association</AssocName> (work order WO-126).</p>
+              <FakeBtn variant="orange">Upload your files →</FakeBtn>
+            </EmailMock>
+          </div>
+
+          {/* 6. Onboarding welcome → new vendor */}
+          <div>
+            <div className="mb-1 text-sm font-medium text-gray-900">6. Onboarding welcome → brand-new vendor <span className="text-gray-400">(cc Paola)</span></div>
+            <EmailMock to="vendor@example.com" subject="Welcome — a few documents to get you set up">
+              <p className="mb-2">Hello ABCO Roofing,</p>
+              <p className="mb-2">Welcome! Please provide your W-9, banking (ACH), insurance (COI){' '}and license through this secure link — no account needed.</p>
+              <FakeBtn variant="orange">Get set up →</FakeBtn>
+              <p className="mt-2 text-[11px] text-gray-400">(Onboarding isn&apos;t tied to one property, so this email is the only vendor email without an association name.)</p>
+            </EmailMock>
+          </div>
+        </div>
       </main>
     </div>
   )

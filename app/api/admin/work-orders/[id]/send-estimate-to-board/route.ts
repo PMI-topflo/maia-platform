@@ -12,6 +12,7 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { appendMessage } from '@/lib/tickets'
+import { getAssociationName } from '@/lib/association-name'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -70,7 +71,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }).select('id').single()
   if (!approval) return NextResponse.json({ error: 'could not create approval' }, { status: 500 })
 
-  const woLabel = `${ticket?.ticket_number ?? `WO ${ticketId}`} · ${assoc}`
+  const assocName = await getAssociationName(assoc)
+  const woLabel = `${ticket?.ticket_number ?? `WO ${ticketId}`} · ${assocName ?? assoc}`
   let sent = 0
   const sentTo: string[] = []
   for (const t of targets) {
