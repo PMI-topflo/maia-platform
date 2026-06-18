@@ -37,9 +37,26 @@ export default function OnboardVendorModal({ onClose, prefill }: {
   const [done, setDone] = useState<{ link: string; emailed: boolean; linked: boolean } | null>(null)
   const [copied, setCopied] = useState(false)
 
+  // Find-before-create: live search across ALL CINC vendors as Paola types.
+  const [searchQ, setSearchQ] = useState('')
+  const [searchResults, setSearchResults] = useState<Match[]>([])
+  const [searching, setSearching] = useState(false)
+
   useEffect(() => {
     fetch('/api/admin/cinc/vendor-types').then(r => r.json()).then(d => setTypes(d.cincTypes ?? [])).catch(() => null)
   }, [])
+
+  // Debounced vendor search.
+  useEffect(() => {
+    const q = searchQ.trim()
+    if (q.length < 2) { setSearchResults([]); return }
+    setSearching(true)
+    const t = setTimeout(() => {
+      fetch('/api/admin/vendors/onboard', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'search', q }) })
+        .then(r => r.json()).then(d => setSearchResults(d.matches ?? [])).catch(() => setSearchResults([])).finally(() => setSearching(false))
+    }, 350)
+    return () => clearTimeout(t)
+  }, [searchQ])
 
   async function check() {
     if (!name.trim()) { setErr('Company name is required.'); return }
@@ -87,6 +104,30 @@ export default function OnboardVendorModal({ onClose, prefill }: {
             </div>
           ) : (
             <>
+              {/* Find-before-create: search existing CINC vendors first. */}
+              <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <label className="block text-xs font-medium text-gray-500">Already in CINC? Search first (name, DBA, email, phone, address)
+                  <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Search 600+ CINC vendors…" className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm text-gray-900" />
+                </label>
+                {searching && <p className="mt-1 text-xs text-gray-400">Searching…</p>}
+                {searchResults.length > 0 && (
+                  <div className="mt-2 max-h-44 space-y-1 overflow-auto">
+                    {searchResults.map(m => (
+                      <div key={m.vendorId} className="flex items-center justify-between rounded border border-gray-200 bg-white p-2 text-xs">
+                        <div className="min-w-0">
+                          <div className="font-medium text-gray-900">{m.name}{m.dba ? ` (dba ${m.dba})` : ''}</div>
+                          <div className="truncate text-gray-500">{[m.email, m.phone, m.address].filter(Boolean).join(' · ') || '—'}</div>
+                        </div>
+                        <button onClick={() => submit('link', m.vendorId)} disabled={!!busy} className="ml-2 shrink-0 rounded border border-[#16a34a] px-2 py-1 font-medium text-[#16a34a] hover:bg-emerald-50 disabled:opacity-50">Use this</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {searchQ.trim().length >= 2 && !searching && searchResults.length === 0 && (
+                  <p className="mt-1 text-xs text-emerald-700">No existing match — safe to create below.</p>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Company name *" v={name} set={setName} span />
                 <Field label="DBA (optional)" v={dba} set={setDba} span />

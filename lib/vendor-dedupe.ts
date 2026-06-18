@@ -45,6 +45,40 @@ export interface VendorMatch {
   reasons:  string[]     // 'name' | 'name~' | 'email' | 'phone' | 'address'
 }
 
+/** Free-text search across ALL CINC vendors (name / DBA / check name / email /
+ *  phone / address) so staff can find an existing vendor BEFORE creating a
+ *  duplicate. Looser than findVendorDuplicates — any field substring matches,
+ *  exact/prefix name matches rank highest. */
+export async function searchVendors(query: string, limit = 25): Promise<VendorMatch[]> {
+  const q = query.trim()
+  if (q.length < 2) return []
+  const vendors = await listVendorsFull().catch(() => [])
+  const qNorm = norm(q), qName = normName(q), qDigits = digits(q)
+  const out: VendorMatch[] = []
+  for (const v of vendors) {
+    const names = [v.VendorName, v.Dba, v.CheckName].filter(Boolean) as string[]
+    let score = 0
+    for (const n of names) {
+      const nn = normName(n)
+      if (!nn) continue
+      if (nn === qName) score = Math.max(score, 100)
+      else if (qName && (nn.startsWith(qName) || nn.includes(qName))) score = Math.max(score, 85)
+      else if (qName && jaccard(nn, qName) >= 0.5) score = Math.max(score, 65)
+    }
+    if (norm(v.Email) && qNorm.includes('@') && norm(v.Email).includes(qNorm)) score = Math.max(score, 90)
+    if (qDigits.length >= 7 && digits(v.Phone1).includes(qDigits)) score = Math.max(score, 88)
+    if (qNorm.length >= 4 && norm(v.Address1).includes(qNorm)) score = Math.max(score, 60)
+    if (score > 0) {
+      out.push({
+        vendorId: v.VendorId, name: v.VendorName, dba: v.Dba ?? null, email: v.Email ?? null,
+        phone: v.Phone1 ?? null, address: [v.Address1, v.City, v.State].filter(Boolean).join(', ') || null,
+        score, reasons: [],
+      })
+    }
+  }
+  return out.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, limit)
+}
+
 /** Ranked likely-duplicate vendors for the given new-vendor basics. */
 export async function findVendorDuplicates(input: DedupeInput): Promise<VendorMatch[]> {
   const vendors = await listVendorsFull().catch(() => [])
