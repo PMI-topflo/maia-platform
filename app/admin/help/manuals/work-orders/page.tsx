@@ -227,6 +227,83 @@ export default async function WorkOrderManual() {
               <p className="mt-2 text-[11px] text-gray-400">(Onboarding isn&apos;t tied to one property, so this email is the only vendor email without an association name.)</p>
             </EmailMock>
           </div>
+
+          {/* 7. Recurring service — weekly schedule + photo request */}
+          <div>
+            <div className="mb-1 text-sm font-medium text-gray-900">7. Recurring service → vendor <span className="text-gray-400">(weekly, automatic)</span></div>
+            <EmailMock to="recurring vendor (e.g. landscaper, pool)" subject={<>Weekly Pool Service — Aqua Pros — week of Jun 16 · <AssocName>Delvista Condominium Association</AssocName></>}>
+              <p className="mb-2">Hello Aqua Pros,</p>
+              <p className="mb-2">This is your scheduled weekly Pool Service for <AssocName>Delvista Condominium Association</AssocName>. After the visit, please upload your job photos:</p>
+              <FakeBtn variant="orange">Upload this week&apos;s photos →</FakeBtn>
+              <p className="mt-2 text-[11px] text-gray-400">Sent automatically each week per the recurring-service schedule; multilingual (EN/ES/PT/FR/HE/RU).</p>
+            </EmailMock>
+          </div>
+        </div>
+
+        {/* WHAT THE VENDOR SEES (SCREENS) */}
+        <div className="mt-10 mb-3 border-t border-gray-200 pt-6">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900"><span>📱</span>What the vendor sees (the actual screens)</h2>
+          <p className="mt-1 max-w-2xl text-sm text-gray-500">When a vendor taps a link in any of the emails above, these are the login-free pages they land on. Each is mobile-friendly and multilingual.</p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          {/* Upload portal */}
+          <Figure legend={[
+            { n: 1, text: <>The vendor picks what they&apos;re sending</> },
+            { n: 2, text: <>Then drops the file — Maia files it on the work order</> },
+          ]}>
+            <Frame title="Vendor upload · no login">
+              <div className="px-4 py-4">
+                <div className="text-xs text-gray-500">Delvista Condominium Association · WO-126</div>
+                <div className="relative mt-2 flex flex-wrap gap-2">
+                  <FakeBtn variant="orange">Estimate</FakeBtn><FakeBtn>Invoice</FakeBtn><FakeBtn>Job photos</FakeBtn>
+                  <Pin n={1} style={{ top: -7, right: -8 }} />
+                </div>
+                <div className="relative mt-3 rounded-md border border-dashed border-gray-300 px-3 py-6 text-center text-[11px] text-gray-400">
+                  Drag a file here, or tap to choose
+                  <Pin n={2} style={{ top: -7, right: -8 }} />
+                </div>
+              </div>
+            </Frame>
+          </Figure>
+
+          {/* W-9 form */}
+          <Figure legend={[{ n: 1, text: <>Vendor fills the W-9 in the form — Maia builds the PDF + applies the tax ID to CINC</> }]}>
+            <Frame title="W-9 (tax information)">
+              <div className="px-4 py-4 text-xs leading-7">
+                <div><span className="text-gray-400">Legal name</span> ____________________</div>
+                <div><span className="text-gray-400">Tax classification</span> ▾ &nbsp; <span className="text-gray-400">EIN/SSN</span> •••• ••••</div>
+                <div className="relative mt-1 inline-block"><FakeBtn variant="orange">Certify &amp; submit</FakeBtn><Pin n={1} style={{ top: -7, right: -8 }} /></div>
+              </div>
+            </Frame>
+          </Figure>
+
+          {/* ACH form */}
+          <Figure legend={[{ n: 1, text: <>Vendor enters banking — captured, then Paola confirms before it writes to CINC</> }]}>
+            <Frame title="Direct deposit (ACH)">
+              <div className="px-4 py-4 text-xs leading-7">
+                <div><span className="text-gray-400">Routing</span> _________ &nbsp; <span className="text-gray-400">Account</span> _________</div>
+                <div><span className="text-gray-400">Type</span> ◉ Checking ○ Savings</div>
+                <div className="relative mt-1 inline-block"><FakeBtn variant="orange">Confirm &amp; submit</FakeBtn><Pin n={1} style={{ top: -7, right: -8 }} /></div>
+              </div>
+            </Frame>
+          </Figure>
+
+          {/* Onboarding portal */}
+          <Figure legend={[{ n: 1, text: <>Brand-new vendor provides all docs at once: W-9, ACH, COI{`,`} license</> }]}>
+            <Frame title="Vendor setup · no login">
+              <div className="px-4 py-4 text-xs">
+                <div className="text-gray-500">Welcome, ABCO Roofing</div>
+                <div className="relative mt-2 space-y-1.5">
+                  <div className="flex items-center justify-between"><span>W-9</span><Badge tone="neutral">needed</Badge></div>
+                  <div className="flex items-center justify-between"><span>Direct deposit (ACH)</span><Badge tone="neutral">needed</Badge></div>
+                  <div className="flex items-center justify-between"><span>Insurance (COI)</span><Badge tone="neutral">needed</Badge></div>
+                  <div className="flex items-center justify-between"><span>License</span><Badge tone="neutral">needed</Badge></div>
+                  <Pin n={1} style={{ top: 6, right: -8 }} />
+                </div>
+              </div>
+            </Frame>
+          </Figure>
         </div>
       </main>
     </div>
