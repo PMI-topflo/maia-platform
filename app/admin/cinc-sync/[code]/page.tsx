@@ -25,7 +25,7 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
 
   const { data: assocRow } = await supabaseAdmin
     .from('associations')
-    .select('association_code, association_name, service_type')
+    .select('association_code, association_name, service_type, association_type, florida_statute')
     .eq('association_code', upperCode)
     .maybeSingle()
 
@@ -89,7 +89,8 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     code:           assocRow.association_code,
     name:           assocRow.association_name,
     units:          meta?.Numberofunits ?? null,
-    type:           null,
+    type:           (assocRow as { association_type?: string | null }).association_type ?? null,
+    statute:        (assocRow as { florida_statute?: string | null }).florida_statute ?? null,
     serviceType:    (assocRow as { service_type?: string | null }).service_type ?? null,
     ownersCount:    ownersCount ?? 0,
     bankAccounts:   (bankAccounts ?? []).map(a => ({ description: a.description, last4: a.last4, kind: a.kind, bankBalance: a.bankBalance, restricted: a.restricted })),
