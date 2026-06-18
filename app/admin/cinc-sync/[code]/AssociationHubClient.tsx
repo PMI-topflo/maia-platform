@@ -32,6 +32,7 @@ export interface AssociationHubData {
   name:          string
   units:         number | null
   type:          string | null
+  statute:       string | null
   serviceType:   string | null
   ownersCount:   number
   bankAccounts:  HubBankAccount[]
@@ -43,6 +44,13 @@ export interface AssociationHubData {
   docCount:      number
   associations:  { code: string; name: string }[]
 }
+
+// Friendly labels for the association_type stored in the associations table
+// (condo / hoa / coop / commercial). Falls back to the raw value.
+const TYPE_LABEL: Record<string, string> = {
+  condo: 'Condominium', hoa: 'HOA', coop: 'Co-op', 'co-op': 'Co-op', commercial: 'Commercial',
+}
+const typeLabel = (t: string | null) => t ? (TYPE_LABEL[t.toLowerCase()] ?? t) : null
 
 type Rag = 'ok' | 'warn' | 'bad' | 'none'
 interface VendorRow { id: number; name: string; trade: string | null; tradeSource: string | null; coi: Rag; w9: Rag; ach: Rag; license: Rag }
@@ -141,7 +149,8 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
           <h1 className="text-2xl font-semibold text-gray-900">{data.name}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
             <span className="font-mono rounded bg-gray-100 px-1.5 py-0.5">{code}</span>
-            {data.type && <span>· {data.type}</span>}
+            {data.type && <span className="rounded bg-[#fff4ee] px-1.5 py-0.5 font-medium text-[#c2410c]">{typeLabel(data.type)}</span>}
+            {data.statute && <span>· {data.statute}</span>}
             {data.units != null && <span>· {data.units} units</span>}
           </div>
           {/* At-a-glance service level + scale, same info as the directory list. */}
@@ -231,8 +240,9 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
               </Card>
               <Card title="Quick links">
                 <div className="flex flex-wrap gap-2 text-sm">
+                  <button onClick={() => selectTab('Board & Owners')} className="rounded border border-gray-200 px-3 py-1.5 text-gray-700 hover:border-[#f26a1b] hover:text-[#f26a1b]">👥 Unit owners &amp; CINC sync</button>
+                  <QuickLink href={`/admin/cinc-sync/${code}/documents`}>📄 Documents (view &amp; upload)</QuickLink>
                   <QuickLink href={`/admin/reports/monthly?assoc=${code}`}>📊 Monthly report</QuickLink>
-                  <QuickLink href={`/admin/cinc-sync/${code}/documents`}>📄 Documents</QuickLink>
                   <QuickLink href={`/admin/cinc-sync/${code}/insurance`}>🛡 Insurance</QuickLink>
                   <QuickLink href={`/admin/cinc-sync/${code}/safety`}>🏗 Safety</QuickLink>
                   <QuickLink href={`/admin/reconciliation?assoc=${code}`}>💵 Reconciliation</QuickLink>
