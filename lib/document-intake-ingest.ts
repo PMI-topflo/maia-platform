@@ -9,6 +9,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { normalizeUpload } from '@/lib/pdf-normalize'
+import { withExtension } from '@/lib/normalize-stored-file'
 import { classifyDocument, type AssociationRef } from '@/lib/document-classifier'
 import { resolveOwnerForDocument } from '@/lib/owner-match'
 import { pdfPageCount, splitPdfRange } from '@/lib/pdf-split'
@@ -49,6 +50,24 @@ export async function ingestStagedDocument(opts: {
   const raw  = Buffer.from(await blob.arrayBuffer())
   const norm = await normalizeUpload(raw, { contentType: mimeType ?? null, filename: filename ?? null }).catch(() => null)
   const buf  = norm?.buffer ?? raw
+
+  // HEIC → JPEG: persist the converted bytes back to the staging object,
+  // renamed to .jpg, so the staged file (and everything that references it)
+  // is a browser-renderable image rather than an undisplayable HEIC.
+  let basePath = storagePath
+  let baseFilename = filename
+  let baseMime = mimeType ?? null
+  if (norm?.ext && norm.contentType && norm.buffer !== raw) {
+    const renamed = withExtension(storagePath, norm.ext)
+    const up = await supabaseAdmin.storage.from(BUCKET).upload(renamed, buf, { contentType: norm.contentType, upsert: true })
+    if (!up.error) {
+      if (renamed !== storagePath) await supabaseAdmin.storage.from(BUCKET).remove([storagePath]).catch(() => {})
+      basePath = renamed
+      baseMime = norm.contentType
+      if (filename) baseFilename = withExtension(filename, norm.ext)
+    }
+  }
+  const isPdfDoc = (baseMime ?? '').includes('pdf') || /\.pdf$/i.test(basePath)
   const pageCount = await pdfPageCount(buf)
 
   let cls
@@ -63,15 +82,16 @@ export async function ingestStagedDocument(opts: {
   const inserts: Record<string, unknown>[] = []
   for (let i = 0; i < detected.length; i++) {
     const it = detected[i]
-    let path = storagePath
+    let path = basePath
+    let rowMime = baseMime ?? 'application/pdf'
 
-    if (multi && pageCount > 1 && it.page_start && it.page_end) {
+    if (isPdfDoc && multi && pageCount > 1 && it.page_start && it.page_end) {
       const part = await splitPdfRange(buf, it.page_start, it.page_end).catch(() => null)
       if (part) {
         const slug = (it.item_key ?? `part${i + 1}`).replace(/[^a-z0-9]+/gi, '_')
-        const splitPath = `${storagePath.replace(/\.pdf$/i, '')}__${slug}_p${it.page_start}-${it.page_end}.pdf`
+        const splitPath = `${basePath.replace(/\.pdf$/i, '')}__${slug}_p${it.page_start}-${it.page_end}.pdf`
         const up = await supabaseAdmin.storage.from(BUCKET).upload(splitPath, part, { contentType: 'application/pdf', upsert: true })
-        if (!up.error) path = splitPath
+        if (!up.error) { path = splitPath; rowMime = 'application/pdf' }
       }
     }
 
@@ -85,13 +105,13 @@ export async function ingestStagedDocument(opts: {
     }
     const assocForRow = resolvedAssoc ?? cls.association_code
 
-    const partName = multi && it.doc_type ? `${filename ?? 'document'} — ${it.doc_type}` : (filename ?? null)
+    const partName = multi && it.doc_type ? `${baseFilename ?? 'document'} — ${it.doc_type}` : (baseFilename ?? null)
     inserts.push({
-      storage_path: path, filename: partName, mime_type: 'application/pdf', status: 'review',
+      storage_path: path, filename: partName, mime_type: rowMime, status: 'review',
       suggested_association_code: assocForRow, suggested_category: it.category, suggested_item_key: it.item_key,
       suggested_scope: it.scope, suggested_unit_ref: unitRef, suggested_unit_label: unitLabel,
       doc_type: it.doc_type, effective_date: it.effective_date, expiration_date: it.expiration_date,
-      source_storage_path: storagePath, page_start: it.page_start, page_end: it.page_end,
+      source_storage_path: basePath, page_start: it.page_start, page_end: it.page_end,
       confidence: it.confidence || cls.confidence, summary: cls.summary, model: cls.model, uploaded_by: uploadedBy,
     })
   }

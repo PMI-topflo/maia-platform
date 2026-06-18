@@ -305,13 +305,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
 
     const category = normalizeCategory(body.category)
     const language = normalizeLanguage(body.language)
-    const mime     = body.mime_type ?? null
 
     // Signed-URL uploads land in storage RAW (the browser uploads directly,
     // bypassing the inline normalizeUpload on the multipart path). Compress
-    // the stored object in place before we extract text + record it.
-    await normalizeStoredFile({ bucket: STORAGE_BUCKET, path: storagePath, contentType: mime, filename })
-      .then(r => { if (r.changed) console.log(`[assoc-docs] normalized ${storagePath}: ${r.note}`) })
+    // the stored object in place before we extract text + record it. HEIC
+    // photos are transcoded to JPEG and the object is renamed to .jpg — pick
+    // up the (possibly new) path / filename / mime for everything downstream.
+    const norm = await normalizeStoredFile({ bucket: STORAGE_BUCKET, path: storagePath, contentType: body.mime_type ?? null, filename })
+    if (norm.changed) console.log(`[assoc-docs] normalized ${storagePath}: ${norm.note}`)
+    const effPath = norm.path
+    const effName = norm.filename ?? filename
+    const mime    = norm.contentType ?? body.mime_type ?? null
 
     // Fetch the file from storage to extract text. This bypasses
     // Vercel's body-size limit on the public-facing request because
@@ -319,10 +323,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     // inline; non-PDFs get extraction_status='unsupported'.
     let extraction: { status: 'done' | 'skipped' | 'failed' | 'unsupported'; text: string | null; pages: number | null; error: string | null } =
       { status: 'unsupported', text: null, pages: null, error: null }
-    if (isExtractableMime(mime, filename)) {
+    if (isExtractableMime(mime, effName)) {
       const { data: blob, error: dlErr } = await supabaseAdmin.storage
         .from(STORAGE_BUCKET)
-        .download(storagePath)
+        .download(effPath)
       if (dlErr || !blob) {
         // Don't fail the row insert — staff can re-trigger extraction
         // later. Mark as failed so the UI shows the issue.
@@ -341,9 +345,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
         language,
         subcategory:       body.subcategory?.trim() || null,
         source:            'upload',
-        storage_path:      storagePath,
+        storage_path:      effPath,
         drive_url:         null,
-        filename,
+        filename:          effName,
         mime_type:         mime,
         file_size_bytes:   body.file_size_bytes ?? null,
         extracted_text:    extraction.text,
@@ -359,7 +363,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
 
     if (dbErr) {
       // Roll back the storage object so we don't leak an orphan file.
-      await supabaseAdmin.storage.from(STORAGE_BUCKET).remove([storagePath]).catch(() => {})
+      await supabaseAdmin.storage.from(STORAGE_BUCKET).remove([effPath]).catch(() => {})
       return NextResponse.json({ error: `DB insert failed: ${dbErr.message}` }, { status: 500 })
     }
 

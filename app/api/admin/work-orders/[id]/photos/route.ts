@@ -158,6 +158,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // photo that shrinks under the limit is accepted instead of rejected.
   const norm = await normalizeStoredFile({ bucket: STORAGE_BUCKET, path: storagePath, contentType: (body.mime_type ?? '').trim() || null, filename })
   if (norm.changed) console.log(`[wo-photos] normalized ${storagePath}: ${norm.note}`)
+  // HEIC → JPEG renames the stored object; record the new path + filename.
+  const effectivePath = norm.path
+  const effectiveName = norm.filename ?? filename
   const effectiveSize = norm.changed ? norm.finalBytes : fileSize
   if (effectiveSize > WO_FILE_SIZE_LIMIT_BYTES) {
     return NextResponse.json({ error: `File exceeds the ${WO_FILE_SIZE_LIMIT_BYTES}-byte limit even after compression` }, { status: 400 })
@@ -167,12 +170,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     ? session.userId.toLowerCase()
     : null
 
+  // If the normalizer transcoded the format (HEIC → JPEG) record the new mime
+  // so the gallery treats it as a viewable image.
+  const effectiveMime = norm.contentType ?? ((body.mime_type ?? '').trim() || undefined)
   const rec = await recordWorkOrderAttachment({
     ticketId,
     source:          'staff_upload',
-    storagePath,
-    filename,
-    mimeType:        (body.mime_type ?? '').trim() || undefined,
+    storagePath:     effectivePath,
+    filename:        effectiveName,
+    mimeType:        effectiveMime,
     fileSizeBytes:   effectiveSize,
     uploadedByEmail: uploadedBy,
     phase,

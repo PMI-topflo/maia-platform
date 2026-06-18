@@ -99,17 +99,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     return NextResponse.json({ error: `Unknown policy_type "${policyType}"` }, { status: 400 })
   }
 
-  const coiPath = cleanText(body.coi_storage_path)
+  let coiPath = cleanText(body.coi_storage_path)
+  let coiFilename = cleanText(body.coi_filename)
+  let coiMime = cleanText(body.coi_mime_type)
   // Defense in depth: a COI path must live under this association's
   // insurance folder so a tampered client can't attach another assoc's
   // file (or escape the bucket prefix).
   if (coiPath && !coiPath.startsWith(`${upperCode}/insurance/`)) {
     return NextResponse.json({ error: 'coi_storage_path does not belong to this association' }, { status: 400 })
   }
-  // Compress the browser-uploaded COI in place (signed-URL upload = raw).
+  // Compress the browser-uploaded COI in place (signed-URL upload = raw). A
+  // HEIC COI is transcoded to JPEG and renamed to .jpg — adopt the new path.
   if (coiPath) {
-    await normalizeStoredFile({ bucket: 'association-documents', path: coiPath, filename: coiPath.split('/').pop() ?? null })
-      .then(r => { if (r.changed) console.log(`[insurance] normalized ${coiPath}: ${r.note}`) })
+    const norm = await normalizeStoredFile({ bucket: 'association-documents', path: coiPath, filename: coiFilename })
+    if (norm.changed) console.log(`[insurance] normalized ${coiPath}: ${norm.note}`)
+    coiPath = norm.path
+    if (norm.filename) coiFilename = norm.filename
+    if (norm.contentType) coiMime = norm.contentType
   }
 
   const waived = body.waived === true
@@ -140,8 +146,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
       agent_email:         cleanText(body.agent_email),
       agent_phone:         cleanText(body.agent_phone),
       coi_storage_path:    coiPath,
-      coi_filename:        cleanText(body.coi_filename),
-      coi_mime_type:       cleanText(body.coi_mime_type),
+      coi_filename:        coiFilename,
+      coi_mime_type:       coiMime,
       coi_file_size_bytes: cleanNumber(body.coi_file_size_bytes),
       drive_url:           cleanUrl(body.drive_url),
       waived,
