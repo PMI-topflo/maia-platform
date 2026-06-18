@@ -130,3 +130,23 @@ export function FakeBtn({ children, variant = 'gray' }: { children: ReactNode; v
   }[variant]
   return <span className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] font-medium ${v}`}>{children}</span>
 }
+
+/** A mock email (envelope look) for documenting what Maia sends. */
+export function EmailMock({ to, subject, children }: { to: string; subject: ReactNode; children: ReactNode }) {
+  return (
+    <div className="overflow-hidden rounded-md border border-gray-200 bg-white">
+      <div className="border-b border-gray-200 bg-gray-50 px-3 py-2">
+        <div className="flex items-center gap-1.5 text-[11px] text-gray-400"><span>✉</span> from MAIA · PMI Top Florida Properties</div>
+        <div className="mt-1 text-xs"><span className="text-gray-400">To:</span> <span className="text-gray-700">{to}</span></div>
+        <div className="text-xs"><span className="text-gray-400">Subject:</span> <span className="font-medium text-gray-900">{subject}</span></div>
+      </div>
+      <div className="px-3 py-3 text-xs leading-relaxed text-gray-700">{children}</div>
+    </div>
+  )
+}
+
+/** Highlight the association name inside an email mock (the thing the user
+ *  must always see). Renders the name in the brand color, bold. */
+export function AssocName({ children }: { children: ReactNode }) {
+  return <span className="font-medium" style={{ color: '#f26a1b' }}>{children}</span>
+}

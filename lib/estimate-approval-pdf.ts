@@ -130,7 +130,7 @@ export async function finalizeEstimateApproval(approvalId: string): Promise<Fina
   const { data: assocRow } = await supabaseAdmin.from('associations').select('association_name').eq('association_code', a.association_code).maybeSingle()
   const associationName = (assocRow?.association_name as string) ?? a.association_code
   const { data: ticket } = await supabaseAdmin.from('tickets').select('ticket_number, cinc_workorder_id').eq('id', a.ticket_id).maybeSingle()
-  const woLabel = `${ticket?.ticket_number ?? `WO ${a.ticket_id}`} · ${a.association_code}`
+  const woLabel = `${ticket?.ticket_number ?? `WO ${a.ticket_id}`} · ${associationName}`
   const amount = a.amount != null ? Number(a.amount) : null
 
   // Load the chosen estimate PDF bytes (if available).
