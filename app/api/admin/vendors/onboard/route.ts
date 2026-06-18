@@ -18,7 +18,7 @@ import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { createVendor } from '@/lib/integrations/cinc'
-import { findVendorDuplicates } from '@/lib/vendor-dedupe'
+import { findVendorDuplicates, searchVendors } from '@/lib/vendor-dedupe'
 import { signVendorOnboardingToken } from '@/lib/vendor-onboarding-token'
 import { sendEmail } from '@/lib/gmail'
 import { VENDOR_REQUEST_CC } from '@/lib/wo-vendor-compliance'
@@ -44,6 +44,12 @@ export async function POST(req: Request) {
   const action = String(b.action ?? '')
   const str = (k: string) => { const v = b[k]; return typeof v === 'string' && v.trim() ? v.trim() : null }
   const name = str('name')
+
+  // ── Live free-text search across ALL CINC vendors (find-before-create) ──
+  if (action === 'search') {
+    const q = typeof b.q === 'string' ? b.q : ''
+    return NextResponse.json({ matches: await searchVendors(q) })
+  }
 
   // ── Duplicate check ──────────────────────────────────────────────
   if (action === 'check') {
