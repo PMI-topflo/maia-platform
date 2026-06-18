@@ -96,23 +96,36 @@ export async function GET(req: Request) {
 
     let pool: (typeof all) = all
     let assocName: string | null = null
+    let scopedToAssoc = false   // true only when CINC actually has vendors linked
     if (vendorAssoc) {
-      const scoped = await listVendorsForAssociation(vendorAssoc).catch(() => [])
-      const byId = new Map(all.map(v => [v.VendorId, v]))
-      // Prefer the rich record; fall back to a minimal one for any vendor not yet
-      // in the full catalog (e.g. a brand-new vendor not recached).
-      pool = scoped.map(s => byId.get(s.VendorId) ?? ({ VendorId: s.VendorId, VendorName: s.VendorName } as (typeof all)[number]))
       const { data: a } = await supabaseAdmin.from('associations').select('association_name').eq('association_code', vendorAssoc).maybeSingle()
       assocName = (a?.association_name as string | null) ?? vendorAssoc
+      const scoped = await listVendorsForAssociation(vendorAssoc).catch(() => [])
+      if (scoped.length > 0) {
+        // CINC has vendor-association accounts for this assoc — scope to them,
+        // enriched from the full catalog (the scoped endpoint is names-only).
+        const byId = new Map(all.map(v => [v.VendorId, v]))
+        pool = scoped.map(s => byId.get(s.VendorId) ?? ({ VendorId: s.VendorId, VendorName: s.VendorName } as (typeof all)[number]))
+        scopedToAssoc = true
+      }
+      // else: CINC has NO vendors linked to this association (common — only a
+      // few associations have vendor-association accounts set up). Fall back to
+      // the full catalog so Paola can still find/pick a vendor; the UI flags it.
     }
 
     const matched = pool.filter(matchQ).slice(0, limit)
     rows = matched.map(v => ({
       name: v.VendorName + (v.Dba ? ` (dba ${v.Dba})` : ''), email: v.Email ?? null, phone: v.Phone1 ?? null,
-      associationCode: vendorAssoc || null, associationName: vendorAssoc ? assocName : null,
+      associationCode: scopedToAssoc ? vendorAssoc : null, associationName: scopedToAssoc ? assocName : null,
       sub: [v.Address1, v.City, v.State].filter(Boolean).join(', ') || null, href: '/admin/vendor-compliance',
     }))
-    return NextResponse.json({ type, rows, vendorsAllScope: !vendorAssoc })
+    return NextResponse.json({
+      type, rows,
+      vendorsAllScope: !vendorAssoc,
+      // The chosen association had no CINC-linked vendors → we're showing all.
+      vendorAssocFallback: !!vendorAssoc && !scopedToAssoc,
+      assocName: vendorAssoc ? assocName : null,
+    })
   }
 
   return NextResponse.json({ type, rows, vendorsAllScope: false })

@@ -61,6 +61,7 @@ export default function PersonasClient({ associations }: { associations: { code:
   const [q, setQ] = useState('')
   const [rows, setRows] = useState<PersonaRow[] | null>(null)
   const [vendorsAllScope, setVendorsAllScope] = useState(false)
+  const [vendorAssocFallback, setVendorAssocFallback] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async (t: PersonaType, a: string, query: string) => {
@@ -70,7 +71,7 @@ export default function PersonasClient({ associations }: { associations: { code:
       if (a) p.set('assoc', a)
       if (query.trim()) p.set('q', query.trim())
       const d = await fetch(`/api/admin/personas?${p}`, { cache: 'no-store' }).then(r => r.json())
-      setRows(d.rows ?? []); setVendorsAllScope(!!d.vendorsAllScope)
+      setRows(d.rows ?? []); setVendorsAllScope(!!d.vendorsAllScope); setVendorAssocFallback(!!d.vendorAssocFallback)
     } catch { setRows([]) } finally { setBusy(false) }
   }, [])
 
@@ -99,6 +100,7 @@ export default function PersonasClient({ associations }: { associations: { code:
         </select>
         <span className="text-xs text-gray-400">{busy ? 'Loading…' : rows ? `${rows.length} result${rows.length === 1 ? '' : 's'}` : ''}</span>
         {type === 'vendors' && vendorsAllScope && <span className="text-xs text-amber-600">Vendors are searched across all of CINC (not association-scoped).</span>}
+        {type === 'vendors' && vendorAssocFallback && <span className="text-xs text-amber-600">CINC has no vendors linked to this association — showing all CINC vendors. Search to find one.</span>}
       </div>
 
       {/* Table */}
