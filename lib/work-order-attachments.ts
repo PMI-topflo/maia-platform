@@ -11,6 +11,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { listWorkOrderAttachments, type CincAttachment } from '@/lib/integrations/cinc'
 import { normalizeImage, normalizeUpload } from '@/lib/pdf-normalize'
+import { withExtension } from '@/lib/normalize-stored-file'
 
 export const STORAGE_BUCKET = 'work-order-photos'
 const SIGNED_URL_TTL_SECONDS = 60 * 60          // 1 hour
@@ -315,7 +316,8 @@ export async function saveWorkOrderFile(opts: {
   // result at 4 MB. If the normalizer still can't get it under the cap
   // (e.g. a huge non-rasterizable PDF), refuse the file rather than store
   // a bloated attachment — the uploader gets a clear "reduce and resend".
-  const bytes = (await normalizeUpload(opts.bytes, { contentType: opts.contentType, filename: opts.filename })).buffer
+  const norm  = await normalizeUpload(opts.bytes, { contentType: opts.contentType, filename: opts.filename })
+  const bytes = norm.buffer
   if (bytes.byteLength > WO_STORED_MAX_BYTES) {
     return {
       ok: false,
@@ -325,8 +327,11 @@ export async function saveWorkOrderFile(opts: {
   const bucket = await ensureBucket()
   if (!bucket.ok) return { ok: false, error: bucket.reason }
 
-  const storagePath = workOrderStoragePath(opts.ticketId, opts.filename)
-  const mime        = opts.contentType || mimeFor(opts.filename)
+  // HEIC was transcoded to JPEG → rename the file/path to .jpg and store under
+  // the corrected content-type so it renders everywhere.
+  const filename    = norm.ext ? withExtension(opts.filename, norm.ext) : opts.filename
+  const storagePath = workOrderStoragePath(opts.ticketId, filename)
+  const mime        = norm.contentType || opts.contentType || mimeFor(filename)
   const { error: uploadErr } = await supabaseAdmin.storage
     .from(STORAGE_BUCKET)
     .upload(storagePath, bytes, { contentType: mime, upsert: false })
@@ -336,7 +341,7 @@ export async function saveWorkOrderFile(opts: {
     ticketId:        opts.ticketId,
     source:          opts.source,
     storagePath,
-    filename:        opts.filename,
+    filename,
     mimeType:        mime,
     fileSizeBytes:   bytes.byteLength,
     uploadedByEmail: opts.uploadedByEmail ?? null,

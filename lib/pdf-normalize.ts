@@ -52,6 +52,84 @@ export interface NormalizeResult {
   finalBytes: number
   /** Human-readable note for logs / warnings. */
   note: string
+  /** Set ONLY when the format changed (e.g. HEIC → JPEG). Callers that store
+   *  the bytes should persist this as the new content-type so browsers can
+   *  render the result. Absent means "same format as the input". */
+  contentType?: string
+  /** Suggested new file extension (no dot) when the format changed, e.g. 'jpg'. */
+  ext?: string
+}
+
+// HEIC/HEIF detection by magic bytes — robust regardless of filename or the
+// (often wrong) content-type the browser/email attaches. The ISO-BMFF "ftyp"
+// box sits at byte 4; the brand at byte 8 is one of these for HEIF images.
+const HEIF_BRANDS = new Set(['heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'heif', 'mif1', 'msf1'])
+export function isHeicBuffer(buf: Buffer): boolean {
+  if (buf.length < 12) return false
+  if (buf.subarray(4, 8).toString('latin1') !== 'ftyp') return false
+  const brand = buf.subarray(8, 12).toString('latin1').toLowerCase()
+  return HEIF_BRANDS.has(brand)
+}
+
+/**
+ * Decode HEIC/HEIF bytes to a baseline JPEG buffer (full resolution).
+ *
+ * NOTE: we decode with `heic-convert` (pure-JS libheif + libde265), NOT sharp.
+ * Sharp's prebuilt npm binary bundles the HEIF *container* but not the HEVC
+ * codec (licensing), so `sharp(heicBuffer)` throws "Support for this
+ * compression format has not been built in" for real iPhone HEICs — on Vercel
+ * too. heic-convert ships its own HEVC decoder and works in serverless.
+ */
+async function decodeHeicToJpeg(buf: Buffer): Promise<Buffer> {
+  const convert = (await import('heic-convert')).default
+  const out = await convert({ buffer: buf, format: 'JPEG', quality: 0.92 })
+  return Buffer.from(out)
+}
+
+/**
+ * Transcode a HEIC/HEIF image to JPEG (resized + recompressed to the image
+ * budget). HEIC is what modern iPhones shoot by default, but browsers can't
+ * render it and CINC / the vision API reject it — so we convert on ingest.
+ * Returns null if the bytes aren't HEIC; on a decode failure returns the
+ * original bytes unchanged (best-effort, so the caller still stores something).
+ */
+export async function heicToJpeg(buf: Buffer, opts: { targetBytes?: number } = {}): Promise<NormalizeResult | null> {
+  if (!isHeicBuffer(buf)) return null
+  const targetBytes = opts.targetBytes ?? IMAGE_TARGET_BYTES
+  const originalBytes = buf.length
+  try {
+    // 1) Decode HEVC-HEIC → full-res JPEG (heic-convert), then 2) resize +
+    // recompress with sharp to hit the size budget.
+    const baseline = await decodeHeicToJpeg(buf)
+    const passes = [
+      { maxDim: IMAGE_MAX_DIM, quality: 80 },
+      { maxDim: 2000, quality: 72 },
+      { maxDim: 1600, quality: 64 },
+      { maxDim: 1280, quality: 55 },
+    ]
+    let best: Buffer = baseline
+    for (const p of passes) {
+      const out = await sharp(baseline)
+        .rotate()                                   // bake in EXIF orientation
+        .resize({ width: p.maxDim, height: p.maxDim, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: p.quality, mozjpeg: true })
+        .toBuffer()
+      if (out.length < best.length || best === baseline) best = out
+      if (out.length <= targetBytes) { best = out; break }
+    }
+    return {
+      buffer: best, changed: true, originalBytes, finalBytes: best.length,
+      contentType: 'image/jpeg', ext: 'jpg',
+      note: `HEIC → JPEG (${(originalBytes / 1e6).toFixed(1)}MB → ${(best.length / 1e6).toFixed(2)}MB)`,
+    }
+  } catch (err) {
+    // Decode failed — leave the original bytes alone so the caller still
+    // stores SOMETHING rather than nothing.
+    return {
+      buffer: buf, changed: false, originalBytes, finalBytes: originalBytes,
+      note: `HEIC decode failed, kept original: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
 }
 
 // Progressive passes: longest-side pixel cap + JPEG quality. First pass
@@ -360,6 +438,13 @@ export async function normalizeUpload(
   const isPdf = ct.includes('pdf') || name.endsWith('.pdf') || buf.subarray(0, 5).toString('latin1') === '%PDF-'
   if (isPdf) {
     return normalizePdf(buf, { targetBytes: opts.pdfTargetBytes ?? DOC_TARGET_BYTES })
+  }
+  // HEIC/HEIF (default iPhone photo format) → JPEG so it actually renders in
+  // browsers and is accepted by CINC / the vision API. Sniff the bytes first;
+  // HEIC frequently arrives mislabeled (octet-stream) or with a .jpg name.
+  if (isHeicBuffer(buf) || ct.includes('heic') || ct.includes('heif') || /\.(heic|heif)$/.test(name)) {
+    const conv = await heicToJpeg(buf, { targetBytes: opts.imageTargetBytes })
+    if (conv) return conv
   }
   const isImage = ct.startsWith('image/') || /\.(jpe?g|png|webp)$/.test(name)
   if (isImage) {

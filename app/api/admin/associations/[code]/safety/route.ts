@@ -89,14 +89,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
   }
   const buildingLabel = cleanText(body.building_label)
 
-  const reportPath = cleanText(body.report_storage_path)
+  let reportPath = cleanText(body.report_storage_path)
+  let reportFilename = cleanText(body.report_filename)
+  let reportMime = cleanText(body.report_mime_type)
   if (reportPath && !reportPath.startsWith(`${upperCode}/safety/`)) {
     return NextResponse.json({ error: 'report_storage_path does not belong to this association' }, { status: 400 })
   }
-  // Compress the browser-uploaded report in place (signed-URL upload = raw).
+  // Compress the browser-uploaded report in place (signed-URL upload = raw). A
+  // HEIC report photo is transcoded to JPEG and renamed to .jpg — adopt it.
   if (reportPath) {
-    await normalizeStoredFile({ bucket: 'association-documents', path: reportPath, filename: reportPath.split('/').pop() ?? null })
-      .then(r => { if (r.changed) console.log(`[safety] normalized ${reportPath}: ${r.note}`) })
+    const norm = await normalizeStoredFile({ bucket: 'association-documents', path: reportPath, filename: reportFilename })
+    if (norm.changed) console.log(`[safety] normalized ${reportPath}: ${norm.note}`)
+    reportPath = norm.path
+    if (norm.filename) reportFilename = norm.filename
+    if (norm.contentType) reportMime = norm.contentType
   }
 
   const waived = body.waived === true
@@ -125,8 +131,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
       next_due_date:          cleanDate(body.next_due_date),
       provider:               cleanText(body.provider),
       report_storage_path:    reportPath,
-      report_filename:        cleanText(body.report_filename),
-      report_mime_type:       cleanText(body.report_mime_type),
+      report_filename:        reportFilename,
+      report_mime_type:       reportMime,
       report_file_size_bytes: cleanInt(body.report_file_size_bytes),
       drive_url:              cleanUrl(body.drive_url),
       waived,
