@@ -93,7 +93,7 @@ export default function PersonasClient({ associations }: { associations: { code:
       {/* Filters */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 Search name, email, phone…" className="w-72 rounded border border-gray-300 px-3 py-1.5 text-sm" />
-        <select value={assoc} onChange={e => setAssoc(e.target.value)} disabled={type === 'vendors' || type === 'agents'} className="rounded border border-gray-300 px-2 py-1.5 text-sm text-gray-700 disabled:opacity-50">
+        <select value={assoc} onChange={e => setAssoc(e.target.value)} disabled={type === 'agents'} className="rounded border border-gray-300 px-2 py-1.5 text-sm text-gray-700 disabled:opacity-50">
           <option value="">All associations</option>
           {associations.map(a => <option key={a.code} value={a.code}>{a.name} ({a.code})</option>)}
         </select>
