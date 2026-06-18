@@ -10,7 +10,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { listVendorsFull } from '@/lib/integrations/cinc'
+import { listVendorsFull, listVendorsForAssociation } from '@/lib/integrations/cinc'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -84,19 +84,36 @@ export async function GET(req: Request) {
       associationCode: null, associationName: null, sub: null, href: '/admin/registrations',
     }))
   } else if (type === 'vendors') {
-    // Vendors live in CINC and aren't cleanly association-scoped → list/search ALL.
+    // Vendor master data lives in CINC. With an association selected we scope to
+    // that association's vendors (CINC's Vendor-Association screen); otherwise we
+    // list/search the whole CINC catalog. Either way we enrich from the full
+    // catalog so email / phone / address show up (the scoped endpoint is minimal).
+    const vendorAssoc = (url.searchParams.get('assoc') ?? '').trim().toUpperCase()
     const all = await listVendorsFull().catch(() => [])
     const ql = q.toLowerCase()
-    const matched = (q
-      ? all.filter(v => [v.VendorName, v.Dba, v.CheckName, v.Email, v.Phone1, v.Address1, v.City].some(f => (f ?? '').toLowerCase().includes(ql)))
-      : all
-    ).slice(0, limit)
+    const matchQ = (v: { VendorName: string; Dba?: string | null; CheckName?: string | null; Email?: string | null; Phone1?: string | null; Address1?: string | null; City?: string | null }) =>
+      !q || [v.VendorName, v.Dba, v.CheckName, v.Email, v.Phone1, v.Address1, v.City].some(f => (f ?? '').toLowerCase().includes(ql))
+
+    let pool: (typeof all) = all
+    let assocName: string | null = null
+    if (vendorAssoc) {
+      const scoped = await listVendorsForAssociation(vendorAssoc).catch(() => [])
+      const byId = new Map(all.map(v => [v.VendorId, v]))
+      // Prefer the rich record; fall back to a minimal one for any vendor not yet
+      // in the full catalog (e.g. a brand-new vendor not recached).
+      pool = scoped.map(s => byId.get(s.VendorId) ?? ({ VendorId: s.VendorId, VendorName: s.VendorName } as (typeof all)[number]))
+      const { data: a } = await supabaseAdmin.from('associations').select('association_name').eq('association_code', vendorAssoc).maybeSingle()
+      assocName = (a?.association_name as string | null) ?? vendorAssoc
+    }
+
+    const matched = pool.filter(matchQ).slice(0, limit)
     rows = matched.map(v => ({
       name: v.VendorName + (v.Dba ? ` (dba ${v.Dba})` : ''), email: v.Email ?? null, phone: v.Phone1 ?? null,
-      associationCode: null, associationName: null,
+      associationCode: vendorAssoc || null, associationName: vendorAssoc ? assocName : null,
       sub: [v.Address1, v.City, v.State].filter(Boolean).join(', ') || null, href: '/admin/vendor-compliance',
     }))
+    return NextResponse.json({ type, rows, vendorsAllScope: !vendorAssoc })
   }
 
-  return NextResponse.json({ type, rows, vendorsAllScope: type === 'vendors' })
+  return NextResponse.json({ type, rows, vendorsAllScope: false })
 }
