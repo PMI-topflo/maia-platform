@@ -39,13 +39,29 @@ export async function GET(req: Request) {
   const assoc = (new URL(req.url).searchParams.get('assoc') ?? '').trim().toUpperCase()
   if (!assoc) return NextResponse.json({ error: 'assoc is required' }, { status: 400 })
 
-  const all = await listVendorsForAssociation(assoc).catch(() => [])
-  const vendors = all.slice(0, MAX_VENDORS)
+  // Two link sources: CINC's vendor-association accounts (read-only, sparse)
+  // and MAIA-local tags (what staff add here, since CINC has no write API).
+  const [cincVendors, links, full] = await Promise.all([
+    listVendorsForAssociation(assoc).catch(() => []),
+    supabaseAdmin.from('association_vendor_links').select('cinc_vendor_id, vendor_name').eq('association_code', assoc),
+    listVendorsFull().catch(() => []),
+  ])
+  const cincIds = new Set(cincVendors.map(v => v.VendorId))
+  const byId = new Map(full.map(v => [v.VendorId, v]))
+
+  // MAIA-tagged vendors that CINC doesn't already list — enrich the name from
+  // the full catalog (falling back to the stored name) so they render properly.
+  const maiaOnly = (links.data ?? [])
+    .map(l => Number(l.cinc_vendor_id))
+    .filter(id => Number.isFinite(id) && id > 0 && !cincIds.has(id))
+    .map(id => ({ VendorId: id, VendorName: byId.get(id)?.VendorName ?? (links.data ?? []).find(l => Number(l.cinc_vendor_id) === id)?.vendor_name ?? `Vendor #${id}` }))
+
+  const maiaIds = new Set((links.data ?? []).map(l => Number(l.cinc_vendor_id)))
+  const vendors = [...cincVendors, ...maiaOnly].slice(0, MAX_VENDORS + maiaOnly.length)
 
   // Trade/type per vendor — CINC carries it as VendorType on the full
   // catalog (cached 1h), keyed by VendorId. Names-only assoc list lacks it.
   // A MAIA-local override (assigned type or a trade CINC lacks) wins.
-  const full = await listVendorsFull().catch(() => [])
   const tradeById = new Map<number, string>()
   for (const v of full) if (v.VendorType && v.VendorType.trim()) tradeById.set(v.VendorId, v.VendorType.trim())
 
@@ -63,6 +79,9 @@ export async function GET(req: Request) {
       name:        v.VendorName,
       trade,
       tradeSource: ov?.source ?? (tradeById.get(v.VendorId) ? 'cinc' : null),
+      // How this vendor is linked to the association: a CINC vendor-association
+      // account, or a MAIA-local tag (the only kind staff can add/remove).
+      linked:  cincIds.has(v.VendorId) ? ('cinc' as const) : maiaIds.has(v.VendorId) ? ('maia' as const) : null,
       coi:     c ? dated(c.coi.onFile, c.coi.valid, c.coi.expiration) : ('none' as Rag),
       w9:      (c?.w9.onFile ? 'ok' : 'none') as Rag,
       ach:     (c?.ach.onFile ? 'ok' : 'none') as Rag,
@@ -70,5 +89,5 @@ export async function GET(req: Request) {
     }
   }))
 
-  return NextResponse.json({ vendors: rows, truncated: all.length > vendors.length })
+  return NextResponse.json({ vendors: rows, truncated: cincVendors.length > MAX_VENDORS })
 }

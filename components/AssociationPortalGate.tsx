@@ -49,6 +49,22 @@ const PERSONA_ICON: Record<string, string> = {
   staff:  '🏢',
 }
 
+// Staff "view portal as …" preview personas. `visitor` = the public login
+// screen; the rest = the logged-in body rendered with that persona's framing.
+type PreviewPersona = 'visitor' | 'owner' | 'board' | 'onsite_manager'
+const AUTH_PREVIEWS: PreviewPersona[] = ['owner', 'board', 'onsite_manager']
+const PREVIEW_META: Record<Exclude<PreviewPersona, 'visitor'>, { label: string; icon: string }> = {
+  owner:          { label: 'Unit Owner',     icon: '🔑' },
+  board:          { label: 'Board Member',   icon: '🗳️' },
+  onsite_manager: { label: 'Onsite Manager', icon: '🧰' },
+}
+const PREVIEW_AS_TEXT: Record<PreviewPersona, string> = {
+  visitor:        'a public visitor',
+  owner:          'a logged-in unit owner',
+  board:          'a board member',
+  onsite_manager: 'an onsite (non-staff) manager',
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function AssociationPortalGate({ assocCode, assocName, children }: Props) {
@@ -63,7 +79,18 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
   const [prevDetails,        setPrevDetails]       = useState<PrevMemberDetails | null>(null)
   const [wrongAssocSession,  setWrongAssocSession] = useState<SessionData | null>(null)
 
+  // Staff preview mode (?preview=visitor|owner|board|onsite_manager) — lets
+  // staff see the portal the way each persona sees it, instead of always
+  // landing on their own staff view.
+  const preview = typeof window !== 'undefined'
+    ? (new URLSearchParams(window.location.search).get('preview') as PreviewPersona | null)
+    : null
+  const authPreview = (preview && AUTH_PREVIEWS.includes(preview) ? preview : null) as Exclude<PreviewPersona, 'visitor'> | null
+
   const checkSession = useCallback(async () => {
+    // Visitor preview: short-circuit to the public identify/login screen even
+    // though a staff session exists.
+    if (preview === 'visitor') { setState('login'); return }
     try {
       const res  = await fetch('/api/auth/check-session')
       if (!res.ok) { setState('login'); return }
@@ -82,7 +109,7 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
     } catch {
       setState('login')
     }
-  }, [assocCode])
+  }, [assocCode, preview])
 
   useEffect(() => { checkSession() }, [checkSession])
 
@@ -148,30 +175,38 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
   // ── Portal (authenticated) ────────────────────────────────────────────────
 
   if (state === 'portal' && session) {
+    // In an auth preview, frame the header as the previewed persona (not the
+    // staff identity) so it reads like what that resident actually sees.
+    const chipIcon = authPreview ? PREVIEW_META[authPreview].icon : (PERSONA_ICON[session.persona] ?? '👤')
+    const chipLabel = authPreview ? PREVIEW_META[authPreview].label : (PERSONA_LABEL[session.persona] ?? session.persona)
+    const chipName = authPreview ? `${assocName} — preview` : session.contactName
     return (
       <div>
+        {authPreview && <PreviewBanner preview={authPreview} />}
         <div className="section" style={{ paddingTop: 0, paddingBottom: 0 }}>
           <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 flex items-center justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-[#f26a1b]/10 flex items-center justify-center text-xl shrink-0">
-                {PERSONA_ICON[session.persona] ?? '👤'}
+                {chipIcon}
               </div>
               <div>
-                <div className="font-semibold text-gray-900">{session.contactName}</div>
+                <div className="font-semibold text-gray-900">{chipName}</div>
                 <div className="flex items-center gap-2 flex-wrap mt-0.5">
                   <span className="bg-[#f26a1b]/10 text-[#f26a1b] px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide">
-                    {PERSONA_LABEL[session.persona] ?? session.persona}
+                    {chipLabel}
                   </span>
                   <span className="text-xs text-gray-500">{session.displayName}</span>
                 </div>
               </div>
             </div>
-            <button
-              onClick={signOut}
-              className="text-xs text-gray-400 hover:text-gray-700 whitespace-nowrap transition-colors"
-            >
-              Sign out
-            </button>
+            {!authPreview && (
+              <button
+                onClick={signOut}
+                className="text-xs text-gray-400 hover:text-gray-700 whitespace-nowrap transition-colors"
+              >
+                Sign out
+              </button>
+            )}
           </div>
         </div>
         {children}
@@ -302,6 +337,8 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
   // ── Login form (default) ──────────────────────────────────────────────────
 
   return (
+    <div>
+    {preview === 'visitor' && <PreviewBanner preview="visitor" />}
     <div className="flex justify-center py-10 px-6">
       <div className="w-full max-w-sm">
         <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
@@ -349,6 +386,21 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
           </a>
         </p>
       </div>
+    </div>
+    </div>
+  )
+}
+
+// Slim banner shown only in staff preview mode so it's obvious this is a
+// preview of the resident experience, not the staff's own view.
+function PreviewBanner({ preview }: { preview: PreviewPersona }) {
+  return (
+    <div style={{
+      background: '#fff7ed', borderBottom: '1px solid #fed7aa', color: '#9a3412',
+      fontFamily: 'var(--font-mono)', fontSize: '0.66rem', textTransform: 'uppercase',
+      letterSpacing: '0.08em', textAlign: 'center', padding: '0.4rem 1rem',
+    }}>
+      👁 Staff preview — viewing as {PREVIEW_AS_TEXT[preview]}
     </div>
   )
 }
