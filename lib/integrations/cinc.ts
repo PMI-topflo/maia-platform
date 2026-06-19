@@ -942,15 +942,22 @@ export async function listVendors(): Promise<CincVendorSummary[]> {
  *  Association Accounts screen in CINC. Used as the "this association"
  *  bucket of the vendor picker. */
 export async function listVendorsForAssociation(assocCode: string): Promise<CincVendorSummary[]> {
-  return await call<CincVendorSummary[]>('/management/1/vendors/vendorAssociation', {
+  // The vendorAssociation response keys the id as `VendorID` (capital D) — NOT
+  // `VendorId` — so reading `.VendorId` silently yields undefined, which broke
+  // enrichment, compliance lookups (getVendorComplianceStatus(undefined)), and
+  // association scoping. Normalize the raw rows to a real numeric VendorId.
+  const raw = await call<Array<Record<string, unknown>>>('/management/1/vendors/vendorAssociation', {
     method: 'GET',
     query:  { assocCode: assocCode.toUpperCase() },
   }).catch(err => {
     if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
-      return [] as CincVendorSummary[]
+      return [] as Array<Record<string, unknown>>
     }
     throw err
   })
+  return (Array.isArray(raw) ? raw : [])
+    .map(r => ({ VendorId: Number(r.VendorID ?? r.VendorId ?? 0), VendorName: String(r.VendorName ?? '') }))
+    .filter(v => v.VendorId > 0)
 }
 
 /** Lists attachments (vendor photos, files) for a work order. CINC

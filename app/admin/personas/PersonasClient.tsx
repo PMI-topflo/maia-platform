@@ -3,8 +3,12 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 
-interface PersonaRow { name: string; email: string | null; phone: string | null; associationCode: string | null; associationName: string | null; sub: string | null; href: string | null }
+interface PersonaRow { name: string; email: string | null; phone: string | null; associationCode: string | null; associationName: string | null; sub: string | null; href: string | null; vendorId?: number | null; linked?: 'cinc' | 'maia' | null }
 type PersonaType = 'owners' | 'tenants' | 'vendors' | 'board' | 'agents'
+
+// CINC web app — deep link for staff who want to set the vendor-association
+// account up natively in CINC (CINC's API is read-only for that linkage).
+const CINC_WEB_URL = 'https://pmitfp.cincsys.com'
 const TABS: { key: PersonaType; label: string }[] = [
   { key: 'owners', label: 'Owners' }, { key: 'tenants', label: 'Tenants' }, { key: 'vendors', label: 'Vendors' },
   { key: 'board', label: 'Board' }, { key: 'agents', label: 'Agents' },
@@ -61,6 +65,7 @@ export default function PersonasClient({ associations }: { associations: { code:
   const [q, setQ] = useState('')
   const [rows, setRows] = useState<PersonaRow[] | null>(null)
   const [vendorsAllScope, setVendorsAllScope] = useState(false)
+  const [vendorAssocFallback, setVendorAssocFallback] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async (t: PersonaType, a: string, query: string) => {
@@ -70,7 +75,7 @@ export default function PersonasClient({ associations }: { associations: { code:
       if (a) p.set('assoc', a)
       if (query.trim()) p.set('q', query.trim())
       const d = await fetch(`/api/admin/personas?${p}`, { cache: 'no-store' }).then(r => r.json())
-      setRows(d.rows ?? []); setVendorsAllScope(!!d.vendorsAllScope)
+      setRows(d.rows ?? []); setVendorsAllScope(!!d.vendorsAllScope); setVendorAssocFallback(!!d.vendorAssocFallback)
     } catch { setRows([]) } finally { setBusy(false) }
   }, [])
 
@@ -79,6 +84,24 @@ export default function PersonasClient({ associations }: { associations: { code:
     const h = setTimeout(() => void load(type, assoc, q), 300)
     return () => clearTimeout(h)
   }, [type, assoc, q, load])
+
+  // Tag / untag a vendor as serving the selected association (MAIA-local link).
+  async function toggleVendorLink(r: PersonaRow, link: boolean) {
+    if (!assoc || !r.vendorId) return
+    setBusy(true)
+    try {
+      if (link) {
+        await fetch('/api/admin/personas/vendor-links', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assoc, vendorId: r.vendorId, vendorName: r.name }),
+        })
+      } else {
+        await fetch(`/api/admin/personas/vendor-links?assoc=${assoc}&vendorId=${r.vendorId}`, { method: 'DELETE' })
+      }
+    } finally {
+      await load(type, assoc, q)   // re-scope so the row moves in/out of the list
+    }
+  }
 
   return (
     <div>
@@ -99,6 +122,10 @@ export default function PersonasClient({ associations }: { associations: { code:
         </select>
         <span className="text-xs text-gray-400">{busy ? 'Loading…' : rows ? `${rows.length} result${rows.length === 1 ? '' : 's'}` : ''}</span>
         {type === 'vendors' && vendorsAllScope && <span className="text-xs text-amber-600">Vendors are searched across all of CINC (not association-scoped).</span>}
+        {type === 'vendors' && vendorAssocFallback && <span className="text-xs text-amber-600">CINC has no vendors linked to this association — showing all CINC vendors. Tag the ones that serve it, or search to find one.</span>}
+        {type === 'vendors' && assoc && (
+          <a href={CINC_WEB_URL} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-[#f26a1b] hover:underline" title="Set the vendor's association account up natively in CINC">Set up in CINC ↗</a>
+        )}
       </div>
 
       {/* Table */}
@@ -124,6 +151,13 @@ export default function PersonasClient({ associations }: { associations: { code:
                 <td className="px-4 py-2 text-gray-500">{r.associationName ?? r.associationCode ?? <span className="text-gray-300">—</span>}</td>
                 <td className="px-4 py-2 text-right">
                   <div className="flex items-center justify-end gap-3">
+                    {type === 'vendors' && assoc && r.vendorId != null && (
+                      r.linked === 'cinc'
+                        ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700" title="Linked via CINC's Vendor-Association account">in CINC</span>
+                        : r.linked === 'maia'
+                          ? <button onClick={() => toggleVendorLink(r, false)} className="text-xs font-medium text-gray-500 hover:text-red-600 hover:underline" title="Remove this MAIA link">✓ Linked · Unlink</button>
+                          : <button onClick={() => toggleVendorLink(r, true)} className="text-xs font-medium text-emerald-700 hover:underline">+ Link to {assoc}</button>
+                    )}
                     {(r.phone || r.email) && (
                       <button onClick={() => setMsgPerson({ name: r.name, phone: r.phone, email: r.email })} className="text-xs font-medium text-blue-600 hover:underline">Messages</button>
                     )}
