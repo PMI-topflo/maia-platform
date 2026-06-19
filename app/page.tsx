@@ -6,6 +6,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import AddressSearch from '@/components/AddressSearch'
 import TwoFactorAuth from '@/components/TwoFactorAuth'
+import { associationPortalPath } from '@/lib/association-portal'
 import type { AddressResult } from '@/app/api/address-search/route'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -533,9 +534,12 @@ export default function Home() {
 
   function portalUrl(role: MatchedRole): string {
     if (role.type === 'staff')            return '/admin'
-    if (role.type === 'owner')            return role.owner_id > 0 ? `/my-account?id=${role.owner_id}&assoc=${role.association_code}` : '/my-account'
+    // Residents land on their OWN association page (now login-gated), per the
+    // single-front-door model. Fall back to the account/tenant portal if the
+    // association has no dedicated portal page mapped.
+    if (role.type === 'owner')            return associationPortalPath(role.association_code) ?? (role.owner_id > 0 ? `/my-account?id=${role.owner_id}&assoc=${role.association_code}` : '/my-account')
+    if (role.type === 'tenant')           return associationPortalPath(role.association_code) ?? `/tenant?assoc=${role.association_code}`
     if (role.type === 'board')            return role.board_member_id ? `/board?id=${role.board_member_id}&assoc=${role.association_code}` : '/board'
-    if (role.type === 'tenant')           return `/tenant?assoc=${role.association_code}`
     if (role.type === 'unit_manager')     return '/unit-manager'
     if (role.type === 'building_manager') return '/building-manager'
     return '/'
