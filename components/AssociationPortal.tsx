@@ -22,6 +22,7 @@
 
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
+import PortalDocuments from '@/components/PortalDocuments'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { portalConfig } from '@/lib/association-portal-config'
 
@@ -31,15 +32,6 @@ const TYPE_LABEL: Record<string, string> = {
 }
 // Friendly label for an association_type; prettify unknown values (master_hoa → "Master HOA").
 const prettyType = (t: string) => TYPE_LABEL[t.toLowerCase()] ?? t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-
-const DOC_CARDS = [
-  { icon: '📋', name: 'Rules & Regulations' }, { icon: '📝', name: 'Tenant Applications' },
-  { icon: '💰', name: 'Financials' }, { icon: '🔧', name: 'Maintenance' },
-  { icon: '📅', name: 'Board Minutes' }, { icon: '🏠', name: 'Leases & Resale' },
-  { icon: '📁', name: 'Condo Docs' }, { icon: '🛡️', name: 'Insurance Files' },
-  { icon: '🏦', name: 'ACH Forms' }, { icon: '✉️', name: 'Welcome Letters' },
-  { icon: '📊', name: 'Budget' }, { icon: '❓', name: 'FAQ' }, { icon: '⚠️', name: 'Violations' },
-]
 
 export default async function AssociationPortal({ code }: { code: string }) {
   const upper = code.toUpperCase()
@@ -127,56 +119,9 @@ export default async function AssociationPortal({ code }: { code: string }) {
           </div>
         </section>
 
-        {/* Documents */}
-        <section className="section">
-          <div className="dcard-name">Association Documents</div>
-          <div className="dcard-tag">Open Folder</div>
-          <div className="dcard-grid">
-            {DOC_CARDS.map(d => (
-              <a key={d.name} href={cfg.docsFolder} target="_blank" rel="noreferrer" className="dcard">
-                <div className="dcard-icon">{d.icon}</div>
-                <div className="dcard-name">{d.name}</div>
-              </a>
-            ))}
-          </div>
-        </section>
-
-        {/* Forms & Downloads */}
-        <div className="sh">
-          <div className="sh-orb">📥</div>
-          <div className="sh-t">Forms &amp; Downloads</div>
-          <div className="sh-s">Official PMI forms &ndash; valid for all associations</div>
-          <div className="sh-line" />
-        </div>
-
-        <div className="prow-grid">
-          <a href="https://drive.google.com/uc?export=download&id=1PDg2ffZurrHZ_BL704IKtOdyziMunYMt" download className="prow">
-            <div className="prow-orb">📄</div>
-            <div className="prow-info">
-              <div className="prow-t">ACH Authorization Form</div>
-              <div className="prow-d">Set up automatic HOA fee payments &middot; FREE &middot; Processed on the 10th</div>
-            </div>
-            <div className="prow-btn">Download</div>
-          </a>
-
-          <a href={cfg.docsFolder} target="_blank" rel="noreferrer" className="prow">
-            <div className="prow-orb">📋</div>
-            <div className="prow-info">
-              <div className="prow-t">ARC Request Form</div>
-              <div className="prow-d">Required for any exterior modification &middot; Must be approved before work begins</div>
-            </div>
-            <div className="prow-btn">Open</div>
-          </a>
-
-          <a href="https://drive.google.com/uc?export=download&id=1PDg2ffZurrHZ_BL704IKtOdyziMunYMt" download className="prow">
-            <div className="prow-orb">🏢</div>
-            <div className="prow-info">
-              <div className="prow-t">Vendor ACH Form</div>
-              <div className="prow-d">For vendors receiving payments electronically &middot; Send to billing@topfloridaproperties.com</div>
-            </div>
-            <div className="prow-btn">Download</div>
-          </a>
-        </div>
+        {/* Documents — hosted IN MAIA (no Google Drive). Fetched client-side
+            after login so signed URLs never appear in the public page. */}
+        <PortalDocuments assocCode={upper} />
 
         {/* Contact */}
         <div className="sh">
