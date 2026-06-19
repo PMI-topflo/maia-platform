@@ -227,11 +227,17 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
         {/* Preview the resident portal the way owners / visitors actually see
             it (staff normally only see their own view). Opens in a new tab. */}
         {portalPath && (
-          <span className="-mb-px ml-auto flex items-center gap-1 px-1 py-2 text-sm">
+          <span className="-mb-px ml-auto flex flex-wrap items-center gap-1 px-1 py-2 text-sm">
             <span className="text-xs text-gray-400">🌐 View portal as:</span>
             <a href={`${portalPath}?preview=owner`} target="_blank" rel="noopener noreferrer"
               className="rounded px-2 py-0.5 text-xs font-medium text-[#f26a1b] hover:bg-[#fff4ee]"
               title="See the portal as a logged-in unit owner">Unit owner ↗</a>
+            <a href={`${portalPath}?preview=board`} target="_blank" rel="noopener noreferrer"
+              className="rounded px-2 py-0.5 text-xs font-medium text-[#f26a1b] hover:bg-[#fff4ee]"
+              title="See the portal as a board member">Board ↗</a>
+            <a href={`${portalPath}?preview=onsite_manager`} target="_blank" rel="noopener noreferrer"
+              className="rounded px-2 py-0.5 text-xs font-medium text-[#f26a1b] hover:bg-[#fff4ee]"
+              title="See the portal as an onsite (non-staff) manager">Onsite mgr ↗</a>
             <a href={`${portalPath}?preview=visitor`} target="_blank" rel="noopener noreferrer"
               className="rounded px-2 py-0.5 text-xs font-medium text-[#f26a1b] hover:bg-[#fff4ee]"
               title="See the portal as a public visitor (login screen)">Visitor ↗</a>
