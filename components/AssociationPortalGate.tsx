@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import TwoFactorAuth from '@/components/TwoFactorAuth'
+import { normalizePortalLang, portalStrings } from '@/lib/portal-i18n'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -31,16 +33,10 @@ interface Props {
   assocCode: string
   assocName: string
   children:  React.ReactNode
+  lang?:     string
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-const PERSONA_LABEL: Record<string, string> = {
-  owner:  'Unit Owner',
-  board:  'Board Member',
-  tenant: 'Tenant',
-  staff:  'PMI Staff',
-}
 
 const PERSONA_ICON: Record<string, string> = {
   owner:  '🔑',
@@ -53,21 +49,27 @@ const PERSONA_ICON: Record<string, string> = {
 // screen; the rest = the logged-in body rendered with that persona's framing.
 type PreviewPersona = 'visitor' | 'owner' | 'board' | 'onsite_manager'
 const AUTH_PREVIEWS: PreviewPersona[] = ['owner', 'board', 'onsite_manager']
-const PREVIEW_META: Record<Exclude<PreviewPersona, 'visitor'>, { label: string; icon: string }> = {
-  owner:          { label: 'Unit Owner',     icon: '🔑' },
-  board:          { label: 'Board Member',   icon: '🗳️' },
-  onsite_manager: { label: 'Onsite Manager', icon: '🧰' },
-}
-const PREVIEW_AS_TEXT: Record<PreviewPersona, string> = {
-  visitor:        'a public visitor',
-  owner:          'a logged-in unit owner',
-  board:          'a board member',
-  onsite_manager: 'an onsite (non-staff) manager',
+const PREVIEW_ICON: Record<Exclude<PreviewPersona, 'visitor'>, string> = {
+  owner: '🔑', board: '🗳️', onsite_manager: '🧰',
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function AssociationPortalGate({ assocCode, assocName, children }: Props) {
+export default function AssociationPortalGate({ assocCode, assocName, children, lang }: Props) {
+  const langCode = normalizePortalLang(lang)
+  const t = portalStrings(langCode)
+  const PERSONA_LABEL: Record<string, string> = {
+    owner: t.personaOwner, board: t.personaBoard, tenant: t.personaTenant, staff: t.personaStaff,
+  }
+  const PREVIEW_LABEL: Record<Exclude<PreviewPersona, 'visitor'>, string> = {
+    owner: t.personaOwner, board: t.personaBoard, onsite_manager: t.personaOnsite,
+  }
+  const PREVIEW_AS_TEXT: Record<PreviewPersona, string> = {
+    visitor: t.previewVisitor, owner: t.previewOwner, board: t.previewBoard, onsite_manager: t.previewOnsite,
+  }
+  const DATE_LOCALE: Record<string, string> = {
+    en: 'en-US', es: 'es-ES', pt: 'pt-BR', fr: 'fr-FR', ht: 'fr-FR', he: 'he-IL', ru: 'ru-RU',
+  }
   const [state,              setState]             = useState<GateState>('loading')
   const [session,            setSession]           = useState<SessionData | null>(null)
   const [identifier,         setIdentifier]        = useState('')
@@ -146,7 +148,7 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
       setLookupPhone(phone)
       setState('2fa')
     } catch {
-      setError('Network error. Please try again.')
+      setError(t.networkErr)
     } finally {
       setBusy(false)
     }
@@ -167,7 +169,7 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
   if (state === 'loading') {
     return (
       <div className="flex justify-center py-16">
-        <div className="text-gray-400 text-sm animate-pulse">Loading…</div>
+        <div className="text-gray-400 text-sm animate-pulse">{t.loading}</div>
       </div>
     )
   }
@@ -177,12 +179,12 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
   if (state === 'portal' && session) {
     // In an auth preview, frame the header as the previewed persona (not the
     // staff identity) so it reads like what that resident actually sees.
-    const chipIcon = authPreview ? PREVIEW_META[authPreview].icon : (PERSONA_ICON[session.persona] ?? '👤')
-    const chipLabel = authPreview ? PREVIEW_META[authPreview].label : (PERSONA_LABEL[session.persona] ?? session.persona)
+    const chipIcon = authPreview ? PREVIEW_ICON[authPreview] : (PERSONA_ICON[session.persona] ?? '👤')
+    const chipLabel = authPreview ? PREVIEW_LABEL[authPreview] : (PERSONA_LABEL[session.persona] ?? session.persona)
     const chipName = authPreview ? `${assocName} — preview` : session.contactName
     return (
       <div>
-        {authPreview && <PreviewBanner preview={authPreview} />}
+        {authPreview && <PreviewBanner prefix={t.previewPrefix} who={PREVIEW_AS_TEXT[authPreview]} />}
         <div className="section" style={{ paddingTop: 0, paddingBottom: 0 }}>
           <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 flex items-center justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
@@ -204,7 +206,7 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
                 onClick={signOut}
                 className="text-xs text-gray-400 hover:text-gray-700 whitespace-nowrap transition-colors"
               >
-                Sign out
+                {t.signOut}
               </button>
             )}
           </div>
@@ -224,7 +226,7 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
             role={pendingRole}
             email={lookupEmail}
             phone={lookupPhone}
-            lang="en"
+            lang={langCode}
             onVerified={async () => { await checkSession() }}
             onBack={() => setState('login')}
           />
@@ -241,27 +243,29 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
         <div className="w-full max-w-sm bg-white border border-amber-200 rounded-2xl p-8 shadow-sm">
           <div className="text-center mb-6">
             <div className="text-3xl mb-3">📋</div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-2">Previous Resident</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-2">{t.prevTitle}</h2>
             <p className="text-sm text-gray-600">
-              <strong>{prevDetails.name}</strong>, our records show your membership at{' '}
-              <strong>{prevDetails.assocName}</strong> ended
-              {prevDetails.endDate ? ` on ${new Date(prevDetails.endDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}` : ''}.
+              {t.prevBody(
+                prevDetails.name,
+                prevDetails.assocName,
+                prevDetails.endDate ? ` — ${new Date(prevDetails.endDate).toLocaleDateString(DATE_LOCALE[langCode] ?? 'en-US', { month: 'long', day: 'numeric', year: 'numeric' })}` : '',
+              )}
             </p>
           </div>
           <p className="text-sm text-gray-500 text-center mb-6">
-            If you believe this is an error, please contact PMI directly.
+            {t.prevError}
           </p>
           <a
             href="mailto:PMI@topfloridaproperties.com"
             className="block w-full text-center bg-[#f26a1b] hover:bg-[#f58140] text-white font-semibold text-sm py-2.5 rounded-lg transition-colors mb-3"
           >
-            Contact PMI →
+            {t.contactPmi}
           </a>
           <button
             onClick={() => { setState('login'); setPrevDetails(null); setIdentifier('') }}
             className="block w-full text-center text-xs text-gray-400 hover:text-gray-700 transition-colors py-1"
           >
-            Try a different account
+            {t.prevTryDifferent}
           </button>
         </div>
       </div>
@@ -276,26 +280,25 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
         <div className="w-full max-w-sm bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
           <div className="text-center mb-6">
             <div className="text-3xl mb-3">🔍</div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-2">Not Found</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-2">{t.notFoundTitle}</h2>
             <p className="text-sm text-gray-600">
-              We couldn&apos;t find an account matching <strong>{identifier}</strong> in the{' '}
-              {assocName} database.
+              {t.notFoundBody(identifier, assocName)}
             </p>
           </div>
           <p className="text-xs text-gray-400 text-center mb-6">
-            New resident? Your record may not be set up yet. Contact PMI to get started.
+            {t.notFoundNew}
           </p>
           <a
             href="mailto:PMI@topfloridaproperties.com"
             className="block w-full text-center bg-[#f26a1b] hover:bg-[#f58140] text-white font-semibold text-sm py-2.5 rounded-lg transition-colors mb-3"
           >
-            Contact PMI →
+            {t.contactPmi}
           </a>
           <button
             onClick={() => { setState('login'); setIdentifier(''); setError('') }}
             className="block w-full text-center text-xs text-gray-400 hover:text-gray-700 transition-colors py-1"
           >
-            ← Try again
+            {t.notFoundTryAgain}
           </button>
         </div>
       </div>
@@ -310,25 +313,23 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
         <div className="w-full max-w-sm bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
           <div className="text-center mb-6">
             <div className="text-3xl mb-3">🔀</div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-2">Different Association</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-2">{t.wrongTitle}</h2>
             <p className="text-sm text-gray-600">
-              You&apos;re signed in as <strong>{wrongAssocSession.contactName}</strong> for{' '}
-              <strong>{wrongAssocSession.displayName}</strong>. This portal is for{' '}
-              <strong>{assocName}</strong>.
+              {t.wrongBody(wrongAssocSession.contactName, wrongAssocSession.displayName, assocName)}
             </p>
           </div>
           <button
             onClick={signOut}
             className="block w-full text-center bg-[#f26a1b] hover:bg-[#f58140] text-white font-semibold text-sm py-2.5 rounded-lg transition-colors mb-3"
           >
-            Sign out and switch
+            {t.wrongSwitch}
           </button>
-          <a
+          <Link
             href="/"
             className="block w-full text-center text-xs text-gray-400 hover:text-gray-700 transition-colors py-1"
           >
-            Back to main portal
-          </a>
+            {t.wrongBack}
+          </Link>
         </div>
       </div>
     )
@@ -338,28 +339,28 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
 
   return (
     <div>
-    {preview === 'visitor' && <PreviewBanner preview="visitor" />}
+    {preview === 'visitor' && <PreviewBanner prefix={t.previewPrefix} who={PREVIEW_AS_TEXT.visitor} />}
     <div className="flex justify-center py-10 px-6">
       <div className="w-full max-w-sm">
         <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
           <div className="text-center mb-7">
             <div className="text-3xl mb-3">🔐</div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">Resident Portal</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">{t.residentPortal}</h2>
             <p className="text-sm text-gray-500 leading-relaxed">
-              Enter your email or phone number to access your documents and account information.
+              {t.loginInstr}
             </p>
           </div>
 
           <form onSubmit={handleLookup} className="space-y-4">
             <div>
               <label className="block text-[0.68rem] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                Email or Phone Number
+                {t.loginLabel}
               </label>
               <input
                 type="text"
                 value={identifier}
                 onChange={e => { setIdentifier(e.target.value); setError('') }}
-                placeholder="your@email.com or (305) 555-0100"
+                placeholder={t.loginPlaceholder}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#f26a1b]/30 focus:border-[#f26a1b] transition-shadow"
                 autoFocus
                 autoComplete="email"
@@ -374,16 +375,16 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
               disabled={busy || identifier.trim().length < 5}
               className="w-full bg-[#f26a1b] hover:bg-[#f58140] disabled:opacity-50 text-white font-semibold text-sm py-2.5 rounded-lg transition-colors"
             >
-              {busy ? 'Looking up…' : 'Continue →'}
+              {busy ? t.loginLookingUp : t.continueBtn}
             </button>
           </form>
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-4">
-          Not a resident?{' '}
-          <a href="/" className="text-[#f26a1b] hover:underline">
-            Visit main site
-          </a>
+          {t.notResident}{' '}
+          <Link href="/" className="text-[#f26a1b] hover:underline">
+            {t.visitMain}
+          </Link>
         </p>
       </div>
     </div>
@@ -393,14 +394,14 @@ export default function AssociationPortalGate({ assocCode, assocName, children }
 
 // Slim banner shown only in staff preview mode so it's obvious this is a
 // preview of the resident experience, not the staff's own view.
-function PreviewBanner({ preview }: { preview: PreviewPersona }) {
+function PreviewBanner({ prefix, who }: { prefix: string; who: string }) {
   return (
     <div style={{
       background: '#fff7ed', borderBottom: '1px solid #fed7aa', color: '#9a3412',
       fontFamily: 'var(--font-mono)', fontSize: '0.66rem', textTransform: 'uppercase',
       letterSpacing: '0.08em', textAlign: 'center', padding: '0.4rem 1rem',
     }}>
-      👁 Staff preview — viewing as {PREVIEW_AS_TEXT[preview]}
+      👁 {prefix} {who}
     </div>
   )
 }

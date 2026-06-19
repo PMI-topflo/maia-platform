@@ -1,5 +1,6 @@
 import AssociationPortal from '@/components/AssociationPortal'
 
-export default function PageAbbott() {
-  return <AssociationPortal code="ABBOTT" />
+export default async function PageAbbott({ searchParams }: { searchParams: Promise<{ lang?: string }> }) {
+  const { lang } = await searchParams
+  return <AssociationPortal code="ABBOTT" lang={lang} />
 }

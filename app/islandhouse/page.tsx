@@ -1,5 +1,6 @@
 import AssociationPortal from '@/components/AssociationPortal'
 
-export default function PageIslandhouse() {
-  return <AssociationPortal code="ISLAND" />
+export default async function PageIslandhouse({ searchParams }: { searchParams: Promise<{ lang?: string }> }) {
+  const { lang } = await searchParams
+  return <AssociationPortal code="ISLAND" lang={lang} />
 }

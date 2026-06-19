@@ -1,5 +1,6 @@
 import AssociationPortal from '@/components/AssociationPortal'
 
-export default function PageCrystalh() {
-  return <AssociationPortal code="CHV" />
+export default async function PageCrystalh({ searchParams }: { searchParams: Promise<{ lang?: string }> }) {
+  const { lang } = await searchParams
+  return <AssociationPortal code="CHV" lang={lang} />
 }

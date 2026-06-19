@@ -960,7 +960,7 @@ COMPANY INFO:
 - Payments: ar@topfloridaproperties.com
 - Portal: https://pmitfp.cincwebaxis.com/
 - Apply: https://pmitopfloridaproperties.rentvine.com/public/apply?unitID=38
-- Estoppel: https://secure.condocerts.com/resale/
+- Estoppel: https://topfloridaproperties.condocerts.com/resale/
 
 FAQ KNOWLEDGE:
 - Payments: ACH (no fee, 10th of month), online portal (fee), check to P.O. Box 163556 Miami FL 33116

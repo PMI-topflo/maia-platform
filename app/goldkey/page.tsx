@@ -1,5 +1,6 @@
 import AssociationPortal from '@/components/AssociationPortal'
 
-export default function PageGoldkey() {
-  return <AssociationPortal code="GK7" />
+export default async function PageGoldkey({ searchParams }: { searchParams: Promise<{ lang?: string }> }) {
+  const { lang } = await searchParams
+  return <AssociationPortal code="GK7" lang={lang} />
 }

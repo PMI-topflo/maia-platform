@@ -6,6 +6,7 @@ import SiteHeader from '@/components/SiteHeader'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { getGoverningDocsForPortal } from '@/lib/governing-docs-for-portal'
 import { listPublishedReportsFor, monthLabel } from '@/lib/monthly-report'
+import MobileAppButton from '@/components/MobileAppButton'
 
 interface BoardMemberView {
   first_name: string | null
@@ -264,6 +265,8 @@ export default async function BoardPage(props: {
           </div>
           <div className="prow-btn">Open</div>
         </a>
+
+        <MobileAppButton />
 
         {(pendingApps ?? 0) > 0 ? (
           <a

@@ -9,11 +9,13 @@
 // =====================================================================
 
 import { useEffect, useState } from 'react'
+import { normalizePortalLang, portalStrings } from '@/lib/portal-i18n'
 
 interface PortalDoc { id: string; category_label: string; filename: string; effective_date: string | null; download_url: string }
 interface PortalDocGroup { group: string; docs: PortalDoc[] }
 
-export default function PortalDocuments({ assocCode }: { assocCode: string }) {
+export default function PortalDocuments({ assocCode, lang }: { assocCode: string; lang?: string }) {
+  const t = portalStrings(normalizePortalLang(lang))
   const [groups, setGroups] = useState<PortalDocGroup[] | null>(null)
   const [err, setErr] = useState(false)
 
@@ -26,13 +28,13 @@ export default function PortalDocuments({ assocCode }: { assocCode: string }) {
 
   return (
     <section className="section">
-      <h2 className="section-title">Association Documents</h2>
+      <h2 className="section-title">{t.docsTitle}</h2>
 
-      {groups === null && <p className="text-xs" style={{ color: 'var(--muted)' }}>Loading documents…</p>}
+      {groups === null && <p className="text-xs" style={{ color: 'var(--muted)' }}>{t.docsLoading}</p>}
 
       {groups !== null && groups.length === 0 && (
         <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-          {err ? 'Documents are temporarily unavailable.' : 'No documents have been published for this association yet. They will appear here as your management team uploads them.'}
+          {err ? t.docsUnavailable : t.docsEmpty}
         </p>
       )}
 
@@ -50,7 +52,7 @@ export default function PortalDocuments({ assocCode }: { assocCode: string }) {
                   <div className="prow-t">{doc.category_label}</div>
                   <div className="prow-d">{doc.filename}{doc.effective_date ? ` · ${doc.effective_date}` : ''}</div>
                 </div>
-                <div className="prow-btn">Download</div>
+                <div className="prow-btn">{t.download}</div>
               </a>
             ))}
           </div>

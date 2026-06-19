@@ -593,7 +593,7 @@ export default function DocumentsPage() {
           <div className="prow-btn">Download</div>
         </a>
 
-        <a href="https://secure.condocerts.com/resale/" target="_blank" rel="noreferrer" className="prow">
+        <a href="https://topfloridaproperties.condocerts.com/resale/" target="_blank" rel="noreferrer" className="prow">
           <div className="prow-orb">📊</div>
           <div className="prow-info">
             <div className="prow-title">Estoppel Request — Condocerts</div>
@@ -681,7 +681,7 @@ export default function DocumentsPage() {
             <a href="https://pmitfp.cincwebaxis.com/" target="_blank" rel="noreferrer">Owner Portal (CINC)</a>
             <a href="https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh" target="_blank" rel="noreferrer">Download Forms</a>
             <a href="https://pmitopfloridaproperties.rentvine.com/public/apply" target="_blank" rel="noreferrer">Apply to Rent / Buy</a>
-            <a href="https://secure.condocerts.com/resale/" target="_blank" rel="noreferrer">Estoppel Request</a>
+            <a href="https://topfloridaproperties.condocerts.com/resale/" target="_blank" rel="noreferrer">Estoppel Request</a>
           </div>
           <div className="footer-col">
             <div className="footer-col-title">Contact</div>

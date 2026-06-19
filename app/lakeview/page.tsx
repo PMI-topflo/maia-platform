@@ -1,5 +1,6 @@
 import AssociationPortal from '@/components/AssociationPortal'
 
-export default function PageLakeview() {
-  return <AssociationPortal code="LCLUB" />
+export default async function PageLakeview({ searchParams }: { searchParams: Promise<{ lang?: string }> }) {
+  const { lang } = await searchParams
+  return <AssociationPortal code="LCLUB" lang={lang} />
 }
