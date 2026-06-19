@@ -48,8 +48,23 @@ export interface CategoryDef {
 // Adding categories later is one-liner: append to this array; nothing
 // else has to change because category is a text column, not an enum.
 export const CATEGORIES: CategoryDef[] = [
+  // Governing documents (also gate the application e-sign flow).
   { key: 'condo_docs', group: 'Governing Documents', label: 'Condo Docs / Declaration' },
   { key: 'rules_regs', group: 'Governing Documents', label: 'Rules & Regulations' },
+  // Forms & applications — Application Forms is a temporary home for each
+  // association's application paperwork until the in-Maia application is built.
+  { key: 'application_forms', group: 'Forms & Applications', label: 'Application Forms' },
+  { key: 'ach_forms',         group: 'Forms & Applications', label: 'ACH Authorization' },
+  { key: 'arc',               group: 'Forms & Applications', label: 'ARC / Architectural Request' },
+  // Financials.
+  { key: 'financials', group: 'Financials', label: 'Financials', dated: true },
+  { key: 'budget',     group: 'Financials', label: 'Budget', dated: true },
+  // Property & records.
+  { key: 'insurance',       group: 'Property & Records', label: 'Insurance', dated: true },
+  { key: 'maintenance',     group: 'Property & Records', label: 'Maintenance' },
+  { key: 'leases_resale',   group: 'Property & Records', label: 'Leases & Resale' },
+  { key: 'welcome_letters', group: 'Property & Records', label: 'Welcome Letters' },
+  { key: 'faq',             group: 'Property & Records', label: 'FAQ' },
 ]
 
 /** Categories surfaced to tenant / buyer applicants during the apply
