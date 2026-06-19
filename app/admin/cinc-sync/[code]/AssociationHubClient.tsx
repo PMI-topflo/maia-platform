@@ -21,6 +21,7 @@ import InspectionsTab from './InspectionsTab'
 import ComplianceMatrix from './ComplianceMatrix'
 import AssociationUnitDocs from '../../audit/AssociationUnitDocs'
 import VendorTradeCell from './VendorTradeCell'
+import { associationPortalPath } from '@/lib/association-portal'
 
 export interface HubBankAccount { description: string; last4: string | null; kind: string; bankBalance: number | null; restricted: boolean }
 export interface HubBoardMember { id: string; name: string | null; email: string | null; role: string | null }
@@ -53,7 +54,11 @@ const TYPE_LABEL: Record<string, string> = {
 const typeLabel = (t: string | null) => t ? (TYPE_LABEL[t.toLowerCase()] ?? t) : null
 
 type Rag = 'ok' | 'warn' | 'bad' | 'none'
-interface VendorRow { id: number; name: string; trade: string | null; tradeSource: string | null; coi: Rag; w9: Rag; ach: Rag; license: Rag }
+// CINC web app — deep link for staff who set the vendor-association account up
+// natively in CINC (CINC's API is read-only for that linkage).
+const CINC_WEB_URL = 'https://pmitfp.cincsys.com'
+
+interface VendorRow { id: number; name: string; trade: string | null; tradeSource: string | null; linked?: 'cinc' | 'maia' | null; coi: Rag; w9: Rag; ach: Rag; license: Rag }
 const RAG_DOT:   Record<Rag, string> = { ok: 'bg-emerald-500', warn: 'bg-amber-500', bad: 'bg-red-500', none: 'bg-gray-300' }
 const RAG_LABEL: Record<Rag, string> = { ok: 'OK', warn: 'Expiring', bad: 'Expired', none: 'Missing' }
 function RagPill({ s }: { s: Rag }) {
@@ -86,6 +91,9 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
   const [actionsOpen, setActionsOpen] = useState(false)
   const { code } = data
   const bankTotal = data.bankAccounts.reduce((s, a) => s + (a.bankBalance ?? 0), 0)
+  // The public resident portal — the page unit owners log into and the general
+  // public sees (then identifies / registers). Same page the /[slug] router serves.
+  const portalPath = associationPortalPath(code)
 
   // Per-work-order "Add invoice" → opens the vendor-compliance gate (ACH/W-9
   // check) before any upload. The modal owns the upload + doc-request actions.
@@ -102,8 +110,9 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
   const [vendorsErr, setVendorsErr] = useState<string | null>(null)
   const [vendorsTruncated, setVendorsTruncated] = useState(false)
   const [vendorTrade, setVendorTrade] = useState('')   // '' = All types
-  function loadVendors() {
-    if (vendors !== null || vendorsLoading) return
+  const [showLinkVendor, setShowLinkVendor] = useState(false)
+  function loadVendors(force = false) {
+    if (!force && (vendors !== null || vendorsLoading)) return
     setVendorsLoading(true); setVendorsErr(null)
     fetch(`/api/admin/cinc/association-vendors?assoc=${encodeURIComponent(code)}`)
       .then(r => r.json())
@@ -113,6 +122,22 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
       })
       .catch(e => setVendorsErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setVendorsLoading(false))
+  }
+
+  // Tag / untag a vendor as serving THIS association (MAIA-local link).
+  async function toggleHubVendorLink(vendorId: number, vendorName: string, link: boolean) {
+    try {
+      if (link) {
+        await fetch('/api/admin/personas/vendor-links', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assoc: code, vendorId, vendorName }),
+        })
+      } else {
+        await fetch(`/api/admin/personas/vendor-links?assoc=${code}&vendorId=${vendorId}`, { method: 'DELETE' })
+      }
+    } finally {
+      loadVendors(true)
+    }
   }
 
   function selectTab(t: Tab) {
@@ -142,6 +167,13 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
       )}
       {showOnboard && <OnboardVendorModal onClose={() => setShowOnboard(false)} />}
       {showNewWO && <NewWorkOrderModal assocCode={code} assocName={data.name} onClose={() => setShowNewWO(false)} />}
+      {showLinkVendor && (
+        <LinkVendorModal
+          assocCode={code} assocName={data.name}
+          onClose={() => setShowLinkVendor(false)}
+          onLinked={() => { setShowLinkVendor(false); loadVendors(true) }}
+        />
+      )}
       {/* Header */}
       <div className="mb-1 text-xs text-gray-400"><Link href="/admin/cinc-sync" className="hover:text-[#f26a1b]">Associations</Link> / {data.name}</div>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
@@ -152,6 +184,9 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
             {data.type && <span className="rounded bg-[#fff4ee] px-1.5 py-0.5 font-medium text-[#c2410c]">{typeLabel(data.type)}</span>}
             {data.statute && <span>· {data.statute}</span>}
             {data.units != null && <span>· {data.units} units</span>}
+            {portalPath && (
+              <a href={portalPath} target="_blank" rel="noopener noreferrer" className="font-medium text-[#f26a1b] hover:underline" title="Open the resident portal — what unit owners and the public see">🌐 Resident portal ↗</a>
+            )}
           </div>
           {/* At-a-glance service level + scale, same info as the directory list. */}
           <div className="mt-2 flex flex-wrap items-center gap-5 text-xs">
@@ -240,6 +275,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
               </Card>
               <Card title="Quick links">
                 <div className="flex flex-wrap gap-2 text-sm">
+                  {portalPath && <a href={portalPath} target="_blank" rel="noopener noreferrer" className="rounded border border-gray-200 px-3 py-1.5 text-gray-700 hover:border-[#f26a1b] hover:text-[#f26a1b]">🌐 Resident portal ↗</a>}
                   <button onClick={() => selectTab('Board & Owners')} className="rounded border border-gray-200 px-3 py-1.5 text-gray-700 hover:border-[#f26a1b] hover:text-[#f26a1b]">👥 Unit owners &amp; CINC sync</button>
                   <QuickLink href={`/admin/cinc-sync/${code}/documents`}>📄 Documents (view &amp; upload)</QuickLink>
                   <QuickLink href={`/admin/reports/monthly?assoc=${code}`}>📊 Monthly report</QuickLink>
@@ -262,12 +298,16 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
             const shown = (vendors ?? []).filter(v => !vendorTrade || v.trade === vendorTrade)
             return (
             <Card title="Vendors serving this association">
-              <div className="mb-3 flex justify-end">
-                <button onClick={() => setShowOnboard(true)} className="rounded bg-[#16a34a] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#15803d]">+ Onboard new vendor</button>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <a href={CINC_WEB_URL} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-[#f26a1b] hover:underline" title="Set the vendor's association account up natively in CINC">Set up in CINC ↗</a>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowLinkVendor(true)} className="rounded border border-emerald-600 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50">+ Link a vendor</button>
+                  <button onClick={() => setShowOnboard(true)} className="rounded bg-[#16a34a] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#15803d]">+ Onboard new vendor</button>
+                </div>
               </div>
               {vendorsLoading && <p className="text-xs text-gray-400">Loading vendor compliance from CINC…</p>}
               {vendorsErr && <p className="text-xs text-red-600">{vendorsErr}</p>}
-              {vendors && vendors.length === 0 && !vendorsLoading && <Empty>No vendors on this association in CINC.</Empty>}
+              {vendors && vendors.length === 0 && !vendorsLoading && <Empty>No vendors linked to this association yet. Use <span className="font-medium text-emerald-700">+ Link a vendor</span> to tag the ones that serve it.</Empty>}
               {vendors && vendors.length > 0 && (
                 <>
                   <div className="mb-3 flex items-center gap-2">
@@ -286,6 +326,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
                       <th className="pb-1 text-left font-semibold">W-9</th>
                       <th className="pb-1 text-left font-semibold">ACH</th>
                       <th className="pb-1 text-left font-semibold">License</th>
+                      <th className="pb-1 text-right font-semibold">Link</th>
                     </tr></thead>
                     <tbody>
                       {shown.map(v => (
@@ -299,6 +340,13 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
                           <td className="py-1.5"><RagPill s={v.w9} /></td>
                           <td className="py-1.5"><RagPill s={v.ach} /></td>
                           <td className="py-1.5"><RagPill s={v.license} /></td>
+                          <td className="py-1.5 text-right">
+                            {v.linked === 'cinc'
+                              ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700" title="Linked via CINC's Vendor-Association account">in CINC</span>
+                              : v.linked === 'maia'
+                                ? <button onClick={() => toggleHubVendorLink(v.id, v.name, false)} className="text-[11px] font-medium text-gray-500 hover:text-red-600 hover:underline" title="Remove this MAIA link">✓ Linked · Unlink</button>
+                                : <span className="text-[11px] text-gray-300">—</span>}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -513,5 +561,67 @@ function DocLink({ href, icon, label, sub }: { href: string; icon: string; label
       <div className="mt-1 text-sm font-medium text-gray-900">{label}</div>
       <div className="text-[11px] text-gray-500">{sub}</div>
     </Link>
+  )
+}
+
+interface VendorMatch { vendorId: number; name: string; dba: string | null; email: string | null; phone: string | null; address: string | null }
+
+/** Search ALL CINC vendors and tag the chosen one as serving this association
+ *  (a MAIA-local link — CINC has no write API for the association account). */
+function LinkVendorModal({ assocCode, assocName, onClose, onLinked }: { assocCode: string; assocName: string; onClose: () => void; onLinked: () => void }) {
+  const [q, setQ] = useState('')
+  const [matches, setMatches] = useState<VendorMatch[] | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [linkingId, setLinkingId] = useState<number | null>(null)
+
+  // Live search across the whole CINC catalog.
+  function onChange(v: string) {
+    setQ(v)
+    if (v.trim().length < 2) { setMatches(null); return }
+    setSearching(true)
+    fetch('/api/admin/vendors/onboard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'search', q: v.trim() }) })
+      .then(r => r.json())
+      .then((d: { matches?: VendorMatch[] }) => setMatches(d.matches ?? []))
+      .catch(() => setMatches([]))
+      .finally(() => setSearching(false))
+  }
+
+  async function link(m: VendorMatch) {
+    setLinkingId(m.vendorId)
+    try {
+      await fetch('/api/admin/personas/vendor-links', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assoc: assocCode, vendorId: m.vendorId, vendorName: m.name }),
+      })
+      onLinked()
+    } finally { setLinkingId(null) }
+  }
+
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 p-6">
+      <div onClick={e => e.stopPropagation()} className="mt-16 w-full max-w-lg rounded-lg bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+          <div className="text-sm font-semibold text-gray-900">Link a vendor to {assocName}</div>
+          <button onClick={onClose} className="text-xl leading-none text-gray-400 hover:text-gray-700" aria-label="Close">×</button>
+        </div>
+        <div className="p-4">
+          <input autoFocus value={q} onChange={e => onChange(e.target.value)} placeholder="Search CINC vendors by name, DBA, email, phone…" className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
+          <div className="mt-3 max-h-80 space-y-1 overflow-auto">
+            {searching && <p className="text-xs text-gray-400">Searching CINC…</p>}
+            {matches && matches.length === 0 && !searching && <p className="text-xs text-gray-400">No matching vendors.</p>}
+            {(matches ?? []).map(m => (
+              <div key={m.vendorId} className="flex items-center justify-between rounded border border-gray-100 px-2.5 py-1.5">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-gray-900">{m.name}{m.dba ? ` (dba ${m.dba})` : ''}</div>
+                  <div className="truncate text-[11px] text-gray-400">{[m.email, m.phone, m.address].filter(Boolean).join(' · ') || '—'}</div>
+                </div>
+                <button onClick={() => link(m)} disabled={linkingId === m.vendorId} className="ml-2 shrink-0 rounded bg-[#16a34a] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#15803d] disabled:opacity-50">{linkingId === m.vendorId ? 'Linking…' : 'Link'}</button>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[11px] text-gray-400">Tags the vendor as serving {assocCode} in MAIA. To set the account up in CINC itself, use <a href={CINC_WEB_URL} target="_blank" rel="noopener noreferrer" className="text-[#f26a1b] hover:underline">Set up in CINC ↗</a>.</p>
+        </div>
+      </div>
+    </div>
   )
 }

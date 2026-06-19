@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import SiteHeader from '@/components/SiteHeader'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { ASSOCIATION_PORTAL_PATH } from '@/lib/association-portal'
 
 // Maps every known slug (lowercase) → canonical path served by a static page
 const SLUG_MAP: Record<string, string> = {
@@ -62,34 +63,9 @@ const SLUG_MAP: Record<string, string> = {
 }
 
 // Supabase association_code → canonical path (for unknown slugs that still
-// match a code via case-insensitive or partial lookup)
-const CODE_TO_PATH: Record<string, string> = {
-  'ABBOTT': '/abbott',
-  'BHB':    '/brook',
-  'CHV':    '/crystalh',
-  'DELA':   '/delvista',
-  'ESSI':   '/essi',
-  'FIFTH':  '/fifth',
-  'GK7':    '/goldkey',
-  'GVH':    '/galleriav',
-  'ISLAND': '/islandhouse',
-  'KANE':   '/kane',
-  'KGA':    '/kimgarden',
-  'LCLUB':  '/lakeview',
-  'LFA':    '/lafarms',
-  'MACO':   '/maco',
-  'MANXI':  '/manorsxi',
-  'ONE':    '/onebay',
-  'PVV':    '/parcview',
-  'SHORE':  '/shoreland',
-  'SP':     '/serenityiv',
-  'VPC5':   '/venetian5',
-  'VPCI':   '/venetian1',
-  'VPCII':  '/venetian2',
-  'VPREC':  '/venetianrec',
-  'WBP':    '/wedgewood57',
-  'WBPA':   '/wedgewoodansin',
-}
+// match a code via case-insensitive or partial lookup). Single source of
+// truth in lib/association-portal.ts so the admin hub links to the same page.
+const CODE_TO_PATH = ASSOCIATION_PORTAL_PATH
 
 export default async function AssocSlugPage(props: {
   params: Promise<{ slug: string }>
