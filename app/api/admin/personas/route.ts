@@ -26,6 +26,11 @@ export interface PersonaRow {
   associationName: string | null
   sub: string | null          // unit / role / trade
   href: string | null         // where to manage this persona
+  // Vendors only: the CINC vendor id + how it's linked to the selected
+  // association ('cinc' = CINC vendor-association account, 'maia' = a
+  // MAIA-local tag, null = not linked / unscoped).
+  vendorId?: number | null
+  linked?: 'cinc' | 'maia' | null
 }
 
 const firstEmail = (e: unknown) => typeof e === 'string' ? (e.split(/[,;\s]+/).map(s => s.trim()).find(x => x.includes('@')) ?? null) : null
@@ -96,21 +101,34 @@ export async function GET(req: Request) {
 
     let pool: (typeof all) = all
     let assocName: string | null = null
-    let scopedToAssoc = false   // true only when CINC actually has vendors linked
+    let scopedToAssoc = false   // true when CINC OR MAIA has vendors linked
+    // CINC-linked vs MAIA-linked vendor ids for the selected association, so
+    // each row can show its link source (and an unlink action for MAIA tags).
+    const cincLinkedIds = new Set<number>()
+    const maiaLinkedIds = new Set<number>()
     if (vendorAssoc) {
       const { data: a } = await supabaseAdmin.from('associations').select('association_name').eq('association_code', vendorAssoc).maybeSingle()
       assocName = (a?.association_name as string | null) ?? vendorAssoc
-      const scoped = await listVendorsForAssociation(vendorAssoc).catch(() => [])
-      if (scoped.length > 0) {
-        // CINC has vendor-association accounts for this assoc — scope to them,
-        // enriched from the full catalog (the scoped endpoint is names-only).
+
+      // Two sources: CINC's vendor-association accounts (read-only, sparse) and
+      // MAIA-local tags (what staff add here, since CINC has no write API).
+      const [scoped, links] = await Promise.all([
+        listVendorsForAssociation(vendorAssoc).catch(() => []),
+        supabaseAdmin.from('association_vendor_links').select('cinc_vendor_id').eq('association_code', vendorAssoc),
+      ])
+      for (const s of scoped) cincLinkedIds.add(s.VendorId)
+      for (const l of links.data ?? []) maiaLinkedIds.add(Number(l.cinc_vendor_id))
+
+      const unionIds = new Set<number>([...cincLinkedIds, ...maiaLinkedIds])
+      if (unionIds.size > 0) {
         const byId = new Map(all.map(v => [v.VendorId, v]))
-        pool = scoped.map(s => byId.get(s.VendorId) ?? ({ VendorId: s.VendorId, VendorName: s.VendorName } as (typeof all)[number]))
+        const scopedByName = new Map(scoped.map(s => [s.VendorId, s.VendorName]))
+        pool = [...unionIds].map(id =>
+          byId.get(id) ?? ({ VendorId: id, VendorName: scopedByName.get(id) ?? `Vendor #${id}` } as (typeof all)[number]))
         scopedToAssoc = true
       }
-      // else: CINC has NO vendors linked to this association (common — only a
-      // few associations have vendor-association accounts set up). Fall back to
-      // the full catalog so Paola can still find/pick a vendor; the UI flags it.
+      // else: neither CINC nor MAIA has a vendor for this association → fall back
+      // to the full catalog so staff can find + tag one; the UI flags it.
     }
 
     const matched = pool.filter(matchQ).slice(0, limit)
@@ -118,11 +136,13 @@ export async function GET(req: Request) {
       name: v.VendorName + (v.Dba ? ` (dba ${v.Dba})` : ''), email: v.Email ?? null, phone: v.Phone1 ?? null,
       associationCode: scopedToAssoc ? vendorAssoc : null, associationName: scopedToAssoc ? assocName : null,
       sub: [v.Address1, v.City, v.State].filter(Boolean).join(', ') || null, href: '/admin/vendor-compliance',
+      vendorId: v.VendorId,
+      linked: cincLinkedIds.has(v.VendorId) ? 'cinc' as const : maiaLinkedIds.has(v.VendorId) ? 'maia' as const : null,
     }))
     return NextResponse.json({
       type, rows,
       vendorsAllScope: !vendorAssoc,
-      // The chosen association had no CINC-linked vendors → we're showing all.
+      // The chosen association had no CINC- or MAIA-linked vendors → showing all.
       vendorAssocFallback: !!vendorAssoc && !scopedToAssoc,
       assocName: vendorAssoc ? assocName : null,
     })

@@ -2027,6 +2027,28 @@ CREATE POLICY "service_role_all_service_issues" ON public.service_issues FOR ALL
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'association_vendor_links',
+    label:       'Association ↔ vendor links',
+    description: 'association_vendor_links — MAIA-local "this vendor serves this association" tags. CINC exposes the vendor↔association link READ-ONLY, so staff tag vendors here and the Personas Vendors tab scopes to CINC links PLUS these.',
+    filename:    '20260618_association_vendor_links.sql',
+    artifact:    { type: 'table', table: 'association_vendor_links' },
+    sql: `CREATE TABLE IF NOT EXISTS public.association_vendor_links (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code text NOT NULL,
+  cinc_vendor_id bigint NOT NULL,
+  vendor_name text,
+  created_by_email text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS association_vendor_links_uniq ON public.association_vendor_links (association_code, cinc_vendor_id);
+CREATE INDEX IF NOT EXISTS association_vendor_links_assoc_idx ON public.association_vendor_links (association_code);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.association_vendor_links TO service_role;
+ALTER TABLE public.association_vendor_links ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_association_vendor_links" ON public.association_vendor_links;
+CREATE POLICY "service_role_all_association_vendor_links" ON public.association_vendor_links FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'invoice_wo_partial_payment',
     label:       'Invoice partial-payment flag',
     description: 'invoice_intake_drafts.wo_partial_payment — a downpayment leaves the linked work order open; a final invoice closes it as paid.',
