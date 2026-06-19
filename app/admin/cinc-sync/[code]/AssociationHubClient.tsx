@@ -185,7 +185,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
             {data.statute && <span>· {data.statute}</span>}
             {data.units != null && <span>· {data.units} units</span>}
             {portalPath && (
-              <a href={portalPath} target="_blank" rel="noopener noreferrer" className="font-medium text-[#f26a1b] hover:underline" title="Open the resident portal — what unit owners and the public see">🌐 Resident portal ↗</a>
+              <a href={`${portalPath}?preview=owner`} target="_blank" rel="noopener noreferrer" className="font-medium text-[#f26a1b] hover:underline" title="Preview the resident portal as a logged-in unit owner">🌐 Resident portal ↗</a>
             )}
           </div>
           {/* At-a-glance service level + scale, same info as the directory list. */}
@@ -220,10 +220,23 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
       </div>
 
       {/* Tabs */}
-      <div className="mb-5 flex flex-wrap gap-1 border-b border-gray-200">
+      <div className="mb-5 flex flex-wrap items-center gap-1 border-b border-gray-200">
         {TABS.map(t => (
           <button key={t} onClick={() => selectTab(t)} className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${tab === t ? 'border-[#f26a1b] text-[#f26a1b]' : 'border-transparent text-gray-500 hover:text-gray-900'}`}>{t}</button>
         ))}
+        {/* Preview the resident portal the way owners / visitors actually see
+            it (staff normally only see their own view). Opens in a new tab. */}
+        {portalPath && (
+          <span className="-mb-px ml-auto flex items-center gap-1 px-1 py-2 text-sm">
+            <span className="text-xs text-gray-400">🌐 View portal as:</span>
+            <a href={`${portalPath}?preview=owner`} target="_blank" rel="noopener noreferrer"
+              className="rounded px-2 py-0.5 text-xs font-medium text-[#f26a1b] hover:bg-[#fff4ee]"
+              title="See the portal as a logged-in unit owner">Unit owner ↗</a>
+            <a href={`${portalPath}?preview=visitor`} target="_blank" rel="noopener noreferrer"
+              className="rounded px-2 py-0.5 text-xs font-medium text-[#f26a1b] hover:bg-[#fff4ee]"
+              title="See the portal as a public visitor (login screen)">Visitor ↗</a>
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_1fr]">
@@ -275,7 +288,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
               </Card>
               <Card title="Quick links">
                 <div className="flex flex-wrap gap-2 text-sm">
-                  {portalPath && <a href={portalPath} target="_blank" rel="noopener noreferrer" className="rounded border border-gray-200 px-3 py-1.5 text-gray-700 hover:border-[#f26a1b] hover:text-[#f26a1b]">🌐 Resident portal ↗</a>}
+                  {portalPath && <a href={`${portalPath}?preview=owner`} target="_blank" rel="noopener noreferrer" className="rounded border border-gray-200 px-3 py-1.5 text-gray-700 hover:border-[#f26a1b] hover:text-[#f26a1b]">🌐 Resident portal ↗</a>}
                   <button onClick={() => selectTab('Board & Owners')} className="rounded border border-gray-200 px-3 py-1.5 text-gray-700 hover:border-[#f26a1b] hover:text-[#f26a1b]">👥 Unit owners &amp; CINC sync</button>
                   <QuickLink href={`/admin/cinc-sync/${code}/documents`}>📄 Documents (view &amp; upload)</QuickLink>
                   <QuickLink href={`/admin/reports/monthly?assoc=${code}`}>📊 Monthly report</QuickLink>
