@@ -6,6 +6,7 @@ import SiteHeader from '@/components/SiteHeader'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { getGoverningDocsForPortal } from '@/lib/governing-docs-for-portal'
 import { listPublishedReportsFor, monthLabel } from '@/lib/monthly-report'
+import MobileAppButton from '@/components/MobileAppButton'
 
 export default async function MyAccountPage(props: {
   searchParams: Promise<{ id?: string; assoc?: string }>
@@ -202,6 +203,8 @@ export default async function MyAccountPage(props: {
           </div>
           <div className="prow-btn">Open Portal</div>
         </a>
+
+        <MobileAppButton />
 
         <a
           href="https://pmitfp.cincwebaxis.com/"

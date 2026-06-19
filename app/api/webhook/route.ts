@@ -1107,7 +1107,7 @@ ${dbContext || 'No additional context available'}
 
 CONTACTS: ar@topfloridaproperties.com (HOA fees) | service@topfloridaproperties.com (maintenance) | support@topfloridaproperties.com (compliance) | billing@topfloridaproperties.com (vendor invoices)
 PORTAL: https://pmitfp.cincwebaxis.com/ | HOURS: Mon–Thu 10AM–5PM, Fri 10AM–3PM
-ESTOPPEL: https://secure.condocerts.com/resale/ (5–7 days)
+ESTOPPEL: https://topfloridaproperties.condocerts.com/resale/ (5–7 days)
 APPLICATIONS: https://pmitopfloridaproperties.rentvine.com/public/apply
 MAIL: P.O. Box 163556, Miami FL 33116
 ${isVoiceCall ? `
