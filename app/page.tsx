@@ -43,6 +43,52 @@ const GREETING: Record<Lang, string> = {
   ru: 'Привет! Я MAIA, ваш ассистент PMI Top Florida. Как я могу помочь вам сегодня?',
 }
 
+interface WelcomeCopy { title: string; p1: string; p2: string; tagline: string }
+const WELCOME: Record<Lang, WelcomeCopy> = {
+  en: {
+    title: "Meet MAIA — your community's always-on assistant",
+    p1: 'Not just an AI agent — a communication partner that gets smarter every day. Homeowner, tenant, board member, vendor, or agent, MAIA speaks your language: English, Spanish, Portuguese, French, Haitian Creole, Hebrew & Russian.',
+    p2: 'She handles the routine so our team can focus on what matters — quick questions get instant answers, complex needs reach the right person. Nothing falls through the cracks.',
+    tagline: 'Communication made personal · Service made intelligent · Community made stronger',
+  },
+  es: {
+    title: 'Conoce a MAIA — la asistente siempre disponible de tu comunidad',
+    p1: 'No es solo un agente de IA, sino una socia de comunicación que mejora cada día. Propietario, inquilino, miembro de la junta, proveedor o agente: MAIA habla tu idioma: inglés, español, portugués, francés, criollo haitiano, hebreo y ruso.',
+    p2: 'Ella se encarga de lo rutinario para que nuestro equipo se concentre en lo que importa: las preguntas rápidas reciben respuestas al instante y las necesidades complejas llegan a la persona adecuada. Nada queda sin atender.',
+    tagline: 'Comunicación personalizada · Servicio inteligente · Comunidad más fuerte',
+  },
+  pt: {
+    title: 'Conheça a MAIA — a assistente sempre disponível da sua comunidade',
+    p1: 'Não é apenas um agente de IA, mas uma parceira de comunicação que fica mais inteligente a cada dia. Proprietário, inquilino, membro do conselho, fornecedor ou corretor — a MAIA fala a sua língua: inglês, espanhol, português, francês, crioulo haitiano, hebraico e russo.',
+    p2: 'Ela cuida da rotina para que nossa equipe possa focar no que importa — perguntas rápidas recebem respostas instantâneas e necessidades complexas chegam à pessoa certa. Nada passa despercebido.',
+    tagline: 'Comunicação personalizada · Serviço inteligente · Comunidade mais forte',
+  },
+  fr: {
+    title: "Découvrez MAIA — l'assistante toujours disponible de votre communauté",
+    p1: "Pas seulement un agent IA, mais une partenaire de communication qui s'améliore chaque jour. Propriétaire, locataire, membre du conseil, fournisseur ou agent — MAIA parle votre langue : anglais, espagnol, portugais, français, créole haïtien, hébreu et russe.",
+    p2: "Elle gère la routine pour que notre équipe se concentre sur l'essentiel — les questions simples reçoivent des réponses instantanées et les besoins complexes parviennent à la bonne personne. Rien n'est laissé de côté.",
+    tagline: 'Communication personnalisée · Service intelligent · Communauté renforcée',
+  },
+  ht: {
+    title: 'Rankontre MAIA — asistan kominote w la ki toujou disponib',
+    p1: 'Se pa sèlman yon ajan AI — se yon patnè kominikasyon ki vin pi entelijan chak jou. Pwopriyetè, lokatè, manm konsèy, founisè, oswa ajan — MAIA pale lang ou: angle, panyòl, pòtigè, franse, kreyòl ayisyen, ebre ak ris.',
+    p2: 'Li jere bagay woutin yo pou ekip nou an ka konsantre sou sa ki enpòtan — kesyon rapid jwenn repons touswit, bezwen konplèks rive jwenn bon moun nan. Anyen pa pèdi.',
+    tagline: 'Kominikasyon pèsonèl · Sèvis entelijan · Kominote pi solid',
+  },
+  he: {
+    title: 'הכירו את MAIA — העוזרת תמיד-זמינה של הקהילה שלכם',
+    p1: 'לא רק סוכן AI — אלא שותפה לתקשורת שמשתפרת מדי יום. בעל יחידה, שוכר, חבר ועד, ספק או סוכן — MAIA דוברת את השפה שלכם: אנגלית, ספרדית, פורטוגזית, צרפתית, קריאולית האיטית, עברית ורוסית.',
+    p2: 'היא מטפלת בשגרה כדי שהצוות שלנו יוכל להתמקד במה שחשוב — שאלות פשוטות מקבלות מענה מיידי, וצרכים מורכבים מגיעים לאדם הנכון. שום דבר לא נופל בין הכיסאות.',
+    tagline: 'תקשורת אישית · שירות חכם · קהילה חזקה יותר',
+  },
+  ru: {
+    title: 'Знакомьтесь, MAIA — всегда на связи помощник вашего сообщества',
+    p1: 'Не просто ИИ-агент, а партнёр по коммуникации, который становится умнее с каждым днём. Владелец, арендатор, член правления, поставщик или агент — MAIA говорит на вашем языке: английском, испанском, португальском, французском, гаитянском креольском, иврите и русском.',
+    p2: 'Она берёт на себя рутину, чтобы наша команда могла сосредоточиться на главном — простые вопросы получают мгновенные ответы, а сложные задачи попадают к нужному человеку. Ничего не теряется.',
+    tagline: 'Общение — личное · Сервис — умный · Сообщество — крепче',
+  },
+}
+
 const BUBBLES = [
   { icon: '💳', label: 'Pay HOA Fees',  desc: 'Secure online payments for dues & assessments', side: 'left'  as const, anim: 'bfl-1' },
   { icon: '📄', label: 'Documents',     desc: 'Rules, financials & governing documents',        side: 'left'  as const, anim: 'bfl-2' },
@@ -807,7 +853,7 @@ export default function Home() {
 
       <div
         className="min-h-screen flex flex-col overflow-hidden"
-        style={{ background: 'linear-gradient(150deg, #0d0d0d 0%, #141414 50%, #111111 100%)' }}
+        style={{ background: 'linear-gradient(160deg, #f8fafc 0%, #ffffff 45%, #eef2f7 100%)' }}
         dir={isRtl ? 'rtl' : 'ltr'}
       >
 
@@ -815,7 +861,7 @@ export default function Home() {
         <div
           className="fixed inset-0 z-50 flex flex-col items-center justify-center"
           style={{
-            background: '#0d0d0d',
+            background: 'linear-gradient(160deg, #ffffff 0%, #f1f5f9 100%)',
             opacity: phase < 2 ? 1 : 0,
             pointerEvents: phase < 2 ? 'auto' : 'none',
             transition: 'opacity 0.9s ease',
@@ -829,7 +875,7 @@ export default function Home() {
                   className="absolute inset-0 rounded-full"
                   style={{ background: 'radial-gradient(circle, rgba(242,106,27,0.35) 0%, transparent 70%)', filter: 'blur(24px)', transform: 'scale(1.8)' }}
                 />
-                <Image src="/pmi-logo-white.png" alt="PMI Top Florida" width={180} height={90} className="relative z-10 object-contain" />
+                <Image src="/pmi-logo.png" alt="PMI Top Florida" width={180} height={90} className="relative z-10 object-contain" />
               </div>
               {/* Slogan typewriter */}
               <div className="text-center space-y-2.5">
@@ -838,7 +884,7 @@ export default function Home() {
                   <span className="cursor-blink" style={{ opacity: sloganIdx < SLOGAN.length ? 1 : 0 }}>|</span>
                 </div>
                 <div
-                  className="text-white/50 text-xs [font-family:var(--font-body)] tracking-[0.22em] uppercase"
+                  className="text-[#64748b] text-xs [font-family:var(--font-body)] tracking-[0.22em] uppercase"
                   style={{ opacity: sloganIdx >= SLOGAN.length ? 1 : 0, transition: 'opacity 0.7s ease 0.2s' }}
                 >
                   Making Property Management Manageable
@@ -895,28 +941,28 @@ export default function Home() {
                   <div
                     className="bubble-circle w-[120px] h-[120px] rounded-full flex flex-col items-center justify-center gap-1.5"
                     style={{
-                      background: 'rgba(255,255,255,0.04)',
-                      border: '1px solid rgba(255,255,255,0.09)',
-                      backdropFilter: 'blur(14px)',
+                      background: '#ffffff',
+                      border: '1px solid rgba(15,23,42,0.10)',
+                      boxShadow: '0 6px 18px rgba(15,23,42,0.08)',
                     }}
                   >
                     <span style={{ fontSize: '32px', lineHeight: 1 }}>{b.icon}</span>
-                    <span style={{ fontSize: '13px', fontFamily: 'var(--font-mono)', color: 'rgba(255,255,255,0.65)', textAlign: 'center', lineHeight: 1.2, padding: '0 10px' }}>{b.label}</span>
+                    <span style={{ fontSize: '13px', fontFamily: 'var(--font-mono)', color: '#475569', textAlign: 'center', lineHeight: 1.2, padding: '0 10px' }}>{b.label}</span>
                   </div>
                   {/* Expanded hover card — grows left (away from widget) */}
                   <div
                     className="bubble-hover-card absolute top-0 z-20 rounded-2xl flex items-center gap-3 px-4"
                     style={{
                       right: 0, width: '240px', height: '120px',
-                      background: 'rgba(14,14,14,0.97)',
+                      background: '#ffffff',
                       border: '1px solid rgba(242,106,27,0.5)',
                       boxShadow: '0 0 24px rgba(242,106,27,0.22)',
                     }}
                   >
                     <span style={{ fontSize: '32px', lineHeight: 1, flexShrink: 0 }}>{b.icon}</span>
                     <div>
-                      <p style={{ fontSize: '13px', fontFamily: 'var(--font-mono)', color: '#fff', fontWeight: 600, marginBottom: '3px' }}>{b.label}</p>
-                      <p style={{ fontSize: '11px', color: '#9ca3af', lineHeight: 1.4 }}>{b.desc}</p>
+                      <p style={{ fontSize: '13px', fontFamily: 'var(--font-mono)', color: '#0f172a', fontWeight: 600, marginBottom: '3px' }}>{b.label}</p>
+                      <p style={{ fontSize: '11px', color: '#64748b', lineHeight: 1.4 }}>{b.desc}</p>
                     </div>
                   </div>
                 </div>
@@ -934,32 +980,32 @@ export default function Home() {
             <div
               className="rounded-xl overflow-hidden"
               style={{
-                background: '#111111',
-                border: '1px solid rgba(242,106,27,0.22)',
-                boxShadow: '0 0 50px rgba(242,106,27,0.10), 0 24px 64px rgba(0,0,0,0.7)',
+                background: '#ffffff',
+                border: '1px solid rgba(0,0,0,0.08)',
+                boxShadow: '0 0 0 1px rgba(242,106,27,0.06), 0 24px 64px rgba(15,23,42,0.12)',
                 minHeight: '600px',
                 display: 'flex',
                 flexDirection: 'column',
               }}
             >
               {/* Widget header */}
-              <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(0,0,0,0.08)' }}>
                 <div className="flex items-center gap-2.5">
                   <Image src="/pmi-icon.jpg" alt="PMI" width={28} height={28} className="rounded-full object-cover flex-shrink-0" />
-                  <span className="text-white text-[1.15rem] [font-family:var(--font-display)] font-light tracking-wider">MAIA</span>
+                  <span className="text-[#0f172a] text-[1.15rem] [font-family:var(--font-display)] font-light tracking-wider">MAIA</span>
                   <span
                     className="w-2 h-2 rounded-full bg-[#f26a1b] flex-shrink-0"
                     style={{ animation: 'dot-pulse 2.2s ease-in-out infinite' }}
                   />
                 </div>
                 {/* Language tabs */}
-                <div className="flex gap-0.5 rounded-md p-0.5" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                <div className="flex gap-0.5 rounded-md p-0.5" style={{ background: 'rgba(15,23,42,0.05)' }}>
                   {LANG_TABS.map(l => (
                     <button
                       key={l.code}
                       onClick={() => { setLang(l.code); if (view !== 'home') setView('home') }}
                       className={`px-2 py-0.5 text-[0.63rem] font-bold rounded transition-all [font-family:var(--font-mono)] ${
-                        lang === l.code ? 'bg-[#f26a1b] text-white' : 'text-white/45 hover:text-white/75 hover:bg-white/[0.07]'
+                        lang === l.code ? 'bg-[#f26a1b] text-white' : 'text-[#94a3b8] hover:text-[#475569] hover:bg-black/[0.04]'
                       }`}
                     >
                       {l.label}
@@ -1056,12 +1102,12 @@ export default function Home() {
                         <Image src="/pmi-icon.jpg" alt="MAIA" width={28} height={28} className="object-cover" />
                       </div>
                       <div
-                        className="flex-1 rounded-2xl px-4 py-3 text-sm text-white leading-relaxed min-h-[48px]"
+                        className="flex-1 rounded-2xl px-4 py-3 text-sm text-[#1e293b] leading-relaxed min-h-[48px]"
                         style={{
                           borderTopLeftRadius: isRtl ? undefined : '4px',
                           borderTopRightRadius: isRtl ? '4px' : undefined,
-                          background: 'rgba(242,106,27,0.10)',
-                          border: '1px solid rgba(242,106,27,0.18)',
+                          background: 'rgba(242,106,27,0.08)',
+                          border: '1px solid rgba(242,106,27,0.20)',
                         }}
                         dir={isRtl ? 'rtl' : 'ltr'}
                       >
@@ -1074,20 +1120,20 @@ export default function Home() {
                     {greetingDone && (
                       <div
                         className="mb-5 rounded-2xl px-5 py-4 maia-fade"
-                        style={{ background: '#ffffff', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 8px 30px rgba(0,0,0,0.18)' }}
-                        dir="ltr"
+                        style={{ background: 'linear-gradient(180deg, #fffaf6 0%, #ffffff 100%)', border: '1px solid rgba(242,106,27,0.18)', boxShadow: '0 4px 16px rgba(15,23,42,0.06)' }}
+                        dir={isRtl ? 'rtl' : 'ltr'}
                       >
                         <div className="[font-family:var(--font-display)] text-[1.02rem] font-semibold leading-snug mb-1.5" style={{ color: '#0f172a' }}>
-                          Meet MAIA — your community&apos;s always-on assistant
+                          {WELCOME[lang].title}
                         </div>
                         <p className="text-[0.8rem] leading-relaxed mb-2" style={{ color: '#475569' }}>
-                          Not just an AI agent — a communication partner that gets smarter every day. Homeowner, tenant, board member, vendor, or agent, MAIA speaks your language: English, Spanish, Portuguese, French, Haitian&nbsp;Creole, Hebrew&nbsp;&amp; Russian.
+                          {WELCOME[lang].p1}
                         </p>
                         <p className="text-[0.8rem] leading-relaxed" style={{ color: '#475569' }}>
-                          She handles the routine so our team can focus on what matters — quick questions get instant answers, complex needs reach the right person. Nothing falls through the cracks.
+                          {WELCOME[lang].p2}
                         </p>
                         <div className="text-[0.64rem] font-medium mt-2.5 [font-family:var(--font-mono)] uppercase tracking-[0.04em]" style={{ color: '#f26a1b' }}>
-                          Communication made personal · Service made intelligent · Community made stronger
+                          {WELCOME[lang].tagline}
                         </div>
                       </div>
                     )}
@@ -1101,25 +1147,25 @@ export default function Home() {
                             onClick={() => handlePersona(p.key)}
                             className={`group flex flex-col items-center text-center p-3.5 rounded-lg transition-all duration-200 active:scale-[0.97] ${isRtl ? '' : ''}`}
                             style={{
-                              border: '1px solid rgba(255,255,255,0.07)',
-                              background: 'rgba(255,255,255,0.02)',
+                              border: '1px solid rgba(15,23,42,0.10)',
+                              background: '#f8fafc',
                             }}
                             onMouseEnter={e => {
                               const el = e.currentTarget
-                              el.style.borderColor = 'rgba(242,106,27,0.45)'
-                              el.style.background   = 'rgba(255,255,255,0.04)'
-                              el.style.boxShadow    = '0 0 18px rgba(242,106,27,0.14)'
+                              el.style.borderColor = 'rgba(242,106,27,0.55)'
+                              el.style.background   = '#fffaf6'
+                              el.style.boxShadow    = '0 6px 18px rgba(242,106,27,0.14)'
                             }}
                             onMouseLeave={e => {
                               const el = e.currentTarget
-                              el.style.borderColor = 'rgba(255,255,255,0.07)'
-                              el.style.background   = 'rgba(255,255,255,0.02)'
+                              el.style.borderColor = 'rgba(15,23,42,0.10)'
+                              el.style.background   = '#f8fafc'
                               el.style.boxShadow    = 'none'
                             }}
                           >
                             <span className="text-2xl mb-1.5 leading-none">{p.icon}</span>
-                            <span className="text-[0.76rem] font-semibold text-white leading-tight mb-0.5 group-hover:text-[#f26a1b] transition-colors">{p.title}</span>
-                            <span className="text-[0.62rem] text-[#6b7280] leading-snug">{p.desc}</span>
+                            <span className="text-[0.76rem] font-semibold text-[#0f172a] leading-tight mb-0.5 group-hover:text-[#f26a1b] transition-colors">{p.title}</span>
+                            <span className="text-[0.62rem] text-[#64748b] leading-snug">{p.desc}</span>
                           </button>
                         ))}
                       </div>
@@ -1608,28 +1654,28 @@ export default function Home() {
                   <div
                     className="bubble-circle w-[120px] h-[120px] rounded-full flex flex-col items-center justify-center gap-1.5"
                     style={{
-                      background: 'rgba(255,255,255,0.04)',
-                      border: '1px solid rgba(255,255,255,0.09)',
-                      backdropFilter: 'blur(14px)',
+                      background: '#ffffff',
+                      border: '1px solid rgba(15,23,42,0.10)',
+                      boxShadow: '0 6px 18px rgba(15,23,42,0.08)',
                     }}
                   >
                     <span style={{ fontSize: '32px', lineHeight: 1 }}>{b.icon}</span>
-                    <span style={{ fontSize: '13px', fontFamily: 'var(--font-mono)', color: 'rgba(255,255,255,0.65)', textAlign: 'center', lineHeight: 1.2, padding: '0 10px' }}>{b.label}</span>
+                    <span style={{ fontSize: '13px', fontFamily: 'var(--font-mono)', color: '#475569', textAlign: 'center', lineHeight: 1.2, padding: '0 10px' }}>{b.label}</span>
                   </div>
                   {/* Expanded hover card — grows right (away from widget) */}
                   <div
                     className="bubble-hover-card absolute top-0 z-20 rounded-2xl flex items-center gap-3 px-4"
                     style={{
                       left: 0, width: '240px', height: '120px',
-                      background: 'rgba(14,14,14,0.97)',
+                      background: '#ffffff',
                       border: '1px solid rgba(242,106,27,0.5)',
                       boxShadow: '0 0 24px rgba(242,106,27,0.22)',
                     }}
                   >
                     <span style={{ fontSize: '32px', lineHeight: 1, flexShrink: 0 }}>{b.icon}</span>
                     <div>
-                      <p style={{ fontSize: '13px', fontFamily: 'var(--font-mono)', color: '#fff', fontWeight: 600, marginBottom: '3px' }}>{b.label}</p>
-                      <p style={{ fontSize: '11px', color: '#9ca3af', lineHeight: 1.4 }}>{b.desc}</p>
+                      <p style={{ fontSize: '13px', fontFamily: 'var(--font-mono)', color: '#0f172a', fontWeight: 600, marginBottom: '3px' }}>{b.label}</p>
+                      <p style={{ fontSize: '11px', color: '#64748b', lineHeight: 1.4 }}>{b.desc}</p>
                     </div>
                   </div>
                 </div>
