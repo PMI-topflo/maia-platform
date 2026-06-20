@@ -50,17 +50,22 @@ export async function lookupPersonaRecord(
 
   switch (persona) {
     case 'owner': {
-      // Owners can be matched by email substring (their `emails` field is
-      // comma-separated). Pick the active row that contains the login.
-      if (!loginEmail) return null
-      const { data } = await supabaseAdmin
+      // The session may carry the login EMAIL (older sessions) OR the numeric
+      // owner_id — verify-otp sets userId = role.owner_id, and a Face ID login
+      // re-mints it as a string. Match by whichever we have, so the profile
+      // resolves either way (the email path uses the comma-separated `emails`).
+      let q = supabaseAdmin
         .from('owners')
         .select('id, first_name, last_name, entity_name, emails, phone, phone_2, address, association_code, association_name, unit_number, account_number')
-        .ilike('emails', `%${loginEmail}%`)
         .or('status.neq.previous,status.is.null')
-        .order('id', { ascending: false })
-        .limit(1)
-        .maybeSingle()
+      if (loginEmail) {
+        q = q.ilike('emails', `%${loginEmail}%`)
+      } else if (session.userId != null && String(session.userId) !== 'unknown') {
+        q = q.eq('id', session.userId)
+      } else {
+        return null
+      }
+      const { data } = await q.order('id', { ascending: false }).limit(1).maybeSingle()
       if (!data) return null
       const fullName = data.entity_name || [data.first_name, data.last_name].filter(Boolean).join(' ') || ''
       return {
@@ -106,14 +111,13 @@ export async function lookupPersonaRecord(
       }
     }
     case 'board': {
-      if (!loginEmail) return null
-      const { data } = await supabaseAdmin
+      if (!loginEmail && session.userId == null) return null
+      let q = supabaseAdmin
         .from('association_board_members')
         .select('id, association_code, name, email, role')
-        .ilike('email', loginEmail)
         .eq('active', true)
-        .limit(1)
-        .maybeSingle()
+      q = loginEmail ? q.ilike('email', loginEmail) : q.eq('id', session.userId)
+      const { data } = await q.limit(1).maybeSingle()
       if (!data) return null
       const { data: assoc } = await supabaseAdmin
         .from('associations')
@@ -134,14 +138,13 @@ export async function lookupPersonaRecord(
       }
     }
     case 'unit_manager': {
-      if (!loginEmail) return null
-      const { data } = await supabaseAdmin
+      if (!loginEmail && session.userId == null) return null
+      let q = supabaseAdmin
         .from('unit_managers')
         .select('id, first_name, last_name, email, phone, association_code, company_name')
-        .ilike('email', loginEmail)
         .eq('active', true)
-        .limit(1)
-        .maybeSingle()
+      q = loginEmail ? q.ilike('email', loginEmail) : q.eq('id', session.userId)
+      const { data } = await q.limit(1).maybeSingle()
       if (!data) return null
       const { data: assoc } = await supabaseAdmin
         .from('associations')
@@ -164,14 +167,13 @@ export async function lookupPersonaRecord(
       }
     }
     case 'building_manager': {
-      if (!loginEmail) return null
-      const { data } = await supabaseAdmin
+      if (!loginEmail && session.userId == null) return null
+      let q = supabaseAdmin
         .from('building_managers')
         .select('id, first_name, last_name, email, phone, association_code, company_name')
-        .ilike('email', loginEmail)
         .eq('active', true)
-        .limit(1)
-        .maybeSingle()
+      q = loginEmail ? q.ilike('email', loginEmail) : q.eq('id', session.userId)
+      const { data } = await q.limit(1).maybeSingle()
       if (!data) return null
       const { data: assoc } = await supabaseAdmin
         .from('associations')

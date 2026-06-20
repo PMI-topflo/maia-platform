@@ -9,9 +9,12 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import Link from 'next/link'
 import { type Persona, lookupPersonaRecord } from '@/lib/profile-change'
+import { associationPortalPath } from '@/lib/association-portal'
 import SiteHeader from '@/components/SiteHeader'
 import PersonaProfileForm from '@/components/PersonaProfileForm'
+import AskMaiaButton from '@/components/AskMaiaButton'
 
 interface ShellProps {
   persona:       Persona
@@ -45,16 +48,20 @@ export default async function PersonaProfileShell({ persona, redirectIfNot, titl
     pendingProposed = data?.proposed_value ?? null
   }
 
+  // Where "back" goes: the resident's own association portal (or the main page).
+  const backHref = associationPortalPath(session.associationCode) ?? '/'
+
   return (
     <main className="assoc-page">
       <div className="assoc-topbar">
-        <span className="assoc-topbar-l">WHATSAPP &amp; SMS 24/7 · +1 (786) 686-3223 · WE SPEAK ENGLISH, SPANISH, FRENCH &amp; PORTUGUESE</span>
-        <span className="assoc-topbar-r">305.900.5077</span>
+        <span className="assoc-topbar-l">💬 CHAT WITH MAIA 24/7 · WE SPEAK ENGLISH, SPANISH, PORTUGUESE, FRENCH, CREOLE, HEBREW &amp; RUSSIAN</span>
+        <AskMaiaButton label="ASK MAIA →" className="assoc-topbar-r" />
       </div>
 
       <SiteHeader subtitle={title} />
 
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '1.5rem 1rem' }}>
+        <Link href={backHref} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--orange)', fontSize: '.8rem', textDecoration: 'none', marginBottom: '1rem', fontFamily: 'var(--font-mono)' }}>← Back to my portal</Link>
         <h1 style={{ fontSize: '1.4rem', fontWeight: 600, color: 'var(--navy)', marginBottom: '.25rem' }}>My Profile</h1>
         <p style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: '1.25rem', lineHeight: 1.5 }}>
           Update your contact details. Login-email changes are reviewed by PMI staff before they take effect — you&apos;ll keep using your current address until the change is approved.

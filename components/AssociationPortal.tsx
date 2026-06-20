@@ -27,6 +27,7 @@ import AssociationPortalGate from '@/components/AssociationPortalGate'
 import PortalDocuments from '@/components/PortalDocuments'
 import MobileAppButton from '@/components/MobileAppButton'
 import ContactTickets from '@/components/ContactTickets'
+import AskMaiaButton from '@/components/AskMaiaButton'
 import ApplicationButton from '@/components/ApplicationButton'
 import PortalLangBar from '@/components/PortalLangBar'
 import { normalizePortalLang, portalStrings, isRtl } from '@/lib/portal-i18n'
@@ -73,7 +74,7 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
     <main className="assoc-page" dir={rtl ? 'rtl' : 'ltr'}>
       <div className="assoc-topbar">
         <span className="assoc-topbar-l">💬 CHAT WITH MAIA 24/7 · WE SPEAK ENGLISH, SPANISH, PORTUGUESE, FRENCH, CREOLE, HEBREW &amp; RUSSIAN</span>
-        <span className="assoc-topbar-r">ASK MAIA →</span>
+        <AskMaiaButton label="ASK MAIA →" className="assoc-topbar-r" />
       </div>
 
       <SiteHeader subtitle={`${t.headerSubtitle.toUpperCase()} · ${name}`} />
