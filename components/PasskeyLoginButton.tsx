@@ -13,11 +13,19 @@ import { useEffect, useState } from 'react'
 import { startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser'
 
 export default function PasskeyLoginButton() {
-  const [supported, setSupported] = useState(false)
+  const [show, setShow] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  useEffect(() => { setSupported(browserSupportsWebAuthn()) }, [])
+  // Only show this button once a passkey has actually been enrolled on THIS
+  // device — otherwise a first-time user taps it, the OS finds no passkey, and
+  // shows a confusing "no passkeys saved" / cross-device sheet. Enrollment
+  // (the post-login prompt or /my-account) sets maia_pk_enrolled.
+  useEffect(() => {
+    let enrolled = false
+    try { enrolled = localStorage.getItem('maia_pk_enrolled') === '1' } catch { /* ignore */ }
+    setShow(browserSupportsWebAuthn() && enrolled)
+  }, [])
 
   async function signIn() {
     setBusy(true); setErr(null)
@@ -48,7 +56,7 @@ export default function PasskeyLoginButton() {
     } finally { setBusy(false) }
   }
 
-  if (!supported) return null
+  if (!show) return null
 
   return (
     <div>

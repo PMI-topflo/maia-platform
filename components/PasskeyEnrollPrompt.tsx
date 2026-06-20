@@ -48,9 +48,12 @@ export default function PasskeyEnrollPrompt({ onDone }: { onDone: () => void }) 
       const options = await optRes.json()
       try {
         const att = await startRegistration({ optionsJSON: options })
-        await fetch('/api/auth/passkey/register/verify', {
+        const vRes = await fetch('/api/auth/passkey/register/verify', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ response: att }),
         })
+        // Success (or 409 = already enrolled on this device) → remember so the
+        // landing "Sign in with Face ID" button starts showing.
+        if (vRes.ok || vRes.status === 409) { try { localStorage.setItem('maia_pk_enrolled', '1') } catch { /* ignore */ } }
       } catch { /* cancelled or device error — don't block login */ }
     } catch { /* options failed — don't block login */ }
     onDone()

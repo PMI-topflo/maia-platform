@@ -24,8 +24,13 @@ export default function PasskeySettings() {
   useEffect(() => { setSupported(browserSupportsWebAuthn()); refresh() }, [])
 
   async function refresh() {
-    try { const r = await fetch('/api/auth/passkey/list'); const d = await r.json(); setPasskeys(d.passkeys ?? []) }
-    catch { setPasskeys([]) }
+    try {
+      const r = await fetch('/api/auth/passkey/list'); const d = await r.json()
+      setPasskeys(d.passkeys ?? [])
+      // Keep the device flag honest: if the account has no passkeys at all,
+      // clear it so the landing "Sign in with Face ID" button hides again.
+      if ((d.passkeys?.length ?? 0) === 0) { try { localStorage.removeItem('maia_pk_enrolled') } catch { /* ignore */ } }
+    } catch { setPasskeys([]) }
   }
 
   async function enroll() {
@@ -48,9 +53,11 @@ export default function PasskeySettings() {
       })
       const vd = await vRes.json()
       if (vRes.status === 409 || vd?.error === 'webauthn_credential_exists') {
+        try { localStorage.setItem('maia_pk_enrolled', '1') } catch { /* ignore */ }
         setMsg({ kind: 'ok', text: 'This device already has a passkey set up.' }); await refresh(); return
       }
       if (!vRes.ok) throw new Error('Enrollment failed. Please try again.')
+      try { localStorage.setItem('maia_pk_enrolled', '1') } catch { /* ignore */ }
       setMsg({ kind: 'ok', text: `Face ID / fingerprint sign-in is on${vd?.passkey?.friendly_name ? ` — ${vd.passkey.friendly_name}` : ''}.` })
       await refresh()
     } catch (e) {
