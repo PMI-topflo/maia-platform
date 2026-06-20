@@ -927,6 +927,16 @@ export default function Home() {
             transition: 'opacity 0.8s ease 0.15s',
           }}
         >
+          {/* PMI brand logo above the widget */}
+          <Image
+            src="/pmi-logo-transparent.png"
+            alt="PMI Top Florida Properties"
+            width={220}
+            height={104}
+            priority
+            className="mb-5 h-[54px] w-auto object-contain"
+          />
+
           {/* Desktop layout: left bubbles · widget · right bubbles */}
           <div className="flex items-center justify-center w-full gap-0">
 
