@@ -7,6 +7,7 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { getGoverningDocsForPortal } from '@/lib/governing-docs-for-portal'
 import { listPublishedReportsFor, monthLabel } from '@/lib/monthly-report'
 import MobileAppButton from '@/components/MobileAppButton'
+import PasskeySettings from '@/components/PasskeySettings'
 
 export default async function MyAccountPage(props: {
   searchParams: Promise<{ id?: string; assoc?: string }>
@@ -268,6 +269,14 @@ export default async function MyAccountPage(props: {
           </div>
         </>
       )}
+
+      {/* Sign-in & Security — passkey (Face ID / fingerprint) enrollment */}
+      <div className="section" style={{ paddingTop: '1.5rem' }}>
+        <h2 className="section-title">Sign-in &amp; Security</h2>
+      </div>
+      <div className="prow-grid" style={{ marginTop: 0 }}>
+        <PasskeySettings />
+      </div>
 
       {/* HOA balance note */}
       <div className="section" style={{ paddingTop: '1.25rem', paddingBottom: '2rem' }}>

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import AddressSearch from '@/components/AddressSearch'
+import PasskeyLoginButton from '@/components/PasskeyLoginButton'
 import TwoFactorAuth from '@/components/TwoFactorAuth'
 import { associationPortalPath } from '@/lib/association-portal'
 import type { AddressResult } from '@/app/api/address-search/route'
@@ -1185,6 +1186,18 @@ export default function Home() {
                             <span className="text-[0.62rem] text-[#64748b] leading-snug">{p.desc}</span>
                           </button>
                         ))}
+                      </div>
+                    )}
+
+                    {/* Returning resident — Face ID / fingerprint sign-in (English-only) */}
+                    {greetingDone && (
+                      <div className="mt-4 maia-fade">
+                        <div className="my-3 flex items-center gap-3">
+                          <div className="h-px flex-1 bg-gray-200" />
+                          <span className="text-[0.58rem] uppercase tracking-[0.1em] text-gray-400 [font-family:var(--font-mono)]">Already set up? Faster sign-in</span>
+                          <div className="h-px flex-1 bg-gray-200" />
+                        </div>
+                        <PasskeyLoginButton />
                       </div>
                     )}
                   </>
