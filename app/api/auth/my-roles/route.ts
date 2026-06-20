@@ -15,6 +15,7 @@ import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveStaffByLoginEmail, staffCandidateEmails } from '@/lib/staff-lookup'
+import { lookupPersonaRecord, type Persona } from '@/lib/profile-change'
 
 export const dynamic = 'force-dynamic'
 
@@ -50,9 +51,19 @@ export async function GET() {
   const session     = token ? await verifySession(token) : null
   if (!session) return NextResponse.json({ roles: [] }, { status: 401 })
 
-  const loginEmail = typeof session.userId === 'string' && session.userId.includes('@')
+  let loginEmail = typeof session.userId === 'string' && session.userId.includes('@')
     ? session.userId.toLowerCase()
     : ''
+
+  // Owner / board / manager sessions carry the record id (not the email), so
+  // derive the email(s) from the current persona's record — otherwise we can't
+  // find the user's OTHER personas to offer in the account switcher.
+  let derivedEmails: string[] = []
+  if (!loginEmail) {
+    const rec = await lookupPersonaRecord(session.persona as Persona, { userId: session.userId, associationCode: session.associationCode })
+    derivedEmails = (rec?.current_email ?? '').split(/[,;]/).map(s => s.trim().toLowerCase()).filter(e => e.includes('@'))
+    if (derivedEmails.length) loginEmail = derivedEmails[0]
+  }
 
   const roles: ResolvedRole[] = []
 
@@ -75,7 +86,7 @@ export async function GET() {
   // If the user resolved to a staff row, search by every email tied to
   // that row (work + personal + alt_emails + the login email itself).
   // Otherwise just use the login email.
-  const lookupEmails = staffRow ? staffCandidateEmails(staffRow, loginEmail) : [loginEmail]
+  const lookupEmails = staffRow ? staffCandidateEmails(staffRow, loginEmail) : (derivedEmails.length ? derivedEmails : [loginEmail])
 
   // Build .or() clauses for each table — Postgres ILIKE OR'd across
   // each candidate email. Empty list shouldn't happen but guard anyway.

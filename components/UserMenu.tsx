@@ -75,19 +75,19 @@ export default function UserMenu() {
     return () => { cancelled = true }
   }, [])
 
-  // Lazily resolve actual personas when the "My Personas" section is
-  // expanded for the first time. Avoids hammering the DB on every page
-  // load — most visits won't open the menu, let alone this submenu.
-  // The ref dedupes; we don't call setState synchronously in this effect
-  // so renders stay clean.
+  // Resolve the user's personas when they OPEN the menu (once, deduped). Must
+  // load eagerly — not on expanding "My personas" — because the header that
+  // toggles that section is itself only shown once we know the user has other
+  // personas (others.length > 0). Lazy-on-expand created a chicken-and-egg
+  // where non-staff users never saw the switcher at all.
   useEffect(() => {
-    if (!showSwitch || rolesFetchedRef.current) return
+    if (!open || !session || rolesFetchedRef.current) return
     rolesFetchedRef.current = true
     fetch('/api/auth/my-roles')
       .then(r => r.ok ? r.json() : { roles: [] })
       .then((data: { roles: ResolvedRole[] }) => setRoles(data.roles ?? []))
       .catch(() => setRoles([]))
-  }, [showSwitch])
+  }, [open, session])
 
   // Close on click-outside.
   useEffect(() => {

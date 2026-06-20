@@ -59,10 +59,19 @@ export async function GET() {
     .limit(1)
     .maybeSingle()
 
+  // The resident's saved preferred language (set from this page).
+  const { data: langRow } = await supabaseAdmin
+    .from('resident_language_prefs')
+    .select('lang')
+    .eq('persona',           session.persona)
+    .eq('persona_record_id', record.id)
+    .maybeSingle()
+
   return NextResponse.json({
     persona: session.persona,
     profile: record,
     pending: pendingRow ?? null,
+    lang:    langRow?.lang ?? null,
   })
 }
 
@@ -75,7 +84,10 @@ interface PatchBody {
   phone_2?:      string | null
   address?:      string | null
   company_name?: string | null
+  preferred_language?: string | null
 }
+
+const LANGS = ['en', 'es', 'pt', 'fr', 'ht', 'he', 'ru']
 
 export async function PATCH(req: Request) {
   const session = await getSession()
@@ -99,6 +111,14 @@ export async function PATCH(req: Request) {
   }
   const safeRes = await applySafeFieldUpdates(persona, record.id, safe)
   if (!safeRes.ok) return NextResponse.json({ error: safeRes.error }, { status: 400 })
+
+  // Preferred language — saved immediately (no approval), keyed by persona+record.
+  if (typeof body.preferred_language === 'string' && LANGS.includes(body.preferred_language)) {
+    await supabaseAdmin
+      .from('resident_language_prefs')
+      .upsert({ persona, persona_record_id: record.id, lang: body.preferred_language, updated_at: new Date().toISOString() }, { onConflict: 'persona,persona_record_id' })
+      .then(() => null, () => null)
+  }
 
   // Email change?
   let pendingQueued: string | null = null
