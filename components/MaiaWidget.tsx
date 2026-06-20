@@ -334,6 +334,13 @@ export default function MaiaWidget({ embedded = false }: { embedded?: boolean })
     return () => window.removeEventListener('resize', check)
   }, [])
 
+  // Let any "Ask MAIA" affordance elsewhere on the page open this widget.
+  useEffect(() => {
+    const openIt = () => setOpen(true)
+    window.addEventListener('maia:open', openIt)
+    return () => window.removeEventListener('maia:open', openIt)
+  }, [])
+
   // Detect an existing login so the widget can greet by name and skip the
   // "who are you?" selector for someone who's already signed in.
   useEffect(() => {

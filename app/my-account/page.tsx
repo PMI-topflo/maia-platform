@@ -8,6 +8,7 @@ import { getGoverningDocsForPortal } from '@/lib/governing-docs-for-portal'
 import { listPublishedReportsFor, monthLabel } from '@/lib/monthly-report'
 import MobileAppButton from '@/components/MobileAppButton'
 import PasskeySettings from '@/components/PasskeySettings'
+import AskMaiaButton from '@/components/AskMaiaButton'
 
 export default async function MyAccountPage(props: {
   searchParams: Promise<{ id?: string; assoc?: string }>
@@ -102,7 +103,7 @@ export default async function MyAccountPage(props: {
       {/* Top bar */}
       <div className="assoc-topbar">
         <span className="assoc-topbar-l">💬 CHAT WITH MAIA 24/7 · WE SPEAK ENGLISH, SPANISH, PORTUGUESE, FRENCH, CREOLE, HEBREW &amp; RUSSIAN</span>
-        <span className="assoc-topbar-r">ASK MAIA →</span>
+        <AskMaiaButton label="ASK MAIA →" className="assoc-topbar-r" />
       </div>
 
       <SiteHeader subtitle={`MY ACCOUNT · ${owner.association_name}`} />
