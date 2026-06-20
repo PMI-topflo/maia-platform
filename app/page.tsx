@@ -528,6 +528,7 @@ export default function Home() {
   const [chatBusy,      setChatBusy]      = useState(false)
   const [pending2FA,    setPending2FA]    = useState<MatchedRole | null>(null)
   const [enrollRole,    setEnrollRole]    = useState<MatchedRole | null>(null)
+  const [pkEnrolled,    setPkEnrolled]    = useState(false)   // device has a passkey → offer Face ID first
   const [hasSession,      setHasSession]      = useState(false)
   const [returnUrl,       setReturnUrl]       = useState<string | null>(null)
   const [sessionContact,  setSessionContact]  = useState('')   // full name from session cookie
@@ -548,6 +549,11 @@ export default function Home() {
   const [vdAssoc,   setVdAssoc]   = useState<AddressResult | null>(null)
 
   // Restore saved persona + check active session cookie
+  // Returning user with a passkey on this device → surface Face ID first.
+  useEffect(() => {
+    try { setPkEnrolled(localStorage.getItem('maia_pk_enrolled') === '1') } catch { /* ignore */ }
+  }, [])
+
   useEffect(() => {
     let sp: MatchedRole | null = null
     try {
@@ -1124,7 +1130,20 @@ export default function Home() {
                       )
                     })()}
 
-                    {/* Meet MAIA — light welcome / explanation card (shown first) */}
+                    {/* Returning resident with a passkey → Face ID FIRST, before
+                        anything else (shows immediately, no greeting wait).
+                        English-only per the durable-artifact rule. */}
+                    {pkEnrolled && (
+                      <div className="mb-5 rounded-2xl border p-4" style={{ borderColor: 'rgba(242,106,27,0.30)', background: '#fffaf6' }}>
+                        <div className="text-center text-[0.95rem] font-semibold text-[#0f172a] mb-2.5">Welcome back! Sign in instantly:</div>
+                        <PasskeyLoginButton />
+                        <div className="mt-2.5 text-center text-[0.58rem] uppercase tracking-[0.1em] text-gray-400 [font-family:var(--font-mono)]">— or choose how to identify below —</div>
+                      </div>
+                    )}
+
+                    {/* Meet MAIA — light welcome / explanation card (hidden for
+                        returning passkey users; they don't need the intro again). */}
+                    {!pkEnrolled && (
                     <div
                       className="mb-5 rounded-2xl px-5 py-4 maia-fade"
                       style={{ background: 'linear-gradient(180deg, #fffaf6 0%, #ffffff 100%)', border: '1px solid rgba(242,106,27,0.18)', boxShadow: '0 4px 16px rgba(15,23,42,0.06)' }}
@@ -1148,6 +1167,7 @@ export default function Home() {
                         🔒 {WELCOME[lang].whyRegister}
                       </p>
                     </div>
+                    )}
 
                     {/* Greeting bubble — below the Meet MAIA card */}
                     <div className={`flex gap-2.5 mb-5 ${isRtl ? 'flex-row-reverse' : ''}`}>
@@ -1202,17 +1222,6 @@ export default function Home() {
                       </div>
                     )}
 
-                    {/* Returning resident — Face ID / fingerprint sign-in (English-only) */}
-                    {greetingDone && (
-                      <div className="mt-4 maia-fade">
-                        <div className="my-3 flex items-center gap-3">
-                          <div className="h-px flex-1 bg-gray-200" />
-                          <span className="text-[0.58rem] uppercase tracking-[0.1em] text-gray-400 [font-family:var(--font-mono)]">Already set up? Faster sign-in</span>
-                          <div className="h-px flex-1 bg-gray-200" />
-                        </div>
-                        <PasskeyLoginButton />
-                      </div>
-                    )}
                   </>
                 )}
 

@@ -34,7 +34,9 @@ export async function POST(req: Request) {
     userID: new TextEncoder().encode(subject),
     attestationType: 'none',
     excludeCredentials: (existing ?? []).map(c => ({ id: c.credential_id as string, transports: (c.transports ?? undefined) as undefined })),
-    authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
+    // Prefer the device's BUILT-IN biometric (Face ID / Touch ID / fingerprint)
+    // over roaming security keys, so the OS surfaces the platform passkey first.
+    authenticatorSelection: { authenticatorAttachment: 'platform', residentKey: 'required', userVerification: 'preferred' },
   })
 
   const res = NextResponse.json(options)
