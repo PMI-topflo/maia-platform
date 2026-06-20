@@ -43,49 +43,56 @@ const GREETING: Record<Lang, string> = {
   ru: 'Привет! Я MAIA, ваш ассистент PMI Top Florida. Как я могу помочь вам сегодня?',
 }
 
-interface WelcomeCopy { title: string; p1: string; p2: string; tagline: string }
+interface WelcomeCopy { title: string; p1: string; p2: string; tagline: string; whyRegister: string }
 const WELCOME: Record<Lang, WelcomeCopy> = {
   en: {
     title: "Meet MAIA — your community's always-on assistant",
     p1: 'Not just an AI agent — a communication partner that gets smarter every day. Homeowner, tenant, board member, vendor, or agent, MAIA speaks your language: English, Spanish, Portuguese, French, Haitian Creole, Hebrew & Russian.',
     p2: 'She handles the routine so our team can focus on what matters — quick questions get instant answers, complex needs reach the right person. Nothing falls through the cracks.',
     tagline: 'Communication made personal · Service made intelligent · Community made stronger',
+    whyRegister: 'Wondering why a public page asks you to identify? Your documents, balance, and account are private — a quick check shows you the right portal and keeps your information secure.',
   },
   es: {
     title: 'Conoce a MAIA — la asistente siempre disponible de tu comunidad',
     p1: 'No es solo un agente de IA, sino una socia de comunicación que mejora cada día. Propietario, inquilino, miembro de la junta, proveedor o agente: MAIA habla tu idioma: inglés, español, portugués, francés, criollo haitiano, hebreo y ruso.',
     p2: 'Ella se encarga de lo rutinario para que nuestro equipo se concentre en lo que importa: las preguntas rápidas reciben respuestas al instante y las necesidades complejas llegan a la persona adecuada. Nada queda sin atender.',
     tagline: 'Comunicación personalizada · Servicio inteligente · Comunidad más fuerte',
+    whyRegister: '¿Te preguntas por qué una página pública te pide identificarte? Tus documentos, saldo y cuenta son privados: una verificación rápida te muestra el portal correcto y mantiene tu información segura.',
   },
   pt: {
     title: 'Conheça a MAIA — a assistente sempre disponível da sua comunidade',
     p1: 'Não é apenas um agente de IA, mas uma parceira de comunicação que fica mais inteligente a cada dia. Proprietário, inquilino, membro do conselho, fornecedor ou corretor — a MAIA fala a sua língua: inglês, espanhol, português, francês, crioulo haitiano, hebraico e russo.',
     p2: 'Ela cuida da rotina para que nossa equipe possa focar no que importa — perguntas rápidas recebem respostas instantâneas e necessidades complexas chegam à pessoa certa. Nada passa despercebido.',
     tagline: 'Comunicação personalizada · Serviço inteligente · Comunidade mais forte',
+    whyRegister: 'Quer saber por que uma página pública pede para você se identificar? Seus documentos, saldo e conta são privados — uma verificação rápida mostra o portal certo e mantém suas informações seguras.',
   },
   fr: {
     title: "Découvrez MAIA — l'assistante toujours disponible de votre communauté",
     p1: "Pas seulement un agent IA, mais une partenaire de communication qui s'améliore chaque jour. Propriétaire, locataire, membre du conseil, fournisseur ou agent — MAIA parle votre langue : anglais, espagnol, portugais, français, créole haïtien, hébreu et russe.",
     p2: "Elle gère la routine pour que notre équipe se concentre sur l'essentiel — les questions simples reçoivent des réponses instantanées et les besoins complexes parviennent à la bonne personne. Rien n'est laissé de côté.",
     tagline: 'Communication personnalisée · Service intelligent · Communauté renforcée',
+    whyRegister: 'Vous vous demandez pourquoi une page publique vous demande de vous identifier ? Vos documents, votre solde et votre compte sont privés — une vérification rapide vous dirige vers le bon portail et protège vos informations.',
   },
   ht: {
     title: 'Rankontre MAIA — asistan kominote w la ki toujou disponib',
     p1: 'Se pa sèlman yon ajan AI — se yon patnè kominikasyon ki vin pi entelijan chak jou. Pwopriyetè, lokatè, manm konsèy, founisè, oswa ajan — MAIA pale lang ou: angle, panyòl, pòtigè, franse, kreyòl ayisyen, ebre ak ris.',
     p2: 'Li jere bagay woutin yo pou ekip nou an ka konsantre sou sa ki enpòtan — kesyon rapid jwenn repons touswit, bezwen konplèks rive jwenn bon moun nan. Anyen pa pèdi.',
     tagline: 'Kominikasyon pèsonèl · Sèvis entelijan · Kominote pi solid',
+    whyRegister: 'Èske w ap mande poukisa yon paj piblik mande w idantifye tèt ou? Dokiman, balans, ak kont ou prive — yon ti verifikasyon montre w bon pòtal la epi li kenbe enfòmasyon ou an sekirite.',
   },
   he: {
     title: 'הכירו את MAIA — העוזרת תמיד-זמינה של הקהילה שלכם',
     p1: 'לא רק סוכן AI — אלא שותפה לתקשורת שמשתפרת מדי יום. בעל יחידה, שוכר, חבר ועד, ספק או סוכן — MAIA דוברת את השפה שלכם: אנגלית, ספרדית, פורטוגזית, צרפתית, קריאולית האיטית, עברית ורוסית.',
     p2: 'היא מטפלת בשגרה כדי שהצוות שלנו יוכל להתמקד במה שחשוב — שאלות פשוטות מקבלות מענה מיידי, וצרכים מורכבים מגיעים לאדם הנכון. שום דבר לא נופל בין הכיסאות.',
     tagline: 'תקשורת אישית · שירות חכם · קהילה חזקה יותר',
+    whyRegister: 'תוהים מדוע עמוד ציבורי מבקש מכם להזדהות? המסמכים, היתרה והחשבון שלכם פרטיים — בדיקה מהירה מפנה אתכם לפורטל הנכון ושומרת על המידע שלכם מאובטח.',
   },
   ru: {
     title: 'Знакомьтесь, MAIA — всегда на связи помощник вашего сообщества',
     p1: 'Не просто ИИ-агент, а партнёр по коммуникации, который становится умнее с каждым днём. Владелец, арендатор, член правления, поставщик или агент — MAIA говорит на вашем языке: английском, испанском, португальском, французском, гаитянском креольском, иврите и русском.',
     p2: 'Она берёт на себя рутину, чтобы наша команда могла сосредоточиться на главном — простые вопросы получают мгновенные ответы, а сложные задачи попадают к нужному человеку. Ничего не теряется.',
     tagline: 'Общение — личное · Сервис — умный · Сообщество — крепче',
+    whyRegister: 'Думаете, почему публичная страница просит представиться? Ваши документы, баланс и аккаунт конфиденциальны — быстрая проверка покажет нужный портал и сохранит вашу информацию в безопасности.',
   },
 }
 
@@ -447,29 +454,29 @@ const ID_MSGS: Record<Lang, IdMsgs> = {
 
 // ── Shared input/label styles ─────────────────────────────────────────────────
 
-const inputCls = 'w-full px-3 py-2.5 border border-[#333] rounded-[2px] text-sm focus:outline-none focus:border-[#f26a1b] focus:shadow-[0_0_0_3px_rgba(242,106,27,.18)] bg-[#1a1a1a] text-white placeholder:text-[#555] transition-shadow'
-const labelCls = 'block mb-1 text-[0.62rem] font-medium uppercase tracking-[0.1em] text-[#9ca3af] [font-family:var(--font-mono)]'
+const inputCls = 'w-full px-3 py-2.5 border border-[#cbd5e1] rounded-[2px] text-sm focus:outline-none focus:border-[#f26a1b] focus:shadow-[0_0_0_3px_rgba(242,106,27,.18)] bg-white text-[#0f172a] placeholder:text-[#94a3b8] transition-shadow'
+const labelCls = 'block mb-1 text-[0.62rem] font-medium uppercase tracking-[0.1em] text-[#64748b] [font-family:var(--font-mono)]'
 
 // ── VendorCoiCard ─────────────────────────────────────────────────────────────
 
 function VendorCoiCard({ result }: { result: AddressResult | null }) {
   if (!result?.principal_address) {
     return (
-      <div className="bg-[#1a1a1a] border border-[#333] rounded-[3px] p-3 text-[0.72rem] text-[#9ca3af] leading-relaxed">
-        <span className="font-medium text-white">📋 COI Additional Insured</span><br />
+      <div className="bg-[#f8fafc] border border-[#e2e8f0] rounded-[3px] p-3 text-[0.72rem] text-[#64748b] leading-relaxed">
+        <span className="font-medium text-[#0f172a]">📋 COI Additional Insured</span><br />
         Contact <a href="mailto:billing@topfloridaproperties.com" className="text-[#f26a1b]">billing@topfloridaproperties.com</a> or call <a href="tel:+13059005077" className="text-[#f26a1b]">305.900.5077</a> for COI requirements for this association.
       </div>
     )
   }
   const addr = [result.principal_address, result.city, result.state ?? 'FL', result.zip].filter(Boolean).join(', ')
   return (
-    <div className="bg-[#0d1a10] border border-[#1e4d2b] rounded-[3px] p-3 space-y-1.5">
+    <div className="bg-[#ecfdf5] border border-[#a7f3d0] rounded-[3px] p-3 space-y-1.5">
       <div className="text-[0.6rem] font-medium uppercase tracking-[0.1em] text-[#4ade80] [font-family:var(--font-mono)]">📋 COI Additional Insured Requirements</div>
-      <ol className="text-[0.72rem] text-white leading-relaxed space-y-1 list-decimal list-inside">
-        <li><span className="font-medium">{result.association_name}</span><br /><span className="text-[#9ca3af] pl-4">{addr}</span></li>
-        <li><span className="font-medium">PMI Top Florida Properties</span><br /><span className="text-[#9ca3af] pl-4">1031 Ives Dairy Road Suite 228, Miami, FL 33179</span></li>
+      <ol className="text-[0.72rem] text-[#1e293b] leading-relaxed space-y-1 list-decimal list-inside">
+        <li><span className="font-medium">{result.association_name}</span><br /><span className="text-[#64748b] pl-4">{addr}</span></li>
+        <li><span className="font-medium">PMI Top Florida Properties</span><br /><span className="text-[#64748b] pl-4">1031 Ives Dairy Road Suite 228, Miami, FL 33179</span></li>
       </ol>
-      <p className="text-[0.68rem] text-[#9ca3af] pt-1">Forward to your insurance agent · Questions? <a href="mailto:billing@topfloridaproperties.com" className="text-[#f26a1b]">billing@topfloridaproperties.com</a></p>
+      <p className="text-[0.68rem] text-[#64748b] pt-1">Forward to your insurance agent · Questions? <a href="mailto:billing@topfloridaproperties.com" className="text-[#f26a1b]">billing@topfloridaproperties.com</a></p>
     </div>
   )
 }
@@ -793,7 +800,7 @@ export default function Home() {
   const BackBtn = ({ onClick }: { onClick?: () => void } = {}) => (
     <button
       onClick={onClick ?? (() => { setMatchedRoles([]); setView('home') })}
-      className="inline-flex items-center gap-1 text-[0.72rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] uppercase tracking-[0.08em] mb-4 transition-colors"
+      className="inline-flex items-center gap-1 text-[0.72rem] text-[#64748b] hover:text-[#f26a1b] [font-family:var(--font-mono)] uppercase tracking-[0.08em] mb-4 transition-colors"
     >
       {t.back}
     </button>
@@ -806,7 +813,7 @@ export default function Home() {
           <Image src="/pmi-icon.jpg" alt="MAIA" width={28} height={28} className="object-cover" />
         </div>
         <div
-          className="flex-1 rounded-2xl px-4 py-3 text-[0.82rem] text-white leading-relaxed"
+          className="flex-1 rounded-2xl px-4 py-3 text-[0.82rem] text-[#1e293b] leading-relaxed"
           style={{
             borderTopLeftRadius: isRtl ? undefined : '4px',
             borderTopRightRadius: isRtl ? '4px' : undefined,
@@ -905,14 +912,11 @@ export default function Home() {
           }}
         >
           <span className="text-white/90 text-[0.58rem] sm:text-[0.62rem] [font-family:var(--font-mono)] uppercase tracking-[0.1em] truncate">
-            WHATSAPP &amp; SMS 24/7&nbsp; ·&nbsp; +1 (786) 686-3223&nbsp; ·&nbsp; EN · ES · PT · FR · HT · HE · RU
+            💬 CHAT WITH MAIA 24/7&nbsp; ·&nbsp; WE SPEAK EN · ES · PT · FR · HT · HE · RU
           </span>
-          <a
-            href="tel:+13059005077"
-            className="text-white font-bold text-[0.7rem] sm:text-[0.78rem] [font-family:var(--font-mono)] tracking-wide flex-shrink-0 hover:text-white/80 transition-colors"
-          >
-            305.900.5077
-          </a>
+          <span className="text-white font-bold text-[0.7rem] sm:text-[0.78rem] [font-family:var(--font-mono)] tracking-wide flex-shrink-0">
+            ASK MAIA BELOW ↓
+          </span>
         </div>
 
         {/* ── Main content ───────────────────────────────────────────────── */}
@@ -1036,7 +1040,7 @@ export default function Home() {
                             <div className="text-[0.55rem] font-medium uppercase tracking-[0.15em] text-[#f26a1b] [font-family:var(--font-mono)] mb-1">
                               {hasSession ? 'Welcome back' : 'Quick Access'}
                             </div>
-                            <div className="text-[1.1rem] font-light text-white [font-family:var(--font-display)] leading-snug mb-1">
+                            <div className="text-[1.1rem] font-light text-[#0f172a] [font-family:var(--font-display)] leading-snug mb-1">
                               {firstName ? `${firstName}! 👋` : (hasSession ? 'Good to see you! 👋' : (
                                 savedPersona.type === 'staff'            ? 'PMI Staff Dashboard' :
                                 savedPersona.type === 'owner'            ? `Unit Owner — ${savedPersona.association_name}` :
@@ -1047,7 +1051,7 @@ export default function Home() {
                               ))}
                             </div>
                             {hasSession && (
-                              <div className="text-[0.72rem] text-[#9ca3af] mb-3 leading-snug">{subtitle}</div>
+                              <div className="text-[0.72rem] text-[#64748b] mb-3 leading-snug">{subtitle}</div>
                             )}
                             <div className="flex items-center gap-3 mt-2">
                               <button
@@ -1068,7 +1072,7 @@ export default function Home() {
                                   setSavedPersona(null); setHasSession(false); setSessionContact('')
                                   void fetch('/api/auth/check-session', { method: 'DELETE' })
                                 }}
-                                className="text-[0.68rem] text-[#6b7280] hover:text-[#9ca3af] [font-family:var(--font-mono)] transition-colors"
+                                className="text-[0.68rem] text-[#64748b] hover:text-[#64748b] [font-family:var(--font-mono)] transition-colors"
                               >
                                 Not {firstName || 'you'}?
                               </button>
@@ -1079,15 +1083,15 @@ export default function Home() {
                                 they don't have cross-portal access. */}
                             {hasSession && savedPersona.type === 'staff' && (
                               <div className="mt-3 pt-3 border-t border-[#f26a1b]/15">
-                                <div className="text-[0.55rem] font-medium uppercase tracking-[0.15em] text-[#9ca3af] [font-family:var(--font-mono)] mb-2">
+                                <div className="text-[0.55rem] font-medium uppercase tracking-[0.15em] text-[#64748b] [font-family:var(--font-mono)] mb-2">
                                   Switch portal
                                 </div>
                                 <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                                  <Link href="/admin"      className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Staff →</Link>
-                                  <Link href="/board"      className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Board →</Link>
-                                  <Link href="/my-account" className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Owner →</Link>
-                                  <Link href="/unit-manager"     className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Unit mgr →</Link>
-                                  <Link href="/building-manager" className="text-[0.68rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Building mgr →</Link>
+                                  <Link href="/admin"      className="text-[0.68rem] text-[#64748b] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Staff →</Link>
+                                  <Link href="/board"      className="text-[0.68rem] text-[#64748b] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Board →</Link>
+                                  <Link href="/my-account" className="text-[0.68rem] text-[#64748b] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Owner →</Link>
+                                  <Link href="/unit-manager"     className="text-[0.68rem] text-[#64748b] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Unit mgr →</Link>
+                                  <Link href="/building-manager" className="text-[0.68rem] text-[#64748b] hover:text-[#f26a1b] [font-family:var(--font-mono)] transition-colors">Building mgr →</Link>
                                 </div>
                               </div>
                             )}
@@ -1096,7 +1100,32 @@ export default function Home() {
                       )
                     })()}
 
-                    {/* Greeting bubble */}
+                    {/* Meet MAIA — light welcome / explanation card (shown first) */}
+                    <div
+                      className="mb-5 rounded-2xl px-5 py-4 maia-fade"
+                      style={{ background: 'linear-gradient(180deg, #fffaf6 0%, #ffffff 100%)', border: '1px solid rgba(242,106,27,0.18)', boxShadow: '0 4px 16px rgba(15,23,42,0.06)' }}
+                      dir={isRtl ? 'rtl' : 'ltr'}
+                    >
+                      {/* Tagline — bold headline on top */}
+                      <div className="[font-family:var(--font-display)] text-[1.18rem] font-bold leading-snug mb-2.5" style={{ color: '#0f172a' }}>
+                        {WELCOME[lang].tagline}
+                      </div>
+                      <div className="[font-family:var(--font-display)] text-[1.02rem] font-semibold leading-snug mb-1.5" style={{ color: '#0f172a' }}>
+                        {WELCOME[lang].title}
+                      </div>
+                      <p className="text-[0.8rem] leading-relaxed mb-2" style={{ color: '#475569' }}>
+                        {WELCOME[lang].p1}
+                      </p>
+                      <p className="text-[0.8rem] leading-relaxed mb-2.5" style={{ color: '#475569' }}>
+                        {WELCOME[lang].p2}
+                      </p>
+                      {/* Why a public page asks you to identify */}
+                      <p className="text-[0.75rem] leading-relaxed rounded-lg px-3 py-2" style={{ color: '#7c2d12', background: 'rgba(242,106,27,0.07)', border: '1px solid rgba(242,106,27,0.15)' }}>
+                        🔒 {WELCOME[lang].whyRegister}
+                      </p>
+                    </div>
+
+                    {/* Greeting bubble — below the Meet MAIA card */}
                     <div className={`flex gap-2.5 mb-5 ${isRtl ? 'flex-row-reverse' : ''}`}>
                       <div className="flex-shrink-0 w-7 h-7 rounded-full overflow-hidden mt-0.5">
                         <Image src="/pmi-icon.jpg" alt="MAIA" width={28} height={28} className="object-cover" />
@@ -1115,28 +1144,6 @@ export default function Home() {
                         {!greetingDone && <span className="cursor-blink text-[#f26a1b]">▋</span>}
                       </div>
                     </div>
-
-                    {/* Meet MAIA — light welcome / explanation card */}
-                    {greetingDone && (
-                      <div
-                        className="mb-5 rounded-2xl px-5 py-4 maia-fade"
-                        style={{ background: 'linear-gradient(180deg, #fffaf6 0%, #ffffff 100%)', border: '1px solid rgba(242,106,27,0.18)', boxShadow: '0 4px 16px rgba(15,23,42,0.06)' }}
-                        dir={isRtl ? 'rtl' : 'ltr'}
-                      >
-                        <div className="[font-family:var(--font-display)] text-[1.02rem] font-semibold leading-snug mb-1.5" style={{ color: '#0f172a' }}>
-                          {WELCOME[lang].title}
-                        </div>
-                        <p className="text-[0.8rem] leading-relaxed mb-2" style={{ color: '#475569' }}>
-                          {WELCOME[lang].p1}
-                        </p>
-                        <p className="text-[0.8rem] leading-relaxed" style={{ color: '#475569' }}>
-                          {WELCOME[lang].p2}
-                        </p>
-                        <div className="text-[0.64rem] font-medium mt-2.5 [font-family:var(--font-mono)] uppercase tracking-[0.04em]" style={{ color: '#f26a1b' }}>
-                          {WELCOME[lang].tagline}
-                        </div>
-                      </div>
-                    )}
 
                     {/* Persona buttons — appear when greeting finishes */}
                     {greetingDone && (
@@ -1177,8 +1184,8 @@ export default function Home() {
                 {view === 'homeowner-form' && (
                   <div className="maia-fade">
                     <BackBtn />
-                    <h2 className={`text-base font-light text-white mb-1 [font-family:var(--font-display)] ${isRtl ? 'text-right' : ''}`}>{t.lookupTitle}</h2>
-                    <p className={`text-sm text-[#9ca3af] mb-4 ${isRtl ? 'text-right' : ''}`}>{t.lookupSubtitle}</p>
+                    <h2 className={`text-base font-light text-[#0f172a] mb-1 [font-family:var(--font-display)] ${isRtl ? 'text-right' : ''}`}>{t.lookupTitle}</h2>
+                    <p className={`text-sm text-[#64748b] mb-4 ${isRtl ? 'text-right' : ''}`}>{t.lookupSubtitle}</p>
 
                     {/* MAIA nudge bubble */}
                     {hwNudge && (
@@ -1187,7 +1194,7 @@ export default function Home() {
                           <Image src="/pmi-icon.jpg" alt="MAIA" width={28} height={28} className="object-cover" />
                         </div>
                         <div
-                          className="flex-1 rounded-2xl px-4 py-3 text-[0.82rem] text-white leading-relaxed"
+                          className="flex-1 rounded-2xl px-4 py-3 text-[0.82rem] text-[#1e293b] leading-relaxed"
                           style={{
                             borderTopLeftRadius: isRtl ? undefined : '4px',
                             borderTopRightRadius: isRtl ? '4px' : undefined,
@@ -1208,17 +1215,17 @@ export default function Home() {
                       <div>
                         <label className={labelCls}>{t.email}</label>
                         <input type="email" className={inputCls} value={hwEmail} onChange={e => { setHwEmail(e.target.value); if (e.target.value) setHwNudge(false) }} dir="ltr" />
-                        <p className="mt-1 text-[0.62rem] text-[#555] leading-snug">The email you used when signing your lease or HOA documents</p>
+                        <p className="mt-1 text-[0.62rem] text-[#94a3b8] leading-snug">The email you used when signing your lease or HOA documents</p>
                       </div>
                       <div>
                         <label className={labelCls}>{t.phone}</label>
                         <input type="tel" className={inputCls} value={hwPhone} onChange={e => { setHwPhone(e.target.value); if (e.target.value) setHwNudge(false) }} dir="ltr" />
-                        <p className="mt-1 text-[0.62rem] text-[#555] leading-snug">The phone number on file with your association</p>
+                        <p className="mt-1 text-[0.62rem] text-[#94a3b8] leading-snug">The phone number on file with your association</p>
                       </div>
                       <div>
                         <label className={labelCls}>Property Address</label>
                         <input className={inputCls} value={hwAddress} onChange={e => { setHwAddress(e.target.value); if (e.target.value) setHwNudge(false) }} placeholder="e.g. 203 · 1234 Sunset Blvd" dir="ltr" />
-                        <p className="mt-1 text-[0.62rem] text-[#555] leading-snug">Your unit address including unit number</p>
+                        <p className="mt-1 text-[0.62rem] text-[#94a3b8] leading-snug">Your unit address including unit number</p>
                       </div>
                       <OrangeBtn label={busy ? t.lookupBusy : t.lookupBtn} disabled={busy} />
                     </form>
@@ -1230,8 +1237,8 @@ export default function Home() {
                   <div className="maia-fade text-center py-4">
                     <BackBtn />
                     <div className="text-4xl mb-3">🔍</div>
-                    <h2 className="text-base font-light text-white mb-2 [font-family:var(--font-display)]">{t.notFoundTitle}</h2>
-                    <p className="text-sm text-[#9ca3af] mb-4">{t.notFoundBody}</p>
+                    <h2 className="text-base font-light text-[#0f172a] mb-2 [font-family:var(--font-display)]">{t.notFoundTitle}</h2>
+                    <p className="text-sm text-[#64748b] mb-4">{t.notFoundBody}</p>
                     <div className="space-y-2">
                       <a href="mailto:PMI@topfloridaproperties.com" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">PMI@topfloridaproperties.com</a>
                       <a href="tel:+13059005077" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">📞 305.900.5077</a>
@@ -1245,17 +1252,17 @@ export default function Home() {
                   <div className="maia-fade text-center py-4">
                     <BackBtn />
                     <div className="text-4xl mb-3">🏠</div>
-                    <h2 className="text-base font-light text-white mb-2 [font-family:var(--font-display)]">Previous Ownership Record Found</h2>
+                    <h2 className="text-base font-light text-[#0f172a] mb-2 [font-family:var(--font-display)]">Previous Ownership Record Found</h2>
                     {prevOwnerDetails && (
-                      <div className="bg-[#1a1a1a] border border-[#333] rounded-[2px] px-4 py-3 mb-4 text-left text-sm">
-                        <div className="text-[#9ca3af] text-xs mb-2 [font-family:var(--font-mono)] uppercase tracking-[0.08em]">Your previous record</div>
-                        <div className="text-white font-medium">{prevOwnerDetails.assocName}{prevOwnerDetails.unit ? ` — Unit ${prevOwnerDetails.unit}` : ''}</div>
+                      <div className="bg-[#f8fafc] border border-[#e2e8f0] rounded-[2px] px-4 py-3 mb-4 text-left text-sm">
+                        <div className="text-[#64748b] text-xs mb-2 [font-family:var(--font-mono)] uppercase tracking-[0.08em]">Your previous record</div>
+                        <div className="text-[#0f172a] font-medium">{prevOwnerDetails.assocName}{prevOwnerDetails.unit ? ` — Unit ${prevOwnerDetails.unit}` : ''}</div>
                         {prevOwnerDetails.endDate && (
-                          <div className="text-[#9ca3af] text-xs mt-1">Ownership ended {prevOwnerDetails.endDate}</div>
+                          <div className="text-[#64748b] text-xs mt-1">Ownership ended {prevOwnerDetails.endDate}</div>
                         )}
                       </div>
                     )}
-                    <p className="text-sm text-[#9ca3af] mb-4">We found your previous ownership record, but your portal access has ended. If you have questions, please contact us directly:</p>
+                    <p className="text-sm text-[#64748b] mb-4">We found your previous ownership record, but your portal access has ended. If you have questions, please contact us directly:</p>
                     <div className="space-y-2">
                       <a href="mailto:PMI@topfloridaproperties.com" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">PMI@topfloridaproperties.com</a>
                       <a href="tel:+13059005077" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">📞 305.900.5077</a>
@@ -1267,8 +1274,8 @@ export default function Home() {
                 {view === 'role-selector' && (
                   <div className="maia-fade">
                     <BackBtn />
-                    <h2 className="text-base font-light text-white mb-1 [font-family:var(--font-display)]">Multiple Roles Found</h2>
-                    <p className="text-sm text-[#9ca3af] mb-4">Your account exists in multiple roles. How would you like to access today?</p>
+                    <h2 className="text-base font-light text-[#0f172a] mb-1 [font-family:var(--font-display)]">Multiple Roles Found</h2>
+                    <p className="text-sm text-[#64748b] mb-4">Your account exists in multiple roles. How would you like to access today?</p>
                     <div className="flex flex-col gap-2">
                       {matchedRoles.map((role, i) => {
                         const icon  = role.type === 'staff' ? '🔒' : role.type === 'owner' ? '🏠' : role.type === 'tenant' ? '🏘' : '👥'
@@ -1277,14 +1284,14 @@ export default function Home() {
                         return (
                           <button key={i} onClick={() => routeToRole(role)}
                             className="group flex items-center gap-3 p-3 rounded-[3px] transition-all text-left"
-                            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
+                            style={{ background: '#f8fafc', border: '1px solid rgba(15,23,42,0.10)' }}
                             onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(242,106,27,0.45)'; e.currentTarget.style.boxShadow = '0 0 14px rgba(242,106,27,0.14)' }}
-                            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; e.currentTarget.style.boxShadow = 'none' }}
+                            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(15,23,42,0.10)'; e.currentTarget.style.boxShadow = 'none' }}
                           >
                             <span className="text-2xl w-9 text-center flex-shrink-0">{icon}</span>
                             <span className="flex-1 min-w-0">
-                              <span className="block text-sm font-semibold text-white group-hover:text-[#f26a1b] transition-colors">{title}</span>
-                              <span className="block text-[0.62rem] text-[#6b7280] [font-family:var(--font-mono)] mt-0.5 truncate">{sub}</span>
+                              <span className="block text-sm font-semibold text-[#0f172a] group-hover:text-[#f26a1b] transition-colors">{title}</span>
+                              <span className="block text-[0.62rem] text-[#64748b] [font-family:var(--font-mono)] mt-0.5 truncate">{sub}</span>
                             </span>
                             <span className="text-[0.58rem] text-white bg-[#f26a1b] [font-family:var(--font-mono)] uppercase tracking-[0.08em] px-2.5 py-1 rounded-[2px] flex-shrink-0">Select</span>
                           </button>
@@ -1298,14 +1305,14 @@ export default function Home() {
                 {view === 'agent-form' && (
                   <div className="maia-fade">
                     <BackBtn />
-                    <h2 className={`text-base font-light text-white mb-1 [font-family:var(--font-display)] ${isRtl ? 'text-right' : ''}`}>{t.agentTitle}</h2>
-                    <p className={`text-sm text-[#9ca3af] mb-4 ${isRtl ? 'text-right' : ''}`}>{t.agentSubtitle}</p>
+                    <h2 className={`text-base font-light text-[#0f172a] mb-1 [font-family:var(--font-display)] ${isRtl ? 'text-right' : ''}`}>{t.agentTitle}</h2>
+                    <p className={`text-sm text-[#64748b] mb-4 ${isRtl ? 'text-right' : ''}`}>{t.agentSubtitle}</p>
                     <form onSubmit={handleAgentSubmit} className="space-y-3">
                       <div><label className={labelCls}>{t.agentName} *</label><input required className={inputCls} value={agName} onChange={e => setAgName(e.target.value)} dir="ltr" /></div>
                       <div><label className={labelCls}>{t.email} *</label><input required type="email" className={inputCls} value={agEmail} onChange={e => setAgEmail(e.target.value)} dir="ltr" /></div>
                       <div><label className={labelCls}>{t.phone}</label><input type="tel" className={inputCls} value={agPhone} onChange={e => setAgPhone(e.target.value)} dir="ltr" /></div>
                       <div><label className={labelCls}>{t.agentLicense}</label><input className={inputCls} value={agLicense} onChange={e => setAgLicense(e.target.value)} dir="ltr" /></div>
-                      <AddressSearch label={t.agentAssoc} selected={agAssoc} onSelect={setAgAssoc} dark />
+                      <AddressSearch label={t.agentAssoc} selected={agAssoc} onSelect={setAgAssoc} />
                       <OrangeBtn label={busy ? t.agentBusy : t.agentSendBtn} disabled={busy} />
                     </form>
                   </div>
@@ -1316,8 +1323,8 @@ export default function Home() {
                   <div className="maia-fade text-center py-4">
                     <BackBtn />
                     <div className="text-4xl mb-3">✅</div>
-                    <h2 className="text-base font-light text-white mb-2 [font-family:var(--font-display)]">{t.agentSentTitle}</h2>
-                    <p className="text-sm text-[#9ca3af]">{t.agentSentBody}</p>
+                    <h2 className="text-base font-light text-[#0f172a] mb-2 [font-family:var(--font-display)]">{t.agentSentTitle}</h2>
+                    <p className="text-sm text-[#64748b]">{t.agentSentBody}</p>
                   </div>
                 )}
 
@@ -1331,7 +1338,7 @@ export default function Home() {
                       <div className="flex items-center justify-between gap-3 mb-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-base flex-shrink-0">📄</span>
-                          <span className="text-sm text-white font-medium leading-snug">Vendor ACH Authorization Form</span>
+                          <span className="text-sm text-[#0f172a] font-medium leading-snug">Vendor ACH Authorization Form</span>
                         </div>
                         <a
                           href="/vendor-ach-form.pdf"
@@ -1344,19 +1351,19 @@ export default function Home() {
                       <div className="flex items-start gap-2">
                         <span className="text-base flex-shrink-0">📋</span>
                         <div className="min-w-0">
-                          <span className="text-sm text-white font-medium">Certificate of Insurance (COI)</span>
-                          <p className="text-[0.68rem] text-[#9ca3af] mt-0.5 leading-snug">Requirements appear after selecting your association below.</p>
+                          <span className="text-sm text-[#0f172a] font-medium">Certificate of Insurance (COI)</span>
+                          <p className="text-[0.68rem] text-[#64748b] mt-0.5 leading-snug">Requirements appear after selecting your association below.</p>
                         </div>
                       </div>
                     </div>
-                    <h2 className={`text-base font-light text-white mb-1 [font-family:var(--font-display)] ${isRtl ? 'text-right' : ''}`}>{t.vendorTitle}</h2>
-                    <p className={`text-sm text-[#9ca3af] mb-4 ${isRtl ? 'text-right' : ''}`}>{t.vendorSubtitle}</p>
+                    <h2 className={`text-base font-light text-[#0f172a] mb-1 [font-family:var(--font-display)] ${isRtl ? 'text-right' : ''}`}>{t.vendorTitle}</h2>
+                    <p className={`text-sm text-[#64748b] mb-4 ${isRtl ? 'text-right' : ''}`}>{t.vendorSubtitle}</p>
                     <form onSubmit={handleVendorSubmit} className="space-y-3">
                       <div><label className={labelCls}>{t.company} *</label><input required className={inputCls} value={vdCompany} onChange={e => setVdCompany(e.target.value)} dir="ltr" /></div>
                       <div><label className={labelCls}>{t.contactName}</label><input className={inputCls} value={vdContact} onChange={e => setVdContact(e.target.value)} dir="ltr" /></div>
                       <div><label className={labelCls}>{t.email} *</label><input required type="email" className={inputCls} value={vdEmail} onChange={e => setVdEmail(e.target.value)} dir="ltr" /></div>
                       <div><label className={labelCls}>{t.phone}</label><input type="tel" className={inputCls} value={vdPhone} onChange={e => setVdPhone(e.target.value)} dir="ltr" /></div>
-                      <AddressSearch label={t.vendorAssoc} selected={vdAssoc} onSelect={setVdAssoc} dark />
+                      <AddressSearch label={t.vendorAssoc} selected={vdAssoc} onSelect={setVdAssoc} />
                       {vdAssoc && <VendorCoiCard result={vdAssoc} />}
                       <OrangeBtn label={busy ? t.vendorBusy : t.vendorSendBtn} disabled={busy} />
                     </form>
@@ -1368,8 +1375,8 @@ export default function Home() {
                   <div className="maia-fade text-center py-4">
                     <BackBtn />
                     <div className="text-4xl mb-3">✅</div>
-                    <h2 className="text-base font-light text-white mb-2 [font-family:var(--font-display)]">{t.vendorSentTitle}</h2>
-                    <p className="text-sm text-[#9ca3af] mb-5">{t.vendorSentBody}</p>
+                    <h2 className="text-base font-light text-[#0f172a] mb-2 [font-family:var(--font-display)]">{t.vendorSentTitle}</h2>
+                    <p className="text-sm text-[#64748b] mb-5">{t.vendorSentBody}</p>
                     <a
                       href="/vendor-ach-form.pdf"
                       download="Vendor-ACH-Authorization-Form.pdf"
@@ -1447,14 +1454,14 @@ export default function Home() {
                           setView('hw-escalate-form')
                         }}
                         className="flex items-start gap-3 p-4 rounded-[4px] text-left transition-all"
-                        style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(242,106,27,0.45)'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)' }}
+                        style={{ background: '#f8fafc', border: '1px solid rgba(15,23,42,0.10)' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(242,106,27,0.45)'; e.currentTarget.style.background = '#f1f5f9' }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(15,23,42,0.10)'; e.currentTarget.style.background = '#f8fafc' }}
                       >
                         <span className="text-2xl flex-shrink-0">📋</span>
                         <div>
-                          <div className="text-sm font-semibold text-white mb-1">{ID_MSGS[lang].optATitle}</div>
-                          <div className="text-[0.72rem] text-[#9ca3af] leading-snug">{ID_MSGS[lang].optADesc}</div>
+                          <div className="text-sm font-semibold text-[#0f172a] mb-1">{ID_MSGS[lang].optATitle}</div>
+                          <div className="text-[0.72rem] text-[#64748b] leading-snug">{ID_MSGS[lang].optADesc}</div>
                         </div>
                       </button>
                       <button
@@ -1463,14 +1470,14 @@ export default function Home() {
                           setView('hw-chat')
                         }}
                         className="flex items-start gap-3 p-4 rounded-[4px] text-left transition-all"
-                        style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(242,106,27,0.45)'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)' }}
+                        style={{ background: '#f8fafc', border: '1px solid rgba(15,23,42,0.10)' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(242,106,27,0.45)'; e.currentTarget.style.background = '#f1f5f9' }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(15,23,42,0.10)'; e.currentTarget.style.background = '#f8fafc' }}
                       >
                         <span className="text-2xl flex-shrink-0">💬</span>
                         <div>
-                          <div className="text-sm font-semibold text-white mb-1">{ID_MSGS[lang].optBTitle}</div>
-                          <div className="text-[0.72rem] text-[#9ca3af] leading-snug">{ID_MSGS[lang].optBDesc}</div>
+                          <div className="text-sm font-semibold text-[#0f172a] mb-1">{ID_MSGS[lang].optBTitle}</div>
+                          <div className="text-[0.72rem] text-[#64748b] leading-snug">{ID_MSGS[lang].optBDesc}</div>
                         </div>
                       </button>
                     </div>
@@ -1481,7 +1488,7 @@ export default function Home() {
                 {view === 'hw-escalate-form' && (
                   <div className="maia-fade">
                     <BackBtn onClick={() => setView('hw-escalate')} />
-                    <h2 className={`text-base font-light text-white mb-4 [font-family:var(--font-display)] ${isRtl ? 'text-right' : ''}`}>{ID_MSGS[lang].escTitle}</h2>
+                    <h2 className={`text-base font-light text-[#0f172a] mb-4 [font-family:var(--font-display)] ${isRtl ? 'text-right' : ''}`}>{ID_MSGS[lang].escTitle}</h2>
                     <form onSubmit={handleEscalateForm} className="space-y-3">
                       <div className="grid grid-cols-2 gap-3">
                         <div><label className={labelCls}>{t.firstName}</label><input className={inputCls} value={escalFirst} onChange={e => setEscalFirst(e.target.value)} dir="ltr" /></div>
@@ -1517,15 +1524,15 @@ export default function Home() {
                 {view === 'hw-escalate-sent' && (
                   <div className="maia-fade text-center py-4">
                     <div className="text-4xl mb-3">✅</div>
-                    <h2 className="text-base font-light text-white mb-2 [font-family:var(--font-display)]">{ID_MSGS[lang].escSentTitle}</h2>
-                    <p className="text-sm text-[#9ca3af] mb-4">{ID_MSGS[lang].escSentBody}</p>
+                    <h2 className="text-base font-light text-[#0f172a] mb-2 [font-family:var(--font-display)]">{ID_MSGS[lang].escSentTitle}</h2>
+                    <p className="text-sm text-[#64748b] mb-4">{ID_MSGS[lang].escSentBody}</p>
                     {escalRef && (
-                      <div className="inline-block px-4 py-3 rounded-[4px] mb-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div className="text-[0.6rem] [font-family:var(--font-mono)] uppercase tracking-[0.1em] text-[#9ca3af] mb-1">Reference Number</div>
+                      <div className="inline-block px-4 py-3 rounded-[4px] mb-4" style={{ background: '#f1f5f9', border: '1px solid rgba(15,23,42,0.10)' }}>
+                        <div className="text-[0.6rem] [font-family:var(--font-mono)] uppercase tracking-[0.1em] text-[#64748b] mb-1">Reference Number</div>
                         <div className="text-lg font-bold [font-family:var(--font-mono)] text-[#f26a1b]">{escalRef}</div>
                       </div>
                     )}
-                    <button onClick={() => setView('home')} className="block mx-auto text-[0.72rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] uppercase tracking-[0.08em] transition-colors">
+                    <button onClick={() => setView('home')} className="block mx-auto text-[0.72rem] text-[#64748b] hover:text-[#f26a1b] [font-family:var(--font-mono)] uppercase tracking-[0.08em] transition-colors">
                       {t.back}
                     </button>
                   </div>
@@ -1552,8 +1559,8 @@ export default function Home() {
                               border: '1px solid rgba(242,106,27,0.22)',
                               color: '#fff',
                             } : {
-                              background: 'rgba(255,255,255,0.06)',
-                              border: '1px solid rgba(255,255,255,0.10)',
+                              background: '#f1f5f9',
+                              border: '1px solid rgba(15,23,42,0.10)',
                               color: '#e5e7eb',
                             }}
                           >
@@ -1566,7 +1573,7 @@ export default function Home() {
                           <div className="flex-shrink-0 w-7 h-7 rounded-full overflow-hidden mt-0.5">
                             <Image src="/pmi-icon.jpg" alt="MAIA" width={28} height={28} className="object-cover" />
                           </div>
-                          <div className="px-4 py-3 rounded-2xl text-[0.82rem] text-[#9ca3af]" style={{ background: 'rgba(242,106,27,0.06)', border: '1px solid rgba(242,106,27,0.15)' }}>
+                          <div className="px-4 py-3 rounded-2xl text-[0.82rem] text-[#64748b]" style={{ background: 'rgba(242,106,27,0.06)', border: '1px solid rgba(242,106,27,0.15)' }}>
                             <span style={{ animation: 'dot-pulse 1.2s ease-in-out infinite' }}>●</span>
                           </div>
                         </div>
@@ -1593,7 +1600,7 @@ export default function Home() {
                       onClick={handleChatEscalate}
                       disabled={busy || chatMessages.length < 2}
                       className="mt-3 w-full text-[0.62rem] [font-family:var(--font-mono)] uppercase tracking-[0.08em] py-2 rounded-[2px] transition-colors disabled:opacity-50"
-                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#9ca3af' }}
+                      style={{ background: '#f1f5f9', border: '1px solid rgba(15,23,42,0.10)', color: '#64748b' }}
                     >
                       {ID_MSGS[lang].chatEndBtn}
                     </button>
@@ -1604,15 +1611,15 @@ export default function Home() {
                 {view === 'hw-chat-sent' && (
                   <div className="maia-fade text-center py-4">
                     <div className="text-4xl mb-3">💬</div>
-                    <h2 className="text-base font-light text-white mb-2 [font-family:var(--font-display)]">{ID_MSGS[lang].chatSentTitle}</h2>
-                    <p className="text-sm text-[#9ca3af] mb-4">{ID_MSGS[lang].chatSentBody}</p>
+                    <h2 className="text-base font-light text-[#0f172a] mb-2 [font-family:var(--font-display)]">{ID_MSGS[lang].chatSentTitle}</h2>
+                    <p className="text-sm text-[#64748b] mb-4">{ID_MSGS[lang].chatSentBody}</p>
                     {escalRef && (
-                      <div className="inline-block px-4 py-3 rounded-[4px] mb-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                        <div className="text-[0.6rem] [font-family:var(--font-mono)] uppercase tracking-[0.1em] text-[#9ca3af] mb-1">Reference Number</div>
+                      <div className="inline-block px-4 py-3 rounded-[4px] mb-4" style={{ background: '#f1f5f9', border: '1px solid rgba(15,23,42,0.10)' }}>
+                        <div className="text-[0.6rem] [font-family:var(--font-mono)] uppercase tracking-[0.1em] text-[#64748b] mb-1">Reference Number</div>
                         <div className="text-lg font-bold [font-family:var(--font-mono)] text-[#f26a1b]">{escalRef}</div>
                       </div>
                     )}
-                    <button onClick={() => setView('home')} className="block mx-auto text-[0.72rem] text-[#9ca3af] hover:text-[#f26a1b] [font-family:var(--font-mono)] uppercase tracking-[0.08em] transition-colors">
+                    <button onClick={() => setView('home')} className="block mx-auto text-[0.72rem] text-[#64748b] hover:text-[#f26a1b] [font-family:var(--font-mono)] uppercase tracking-[0.08em] transition-colors">
                       {t.back}
                     </button>
                   </div>
@@ -1691,8 +1698,8 @@ export default function Home() {
                 key={b.label}
                 className="flex-shrink-0 flex flex-col items-center gap-1.5 px-3 py-2.5 rounded-lg cursor-default"
                 style={{
-                  background: 'rgba(255,255,255,0.035)',
-                  border: '1px solid rgba(255,255,255,0.07)',
+                  background: '#f8fafc',
+                  border: '1px solid rgba(15,23,42,0.10)',
                   minWidth: '72px',
                 }}
               >
@@ -1707,23 +1714,23 @@ export default function Home() {
         <div
           className="flex-shrink-0 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-2"
           style={{
-            borderTop: '1px solid rgba(255,255,255,0.04)',
+            borderTop: '1px solid rgba(15,23,42,0.08)',
             opacity: phase >= 2 ? 1 : 0,
             transition: 'opacity 0.6s ease 0.5s',
           }}
         >
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6rem] text-white/25 [font-family:var(--font-mono)]">
-            <a href="mailto:maia@pmitop.com" className="hover:text-white/50 transition-colors">maia@pmitop.com</a>
-            <span className="text-white/15">·</span>
-            <a href="https://www.pmitop.com" target="_blank" rel="noreferrer" className="hover:text-white/50 transition-colors">www.pmitop.com</a>
-            <span className="text-white/15">·</span>
-            <Link href="/privacy-policy" className="hover:text-white/50 transition-colors">Privacy Policy</Link>
-            <span className="text-white/15">·</span>
-            <Link href="/terms" className="hover:text-white/50 transition-colors">Terms of Service</Link>
-            <span className="text-white/15">·</span>
-            <Link href="/sms-consent" className="hover:text-white/50 transition-colors">SMS Terms</Link>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6rem] text-[#94a3b8] [font-family:var(--font-mono)]">
+            <a href="mailto:maia@pmitop.com" className="hover:text-[#475569] transition-colors">maia@pmitop.com</a>
+            <span className="text-[#cbd5e1]">·</span>
+            <a href="https://www.pmitop.com" target="_blank" rel="noreferrer" className="hover:text-[#475569] transition-colors">www.pmitop.com</a>
+            <span className="text-[#cbd5e1]">·</span>
+            <Link href="/privacy-policy" className="hover:text-[#475569] transition-colors">Privacy Policy</Link>
+            <span className="text-[#cbd5e1]">·</span>
+            <Link href="/terms" className="hover:text-[#475569] transition-colors">Terms of Service</Link>
+            <span className="text-[#cbd5e1]">·</span>
+            <Link href="/sms-consent" className="hover:text-[#475569] transition-colors">SMS Terms</Link>
           </div>
-          <div className="text-right text-[0.6rem] text-white/20 [font-family:var(--font-mono)] leading-relaxed">
+          <div className="text-right text-[0.6rem] text-[#94a3b8] [font-family:var(--font-mono)] leading-relaxed">
             <div>© 2026 PMI Top Florida Properties</div>
             <div>Operated by Dawnus LLC dba: PMI Top Florida Properties</div>
           </div>
