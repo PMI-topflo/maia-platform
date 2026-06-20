@@ -882,7 +882,7 @@ export default function Home() {
                   className="absolute inset-0 rounded-full"
                   style={{ background: 'radial-gradient(circle, rgba(242,106,27,0.35) 0%, transparent 70%)', filter: 'blur(24px)', transform: 'scale(1.8)' }}
                 />
-                <Image src="/pmi-logo.png" alt="PMI Top Florida" width={180} height={90} className="relative z-10 object-contain" />
+                <Image src="/pmi-logo-transparent.png" alt="PMI Top Florida" width={180} height={90} className="relative z-10 object-contain" />
               </div>
               {/* Slogan typewriter */}
               <div className="text-center space-y-2.5">
