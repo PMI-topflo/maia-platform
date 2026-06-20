@@ -101,8 +101,8 @@ export default async function MyAccountPage(props: {
 
       {/* Top bar */}
       <div className="assoc-topbar">
-        <span className="assoc-topbar-l">WHATSAPP &amp; SMS 24/7 · +1 (786) 686-3223 · WE SPEAK ENGLISH, SPANISH, FRENCH &amp; PORTUGUESE</span>
-        <span className="assoc-topbar-r">305.900.5077</span>
+        <span className="assoc-topbar-l">💬 CHAT WITH MAIA 24/7 · WE SPEAK ENGLISH, SPANISH, PORTUGUESE, FRENCH, CREOLE, HEBREW &amp; RUSSIAN</span>
+        <span className="assoc-topbar-r">ASK MAIA →</span>
       </div>
 
       <SiteHeader subtitle={`MY ACCOUNT · ${owner.association_name}`} />

@@ -69,6 +69,7 @@ export interface PortalStrings {
   networkErr: string; notResident: string; visitMain: string
 
   langLabel: string
+  openTicket: string
 }
 
 const en: PortalStrings = {
@@ -110,6 +111,7 @@ const en: PortalStrings = {
   loginLabel: 'Email or Phone Number', loginPlaceholder: 'your@email.com or (305) 555-0100', loginLookingUp: 'Looking up…', continueBtn: 'Continue →',
   networkErr: 'Network error. Please try again.', notResident: 'Not a resident?', visitMain: 'Visit main site',
   langLabel: 'Language',
+  openTicket: 'Open a ticket',
 }
 
 const es: PortalStrings = {
@@ -151,6 +153,7 @@ const es: PortalStrings = {
   loginLabel: 'Correo o Número de Teléfono', loginPlaceholder: 'su@correo.com o (305) 555-0100', loginLookingUp: 'Buscando…', continueBtn: 'Continuar →',
   networkErr: 'Error de red. Inténtelo de nuevo.', notResident: '¿No es residente?', visitMain: 'Visitar sitio principal',
   langLabel: 'Idioma',
+  openTicket: 'Abrir un ticket',
 }
 
 const pt: PortalStrings = {
@@ -192,6 +195,7 @@ const pt: PortalStrings = {
   loginLabel: 'E-mail ou Número de Telefone', loginPlaceholder: 'seu@email.com ou (305) 555-0100', loginLookingUp: 'Buscando…', continueBtn: 'Continuar →',
   networkErr: 'Erro de rede. Tente novamente.', notResident: 'Não é residente?', visitMain: 'Visitar site principal',
   langLabel: 'Idioma',
+  openTicket: 'Abrir um chamado',
 }
 
 const fr: PortalStrings = {
@@ -233,6 +237,7 @@ const fr: PortalStrings = {
   loginLabel: 'E-mail ou Numéro de Téléphone', loginPlaceholder: 'votre@email.com ou (305) 555-0100', loginLookingUp: 'Recherche…', continueBtn: 'Continuer →',
   networkErr: 'Erreur réseau. Veuillez réessayer.', notResident: 'Pas un résident ?', visitMain: 'Visiter le site principal',
   langLabel: 'Langue',
+  openTicket: 'Ouvrir un ticket',
 }
 
 const ht: PortalStrings = {
@@ -274,6 +279,7 @@ const ht: PortalStrings = {
   loginLabel: 'Imèl oswa Nimewo Telefòn', loginPlaceholder: 'imel@ou.com oswa (305) 555-0100', loginLookingUp: 'N ap chèche…', continueBtn: 'Kontinye →',
   networkErr: 'Erè rezo. Tanpri eseye ankò.', notResident: 'Ou pa yon rezidan?', visitMain: 'Vizite sit prensipal la',
   langLabel: 'Lang',
+  openTicket: 'Louvri yon tikè',
 }
 
 const he: PortalStrings = {
@@ -315,6 +321,7 @@ const he: PortalStrings = {
   loginLabel: 'אימייל או מספר טלפון', loginPlaceholder: 'your@email.com או (305) 555-0100', loginLookingUp: 'מחפש…', continueBtn: 'המשך →',
   networkErr: 'שגיאת רשת. אנא נסו שוב.', notResident: 'לא דייר?', visitMain: 'בקרו באתר הראשי',
   langLabel: 'שפה',
+  openTicket: 'פתחו פנייה',
 }
 
 const ru: PortalStrings = {
@@ -356,6 +363,7 @@ const ru: PortalStrings = {
   loginLabel: 'Эл. почта или номер телефона', loginPlaceholder: 'your@email.com или (305) 555-0100', loginLookingUp: 'Поиск…', continueBtn: 'Продолжить →',
   networkErr: 'Ошибка сети. Пожалуйста, попробуйте снова.', notResident: 'Не житель?', visitMain: 'Перейти на главный сайт',
   langLabel: 'Язык',
+  openTicket: 'Создать обращение',
 }
 
 const COPY: Record<PortalLang, PortalStrings> = { en, es, pt, fr, ht, he, ru }
