@@ -464,7 +464,7 @@ function VendorCoiCard({ result }: { result: AddressResult | null }) {
     return (
       <div className="bg-[#f8fafc] border border-[#e2e8f0] rounded-[3px] p-3 text-[0.72rem] text-[#64748b] leading-relaxed">
         <span className="font-medium text-[#0f172a]">📋 COI Additional Insured</span><br />
-        Contact <a href="mailto:billing@topfloridaproperties.com" className="text-[#f26a1b]">billing@topfloridaproperties.com</a> or call <a href="tel:+13059005077" className="text-[#f26a1b]">305.900.5077</a> for COI requirements for this association.
+        Contact <a href="mailto:billing@topfloridaproperties.com" className="text-[#f26a1b]">billing@topfloridaproperties.com</a> for COI requirements for this association.
       </div>
     )
   }
@@ -1116,8 +1116,8 @@ export default function Home() {
                       style={{ background: 'linear-gradient(180deg, #fffaf6 0%, #ffffff 100%)', border: '1px solid rgba(242,106,27,0.18)', boxShadow: '0 4px 16px rgba(15,23,42,0.06)' }}
                       dir={isRtl ? 'rtl' : 'ltr'}
                     >
-                      {/* Tagline — bold uppercase orange headline on top (one line) */}
-                      <div className="[font-family:var(--font-display)] text-[0.8rem] font-bold uppercase tracking-[0.02em] leading-snug mb-2.5 whitespace-nowrap" style={{ color: '#f26a1b' }}>
+                      {/* Tagline — bold uppercase orange headline; one line on desktop, wraps on phones */}
+                      <div className="[font-family:var(--font-display)] text-[0.72rem] sm:text-[0.8rem] font-bold uppercase tracking-[0.02em] leading-snug mb-2.5 whitespace-normal sm:whitespace-nowrap" style={{ color: '#f26a1b' }}>
                         {WELCOME[lang].tagline}
                       </div>
                       <div className="[font-family:var(--font-display)] text-[1.02rem] font-semibold leading-snug mb-1.5" style={{ color: '#0f172a' }}>
@@ -1251,8 +1251,6 @@ export default function Home() {
                     <p className="text-sm text-[#64748b] mb-4">{t.notFoundBody}</p>
                     <div className="space-y-2">
                       <a href="mailto:PMI@topfloridaproperties.com" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">PMI@topfloridaproperties.com</a>
-                      <a href="tel:+13059005077" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">📞 305.900.5077</a>
-                      <a href="https://wa.me/17866863223" target="_blank" rel="noreferrer" className="block hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]" style={{ color: '#25d366' }}>💬 (786) 686-3223</a>
                     </div>
                   </div>
                 )}
@@ -1275,7 +1273,6 @@ export default function Home() {
                     <p className="text-sm text-[#64748b] mb-4">We found your previous ownership record, but your portal access has ended. If you have questions, please contact us directly:</p>
                     <div className="space-y-2">
                       <a href="mailto:PMI@topfloridaproperties.com" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">PMI@topfloridaproperties.com</a>
-                      <a href="tel:+13059005077" className="block text-[#f26a1b] hover:underline [font-family:var(--font-mono)] text-[0.72rem] uppercase tracking-[0.06em]">📞 305.900.5077</a>
                     </div>
                   </div>
                 )}
