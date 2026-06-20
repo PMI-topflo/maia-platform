@@ -20,6 +20,8 @@
 // from the owner view — staff have that on the admin hub.
 // =====================================================================
 
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
 import PortalDocuments from '@/components/PortalDocuments'
@@ -27,6 +29,7 @@ import MobileAppButton from '@/components/MobileAppButton'
 import ApplicationButton from '@/components/ApplicationButton'
 import PortalLangBar from '@/components/PortalLangBar'
 import { normalizePortalLang, portalStrings, isRtl } from '@/lib/portal-i18n'
+import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { portalConfig } from '@/lib/association-portal-config'
 
@@ -39,6 +42,17 @@ const prettyType = (t: string) => TYPE_LABEL[t.toLowerCase()] ?? t.replace(/_/g,
 
 export default async function AssociationPortal({ code, lang }: { code: string; lang?: string }) {
   const upper = code.toUpperCase()
+
+  // Association portals are private — not public micro-sites. A visitor must
+  // identify on the main page first; only PMI staff (incl. "view portal as"
+  // previews) and a logged-in resident OF THIS association may see it. Anyone
+  // else is bounced to the main page to identify (which then routes residents
+  // back to their own association). No name/address leaks to the public.
+  const sessTok = (await cookies()).get(SESSION_COOKIE)?.value
+  const sess = sessTok ? await verifySession(sessTok) : null
+  const allowed = sess?.persona === 'staff' || (sess?.associationCode ?? '').toUpperCase() === upper
+  if (!allowed) redirect('/')
+
   const L = normalizePortalLang(lang)
   const t = portalStrings(L)
   const rtl = isRtl(L)
