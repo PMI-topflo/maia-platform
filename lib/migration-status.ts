@@ -2075,6 +2075,37 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `ALTER TABLE public.invoice_intake_drafts ADD COLUMN IF NOT EXISTS extracted_description text;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'resident_passkeys',
+    label:       'Resident passkeys (Face ID / fingerprint login)',
+    description: 'resident_passkeys — WebAuthn credentials + a session-identity snapshot so a passkey sign-in re-issues the same maia_session. Layers on top of phone-OTP.',
+    filename:    '20260619_resident_passkeys.sql',
+    artifact:    { type: 'table', table: 'resident_passkeys' },
+    sql: `CREATE TABLE IF NOT EXISTS public.resident_passkeys (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  credential_id text NOT NULL UNIQUE,
+  public_key text NOT NULL,
+  counter bigint NOT NULL DEFAULT 0,
+  transports text[],
+  aaguid text,
+  friendly_name text,
+  device_type text,
+  backed_up boolean,
+  subject_user_id text NOT NULL,
+  persona text NOT NULL,
+  association_code text NOT NULL,
+  display_name text,
+  contact_name text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  last_used_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS resident_passkeys_subject_idx ON public.resident_passkeys (persona, subject_user_id, association_code);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.resident_passkeys TO service_role;
+ALTER TABLE public.resident_passkeys ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_resident_passkeys" ON public.resident_passkeys;
+CREATE POLICY "service_role_all_resident_passkeys" ON public.resident_passkeys FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
