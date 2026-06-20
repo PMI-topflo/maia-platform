@@ -50,49 +50,49 @@ const WELCOME: Record<Lang, WelcomeCopy> = {
     p1: 'Not just an AI agent — a communication partner that gets smarter every day. Homeowner, tenant, board member, vendor, or agent, MAIA speaks your language: English, Spanish, Portuguese, French, Haitian Creole, Hebrew & Russian.',
     p2: 'She handles the routine so our team can focus on what matters — quick questions get instant answers, complex needs reach the right person. Nothing falls through the cracks.',
     tagline: 'Communication made personal · Service made intelligent · Community made stronger',
-    whyRegister: 'Wondering why a public page asks you to identify? Your documents, balance, and account are private — a quick check shows you the right portal and keeps your information secure.',
+    whyRegister: "Why identify? Because you deserve the right answer, not just any answer. And because you're not just using our system—you're helping us build it better, every single day. You're our community's guide. Help us see what you see.",
   },
   es: {
     title: 'Conoce a MAIA — la asistente siempre disponible de tu comunidad',
     p1: 'No es solo un agente de IA, sino una socia de comunicación que mejora cada día. Propietario, inquilino, miembro de la junta, proveedor o agente: MAIA habla tu idioma: inglés, español, portugués, francés, criollo haitiano, hebreo y ruso.',
     p2: 'Ella se encarga de lo rutinario para que nuestro equipo se concentre en lo que importa: las preguntas rápidas reciben respuestas al instante y las necesidades complejas llegan a la persona adecuada. Nada queda sin atender.',
     tagline: 'Comunicación personalizada · Servicio inteligente · Comunidad más fuerte',
-    whyRegister: '¿Te preguntas por qué una página pública te pide identificarte? Tus documentos, saldo y cuenta son privados: una verificación rápida te muestra el portal correcto y mantiene tu información segura.',
+    whyRegister: '¿Por qué identificarte? Porque mereces la respuesta correcta, no una respuesta cualquiera. Y porque no solo usas nuestro sistema: nos ayudas a mejorarlo, cada día. Eres la guía de nuestra comunidad. Ayúdanos a ver lo que tú ves.',
   },
   pt: {
     title: 'Conheça a MAIA — a assistente sempre disponível da sua comunidade',
     p1: 'Não é apenas um agente de IA, mas uma parceira de comunicação que fica mais inteligente a cada dia. Proprietário, inquilino, membro do conselho, fornecedor ou corretor — a MAIA fala a sua língua: inglês, espanhol, português, francês, crioulo haitiano, hebraico e russo.',
     p2: 'Ela cuida da rotina para que nossa equipe possa focar no que importa — perguntas rápidas recebem respostas instantâneas e necessidades complexas chegam à pessoa certa. Nada passa despercebido.',
     tagline: 'Comunicação personalizada · Serviço inteligente · Comunidade mais forte',
-    whyRegister: 'Quer saber por que uma página pública pede para você se identificar? Seus documentos, saldo e conta são privados — uma verificação rápida mostra o portal certo e mantém suas informações seguras.',
+    whyRegister: 'Por que se identificar? Porque você merece a resposta certa, não uma resposta qualquer. E porque você não apenas usa o nosso sistema — você nos ajuda a torná-lo melhor, todos os dias. Você é o guia da nossa comunidade. Ajude-nos a ver o que você vê.',
   },
   fr: {
     title: "Découvrez MAIA — l'assistante toujours disponible de votre communauté",
     p1: "Pas seulement un agent IA, mais une partenaire de communication qui s'améliore chaque jour. Propriétaire, locataire, membre du conseil, fournisseur ou agent — MAIA parle votre langue : anglais, espagnol, portugais, français, créole haïtien, hébreu et russe.",
     p2: "Elle gère la routine pour que notre équipe se concentre sur l'essentiel — les questions simples reçoivent des réponses instantanées et les besoins complexes parviennent à la bonne personne. Rien n'est laissé de côté.",
     tagline: 'Communication personnalisée · Service intelligent · Communauté renforcée',
-    whyRegister: 'Vous vous demandez pourquoi une page publique vous demande de vous identifier ? Vos documents, votre solde et votre compte sont privés — une vérification rapide vous dirige vers le bon portail et protège vos informations.',
+    whyRegister: "Pourquoi s'identifier ? Parce que vous méritez la bonne réponse, pas n'importe quelle réponse. Et parce que vous n'utilisez pas seulement notre système — vous nous aidez à l'améliorer, chaque jour. Vous êtes le guide de notre communauté. Aidez-nous à voir ce que vous voyez.",
   },
   ht: {
     title: 'Rankontre MAIA — asistan kominote w la ki toujou disponib',
     p1: 'Se pa sèlman yon ajan AI — se yon patnè kominikasyon ki vin pi entelijan chak jou. Pwopriyetè, lokatè, manm konsèy, founisè, oswa ajan — MAIA pale lang ou: angle, panyòl, pòtigè, franse, kreyòl ayisyen, ebre ak ris.',
     p2: 'Li jere bagay woutin yo pou ekip nou an ka konsantre sou sa ki enpòtan — kesyon rapid jwenn repons touswit, bezwen konplèks rive jwenn bon moun nan. Anyen pa pèdi.',
     tagline: 'Kominikasyon pèsonèl · Sèvis entelijan · Kominote pi solid',
-    whyRegister: 'Èske w ap mande poukisa yon paj piblik mande w idantifye tèt ou? Dokiman, balans, ak kont ou prive — yon ti verifikasyon montre w bon pòtal la epi li kenbe enfòmasyon ou an sekirite.',
+    whyRegister: 'Poukisa pou idantifye? Paske ou merite bon repons lan, pa nenpòt repons. Epi paske ou pa sèlman ap itilize sistèm nou an — w ap ede nou fè l pi bon, chak jou. Se ou ki gid kominote nou an. Ede nou wè sa ou wè.',
   },
   he: {
     title: 'הכירו את MAIA — העוזרת תמיד-זמינה של הקהילה שלכם',
     p1: 'לא רק סוכן AI — אלא שותפה לתקשורת שמשתפרת מדי יום. בעל יחידה, שוכר, חבר ועד, ספק או סוכן — MAIA דוברת את השפה שלכם: אנגלית, ספרדית, פורטוגזית, צרפתית, קריאולית האיטית, עברית ורוסית.',
     p2: 'היא מטפלת בשגרה כדי שהצוות שלנו יוכל להתמקד במה שחשוב — שאלות פשוטות מקבלות מענה מיידי, וצרכים מורכבים מגיעים לאדם הנכון. שום דבר לא נופל בין הכיסאות.',
     tagline: 'תקשורת אישית · שירות חכם · קהילה חזקה יותר',
-    whyRegister: 'תוהים מדוע עמוד ציבורי מבקש מכם להזדהות? המסמכים, היתרה והחשבון שלכם פרטיים — בדיקה מהירה מפנה אתכם לפורטל הנכון ושומרת על המידע שלכם מאובטח.',
+    whyRegister: 'למה להזדהות? כי מגיעה לכם התשובה הנכונה, לא סתם תשובה. וכי אתם לא רק משתמשים במערכת שלנו — אתם עוזרים לנו לשפר אותה, יום אחר יום. אתם המדריכים של הקהילה שלנו. עזרו לנו לראות את מה שאתם רואים.',
   },
   ru: {
     title: 'Знакомьтесь, MAIA — всегда на связи помощник вашего сообщества',
     p1: 'Не просто ИИ-агент, а партнёр по коммуникации, который становится умнее с каждым днём. Владелец, арендатор, член правления, поставщик или агент — MAIA говорит на вашем языке: английском, испанском, португальском, французском, гаитянском креольском, иврите и русском.',
     p2: 'Она берёт на себя рутину, чтобы наша команда могла сосредоточиться на главном — простые вопросы получают мгновенные ответы, а сложные задачи попадают к нужному человеку. Ничего не теряется.',
     tagline: 'Общение — личное · Сервис — умный · Сообщество — крепче',
-    whyRegister: 'Думаете, почему публичная страница просит представиться? Ваши документы, баланс и аккаунт конфиденциальны — быстрая проверка покажет нужный портал и сохранит вашу информацию в безопасности.',
+    whyRegister: 'Зачем представляться? Потому что вы заслуживаете правильного ответа, а не просто любого. И потому что вы не просто пользуетесь нашей системой — вы помогаете нам делать её лучше каждый день. Вы — проводник нашего сообщества. Помогите нам увидеть то, что видите вы.',
   },
 }
 
@@ -1106,8 +1106,8 @@ export default function Home() {
                       style={{ background: 'linear-gradient(180deg, #fffaf6 0%, #ffffff 100%)', border: '1px solid rgba(242,106,27,0.18)', boxShadow: '0 4px 16px rgba(15,23,42,0.06)' }}
                       dir={isRtl ? 'rtl' : 'ltr'}
                     >
-                      {/* Tagline — bold headline on top */}
-                      <div className="[font-family:var(--font-display)] text-[1.18rem] font-bold leading-snug mb-2.5" style={{ color: '#0f172a' }}>
+                      {/* Tagline — bold uppercase orange headline on top (one line) */}
+                      <div className="[font-family:var(--font-display)] text-[0.8rem] font-bold uppercase tracking-[0.02em] leading-snug mb-2.5 whitespace-nowrap" style={{ color: '#f26a1b' }}>
                         {WELCOME[lang].tagline}
                       </div>
                       <div className="[font-family:var(--font-display)] text-[1.02rem] font-semibold leading-snug mb-1.5" style={{ color: '#0f172a' }}>
