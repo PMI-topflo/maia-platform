@@ -26,6 +26,7 @@ import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
 import PortalDocuments from '@/components/PortalDocuments'
 import MobileAppButton from '@/components/MobileAppButton'
+import ContactTickets from '@/components/ContactTickets'
 import ApplicationButton from '@/components/ApplicationButton'
 import PortalLangBar from '@/components/PortalLangBar'
 import { normalizePortalLang, portalStrings, isRtl } from '@/lib/portal-i18n'
@@ -71,8 +72,8 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
   return (
     <main className="assoc-page" dir={rtl ? 'rtl' : 'ltr'}>
       <div className="assoc-topbar">
-        <span className="assoc-topbar-l">WHATSAPP &amp; SMS 24/7 · +1 (786) 686-3223 · WE SPEAK ENGLISH, SPANISH, FRENCH &amp; PORTUGUESE</span>
-        <span className="assoc-topbar-r">305.900.5077</span>
+        <span className="assoc-topbar-l">💬 CHAT WITH MAIA 24/7 · WE SPEAK ENGLISH, SPANISH, PORTUGUESE, FRENCH, CREOLE, HEBREW &amp; RUSSIAN</span>
+        <span className="assoc-topbar-r">ASK MAIA →</span>
       </div>
 
       <SiteHeader subtitle={`${t.headerSubtitle.toUpperCase()} · ${name}`} />
@@ -141,30 +142,12 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
           <div className="sh-line" />
         </div>
 
-        <div className="contact-grid">
-          <div className="contact-card">
-            <div className="contact-icon">💰</div>
-            <div className="contact-label">{t.contactAR}</div>
-            <a href="mailto:ar@topfloridaproperties.com" className="contact-link">ar@topfloridaproperties.com</a>
-            <a href="tel:3059005105" className="contact-phone">(305) 900-5105</a>
-          </div>
-          <div className="contact-card">
-            <div className="contact-icon">🔧</div>
-            <div className="contact-label">{t.contactMaint}</div>
-            <a href="mailto:service@topfloridaproperties.com" className="contact-link">service@topfloridaproperties.com</a>
-            <a href="tel:3059005077" className="contact-phone">(305) 900-5077</a><a href="https://wa.me/17866863223" target="_blank" rel="noreferrer" className="contact-phone" style={{ color: '#25d366' }}>💬 (786) 686-3223</a>
-          </div>
-          <div className="contact-card">
-            <div className="contact-icon">⚖️</div>
-            <div className="contact-label">{t.contactCompliance}</div>
-            <a href="mailto:support@topfloridaproperties.com" className="contact-link">support@topfloridaproperties.com</a>
-          </div>
-          <div className="contact-card">
-            <div className="contact-icon">🧾</div>
-            <div className="contact-label">{t.contactBilling}</div>
-            <a href="mailto:billing@topfloridaproperties.com" className="contact-link">billing@topfloridaproperties.com</a>
-          </div>
-        </div>
+        {/* Contact a department by opening a tracked MAIA ticket (no published
+            phone/email — keeps the conversation on platform). */}
+        <ContactTickets
+          openLabel={t.openTicket}
+          labels={{ ar: t.contactAR, maintenance: t.contactMaint, compliance: t.contactCompliance, billing: t.contactBilling }}
+        />
 
       </AssociationPortalGate>
     </main>
