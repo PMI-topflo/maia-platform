@@ -38,6 +38,7 @@ const PERSONAS: { key: Persona; icon: string; tk: string; sk: string }[] = [
 const T: Record<Lang, Record<string, string>> = {
   en: {
     opening: "Hi! I'm MAIA, your PMI Top Florida Properties assistant. How can I help you today?",
+    welcomeBack: "Hi {name}! Welcome back. How can I help you today?",
     who: 'Who are you?',
     homeowner: 'Homeowner',       homeowner_sub: 'Unit owner or resident',
     tenant:    'Tenant',          tenant_sub:    'Renting a unit',
@@ -64,6 +65,7 @@ const T: Record<Lang, Record<string, string>> = {
   },
   es: {
     opening: '¡Hola! Soy MAIA, tu asistente de PMI Top Florida Properties. ¿Cómo puedo ayudarte?',
+    welcomeBack: '¡Hola {name}! Qué bueno verte de nuevo. ¿Cómo puedo ayudarte hoy?',
     who: '¿Quién eres?',
     homeowner: 'Propietario',     homeowner_sub: 'Dueño o residente',
     tenant:    'Inquilino',       tenant_sub:    'Rentando una unidad',
@@ -90,6 +92,7 @@ const T: Record<Lang, Record<string, string>> = {
   },
   pt: {
     opening: 'Olá! Sou MAIA, sua assistente PMI Top Florida Properties. Como posso ajudá-lo?',
+    welcomeBack: 'Olá {name}! Que bom te ver de novo. Como posso ajudar hoje?',
     who: 'Quem é você?',
     homeowner: 'Proprietário',   homeowner_sub: 'Dono ou residente',
     tenant:    'Inquilino',      tenant_sub:    'Alugando uma unidade',
@@ -116,6 +119,7 @@ const T: Record<Lang, Record<string, string>> = {
   },
   fr: {
     opening: "Bonjour! Je suis MAIA, votre assistante PMI Top Florida Properties. Comment puis-je vous aider?",
+    welcomeBack: "Bonjour {name} ! Ravie de vous revoir. Comment puis-je vous aider aujourd'hui ?",
     who: 'Qui êtes-vous?',
     homeowner: 'Propriétaire',    homeowner_sub: 'Propriétaire ou résident',
     tenant:    'Locataire',       tenant_sub:    "Location d'un logement",
@@ -142,6 +146,7 @@ const T: Record<Lang, Record<string, string>> = {
   },
   he: {
     opening: 'שלום! אני MAIA, העוזרת שלך מ-PMI Top Florida Properties. כיצד אוכל לעזור?',
+    welcomeBack: 'שלום {name}! טוב לראות אותך שוב. כיצד אוכל לעזור לך היום?',
     who: 'מי אתה?',
     homeowner: 'בעל דירה',      homeowner_sub: 'בעל יחידה או דייר',
     tenant:    'שוכר',          tenant_sub:    'השכרת יחידה',
@@ -168,6 +173,7 @@ const T: Record<Lang, Record<string, string>> = {
   },
   ru: {
     opening: 'Здравствуйте! Я MAIA, ваш помощник PMI Top Florida Properties. Чем я могу помочь?',
+    welcomeBack: 'Здравствуйте, {name}! Рада снова вас видеть. Чем могу помочь?',
     who: 'Кто вы?',
     homeowner: 'Владелец',           homeowner_sub: 'Владелец или жилец',
     tenant:    'Арендатор',          tenant_sub:    'Аренда жилья',
@@ -296,6 +302,7 @@ export default function MaiaWidget({ embedded = false }: { embedded?: boolean })
   const [phase,      setPhase]      = useState<Phase>('persona')
   const [persona,    setPersona]    = useState<Persona | null>(null)
   const [lang,       setLang]       = useState<Lang>('en')
+  const [sessionUser, setSessionUser] = useState<{ persona: string; name: string; assoc: string } | null>(null)
   const [msgs,       setMsgs]       = useState<Msg[]>([])
   const [input,      setInput]      = useState('')
   const [loading,    setLoading]    = useState(false)
@@ -326,6 +333,30 @@ export default function MaiaWidget({ embedded = false }: { embedded?: boolean })
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
   }, [])
+
+  // Detect an existing login so the widget can greet by name and skip the
+  // "who are you?" selector for someone who's already signed in.
+  useEffect(() => {
+    let live = true
+    fetch('/api/auth/check-session').then(r => r.ok ? r.json() : null).then(d => {
+      if (!live || !d?.valid || !d.session) return
+      const s = d.session
+      setSessionUser({ persona: s.persona, name: s.contactName || s.displayName || '', assoc: s.associationCode || '' })
+    }).catch(() => null)
+    return () => { live = false }
+  }, [])
+
+  // When a signed-in user opens the widget, jump straight into a personalized
+  // chat instead of the persona picker. Guarded on phase so it never re-greets
+  // mid-conversation.
+  useEffect(() => {
+    if (!open || !sessionUser || phase !== 'persona') return
+    const map: Record<string, Persona> = { owner: 'homeowner', board: 'board', tenant: 'tenant', staff: 'homeowner', unit_manager: 'homeowner', building_manager: 'homeowner' }
+    const first = sessionUser.name.trim().split(/\s+/)[0]
+    const greet = first ? t.welcomeBack.replace('{name}', first) : t.opening
+    startChat(map[sessionUser.persona] ?? 'homeowner', greet, sessionUser.assoc, '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, sessionUser])
 
   // (associations fetched on-demand by AddressSearch component)
 
