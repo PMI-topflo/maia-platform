@@ -6,6 +6,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import AddressSearch from '@/components/AddressSearch'
 import PasskeyLoginButton from '@/components/PasskeyLoginButton'
+import PasskeyEnrollPrompt from '@/components/PasskeyEnrollPrompt'
 import TwoFactorAuth from '@/components/TwoFactorAuth'
 import { associationPortalPath } from '@/lib/association-portal'
 import type { AddressResult } from '@/app/api/address-search/route'
@@ -526,6 +527,7 @@ export default function Home() {
   const [chatInput,     setChatInput]     = useState('')
   const [chatBusy,      setChatBusy]      = useState(false)
   const [pending2FA,    setPending2FA]    = useState<MatchedRole | null>(null)
+  const [enrollRole,    setEnrollRole]    = useState<MatchedRole | null>(null)
   const [hasSession,      setHasSession]      = useState(false)
   const [returnUrl,       setReturnUrl]       = useState<string | null>(null)
   const [sessionContact,  setSessionContact]  = useState('')   // full name from session cookie
@@ -644,10 +646,18 @@ export default function Home() {
     return '/'
   }
 
-  function navigateToPortal(role: MatchedRole) {
-    try { sessionStorage.setItem('maia_persona', JSON.stringify(role)) } catch { /* ignore */ }
+  function redirectToPortal(role: MatchedRole) {
     // replace() avoids adding to history so the back button won't loop back to the homepage
     window.location.replace(returnUrl ?? portalUrl(role))
+  }
+
+  function navigateToPortal(role: MatchedRole) {
+    try { sessionStorage.setItem('maia_persona', JSON.stringify(role)) } catch { /* ignore */ }
+    // Offer Face ID / fingerprint enrollment right after the code login — the
+    // resident is authenticated now, so it's the easy moment. The prompt
+    // self-resolves to redirectToPortal when set up or skipped (and is a no-op
+    // on unsupported devices / already-enrolled / previously-declined).
+    setEnrollRole(role)
   }
 
   function routeToRole(role: MatchedRole) {
@@ -840,6 +850,9 @@ export default function Home() {
 
   return (
     <>
+      {/* After a phone-OTP login, offer Face ID / fingerprint setup, then
+          continue to the portal (self-resolves if unsupported/already set up). */}
+      {enrollRole && <PasskeyEnrollPrompt onDone={() => redirectToPortal(enrollRole)} />}
       <style>{`
         @keyframes bfl-1{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-22px) rotate(2deg)}}
         @keyframes bfl-2{0%,100%{transform:translateY(0) rotate(0deg)}40%{transform:translateY(-16px) rotate(-1.5deg)}75%{transform:translateY(8px) rotate(1deg)}}
