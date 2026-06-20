@@ -11,7 +11,7 @@ import type { AddressResult } from '@/app/api/address-search/route'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Lang = 'en' | 'es' | 'pt' | 'fr' | 'he' | 'ru'
+type Lang = 'en' | 'es' | 'pt' | 'fr' | 'ht' | 'he' | 'ru'
 type View =
   | 'home' | 'homeowner-form' | 'homeowner-notfound' | 'role-selector'
   | 'hw-step2' | 'hw-step3' | 'hw-escalate' | 'hw-escalate-form' | 'hw-escalate-sent'
@@ -30,7 +30,7 @@ type MatchedRole =
 
 const LANG_TABS: { code: Lang; label: string }[] = [
   { code: 'en', label: 'EN' }, { code: 'es', label: 'ES' }, { code: 'pt', label: 'PT' },
-  { code: 'fr', label: 'FR' }, { code: 'he', label: 'HE' }, { code: 'ru', label: 'RU' },
+  { code: 'fr', label: 'FR' }, { code: 'ht', label: 'HT' }, { code: 'he', label: 'HE' }, { code: 'ru', label: 'RU' },
 ]
 
 const GREETING: Record<Lang, string> = {
@@ -38,6 +38,7 @@ const GREETING: Record<Lang, string> = {
   es: '¡Hola! Soy MAIA, tu asistente de PMI Top Florida. ¿Cómo puedo ayudarte?',
   pt: 'Olá! Sou a MAIA, sua assistente da PMI Top Florida. Como posso ajudar?',
   fr: 'Bonjour ! Je suis MAIA, votre assistante PMI Top Florida. Comment puis-je vous aider ?',
+  ht: 'Bonjou! Mwen se MAIA, asistan ou nan PMI Top Florida. Kijan mwen ka ede w jodi a?',
   he: '!שלום! אני MAIA, העוזרת שלך של PMI Top Florida. כיצד אוכל לעזור לך היום',
   ru: 'Привет! Я MAIA, ваш ассистент PMI Top Florida. Как я могу помочь вам сегодня?',
 }
@@ -99,6 +100,35 @@ const COPY: Record<Lang, T> = {
       { key: 'board',     icon: '👥', title: 'Board Member',      desc: 'Review invoices & approvals' },
       { key: 'vendor',    icon: '🔧', title: 'Vendor',            desc: 'Invoices, ACH setup & coordination' },
       { key: 'staff',     icon: '🔒', title: 'PMI Staff',         desc: 'Internal dashboard' },
+    ],
+  },
+  ht: {
+    back: '← Tounen', contact: 'Kesyon?',
+    lookupTitle: 'Jwenn Asosyasyon Ou',
+    lookupSubtitle: 'Antre enfòmasyon kontak ou pou chèche kont ou.',
+    firstName: 'Prenon', lastName: 'Siyati', email: 'Adrès Imèl', phone: 'Nimewo Telefòn',
+    lookupBtn: 'Chèche Kont Mwen', lookupBusy: 'N ap chèche…',
+    notFoundTitle: 'Kont Pa Jwenn',
+    notFoundBody: 'Nou pa t kapab jwenn yon kont ki koresponn ak enfòmasyon sa a. Tanpri kontakte PMI dirèkteman:',
+    agentTitle: 'Demann Ajan Imobilye',
+    agentSubtitle: 'Ekip nou an pral kontakte w nan yon jou ouvrab.',
+    agentName: 'Non Konplè', agentLicense: 'Nimewo Lisans', agentAssoc: 'Asosyasyon',
+    agentSendBtn: 'Voye Demann', agentBusy: 'N ap voye…',
+    agentSentTitle: 'Demann Resevwa',
+    agentSentBody: 'Mèsi! Ekip nou an pral kontakte w nan yon jou ouvrab.',
+    vendorTitle: 'Demann Founisè',
+    vendorSubtitle: 'Voye enfòmasyon ou epi n ap voye fòm ACH ak COI yo ba ou.',
+    company: 'Non Konpayi', contactName: 'Non Kontak', vendorAssoc: 'Asosyasyon',
+    vendorSendBtn: 'Voye', vendorBusy: 'N ap voye…',
+    vendorSentTitle: 'Mèsi!',
+    vendorSentBody: 'Nou voye fòm yo mande yo nan imèl ou. Ekip faktirasyon nou an pral swiv avèk ou byento.',
+    personas: [
+      { key: 'homeowner', icon: '🏠', title: 'Pwopriyetè',     desc: 'Antre nan pòtal ak kont asosyasyon ou' },
+      { key: 'applicant', icon: '📋', title: 'Aplikan',        desc: 'Aplike pou lwe oswa achte yon inite' },
+      { key: 'agent',     icon: '🏢', title: 'Ajan Imobilye',  desc: 'Lis, achtè ak demann estoppel' },
+      { key: 'board',     icon: '👥', title: 'Manm Konsèy',    desc: 'Revize fakti ak apwobasyon' },
+      { key: 'vendor',    icon: '🔧', title: 'Founisè',        desc: 'Fakti, konfigirasyon ACH ak kowòdinasyon' },
+      { key: 'staff',     icon: '🔒', title: 'Anplwaye PMI',   desc: 'Tablodbò entèn' },
     ],
   },
   es: {
@@ -276,6 +306,21 @@ const ID_MSGS: Record<Lang, IdMsgs> = {
     escSentTitle: 'Thank you', escSentBody: 'Paola from our customer service team will review your information and get back to you within 1 business day.',
     chatPlaceholder: 'Type your message…', chatSend: 'Send', chatEndBtn: 'End Chat & Get Follow-up',
     chatSentTitle: 'All set!', chatSentBody: "I've sent a summary of our conversation to our team. Paola will follow up within 1 business day.",
+  },
+  ht: {
+    step2: 'Mwen pa t kapab jwenn kont ou ak enfòmasyon sa a. Kite m eseye yon lòt fason — èske ou ka di m adrès pwopriyete a ak nimewo inite a?',
+    step3: 'Kite m eseye yon lòt bagay. Èske ou konnen non asosyasyon oswa kominote ou a?',
+    step4: 'Mwen regrèt, mwen pa t kapab jwenn kont ou. Mwen pa vle kite w san èd — mwen gen de opsyon pou ou:',
+    chatWelcome: 'Mwen la pou ede w! Di m sa ou bezwen epi m ap asire m ekip nou an swiv avèk ou pèsonèlman.',
+    step2Addr: 'Adrès Pwopriyete ak Inite', step2Btn: 'Chèche pa Adrès', step2Busy: 'N ap chèche…',
+    step3Assoc: 'Non Asosyasyon / Kominote', step3Unit: 'Nimewo Inite (opsyonèl)', step3Btn: 'Chèche pa Asosyasyon', step3Busy: 'N ap chèche…',
+    optATitle: 'Ranpli yon Fòm Rapid', optADesc: 'Pataje detay ou epi ekip nou an pral reponn nan 1 jou ouvrab.',
+    optBTitle: 'Pale ak MAIA', optBDesc: 'Kontinye konvèsasyon sa a epi m ap asire ekip nou an swiv.',
+    escTitle: 'Ede Nou Jwenn Ou', escUnit: 'Nimewo Inite', escHowHear: 'Kijan ou tande pale de nou?', escNeedHelp: 'Ak kisa ou bezwen èd?',
+    escSendBtn: 'Voye Enfòmasyon M', escBusy: 'N ap voye…',
+    escSentTitle: 'Mèsi', escSentBody: 'Paola nan ekip sèvis kliyan nou an pral revize enfòmasyon ou epi reponn ou nan 1 jou ouvrab.',
+    chatPlaceholder: 'Tape mesaj ou…', chatSend: 'Voye', chatEndBtn: 'Fini Chat la & Jwenn Swivi',
+    chatSentTitle: 'Tout bagay pare!', chatSentBody: 'Mwen voye yon rezime konvèsasyon nou an bay ekip nou an. Paola pral swiv nan 1 jou ouvrab.',
   },
   es: {
     step2: "No pude encontrar tu cuenta con esa información. Déjame intentarlo de otra manera — ¿puedes decirme tu dirección y número de unidad?",
@@ -814,7 +859,7 @@ export default function Home() {
           }}
         >
           <span className="text-white/90 text-[0.58rem] sm:text-[0.62rem] [font-family:var(--font-mono)] uppercase tracking-[0.1em] truncate">
-            WHATSAPP &amp; SMS 24/7&nbsp; ·&nbsp; +1 (786) 686-3223&nbsp; ·&nbsp; EN · ES · PT · FR · HE · RU
+            WHATSAPP &amp; SMS 24/7&nbsp; ·&nbsp; +1 (786) 686-3223&nbsp; ·&nbsp; EN · ES · PT · FR · HT · HE · RU
           </span>
           <a
             href="tel:+13059005077"
@@ -1024,6 +1069,28 @@ export default function Home() {
                         {!greetingDone && <span className="cursor-blink text-[#f26a1b]">▋</span>}
                       </div>
                     </div>
+
+                    {/* Meet MAIA — light welcome / explanation card */}
+                    {greetingDone && (
+                      <div
+                        className="mb-5 rounded-2xl px-5 py-4 maia-fade"
+                        style={{ background: '#ffffff', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 8px 30px rgba(0,0,0,0.18)' }}
+                        dir="ltr"
+                      >
+                        <div className="[font-family:var(--font-display)] text-[1.02rem] font-semibold leading-snug mb-1.5" style={{ color: '#0f172a' }}>
+                          Meet MAIA — your community&apos;s always-on assistant
+                        </div>
+                        <p className="text-[0.8rem] leading-relaxed mb-2" style={{ color: '#475569' }}>
+                          Not just an AI agent — a communication partner that gets smarter every day. Homeowner, tenant, board member, vendor, or agent, MAIA speaks your language: English, Spanish, Portuguese, French, Haitian&nbsp;Creole, Hebrew&nbsp;&amp; Russian.
+                        </p>
+                        <p className="text-[0.8rem] leading-relaxed" style={{ color: '#475569' }}>
+                          She handles the routine so our team can focus on what matters — quick questions get instant answers, complex needs reach the right person. Nothing falls through the cracks.
+                        </p>
+                        <div className="text-[0.64rem] font-medium mt-2.5 [font-family:var(--font-mono)] uppercase tracking-[0.04em]" style={{ color: '#f26a1b' }}>
+                          Communication made personal · Service made intelligent · Community made stronger
+                        </div>
+                      </div>
+                    )}
 
                     {/* Persona buttons — appear when greeting finishes */}
                     {greetingDone && (
