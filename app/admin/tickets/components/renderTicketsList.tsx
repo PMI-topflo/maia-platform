@@ -57,7 +57,7 @@ export async function renderTicketsList(
   if (sp.category)    query = query.eq('ticket_category',  sp.category)
   if (sp.q) {
     const needle = sp.q.replace(/[%_]/g, ch => `\\${ch}`)
-    query = query.or(`subject.ilike.%${needle}%,summary.ilike.%${needle}%,contact_name.ilike.%${needle}%,contact_email.ilike.%${needle}%,ticket_number.ilike.%${needle}%`)
+    query = query.or(`subject.ilike.%${needle}%,summary.ilike.%${needle}%,contact_name.ilike.%${needle}%,contact_email.ilike.%${needle}%,ticket_number.ilike.%${needle}%,cinc_workorder_id.ilike.%${needle}%`)
   }
 
   // Distinct WorkOrderType names across CINC tickets — drives the
