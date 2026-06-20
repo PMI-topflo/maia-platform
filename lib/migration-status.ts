@@ -2106,6 +2106,25 @@ DROP POLICY IF EXISTS "service_role_all_resident_passkeys" ON public.resident_pa
 CREATE POLICY "service_role_all_resident_passkeys" ON public.resident_passkeys FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'resident_language_prefs',
+    label:       'Resident preferred language',
+    description: 'resident_language_prefs — a resident\'s preferred UI language set from their profile, keyed by (persona, persona_record_id). The resident portal defaults to it; ?lang= overrides.',
+    filename:    '20260620_resident_language_prefs.sql',
+    artifact:    { type: 'table', table: 'resident_language_prefs' },
+    sql: `CREATE TABLE IF NOT EXISTS public.resident_language_prefs (
+  persona text NOT NULL,
+  persona_record_id text NOT NULL,
+  lang text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (persona, persona_record_id)
+);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.resident_language_prefs TO service_role;
+ALTER TABLE public.resident_language_prefs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_resident_language_prefs" ON public.resident_language_prefs;
+CREATE POLICY "service_role_all_resident_language_prefs" ON public.resident_language_prefs FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

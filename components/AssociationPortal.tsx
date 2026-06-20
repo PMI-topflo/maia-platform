@@ -55,7 +55,20 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
   const allowed = sess?.persona === 'staff' || (sess?.associationCode ?? '').toUpperCase() === upper
   if (!allowed) redirect('/')
 
-  const L = normalizePortalLang(lang)
+  // Default to the resident's saved language preference (a ?lang= URL param —
+  // e.g. from the in-page language picker — still overrides it).
+  let effectiveLang = lang
+  if (!effectiveLang && sess && sess.persona !== 'staff' && sess.userId != null) {
+    const { data: pref } = await supabaseAdmin
+      .from('resident_language_prefs')
+      .select('lang')
+      .eq('persona', sess.persona)
+      .eq('persona_record_id', String(sess.userId))
+      .maybeSingle()
+    if (pref?.lang) effectiveLang = pref.lang
+  }
+
+  const L = normalizePortalLang(effectiveLang)
   const t = portalStrings(L)
   const rtl = isRtl(L)
   const { data: row } = await supabaseAdmin

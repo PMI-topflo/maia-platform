@@ -25,7 +25,13 @@ export interface PersonaProfileFormProps {
   initial:          PersonaProfileInitial
   persona:          'owner' | 'tenant' | 'board' | 'unit_manager' | 'building_manager'
   pendingProposed?: string | null
+  initialLang?:     string | null
 }
+
+const LANG_OPTIONS: { code: string; label: string }[] = [
+  { code: 'en', label: 'English' }, { code: 'es', label: 'Español' }, { code: 'pt', label: 'Português' },
+  { code: 'fr', label: 'Français' }, { code: 'ht', label: 'Kreyòl' }, { code: 'he', label: 'עברית' }, { code: 'ru', label: 'Русский' },
+]
 
 const labelCls = 'block mb-1 text-[0.62rem] font-medium uppercase tracking-[0.1em] text-gray-500 [font-family:var(--font-mono)]'
 const inputCls = 'w-full bg-white border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-[#f26a1b] focus:shadow-[0_0_0_3px_rgba(242,106,27,.15)] transition-shadow'
@@ -38,7 +44,7 @@ const PERSONA_LABEL: Record<PersonaProfileFormProps['persona'], string> = {
   building_manager: 'Building Manager',
 }
 
-export default function PersonaProfileForm({ initial, persona, pendingProposed }: PersonaProfileFormProps) {
+export default function PersonaProfileForm({ initial, persona, pendingProposed, initialLang }: PersonaProfileFormProps) {
   // Board persona keeps a single `name`; the others split into first/last.
   const splitsName = persona !== 'board'
   const [firstName,  setFirstName]  = useState(initial.extra.first_name ?? '')
@@ -49,6 +55,7 @@ export default function PersonaProfileForm({ initial, persona, pendingProposed }
   const [phone2,     setPhone2]     = useState(initial.extra.phone_2 ?? '')
   const [address,    setAddress]    = useState(initial.extra.address ?? '')
   const [company,    setCompany]    = useState(initial.extra.company_name ?? '')
+  const [lang,       setLang]       = useState(initialLang ?? 'en')
   const [busy,       setBusy]       = useState(false)
   const [error,      setError]      = useState<string | null>(null)
   const [savedAt,    setSavedAt]    = useState<string | null>(null)
@@ -57,7 +64,7 @@ export default function PersonaProfileForm({ initial, persona, pendingProposed }
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setBusy(true); setError(null)
-    const patch: Record<string, string | null> = { phone }
+    const patch: Record<string, string | null> = { phone, preferred_language: lang }
     if (splitsName) {
       patch.first_name = firstName
       patch.last_name  = lastName
@@ -165,6 +172,14 @@ export default function PersonaProfileForm({ initial, persona, pendingProposed }
           <input className={inputCls} value={address} onChange={e => setAddress(e.target.value)} />
         </div>
       )}
+
+      <div>
+        <label className={labelCls}>Preferred language</label>
+        <select className={inputCls} value={lang} onChange={e => setLang(e.target.value)} dir="ltr">
+          {LANG_OPTIONS.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
+        </select>
+        <p className="text-[0.7rem] text-gray-500 mt-1">The language MAIA and your association portal use for you.</p>
+      </div>
 
       {error && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>}
       {savedAt && !error && <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">Saved at {savedAt}.</div>}

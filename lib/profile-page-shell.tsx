@@ -48,6 +48,18 @@ export default async function PersonaProfileShell({ persona, redirectIfNot, titl
     pendingProposed = data?.proposed_value ?? null
   }
 
+  // Saved preferred language (set from this form).
+  let savedLang: string | null = null
+  if (record) {
+    const { data } = await supabaseAdmin
+      .from('resident_language_prefs')
+      .select('lang')
+      .eq('persona', persona)
+      .eq('persona_record_id', record.id)
+      .maybeSingle()
+    savedLang = data?.lang ?? null
+  }
+
   // Where "back" goes: the resident's own association portal (or the main page).
   const backHref = associationPortalPath(session.associationCode) ?? '/'
 
@@ -68,7 +80,7 @@ export default async function PersonaProfileShell({ persona, redirectIfNot, titl
         </p>
 
         {record ? (
-          <PersonaProfileForm initial={record} persona={persona} pendingProposed={pendingProposed} />
+          <PersonaProfileForm initial={record} persona={persona} pendingProposed={pendingProposed} initialLang={savedLang} />
         ) : (
           <div className="prow" style={{ background: '#fef3c7', border: '1px solid #fcd34d', padding: '1rem', borderRadius: 6 }}>
             <div className="prow-info">
