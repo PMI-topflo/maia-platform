@@ -30,8 +30,32 @@ export default function NewWorkOrderModal({ assocCode, assocName, onClose }: {
   const [vendorId, setVendorId] = useState('')          // CINC VendorId (string in <select>)
   const [vendorEmail, setVendorEmail] = useState('')
   const [onboard, setOnboard] = useState(false)
+  const [photos, setPhotos] = useState<File[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  // Upload each selected photo to the freshly-created work order (3-step:
+  // mint signed URL → PUT bytes → record). A failed photo is skipped, never
+  // blocks the WO. Mirrors WorkOrderPhotos.tsx.
+  async function uploadPhotos(ticketId: number) {
+    for (const file of photos) {
+      try {
+        const urlRes = await fetch(`/api/admin/work-orders/${ticketId}/photos/upload-url`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: file.name }),
+        })
+        const urlData = await urlRes.json()
+        if (!urlRes.ok || !urlData?.signed_url) continue
+        const putRes = await fetch(urlData.signed_url, {
+          method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'false' },
+        })
+        if (!putRes.ok) continue
+        await fetch(`/api/admin/work-orders/${ticketId}/photos`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storage_path: urlData.storage_path, filename: file.name, mime_type: file.type || undefined, file_size_bytes: file.size }),
+        })
+      } catch { /* skip this photo */ }
+    }
+  }
 
   useEffect(() => {
     fetch('/api/admin/cinc/work-order-types').then(r => r.json()).then(d => setWoTypes(d.items ?? [])).catch(() => null)
@@ -65,6 +89,7 @@ export default function NewWorkOrderModal({ assocCode, assocName, onClose }: {
       const d = await res.json()
       if (!res.ok) throw new Error(d?.error ?? `HTTP ${res.status}`)
       const id = d?.ticket?.id
+      if (id && photos.length) await uploadPhotos(id)
       if (id) router.push(`/admin/tickets/${id}`)
       else { router.refresh(); onClose() }
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setSubmitting(false) }
@@ -111,6 +136,17 @@ export default function NewWorkOrderModal({ assocCode, assocName, onClose }: {
           </Field>
           <Field label="Vendor email (for dispatch / doc requests)">
             <input type="email" value={vendorEmail} onChange={e => setVendorEmail(e.target.value)} placeholder="vendor@example.com" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+          </Field>
+
+          <Field label="Photos (optional)">
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={e => setPhotos(Array.from(e.target.files ?? []))}
+              className="w-full text-sm text-gray-700 file:mr-3 file:rounded file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-gray-700"
+            />
+            <p className="mt-1 text-xs text-gray-500">{photos.length ? `${photos.length} photo${photos.length === 1 ? '' : 's'} ready to attach` : 'Take a photo or choose from your phone — attached to the work order.'}</p>
           </Field>
 
           <label className="flex items-center gap-2 text-sm text-gray-700">

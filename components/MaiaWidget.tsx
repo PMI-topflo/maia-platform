@@ -11,7 +11,7 @@ type Phase =
   | 'persona' | 'lookup' | 'notfound' | 'chat'
   | 'agent-form' | 'agent-sent' | 'vendor-form' | 'vendor-sent'
 type Persona = 'homeowner' | 'tenant' | 'buyer' | 'agent' | 'vendor' | 'board' | 'title'
-type Lang = 'en' | 'es' | 'pt' | 'fr' | 'he' | 'ru'
+type Lang = 'en' | 'es' | 'pt' | 'fr' | 'ht' | 'he' | 'ru'
 
 interface Msg {
   id: string
@@ -143,6 +143,33 @@ const T: Record<Lang, Record<string, string>> = {
     agent_thanks:  'Demande envoyée! Nous vous contacterons bientôt.',
     vendor_thanks: 'Demande envoyée! Consultez votre e-mail pour les formulaires.',
     start_over: 'Recommencer', optional: 'optionnel',
+  },
+  ht: {
+    opening: 'Bonjou! Mwen se MAIA, asistan ou nan PMI Top Florida Properties. Kijan mwen ka ede w jodi a?',
+    welcomeBack: 'Bonjou {name}! Kontan wè w ankò. Kijan mwen ka ede w jodi a?',
+    who: 'Kiyès ou ye?',
+    homeowner: 'Pwopriyetè',     homeowner_sub: 'Pwopriyetè inite oswa rezidan',
+    tenant:    'Lokatè',         tenant_sub:    'K ap lwe yon inite',
+    buyer:     'Achtè',          buyer_sub:     'K ap achte yon pwopriyete',
+    agent:     'Ajan / Realtor', agent_sub:     'Pwofesyonèl imobilye',
+    vendor:    'Founisè',        vendor_sub:    'Founisè sèvis',
+    board:     'Manm Konsèy',    board_sub:     'Ofisye konsèy HOA',
+    title_co:  'Konpayi Tit',    title_sub:     'Fèmti & depo (escrow)',
+    lookup_title:   'Jwenn kominote ou',
+    first_name: 'Prenon', last_name: 'Siyati', email: 'Imèl', phone: 'Telefòn',
+    find: 'Jwenn Kominote Mwen', finding: 'N ap chèche…',
+    not_found:      'Nou pa t kapab jwenn kont ou.',
+    not_found_help: 'Tanpri kontakte nou dirèkteman:',
+    placeholder: 'Tape yon mesaj…', send: 'Voye', typing: 'MAIA ap ekri…',
+    back: '← Tounen', close: '✕',
+    agent_title:  'Demann Ajan / Realtor',
+    vendor_title: 'Demann Founisè / Kontraktè',
+    your_name: 'Non ou', company: 'Non konpayi', contact: 'Non kontak',
+    license: 'Nimewo lisans', assoc: 'Asosyasyon',
+    submit: 'Voye Demann', submitting: 'N ap voye…',
+    agent_thanks:  'Demann voye! N ap kontakte w nan yon jou ouvrab.',
+    vendor_thanks: 'Demann voye! Tcheke imèl ou pou fòm ACH ak COI yo.',
+    start_over: 'Rekòmanse', optional: 'opsyonèl',
   },
   he: {
     opening: 'שלום! אני MAIA, העוזרת שלך מ-PMI Top Florida Properties. כיצד אוכל לעזור?',
@@ -349,6 +376,10 @@ export default function MaiaWidget({ embedded = false }: { embedded?: boolean })
       if (!live || !d?.valid || !d.session) return
       const s = d.session
       setSessionUser({ persona: s.persona, name: s.contactName || s.displayName || '', assoc: s.associationCode || '' })
+      // Default the widget to the resident's saved language (the widget has no
+      // Creole translations, so only honor langs the widget actually supports).
+      const WIDGET_LANGS = ['en', 'es', 'pt', 'fr', 'ht', 'he', 'ru']
+      if (d.lang && WIDGET_LANGS.includes(d.lang)) setLang(d.lang as Lang)
     }).catch(() => null)
     return () => { live = false }
   }, [])
@@ -688,7 +719,7 @@ export default function MaiaWidget({ embedded = false }: { embedded?: boolean })
 
         {/* Language tabs */}
         <div style={{ display: 'flex', gap: '2px' }}>
-          {(['en','es','pt','fr','he','ru'] as Lang[]).map(l => (
+          {(['en','es','pt','fr','ht','he','ru'] as Lang[]).map(l => (
             <button
               key={l}
               onClick={() => setLang(l)}
