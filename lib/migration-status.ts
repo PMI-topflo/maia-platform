@@ -2125,6 +2125,16 @@ DROP POLICY IF EXISTS "service_role_all_resident_language_prefs" ON public.resid
 CREATE POLICY "service_role_all_resident_language_prefs" ON public.resident_language_prefs FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'message_english_translation',
+    label:       'English translation of inbound messages',
+    description: 'ticket_messages.body_en + general_conversations.body_en — inbound non-English messages are translated to English at ingest so staff dashboards + reports read in English (original kept for "view original").',
+    filename:    '20260621_message_english_translation.sql',
+    artifact:    { type: 'column', table: 'ticket_messages', column: 'body_en' },
+    sql: `ALTER TABLE public.ticket_messages ADD COLUMN IF NOT EXISTS body_en text;
+ALTER TABLE public.general_conversations ADD COLUMN IF NOT EXISTS body_en text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

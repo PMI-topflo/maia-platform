@@ -28,7 +28,7 @@ export default async function TicketDetailPage(props: PageProps) {
     supabaseAdmin.from('tickets').select('*').eq('id', ticketId).single(),
     supabaseAdmin
       .from('ticket_messages')
-      .select('id, direction, channel, from_addr, to_addr, subject, body, body_html, attachments, external_id, created_at')
+      .select('id, direction, channel, from_addr, to_addr, subject, body, body_en, body_html, attachments, external_id, created_at')
       .eq('ticket_id', ticketId)
       .order('created_at', { ascending: true }),
     supabaseAdmin
