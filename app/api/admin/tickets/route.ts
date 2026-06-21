@@ -18,8 +18,13 @@ import {
   type TicketPriority,
 } from '@/lib/tickets'
 import { isValidTicketCategory } from '@/lib/ticket-categories'
+import { sendEmail } from '@/lib/gmail'
+import { getAssociationName } from '@/lib/association-name'
 
 export const dynamic = 'force-dynamic'
+
+const APP = process.env['NEXT_PUBLIC_APP_URL'] ?? 'https://www.pmitop.com'
+const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
 
 const VALID_TYPE:     TicketType[]     = ['ticket', 'work_order']
 const VALID_CHANNEL:  TicketChannel[]  = ['email', 'whatsapp', 'sms', 'web', 'phone', 'internal']
@@ -117,6 +122,33 @@ export async function POST(req: Request) {
         from_addr: body.actor_email ?? 'staff',
         body:      body.initial_note,
       })
+    }
+
+    // Notify the assignee with the full context (name, association, email,
+    // phone, subject) so they can act straight from the email.
+    if (body.assignee_email && body.assignee_email.includes('@')) {
+      const assocName = body.association_code ? (await getAssociationName(body.association_code)) ?? body.association_code : null
+      const typeLabel = (body.type ?? 'ticket') === 'work_order' ? 'work order' : 'ticket'
+      const ref = ticket.ticket_number ?? `#${ticket.id}`
+      const rows = ([
+        ['Subject',     body.subject],
+        ['From',        body.contact_name],
+        ['Association', assocName],
+        ['Unit',        body.unit_number],
+        ['Email',       body.contact_email],
+        ['Phone',       body.contact_phone],
+      ] as [string, string | null | undefined][])
+        .filter(([, v]) => v)
+        .map(([k, v]) => `<tr><td style="padding:6px 10px;background:#f9f9f9;border:1px solid #eee;font-weight:600">${k}</td><td style="padding:6px 10px;border:1px solid #eee">${esc(String(v))}</td></tr>`)
+        .join('')
+      await sendEmail({
+        to: body.assignee_email, replyTo: body.contact_email || undefined,
+        subject: `New ${typeLabel} assigned to you — ${ref}`,
+        html: `<p>A ${typeLabel} has been assigned to you.</p>
+          <table style="border-collapse:collapse;margin:14px 0;font-size:14px">${rows}</table>
+          ${body.initial_note?.trim() ? `<p style="white-space:pre-wrap">${esc(body.initial_note.trim())}</p>` : ''}
+          <p><a href="${APP}/admin/tickets/${ticket.id}" style="display:inline-block;background:#f26a1b;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700">Open the ${typeLabel} →</a></p>`,
+      }).catch(() => null)
     }
 
     return NextResponse.json({ ticket })

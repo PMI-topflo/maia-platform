@@ -349,6 +349,10 @@ export default function MaiaWidget({ embedded = false }: { embedded?: boolean })
       if (!live || !d?.valid || !d.session) return
       const s = d.session
       setSessionUser({ persona: s.persona, name: s.contactName || s.displayName || '', assoc: s.associationCode || '' })
+      // Default the widget to the resident's saved language (the widget has no
+      // Creole translations, so only honor langs the widget actually supports).
+      const WIDGET_LANGS = ['en', 'es', 'pt', 'fr', 'he', 'ru']
+      if (d.lang && WIDGET_LANGS.includes(d.lang)) setLang(d.lang as Lang)
     }).catch(() => null)
     return () => { live = false }
   }, [])

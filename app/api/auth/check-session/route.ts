@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { resolveStaffByLoginEmail } from '@/lib/staff-lookup'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(SESSION_COOKIE)?.value
@@ -21,7 +22,19 @@ export async function GET(req: NextRequest) {
     contactName = row?.name ?? ''
   }
 
-  return NextResponse.json({ valid: true, session: { ...session, contactName } })
+  // The resident's saved preferred language (so the widget can default to it).
+  let lang: string | null = null
+  if (session.persona !== 'staff' && session.userId != null) {
+    const { data } = await supabaseAdmin
+      .from('resident_language_prefs')
+      .select('lang')
+      .eq('persona', session.persona)
+      .eq('persona_record_id', String(session.userId))
+      .maybeSingle()
+    lang = data?.lang ?? null
+  }
+
+  return NextResponse.json({ valid: true, session: { ...session, contactName }, lang })
 }
 
 export async function DELETE(_req: NextRequest) {
