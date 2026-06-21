@@ -20,6 +20,7 @@
 // =====================================================================
 
 import { supabaseAdmin } from './supabase-admin'
+import { translateToEnglish } from './translate'
 
 export type TicketType     = 'ticket' | 'work_order'
 export type TicketStatus   = 'open' | 'pending' | 'waiting_external' | 'resolved' | 'closed'
@@ -495,6 +496,16 @@ export async function appendMessage(
   ticketId: number,
   input:    AppendMessageInput,
 ): Promise<TicketMessage | null> {
+  // Canonical-English history: translate INBOUND resident messages so staff
+  // dashboards + reports read in English. Best-effort (no-op for English /
+  // empty / no API key); the original `body` is always preserved. Only inbound
+  // — never internal notes or staff replies.
+  let bodyEn: string | null = null
+  if (input.direction === 'inbound' && input.body?.trim()) {
+    const en = await translateToEnglish(input.body)
+    if (en && en.trim() !== input.body.trim()) bodyEn = en
+  }
+
   const row = {
     ticket_id:    ticketId,
     direction:    input.direction,
@@ -503,6 +514,7 @@ export async function appendMessage(
     to_addr:      input.to_addr     ?? null,
     subject:      input.subject     ?? null,
     body:         input.body        ?? null,
+    body_en:      bodyEn,
     body_html:    input.body_html   ?? null,
     attachments:  input.attachments ?? [],
     external_id:  input.external_id ?? null,

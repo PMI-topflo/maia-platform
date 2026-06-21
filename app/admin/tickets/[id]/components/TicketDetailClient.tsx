@@ -67,6 +67,7 @@ interface MessageRecord {
   to_addr:      string | null
   subject:      string | null
   body:         string | null
+  body_en:      string | null
   body_html:    string | null
   attachments:  unknown
   external_id:  string | null
@@ -1125,7 +1126,13 @@ function MessageCard({ m }: { m: MessageRecord }) {
         </div>
         <span className="text-xs text-gray-400">{fmtAbs(m.created_at)}</span>
       </div>
-      <div className="text-sm text-gray-800 whitespace-pre-wrap break-words">{m.body ?? ''}</div>
+      <div className="text-sm text-gray-800 whitespace-pre-wrap break-words">{m.body_en ?? m.body ?? ''}</div>
+      {m.body_en && m.body && m.body_en.trim() !== m.body.trim() && (
+        <details className="mt-1">
+          <summary className="text-xs text-gray-400 cursor-pointer select-none">🌐 Translated to English · view original</summary>
+          <div className="mt-1 text-sm text-gray-500 whitespace-pre-wrap break-words">{m.body}</div>
+        </details>
+      )}
     </div>
   )
 }
