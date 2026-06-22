@@ -2135,6 +2135,38 @@ NOTIFY pgrst, 'reload schema';`,
 ALTER TABLE public.general_conversations ADD COLUMN IF NOT EXISTS body_en text;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'maia_knowledge',
+    label:       'Teach MAIA knowledge studio',
+    description: 'maia_knowledge — staff-taught knowledge (PDF/image/text → MAIA reads → approve/correct), scoped per association + persona + unit/account. Only approved rows are injected into MAIA\'s live answers via buildKnowledgePromptBlock().',
+    filename:    '20260622_maia_knowledge.sql',
+    artifact:    { type: 'table', table: 'maia_knowledge' },
+    sql: `CREATE TABLE IF NOT EXISTS public.maia_knowledge (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code   text,
+  persona            text,
+  account_number     text,
+  unit_number        text,
+  title              text NOT NULL,
+  source_kind        text NOT NULL DEFAULT 'text',
+  source_filename    text,
+  source_path        text,
+  raw_extract        text,
+  understood_summary text,
+  approved_body      text,
+  status             text NOT NULL DEFAULT 'needs_review',
+  created_by         text,
+  reviewed_by        text,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS maia_knowledge_inject_idx ON public.maia_knowledge (association_code, persona, status);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.maia_knowledge TO anon, authenticated, service_role;
+ALTER TABLE public.maia_knowledge ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_maia_knowledge" ON public.maia_knowledge;
+CREATE POLICY "service_role_all_maia_knowledge" ON public.maia_knowledge FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

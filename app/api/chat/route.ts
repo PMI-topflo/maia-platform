@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { assertClaudeBudget } from '@/lib/anthropic-guard'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { buildSkillsPromptBlock } from '@/lib/skills'
+import { buildKnowledgePromptBlock } from '@/lib/maia-knowledge'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
 import { categoryLabel } from '@/lib/association-documents'
 
@@ -69,7 +70,7 @@ function describeAssociationType(t: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const { messages, persona, associationCode, language, sessionId } = await req.json()
+  const { messages, persona, associationCode, language, sessionId, accountNumber } = await req.json()
 
   if (!messages?.length) {
     return NextResponse.json({ reply: '' }, { status: 400 })
@@ -200,8 +201,11 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const [skillsBlock] = await Promise.all([
+  const [skillsBlock, knowledgeBlock] = await Promise.all([
     buildSkillsPromptBlock('customer'),
+    // Taught knowledge approved in the /admin/teach studio, scoped to this
+    // association + persona. Empty string when nothing applies.
+    buildKnowledgePromptBlock(associationCode ?? null, persona ?? 'homeowner', accountNumber ?? null),
     Promise.all(contextQueries),
   ])
 
@@ -226,7 +230,7 @@ RESPONSE RULES:
 - Be helpful, concise, and professional. Keep responses under 150 words unless a longer explanation is truly needed.
 - If you don't know the answer, say so honestly and direct them to call (305) 900-5077, WhatsApp (786) 686-3223, or email maia@pmitop.com.
 - Never invent specific dollar amounts, dates, or policy details you are not certain about.
-- For urgent maintenance (flooding, no AC, safety hazards), always include the service email and phone number.${buildOfficeHoursBlock()}${skillsBlock}`
+- For urgent maintenance (flooding, no AC, safety hazards), always include the service email and phone number.${buildOfficeHoursBlock()}${knowledgeBlock}${skillsBlock}`
 
   let reply = ''
   try {
