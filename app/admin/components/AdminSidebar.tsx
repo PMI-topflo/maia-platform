@@ -27,6 +27,7 @@ const NAV: Node[] = [
     { label: 'Communications', href: '/admin/communications' },
   ] },
   { type: 'item', label: 'Personas', icon: '👤', href: '/admin/personas' },
+  { type: 'item', label: 'Teach MAIA', icon: '🎓', href: '/admin/teach' },
   { type: 'group', label: 'Associations', icon: '🏢', items: [
     { label: 'Associations', href: '/admin/cinc-sync' },
     { label: 'Document Inbox', href: '/admin/documents/inbox' },
