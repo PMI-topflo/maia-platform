@@ -17,7 +17,7 @@ export default async function TeachPage() {
   const [{ data: items }, { data: associations }] = await Promise.all([
     supabaseAdmin
       .from('maia_knowledge')
-      .select('id, association_code, persona, account_number, unit_number, title, source_kind, source_filename, understood_summary, approved_body, status, created_by, reviewed_by, created_at, updated_at')
+      .select('id, association_code, persona, account_number, unit_number, kind, title, source_kind, source_filename, understood_summary, approved_body, status, created_by, reviewed_by, created_at, updated_at')
       .order('updated_at', { ascending: false })
       .limit(500),
     supabaseAdmin
