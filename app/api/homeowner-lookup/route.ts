@@ -4,7 +4,7 @@ import { resolveStaffByLoginEmail } from '@/lib/staff-lookup'
 
 export type MatchedRole =
   | { type: 'staff' }
-  | { type: 'owner';            owner_id: number;           association_code: string; association_name: string; firstName?: string; lastName?: string }
+  | { type: 'owner';            owner_id: number;           association_code: string; association_name: string; firstName?: string; lastName?: string; unit_number?: string | null }
   | { type: 'board';            board_member_id: string;    association_code: string; association_name: string; position: string | null; firstName?: string; lastName?: string }
   | { type: 'tenant';           association_code: string;   association_name: string }
   | { type: 'unit_manager';     unit_manager_id: string;    association_code: string; association_name: string; managed_units: string[]; firstName?: string; lastName?: string }
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
     // Active owners only
     email
       ? supabaseAdmin.from('owners')
-          .select('id, association_code, association_name, first_name, last_name')
+          .select('id, association_code, association_name, first_name, last_name, unit_number')
           .ilike('emails', `%${email}%`)
           .neq('status', 'previous')
           .limit(5)
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
 
     digits.length >= 7
       ? supabaseAdmin.from('owners')
-          .select('id, association_code, association_name, first_name, last_name')
+          .select('id, association_code, association_name, first_name, last_name, unit_number')
           .or(`phone.ilike.%${digits}%,phone_e164.ilike.%${digits}%,phone_2.ilike.%${digits}%,phone_3.ilike.%${digits}%`)
           .neq('status', 'previous')
           .limit(5)
@@ -156,15 +156,33 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Owners — merge + deduplicate (active only) ────────────────────────────
-  type OwnerRow = { id: number; association_code: string; association_name: string; first_name?: string | null; last_name?: string | null }
-  const ownerRows: OwnerRow[] = [
-    ...((ownerEmailRes as { data: OwnerRow[] }).data ?? []),
-    ...((ownerPhoneRes  as { data: OwnerRow[] }).data ?? []),
-  ]
-  const seenOwners = new Set<number>()
-  for (const row of ownerRows) {
-    if (seenOwners.has(row.id) || !nameMatches(row) || !row.association_code) continue
-    seenOwners.add(row.id)
+  // A confirmed email or phone match IS the identifier here (the OTP sent to
+  // the on-file contact is the real access gate). So the typed name must only
+  // DISAMBIGUATE among matches — never veto one outright. A one-letter name
+  // typo ("Subhaschandra" vs "Subhasschandra") used to drop a perfect
+  // email+phone match and escalate the resident as "unidentified".
+  type OwnerRow = { id: number; association_code: string; association_name: string; first_name?: string | null; last_name?: string | null; unit_number?: string | null }
+  const emailOwners = (ownerEmailRes as { data: OwnerRow[] }).data ?? []
+  const phoneOwners = (ownerPhoneRes as { data: OwnerRow[] }).data ?? []
+  const phoneOwnerIds = new Set(phoneOwners.map(r => r.id))
+  const ownerById = new Map<number, OwnerRow & { _phone: boolean }>()
+  for (const row of [...emailOwners, ...phoneOwners]) {
+    if (!row.association_code || ownerById.has(row.id)) continue
+    ownerById.set(row.id, { ...row, _phone: phoneOwnerIds.has(row.id) })
+  }
+  let ownerCands = [...ownerById.values()]
+  const ownerNameHits = ownerCands.filter(r => nameMatches(r))
+  if (ownerNameHits.length) {
+    // The name agrees with one or more matches — trust it to narrow.
+    ownerCands = ownerNameHits
+  } else if (email && digits.length >= 7) {
+    // No name agreement (typo / nickname / maiden name). When BOTH email and
+    // phone were given, prefer records corroborated by the phone too — this
+    // drops a stray record that merely shares the email (a data-entry error).
+    const corroborated = ownerCands.filter(r => r._phone)
+    if (corroborated.length) ownerCands = corroborated
+  }
+  for (const row of ownerCands) {
     roles.push({
       type: 'owner',
       owner_id: row.id,
@@ -172,6 +190,7 @@ export async function POST(req: NextRequest) {
       association_name: row.association_name ?? '',
       firstName: row.first_name ?? undefined,
       lastName:  row.last_name  ?? undefined,
+      unit_number: row.unit_number ?? null,
     })
   }
 
@@ -184,16 +203,18 @@ export async function POST(req: NextRequest) {
     ...((boardPhoneRes  as { data: BoardRow[] }).data ?? []),
   ]
   const seenBoard = new Set<string>()
-  const boardMatches: BoardRow[] = []
+  const boardAll: BoardRow[] = []
   for (const row of boardRows) {
-    const parts = (row.name ?? '').trim().split(/\s+/)
-    const first = parts[0] ?? null
-    const last  = parts.length > 1 ? parts.slice(1).join(' ') : null
-    const nameForMatch = { first_name: first, last_name: last }
-    if (seenBoard.has(row.id) || !nameMatches(nameForMatch) || !row.association_code) continue
+    if (seenBoard.has(row.id) || !row.association_code) continue
     seenBoard.add(row.id)
-    boardMatches.push(row)
+    boardAll.push(row)
   }
+  // Name only narrows — an email match alone identifies a board member.
+  const boardNamed = boardAll.filter(row => {
+    const parts = (row.name ?? '').trim().split(/\s+/)
+    return nameMatches({ first_name: parts[0] ?? null, last_name: parts.length > 1 ? parts.slice(1).join(' ') : null })
+  })
+  const boardMatches: BoardRow[] = boardNamed.length ? boardNamed : boardAll
 
   if (boardMatches.length > 0) {
     const codes = [...new Set(boardMatches.map(r => r.association_code))]
@@ -225,12 +246,14 @@ export async function POST(req: NextRequest) {
     ...((unitMgrPhoneRes  as { data: UnitMgrRow[] }).data ?? []),
   ]
   const seenUnitMgr = new Set<string>()
-  const unitMgrMatches: UnitMgrRow[] = []
+  const unitMgrAll: UnitMgrRow[] = []
   for (const row of unitMgrRows) {
-    if (seenUnitMgr.has(row.id) || !nameMatches(row) || !row.association_code) continue
+    if (seenUnitMgr.has(row.id) || !row.association_code) continue
     seenUnitMgr.add(row.id)
-    unitMgrMatches.push(row)
+    unitMgrAll.push(row)
   }
+  const unitMgrNamed = unitMgrAll.filter(r => nameMatches(r))
+  const unitMgrMatches: UnitMgrRow[] = unitMgrNamed.length ? unitMgrNamed : unitMgrAll
 
   if (unitMgrMatches.length > 0) {
     const codes = [...new Set(unitMgrMatches.map(r => r.association_code))]
@@ -261,12 +284,14 @@ export async function POST(req: NextRequest) {
     ...((bldgMgrPhoneRes  as { data: BldgMgrRow[] }).data ?? []),
   ]
   const seenBldgMgr = new Set<string>()
-  const bldgMgrMatches: BldgMgrRow[] = []
+  const bldgMgrAll: BldgMgrRow[] = []
   for (const row of bldgMgrRows) {
-    if (seenBldgMgr.has(row.id) || !nameMatches(row) || !row.association_code) continue
+    if (seenBldgMgr.has(row.id) || !row.association_code) continue
     seenBldgMgr.add(row.id)
-    bldgMgrMatches.push(row)
+    bldgMgrAll.push(row)
   }
+  const bldgMgrNamed = bldgMgrAll.filter(r => nameMatches(r))
+  const bldgMgrMatches: BldgMgrRow[] = bldgMgrNamed.length ? bldgMgrNamed : bldgMgrAll
 
   if (bldgMgrMatches.length > 0) {
     const codes = [...new Set(bldgMgrMatches.map(r => r.association_code))]

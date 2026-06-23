@@ -22,7 +22,7 @@ type View =
 
 type MatchedRole =
   | { type: 'staff' }
-  | { type: 'owner';            owner_id: number;            association_code: string; association_name: string }
+  | { type: 'owner';            owner_id: number;            association_code: string; association_name: string; unit_number?: string | null }
   | { type: 'board';            board_member_id: string;     association_code: string; association_name: string; position: string | null }
   | { type: 'tenant';           association_code: string;    association_name: string }
   | { type: 'unit_manager';     unit_manager_id: string;     association_code: string; association_name: string; managed_units: string[] }
@@ -1322,7 +1322,7 @@ export default function Home() {
                       {matchedRoles.map((role, i) => {
                         const icon  = role.type === 'staff' ? '🔒' : role.type === 'owner' ? '🏠' : role.type === 'tenant' ? '🏘' : '👥'
                         const title = role.type === 'staff' ? 'PMI Staff' : role.type === 'owner' ? 'Unit Owner' : role.type === 'tenant' ? 'Tenant' : role.type === 'board' ? `Board Member${role.position ? ` — ${role.position}` : ''}` : 'Unknown'
-                        const sub   = role.type === 'staff' ? 'Access staff dashboard' : role.type === 'owner' ? `View my account — ${role.association_name}` : role.type === 'tenant' ? `Resident portal — ${role.association_name}` : role.type === 'board' ? `Access board portal — ${role.association_name}` : ''
+                        const sub   = role.type === 'staff' ? 'Access staff dashboard' : role.type === 'owner' ? `View my account — ${role.association_name}${role.unit_number ? ` · Unit ${role.unit_number}` : ''}` : role.type === 'tenant' ? `Resident portal — ${role.association_name}` : role.type === 'board' ? `Access board portal — ${role.association_name}` : ''
                         return (
                           <button key={i} onClick={() => routeToRole(role)}
                             className="group flex items-center gap-3 p-3 rounded-[3px] transition-all text-left"
