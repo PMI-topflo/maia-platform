@@ -45,7 +45,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     .from('maia_knowledge')
     .update(patch)
     .eq('id', id)
-    .select('id, association_code, persona, account_number, unit_number, title, source_kind, source_filename, understood_summary, approved_body, status, created_by, reviewed_by, created_at, updated_at')
+    .select('id, association_code, persona, account_number, unit_number, kind, title, source_kind, source_filename, understood_summary, approved_body, status, created_by, reviewed_by, created_at, updated_at')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

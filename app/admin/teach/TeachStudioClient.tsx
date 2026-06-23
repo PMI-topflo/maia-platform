@@ -29,6 +29,7 @@ export interface KnowledgeItem {
   persona: string | null
   account_number: string | null
   unit_number: string | null
+  kind: 'knowledge' | 'behavior'
   title: string
   source_kind: 'text' | 'pdf' | 'image' | 'chat'
   source_filename: string | null
@@ -170,8 +171,9 @@ export default function TeachStudioClient({ initialItems, associations }: { init
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span>{KIND_ICON[it.source_kind]}</span>
+                      <span>{it.kind === 'behavior' ? '⚙️' : KIND_ICON[it.source_kind]}</span>
                       <span className="font-medium text-gray-900 truncate">{it.title}</span>
+                      {it.kind === 'behavior' && <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">Rule</span>}
                     </div>
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
                       <Chip>{assocName(it.association_code)}</Chip>
@@ -216,8 +218,10 @@ function TeachPanel({ associations, onTaught }: { associations: Assoc[]; onTaugh
   const [file, setFile] = useState<File | null>(null)
   const [text, setText] = useState('')
   const [hint, setHint] = useState('')
+  const [kind, setKind] = useState<'knowledge' | 'behavior'>('knowledge')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const isRule = kind === 'behavior'
 
   // Load the association's units/accounts when one is picked (per-unit scope).
   useEffect(() => {
@@ -244,6 +248,7 @@ function TeachPanel({ associations, onTaught }: { associations: Assoc[]; onTaugh
         const u = units.find(x => x.account_number === account)
         if (u?.unit_number) fd.set('unit_number', u.unit_number)
       }
+      if (isRule) fd.set('kind', 'behavior')
       // Either text or a file is enough — whichever was provided. If both,
       // the file is the source and the typed text rides along as a note.
       if (file) {
@@ -271,6 +276,19 @@ function TeachPanel({ associations, onTaught }: { associations: Assoc[]; onTaugh
   return (
     <section className="bg-white rounded-xl border border-gray-200 p-4">
       <h2 className="text-sm font-semibold text-gray-900 mb-3">Teach MAIA something new</h2>
+
+      {/* Knowledge (a fact she uses) vs Behavior rule (how she should respond). */}
+      <div className="inline-flex rounded-lg border border-gray-200 p-0.5 mb-3 bg-gray-50">
+        <button type="button" onClick={() => setKind('knowledge')}
+          className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${!isRule ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}>
+          📚 Knowledge <span className="font-normal text-gray-400">— a fact</span>
+        </button>
+        <button type="button" onClick={() => setKind('behavior')}
+          className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${isRule ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}>
+          ⚙️ Behavior rule <span className="font-normal text-gray-400">— how to respond</span>
+        </button>
+      </div>
+
       <div className="grid sm:grid-cols-3 gap-3 mb-3">
         <label className="text-xs text-gray-600">
           Per association
@@ -295,7 +313,11 @@ function TeachPanel({ associations, onTaught }: { associations: Assoc[]; onTaugh
         </label>
       </div>
 
-      <textarea value={text} onChange={e => setText(e.target.value)} rows={5} placeholder="Type what you want MAIA to know — rules, hours, contacts, procedures…" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+      <textarea value={text} onChange={e => setText(e.target.value)} rows={isRule ? 3 : 5}
+        placeholder={isRule
+          ? "Describe how MAIA should respond — e.g. 'When a returning resident has more than one role, ask which role they need help with today before answering.'"
+          : 'Type what you want MAIA to know — rules, hours, contacts, procedures…'}
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
 
       <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
         <input id="teach-file" type="file" accept="application/pdf,image/*" className="hidden" onChange={e => setFile(e.target.files?.[0] ?? null)} />
@@ -369,8 +391,9 @@ function ReviewModal({ item, associations, onClose, onChange, onDelete }: {
       <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full my-8" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between p-4 border-b border-gray-100">
           <div>
-            <h3 className="font-semibold text-gray-900">{item.title}</h3>
+            <h3 className="font-semibold text-gray-900">{item.kind === 'behavior' && '⚙️ '}{item.title}</h3>
             <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {item.kind === 'behavior' && <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-indigo-100 text-indigo-700">Behavior rule</span>}
               <Chip>{assocName(item.association_code)}</Chip>
               <Chip>{personaLabel(item.persona)}</Chip>
               {unitChip(item) && <Chip>🏠 {unitChip(item)}</Chip>}
@@ -382,12 +405,12 @@ function ReviewModal({ item, associations, onClose, onChange, onDelete }: {
 
         <div className="p-4 space-y-4">
           <div>
-            <p className="text-xs font-semibold text-gray-500 mb-1">🧠 What MAIA understood</p>
+            <p className="text-xs font-semibold text-gray-500 mb-1">{item.kind === 'behavior' ? '🧠 The rule MAIA understood' : '🧠 What MAIA understood'}</p>
             <div className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-lg p-3 border border-gray-100">{item.understood_summary ?? '—'}</div>
           </div>
 
           <div>
-            <p className="text-xs font-semibold text-gray-500 mb-1">📌 Knowledge MAIA will use (editable)</p>
+            <p className="text-xs font-semibold text-gray-500 mb-1">{item.kind === 'behavior' ? '⚙️ Rule MAIA will follow (editable)' : '📌 Knowledge MAIA will use (editable)'}</p>
             <textarea value={body} onChange={e => setBody(e.target.value)} rows={6} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             {dirty && <button onClick={() => patch({ approved_body: body }, 'save')} disabled={busy === 'save'} className="mt-1 text-xs text-orange-600 hover:underline">{busy === 'save' ? 'Saving…' : 'Save edits'}</button>}
           </div>

@@ -30,7 +30,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const { data: row } = await supabaseAdmin
     .from('maia_knowledge')
-    .select('id, title, association_code, persona, understood_summary, approved_body')
+    .select('id, title, association_code, persona, kind, understood_summary, approved_body')
     .eq('id', id)
     .single()
   if (!row) return NextResponse.json({ error: 'not found' }, { status: 404 })
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     refined = await refineKnowledge(
       { understood: row.understood_summary, knowledge: row.approved_body, title: row.title },
       correction,
-      { associationName, persona: row.persona },
+      { associationName, persona: row.persona, kind: row.kind === 'behavior' ? 'behavior' : 'knowledge' },
     )
   } catch (e) {
     return NextResponse.json({ error: `MAIA couldn't apply that: ${e instanceof Error ? e.message : 'unknown error'}` }, { status: 502 })
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       updated_at:         new Date().toISOString(),
     })
     .eq('id', id)
-    .select('id, association_code, persona, account_number, unit_number, title, source_kind, source_filename, understood_summary, approved_body, status, created_by, reviewed_by, created_at, updated_at')
+    .select('id, association_code, persona, account_number, unit_number, kind, title, source_kind, source_filename, understood_summary, approved_body, status, created_by, reviewed_by, created_at, updated_at')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
