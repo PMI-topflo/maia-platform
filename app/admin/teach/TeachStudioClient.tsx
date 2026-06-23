@@ -213,7 +213,6 @@ function TeachPanel({ associations, onTaught }: { associations: Assoc[]; onTaugh
   const [account, setAccount] = useState('')  // '' = all units; else account_number
   const [units, setUnits] = useState<UnitOpt[]>([])
   const [unitsLoading, setUnitsLoading] = useState(false)
-  const [mode, setMode] = useState<'file' | 'text'>('file')
   const [file, setFile] = useState<File | null>(null)
   const [text, setText] = useState('')
   const [hint, setHint] = useState('')
@@ -245,13 +244,17 @@ function TeachPanel({ associations, onTaught }: { associations: Assoc[]; onTaugh
         const u = units.find(x => x.account_number === account)
         if (u?.unit_number) fd.set('unit_number', u.unit_number)
       }
-      if (hint.trim()) fd.set('hint', hint.trim())
-      if (mode === 'file') {
-        if (!file) { setErr('Choose a PDF or image first.'); setBusy(false); return }
+      // Either text or a file is enough — whichever was provided. If both,
+      // the file is the source and the typed text rides along as a note.
+      if (file) {
         fd.set('file', file)
-      } else {
-        if (!text.trim()) { setErr('Paste some text first.'); setBusy(false); return }
+        const note = [hint.trim(), text.trim()].filter(Boolean).join(' — ')
+        if (note) fd.set('hint', note)
+      } else if (text.trim()) {
         fd.set('text', text.trim())
+        if (hint.trim()) fd.set('hint', hint.trim())
+      } else {
+        setErr('Type something to teach, or attach a PDF / image.'); setBusy(false); return
       }
       const res = await fetch('/api/admin/teach/ingest', { method: 'POST', body: fd })
       const json = await res.json()
@@ -292,20 +295,14 @@ function TeachPanel({ associations, onTaught }: { associations: Assoc[]; onTaugh
         </label>
       </div>
 
-      <div className="flex gap-1 mb-3">
-        <TabBtn active={mode === 'file'} onClick={() => setMode('file')}>📎 Upload PDF / image</TabBtn>
-        <TabBtn active={mode === 'text'} onClick={() => setMode('text')}>✍️ Paste text</TabBtn>
-      </div>
+      <textarea value={text} onChange={e => setText(e.target.value)} rows={5} placeholder="Type what you want MAIA to know — rules, hours, contacts, procedures…" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
 
-      {mode === 'file' ? (
-        <div className="border border-dashed border-gray-300 rounded-lg p-4 text-center">
-          <input id="teach-file" type="file" accept="application/pdf,image/*" className="hidden" onChange={e => setFile(e.target.files?.[0] ?? null)} />
-          <label htmlFor="teach-file" className="cursor-pointer text-sm text-orange-600 hover:underline">{file ? file.name : 'Choose a PDF or image…'}</label>
-          <p className="text-[11px] text-gray-400 mt-1">MAIA reads images with vision and PDFs with text extraction.</p>
-        </div>
-      ) : (
-        <textarea value={text} onChange={e => setText(e.target.value)} rows={5} placeholder="Paste rules, hours, contacts, procedures…" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-      )}
+      <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
+        <input id="teach-file" type="file" accept="application/pdf,image/*" className="hidden" onChange={e => setFile(e.target.files?.[0] ?? null)} />
+        <label htmlFor="teach-file" className="cursor-pointer text-orange-600 hover:underline">📎 {file ? file.name : 'Attach a PDF or image (optional)'}</label>
+        {file && <button type="button" onClick={() => setFile(null)} className="text-gray-400 hover:text-gray-700">✕</button>}
+        <span className="text-gray-400">— MAIA reads images with vision, PDFs by text.</span>
+      </div>
 
       <input value={hint} onChange={e => setHint(e.target.value)} placeholder="Optional note to MAIA (e.g. 'these are the pool rules')" className="mt-3 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
 
@@ -318,10 +315,6 @@ function TeachPanel({ associations, onTaught }: { associations: Assoc[]; onTaugh
       </div>
     </section>
   )
-}
-
-function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return <button onClick={onClick} className={`text-xs px-3 py-1.5 rounded-lg font-medium ${active ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600'}`}>{children}</button>
 }
 
 // ── Review modal ─────────────────────────────────────────────────────

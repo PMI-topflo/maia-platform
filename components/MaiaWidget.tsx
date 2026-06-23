@@ -337,6 +337,9 @@ export default function MaiaWidget({ embedded = false }: { embedded?: boolean })
   const [isMobile,   setIsMobile]   = useState(false)
   const [assocCode,  setAssocCode]  = useState('')
   const [assocName,  setAssocName]  = useState('')
+  // CINC account # of a signed-in owner — lets /api/chat surface per-unit
+  // "Teach MAIA" knowledge scoped to this owner's unit.
+  const [acctNumber, setAcctNumber] = useState('')
 
   const [sessionId] = useState<string>(() =>
     typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).slice(2)
@@ -376,6 +379,7 @@ export default function MaiaWidget({ embedded = false }: { embedded?: boolean })
       if (!live || !d?.valid || !d.session) return
       const s = d.session
       setSessionUser({ persona: s.persona, name: s.contactName || s.displayName || '', assoc: s.associationCode || '' })
+      if (d.accountNumber) setAcctNumber(String(d.accountNumber))
       // Default the widget to the resident's saved language (the widget has no
       // Creole translations, so only honor langs the widget actually supports).
       const WIDGET_LANGS = ['en', 'es', 'pt', 'fr', 'ht', 'he', 'ru']
@@ -457,6 +461,7 @@ export default function MaiaWidget({ embedded = false }: { embedded?: boolean })
         body: JSON.stringify({
           messages: next.map(m => ({ role: m.role, content: m.content })),
           persona, associationCode: assocCode, language: lang, sessionId,
+          accountNumber: acctNumber || undefined,
         }),
       })
       const data = await res.json()

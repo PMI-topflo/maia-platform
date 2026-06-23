@@ -34,7 +34,20 @@ export async function GET(req: NextRequest) {
     lang = data?.lang ?? null
   }
 
-  return NextResponse.json({ valid: true, session: { ...session, contactName }, lang })
+  // For a signed-in owner, resolve their CINC account number so the widget
+  // can pass it to /api/chat — that's what scopes per-unit "Teach MAIA"
+  // knowledge to the right unit in MAIA's answers.
+  let accountNumber: string | null = null
+  if (session.persona === 'owner' && session.userId != null) {
+    const { data } = await supabaseAdmin
+      .from('owners')
+      .select('account_number')
+      .eq('id', session.userId)
+      .maybeSingle()
+    accountNumber = data?.account_number ?? null
+  }
+
+  return NextResponse.json({ valid: true, session: { ...session, contactName }, lang, accountNumber })
 }
 
 export async function DELETE(_req: NextRequest) {
