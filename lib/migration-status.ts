@@ -2167,6 +2167,15 @@ DROP POLICY IF EXISTS "service_role_all_maia_knowledge" ON public.maia_knowledge
 CREATE POLICY "service_role_all_maia_knowledge" ON public.maia_knowledge FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'maia_knowledge_kind',
+    label:       'Teach MAIA — Behavior Rules',
+    description: 'maia_knowledge.kind — a taught item is either knowledge (a fact MAIA uses) or behavior (a natural-language rule for HOW MAIA should respond). Behavior rules inject into the prompt as RULES via buildKnowledgePromptBlock().',
+    filename:    '20260623_maia_knowledge_kind.sql',
+    artifact:    { type: 'column', table: 'maia_knowledge', column: 'kind' },
+    sql: `ALTER TABLE public.maia_knowledge ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'knowledge';
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

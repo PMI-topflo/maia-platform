@@ -18,6 +18,9 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export type KnowledgeStatus = 'needs_review' | 'approved' | 'rejected'
 export type KnowledgeSource = 'text' | 'pdf' | 'image' | 'chat'
+// 'knowledge' = a fact MAIA uses to answer. 'behavior' = a natural-language
+// rule for HOW MAIA should respond (injected as an instruction, not a fact).
+export type KnowledgeKind = 'knowledge' | 'behavior'
 
 export interface KnowledgeRow {
   id:                 string
@@ -25,6 +28,7 @@ export interface KnowledgeRow {
   persona:            string | null
   account_number:     string | null
   unit_number:        string | null
+  kind:               KnowledgeKind
   title:              string
   source_kind:        KnowledgeSource
   source_filename:    string | null
@@ -80,7 +84,7 @@ export async function buildKnowledgePromptBlock(
 ): Promise<string> {
   const { data, error } = await supabaseAdmin
     .from('maia_knowledge')
-    .select('title, approved_body, association_code, persona, account_number')
+    .select('title, approved_body, association_code, persona, account_number, kind')
     .eq('status', 'approved')
     .order('updated_at', { ascending: false })
     .limit(200)
@@ -98,19 +102,37 @@ export async function buildKnowledgePromptBlock(
   if (!relevant.length) return ''
 
   let total = 0
-  const blocks: string[] = []
+  const factBlocks: string[] = []
+  const ruleBlocks: string[] = []
   for (const r of relevant) {
     const body = (r.approved_body ?? '').trim()
     if (!body) continue
-    const scope = r.persona ? ` (for ${personaLabel(r.persona)})` : ''
-    const block = `• ${r.title}${scope}\n${body}`
-    if (total + block.length > MAX_KNOWLEDGE_CHARS) break
-    blocks.push(block)
-    total += block.length + 2
+    if (r.kind === 'behavior') {
+      // Rules are short imperative instructions — list as numbered items.
+      const scope = r.persona ? ` [${personaLabel(r.persona)}]` : ''
+      const block = `${body}${scope}`
+      if (total + block.length > MAX_KNOWLEDGE_CHARS) break
+      ruleBlocks.push(block)
+      total += block.length + 2
+    } else {
+      const scope = r.persona ? ` (for ${personaLabel(r.persona)})` : ''
+      const block = `• ${r.title}${scope}\n${body}`
+      if (total + block.length > MAX_KNOWLEDGE_CHARS) break
+      factBlocks.push(block)
+      total += block.length + 2
+    }
   }
-  if (!blocks.length) return ''
+  if (!factBlocks.length && !ruleBlocks.length) return ''
 
-  return `\n\nTAUGHT KNOWLEDGE (curated and approved by PMI staff — this is authoritative for this community; answer directly from it and prefer it over general assumptions):\n${blocks.join('\n\n')}`
+  let out = ''
+  if (ruleBlocks.length) {
+    out += `\n\nMAIA BEHAVIOR RULES — direct instructions from PMI staff on how to respond. Follow them exactly, ahead of your general defaults:\n` +
+      ruleBlocks.map((r, i) => `${i + 1}. ${r}`).join('\n')
+  }
+  if (factBlocks.length) {
+    out += `\n\nTAUGHT KNOWLEDGE (curated and approved by PMI staff — this is authoritative for this community; answer directly from it and prefer it over general assumptions):\n${factBlocks.join('\n\n')}`
+  }
+  return out
 }
 
 // ── The teach loop (Claude) ──────────────────────────────────────────
@@ -140,9 +162,18 @@ const client = new Anthropic()
 // knowledge to remember. Best-effort — throws only on hard API failure.
 export async function understandContent(
   rawText: string,
-  opts: { associationName: string | null; persona: string | null; hint?: string },
+  opts: { associationName: string | null; persona: string | null; hint?: string; kind?: KnowledgeKind },
 ): Promise<UnderstoodResult> {
-  const system = `You are MAIA's knowledge editor for PMI Top Florida Properties (HOA/condo management in South Florida). ${scopeLine(opts.associationName, opts.persona)}
+  const system = opts.kind === 'behavior'
+    ? `You are MAIA's behavior editor for PMI Top Florida Properties (HOA/condo management in South Florida). ${scopeLine(opts.associationName, opts.persona)}
+
+PMI staff are teaching you a RULE for HOW you should respond (not a fact). Produce a JSON object with exactly these keys:
+- "title": a short (3-8 word) name for this rule.
+- "understood": 1-4 short bullet lines (use "• ") restating, in plain language, the behavior you will follow — so staff can confirm you got it right. Note any condition/trigger and what you'll do.
+- "knowledge": the rule written as a single clear imperative instruction to yourself (e.g. "When a returning resident has more than one role, ask which role they need help with today before answering."). Concise, unambiguous, no filler.
+
+Return ONLY the JSON object — no prose, no code fences.`
+    : `You are MAIA's knowledge editor for PMI Top Florida Properties (HOA/condo management in South Florida). ${scopeLine(opts.associationName, opts.persona)}
 
 PMI staff have given you a SOURCE to learn from. Produce a JSON object with exactly these keys:
 - "title": a short (3-8 word) title for this knowledge item.
@@ -169,18 +200,22 @@ Return ONLY the JSON object — no prose, no code fences.`
 export async function refineKnowledge(
   current: { understood: string | null; knowledge: string | null; title: string },
   correction: string,
-  opts: { associationName: string | null; persona: string | null },
+  opts: { associationName: string | null; persona: string | null; kind?: KnowledgeKind },
 ): Promise<UnderstoodResult> {
-  const system = `You are MAIA's knowledge editor for PMI Top Florida Properties. ${scopeLine(opts.associationName, opts.persona)}
+  const noun = opts.kind === 'behavior' ? 'behavior rule' : 'knowledge item'
+  const knowledgeDesc = opts.kind === 'behavior'
+    ? '"knowledge" (the rule as a single clear imperative instruction)'
+    : '"knowledge" (clean canonical text)'
+  const system = `You are MAIA's ${opts.kind === 'behavior' ? 'behavior' : 'knowledge'} editor for PMI Top Florida Properties. ${scopeLine(opts.associationName, opts.persona)}
 
-Here is the current knowledge item:
+Here is the current ${noun}:
 TITLE: ${current.title}
 WHAT YOU UNDERSTOOD:
 ${current.understood ?? '(none)'}
-CANONICAL KNOWLEDGE:
+CANONICAL ${opts.kind === 'behavior' ? 'RULE' : 'KNOWLEDGE'}:
 ${current.knowledge ?? '(none)'}
 
-A staff member is correcting or refining you. Apply their feedback and return a JSON object with keys "title", "understood" (3-6 "• " bullet lines), and "knowledge" (clean canonical text). Keep everything still supported; only change what the correction implies. Return ONLY the JSON object.`
+A staff member is correcting or refining you. Apply their feedback and return a JSON object with keys "title", "understood" (1-6 "• " bullet lines), and ${knowledgeDesc}. Keep everything still supported; only change what the correction implies. Return ONLY the JSON object.`
 
   const resp = await client.messages.create({
     model: TEACH_MODEL,
