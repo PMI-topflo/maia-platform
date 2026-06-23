@@ -483,17 +483,24 @@ async function handleTextChannel(phone: string, message: string, channel: Channe
     }
   } else if (isGreeting) {
     if (ctx.persona !== 'unknown') {
-      const greeting = buildPersonalGreeting(ctx)
-      await sendReply(phone, greeting, channel)
-      await new Promise(r => setTimeout(r, 1500))
-      replyText = translate(ctx.language, {
-        en: `Just tell me what you need and I'll take care of it! 😊`,
-        es: `¡Solo dime qué necesitas y yo me encargo! 😊`,
-        pt: `É só me dizer o que você precisa e eu resolvo! 😊`,
-        fr: `Dites-moi simplement ce dont vous avez besoin! 😊`,
-        he: `פשוט תגיד לי מה אתה צריך ואני אטפל בזה! 😊`,
-        ru: `Просто скажите что вам нужно и я позабочусь! 😊`,
-      })
+      // If this phone belongs to more than one role, ask which hat first.
+      const roles = await findCallerRoles(phone)
+      const distinctTypes = new Set(roles.map(r => r.type))
+      if (distinctTypes.size > 1) {
+        replyText = await buildMultiPersonaGreeting(ctx, roles)
+      } else {
+        const greeting = buildPersonalGreeting(ctx)
+        await sendReply(phone, greeting, channel)
+        await new Promise(r => setTimeout(r, 1500))
+        replyText = translate(ctx.language, {
+          en: `Just tell me what you need and I'll take care of it! 😊`,
+          es: `¡Solo dime qué necesitas y yo me encargo! 😊`,
+          pt: `É só me dizer o que você precisa e eu resolvo! 😊`,
+          fr: `Dites-moi simplement ce dont vous avez besoin! 😊`,
+          he: `פשוט תגיד לי מה אתה צריך ואני אטפל בזה! 😊`,
+          ru: `Просто скажите что вам нужно и я позабочусь! 😊`,
+        })
+      }
     } else {
       await saveConversationState(phone, 'unknown_contact', 'awaiting_info', {})
       replyText = translate(ctx.language, {
@@ -813,6 +820,83 @@ function buildPersonalGreeting(ctx: CallerContext): string {
     fr: `Bonjour${n}! 🌸 C'est Maia de PMI Top Florida Properties.`,
     he: `שלום${n}! 🌸 אני מאיה מ-PMI Top Florida Properties.`,
     ru: `Привет${n}! 🌸 Это Мая из PMI Top Florida Properties.`,
+  })
+}
+
+// ============================================================
+// MULTI-PERSONA GREETING
+// When the SAME phone belongs to more than one role (e.g. an owner who is
+// also a board member, or an owner who also rents another unit), greet with
+// a quick "how may I help — as X, Y, or Z?" so MAIA routes to the right hat.
+// ============================================================
+
+interface CallerRole { type: PersonaType; assocCode?: string | null; unit?: string | null }
+
+const ROLE_NOUNS: Record<string, Record<string, string>> = {
+  homeowner:          { en: 'an Owner',        es: 'Propietario',         pt: 'Proprietário',        fr: 'Propriétaire',        he: 'בעלים',     ru: 'Владелец' },
+  association_tenant: { en: 'a Tenant',        es: 'Inquilino',           pt: 'Inquilino',           fr: 'Locataire',           he: 'שוכר',      ru: 'Арендатор' },
+  board_member:       { en: 'a Board Member',  es: 'Miembro de la Junta', pt: 'Membro do Conselho',  fr: 'Membre du conseil',   he: 'חבר ועד',   ru: 'Член правления' },
+  vendor:             { en: 'a Vendor',        es: 'Proveedor',           pt: 'Fornecedor',          fr: 'Fournisseur',         he: 'ספק',       ru: 'Поставщик' },
+  real_estate_agent:  { en: 'an Agent',        es: 'Agente',              pt: 'Corretor',            fr: 'Agent',               he: 'סוכן',      ru: 'Агент' },
+}
+
+function joinWithOr(items: string[], lang: string): string {
+  if (items.length <= 1) return items[0] ?? ''
+  const or = ({ en: 'or', es: 'o', pt: 'ou', fr: 'ou', he: 'או', ru: 'или' } as Record<string, string>)[lang] ?? 'or'
+  return items.slice(0, -1).join(', ') + ` ${or} ` + items[items.length - 1]
+}
+
+// All roles a phone maps to (vs buildCallerContext, which returns just the
+// first). Mirrors its phone-variant matching + table names.
+async function findCallerRoles(phone: string): Promise<CallerRole[]> {
+  const cleanPhone = phone.replace(/\D/g, '')
+  const plusPhone  = '+' + cleanPhone
+  const shortPhone = cleanPhone.replace(/^1/, '')
+  const ownerOr  = [`phone.eq.${phone}`, `phone.eq.${plusPhone}`, `phone.eq.${shortPhone}`,
+                    `phone_2.eq.${phone}`, `phone_2.eq.${plusPhone}`, `phone_2.eq.${shortPhone}`,
+                    `phone_e164.eq.${plusPhone}`, `phone_e164.eq.${phone}`].join(',')
+  const simpleOr = `phone.eq.${phone},phone.eq.${plusPhone},phone.eq.${shortPhone}`
+
+  const [owners, tenants, boards, vendors, agents] = await Promise.all([
+    getSupabase().from('owners').select('unit_number, association_code').or(ownerOr).limit(5),
+    getSupabase().from('association_tenants').select('unit_number, association_code').or(simpleOr).limit(5),
+    getSupabase().from('board_members').select('association_code').or(simpleOr).limit(5),
+    getSupabase().from('vendor_directory').select('association_id').eq('phone', phone).limit(5),
+    getSupabase().from('real_estate_agents').select('id').eq('phone', phone).limit(5),
+  ])
+
+  const roles: CallerRole[] = []
+  for (const o of owners.data ?? [])  roles.push({ type: 'homeowner',          assocCode: o.association_code, unit: o.unit_number })
+  for (const t of tenants.data ?? []) roles.push({ type: 'association_tenant',  assocCode: t.association_code, unit: t.unit_number })
+  for (const b of boards.data ?? [])  roles.push({ type: 'board_member',        assocCode: b.association_code })
+  for (const v of vendors.data ?? []) roles.push({ type: 'vendor',              assocCode: v.association_id })
+  ;(agents.data ?? []).forEach(() => roles.push({ type: 'real_estate_agent' }))
+  return roles
+}
+
+async function buildMultiPersonaGreeting(ctx: CallerContext, roles: CallerRole[]): Promise<string> {
+  const codes = [...new Set(roles.map(r => r.assocCode).filter(Boolean))] as string[]
+  const nameByCode: Record<string, string> = {}
+  if (codes.length) {
+    const { data } = await getSupabase().from('associations').select('association_code, association_name').in('association_code', codes)
+    for (const a of data ?? []) nameByCode[a.association_code] = a.association_name
+  }
+  const roleNoun = (type: PersonaType) => translate(ctx.language, ROLE_NOUNS[type] ?? ROLE_NOUNS.homeowner)
+  const labels = roles.map(r => {
+    const a = r.assocCode ? (nameByCode[r.assocCode] ?? r.assocCode) : null
+    const where = a ? ` (${a}${r.unit ? `, Unit ${r.unit}` : ''})` : ''
+    return `${roleNoun(r.type)}${where}`
+  })
+  const list  = joinWithOr(labels, ctx.language)
+  const first = ctx.name && ctx.name !== 'there' ? ctx.name.split(' ')[0] : ''
+  const n     = first ? ` ${first}` : ''
+  return translate(ctx.language, {
+    en: `Hi${n}! 🌸 This is Maia from PMI Top Florida Properties. I see you with us in more than one role — how may I help you today: as ${list}?`,
+    es: `¡Hola${n}! 🌸 Soy Maia de PMI Top Florida Properties. Te veo con nosotros en más de un rol — ¿cómo puedo ayudarte hoy: como ${list}?`,
+    pt: `Olá${n}! 🌸 Aqui é a Maia da PMI Top Florida Properties. Vejo você com a gente em mais de um papel — como posso ajudar hoje: como ${list}?`,
+    fr: `Bonjour${n}! 🌸 C'est Maia de PMI Top Florida Properties. Je vous vois avec nous sous plusieurs rôles — comment puis-je vous aider aujourd'hui : en tant que ${list} ?`,
+    he: `שלום${n}! 🌸 כאן מאיה מ-PMI Top Florida Properties. אני רואה אותך אצלנו ביותר מתפקיד אחד — איך אוכל לעזור היום: בתור ${list}?`,
+    ru: `Привет${n}! 🌸 Это Мая из PMI Top Florida Properties. Вижу вас у нас в нескольких ролях — чем могу помочь сегодня: как ${list}?`,
   })
 }
 
