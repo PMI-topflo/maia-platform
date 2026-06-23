@@ -14,7 +14,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { extractPdfText } from '@/lib/extract-pdf'
 import { extractImageText } from '@/lib/extract-image'
-import { understandContent, type KnowledgeSource } from '@/lib/maia-knowledge'
+import { understandContent, type KnowledgeSource, type KnowledgeKind } from '@/lib/maia-knowledge'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
   let persona: string | null = null
   let accountNumber: string | null = null
   let unitNumber: string | null = null
+  let kind: KnowledgeKind = 'knowledge'
   let titleHint: string | null = null
   let hint: string | null = null
   let sourceKind: KnowledgeSource = 'text'
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
       persona = nullable(form.get('persona'))
       accountNumber = nullable(form.get('account_number'))
       unitNumber = nullable(form.get('unit_number'))
+      if (nullable(form.get('kind')) === 'behavior') kind = 'behavior'
       titleHint = nullable(form.get('title'))
       hint = nullable(form.get('hint'))
       const pastedText = nullable(form.get('text'))
@@ -102,6 +104,7 @@ export async function POST(req: NextRequest) {
       persona = nullable(body.persona)
       accountNumber = nullable(body.account_number)
       unitNumber = nullable(body.unit_number)
+      if (nullable(body.kind) === 'behavior') kind = 'behavior'
       titleHint = nullable(body.title)
       hint = nullable(body.hint)
       rawText = (body.text ?? '').toString().trim()
@@ -126,7 +129,7 @@ export async function POST(req: NextRequest) {
 
   let understood
   try {
-    understood = await understandContent(rawText, { associationName, persona, hint: hint ?? undefined })
+    understood = await understandContent(rawText, { associationName, persona, hint: hint ?? undefined, kind })
   } catch (e) {
     return NextResponse.json({ error: `MAIA couldn't process this: ${e instanceof Error ? e.message : 'unknown error'}` }, { status: 502 })
   }
@@ -138,6 +141,7 @@ export async function POST(req: NextRequest) {
       persona,
       account_number:     accountNumber,
       unit_number:        unitNumber,
+      kind,
       title:              titleHint ?? understood.title,
       source_kind:        sourceKind,
       source_filename:    sourceFilename,
@@ -148,7 +152,7 @@ export async function POST(req: NextRequest) {
       status:             'needs_review',
       created_by:         actor,
     })
-    .select('id, association_code, persona, account_number, unit_number, title, source_kind, source_filename, understood_summary, approved_body, status, created_by, reviewed_by, created_at, updated_at')
+    .select('id, association_code, persona, account_number, unit_number, kind, title, source_kind, source_filename, understood_summary, approved_body, status, created_by, reviewed_by, created_at, updated_at')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
