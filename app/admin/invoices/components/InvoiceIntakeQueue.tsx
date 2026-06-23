@@ -791,6 +791,20 @@ function DraftCard(props: {
     }
   }
 
+  async function restore() {
+    setBusy(true); setMsg(null)
+    try {
+      const res = await fetch(`/api/admin/invoices/intake/${draft.id}/restore`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`)
+      onMutate()
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function rematch() {
     setBusy(true); setMsg(null)
     try {
@@ -1069,8 +1083,11 @@ function DraftCard(props: {
         </div>
       )}
       {isRejected && (
-        <div style={{ padding: 8, marginBottom: 12, background: '#f3f4f6', borderLeft: '3px solid #6b7280', fontSize: 13 }}>
-          Rejected. {draft.rejected_reason && <em>&quot;{draft.rejected_reason}&quot;</em>}
+        <div style={{ padding: 8, marginBottom: 12, background: '#f3f4f6', borderLeft: '3px solid #6b7280', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span>Rejected. {draft.rejected_reason && <em>&quot;{draft.rejected_reason}&quot;</em>}</span>
+          <button onClick={restore} disabled={busy} style={{ flexShrink: 0, fontSize: 12, fontWeight: 600, color: '#fff', background: '#f26a1b', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1 }}>
+            ↩ Move to Pending review
+          </button>
         </div>
       )}
       {isOnHold && (
