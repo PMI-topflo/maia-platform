@@ -471,7 +471,27 @@ async function handleTextChannel(phone: string, message: string, channel: Channe
 
   if (isGreeting) await clearConversationState(phone)
 
-  if (!isGreeting && state?.current_flow && state.current_flow !== 'idle') {
+  // ── Multi-persona clarifier ──────────────────────────────────────────
+  // When a returning contact whose phone maps to more than one role opens a
+  // conversation — a greeting, OR any first message with no flow in progress —
+  // ask which hat first, once. We park 'persona_clarify' so their reply isn't
+  // treated as a new opener and we don't re-ask. Their answer then flows to
+  // the normal AI handler below.
+  const inClarify  = state?.current_flow === 'persona_clarify'
+  const activeFlow = !isGreeting && !inClarify && !!state?.current_flow && state.current_flow !== 'idle'
+  if (!activeFlow && !inClarify && ctx.persona !== 'unknown') {
+    const roles = await findCallerRoles(phone)
+    if (new Set(roles.map(r => r.type)).size > 1) {
+      const greeting = await buildMultiPersonaGreeting(ctx, roles)
+      await saveConversationState(phone, 'persona_clarify', 'awaiting_choice', {})
+      await sendReply(phone, greeting, channel)
+      await logConversation(phone, message, greeting, ctx)
+      return NextResponse.json({ status: 'ok' })
+    }
+  }
+  if (inClarify) await clearConversationState(phone)
+
+  if (!isGreeting && state?.current_flow && state.current_flow !== 'idle' && !inClarify) {
     if (state.current_flow === 'awaiting_feedback') {
       replyText = await processFeedbackReply(phone, message, ctx, state)
     } else if (state.current_flow === 'agent_identification') {
@@ -483,24 +503,18 @@ async function handleTextChannel(phone: string, message: string, channel: Channe
     }
   } else if (isGreeting) {
     if (ctx.persona !== 'unknown') {
-      // If this phone belongs to more than one role, ask which hat first.
-      const roles = await findCallerRoles(phone)
-      const distinctTypes = new Set(roles.map(r => r.type))
-      if (distinctTypes.size > 1) {
-        replyText = await buildMultiPersonaGreeting(ctx, roles)
-      } else {
-        const greeting = buildPersonalGreeting(ctx)
-        await sendReply(phone, greeting, channel)
-        await new Promise(r => setTimeout(r, 1500))
-        replyText = translate(ctx.language, {
-          en: `Just tell me what you need and I'll take care of it! 😊`,
-          es: `¡Solo dime qué necesitas y yo me encargo! 😊`,
-          pt: `É só me dizer o que você precisa e eu resolvo! 😊`,
-          fr: `Dites-moi simplement ce dont vous avez besoin! 😊`,
-          he: `פשוט תגיד לי מה אתה צריך ואני אטפל בזה! 😊`,
-          ru: `Просто скажите что вам нужно и я позабочусь! 😊`,
-        })
-      }
+      // Single-role contact (multi-role already handled above). Personal greeting.
+      const greeting = buildPersonalGreeting(ctx)
+      await sendReply(phone, greeting, channel)
+      await new Promise(r => setTimeout(r, 1500))
+      replyText = translate(ctx.language, {
+        en: `Just tell me what you need and I'll take care of it! 😊`,
+        es: `¡Solo dime qué necesitas y yo me encargo! 😊`,
+        pt: `É só me dizer o que você precisa e eu resolvo! 😊`,
+        fr: `Dites-moi simplement ce dont vous avez besoin! 😊`,
+        he: `פשוט תגיד לי מה אתה צריך ואני אטפל בזה! 😊`,
+        ru: `Просто скажите что вам нужно и я позабочусь! 😊`,
+      })
     } else {
       await saveConversationState(phone, 'unknown_contact', 'awaiting_info', {})
       replyText = translate(ctx.language, {
