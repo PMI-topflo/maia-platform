@@ -35,7 +35,7 @@ type PersonaType =
   | 'homeowner' | 'association_tenant' | 'board_member'
   | 'vendor' | 'real_estate_agent' | 'potential_tenant'
   | 'potential_buyer' | 'guest' | 'residential_owner'
-  | 'residential_tenant' | 'residential_vendor' | 'unknown'
+  | 'residential_tenant' | 'residential_vendor' | 'staff' | 'unknown'
 
 interface CallerContext {
   phone:              string
@@ -852,6 +852,7 @@ const ROLE_NOUNS: Record<string, Record<string, string>> = {
   board_member:       { en: 'a Board Member',  es: 'Miembro de la Junta', pt: 'Membro do Conselho',  fr: 'Membre du conseil',   he: 'חבר ועד',   ru: 'Член правления' },
   vendor:             { en: 'a Vendor',        es: 'Proveedor',           pt: 'Fornecedor',          fr: 'Fournisseur',         he: 'ספק',       ru: 'Поставщик' },
   real_estate_agent:  { en: 'an Agent',        es: 'Agente',              pt: 'Corretor',            fr: 'Agent',               he: 'סוכן',      ru: 'Агент' },
+  staff:              { en: 'PMI Staff',        es: 'Personal de PMI',     pt: 'Equipe da PMI',       fr: 'Personnel PMI',       he: 'צוות PMI',  ru: 'Сотрудник PMI' },
 }
 
 function joinWithOr(items: string[], lang: string): string {
@@ -871,12 +872,16 @@ async function findCallerRoles(phone: string): Promise<CallerRole[]> {
                     `phone_e164.eq.${plusPhone}`, `phone_e164.eq.${phone}`].join(',')
   const simpleOr = `phone.eq.${phone},phone.eq.${plusPhone},phone.eq.${shortPhone}`
 
-  const [owners, tenants, boards, vendors, agents] = await Promise.all([
+  const staffOr = [`phone.eq.${phone}`, `phone.eq.${plusPhone}`, `phone.eq.${shortPhone}`,
+                   `personal_phone.eq.${phone}`, `personal_phone.eq.${plusPhone}`, `personal_phone.eq.${shortPhone}`].join(',')
+
+  const [owners, tenants, boards, vendors, agents, staff] = await Promise.all([
     getSupabase().from('owners').select('unit_number, association_code').or(ownerOr).limit(5),
     getSupabase().from('association_tenants').select('unit_number, association_code').or(simpleOr).limit(5),
     getSupabase().from('board_members').select('association_code').or(simpleOr).limit(5),
     getSupabase().from('vendor_directory').select('association_id').eq('phone', phone).limit(5),
     getSupabase().from('real_estate_agents').select('id').eq('phone', phone).limit(5),
+    getSupabase().from('pmi_staff').select('id').eq('active', true).or(staffOr).limit(1),
   ])
 
   const roles: CallerRole[] = []
@@ -885,6 +890,7 @@ async function findCallerRoles(phone: string): Promise<CallerRole[]> {
   for (const b of boards.data ?? [])  roles.push({ type: 'board_member',        assocCode: b.association_code })
   for (const v of vendors.data ?? []) roles.push({ type: 'vendor',              assocCode: v.association_id })
   ;(agents.data ?? []).forEach(() => roles.push({ type: 'real_estate_agent' }))
+  if (staff.data?.length) roles.push({ type: 'staff' })
   return roles
 }
 

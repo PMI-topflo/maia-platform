@@ -214,7 +214,7 @@ export async function PATCH(req: Request) {
   // reappear under "pending review". A rejected draft is likewise terminal.
   const { data: current, error: curErr } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('status, cinc_invoice_id')
+    .select('status, cinc_invoice_id, matched_cinc_vendor_id')
     .eq('id', body.id)
     .single()
   if (curErr || !current) return NextResponse.json({ error: curErr?.message ?? 'not found' }, { status: 404 })
@@ -243,6 +243,15 @@ export async function PATCH(req: Request) {
   // Explicit audit-status transitions (sent by the "mark ready" / "un-ready"
   // buttons): ready_to_push stamps who/when; pending_review clears the stamp.
   if (body.status === 'ready_to_push') {
+    // Hard gate: a draft can only go Ready to Push if its vendor is matched to
+    // a REAL CINC vendor. A free-typed name that isn't in CINC would fail (or
+    // mis-book) at push, so block it here with a clear message instead.
+    const effVendorId = ('matched_cinc_vendor_id' in body ? body.matched_cinc_vendor_id : current.matched_cinc_vendor_id)
+    if (!effVendorId || !String(effVendorId).trim()) {
+      return NextResponse.json({
+        error: 'This vendor isn’t a matched CINC vendor yet. Pick an existing CINC vendor from the list — or add the vendor in CINC, then "Refresh CINC vendor cache" — before marking it Ready to Push.',
+      }, { status: 400 })
+    }
     patch.status = 'ready_to_push'
     patch.audit_ready_by = await staffEmail()
     patch.audit_ready_at = new Date().toISOString()
