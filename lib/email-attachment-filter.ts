@@ -37,10 +37,18 @@ export function isImageAttachment(a: EmailAttachmentLike): boolean {
 
 /** True for an email-signature / logo / embedded graphic that should NOT be
  *  treated as an invoice or a work-order photo. Only judges IMAGES — PDF
- *  attachments are always real documents and are never filtered here. */
-export function isSignatureOrLogoImage(a: EmailAttachmentLike): boolean {
+ *  attachments are always real documents and are never filtered here.
+ *
+ *  `opts.nameOnly` skips the size/inline heuristics and judges by FILENAME
+ *  alone. Used by invoice intake: Karen often emails a SCREENSHOT of an
+ *  invoice (PNG, frequently small or pasted inline), which the size rules
+ *  would wrongly drop. A real logo still gets caught by its name
+ *  (logo/signature/icon/…), so screenshots come through while obvious
+ *  graphics don't. */
+export function isSignatureOrLogoImage(a: EmailAttachmentLike, opts?: { nameOnly?: boolean }): boolean {
   if (!isImageAttachment(a)) return false
   if (LOGO_NAME_RE.test(a.filename ?? '')) return true                          // explicit logo/signature name
+  if (opts?.nameOnly) return false                                             // invoice screenshots: name rule only
   const size = typeof a.size === 'number' ? a.size : undefined
   if (size != null && size < REAL_PHOTO_MIN_BYTES) return true                  // tiny graphic (signature logo)
   if (a.inline && size != null && size < INLINE_REAL_MIN_BYTES) return true     // embedded + not a big photo
