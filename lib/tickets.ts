@@ -442,6 +442,11 @@ export interface AppendMessageInput {
   to_addr?:     string | null
   subject?:     string | null
   body?:        string | null
+  /** Pre-translated English. When provided (even null), appendMessage trusts
+   *  it and SKIPS its own translate call — used by callers that already
+   *  translated the same text (e.g. the Twilio gen_conversations mirror) to
+   *  avoid a duplicate Haiku call. Omit to let appendMessage translate. */
+  body_en?:     string | null
   body_html?:   string | null
   attachments?: unknown[]
   external_id?: string | null
@@ -500,8 +505,8 @@ export async function appendMessage(
   // dashboards + reports read in English. Best-effort (no-op for English /
   // empty / no API key); the original `body` is always preserved. Only inbound
   // — never internal notes or staff replies.
-  let bodyEn: string | null = null
-  if (input.direction === 'inbound' && input.body?.trim()) {
+  let bodyEn: string | null = input.body_en ?? null
+  if (input.body_en === undefined && input.direction === 'inbound' && input.body?.trim()) {
     const en = await translateToEnglish(input.body)
     if (en && en.trim() !== input.body.trim()) bodyEn = en
   }

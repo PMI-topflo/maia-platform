@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import type { DialpadCallEvent, DialpadSmsEvent } from '@/lib/dialpad'
+import { translateToEnglish } from '@/lib/translate'
 
 // Module-level flag so the "SMS arrived without text content"
 // warning only fires once per process — Dialpad sends a LOT of these
@@ -118,6 +119,14 @@ export async function ingestSmsEvent(event: DialpadSmsEvent): Promise<void> {
     notes.media_url = body  // for MMS, `text` is a media URL, not a body
   }
 
+  // Canonical-English: translate inbound text messages so staff dashboards
+  // read English-first. Skip MMS (body is a media URL, not text).
+  let bodyEn: string | null = null
+  if (direction === 'inbound' && !isMms && body.trim()) {
+    const en = await translateToEnglish(body)
+    if (en && en.trim() !== body.trim()) bodyEn = en
+  }
+
   // SMS is single-event-per-message — no need to merge on conflict.
   const row: Record<string, unknown> = {
     external_id:      externalId,
@@ -130,6 +139,7 @@ export async function ingestSmsEvent(event: DialpadSmsEvent): Promise<void> {
     handled_by:       handledBy,
     topic:            'dialpad_sms',
     message:          body,
+    body_en:          bodyEn,
     association_code: associationCode,
     status:           'open',
     created_at:       createdAt,
@@ -174,6 +184,14 @@ export async function ingestCallEvent(event: DialpadCallEvent): Promise<void> {
     event.recap_summary?.trim() ||
     ''
 
+  // Canonical-English: translate inbound-call transcripts/summaries so staff
+  // dashboards read English-first (original preserved in `message`).
+  let bodyEn: string | null = null
+  if (direction === 'inbound' && message) {
+    const en = await translateToEnglish(message)
+    if (en && en.trim() !== message.trim()) bodyEn = en
+  }
+
   const recordingUrls = Array.isArray(event.recording_details)
     ? event.recording_details.map(r => r?.url).filter((u): u is string => typeof u === 'string' && !!u)
     : []
@@ -209,6 +227,7 @@ export async function ingestCallEvent(event: DialpadCallEvent): Promise<void> {
     handled_by:       handledBy,
     topic:            'dialpad_call',
     message,
+    body_en:          bodyEn,
     notes,
     association_code: associationCode,
     status:           'open',
@@ -233,7 +252,7 @@ export async function ingestCallEvent(event: DialpadCallEvent): Promise<void> {
     notes,
     updated_at: new Date().toISOString(),
   }
-  if (message) update.message = message
+  if (message) { update.message = message; update.body_en = bodyEn }
   if (handledBy) update.handled_by = handledBy
 
   const { error: updateErr } = await supabaseAdmin

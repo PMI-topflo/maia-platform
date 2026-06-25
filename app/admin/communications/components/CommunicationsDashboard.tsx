@@ -189,6 +189,7 @@ interface Conversation {
   handled_by: string | null
   summary: string | null
   message: string | null
+  body_en: string | null
   response: string | null
   subject: string | null
   sender_email: string | null
@@ -672,7 +673,7 @@ function ConversationsTab({
                   </div>
                   <p className="text-xs mt-1 truncate">
                     {(() => {
-                      const msg = c.message?.trim()
+                      const msg = c.body_en?.trim() || c.message?.trim()  // English-first preview
                       const res = c.response?.trim()
                       const ch  = c.channel
                       let preview: string | null = null
@@ -739,8 +740,16 @@ function ConversationsTab({
                   <div className="space-y-2 mt-3 pt-3 border-t border-gray-100 text-xs">
                     <div>
                       <div className="text-gray-400 font-semibold mb-1">Message</div>
-                      {c.message?.trim()
-                        ? <div className="bg-white border border-gray-100 rounded px-3 py-2 text-gray-700 whitespace-pre-wrap max-h-32 overflow-y-auto">{c.message}</div>
+                      {(c.body_en?.trim() || c.message?.trim())
+                        ? <>
+                            <div className="bg-white border border-gray-100 rounded px-3 py-2 text-gray-700 whitespace-pre-wrap max-h-32 overflow-y-auto">{c.body_en?.trim() || c.message}</div>
+                            {c.body_en?.trim() && c.message?.trim() && c.body_en.trim() !== c.message.trim() && (
+                              <details className="mt-1">
+                                <summary className="cursor-pointer select-none text-[11px] text-gray-400">🌐 Translated to English · view original</summary>
+                                <div className="mt-1 bg-white border border-gray-100 rounded px-3 py-2 text-gray-500 whitespace-pre-wrap max-h-32 overflow-y-auto">{c.message}</div>
+                              </details>
+                            )}
+                          </>
                         : <div className="text-gray-300 italic">No message content available</div>
                       }
                     </div>

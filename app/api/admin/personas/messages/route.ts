@@ -21,6 +21,8 @@ export interface MessageItem {
   when: string | null
   title: string | null
   body: string | null
+  /** English translation of `body` when the original was non-English; null otherwise. */
+  bodyEn: string | null
   associationCode: string | null
 }
 
@@ -45,7 +47,7 @@ export async function GET(req: Request) {
   if (email)  convOr.push(`contact_email.ilike.%${email}%`)
   if (convOr.length) {
     const { data } = await supabaseAdmin.from('general_conversations')
-      .select('channel, association_code, topic, subject, summary, message, response, created_at')
+      .select('channel, association_code, topic, subject, summary, message, body_en, response, created_at')
       .or(convOr.join(',')).order('created_at', { ascending: false }).limit(60)
     for (const c of data ?? []) {
       const ch = String(c.channel ?? '').toLowerCase()
@@ -54,6 +56,7 @@ export async function GET(req: Request) {
         channel, direction: null, when: (c.created_at as string | null) ?? null,
         title: (c.topic as string | null) || (c.subject as string | null) || 'Conversation',
         body: (c.message as string | null) || (c.summary as string | null) || (c.response as string | null) || null,
+        bodyEn: (c.body_en as string | null) ?? null,
         associationCode: (c.association_code as string | null) ?? null,
       })
     }
@@ -69,7 +72,7 @@ export async function GET(req: Request) {
         channel: 'email', direction: (e.direction as 'inbound' | 'outbound' | null) ?? null,
         when: (e.created_at as string | null) ?? null,
         title: (e.subject as string | null) || '(no subject)',
-        body: (e.body_preview as string | null) ?? null, associationCode: null,
+        body: (e.body_preview as string | null) ?? null, bodyEn: null, associationCode: null,
       })
     }
   }
