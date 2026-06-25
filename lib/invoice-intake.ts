@@ -216,7 +216,10 @@ async function processOnePdf(opts: {
     console.warn(`[invoice-intake] ${fileName} still ${(norm.originalBytes / 1e6).toFixed(1)}MB: ${norm.note}`)
   }
   const buf  = norm.buffer
-  const b64  = buf.toString('base64')
+  // Extract from the RAW original (best OCR fidelity for scans) — storage below
+  // still keeps the small normalized copy. Fall back to normalized only if the
+  // raw file is too big for the model's PDF size limit.
+  const b64  = (rawBuf.byteLength <= 20_000_000 ? rawBuf : buf).toString('base64')
 
   // Storage first (so we can re-push later even if extraction/CINC errors).
   // Path keyed by message + FILENAME (stable). NOT attachmentId — that
@@ -386,7 +389,8 @@ export async function createInvoiceDraftFromUpload(opts: {
 }): Promise<{ ok: boolean; status: DraftStatus | 'error'; draftId?: number; reason?: string }> {
   const norm = await normalizePdf(opts.buf)
   const bytes = norm.buffer
-  const b64 = bytes.toString('base64')
+  // Extract from the raw original (best OCR fidelity); store the normalized copy.
+  const b64 = (opts.buf.byteLength <= 20_000_000 ? opts.buf : bytes).toString('base64')
 
   const storageKey = `vendor-portal/${opts.ticketId}/${Date.now()}-${safeFilename(opts.filename)}`
   const upload = await supabaseAdmin.storage
@@ -463,7 +467,8 @@ export async function createManualInvoiceDraft(opts: {
   }
   const norm = await normalizePdf(pdfBuf)
   const bytes = norm.buffer
-  const b64 = bytes.toString('base64')
+  // Extract from the raw original (best OCR fidelity); store the normalized copy.
+  const b64 = (pdfBuf.byteLength <= 20_000_000 ? pdfBuf : bytes).toString('base64')
 
   const uid = globalThis.crypto.randomUUID()
   const storageKey = `manual-upload/${uid}/${safeFilename(displayName)}`
