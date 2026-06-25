@@ -14,7 +14,7 @@ const TABS: { key: PersonaType; label: string }[] = [
   { key: 'board', label: 'Board' }, { key: 'agents', label: 'Agents' },
 ]
 
-interface MsgItem { channel: string; direction: string | null; when: string | null; title: string | null; body: string | null; associationCode: string | null }
+interface MsgItem { channel: string; direction: string | null; when: string | null; title: string | null; body: string | null; bodyEn: string | null; associationCode: string | null }
 
 const ET = (iso: string | null) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : ''
 const CHANNEL_ICON: Record<string, string> = { sms: '💬', whatsapp: '🟢', voice: '📞', web: '🌐', email: '✉️', other: '•' }
@@ -48,7 +48,13 @@ function MessagesDrawer({ person, onClose }: { person: { name: string; phone: st
                   <span>{ET(m.when)}</span>
                 </div>
                 {m.title && <div className="mt-0.5 text-sm font-medium text-gray-900">{m.title}</div>}
-                {m.body && <div className="mt-0.5 line-clamp-3 text-xs text-gray-600">{m.body}</div>}
+                {(m.bodyEn || m.body) && <div className="mt-0.5 line-clamp-3 text-xs text-gray-600">{m.bodyEn ?? m.body}</div>}
+                {m.bodyEn && m.body && m.bodyEn.trim() !== m.body.trim() && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer select-none text-[11px] text-gray-400">🌐 Translated · view original</summary>
+                    <div className="mt-1 whitespace-pre-wrap text-xs text-gray-500">{m.body}</div>
+                  </details>
+                )}
               </div>
             ))}
           </div>

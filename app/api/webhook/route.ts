@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import { findOrCreateTicket, appendMessage, createTicket } from '@/lib/tickets'
+import { translateToEnglish } from '@/lib/translate'
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
 
@@ -1453,6 +1454,15 @@ async function createRentvineWorkOrder(ctx: CallerContext, description: string):
 }
 
 async function logConversation(phone: string, inbound: string, outbound: string, ctx: CallerContext) {
+  // Canonical-English: translate the inbound resident message once so staff
+  // dashboards read English-first (original preserved in `message`). Reused
+  // for the ticket mirror below so we don't translate the same text twice.
+  let bodyEn: string | null = null
+  if (inbound?.trim()) {
+    const en = await translateToEnglish(inbound, ctx.language)
+    if (en && en.trim() !== inbound.trim()) bodyEn = en
+  }
+
   await getSupabase().from('general_conversations').insert({
     session_id:    `twilio-${phone}-${Date.now()}`,
     phone_number:  phone,
@@ -1464,6 +1474,7 @@ async function logConversation(phone: string, inbound: string, outbound: string,
     topic:         ctx.persona,
     summary:       `IN: ${inbound.slice(0, 100)} | OUT: ${outbound.slice(0, 100)}`,
     message:       inbound,
+    body_en:       bodyEn,
     response:      outbound,
     messages:      [
       { role: 'user',      content: inbound  },
@@ -1480,7 +1491,7 @@ async function logConversation(phone: string, inbound: string, outbound: string,
   // Awaited (not fire-and-forget): Vercel can freeze the function immediately
   // after the response, killing in-flight Promises mid-flight. The ticket
   // ingest is several sequential Supabase calls and was getting cut off.
-  await ingestTwilioConversationToTicket(phone, inbound, outbound, ctx)
+  await ingestTwilioConversationToTicket(phone, inbound, outbound, ctx, bodyEn)
 }
 
 async function ingestTwilioConversationToTicket(
@@ -1488,6 +1499,7 @@ async function ingestTwilioConversationToTicket(
   inbound: string,
   outbound: string,
   ctx: CallerContext,
+  inboundEn: string | null,
 ): Promise<void> {
   try {
     const channelOrigin = ctx.channel === 'voice' ? 'phone' : ctx.channel
@@ -1504,6 +1516,7 @@ async function ingestTwilioConversationToTicket(
       channel:   channelOrigin,
       from_addr: phone,
       body:      inbound,
+      body_en:   inboundEn,  // already translated in logConversation — skip re-translate
     })
     await appendMessage(ticket.id, {
       direction: 'outbound',
