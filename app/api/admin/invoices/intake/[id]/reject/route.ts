@@ -39,7 +39,12 @@ export async function POST(
       updated_at:      new Date().toISOString(),
     })
     .eq('id', id)
-    .in('status', ['pending_review', 'needs_vendor', 'duplicate_in_cinc'])
+    // Any pre-CINC state can be rejected — including ready_to_push and
+    // on_hold. Previously these were excluded, so an invoice that failed to
+    // push (e.g. an oversized PDF) got stuck in Ready-to-push with no way out.
+    // pushed_to_cinc / already-rejected stay terminal (not in this list).
+    .in('status', ['pending_review', 'needs_vendor', 'duplicate_in_cinc', 'ready_to_push', 'on_hold'])
+    .select('id')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }
