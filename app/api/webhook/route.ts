@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import { findOrCreateTicket, appendMessage, createTicket } from '@/lib/tickets'
-import { translateToEnglish } from '@/lib/translate'
+import { translateToEnglish, detectLanguage, SUPPORTED_LANGS } from '@/lib/translate'
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
 
@@ -57,6 +57,7 @@ interface ConversationState {
   current_flow:        string
   current_step:        string
   temporary_data_json: Record<string, unknown>
+  session_language:    string | null
   updated_at:          string
 }
 
@@ -467,6 +468,39 @@ async function handleTextChannel(phone: string, message: string, channel: Channe
   const ctx   = await buildCallerContext(phone, channel)
   const state = await getConversationState(phone)
 
+  // A "just this conversation" language override (parked on conversation_state
+  // by the switch flow) beats the saved profile language for the session.
+  if (state?.session_language && (SUPPORTED_LANGS as readonly string[]).includes(state.session_language)) {
+    ctx.language = state.session_language
+  }
+
+  // ── Language-switch mini-flow ────────────────────────────────────────
+  // If a switch is already in progress, handle the numbered reply. Otherwise,
+  // when the inbound text looks like a different language than the one we'd
+  // answer in, offer to switch BEFORE replying — asked once per conversation,
+  // and never while another flow is mid-stream.
+  if (state?.current_flow === 'language_switch') {
+    return await continueLanguageSwitch(phone, message, channel, ctx, state)
+  }
+  const inActiveFlow = !!state?.current_flow && state.current_flow !== 'idle'
+  if (!inActiveFlow && detectMenuTrigger(message) !== 'main_menu') {
+    const detected = await detectLanguage(message)
+    if (detected && detected !== ctx.language) {
+      await saveConversationState(phone, 'language_switch', 'await_language', { detected, pending: message })
+      const prompt = buildLanguagePickPrompt(detected)
+      await sendReply(phone, prompt, channel)
+      await logConversation(phone, message, prompt, ctx)
+      return NextResponse.json({ status: 'ok' })
+    }
+  }
+
+  return await routeTextMessage(phone, message, channel, ctx, state)
+}
+
+async function routeTextMessage(
+  phone: string, message: string, channel: Channel,
+  ctx: CallerContext, state: ConversationState | null,
+): Promise<NextResponse> {
   let replyText: string
   const isGreeting = detectMenuTrigger(message) === 'main_menu'
 
@@ -534,6 +568,134 @@ async function handleTextChannel(phone: string, message: string, channel: Channe
   await sendReply(phone, replyText, channel)
   await logConversation(phone, message, replyText, ctx)
   return NextResponse.json({ status: 'ok' })
+}
+
+// ============================================================
+// LANGUAGE SWITCH — offer to answer in the language they wrote in
+// ============================================================
+
+// Numbered menu — index+1 is what the resident replies with. Matches the six
+// languages MAIA converses in (SUPPORTED_LANGS), shown with native labels.
+const LANG_MENU: { code: string; label: string }[] = [
+  { code: 'en', label: 'English'   },
+  { code: 'es', label: 'Español'   },
+  { code: 'pt', label: 'Português' },
+  { code: 'fr', label: 'Français'  },
+  { code: 'he', label: 'עברית'     },
+  { code: 'ru', label: 'Русский'   },
+]
+
+function buildLanguagePickPrompt(detected: string): string {
+  const list   = LANG_MENU.map((l, i) => `${i + 1} ${l.label}`).join('\n')
+  const header = translate(detected, {
+    en: 'I can help in your language! Reply with a number:',
+    es: '¡Puedo ayudarte en tu idioma! Responde con un número:',
+    pt: 'Posso te ajudar no seu idioma! Responda com um número:',
+    fr: 'Je peux vous aider dans votre langue ! Répondez avec un numéro :',
+    he: 'אני יכולה לעזור בשפה שלך! השב עם מספר:',
+    ru: 'Я могу помочь на вашем языке! Ответьте цифрой:',
+  })
+  // Show the prompt in the detected language AND English so it lands either way.
+  const dual = detected === 'en' ? header : `🌐 ${header}\nI can help in your language! Reply with a number:`
+  return `${dual}\n${list}`
+}
+
+function buildScopePrompt(lang: string): string {
+  const label = LANG_MENU.find(l => l.code === lang)?.label ?? lang
+  return translate(lang, {
+    en: `Use ${label} from now on?\n1 Always (save as my language)\n2 Just this conversation`,
+    es: `¿Usar ${label} de ahora en adelante?\n1 Siempre (guardar como mi idioma)\n2 Solo esta conversación`,
+    pt: `Usar ${label} a partir de agora?\n1 Sempre (salvar como meu idioma)\n2 Só nesta conversa`,
+    fr: `Utiliser ${label} désormais ?\n1 Toujours (enregistrer comme ma langue)\n2 Juste cette conversation`,
+    he: `להשתמש ב${label} מעכשיו?\n1 תמיד (שמור כשפה שלי)\n2 רק בשיחה הזו`,
+    ru: `Использовать ${label} дальше?\n1 Всегда (сохранить как мой язык)\n2 Только этот разговор`,
+  })
+}
+
+async function continueLanguageSwitch(
+  phone: string, message: string, channel: Channel,
+  ctx: CallerContext, state: ConversationState,
+): Promise<NextResponse> {
+  const data = state.temporary_data_json ?? {}
+  const num  = parseInt(message.trim().replace(/[^\d]/g, ''), 10)
+
+  if (state.current_step === 'await_language') {
+    const picked = Number.isFinite(num) ? LANG_MENU[num - 1]?.code : undefined
+    if (!picked) {
+      // Not a valid pick — don't trap them in the menu. Drop the offer and
+      // answer their message normally in the current language.
+      await clearConversationState(phone)
+      return await routeTextMessage(phone, message, channel, ctx, null)
+    }
+    await saveConversationState(phone, 'language_switch', 'await_scope', { ...data, chosen: picked })
+    const prompt = buildScopePrompt(picked)
+    await sendReply(phone, prompt, channel)
+    await logConversation(phone, message, prompt, ctx)
+    return NextResponse.json({ status: 'ok' })
+  }
+
+  // await_scope: 1 = always (save to profile), anything else = this convo only.
+  const lang = typeof data.chosen === 'string' ? data.chosen : ctx.language
+  ctx.language = lang
+  if (num === 1) {
+    await persistContactLanguage(ctx, lang)   // durable: write the profile row
+    await setSessionLanguage(phone, null)      // profile now wins; drop any override
+  } else {
+    await setSessionLanguage(phone, lang)      // sticky for this conversation only
+  }
+  await clearConversationState(phone)
+
+  // Answer the original message that triggered the switch, now in the chosen
+  // language. If nothing is pending, just confirm.
+  const pending = typeof data.pending === 'string' ? data.pending : ''
+  if (pending.trim()) return await routeTextMessage(phone, pending, channel, ctx, null)
+
+  const done = translate(lang, {
+    en: '✅ Done! How can I help?',  es: '✅ ¡Listo! ¿En qué puedo ayudarte?',
+    pt: '✅ Pronto! Como posso ajudar?', fr: '✅ C\'est fait ! Comment puis-je vous aider ?',
+    he: '✅ בוצע! איך אפשר לעזור?', ru: '✅ Готово! Чем могу помочь?',
+  })
+  await sendReply(phone, done, channel)
+  await logConversation(phone, message, done, ctx)
+  return NextResponse.json({ status: 'ok' })
+}
+
+// Persist a chosen language onto the contact's source row so future
+// conversations default to it. Keyed by persona; external (RentVine) and
+// unknown contacts have no local row to update. Best-effort.
+async function persistContactLanguage(ctx: CallerContext, lang: string): Promise<void> {
+  const table = ({
+    homeowner:          'owners',
+    association_tenant: 'association_tenants',
+    board_member:       'board_members',
+    vendor:             'vendor_directory',
+    real_estate_agent:  'real_estate_agents',
+  } as Record<string, string>)[ctx.persona]
+  if (!table) return
+  const cleanPhone = ctx.phone.replace(/\D/g, '')
+  const plusPhone  = '+' + cleanPhone
+  const shortPhone = cleanPhone.replace(/^1/, '')
+  const orParts = [`phone.eq.${ctx.phone}`, `phone.eq.${plusPhone}`, `phone.eq.${shortPhone}`]
+  if (table === 'owners') orParts.push(`phone_e164.eq.${plusPhone}`, `phone_e164.eq.${ctx.phone}`)
+  try {
+    await getSupabase().from(table).update({ language: lang }).or(orParts.join(','))
+  } catch (err) {
+    console.error('[lang] persist failed:', err instanceof Error ? err.message : err)
+  }
+}
+
+// Park (or clear) a conversation-scoped language override on conversation_state.
+// Survives flow transitions — save/clearConversationState never touch this
+// column. Best-effort: a no-op if the session_language migration isn't applied.
+async function setSessionLanguage(phone: string, lang: string | null): Promise<void> {
+  try {
+    const { error } = await getSupabase().from('conversation_state').upsert(
+      { phone_number: phone, session_language: lang, updated_at: new Date().toISOString() },
+      { onConflict: 'phone_number' })
+    if (error) console.error('[lang] session override failed:', error.message)
+  } catch (err) {
+    console.error('[lang] session override failed:', err instanceof Error ? err.message : err)
+  }
 }
 
 // ============================================================
