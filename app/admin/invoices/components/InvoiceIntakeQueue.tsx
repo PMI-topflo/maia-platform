@@ -555,6 +555,12 @@ function DraftCard(props: {
   // invoice without Karen entering edit mode. Fire-and-forget; callers only
   // invoke this when the saved field is still empty, so it never overwrites.
   const persistDraftFields = (fields: Record<string, unknown>) => {
+    // ONLY auto-persist on still-editable drafts. Writing to a ready_to_push
+    // draft makes the server treat it as an edit and revert it to
+    // pending_review — so merely VIEWING a ready invoice would silently kick
+    // it out of "Ready to push". Display still happens via local state; we
+    // just don't write. (pushed / rejected / on_hold are likewise off-limits.)
+    if (!['pending_review', 'needs_vendor', 'duplicate_in_cinc'].includes(draft.status)) return
     void fetch('/api/admin/invoices/intake', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: draft.id, ...fields }),
