@@ -117,9 +117,10 @@ export async function handleInvoiceIntake(
   // pipeline (storage + CINC attach) is unchanged.
   const eligible = dedupeAttachments(parsed.attachments.filter(a =>
     a.size <= MAX_PDF_BYTES &&
-    // PDFs are always real invoices; images only if they're not a vendor
-    // signature/logo graphic embedded in the email body.
-    (a.mimeType.toLowerCase() === 'application/pdf' || (isInvoiceImage(a) && !isSignatureOrLogoImage(a))),
+    // PDFs are always real invoices; images only if their NAME isn't a vendor
+    // signature/logo. nameOnly so a small/inline invoice SCREENSHOT (PNG that
+    // Karen pastes or attaches) isn't dropped by the size heuristics.
+    (a.mimeType.toLowerCase() === 'application/pdf' || (isInvoiceImage(a) && !isSignatureOrLogoImage(a, { nameOnly: true }))),
   ))
   // Skip attachments that already produced a draft (redelivery / reprocess) —
   // matched by stable filename.
