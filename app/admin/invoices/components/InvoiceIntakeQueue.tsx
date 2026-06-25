@@ -549,11 +549,22 @@ function DraftCard(props: {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg]   = useState<string | null>(null)
 
-  // Lazy-load the GL list when we enter edit mode for an assoc we
-  // haven't fetched yet. Keeps the page-load fast — we only hit CINC
-  // for budgets Karen actually opens.
+  // Persist an auto-filled value straight to the draft. Push reads the SAVED
+  // draft (not this component's local state), so MAIA's GL/bank suggestions
+  // have to be written down to actually reach CINC — and so they show on the
+  // invoice without Karen entering edit mode. Fire-and-forget; callers only
+  // invoke this when the saved field is still empty, so it never overwrites.
+  const persistDraftFields = (fields: Record<string, unknown>) => {
+    void fetch('/api/admin/invoices/intake', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: draft.id, ...fields }),
+    }).catch(() => {})
+  }
+
+  // Load the GL list as soon as the association is known (any mode) so the
+  // invoice can show its GL without Karen opening the editor.
   useEffect(() => {
-    if (mode !== 'edit' || !assoc || glLoadedFor === assoc || glLoading) return
+    if (!assoc || glLoadedFor === assoc || glLoading) return
     setGlLoading(true); setGlError(null)
     fetch(`/api/admin/cinc/budget?assoc=${encodeURIComponent(assoc)}`, { cache: 'no-store' })
       .then(r => r.json())
@@ -585,12 +596,16 @@ function DraftCard(props: {
         setBankLoadedFor(assoc)
         // Default to the SouthState (SSB) Operating account when nothing is
         // chosen yet — prefer SSB among operating accounts (some assocs also
-        // carry a CSB operating account). Only while editing; never override
-        // a pushed pick.
-        if (mode === 'edit' && !bankId) {
+        // carry a CSB operating account). Runs in any mode and persists, so the
+        // invoice carries a bank account without entering edit; never overrides
+        // an existing/pushed pick.
+        if (!bankId) {
           const ops = accounts.filter(a => a.kind === 'operating')
           const operating = ops.find(a => /\bssb\b|south\s*state/i.test(a.description)) ?? ops[0]
-          if (operating) setBankId(String(operating.id))
+          if (operating) {
+            setBankId(String(operating.id))
+            if (draft.pay_from_bank_account_id == null) persistDraftFields({ pay_from_bank_account_id: operating.id })
+          }
         }
       })
       .catch(err => setBankError(err instanceof Error ? err.message : String(err)))
@@ -918,7 +933,7 @@ function DraftCard(props: {
   // manual clear is respected. Karen still confirms 'gl_account' on the
   // audit checklist — auto-fill sets the value, not the green check.
   useEffect(() => {
-    if (mode !== 'edit' || !assoc || glLoadedFor !== assoc) return
+    if (!assoc || glLoadedFor !== assoc) return
     if (glAutoAppliedFor === assoc) return
     const sg = auditCtx?.suggestedGl
     if (!sg || (!sg.accountNumber && !sg.glAccount)) return
@@ -933,7 +948,10 @@ function DraftCard(props: {
     if (glId) return                      // never override an existing choice
     if (!isHighConfidenceGl(sg.source)) return
     setGlId(hit.id); setGlName(hit.name); setGlAutoFilled(true)
-  }, [mode, assoc, glLoadedFor, glOptions, auditCtx, glId, glAutoAppliedFor])
+    // Persist so the GL reaches CINC at push + shows without entering edit.
+    if (!draft.gl_account_id) persistDraftFields({ gl_account_id: hit.id, gl_account_name: hit.name })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assoc, glLoadedFor, glOptions, auditCtx, glId, glAutoAppliedFor])
 
   // Auto-fill the PAYMENT METHOD from the vendor's last invoice — vendor-context
   // reads its PayByType from CINC history, so MAIA brings the method the vendor
@@ -2192,6 +2210,7 @@ interface FundsResult {
   currentBalance:         number
   openInvoicesTotal:      number
   openInvoicesCount:      number
+  openInvoiceItems?:      Array<{ invoiceNumber: string | null; vendorName: string | null; amount: number; dueDate: string | null }>
   avgMonthlyNet:          number
   avgMonthlyIn:           number
   avgMonthlyOut:          number
@@ -2341,6 +2360,27 @@ function FundsCheck({ assoc, bankAccountId, pushAmount, scheduledDate, onChooseD
               <tr style={{ borderTop: '1px solid #d1d5db' }}><td><strong>Projected at end of {monthLabel(res.scheduledMonth)}</strong></td><td style={{ textAlign: 'right' }}><strong style={{ color: ok ? '#065f46' : '#991b1b' }}>{fmtUSD(res.projectedAtScheduled)}</strong></td></tr>
             </tbody>
           </table>
+          {res.openInvoiceItems && res.openInvoiceItems.length > 0 && (
+            <div style={{ marginTop: 8, borderTop: '1px dashed #e5e7eb', paddingTop: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
+                The {res.openInvoicesCount} open invoice{res.openInvoicesCount === 1 ? '' : 's'} subtracted ({fmtUSD(res.openInvoicesTotal)}):
+              </div>
+              <div style={{ maxHeight: 170, overflowY: 'auto' }}>
+                <table style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
+                  <tbody>
+                    {res.openInvoiceItems.map((it, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                        <td style={{ paddingRight: 6 }}>{it.vendorName ?? '—'}</td>
+                        <td style={{ color: '#6b7280', paddingRight: 6 }}>{it.invoiceNumber ?? ''}</td>
+                        <td style={{ color: '#6b7280', paddingRight: 6, whiteSpace: 'nowrap' }}>{it.dueDate ? `due ${it.dueDate}` : 'no due date'}</td>
+                        <td style={{ textAlign: 'right', color: '#991b1b', whiteSpace: 'nowrap' }}>−{fmtUSD(it.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           {res.monthsSampled > 0 && (
             <div style={{ marginTop: 6, fontSize: 10, color: '#6b7280' }}>
               Run-rate from last {res.monthsSampled} month(s): ~{fmtUSD(res.avgMonthlyIn)}/mo in, ~{fmtUSD(res.avgMonthlyOut)}/mo out.

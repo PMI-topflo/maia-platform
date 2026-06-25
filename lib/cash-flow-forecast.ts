@@ -459,6 +459,8 @@ export interface FundsCheckResult {
   /** Sum of Balance across ALL open invoices in CINC for this assoc. */
   openInvoicesTotal:      number
   openInvoicesCount:      number
+  /** Itemized open invoices subtracted (the "what's in the $X" breakdown). */
+  openInvoiceItems:       Array<{ invoiceNumber: string | null; vendorName: string | null; amount: number; dueDate: string | null }>
   /** Average monthly net (income − outflow) from the last few complete
    *  months on this account's cash ledger. */
   avgMonthlyNet:          number
@@ -789,6 +791,11 @@ export async function forecastFundsForDate(opts: {
   // Display totals (what's committed by the scheduled month) + caveats.
   const dueByScheduled    = open.filter(o => !o.DueDate || o.DueDate.slice(0, 10) <= schedCutoff)
   const openInvoicesTotal = dueByScheduled.reduce((s, o) => s + balanceOf(o), 0)
+  // Itemized list of exactly what's being subtracted — so the UI can show
+  // "what's in the $X" and staff can spot an over-count.
+  const openInvoiceItems = dueByScheduled
+    .map(o => ({ invoiceNumber: o.InvoiceNumber ?? null, vendorName: o.InvoicePayTo ?? null, amount: balanceOf(o), dueDate: o.DueDate ? o.DueDate.slice(0, 10) : null }))
+    .sort((a, b) => b.amount - a.amount)
   caveats.push(income.note)
   if (flow.avgOut > 0) caveats.push(`Future months also assume ≈ $${Math.round(flow.avgOut).toLocaleString()}/mo typical recurring spend where bills aren't entered yet.`)
   if (Math.round(lowPoint.balance) < Math.round(projectedAtScheduled)) {
@@ -802,6 +809,7 @@ export async function forecastFundsForDate(opts: {
     currentBalance,
     openInvoicesTotal,
     openInvoicesCount:      dueByScheduled.length,
+    openInvoiceItems,
     avgMonthlyNet:          flow.avgNet,
     avgMonthlyIn:           flow.avgIn,
     avgMonthlyOut:          flow.avgOut,
