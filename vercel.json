@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/recurring-cycle-ended",
+      "schedule": "0 13 * * *"
+    },
+    {
       "path": "/api/cron/renew-gmail-watch",
       "schedule": "0 9 */6 * *"
     },
