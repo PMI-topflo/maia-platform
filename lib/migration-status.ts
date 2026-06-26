@@ -44,6 +44,30 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'conversation_state',
+    label:       'Assistant conversation state',
+    description: 'conversation_state table — backs every SMS/WhatsApp multi-step flow + language switch',
+    filename:    '20260625_conversation_state.sql',
+    artifact:    { type: 'table', table: 'conversation_state' },
+    sql: `CREATE TABLE IF NOT EXISTS public.conversation_state (
+  id                  uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone_number        text        NOT NULL UNIQUE,
+  owner_id            text,
+  current_flow        text        NOT NULL DEFAULT 'idle',
+  current_step        text        NOT NULL DEFAULT 'idle',
+  temporary_data_json jsonb       NOT NULL DEFAULT '{}'::jsonb,
+  session_language    text,
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.conversation_state
+  ADD COLUMN IF NOT EXISTS session_language text;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.conversation_state TO service_role;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'pmi_staff_can_see_all',
     label:       'Comms visibility flag',
     description: 'pmi_staff.can_see_all_communications',
