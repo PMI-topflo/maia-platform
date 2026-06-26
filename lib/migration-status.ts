@@ -44,6 +44,27 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'ledger_verified_phones',
+    label:       'Ledger OTP-once verified phones',
+    description: 'ledger_verified_phones — remembers a phone that passed OTP for the owner ledger self-service flow',
+    filename:    '20260626_ledger_verified_phones.sql',
+    artifact:    { type: 'table', table: 'ledger_verified_phones' },
+    sql: `CREATE TABLE IF NOT EXISTS public.ledger_verified_phones (
+  phone          text        PRIMARY KEY,
+  account_number text,
+  verified_at    timestamptz NOT NULL DEFAULT now()
+);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.ledger_verified_phones TO service_role;
+
+ALTER TABLE public.ledger_verified_phones ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_ledger_verified_phones" ON public.ledger_verified_phones;
+CREATE POLICY "service_role_all_ledger_verified_phones"
+  ON public.ledger_verified_phones FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'maia_flow_tables',
     label:       'Maintenance / feedback / agent flow tables',
     description: 'maintenance_requests + conversation_feedback + agent_requests — restore the remaining stateful SMS/WhatsApp/voice flows',

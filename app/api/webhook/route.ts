@@ -13,6 +13,12 @@ import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import { findOrCreateTicket, appendMessage, createTicket } from '@/lib/tickets'
 import { translateToEnglish, detectLanguage, SUPPORTED_LANGS } from '@/lib/translate'
+import { sendSMS } from '@/lib/twilio-send'
+import {
+  resolveOwnerUnits, isPhoneVerified, markPhoneVerified,
+  sendLedgerOtp, verifyLedgerOtp, deliverLedger, annotateBlocked,
+  type OwnerUnit, type DeliveryMethod,
+} from '@/lib/owner-ledger-flow'
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
 
@@ -280,6 +286,22 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
     try { confirmResp = await handleIntentConfirmation(ctx, state, speechText) }
     catch { confirmResp = 'I had trouble with that. Please call our office at (305) 900-5077.' }
     return voiceTwiml(voice, stripForTTS(langNote + confirmResp), getFarewell(ctx.language))
+  }
+
+  // ── Answer to "would you like the collection agency's info?" (voice) ───────
+  if (state?.current_flow === 'collections_offer') {
+    await clearConversationState(phone)
+    if (isAffirmative(speechText)) {
+      try { await sendSMS(phone, collectionsFullInfo(ctx)) } catch { /* best-effort */ }
+      const spoken = translate(ctx.language, {
+        en: `Their phone number is 8 0 0, 8 7 5, 9 2 2 1. I've also texted you their email and website. Take care!`,
+        es: `Su número es 8 0 0, 8 7 5, 9 2 2 1. También te envié por mensaje su correo y sitio web. ¡Cuídate!`,
+        pt: `O telefone deles é 8 0 0, 8 7 5, 9 2 2 1. Também te enviei por mensagem o e-mail e o site. Cuide-se!`,
+      })
+      return voiceTwiml(voice, stripForTTS(langNote + spoken), getFarewell(ctx.language))
+    }
+    const bye = translate(ctx.language, { en: `No problem. Have a great day!`, es: `Sin problema. ¡Que tengas buen día!`, pt: `Sem problema. Tenha um ótimo dia!` })
+    return voiceTwiml(voice, stripForTTS(langNote + bye), getFarewell(ctx.language))
   }
 
   // ── Detect "send to WhatsApp / text me" intent ─────────────────────────────
@@ -568,6 +590,8 @@ async function routeTextMessage(
       replyText = await processFeedbackReply(phone, message, ctx, state)
     } else if (state.current_flow === 'confirm_intent') {
       replyText = await handleIntentConfirmation(ctx, state, message)
+    } else if (state.current_flow === 'ledger_request') {
+      replyText = await continueLedgerFlow(ctx, state, message)
     } else if (state.current_flow === 'agent_identification') {
       replyText = await continueAgentFlow(ctx, state, message)
     } else if (['sticker_register','maintenance_rentvine','maintenance_association','schedule','staff_handoff','unknown_contact'].includes(state.current_flow)) {
@@ -1273,9 +1297,9 @@ async function continueFlow(ctx: CallerContext, state: ConversationState, messag
 type MaiaIntent =
   | 'maintenance' | 'payment' | 'parking' | 'schedule' | 'emergency'
   | 'board_info' | 'documents' | 'arc_request' | 'vendor_ach'
-  | 'invoice_approval' | 'general'
+  | 'invoice_approval' | 'ledger' | 'general'
 
-const VALID_INTENTS: MaiaIntent[] = ['maintenance', 'payment', 'parking', 'schedule', 'emergency', 'board_info', 'documents', 'arc_request', 'vendor_ach', 'invoice_approval', 'general']
+const VALID_INTENTS: MaiaIntent[] = ['maintenance', 'payment', 'parking', 'schedule', 'emergency', 'board_info', 'documents', 'arc_request', 'vendor_ach', 'invoice_approval', 'ledger', 'general']
 
 // Decide what the resident actually wants with the LLM instead of brittle
 // keyword matching (a passing "meeting"/"visit"/"help" used to hijack the
@@ -1291,6 +1315,7 @@ async function classifyIntent(ctx: CallerContext, message: string): Promise<{ in
 Intents:
 - maintenance: a repair/maintenance problem (leak, broken AC, pest, etc.)
 - payment: account balance, fees, dues, or how to pay
+- ledger: wants a copy of their ACCOUNT LEDGER / statement / transaction history (e.g. "send me my ledger", "can I get my statement", "my account history")
 - parking: parking sticker / vehicle registration
 - schedule: EXPLICITLY wants to book or schedule an appointment, inspection, or meeting
 - emergency: a genuine, active safety emergency (flood, fire, gas, immediate danger)
@@ -1376,6 +1401,194 @@ async function handleIntentConfirmation(ctx: CallerContext, state: ConversationS
   return await getMaiaIntelligentResponse(ctx, message)
 }
 
+// ============================================================
+// OWNER LEDGER — "send me my statement" self-service flow
+// unit pick (1/2/3/all) → confirm address → OTP-once → delivery → PDF link
+// ============================================================
+
+function ledgerUnitMenu(ctx: CallerContext, units: OwnerUnit[]): string {
+  const list = units.map((u, i) => `${i + 1}. ${u.unit ? `Unit ${u.unit}` : u.account}${u.address ? ` — ${u.address}` : ''} (${u.associationName})`).join('\n')
+  return translate(ctx.language, {
+    en: `You have more than one unit. Which statement would you like? Reply with a number, or "all":\n${list}`,
+    es: `Tienes más de una unidad. ¿Cuál estado de cuenta? Responde con un número o "todas":\n${list}`,
+    pt: `Você tem mais de uma unidade. Qual extrato você quer? Responda com um número ou "todas":\n${list}`,
+  })
+}
+function ledgerAddressConfirmPrompt(ctx: CallerContext, units: OwnerUnit[], sel: number[]): string {
+  const chosen = sel.map(i => units[i]).filter(Boolean)
+  const label = chosen.map(u => `${u.unit ? `Unit ${u.unit}` : u.account}${u.address ? ` — ${u.address}` : ''}`).join('; ')
+  return translate(ctx.language, {
+    en: `Just to be sure I send the right account — this is for ${label}. Is that correct? (yes/no)`,
+    es: `Para asegurarme de enviar la cuenta correcta — es para ${label}. ¿Es correcto? (sí/no)`,
+    pt: `Só para garantir que envio a conta certa — é para ${label}. Está correto? (sim/não)`,
+  })
+}
+function ledgerDeliveryMenu(ctx: CallerContext): string {
+  return translate(ctx.language, {
+    en: `How would you like to receive it?\n1. Email\n2. WhatsApp\n3. Text message (link)`,
+    es: `¿Cómo deseas recibirlo?\n1. Correo\n2. WhatsApp\n3. Mensaje de texto (enlace)`,
+    pt: `Como você quer receber?\n1. E-mail\n2. WhatsApp\n3. Mensagem de texto (link)`,
+  })
+}
+
+// Full collection-agency contact block (text/WhatsApp, and the SMS sent on a
+// voice "yes"). Schwartz & Vays.
+function collectionsFullInfo(ctx: CallerContext, label?: string): string {
+  const who = label ? ` (${label})` : ''
+  return translate(ctx.language, {
+    en: `Your account${who} is currently with our collection agency, so I can't share a statement or take an assessment payment here. Please contact them directly:\n📞 (800) 875-9221\n✉️ info@schwartzvays.com\n🌐 https://schwartzvays.com`,
+    es: `Tu cuenta${who} está actualmente con nuestra agencia de cobranzas, por lo que no puedo compartir un estado de cuenta ni recibir un pago aquí. Contáctalos directamente:\n📞 (800) 875-9221\n✉️ info@schwartzvays.com\n🌐 https://schwartzvays.com`,
+    pt: `Sua conta${who} está atualmente com nossa agência de cobrança, então não posso compartilhar um extrato nem receber um pagamento aqui. Entre em contato diretamente:\n📞 (800) 875-9221\n✉️ info@schwartzvays.com\n🌐 https://schwartzvays.com`,
+    fr: `Votre compte${who} est chez notre agence de recouvrement. Je ne peux pas partager de relevé ni recevoir de paiement ici. Contactez-les directement :\n📞 (800) 875-9221\n✉️ info@schwartzvays.com\n🌐 https://schwartzvays.com`,
+    ht: `Kont ou${who} kounye a nan men ajans rekouvreman nou an, kidonk mwen pa ka pataje yon relve oswa pran yon peman isit la. Tanpri kontakte yo dirèkteman:\n📞 (800) 875-9221\n✉️ info@schwartzvays.com\n🌐 https://schwartzvays.com`,
+  })
+}
+
+// Collections gate response. Voice → announce + ask "want their info?" (a URL
+// read by TTS is useless), parking a collections_offer turn. Text/WhatsApp →
+// the full block right away.
+async function collectionsResponse(ctx: CallerContext, label?: string): Promise<string> {
+  if (ctx.channel === 'voice') {
+    await saveConversationState(ctx.phone, 'collections_offer', 'awaiting', {})
+    return translate(ctx.language, {
+      en: `Unfortunately, your account${label ? ` (${label})` : ''} has been sent to our collection agency, so I can't share a statement or take a payment here. Would you like their contact information?`,
+      es: `Lamentablemente, tu cuenta${label ? ` (${label})` : ''} fue enviada a nuestra agencia de cobranzas, por lo que no puedo compartir un estado de cuenta ni recibir un pago aquí. ¿Deseas su información de contacto?`,
+      pt: `Infelizmente, sua conta${label ? ` (${label})` : ''} foi enviada à nossa agência de cobrança, então não posso compartilhar um extrato nem receber um pagamento aqui. Você gostaria das informações de contato dela?`,
+    })
+  }
+  return collectionsFullInfo(ctx, label)
+}
+
+async function startLedgerFlow(ctx: CallerContext): Promise<string> {
+  const all = await resolveOwnerUnits(ctx.phone)
+  if (all.length === 0) {
+    return translate(ctx.language, {
+      en: `I don't see a unit registered to this number. Please email ar@topfloridaproperties.com and our team will help. 🌸`,
+      es: `No veo una unidad registrada con este número. Escribe a ar@topfloridaproperties.com y te ayudamos. 🌸`,
+      pt: `Não vejo uma unidade registrada neste número. Escreva para ar@topfloridaproperties.com e nós ajudamos. 🌸`,
+    })
+  }
+
+  // Units in collections are redirected to the agency — never a ledger.
+  const annotated = await annotateBlocked(all)
+  const units     = annotated.filter(u => !u.blocked) as OwnerUnit[]
+  const blocked   = annotated.filter(u => u.blocked)
+  if (units.length === 0) {
+    const label = blocked.length === 1 ? (blocked[0].unit ? `Unit ${blocked[0].unit}` : blocked[0].account) : undefined
+    return await collectionsResponse(ctx, label)
+  }
+
+  // Voice can't run OTP / numbered menus well — nudge to text and run it there.
+  if (ctx.channel === 'voice') {
+    try {
+      await sendSMS(ctx.phone, translate(ctx.language, {
+        en: `Hi! Reply to this text with "ledger" and I'll securely send your account statement. 🌸`,
+        es: `¡Hola! Responde a este mensaje con "estado de cuenta" y te lo envío de forma segura. 🌸`,
+        pt: `Olá! Responda a esta mensagem com "extrato" e eu te envio com segurança. 🌸`,
+      }))
+    } catch { /* best-effort */ }
+    return translate(ctx.language, {
+      en: `I'll text you to send your account statement securely — please check your messages.`,
+      es: `Te enviaré un mensaje de texto para mandarte tu estado de cuenta — revisa tus mensajes.`,
+      pt: `Vou te enviar uma mensagem de texto para mandar seu extrato com segurança — verifique suas mensagens.`,
+    })
+  }
+
+  if (units.length === 1) {
+    await saveConversationState(ctx.phone, 'ledger_request', 'awaiting_address_confirm', { units, sel: [0] })
+    return ledgerAddressConfirmPrompt(ctx, units, [0])
+  }
+  await saveConversationState(ctx.phone, 'ledger_request', 'awaiting_unit', { units })
+  return ledgerUnitMenu(ctx, units)
+}
+
+async function continueLedgerFlow(ctx: CallerContext, state: ConversationState, message: string): Promise<string> {
+  const data  = state.temporary_data_json ?? {}
+  const units = (data.units as OwnerUnit[]) ?? []
+  const m     = message.trim().toLowerCase()
+  const num   = parseInt(m.replace(/[^\d]/g, ''), 10)
+
+  if (state.current_step === 'awaiting_unit') {
+    let sel: number[]
+    if (/^all\b|todas|todos|tout|hepsi|все/.test(m)) sel = units.map((_, i) => i)
+    else if (Number.isFinite(num) && num >= 1 && num <= units.length) sel = [num - 1]
+    else return ledgerUnitMenu(ctx, units)
+    await saveConversationState(ctx.phone, 'ledger_request', 'awaiting_address_confirm', { ...data, sel })
+    return ledgerAddressConfirmPrompt(ctx, units, sel)
+  }
+
+  if (state.current_step === 'awaiting_address_confirm') {
+    const sel = (data.sel as number[]) ?? []
+    if (isNegative(message)) {
+      await clearConversationState(ctx.phone)
+      return translate(ctx.language, {
+        en: `No problem — I won't send it. If a unit looks wrong, email ar@topfloridaproperties.com and we'll fix it. 🌸`,
+        es: `Sin problema — no lo envío. Si una unidad está mal, escribe a ar@topfloridaproperties.com. 🌸`,
+        pt: `Sem problema — não vou enviar. Se uma unidade estiver errada, escreva para ar@topfloridaproperties.com. 🌸`,
+      })
+    }
+    if (!isAffirmative(message)) return ledgerAddressConfirmPrompt(ctx, units, sel)
+
+    if (await isPhoneVerified(ctx.phone)) {
+      await saveConversationState(ctx.phone, 'ledger_request', 'awaiting_delivery', { ...data, sel })
+      return ledgerDeliveryMenu(ctx)
+    }
+    const email = units[sel[0]]?.email ?? units.find(u => u.email)?.email ?? null
+    if (!email) {
+      await clearConversationState(ctx.phone)
+      return translate(ctx.language, {
+        en: `For your security I need to verify you by email, but I don't have one on file. Please email ar@topfloridaproperties.com to add it. 🌸`,
+        es: `Por tu seguridad debo verificarte por correo, pero no tengo uno registrado. Escribe a ar@topfloridaproperties.com. 🌸`,
+        pt: `Por sua segurança preciso verificar por e-mail, mas não tenho um registrado. Escreva para ar@topfloridaproperties.com. 🌸`,
+      })
+    }
+    const r = await sendLedgerOtp(email)
+    if (!r.ok) {
+      await clearConversationState(ctx.phone)
+      return translate(ctx.language, { en: `I couldn't send the verification code right now. Please try again later. 🌸`, es: `No pude enviar el código ahora. Intenta más tarde. 🌸`, pt: `Não consegui enviar o código agora. Tente mais tarde. 🌸` })
+    }
+    await saveConversationState(ctx.phone, 'ledger_request', 'awaiting_otp', { ...data, sel, email })
+    return translate(ctx.language, {
+      en: `🔒 To protect your account, I emailed a 6-digit code to ${r.masked}. Please reply with the code.`,
+      es: `🔒 Para proteger tu cuenta, envié un código de 6 dígitos a ${r.masked}. Responde con el código.`,
+      pt: `🔒 Para proteger sua conta, enviei um código de 6 dígitos para ${r.masked}. Responda com o código.`,
+    })
+  }
+
+  if (state.current_step === 'awaiting_otp') {
+    const email = String(data.email ?? '')
+    if (!(await verifyLedgerOtp(email, message))) {
+      return translate(ctx.language, { en: `That code didn't match. Please reply with the 6-digit code I emailed (or "menu" to stop).`, es: `El código no coincide. Responde con el código de 6 dígitos (o "menú" para detener).`, pt: `O código não confere. Responda com o código de 6 dígitos (ou "menu" para parar).` })
+    }
+    const sel = (data.sel as number[]) ?? []
+    await markPhoneVerified(ctx.phone, units[sel[0]]?.account ?? '')
+    await saveConversationState(ctx.phone, 'ledger_request', 'awaiting_delivery', { ...data, sel })
+    return `✅ ` + ledgerDeliveryMenu(ctx)
+  }
+
+  if (state.current_step === 'awaiting_delivery') {
+    const sel    = (data.sel as number[]) ?? []
+    const chosen = sel.map(i => units[i]).filter(Boolean)
+    const method: DeliveryMethod | undefined = ({ '1': 'email', '2': 'whatsapp', '3': 'sms' } as Record<string, DeliveryMethod>)[String(num)]
+    if (!method) return ledgerDeliveryMenu(ctx)
+    const res = await deliverLedger({ units: chosen, method, toPhone: ctx.phone, toEmail: data.email as string | undefined })
+    await clearConversationState(ctx.phone)
+    void maybeRequestFeedback(ctx.phone, ctx, 'ledger', ctx.channel)
+    if (!res.ok && res.note === 'no_email') {
+      return translate(ctx.language, { en: `I don't have an email on file. Reply 2 or 3 to get it by WhatsApp or text instead. 🌸`, es: `No tengo un correo registrado. Responde 2 o 3 para recibirlo por WhatsApp o texto. 🌸`, pt: `Não tenho um e-mail registrado. Responda 2 ou 3 para receber por WhatsApp ou texto. 🌸` })
+    }
+    const where = method === 'email' ? { en: 'email', es: 'correo', pt: 'e-mail' } : method === 'whatsapp' ? { en: 'WhatsApp', es: 'WhatsApp', pt: 'WhatsApp' } : { en: 'messages', es: 'mensajes', pt: 'mensagens' }
+    return translate(ctx.language, {
+      en: `✅ Sent! Check your ${where.en}. The secure link works for 7 days. Anything else I can help with? 🌸`,
+      es: `✅ ¡Enviado! Revisa tu ${where.es}. El enlace seguro funciona por 7 días. ¿Algo más? 🌸`,
+      pt: `✅ Enviado! Verifique seu ${where.pt}. O link seguro funciona por 7 dias. Mais alguma coisa? 🌸`,
+    })
+  }
+
+  await clearConversationState(ctx.phone)
+  return buildMainMenu(ctx)
+}
+
 async function getMaiaIntelligentResponse(ctx: CallerContext, message: string, forced?: { intent: MaiaIntent; summary: string }): Promise<string> {
   const langName = LANGUAGE_NAMES[ctx.language] ?? 'English'
   const msg      = message.toLowerCase()
@@ -1397,6 +1610,10 @@ async function getMaiaIntelligentResponse(ctx: CallerContext, message: string, f
       return c.restate
     }
   }
+  // Ledger request → its own multi-step self-service flow (unit pick → confirm
+  // address → OTP-once → delivery → secure PDF link).
+  if (intent === 'ledger') return await startLedgerFlow(ctx)
+
   const isMaintenance = intent === 'maintenance'
   const isPayment     = intent === 'payment'
   const isParking     = intent === 'parking'
@@ -1600,6 +1817,14 @@ Always end with a warm offer to help with anything else. 🌸${officeBlock}${ski
 
 async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
   const name = ctx.name.split(' ')[0]
+
+  // An association owner in collections must NOT be sent to WebAxis to pay —
+  // assessments go through the collection agency. (RentVine/residential is
+  // separate and handled below.)
+  if (ctx.persona === 'homeowner' && ctx.associationId) {
+    const units = await resolveOwnerUnits(ctx.phone)
+    if ((await annotateBlocked(units)).some(u => u.blocked)) return await collectionsResponse(ctx)
+  }
 
   if (ctx.division === 'residential' && ctx.rentvineContactId) {
     try {
