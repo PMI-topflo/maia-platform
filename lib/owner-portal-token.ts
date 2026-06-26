@@ -31,7 +31,7 @@ async function hmacKey(): Promise<CryptoKey> {
   return globalThis.crypto.subtle.importKey('raw', enc.encode(SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify'])
 }
 
-type PortalScope = 'owner_compliance' | 'tenant_compliance'
+type PortalScope = 'owner_compliance' | 'tenant_compliance' | 'owner_ledger'
 interface PortalTokenPayload { assoc: string; account: string; scope: PortalScope; expiresAt: number }
 export interface OwnerTokenData { assoc: string; account: string }
 
@@ -58,3 +58,6 @@ export const signOwnerComplianceToken  = (assoc: string, account: string, ttlMs:
 export const verifyOwnerComplianceToken = (token: string) => verify('owner_compliance', token)
 export const signTenantComplianceToken  = (assoc: string, account: string, ttlMs: number = TTL_MS) => sign('tenant_compliance', assoc, account, ttlMs)
 export const verifyTenantComplianceToken = (token: string) => verify('tenant_compliance', token)
+// Ledger links are short-lived (7 days) — they expose financial data.
+export const signLedgerToken  = (assoc: string, account: string, ttlMs: number = 7 * 24 * 60 * 60 * 1000) => sign('owner_ledger', assoc, account, ttlMs)
+export const verifyLedgerToken = (token: string) => verify('owner_ledger', token)
