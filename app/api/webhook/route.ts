@@ -911,9 +911,12 @@ async function buildCallerContext(phone: string, channel: Channel): Promise<Call
     language: b.language ?? 'en', name: `${b.first_name ?? ''} ${b.last_name ?? ''}`.trim() || 'there',
     associationId: b.association_code }
 
-  const { data: v } = await getSupabase().from('vendor_directory').select('name, language, association_id').eq('phone', phone).single()
+  // vendor_directory never existed on this DB and nothing populated it; the
+  // real vendor master is `vendors` (company_name/contact_name/phone, no
+  // language/association columns — default to English, assoc resolved elsewhere).
+  const { data: v } = await getSupabase().from('vendors').select('company_name, contact_name').eq('phone', phone).maybeSingle()
   if (v) return { phone, channel, division: 'association', persona: 'vendor',
-    language: v.language ?? 'en', name: v.name, associationId: v.association_id }
+    language: 'en', name: (v.company_name as string) || (v.contact_name as string) || 'there' }
 
   const { data: ag } = await getSupabase().from('real_estate_agents').select('id, first_name, last_name, language').eq('phone', phone).single()
   if (ag) return { phone, channel, division: 'association', persona: 'real_estate_agent',
@@ -1085,7 +1088,7 @@ async function findCallerRoles(phone: string): Promise<CallerRole[]> {
     getSupabase().from('owners').select('unit_number, association_code').or(ownerOr).limit(5),
     getSupabase().from('association_tenants').select('unit_number, association_code').or(simpleOr).limit(5),
     getSupabase().from('board_members').select('association_code').or(simpleOr).limit(5),
-    getSupabase().from('vendor_directory').select('association_id').eq('phone', phone).limit(5),
+    getSupabase().from('vendors').select('id').eq('phone', phone).limit(5),
     getSupabase().from('real_estate_agents').select('id').eq('phone', phone).limit(5),
     getSupabase().from('pmi_staff').select('id').eq('active', true).or(staffOr).limit(1),
   ])
@@ -1094,7 +1097,7 @@ async function findCallerRoles(phone: string): Promise<CallerRole[]> {
   for (const o of owners.data ?? [])  roles.push({ type: 'homeowner',          assocCode: o.association_code, unit: o.unit_number })
   for (const t of tenants.data ?? []) roles.push({ type: 'association_tenant',  assocCode: t.association_code, unit: t.unit_number })
   for (const b of boards.data ?? [])  roles.push({ type: 'board_member',        assocCode: b.association_code })
-  for (const v of vendors.data ?? []) roles.push({ type: 'vendor',              assocCode: v.association_id })
+  ;(vendors.data ?? []).forEach(() => roles.push({ type: 'vendor' }))
   ;(agents.data ?? []).forEach(() => roles.push({ type: 'real_estate_agent' }))
   if (staff.data?.length) roles.push({ type: 'staff' })
   return roles
