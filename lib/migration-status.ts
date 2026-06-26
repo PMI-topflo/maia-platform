@@ -68,6 +68,47 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.conversation_state TO service_rol
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'sticker_flow_tables',
+    label:       'Parking-sticker flow tables',
+    description: 'vehicles + sticker_requests — restore the SMS/WhatsApp/voice sticker self-service flow',
+    filename:    '20260625_sticker_flow_tables.sql',
+    artifact:    { type: 'table', table: 'sticker_requests' },
+    sql: `CREATE TABLE IF NOT EXISTS public.vehicles (
+  id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id   text        NOT NULL,
+  make       text,
+  model      text,
+  color      text,
+  plate      text,
+  active     boolean     NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (owner_id, plate)
+);
+
+CREATE TABLE IF NOT EXISTS public.sticker_requests (
+  id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id         text        NOT NULL,
+  vehicle_id       uuid        REFERENCES public.vehicles (id) ON DELETE SET NULL,
+  association_id   text,
+  request_source   text,
+  status           text        NOT NULL DEFAULT 'pending',
+  payment_status   text        NOT NULL DEFAULT 'unpaid',
+  payment_required boolean     NOT NULL DEFAULT true,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS sticker_requests_owner_created_idx
+  ON public.sticker_requests (owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS vehicles_owner_idx
+  ON public.vehicles (owner_id);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.vehicles         TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.sticker_requests TO service_role;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'pmi_staff_can_see_all',
     label:       'Comms visibility flag',
     description: 'pmi_staff.can_see_all_communications',
