@@ -2172,6 +2172,33 @@ export async function getHomeownerLedger(opts: {
   })
 }
 
+/** GET /management/1/flaggedCollections/homeownersInCollections?assocCode=
+ *  — homeowners flagged into the collections workflow for an association.
+ *  Shape unverified against prod; probe before relying on field names.
+ *  Returns [] on 4xx. */
+export async function listHomeownersInCollections(assocCode: string): Promise<Record<string, unknown>[]> {
+  return await call<Record<string, unknown>[]>(
+    '/management/1/flaggedCollections/homeownersInCollections',
+    { method: 'GET', query: { assocCode: assocCode.toUpperCase() } },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) return []
+    throw err
+  })
+}
+
+/** GET /management/1/accounting/legalStatusByAssociation?assocCode=
+ *  — per-homeowner legal status (collections / legal step) for an association.
+ *  Shape unverified against prod. Returns [] on 4xx. */
+export async function listLegalStatusByAssociation(assocCode: string): Promise<Record<string, unknown>[]> {
+  return await call<Record<string, unknown>[]>(
+    '/management/1/accounting/legalStatusByAssociation',
+    { method: 'GET', query: { assocCode: assocCode.toUpperCase() } },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) return []
+    throw err
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Invoice CRUD — used by the intake-queue push flow
 //
