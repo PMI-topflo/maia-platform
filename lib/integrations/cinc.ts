@@ -2129,6 +2129,43 @@ export async function listGlTransactionsByDate(opts: {
   })
 }
 
+/** A homeowner ledger line as CINC returns it. The exact field names are not
+ *  in Swagger and must be confirmed against prod (see /api/admin/cinc/owner-ledger
+ *  probe) — kept permissive until then. Common CINC fields are optionally typed. */
+export interface CincHomeownerTransaction {
+  TransactionDate?: string | null
+  Date?:            string | null
+  Description?:     string | null
+  ChargeAmount?:    number | null
+  PaymentAmount?:   number | null
+  Amount?:          number | null
+  Balance?:         number | null
+  [key: string]: unknown
+}
+
+/** GET /management/1/associations/{assocCode}/homeowners/{hoId}/homeownertransaction
+ *  — one homeowner's ledger (charges + payments) over a date range.
+ *  `hoId` = owners.account_number (CINC PropertyHOID, e.g. "ABBOTT1").
+ *  ⚠ The date-param names + response shape are unverified against prod; probe
+ *  one known owner before relying on this. Returns [] on 4xx. */
+export async function getHomeownerLedger(opts: {
+  assocCode: string
+  hoId:      string
+  fromDate:  string   // 'YYYY-MM-DD'
+  toDate:    string
+}): Promise<CincHomeownerTransaction[]> {
+  const assoc = opts.assocCode.toUpperCase()
+  return await call<CincHomeownerTransaction[]>(
+    `/management/1/associations/${encodeURIComponent(assoc)}/homeowners/${encodeURIComponent(opts.hoId)}/homeownertransaction`,
+    { method: 'GET', query: { fromDate: opts.fromDate, toDate: opts.toDate } },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) {
+      return [] as CincHomeownerTransaction[]
+    }
+    throw err
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Invoice CRUD — used by the intake-queue push flow
 //
