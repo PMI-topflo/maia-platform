@@ -109,6 +109,18 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.sticker_requests TO service_role;
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'applycheck_results',
+    label:       'Applycheck results capture',
+    description: 'applications.applycheck_result + applycheck_completed_at — store inbound background-check results',
+    filename:    '20260625_applycheck_results.sql',
+    artifact:    { type: 'column', table: 'applications', column: 'applycheck_result' },
+    sql: `ALTER TABLE public.applications
+  ADD COLUMN IF NOT EXISTS applycheck_result       jsonb,
+  ADD COLUMN IF NOT EXISTS applycheck_completed_at timestamptz;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'pmi_staff_can_see_all',
     label:       'Comms visibility flag',
     description: 'pmi_staff.can_see_all_communications',
