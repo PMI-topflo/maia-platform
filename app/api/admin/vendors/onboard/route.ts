@@ -21,7 +21,7 @@ import { createVendor } from '@/lib/integrations/cinc'
 import { findVendorDuplicates, searchVendors } from '@/lib/vendor-dedupe'
 import { signVendorOnboardingToken } from '@/lib/vendor-onboarding-token'
 import { sendEmail } from '@/lib/gmail'
-import { VENDOR_REQUEST_CC } from '@/lib/wo-vendor-compliance'
+import { VENDOR_NOTIFY_CC, VENDOR_REPLY_TO } from '@/lib/notify-recipients'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
     const subject = 'Welcome — a few documents to get you set up · PMI Top Florida Properties'
     const text = `Hello${name ? ` ${name}` : ''},\n\nWelcome! To get you set up for payment, please provide a few documents through this secure link — no account needed:\n${link}\n\nYou can fill in your W-9 and banking (ACH) right in the form, and upload your insurance (COI)${licenseRequired ? ' and license' : ''}.\n\nThank you,\nPMI Top Florida Properties`
     const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">${text.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c)).replace(/\n/g, '<br>')}</div>`
-    await sendEmail({ to, cc: VENDOR_REQUEST_CC, subject, html, text }).then(() => { emailed = true }, () => null)
+    await sendEmail({ to, bcc: VENDOR_NOTIFY_CC, replyTo: VENDOR_REPLY_TO, subject, html, text }).then(() => { emailed = true }, () => null)
   }
 
   return NextResponse.json({ ok: true, onboardingId: row.id, cincVendorId, link, emailed })
