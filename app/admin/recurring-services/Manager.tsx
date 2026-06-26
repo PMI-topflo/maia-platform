@@ -27,6 +27,12 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
   // add-employee form
   const [emp, setEmp] = useState({ vendor_name: '', cinc_vendor_id: '', name: '', phone: '', email: '', preferred_channel: 'email', preferred_language: 'en' })
 
+  // CINC vendor catalog for the picker (assoc vendors first, then the rest)
+  const [cincVendors, setCincVendors] = useState<{ VendorId: number; VendorName: string }[]>([])
+  const [vendorsLoading, setVendorsLoading] = useState(false)
+  const vendorByName = (name: string) =>
+    cincVendors.find(v => v.VendorName.trim().toLowerCase() === name.trim().toLowerCase())
+
   const load = useCallback(async () => {
     setError(null)
     try {
@@ -41,6 +47,22 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
     } catch { setError('Failed to load.') }
   }, [assoc])
   useEffect(() => { if (assoc) void load() }, [assoc, load])
+
+  // Pull the association's CINC vendors (+ the rest of the catalog) for the
+  // vendor picker. Reuses the same endpoint as the work-order vendor modal.
+  useEffect(() => {
+    if (!assoc) return
+    setVendorsLoading(true)
+    fetch(`/api/admin/cinc/vendors?assocCode=${encodeURIComponent(assoc)}`)
+      .then(r => r.json())
+      .then(d => {
+        const fa = (d.forAssociation ?? []) as { VendorId: number; VendorName: string }[]
+        const ao = (d.allOthers ?? []) as { VendorId: number; VendorName: string }[]
+        setCincVendors([...fa, ...ao])
+      })
+      .catch(() => setCincVendors([]))
+      .finally(() => setVendorsLoading(false))
+  }, [assoc])
 
   async function addService() {
     if (!svc.vendor_name.trim()) { setError('Vendor name required.'); return }
@@ -106,6 +128,13 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
         {associations.map(a => <option key={a.code} value={a.code}>{a.name} ({a.code})</option>)}
       </select>
 
+      {/* Shared CINC vendor options for both pickers below. Picking a name
+          auto-fills its CINC vendor #; free-text is still allowed for vendors
+          CINC doesn't list. */}
+      <datalist id="cinc-vendor-list">
+        {cincVendors.map(v => <option key={v.VendorId} value={v.VendorName}>{`CINC #${v.VendorId}`}</option>)}
+      </datalist>
+
       {error && <div style={{ color: '#991b1b', fontSize: 13, margin: '10px 0' }}>⚠ {error}</div>}
 
       {/* Recurring services for the chosen association */}
@@ -126,8 +155,8 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
           <select value={svc.service_type} onChange={e => setSvc({ ...svc, service_type: e.target.value })} style={field}>
             {SERVICE_TYPES.map(t => <option key={t}>{t}</option>)}
           </select>
-          <input placeholder="Vendor name" value={svc.vendor_name} onChange={e => setSvc({ ...svc, vendor_name: e.target.value })} style={field} />
-          <input placeholder="CINC vendor # (optional)" value={svc.cinc_vendor_id} onChange={e => setSvc({ ...svc, cinc_vendor_id: e.target.value })} style={field} />
+          <input list="cinc-vendor-list" placeholder={vendorsLoading ? 'Loading CINC vendors…' : 'Vendor name (type to search CINC)'} value={svc.vendor_name} onChange={e => { const name = e.target.value; const m = vendorByName(name); setSvc(s => ({ ...s, vendor_name: name, cinc_vendor_id: m ? String(m.VendorId) : s.cinc_vendor_id })) }} style={field} />
+          <input placeholder="CINC vendor # (auto-fills)" value={svc.cinc_vendor_id} onChange={e => setSvc({ ...svc, cinc_vendor_id: e.target.value })} style={field} />
           <select value={svc.cadence} onChange={e => setSvc({ ...svc, cadence: e.target.value })} style={field} title="How often they service">
             {CADENCES.map(c => <option key={c} value={c}>services {c}</option>)}
           </select>
@@ -193,8 +222,8 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
           </div>
         ))}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 12 }}>
-          <input placeholder="Vendor name" value={emp.vendor_name} onChange={e => setEmp({ ...emp, vendor_name: e.target.value })} style={field} />
-          <input placeholder="CINC vendor # (optional)" value={emp.cinc_vendor_id} onChange={e => setEmp({ ...emp, cinc_vendor_id: e.target.value })} style={field} />
+          <input list="cinc-vendor-list" placeholder={vendorsLoading ? 'Loading CINC vendors…' : 'Vendor name (type to search CINC)'} value={emp.vendor_name} onChange={e => { const name = e.target.value; const m = vendorByName(name); setEmp(s => ({ ...s, vendor_name: name, cinc_vendor_id: m ? String(m.VendorId) : s.cinc_vendor_id })) }} style={field} />
+          <input placeholder="CINC vendor # (auto-fills)" value={emp.cinc_vendor_id} onChange={e => setEmp({ ...emp, cinc_vendor_id: e.target.value })} style={field} />
           <input placeholder="Employee name" value={emp.name} onChange={e => setEmp({ ...emp, name: e.target.value })} style={field} />
           <input placeholder="Phone" value={emp.phone} onChange={e => setEmp({ ...emp, phone: e.target.value })} style={field} />
           <input placeholder="Email" value={emp.email} onChange={e => setEmp({ ...emp, email: e.target.value })} style={field} />
