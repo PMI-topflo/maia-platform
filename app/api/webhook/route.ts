@@ -219,6 +219,12 @@ async function handleVoice(phone: string, body: FormData): Promise<NextResponse>
   if (VOICE_COMPLETED.has(callStatus)) return new NextResponse('OK')
 
   const ctx      = await buildCallerContext(phone, 'voice')
+  // Carry a remembered conversation language (set when the caller switched on a
+  // prior turn/call) so the greeting opens in the language they last used.
+  const state    = await getConversationState(phone)
+  if (state?.session_language && (SUPPORTED_LANGS as readonly string[]).includes(state.session_language)) {
+    ctx.language = state.session_language
+  }
   const greeting = await getVoiceGreeting(ctx)
   const voice    = getVoiceForLanguage(ctx.language)
   const twiml    = `<?xml version="1.0" encoding="UTF-8"?>
@@ -235,8 +241,13 @@ async function handleVoice(phone: string, body: FormData): Promise<NextResponse>
 
 async function handleVoiceInput(phone: string, voiceInput: string): Promise<NextResponse> {
   const ctx   = await buildCallerContext(phone, 'voice')
-  const voice = getVoiceForLanguage(ctx.language)
   const state = await getConversationState(phone)
+
+  // Apply a remembered conversation language before anything else.
+  if (state?.session_language && (SUPPORTED_LANGS as readonly string[]).includes(state.session_language)) {
+    ctx.language = state.session_language
+  }
+  let voice = getVoiceForLanguage(ctx.language)
 
   // ── Resolve pending WhatsApp number ────────────────────────────────────────
   if (state?.current_flow === 'voice_awaiting_whatsapp') {
@@ -245,6 +256,23 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
 
   // Strip DTMF prefix if present (not in a WhatsApp-number-collection context)
   const speechText = voiceInput.startsWith('DTMF:') ? voiceInput.slice(5) : voiceInput
+
+  // ── Voice language auto-switch ──────────────────────────────────────────────
+  // No numbered menu on a call — just continue in whatever language they spoke,
+  // remember it for the rest of the call, and acknowledge the switch verbally.
+  let langNote = ''
+  const detected = await detectLanguage(speechText)
+  if (detected && detected !== ctx.language) {
+    ctx.language = detected
+    voice = getVoiceForLanguage(detected)
+    await setSessionLanguage(phone, detected)
+    langNote = translate(detected, {
+      en: 'Sure, continuing in English.', es: 'Claro, continúo en español.',
+      pt: 'Claro, vou continuar em português.', fr: 'Bien sûr, je continue en français.',
+      he: 'בסדר, אמשיך בעברית.', ru: 'Хорошо, продолжу на русском.',
+      ht: 'Dakò, m ap kontinye an kreyòl.',
+    }) + ' '
+  }
 
   // ── Detect "send to WhatsApp / text me" intent ─────────────────────────────
   if (detectWhatsAppSendIntent(speechText)) {
@@ -259,7 +287,7 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
     responseText = 'I had trouble with that request. Please call our office at (305) 900-5077 and our team will assist you.'
   }
 
-  return voiceTwiml(voice, stripForTTS(responseText), getFarewell(ctx.language))
+  return voiceTwiml(voice, stripForTTS(langNote + responseText), getFarewell(ctx.language))
 }
 
 // ── WhatsApp-send intent detection ────────────────────────────────────────────
@@ -437,6 +465,7 @@ function getFarewell(lang: string): string {
     fr: 'Puis-je vous aider avec autre chose?',
     he: 'האם יש עוד שאוכל לעזור לך?',
     ru: 'Чем ещё я могу помочь?',
+    ht: 'Èske gen yon lòt bagay mwen ka ede w avè l?',
   } as Record<string, string>)[lang] ?? 'Is there anything else I can help you with?'
 }
 
@@ -549,6 +578,7 @@ async function routeTextMessage(
         fr: `Dites-moi simplement ce dont vous avez besoin! 😊`,
         he: `פשוט תגיד לי מה אתה צריך ואני אטפל בזה! 😊`,
         ru: `Просто скажите что вам нужно и я позабочусь! 😊`,
+        ht: `Annik di m sa w bezwen epi m ap okipe l! 😊`,
       })
     } else {
       await saveConversationState(phone, 'unknown_contact', 'awaiting_info', {})
@@ -559,6 +589,7 @@ async function routeTextMessage(
         fr: `Bonjour! 🌸 Je suis Maia de PMI Top Florida Properties. Dites-moi votre nom, email et comment je peux vous aider.`,
         he: `שלום! 🌸 אני מאיה מ-PMI. לא מצאתי אותך במערכת — שתף שם מלא, אימייל ואיך אוכל לעזור.`,
         ru: `Привет! 🌸 Я Мая из PMI. Вас нет в системе — сообщите имя, email и как я могу помочь.`,
+        ht: `Bonjou! 🌸 Se Maia mwen ye nan PMI Top Florida Properties. Mwen pa wè w nan sistèm nan — tanpri bay non konplè w, imèl ou, ak kijan mwen ka ede w, epi m ap asire ekip nou an reponn ou!`,
       })
     }
   } else {
@@ -577,12 +608,13 @@ async function routeTextMessage(
 // Numbered menu — index+1 is what the resident replies with. Matches the six
 // languages MAIA converses in (SUPPORTED_LANGS), shown with native labels.
 const LANG_MENU: { code: string; label: string }[] = [
-  { code: 'en', label: 'English'   },
-  { code: 'es', label: 'Español'   },
-  { code: 'pt', label: 'Português' },
-  { code: 'fr', label: 'Français'  },
-  { code: 'he', label: 'עברית'     },
-  { code: 'ru', label: 'Русский'   },
+  { code: 'en', label: 'English'         },
+  { code: 'es', label: 'Español'         },
+  { code: 'pt', label: 'Português'       },
+  { code: 'fr', label: 'Français'        },
+  { code: 'he', label: 'עברית'           },
+  { code: 'ru', label: 'Русский'         },
+  { code: 'ht', label: 'Kreyòl Ayisyen'  },
 ]
 
 function buildLanguagePickPrompt(detected: string): string {
@@ -594,6 +626,7 @@ function buildLanguagePickPrompt(detected: string): string {
     fr: 'Je peux vous aider dans votre langue ! Répondez avec un numéro :',
     he: 'אני יכולה לעזור בשפה שלך! השב עם מספר:',
     ru: 'Я могу помочь на вашем языке! Ответьте цифрой:',
+    ht: 'Mwen ka ede w nan lang ou! Reponn ak yon nimewo:',
   })
   // Show the prompt in the detected language AND English so it lands either way.
   const dual = detected === 'en' ? header : `🌐 ${header}\nI can help in your language! Reply with a number:`
@@ -609,6 +642,7 @@ function buildScopePrompt(lang: string): string {
     fr: `Utiliser ${label} désormais ?\n1 Toujours (enregistrer comme ma langue)\n2 Juste cette conversation`,
     he: `להשתמש ב${label} מעכשיו?\n1 תמיד (שמור כשפה שלי)\n2 רק בשיחה הזו`,
     ru: `Использовать ${label} дальше?\n1 Всегда (сохранить как мой язык)\n2 Только этот разговор`,
+    ht: `Itilize ${label} apati kounye a?\n1 Toujou (anrejistre kòm lang mwen)\n2 Sèlman konvèsasyon sa a`,
   })
 }
 
@@ -654,6 +688,7 @@ async function continueLanguageSwitch(
     en: '✅ Done! How can I help?',  es: '✅ ¡Listo! ¿En qué puedo ayudarte?',
     pt: '✅ Pronto! Como posso ajudar?', fr: '✅ C\'est fait ! Comment puis-je vous aider ?',
     he: '✅ בוצע! איך אפשר לעזור?', ru: '✅ Готово! Чем могу помочь?',
+    ht: '✅ Fini! Kijan mwen ka ede w?',
   })
   await sendReply(phone, done, channel)
   await logConversation(phone, message, done, ctx)
@@ -975,6 +1010,7 @@ function buildMainMenu(ctx: CallerContext): string {
       fr: `👋 Bonjour${first}! Maia 🌸\n\n1-🏠 Propriétaire  2-🔑 Acheteur  3-📋 Locataire  8-💬 Équipe`,
       he: `👋 שלום${first}! מאיה 🌸\n\n1-🏠 בעלים  2-🔑 קונה  3-📋 שוכר  8-💬 צוות`,
       ru: `👋 Привет${first}! Мая 🌸\n\n1-🏠 Владелец  2-🔑 Покупатель  3-📋 Арендатор  8-💬 Команда`,
+      ht: `👋 Bonjou${first}! Se Maia 🌸\n\n1-🏠 Pwopriyetè  2-🔑 Achtè  3-📋 Lokatè  8-💬 Ekip`,
     })
   }
   return translate(ctx.language, {
@@ -984,6 +1020,7 @@ function buildMainMenu(ctx: CallerContext): string {
     fr: `👋 Bonjour${first}! Maia 🌸\n\n1-🚗 Vignette  2-🔧 Maintenance  3-💰 Paiements\n4-📄 Documents  5-📅 Rendez-vous  6-🏠 Compte\n7-🚨 Urgence  8-💬 Équipe  9-🏡 Agent`,
     he: `👋 שלום${first}! מאיה 🌸\n\n1-🚗 מדבקה  2-🔧 תחזוקה  3-💰 תשלומים\n4-📄 מסמכים  5-📅 פגישה  6-🏠 חשבון\n7-🚨 חירום  8-💬 צוות  9-🏡 סוכן`,
     ru: `👋 Привет${first}! Мая 🌸\n\n1-🚗 Наклейка  2-🔧 Ремонт  3-💰 Платежи\n4-📄 Документы  5-📅 Запись  6-🏠 Аккаунт\n7-🚨 Экстренно  8-💬 Команда  9-🏡 Агент`,
+    ht: `👋 Bonjou${first}! Se Maia, asistan PMI ou 🌸\n\n1-🚗 Otokolan  2-🔧 Antretyen  3-💰 Peman\n4-📄 Dokiman  5-📅 Randevou  6-🏠 Kont\n7-🚨 Ijans  8-💬 Ekip  9-🏡 Ajan`,
   })
 }
 
@@ -997,6 +1034,7 @@ function buildPersonalGreeting(ctx: CallerContext): string {
     fr: `Bonjour${n}! 🌸 C'est Maia de PMI Top Florida Properties.`,
     he: `שלום${n}! 🌸 אני מאיה מ-PMI Top Florida Properties.`,
     ru: `Привет${n}! 🌸 Это Мая из PMI Top Florida Properties.`,
+    ht: `Bonjou${n}! 🌸 Se Maia ki sòti nan PMI Top Florida Properties. Mwen kontan tande w!`,
   })
 }
 
@@ -1010,17 +1048,17 @@ function buildPersonalGreeting(ctx: CallerContext): string {
 interface CallerRole { type: PersonaType; assocCode?: string | null; unit?: string | null }
 
 const ROLE_NOUNS: Record<string, Record<string, string>> = {
-  homeowner:          { en: 'an Owner',        es: 'Propietario',         pt: 'Proprietário',        fr: 'Propriétaire',        he: 'בעלים',     ru: 'Владелец' },
-  association_tenant: { en: 'a Tenant',        es: 'Inquilino',           pt: 'Inquilino',           fr: 'Locataire',           he: 'שוכר',      ru: 'Арендатор' },
-  board_member:       { en: 'a Board Member',  es: 'Miembro de la Junta', pt: 'Membro do Conselho',  fr: 'Membre du conseil',   he: 'חבר ועד',   ru: 'Член правления' },
-  vendor:             { en: 'a Vendor',        es: 'Proveedor',           pt: 'Fornecedor',          fr: 'Fournisseur',         he: 'ספק',       ru: 'Поставщик' },
-  real_estate_agent:  { en: 'an Agent',        es: 'Agente',              pt: 'Corretor',            fr: 'Agent',               he: 'סוכן',      ru: 'Агент' },
-  staff:              { en: 'PMI Staff',        es: 'Personal de PMI',     pt: 'Equipe da PMI',       fr: 'Personnel PMI',       he: 'צוות PMI',  ru: 'Сотрудник PMI' },
+  homeowner:          { en: 'an Owner',        es: 'Propietario',         pt: 'Proprietário',        fr: 'Propriétaire',        he: 'בעלים',     ru: 'Владелец',       ht: 'yon Pwopriyetè' },
+  association_tenant: { en: 'a Tenant',        es: 'Inquilino',           pt: 'Inquilino',           fr: 'Locataire',           he: 'שוכר',      ru: 'Арендатор',      ht: 'yon Lokatè' },
+  board_member:       { en: 'a Board Member',  es: 'Miembro de la Junta', pt: 'Membro do Conselho',  fr: 'Membre du conseil',   he: 'חבר ועד',   ru: 'Член правления', ht: 'yon Manm Konsèy' },
+  vendor:             { en: 'a Vendor',        es: 'Proveedor',           pt: 'Fornecedor',          fr: 'Fournisseur',         he: 'ספק',       ru: 'Поставщик',      ht: 'yon Founisè' },
+  real_estate_agent:  { en: 'an Agent',        es: 'Agente',              pt: 'Corretor',            fr: 'Agent',               he: 'סוכן',      ru: 'Агент',          ht: 'yon Ajan' },
+  staff:              { en: 'PMI Staff',        es: 'Personal de PMI',     pt: 'Equipe da PMI',       fr: 'Personnel PMI',       he: 'צוות PMI',  ru: 'Сотрудник PMI',  ht: 'Anplwaye PMI' },
 }
 
 function joinWithOr(items: string[], lang: string): string {
   if (items.length <= 1) return items[0] ?? ''
-  const or = ({ en: 'or', es: 'o', pt: 'ou', fr: 'ou', he: 'או', ru: 'или' } as Record<string, string>)[lang] ?? 'or'
+  const or = ({ en: 'or', es: 'o', pt: 'ou', fr: 'ou', he: 'או', ru: 'или', ht: 'oswa' } as Record<string, string>)[lang] ?? 'or'
   return items.slice(0, -1).join(', ') + ` ${or} ` + items[items.length - 1]
 }
 
@@ -1080,6 +1118,7 @@ async function buildMultiPersonaGreeting(ctx: CallerContext, roles: CallerRole[]
     fr: `Bonjour${n}! 🌸 C'est Maia de PMI Top Florida Properties. Je vous vois avec nous sous plusieurs rôles — comment puis-je vous aider aujourd'hui : en tant que ${list} ?`,
     he: `שלום${n}! 🌸 כאן מאיה מ-PMI Top Florida Properties. אני רואה אותך אצלנו ביותר מתפקיד אחד — איך אוכל לעזור היום: בתור ${list}?`,
     ru: `Привет${n}! 🌸 Это Мая из PMI Top Florida Properties. Вижу вас у нас в нескольких ролях — чем могу помочь сегодня: как ${list}?`,
+    ht: `Bonjou${n}! 🌸 Se Maia ki sòti nan PMI Top Florida Properties. Mwen wè w avèk nou nan plis pase yon wòl — kijan mwen ka ede w jodi a: kòm ${list}?`,
   })
 }
 
@@ -1744,11 +1783,11 @@ async function sendReply(phone: string, text: string, channel: Channel) {
 
 async function getVoiceGreeting(ctx: CallerContext): Promise<string> {
   const first = ctx.name !== 'there' ? ctx.name.split(' ')[0] : ''
-  return ({ en:`Hello ${first}! Thank you for calling PMI Top Florida Properties. How can I help you today?`, es:`Hola ${first}! Gracias por llamar a PMI Top Florida Properties. ¿En qué puedo ayudarle?`, pt:`Olá ${first}! Obrigado por ligar para a PMI Top Florida Properties. Como posso ajudar?`, fr:`Bonjour! Merci d'avoir appelé PMI Top Florida Properties. Comment puis-je vous aider?`, he:`שלום! תודה על השיחה ל-PMI Top Florida Properties.`, ru:`Здравствуйте! Спасибо за звонок в PMI Top Florida Properties.` } as Record<string,string>)[ctx.language] ?? `Hello! How can I help?`
+  return ({ en:`Hello ${first}! Thank you for calling PMI Top Florida Properties. How can I help you today?`, es:`Hola ${first}! Gracias por llamar a PMI Top Florida Properties. ¿En qué puedo ayudarle?`, pt:`Olá ${first}! Obrigado por ligar para a PMI Top Florida Properties. Como posso ajudar?`, fr:`Bonjour! Merci d'avoir appelé PMI Top Florida Properties. Comment puis-je vous aider?`, he:`שלום! תודה על השיחה ל-PMI Top Florida Properties.`, ru:`Здравствуйте! Спасибо за звонок в PMI Top Florida Properties.`, ht:`Bonjou ${first}! Mèsi dèske w rele PMI Top Florida Properties. Kijan mwen ka ede w jodi a?` } as Record<string,string>)[ctx.language] ?? `Hello! How can I help?`
 }
 
 function getListenPrompt(lang: string): string {
-  return ({ en:'Please describe how I can help you.', es:'Por favor describa cómo puedo ayudarle.', pt:'Por favor descreva como posso ajudar.', fr:'Veuillez décrire comment je peux vous aider.', he:'אנא תאר כיצד אוכל לעזור לך.', ru:'Пожалуйста, опишите, как я могу вам помочь.' } as Record<string,string>)[lang] ?? 'How can I help?'
+  return ({ en:'Please describe how I can help you.', es:'Por favor describa cómo puedo ayudarle.', pt:'Por favor descreva como posso ajudar.', fr:'Veuillez décrire comment je peux vous aider.', he:'אנא תאר כיצד אוכל לעזור לך.', ru:'Пожалуйста, опишите, как я могу вам помочь.', ht:'Tanpri di m kijan mwen ka ede w.' } as Record<string,string>)[lang] ?? 'How can I help?'
 }
 
 // Amazon Polly voices — available on all Twilio accounts, no add-on required
@@ -1760,6 +1799,7 @@ function getVoiceForLanguage(lang: string): string {
     fr: 'Polly.Celine',
     he: 'Polly.Joanna',  // Hebrew unavailable in Polly; fallback to English
     ru: 'Polly.Tatyana',
+    ht: 'Polly.Celine',  // No Polly Creole; French voice reads the (French-derived) orthography closest
   } as Record<string, string>)[lang] ?? 'Polly.Joanna'
 }
 
@@ -1771,6 +1811,6 @@ function escapeXml(s: string): string {
 // TRANSLATION HELPER
 // ============================================================
 
-function translate(language: string, options: Partial<Record<'en'|'es'|'pt'|'fr'|'he'|'ru', string>>): string {
+function translate(language: string, options: Partial<Record<'en'|'es'|'pt'|'fr'|'he'|'ru'|'ht', string>>): string {
   return options[language as keyof typeof options] ?? options.en ?? Object.values(options)[0] ?? ''
 }
