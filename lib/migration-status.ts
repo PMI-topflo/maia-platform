@@ -120,6 +120,18 @@ CREATE POLICY "service_role_all_agent_requests"
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'recurring_service_end_date',
+    label:       'Recurring service end date',
+    description: 'recurring_services.ends_on + cycle_ended_notified_at — schedule a service to end + email the office when it does',
+    filename:    '20260626_recurring_service_end_date.sql',
+    artifact:    { type: 'column', table: 'recurring_services', column: 'ends_on' },
+    sql: `ALTER TABLE public.recurring_services
+  ADD COLUMN IF NOT EXISTS ends_on                 date,
+  ADD COLUMN IF NOT EXISTS cycle_ended_notified_at timestamptz;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'conversation_state',
     label:       'Assistant conversation state',
     description: 'conversation_state table — backs every SMS/WhatsApp multi-step flow + language switch',

@@ -27,6 +27,8 @@ export interface RecurringService {
   monthly_day:      number | null   // monthly: day-of-month (1–31)
   office_email:     string | null
   office_language:  string
+  ends_on:          string | null   // last date the service runs (YYYY-MM-DD); null = open-ended
+  cycle_ended_notified_at: string | null  // set when the cycle-ended email fired
   active:           boolean
   notes:            string | null
   created_at:       string
@@ -68,6 +70,7 @@ export async function createRecurringService(input: Partial<RecurringService>): 
     monthly_day:      input.monthly_day ?? null,
     office_email:     input.office_email ?? null,
     office_language:  input.office_language ?? 'en',
+    ends_on:          input.ends_on || null,
     notes:            input.notes ?? null,
   }).select('*').single()
   if (error) return { ok: false, error: error.message }
@@ -75,7 +78,7 @@ export async function createRecurringService(input: Partial<RecurringService>): 
 }
 
 export async function updateRecurringService(id: number, patch: Partial<RecurringService>): Promise<{ ok: boolean; error?: string }> {
-  const allowed: (keyof RecurringService)[] = ['cinc_vendor_id', 'vendor_name', 'service_type', 'cadence', 'billing_cadence', 'expected_day', 'schedule_anchor', 'monthly_day', 'office_email', 'office_language', 'active', 'notes']
+  const allowed: (keyof RecurringService)[] = ['cinc_vendor_id', 'vendor_name', 'service_type', 'cadence', 'billing_cadence', 'expected_day', 'schedule_anchor', 'monthly_day', 'office_email', 'office_language', 'ends_on', 'active', 'notes']
   const body: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const k of allowed) if (k in patch) body[k] = patch[k]
   const { error } = await supabaseAdmin.from('recurring_services').update(body).eq('id', id)

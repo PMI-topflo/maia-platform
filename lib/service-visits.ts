@@ -78,11 +78,77 @@ export async function generateVisitsForWeek(weekOf: string): Promise<{ created: 
   const { data: services } = await supabaseAdmin.from('recurring_services').select('*').eq('active', true)
   let created = 0, existing = 0, skipped = 0
   for (const svc of (services ?? []) as RecurringService[]) {
+    // Past its end date — the cycle is over, don't generate further weeks.
+    if (svc.ends_on && svc.ends_on < weekOf) { skipped++; continue }
     if (!isVisitDue(weekOf, svc.cadence, svc.schedule_anchor, svc.monthly_day)) { skipped++; continue }
     const r = await ensureWeeklyVisit(svc, weekOf)
     if (r.created) created++; else existing++
   }
   return { created, existing, skipped }
+}
+
+// =====================================================================
+// End-of-cycle notification
+// When a recurring service's ends_on date has passed, email the office
+// (Paola) ONCE that the cycle closed — with the details and a link to set
+// it up again — then deactivate the service so it stops generating visits
+// and dropping out of coverage. Idempotent via cycle_ended_notified_at.
+// =====================================================================
+
+const OFFICE_EMAIL = 'service@pmitop.com'
+
+function endedCycleEmail(s: RecurringService): { subject: string; html: string } {
+  const link = `${APP_URL}/admin/recurring-services`
+  const fmt  = (d: string | null) => d ?? '—'
+  const rows: [string, string][] = [
+    ['Association', s.association_code],
+    ['Vendor', s.vendor_name + (s.cinc_vendor_id ? ` (CINC #${s.cinc_vendor_id})` : '')],
+    ['Service', s.service_type],
+    ['Cadence', `services ${s.cadence} · bills ${s.billing_cadence}`],
+    ['Ended on', fmt(s.ends_on)],
+  ]
+  const table = rows.map(([k, v]) =>
+    `<tr><td style="padding:6px 0;color:#6b7280;width:40%">${k}</td><td style="padding:6px 0;color:#111">${v}</td></tr>`).join('')
+  return {
+    subject: `Recurring service cycle ended — ${s.vendor_name} · ${s.service_type} (${s.association_code})`,
+    html: `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px">
+      <h2 style="font-size:17px;color:#111;margin:0 0 4px">A recurring service cycle has ended 🗓️</h2>
+      <p style="color:#6b7280;font-size:13px;margin:0 0 16px">The end date you set has passed, so MAIA stopped generating weekly visits for this service. Review and set it up again if it should continue.</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;border-top:1px solid #eee">${table}</table>
+      <p style="margin:22px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:11px 20px;border-radius:6px;font-weight:600;font-size:13px">Set up recurring services →</a></p>
+      <p style="color:#9ca3af;font-size:12px">${link}</p>
+    </body></html>`,
+  }
+}
+
+/** Email the office for every active service whose end date has passed and
+ *  that hasn't been notified yet, then deactivate it. Runs daily via cron. */
+export async function notifyEndedRecurringCycles(): Promise<{ ended: number; emailed: number }> {
+  const today = todayISO()
+  const { data } = await supabaseAdmin
+    .from('recurring_services')
+    .select('*')
+    .eq('active', true)
+    .not('ends_on', 'is', null)
+    .lt('ends_on', today)              // strictly past — the day after ends_on
+    .is('cycle_ended_notified_at', null)
+  const svcs = (data ?? []) as RecurringService[]
+
+  let emailed = 0
+  for (const s of svcs) {
+    try {
+      const { subject, html } = endedCycleEmail(s)
+      await sendEmail({ to: OFFICE_EMAIL, subject, html })
+      emailed++
+    } catch (err) {
+      console.error('[recurring] cycle-ended email failed:', s.id, (err as Error).message)
+    }
+    // Mark notified + deactivate regardless of email outcome so we never loop.
+    await supabaseAdmin.from('recurring_services')
+      .update({ active: false, cycle_ended_notified_at: new Date().toISOString() })
+      .eq('id', s.id)
+  }
+  return { ended: svcs.length, emailed }
 }
 
 export async function listVisits(assoc: string, weekOf?: string): Promise<ServiceVisit[]> {
