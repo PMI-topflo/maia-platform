@@ -35,16 +35,32 @@ export interface LedgerLine {
 
 /** Map CINC rows → clean lines and keep only those inside [fromDate, toDate]
  *  (CINC ignores the date params and returns the whole schedule, including
- *  future-dated assessments, so we filter here). Sorted oldest → newest. */
+ *  future-dated assessments, so we filter here). Sorted oldest → newest.
+ *
+ *  Payment Adjustments (TransactionTypeID < 0 — e.g. "Return - ACH Refund",
+ *  "Remove Delinquent Fee") come through the API as a Debit/Credit, but CINC's
+ *  official statement nets them against the matching column instead of showing
+ *  them as a new charge/payment. We mirror that so our Charge/Payment totals
+ *  match CINC exactly (the RunningBalance is authoritative either way). */
 export function normalizeLedger(rows: CincHomeownerTransaction[], fromDate: string, toDate: string): LedgerLine[] {
   return (rows ?? [])
-    .map(r => ({
-      date:        String(r.Date ?? '').slice(0, 10),
-      description: String(r.Assessment || r.Description || r.TransactionTypeDescription || '').trim() || '—',
-      charge:      Number(r.Debit ?? 0)  || 0,
-      payment:     Number(r.Credit ?? 0) || 0,
-      balance:     Number(r.RunningBalance ?? 0) || 0,
-    }))
+    .map(r => {
+      const debit  = Number(r.Debit ?? 0)  || 0
+      const credit = Number(r.Credit ?? 0) || 0
+      const isAdjustment = Number(r.TransactionTypeID ?? 0) < 0
+      let charge = debit, payment = credit
+      if (isAdjustment) {
+        if (debit)       { payment = -debit; charge = 0 }   // return/refund → negative payment
+        else if (credit) { charge = -credit; payment = 0 }  // fee reversal  → negative charge
+      }
+      return {
+        date:        String(r.Date ?? '').slice(0, 10),
+        description: String(r.Assessment || r.Description || r.TransactionTypeDescription || '').trim() || '—',
+        charge,
+        payment,
+        balance:     Number(r.RunningBalance ?? 0) || 0,
+      }
+    })
     .filter(l => l.date && l.date >= fromDate && l.date <= toDate)
     .sort((a, b) => a.date.localeCompare(b.date))
 }
