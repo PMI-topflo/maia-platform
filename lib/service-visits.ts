@@ -12,6 +12,7 @@ import { signCrewToken } from '@/lib/crew-token'
 import { sendEmail } from '@/lib/gmail'
 import { sendSMSStrict, sendWhatsAppStrict } from '@/lib/twilio-send'
 import { listVendorEmployees, type RecurringService } from '@/lib/recurring-services'
+import { VENDOR_NOTIFY_CC, VENDOR_REPLY_TO } from '@/lib/notify-recipients'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 
@@ -118,7 +119,7 @@ export async function sendCrewUploadLinks(visitId: number, employeeIds?: string[
     try {
       if (e.preferred_channel === 'sms' && e.phone)            { await sendSMSStrict(e.phone, m.short); sent++; results.push(`${e.name}: sms`) }
       else if (e.preferred_channel === 'whatsapp' && e.phone)  { await sendWhatsAppStrict(e.phone, m.short); sent++; results.push(`${e.name}: whatsapp`) }
-      else if (e.email)                                        { await sendEmail({ to: e.email, subject: m.subject, html: m.html }); sent++; results.push(`${e.name}: email`) }
+      else if (e.email)                                        { await sendEmail({ to: e.email, cc: VENDOR_NOTIFY_CC, replyTo: VENDOR_REPLY_TO, subject: m.subject, html: m.html }); sent++; results.push(`${e.name}: email`) }
       else                                                     { results.push(`${e.name}: skipped (no ${e.preferred_channel} contact)`) }
     } catch (err) {
       results.push(`${e.name}: failed (${(err as Error).message})`)

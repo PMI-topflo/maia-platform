@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { APPLICATION_NOTIFY_CC, APPLICATION_REPLY_TO } from '@/lib/notify-recipients';
 
 interface Applicant {
   firstName?: string;
@@ -174,6 +175,8 @@ export async function POST(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: target.email,
+          cc: APPLICATION_NOTIFY_CC,
+          replyTo: APPLICATION_REPLY_TO,
           subject: `Board Review Required — ${associationName} · Ref ${refId}`,
           html,
           associationCode,

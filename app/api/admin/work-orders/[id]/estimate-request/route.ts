@@ -15,6 +15,7 @@ import { signEstimateRequestToken } from '@/lib/estimate-request-token'
 import { sendEmail } from '@/lib/gmail'
 import { appendMessage } from '@/lib/tickets'
 import { getAssociationName } from '@/lib/association-name'
+import { VENDOR_NOTIFY_CC } from '@/lib/notify-recipients'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -69,7 +70,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const link = `${APP}/vendor/estimate/${await signEstimateRequestToken(erv.id)}`
     sentTo.push({ name: v.vendor_name ?? v.vendor_email, email: v.vendor_email, link })
     await sendEmail({
-      to: v.vendor_email, replyTo: PAOLA,
+      to: v.vendor_email, cc: VENDOR_NOTIFY_CC, replyTo: PAOLA,
       subject: `Estimate request${assocName ? ` — ${assocName}` : ` — ${woLabel}`}`,
       html: `<p>Hello${v.vendor_name ? ` ${esc(v.vendor_name)}` : ''},</p>
         <p>PMI Top Florida Properties is requesting an estimate${assocName ? ` for <strong>${esc(assocName)}</strong>` : ''} (work order <strong>${esc(ticket.ticket_number)}</strong>).</p>
