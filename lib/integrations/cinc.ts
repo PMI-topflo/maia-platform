@@ -2129,25 +2129,31 @@ export async function listGlTransactionsByDate(opts: {
   })
 }
 
-/** A homeowner ledger line as CINC returns it. The exact field names are not
- *  in Swagger and must be confirmed against prod (see /api/admin/cinc/owner-ledger
- *  probe) — kept permissive until then. Common CINC fields are optionally typed. */
+/** A homeowner ledger line as CINC returns it (confirmed against prod via the
+ *  /api/admin/cinc/owner-ledger probe). `Debit` = a charge, `Credit` = a
+ *  payment, `RunningBalance` = balance after the line. `Assessment` is the
+ *  richest description; `Date` is an ISO datetime. NOTE: CINC ignores the date
+ *  query params and returns the full schedule (incl. future-dated charges), so
+ *  callers filter the window client-side (see lib/owner-ledger). */
 export interface CincHomeownerTransaction {
-  TransactionDate?: string | null
-  Date?:            string | null
-  Description?:     string | null
-  ChargeAmount?:    number | null
-  PaymentAmount?:   number | null
-  Amount?:          number | null
-  Balance?:         number | null
+  PropertyHoid?:               string | null
+  AssocCode?:                  string | null
+  Date?:                       string | null   // ISO datetime, e.g. "2026-01-01T00:00:00"
+  Credit?:                     number | null   // payment (money in)
+  Debit?:                      number | null   // charge (money out)
+  Description?:                string | null
+  Assessment?:                 string | null   // richest line description
+  TransactionTypeID?:          number | null
+  TransactionTypeDescription?: string | null
+  RunningBalance?:             number | null
+  ReferenceNumber?:            string | null
   [key: string]: unknown
 }
 
 /** GET /management/1/associations/{assocCode}/homeowners/{hoId}/homeownertransaction
- *  — one homeowner's ledger (charges + payments) over a date range.
- *  `hoId` = owners.account_number (CINC PropertyHOID, e.g. "ABBOTT1").
- *  ⚠ The date-param names + response shape are unverified against prod; probe
- *  one known owner before relying on this. Returns [] on 4xx. */
+ *  — one homeowner's ledger (charges + payments). `hoId` = owners.account_number
+ *  (CINC PropertyHOID, e.g. "ISLAND4"). Returns the full schedule; filter the
+ *  date window client-side. Returns [] on 4xx. */
 export async function getHomeownerLedger(opts: {
   assocCode: string
   hoId:      string
