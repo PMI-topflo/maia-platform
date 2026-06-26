@@ -654,10 +654,15 @@ async function continueLanguageSwitch(
   const num  = parseInt(message.trim().replace(/[^\d]/g, ''), 10)
 
   if (state.current_step === 'await_language') {
-    const picked = Number.isFinite(num) ? LANG_MENU[num - 1]?.code : undefined
+    // A bare menu number wins; otherwise accept a reply written IN the desired
+    // language — people often just start typing it instead of replying "3"
+    // (e.g. answering the menu with "Olá, tudo bem?" means they want Portuguese).
+    const trimmed = message.trim()
+    let picked = /^[1-9]$/.test(trimmed) ? LANG_MENU[parseInt(trimmed, 10) - 1]?.code : undefined
+    if (!picked) picked = (await detectLanguage(message)) ?? undefined
     if (!picked) {
-      // Not a valid pick — don't trap them in the menu. Drop the offer and
-      // answer their message normally in the current language.
+      // Couldn't tell — don't trap them in the menu. Drop the offer and answer
+      // their message normally in the current language.
       await clearConversationState(phone)
       return await routeTextMessage(phone, message, channel, ctx, null)
     }
