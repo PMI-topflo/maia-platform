@@ -82,7 +82,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (insErr) continue
     const link = `${APP}/board/estimate?token=${tk}`
     await sendEmail({
-      to: t.email!, cc: VENDOR_NOTIFY_CC, replyTo: PAOLA,
+      to: t.email!, bcc: VENDOR_NOTIFY_CC, replyTo: PAOLA,
       subject: `Board approval needed — estimate for ${woLabel}`,
       html: `<p>Dear ${esc(t.name ?? 'Board Member')},</p>
         <p>An estimate needs your approval for <strong>${esc(woLabel)}</strong>.</p>

@@ -17,6 +17,7 @@ function toAddresses(to: string | string[]): string[] {
 async function sendViaResend({
   to,
   cc,
+  bcc,
   subject,
   html,
   text,
@@ -25,6 +26,7 @@ async function sendViaResend({
 }: {
   to: string[]
   cc?: string[]
+  bcc?: string[]
   subject: string
   html: string
   text?: string
@@ -44,6 +46,7 @@ async function sendViaResend({
       from: FROM,
       to,
       ...(cc && cc.length && { cc }),
+      ...(bcc && bcc.length && { bcc }),
       subject,
       html,
       ...(text     && { text }),
@@ -467,6 +470,7 @@ export interface SendEmailResult {
 export async function sendEmail({
   to,
   cc,
+  bcc,
   subject,
   html,
   text,
@@ -475,6 +479,7 @@ export async function sendEmail({
 }: {
   to: string | string[]
   cc?: string | string[]
+  bcc?: string | string[]
   subject: string
   html?: string
   text?: string
@@ -485,6 +490,11 @@ export async function sendEmail({
   if (addresses.length === 0) throw new Error('[Email] No recipients provided')
   // CC addresses (Resend native). Drop any that duplicate a To recipient.
   const ccAddresses = toAddresses(cc ?? []).filter(c => !addresses.some(a => a.toLowerCase() === c.toLowerCase()))
+  // BCC — staff copies that the recipient must NOT see and must NOT be able to
+  // reply-all into. Drop any that duplicate a To or CC recipient.
+  const bccAddresses = toAddresses(bcc ?? []).filter(b =>
+    !addresses.some(a => a.toLowerCase() === b.toLowerCase()) &&
+    !ccAddresses.some(c => c.toLowerCase() === b.toLowerCase()))
 
   // Application-level rate limit at the sendEmail boundary. Catches loops
   // through ANY caller (structured-record replies, ticket notifications,
@@ -501,9 +511,11 @@ export async function sendEmail({
 
   let messageId: string | undefined
   if (process.env.RESEND_API_KEY) {
-    messageId = await sendViaResend({ to: addresses, cc: ccAddresses, subject, html: body, text, replyTo, headers })
+    messageId = await sendViaResend({ to: addresses, cc: ccAddresses, bcc: bccAddresses, subject, html: body, text, replyTo, headers })
   } else {
-    // Gmail fallback has no separate CC header here — fold CC into recipients.
+    // Gmail fallback has no separate CC/BCC header here — fold CC into recipients.
+    // BCC is intentionally NOT folded in (it would make staff visible to the
+    // recipient, defeating the point); the fallback simply omits the blind copy.
     await sendViaGmail({ to: [...addresses, ...ccAddresses], subject, html: body })
   }
 

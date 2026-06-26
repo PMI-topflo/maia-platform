@@ -62,7 +62,7 @@ PMI Top Florida Properties`
 
   const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">${esc(textBody).replace(/\n/g, '<br>')}</div>`
   try {
-    await sendEmail({ to, cc: VENDOR_NOTIFY_CC, replyTo: VENDOR_REPLY_TO, subject, html, text: textBody })
+    await sendEmail({ to, bcc: VENDOR_NOTIFY_CC, replyTo: VENDOR_REPLY_TO, subject, html, text: textBody })
   } catch (e) {
     return NextResponse.json({ error: `Couldn't send: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 })
   }
@@ -73,8 +73,8 @@ PMI Top Florida Properties`
     .eq('id', id)
   await appendMessage(id, {
     direction: 'outbound', channel: 'email', from_addr: by, to_addr: to, subject,
-    body: `📤 Requested ${c.missing.join(' + ')} from ${c.vendor.vendorName ?? 'the vendor'} (cc ${VENDOR_NOTIFY_CC.join(', ')}). Work order flagged — follow up if not received.\n\n${textBody}`,
+    body: `📤 Requested ${c.missing.join(' + ')} from ${c.vendor.vendorName ?? 'the vendor'} (bcc ${VENDOR_NOTIFY_CC.join(', ')}). Work order flagged — follow up if not received.\n\n${textBody}`,
   }).catch(() => null)
 
-  return NextResponse.json({ ok: true, requested: c.missingKeys, to, cc: VENDOR_NOTIFY_CC })
+  return NextResponse.json({ ok: true, requested: c.missingKeys, to, bcc: VENDOR_NOTIFY_CC })
 }

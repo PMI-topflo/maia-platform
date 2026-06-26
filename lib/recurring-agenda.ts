@@ -74,7 +74,7 @@ export async function sendAgendaEmails(): Promise<{ sent: number; skipped: numbe
       const token = await signAgendaToken(svc.id)
       const link  = `${APP_URL}/vendor/agenda/${token}`
       const m = agendaEmail(svc.office_language || 'en', svc, weekOf, link)
-      await sendEmail({ to: svc.office_email, cc: VENDOR_NOTIFY_CC, replyTo: VENDOR_REPLY_TO, subject: m.subject, html: m.html })
+      await sendEmail({ to: svc.office_email, bcc: VENDOR_NOTIFY_CC, replyTo: VENDOR_REPLY_TO, subject: m.subject, html: m.html })
       sent++
     } catch (err) { errors.push(`service ${svc.id}: ${(err as Error).message}`) }
   }
