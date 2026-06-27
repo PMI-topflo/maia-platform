@@ -64,6 +64,7 @@ interface ConversationState {
   current_step:        string
   temporary_data_json: Record<string, unknown>
   session_language:    string | null
+  pinned_persona:      string | null
   updated_at:          string
 }
 
@@ -532,6 +533,9 @@ async function handleTextChannel(phone: string, message: string, channel: Channe
   if (state?.session_language && (SUPPORTED_LANGS as readonly string[]).includes(state.session_language)) {
     ctx.language = state.session_language
   }
+  // A persona the multi-role contact already chose this conversation — keeps us
+  // from re-asking "which hat?" on every message.
+  if (state?.pinned_persona) ctx.persona = state.pinned_persona as PersonaType
 
   // ── Language-switch mini-flow ────────────────────────────────────────
   // If a switch is already in progress, handle the numbered reply. Otherwise,
@@ -563,27 +567,55 @@ async function routeTextMessage(
   let replyText: string
   const isGreeting = detectMenuTrigger(message) === 'main_menu'
 
-  if (isGreeting) await clearConversationState(phone)
+  // An explicit greeting ("hi"/"menu") restarts — clear flow AND the pinned
+  // persona so they can switch hats.
+  if (isGreeting) { await clearConversationState(phone); await setPinnedPersona(phone, null) }
 
   // ── Multi-persona clarifier ──────────────────────────────────────────
-  // When a returning contact whose phone maps to more than one role opens a
-  // conversation — a greeting, OR any first message with no flow in progress —
-  // ask which hat first, once. We park 'persona_clarify' so their reply isn't
-  // treated as a new opener and we don't re-ask. Their answer then flows to
-  // the normal AI handler below.
+  // A returning contact whose phone maps to >1 role is asked "which hat?" ONCE.
+  // Their pick is pinned (state.pinned_persona) so we never re-ask this
+  // conversation. Skip entirely once a persona is pinned.
   const inClarify  = state?.current_flow === 'persona_clarify'
   const activeFlow = !isGreeting && !inClarify && !!state?.current_flow && state.current_flow !== 'idle'
-  if (!activeFlow && !inClarify && ctx.persona !== 'unknown') {
+  const alreadyPinned = !isGreeting && !!state?.pinned_persona
+  if (!activeFlow && !inClarify && !alreadyPinned && ctx.persona !== 'unknown') {
     const roles = await findCallerRoles(phone)
     if (new Set(roles.map(r => r.type)).size > 1) {
-      const greeting = await buildMultiPersonaGreeting(ctx, roles)
-      await saveConversationState(phone, 'persona_clarify', 'awaiting_choice', {})
-      await sendReply(phone, greeting, channel)
-      await logConversation(phone, message, greeting, ctx)
+      const { text, orderedTypes } = await buildMultiPersonaGreeting(ctx, roles)
+      await saveConversationState(phone, 'persona_clarify', 'awaiting_choice', { roles: orderedTypes })
+      await sendReply(phone, text, channel)
+      await logConversation(phone, message, text, ctx)
       return NextResponse.json({ status: 'ok' })
     }
   }
-  if (inClarify) await clearConversationState(phone)
+
+  // Their reply to "which hat?" — pin the chosen persona. If they named a role,
+  // confirm and wait for the request. If they instead restated their request,
+  // pin the default role and let it route normally (no re-greet).
+  if (inClarify) {
+    const ordered = ((state?.temporary_data_json?.roles as PersonaType[]) ?? [])
+    const picked  = parsePersonaChoice(message, ordered)
+    await clearConversationState(phone)
+    if (picked) {
+      await setPinnedPersona(phone, picked)
+      ctx.persona = picked
+      replyText = translate(ctx.language, {
+        en: `Perfect — I'll help you as ${personaNoun(picked, ctx.language)}. What do you need? 🌸`,
+        es: `¡Perfecto! Te ayudo como ${personaNoun(picked, ctx.language)}. ¿Qué necesitas? 🌸`,
+        pt: `Perfeito! Vou te ajudar como ${personaNoun(picked, ctx.language)}. O que você precisa? 🌸`,
+        fr: `Parfait ! Je vous aide en tant que ${personaNoun(picked, ctx.language)}. De quoi avez-vous besoin ? 🌸`,
+        he: `מצוין! אעזור לך בתור ${personaNoun(picked, ctx.language)}. מה תרצה? 🌸`,
+        ru: `Отлично! Помогу вам как ${personaNoun(picked, ctx.language)}. Что вам нужно? 🌸`,
+        ht: `Pafè! M ap ede w kòm ${personaNoun(picked, ctx.language)}. Kisa ou bezwen? 🌸`,
+      })
+      await sendReply(phone, replyText, channel)
+      await logConversation(phone, message, replyText, ctx)
+      return NextResponse.json({ status: 'ok' })
+    }
+    // Not a role answer — they restated the request. Pin the default role so we
+    // don't re-greet, then fall through to route their message.
+    await setPinnedPersona(phone, ctx.persona)
+  }
 
   if (!isGreeting && state?.current_flow && state.current_flow !== 'idle' && !inClarify) {
     if (state.current_flow === 'awaiting_feedback') {
@@ -770,6 +802,51 @@ async function setSessionLanguage(phone: string, lang: string | null): Promise<v
   } catch (err) {
     console.error('[lang] session override failed:', err instanceof Error ? err.message : err)
   }
+}
+
+// Pin the persona a multi-role contact chose (or null to clear). Survives flow
+// transitions so the "which hat?" greeting doesn't re-fire every message.
+async function setPinnedPersona(phone: string, persona: string | null): Promise<void> {
+  try {
+    const { error } = await getSupabase().from('conversation_state').upsert(
+      { phone_number: phone, pinned_persona: persona, updated_at: new Date().toISOString() },
+      { onConflict: 'phone_number' })
+    if (error) console.error('[persona] pin failed:', error.message)
+  } catch (err) {
+    console.error('[persona] pin failed:', err instanceof Error ? err.message : err)
+  }
+}
+
+// Map a clarify reply ("1", "o primeiro", "como proprietário", "staff") to one
+// of the contact's actual roles. `ordered` is the role list as presented (so a
+// number / ordinal maps to the right line). Returns null if no role matches.
+function parsePersonaChoice(message: string, ordered: PersonaType[]): PersonaType | null {
+  const m = message.trim().toLowerCase()
+  if (!m) return null
+  // Bare number → the Nth option shown.
+  if (/^\d+$/.test(m)) { const n = parseInt(m, 10); if (n >= 1 && n <= ordered.length) return ordered[n - 1] }
+  // Ordinals across languages.
+  const ord: [RegExp, number][] = [
+    [/\b(1|first|primeiro|primero|premier|první|первый|premye)\b/, 1],
+    [/\b(2|second|segundo|deuxi|второй|dezyèm)\b/, 2],
+    [/\b(3|third|terceiro|tercero|troisi|третий|twazyèm)\b/, 3],
+  ]
+  for (const [re, n] of ord) if (re.test(m) && n <= ordered.length) return ordered[n - 1]
+  // Keyword by role — only return a role the contact actually has.
+  const kw: [RegExp, PersonaType][] = [
+    [/propriet|propiet|owner|dono|homeowner|propriétaire|בעלים|владел/, 'homeowner'],
+    [/conselho|board|junta|directiv|conseil|membro|miembro|diretor|совет|конс/, 'board_member'],
+    [/staff|equipe|equipo|team|pmi|équipe|персонал|штат/, 'staff'],
+    [/inquilino|tenant|locat|arrend|locataire|арендат|shoke/, 'association_tenant'],
+    [/vendor|fornecedor|proveedor|fournisseur|поставщ/, 'vendor'],
+    [/agent|corretor|agente|агент/, 'real_estate_agent'],
+  ]
+  for (const [re, type] of kw) if (re.test(m) && ordered.includes(type)) return type
+  return null
+}
+
+function personaNoun(type: PersonaType, lang: string): string {
+  return translate(lang, ROLE_NOUNS[type] ?? ROLE_NOUNS.homeowner)
 }
 
 // ============================================================
@@ -1098,12 +1175,6 @@ const ROLE_NOUNS: Record<string, Record<string, string>> = {
   staff:              { en: 'PMI Staff',        es: 'Personal de PMI',     pt: 'Equipe da PMI',       fr: 'Personnel PMI',       he: 'צוות PMI',  ru: 'Сотрудник PMI',  ht: 'Anplwaye PMI' },
 }
 
-function joinWithOr(items: string[], lang: string): string {
-  if (items.length <= 1) return items[0] ?? ''
-  const or = ({ en: 'or', es: 'o', pt: 'ou', fr: 'ou', he: 'או', ru: 'или', ht: 'oswa' } as Record<string, string>)[lang] ?? 'or'
-  return items.slice(0, -1).join(', ') + ` ${or} ` + items[items.length - 1]
-}
-
 // All roles a phone maps to (vs buildCallerContext, which returns just the
 // first). Mirrors its phone-variant matching + table names.
 async function findCallerRoles(phone: string): Promise<CallerRole[]> {
@@ -1137,31 +1208,32 @@ async function findCallerRoles(phone: string): Promise<CallerRole[]> {
   return roles
 }
 
-async function buildMultiPersonaGreeting(ctx: CallerContext, roles: CallerRole[]): Promise<string> {
+async function buildMultiPersonaGreeting(ctx: CallerContext, roles: CallerRole[]): Promise<{ text: string; orderedTypes: PersonaType[] }> {
   const codes = [...new Set(roles.map(r => r.assocCode).filter(Boolean))] as string[]
   const nameByCode: Record<string, string> = {}
   if (codes.length) {
     const { data } = await getSupabase().from('associations').select('association_code, association_name').in('association_code', codes)
     for (const a of data ?? []) nameByCode[a.association_code] = a.association_name
   }
-  const roleNoun = (type: PersonaType) => translate(ctx.language, ROLE_NOUNS[type] ?? ROLE_NOUNS.homeowner)
-  const labels = roles.map(r => {
+  // Numbered list — one role per line (clearer than "as X, Y or Z").
+  const numbered = roles.map((r, i) => {
     const a = r.assocCode ? (nameByCode[r.assocCode] ?? r.assocCode) : null
     const where = a ? ` (${a}${r.unit ? `, Unit ${r.unit}` : ''})` : ''
-    return `${roleNoun(r.type)}${where}`
-  })
-  const list  = joinWithOr(labels, ctx.language)
+    return `${i + 1}. ${personaNoun(r.type, ctx.language)}${where}`
+  }).join('\n')
+  const orderedTypes = roles.map(r => r.type)
   const first = ctx.name && ctx.name !== 'there' ? ctx.name.split(' ')[0] : ''
   const n     = first ? ` ${first}` : ''
-  return translate(ctx.language, {
-    en: `Hi${n}! 🌸 This is Maia from PMI Top Florida Properties. I see you with us in more than one role — how may I help you today: as ${list}?`,
-    es: `¡Hola${n}! 🌸 Soy Maia de PMI Top Florida Properties. Te veo con nosotros en más de un rol — ¿cómo puedo ayudarte hoy: como ${list}?`,
-    pt: `Olá${n}! 🌸 Aqui é a Maia da PMI Top Florida Properties. Vejo você com a gente em mais de um papel — como posso ajudar hoje: como ${list}?`,
-    fr: `Bonjour${n}! 🌸 C'est Maia de PMI Top Florida Properties. Je vous vois avec nous sous plusieurs rôles — comment puis-je vous aider aujourd'hui : en tant que ${list} ?`,
-    he: `שלום${n}! 🌸 כאן מאיה מ-PMI Top Florida Properties. אני רואה אותך אצלנו ביותר מתפקיד אחד — איך אוכל לעזור היום: בתור ${list}?`,
-    ru: `Привет${n}! 🌸 Это Мая из PMI Top Florida Properties. Вижу вас у нас в нескольких ролях — чем могу помочь сегодня: как ${list}?`,
-    ht: `Bonjou${n}! 🌸 Se Maia ki sòti nan PMI Top Florida Properties. Mwen wè w avèk nou nan plis pase yon wòl — kijan mwen ka ede w jodi a: kòm ${list}?`,
+  const text = translate(ctx.language, {
+    en: `Hi${n}! 🌸 This is Maia from PMI Top Florida Properties. I see you with us in more than one role — reply with a number for how I can help today:\n${numbered}`,
+    es: `¡Hola${n}! 🌸 Soy Maia de PMI Top Florida Properties. Te veo en más de un rol — responde con un número de cómo puedo ayudarte hoy:\n${numbered}`,
+    pt: `Olá${n}! 🌸 Aqui é a Maia da PMI Top Florida Properties. Vejo você em mais de um papel — responda com um número de como posso ajudar hoje:\n${numbered}`,
+    fr: `Bonjour${n}! 🌸 C'est Maia de PMI Top Florida Properties. Je vous vois sous plusieurs rôles — répondez avec un numéro pour savoir comment je peux vous aider aujourd'hui :\n${numbered}`,
+    he: `שלום${n}! 🌸 כאן מאיה מ-PMI Top Florida Properties. אני רואה אותך ביותר מתפקיד אחד — השב עם מספר איך אוכל לעזור היום:\n${numbered}`,
+    ru: `Привет${n}! 🌸 Это Мая из PMI Top Florida Properties. Вижу вас в нескольких ролях — ответьте цифрой, чем могу помочь сегодня:\n${numbered}`,
+    ht: `Bonjou${n}! 🌸 Se Maia nan PMI Top Florida Properties. Mwen wè w nan plis pase yon wòl — reponn ak yon nimewo pou kijan mwen ka ede w jodi a:\n${numbered}`,
   })
+  return { text, orderedTypes }
 }
 
 // ============================================================
