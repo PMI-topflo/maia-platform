@@ -44,6 +44,17 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'conversation_pinned_persona',
+    label:       'Pinned persona (stop re-greeting)',
+    description: 'conversation_state.pinned_persona — pin a multi-role contact’s chosen hat so the greeting fires once',
+    filename:    '20260627_conversation_pinned_persona.sql',
+    artifact:    { type: 'column', table: 'conversation_state', column: 'pinned_persona' },
+    sql: `ALTER TABLE public.conversation_state
+  ADD COLUMN IF NOT EXISTS pinned_persona text;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'ledger_verified_phones',
     label:       'Ledger OTP-once verified phones',
     description: 'ledger_verified_phones — remembers a phone that passed OTP for the owner ledger self-service flow',
