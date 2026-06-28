@@ -1950,16 +1950,19 @@ async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
     const units = await resolveOwnerUnits(ctx.phone)
     const u = units.find(x => x.assoc === ctx.associationId) ?? units[0]
     if (u) {
-      const link = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'}/api/owner/ach-form/${await signAchToken(u.assoc, u.account)}`
+      const base    = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
+      const tok     = await signAchToken(u.assoc, u.account)
+      const online  = `${base}/owner/ach/${tok}`
+      const pdfLink = `${base}/api/owner/ach-form/${tok}`
       await saveConversationState(ctx.phone, 'ach_email_offer', 'awaiting', { account: u.account, assoc: u.assoc, email: u.email ?? '' })
       achLine = translate(ctx.language, {
-        en: `1️⃣ *ACH autopay — FREE* ✅ (drafted on the 1st)\nYour authorization form: ${link}\nComplete it and email it to ar@topfloridaproperties.com.\n👉 Reply *email* and I'll also send the form to your inbox.`,
-        es: `1️⃣ *ACH automático — GRATIS* ✅ (día 1)\nTu formulario de autorización: ${link}\nComplétalo y envíalo a ar@topfloridaproperties.com.\n👉 Responde *email* y también te lo envío al correo.`,
-        pt: `1️⃣ *ACH automático — GRÁTIS* ✅ (dia 1)\nSeu formulário de autorização: ${link}\nPreencha e envie para ar@topfloridaproperties.com.\n👉 Responda *email* que eu também envio para o seu e-mail.`,
-        fr: `1️⃣ *ACH automatique — GRATUIT* ✅\nVotre formulaire : ${link}\nRemplissez-le et envoyez-le à ar@topfloridaproperties.com.\n👉 Répondez *email* et je l'envoie aussi par e-mail.`,
-        he: `1️⃣ *ACH אוטומטי — חינם* ✅\nטופס ההרשאה שלך: ${link}\nמלא ושלח ל-ar@topfloridaproperties.com.\n👉 השב *email* ואשלח גם למייל.`,
-        ru: `1️⃣ *ACH автоплатёж — БЕСПЛАТНО* ✅\nВаша форма: ${link}\nЗаполните и отправьте на ar@topfloridaproperties.com.\n👉 Ответьте *email*, и я также пришлю на почту.`,
-        ht: `1️⃣ *ACH otomatik — GRATIS* ✅\nFòm otorizasyon ou: ${link}\nRanpli l epi voye l bay ar@topfloridaproperties.com.\n👉 Reponn *email* m ap voye l nan imel ou tou.`,
+        en: `1️⃣ *ACH autopay — FREE* ✅ (drafted on the 1st)\n✍️ Set it up online in 2 min: ${online}\n📄 Or the printable form: ${pdfLink} (email to ar@topfloridaproperties.com)\n👉 Reply *email* and I'll also send the form to your inbox.`,
+        es: `1️⃣ *ACH automático — GRATIS* ✅ (día 1)\n✍️ Configúralo en línea en 2 min: ${online}\n📄 O el formulario para imprimir: ${pdfLink} (envíalo a ar@topfloridaproperties.com)\n👉 Responde *email* y también te lo envío al correo.`,
+        pt: `1️⃣ *ACH automático — GRÁTIS* ✅ (dia 1)\n✍️ Configure online em 2 min: ${online}\n📄 Ou o formulário para imprimir: ${pdfLink} (envie para ar@topfloridaproperties.com)\n👉 Responda *email* que eu também envio para o seu e-mail.`,
+        fr: `1️⃣ *ACH automatique — GRATUIT* ✅\n✍️ Configurez en ligne : ${online}\n📄 Ou le formulaire imprimable : ${pdfLink}\n👉 Répondez *email* et je l'envoie aussi par e-mail.`,
+        he: `1️⃣ *ACH אוטומטי — חינם* ✅\n✍️ הגדרה מקוונת: ${online}\n📄 או הטופס להדפסה: ${pdfLink}\n👉 השב *email* ואשלח גם למייל.`,
+        ru: `1️⃣ *ACH автоплатёж — БЕСПЛАТНО* ✅\n✍️ Настроить онлайн: ${online}\n📄 Или форма для печати: ${pdfLink}\n👉 Ответьте *email*, и я также пришлю на почту.`,
+        ht: `1️⃣ *ACH otomatik — GRATIS* ✅\n✍️ Konfigire l anliy: ${online}\n📄 Oswa fòm pou enprime: ${pdfLink}\n👉 Reponn *email* m ap voye l nan imel ou tou.`,
       })
     } else {
       achLine = translate(ctx.language, {
