@@ -1,6 +1,7 @@
 'use client'
 
 import { use, useEffect, useState } from 'react'
+import { SignaturePad } from '@/components/SignatureEvidence'
 
 interface Info { name: string; unit: string | null; address: string | null; association: string; account: string }
 
@@ -10,7 +11,7 @@ export default function OwnerAchPage({ params }: { params: Promise<{ token: stri
   const [err, setErr]     = useState<string | null>(null)
   const [done, setDone]   = useState(false)
   const [busy, setBusy]   = useState(false)
-  const [f, setF] = useState({ bankName: '', accountOwnerName: '', routing: '', account: '', accountType: '', signature: '', authorized: false })
+  const [f, setF] = useState({ bankName: '', accountOwnerName: '', routing: '', account: '', accountType: '', signature: '', signatureImage: '', authorized: false })
 
   useEffect(() => {
     fetch(`/api/owner/ach/${token}`).then(r => r.json()).then(d => {
@@ -20,7 +21,11 @@ export default function OwnerAchPage({ params }: { params: Promise<{ token: stri
   }, [token])
 
   async function submit() {
-    setErr(null); setBusy(true)
+    setErr(null)
+    if (!f.authorized) { setErr('Please check the authorization box.'); return }
+    if (!f.signature.trim()) { setErr('Please type your full name.'); return }
+    if (!f.signatureImage) { setErr('Please sign in the box above.'); return }
+    setBusy(true)
     try {
       const res = await fetch(`/api/owner/ach/${token}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
       const d = await res.json()
@@ -61,12 +66,14 @@ export default function OwnerAchPage({ params }: { params: Promise<{ token: stri
           <option value="">Choose…</option><option value="checking">Checking</option><option value="savings">Savings</option>
         </select></label>
 
-      <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 18, fontSize: 13, color: '#374151' }}>
+      <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 18, fontSize: 12.5, color: '#374151', lineHeight: 1.45 }}>
         <input type="checkbox" checked={f.authorized} onChange={e => setF({ ...f, authorized: e.target.checked })} style={{ marginTop: 3 }} />
-        <span>I authorize PMI Top Florida Properties to draft my recurring association assessments from the account above (drafted on the 1st). This stays in effect until I cancel it in writing.</span>
+        <span>I authorize PMI Top Florida Properties to initiate entries from my checking/savings account the full amount of all charges uploaded in the account. This authority will remain in effect until I notify you in writing to cancel it in such time as to afford the company a reasonable opportunity to act on it.</span>
       </label>
-      <label style={label}>Type your full name to sign
+      <label style={label}>Type your full name
         <input style={field} value={f.signature} onChange={e => setF({ ...f, signature: e.target.value })} placeholder="Your full legal name" /></label>
+      <div style={{ ...label, marginBottom: 4 }}>Sign below
+        <SignaturePad onChange={img => setF({ ...f, signatureImage: img ?? '' })} /></div>
 
       {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
       <button onClick={submit} disabled={busy}

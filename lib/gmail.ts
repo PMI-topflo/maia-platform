@@ -14,6 +14,8 @@ function toAddresses(to: string | string[]): string[] {
 
 // ── Resend ───────────────────────────────────────────────────────────────────
 
+export interface EmailAttachment { filename: string; content: string }  // content = base64
+
 async function sendViaResend({
   to,
   cc,
@@ -23,6 +25,7 @@ async function sendViaResend({
   text,
   replyTo,
   headers,
+  attachments,
 }: {
   to: string[]
   cc?: string[]
@@ -32,6 +35,7 @@ async function sendViaResend({
   text?: string
   replyTo?: string
   headers?: Record<string, string>
+  attachments?: EmailAttachment[]
 }): Promise<string | undefined> {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) throw new Error('[Resend] RESEND_API_KEY not set')
@@ -47,6 +51,7 @@ async function sendViaResend({
       to,
       ...(cc && cc.length && { cc }),
       ...(bcc && bcc.length && { bcc }),
+      ...(attachments && attachments.length && { attachments }),
       subject,
       html,
       ...(text     && { text }),
@@ -476,6 +481,7 @@ export async function sendEmail({
   text,
   replyTo,
   headers,
+  attachments,
 }: {
   to: string | string[]
   cc?: string | string[]
@@ -485,6 +491,7 @@ export async function sendEmail({
   text?: string
   replyTo?: string
   headers?: Record<string, string>
+  attachments?: EmailAttachment[]
 }): Promise<SendEmailResult> {
   const addresses = toAddresses(to)
   if (addresses.length === 0) throw new Error('[Email] No recipients provided')
@@ -511,7 +518,7 @@ export async function sendEmail({
 
   let messageId: string | undefined
   if (process.env.RESEND_API_KEY) {
-    messageId = await sendViaResend({ to: addresses, cc: ccAddresses, bcc: bccAddresses, subject, html: body, text, replyTo, headers })
+    messageId = await sendViaResend({ to: addresses, cc: ccAddresses, bcc: bccAddresses, subject, html: body, text, replyTo, headers, attachments })
   } else {
     // Gmail fallback has no separate CC/BCC header here — fold CC into recipients.
     // BCC is intentionally NOT folded in (it would make staff visible to the

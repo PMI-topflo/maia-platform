@@ -74,5 +74,5 @@ export function formatEtNow(): string {
  *  response windows. */
 export function buildOfficeHoursBlock(): string {
   const open = isOfficeOpen()
-  return `\n\n--- LIVE CONTEXT ---\nCurrent time: ${formatEtNow()}\nPMI office is currently: ${open ? 'OPEN' : 'CLOSED'}\nOffice hours: Mon–Thu 10:00am–5:00pm ET, Fri 10:00am–3:00pm ET, weekends closed.\n--------------------\n`
+  return `\n\n--- LIVE CONTEXT ---\nCurrent time: ${formatEtNow()}\nPMI office is currently: ${open ? 'OPEN' : 'CLOSED'}\nOffice hours: Mon–Thu 10:00am–5:00pm ET, Fri 10:00am–3:00pm ET, weekends closed.\nWhen the office is closed, do NOT invent the time of day (e.g. "it's late" or "Sunday night") — state only the day/hours from the time above.\n--------------------\n`
 }

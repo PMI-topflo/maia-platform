@@ -19,9 +19,17 @@ export interface AchFormMeta {
   unit:        string | null
   address:     string | null
   association: string
-  email:       string | null
   account:     string
   generatedOn: string
+  // Optional — present only on the SIGNED copy (owner completed it online).
+  bankName?:         string
+  accountOwnerName?: string
+  accountType?:      'checking' | 'savings'
+  routing?:          string
+  accountNumber?:    string
+  signatureName?:    string
+  signatureImage?:   string   // PNG data URL of the drawn signature
+  signedOn?:         string
 }
 
 export async function renderAchAuthorizationPdf(meta: AchFormMeta): Promise<Uint8Array> {
@@ -31,6 +39,7 @@ export async function renderAchAuthorizationPdf(meta: AchFormMeta): Promise<Uint
   const W = 612, H = 792, M = 48
   const page = doc.addPage([W, H])
   let y = H - 44
+  const chk = (on: boolean) => (on ? '[x]' : '[ ]')
 
   const draw = (s: string, x: number, size = 9.5, f = font, color = INK) => page.drawText(s, { x, y, size, font: f, color })
   const center = (s: string, size: number, f = font, color = INK) => page.drawText(s, { x: (W - f.widthOfTextAtSize(s, size)) / 2, y, size, font: f, color })
@@ -56,8 +65,8 @@ export async function renderAchAuthorizationPdf(meta: AchFormMeta): Promise<Uint
   y -= 20; field('Property Address:', M + 8, 500, meta.address ?? '')
   y -= 20; field('Unit Number:', M + 8, 260, meta.unit ?? '')
   y -= 20; field('Property Owner Name(s):', M + 8, 500, meta.ownerName)
-  y -= 20; field('Bank Account Owner Name(s):', M + 8, 500)
-  y -= 20; field('Email Address:', M + 8, 500, meta.email ?? '')
+  y -= 20; field('Bank Account Owner Name(s):', M + 8, 500, meta.accountOwnerName ?? '')
+  y -= 20; field('Email Address:', M + 8, 500)
   y -= 20; field('Phone Number:', M + 8, 260)
   y -= 20; field('Mailing Address:', M + 8, 500)
   y -= 20; field('City:', M + 8, 200); field('State:', M + 240, 320); field('Zip:', M + 380, 500)
@@ -67,11 +76,20 @@ export async function renderAchAuthorizationPdf(meta: AchFormMeta): Promise<Uint
   y -= 26; draw('Banking Information:', M + 6, 11, bold, BLUE)
   draw('[ ] New    [ ] Change    [ ] Cancel', M + 180, 9.5, bold, INK)
   const bTop = y + 16
-  y -= 22; field('Name of Financial Institution:', M + 8, 320); draw('Account Type:  [ ] Checking   [ ] Savings', M + 330, 9, font, INK)
-  y -= 24; field('Bank Routing Number:', M + 8, 250); field('Bank Account Number:', M + 270, 510)
-  y -= 22; draw('I authorize PMI Top Florida Properties to initiate entries from my checking/savings account. This authority will', M + 8, 8.5, font, INK)
-  y -= 12; draw('remain in effect until I notify you in writing to cancel it, allowing a reasonable opportunity to act on it.', M + 8, 8.5, font, INK)
-  y -= 26; field('Authorized Signature(s):', M + 8, 380); field('Date:', M + 400, 510)
+  y -= 22; field('Name of Financial Institution:', M + 8, 320, meta.bankName ?? '')
+  draw(`Account Type:  ${chk(meta.accountType === 'checking')} Checking   ${chk(meta.accountType === 'savings')} Savings`, M + 330, 9, font, INK)
+  y -= 24; field('Bank Routing Number:', M + 8, 250, meta.routing ?? ''); field('Bank Account Number:', M + 270, 510, meta.accountNumber ?? '')
+  y -= 22; draw('I authorize PMI Top Florida Properties to initiate entries from my checking/savings account the full amount of all', M + 8, 8.5, font, INK)
+  y -= 12; draw('charges uploaded in the account. This authority will remain in effect until I notify you in writing to cancel it in', M + 8, 8.5, font, INK)
+  y -= 12; draw('such time as to afford the company a reasonable opportunity to act on it.', M + 8, 8.5, font, INK)
+  y -= 28; field('Authorized Signature(s):', M + 8, 380, meta.signatureImage ? '' : (meta.signatureName ?? '')); field('Date:', M + 400, 510, meta.signedOn ?? '')
+  if (meta.signatureImage) {
+    try {
+      const png = await doc.embedPng(meta.signatureImage)
+      const w = 140, h = Math.min((png.height / png.width) * w, 28)
+      page.drawImage(png, { x: M + 120, y: y - 4, width: w, height: h })
+    } catch { if (meta.signatureName) page.drawText(meta.signatureName, { x: M + 124, y: y + 1, size: 11, font: bold, color: INK }) }
+  }
   y -= 14; box(bTop, y + 4)
 
   // Important Information
@@ -85,7 +103,7 @@ export async function renderAchAuthorizationPdf(meta: AchFormMeta): Promise<Uint
   ]
   for (const b of bullets) { y -= 14; draw('•', M + 8, 9, font, INK); draw(b, M + 18, 8.5, font, INK) }
   y -= 22; draw(`Questions? Accounts Receivable: (305) 900-5105 · ar@topfloridaproperties.com`, M, 8, font, GREY)
-  y -= 11; draw(`Pre-filled by MAIA on ${meta.generatedOn}.`, M, 7.5, font, GREY)
+  y -= 11; draw(meta.signatureName ? `Electronically signed by ${meta.signatureName} on ${meta.signedOn ?? meta.generatedOn} via MAIA.` : `Pre-filled by MAIA on ${meta.generatedOn}.`, M, 7.5, font, GREY)
 
   return await doc.save()
 }
