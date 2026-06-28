@@ -1096,19 +1096,22 @@ export interface HomeownerAchWrite {
 
 /** Write a homeowner's ACH / autopay setup into CINC: billing type → Automatic
  *  ACH plus the bank fields, then the ACH start date.
- *  ⚠ Best-effort: the exact updateBillingType body for routing/account is NOT
- *  confirmed in Swagger — verify on a throwaway account before enabling for real
- *  owners. Returns the raw CINC responses so callers can inspect/audit them. */
+ *  ⚠ Best-effort: `/homeowners/updateBillingType` 404'd in prod; trying the
+ *  documented `/billing/billingType` next. The exact path/body still needs
+ *  confirming from CINC's network tab (save an ACH in the CINC UI). Each call is
+ *  catch-wrapped so we return both responses for the audit instead of throwing. */
 export async function setHomeownerAch(w: HomeownerAchWrite): Promise<{ billing: unknown; achDate: unknown }> {
   const billingBody: Record<string, unknown> = {
     PropertyAddressId: w.propertyAddressId,
+    PropertyID:        w.propertyId,
     BillingTypeID:     w.billingTypeId ?? 3,
   }
-  if (w.routing)            billingBody.Routing     = w.routing
-  if (w.account)            billingBody.Account     = w.account
+  if (w.routing)             billingBody.Routing     = w.routing
+  if (w.account)             billingBody.Account     = w.account
   if (w.accountType != null) billingBody.AccountType = w.accountType
 
-  const billing = await call<unknown>('/management/1/homeowners/updateBillingType', { method: 'PUT', json: billingBody })
+  const billing = await call<unknown>('/management/1/billing/billingType', { method: 'PATCH', json: billingBody })
+    .catch(e => ({ error: e instanceof Error ? e.message : String(e) }))
   let achDate: unknown = null
   if (w.achStartDate) {
     achDate = await call<unknown>(`/management/1/homeowners/${w.propertyId}/SetAchDate`, { method: 'PATCH', json: { AchStartDate: w.achStartDate } })
