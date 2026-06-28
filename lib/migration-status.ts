@@ -44,6 +44,21 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'association_documents_is_public',
+    label:       'Association docs — public flag',
+    description: 'is_public on association_documents — staff opt documents into the no-login public view on the association page',
+    filename:    '20260628_association_documents_is_public.sql',
+    artifact:    { type: 'column', table: 'association_documents', column: 'is_public' },
+    sql: `ALTER TABLE public.association_documents
+  ADD COLUMN IF NOT EXISTS is_public boolean NOT NULL DEFAULT false;
+
+CREATE INDEX IF NOT EXISTS adocs_public_idx
+  ON public.association_documents (association_code, category)
+  WHERE is_public AND archived_at IS NULL;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'owner_ach_confirmed_at',
     label:       'Owner ACH confirmed_at',
     description: 'confirmed_at on owner_ach_submissions — set when staff press "Confirm autopay set up" (which auto-emails the owner)',

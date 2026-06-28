@@ -38,15 +38,18 @@ const PORTAL_HIDDEN_CATEGORIES = new Set(['ach_forms'])
 const CATEGORY_ORDER = CATEGORIES.map(c => c.key).filter(k => !PORTAL_HIDDEN_CATEGORIES.has(k))
 const GROUP_ORDER = [...new Set(CATEGORIES.filter(c => !PORTAL_HIDDEN_CATEGORIES.has(c.key)).map(c => c.group))]
 
-export async function getPortalDocuments(assocCode: string): Promise<PortalDocGroup[]> {
+// publicOnly = the no-login public view: only documents a staff member has
+// explicitly marked is_public. The full (login-gated) view passes false.
+export async function getPortalDocuments(assocCode: string, opts: { publicOnly?: boolean } = {}): Promise<PortalDocGroup[]> {
   const code = assocCode.toUpperCase()
 
-  const { data } = await supabaseAdmin
+  let q = supabaseAdmin
     .from('association_documents')
     .select('id, category, filename, storage_path, drive_url, source, effective_date, created_at')
     .eq('association_code', code)
     .is('archived_at', null)
-    .order('created_at', { ascending: false })
+  if (opts.publicOnly) q = q.eq('is_public', true)
+  const { data } = await q.order('created_at', { ascending: false })
 
   // Show every current document we have a real file for. We keep all rows
   // (not just newest-per-category) so an association can publish several

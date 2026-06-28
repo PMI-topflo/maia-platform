@@ -44,6 +44,7 @@ export interface PortalStrings {
   appTitle: string; appDesc: string; appBtn: string
 
   docsTitle: string; docsLoading: string; docsEmpty: string; docsUnavailable: string; download: string
+  publicDocsTitle: string
 
   contactTitle: string; contactHours: string
   contactAR: string; contactMaint: string; contactCompliance: string; contactBilling: string
@@ -82,6 +83,7 @@ const en: PortalStrings = {
   mobileTitle: 'PMI Mobile App', mobileDesc: 'Pay fees · Submit requests · Manage your account on the go', mobileBtn: 'Download',
   estoppelTitle: 'Estoppel Request – Condocerts', estoppelDesc: 'Required for property sale or refinancing · 5–7 business days', estoppelBtn: 'Submit',
   appTitle: 'Tenant / Buyer Application', appDesc: 'Board approval required · Background and credit check included', appBtn: 'Apply Now',
+  publicDocsTitle: 'Public Documents',
   docsTitle: 'Association Documents', docsLoading: 'Loading documents…',
   docsEmpty: 'No documents have been published for this association yet. They will appear here as your management team uploads them.',
   docsUnavailable: 'Documents are temporarily unavailable.', download: 'Download',
@@ -125,6 +127,7 @@ const es: PortalStrings = {
   mobileTitle: 'App Móvil PMI', mobileDesc: 'Pague cuotas · Envíe solicitudes · Administre su cuenta sobre la marcha', mobileBtn: 'Descargar',
   estoppelTitle: 'Solicitud de Estoppel – Condocerts', estoppelDesc: 'Requerido para venta o refinanciamiento · 5–7 días hábiles', estoppelBtn: 'Enviar',
   appTitle: 'Solicitud de Inquilino / Comprador', appDesc: 'Requiere aprobación de la junta · Incluye verificación de antecedentes y crédito', appBtn: 'Solicitar',
+  publicDocsTitle: 'Documentos Públicos',
   docsTitle: 'Documentos de la Asociación', docsLoading: 'Cargando documentos…',
   docsEmpty: 'Aún no se han publicado documentos para esta asociación. Aparecerán aquí a medida que su equipo de administración los cargue.',
   docsUnavailable: 'Los documentos no están disponibles temporalmente.', download: 'Descargar',
@@ -168,6 +171,7 @@ const pt: PortalStrings = {
   mobileTitle: 'Aplicativo PMI', mobileDesc: 'Pague taxas · Envie solicitações · Gerencie sua conta em qualquer lugar', mobileBtn: 'Baixar',
   estoppelTitle: 'Solicitação de Estoppel – Condocerts', estoppelDesc: 'Necessário para venda ou refinanciamento · 5–7 dias úteis', estoppelBtn: 'Enviar',
   appTitle: 'Solicitação de Inquilino / Comprador', appDesc: 'Aprovação do conselho necessária · Inclui verificação de antecedentes e crédito', appBtn: 'Inscrever-se',
+  publicDocsTitle: 'Documentos Públicos',
   docsTitle: 'Documentos da Associação', docsLoading: 'Carregando documentos…',
   docsEmpty: 'Nenhum documento foi publicado para esta associação ainda. Eles aparecerão aqui à medida que sua equipe de administração os carregar.',
   docsUnavailable: 'Os documentos estão temporariamente indisponíveis.', download: 'Baixar',
@@ -211,6 +215,7 @@ const fr: PortalStrings = {
   mobileTitle: 'Application PMI', mobileDesc: 'Payez les frais · Envoyez des demandes · Gérez votre compte en déplacement', mobileBtn: 'Télécharger',
   estoppelTitle: 'Demande d’Estoppel – Condocerts', estoppelDesc: 'Requis pour la vente ou le refinancement · 5–7 jours ouvrables', estoppelBtn: 'Envoyer',
   appTitle: 'Demande de Locataire / Acheteur', appDesc: 'Approbation du conseil requise · Vérification des antécédents et du crédit incluse', appBtn: 'Postuler',
+  publicDocsTitle: 'Documents Publics',
   docsTitle: 'Documents de l’Association', docsLoading: 'Chargement des documents…',
   docsEmpty: 'Aucun document n’a encore été publié pour cette association. Ils apparaîtront ici au fur et à mesure que votre équipe de gestion les téléchargera.',
   docsUnavailable: 'Les documents sont temporairement indisponibles.', download: 'Télécharger',
@@ -254,6 +259,7 @@ const ht: PortalStrings = {
   mobileTitle: 'Aplikasyon Mobil PMI', mobileDesc: 'Peye frè · Voye demann · Jere kont ou kote ou ye', mobileBtn: 'Telechaje',
   estoppelTitle: 'Demann Estoppel – Condocerts', estoppelDesc: 'Obligatwa pou vann oswa refinanse · 5–7 jou ouvrab', estoppelBtn: 'Voye',
   appTitle: 'Aplikasyon Lokatè / Achtè', appDesc: 'Apwobasyon konsèy la nesesè · Verifikasyon background ak kredi enkli', appBtn: 'Aplike',
+  publicDocsTitle: 'Dokiman Piblik',
   docsTitle: 'Dokiman Asosyasyon an', docsLoading: 'Y ap chaje dokiman yo…',
   docsEmpty: 'Pa gen okenn dokiman ki pibliye pou asosyasyon sa a ankò. Yo pral parèt isit la lè ekip jesyon ou an telechaje yo.',
   docsUnavailable: 'Dokiman yo pa disponib pou kounye a.', download: 'Telechaje',
@@ -297,6 +303,7 @@ const he: PortalStrings = {
   mobileTitle: 'אפליקציית PMI', mobileDesc: 'שלמו דמי חבר · שלחו בקשות · נהלו את החשבון בכל מקום', mobileBtn: 'הורדה',
   estoppelTitle: 'בקשת Estoppel – Condocerts', estoppelDesc: 'נדרש למכירה או מימון מחדש · 5–7 ימי עסקים', estoppelBtn: 'שליחה',
   appTitle: 'בקשת שוכר / קונה', appDesc: 'נדרש אישור הוועד · כולל בדיקת רקע ואשראי', appBtn: 'הגשת בקשה',
+  publicDocsTitle: 'מסמכים ציבוריים',
   docsTitle: 'מסמכי האיגוד', docsLoading: 'טוען מסמכים…',
   docsEmpty: 'עדיין לא פורסמו מסמכים עבור איגוד זה. הם יופיעו כאן ככל שצוות הניהול יעלה אותם.',
   docsUnavailable: 'המסמכים אינם זמינים כרגע.', download: 'הורדה',
@@ -340,6 +347,7 @@ const ru: PortalStrings = {
   mobileTitle: 'Мобильное приложение PMI', mobileDesc: 'Оплата взносов · Подача заявок · Управление счётом на ходу', mobileBtn: 'Скачать',
   estoppelTitle: 'Запрос Estoppel – Condocerts', estoppelDesc: 'Требуется при продаже или рефинансировании · 5–7 рабочих дней', estoppelBtn: 'Отправить',
   appTitle: 'Заявка арендатора / покупателя', appDesc: 'Требуется одобрение правления · Включает проверку биографии и кредита', appBtn: 'Подать заявку',
+  publicDocsTitle: 'Публичные документы',
   docsTitle: 'Документы ассоциации', docsLoading: 'Загрузка документов…',
   docsEmpty: 'Для этой ассоциации ещё не опубликованы документы. Они появятся здесь по мере загрузки вашей управляющей командой.',
   docsUnavailable: 'Документы временно недоступны.', download: 'Скачать',

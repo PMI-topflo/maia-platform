@@ -69,13 +69,25 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ code: string;
   const { code, id } = await ctx.params
   const upperCode = code.toUpperCase()
 
-  let body: { action?: 'archive' | 'restore' }
+  let body: { action?: 'archive' | 'restore' | 'set_public' | 'set_private' }
   try { body = await req.json() }
   catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }) }
 
   const actor = typeof session.userId === 'string' && session.userId.includes('@')
     ? session.userId.toLowerCase()
     : null
+
+  // Public/private toggle — when public, the document shows on the association's
+  // main page to the general public (no login).
+  if (body.action === 'set_public' || body.action === 'set_private') {
+    const { error } = await supabaseAdmin
+      .from('association_documents')
+      .update({ is_public: body.action === 'set_public' })
+      .eq('id', id)
+      .eq('association_code', upperCode)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
 
   if (body.action === 'archive') {
     const { error } = await supabaseAdmin
@@ -117,7 +129,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ code: string;
     return NextResponse.json({ ok: true })
   }
 
-  return NextResponse.json({ error: 'action must be "archive" or "restore"' }, { status: 400 })
+  return NextResponse.json({ error: 'action must be "archive", "restore", "set_public" or "set_private"' }, { status: 400 })
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ code: string; id: string }> }) {
