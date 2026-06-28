@@ -78,7 +78,7 @@ export async function renderAchAuthorizationPdf(meta: AchFormMeta): Promise<Uint
   y -= 24; draw('Important Information:', M + 6, 10, bold, BLUE)
   const bullets = [
     'By returning this form, you authorize PMI Top Florida Properties to collect your payments automatically.',
-    'Association payments are drafted on the 5th. If the date falls on a weekend, it drafts the next business day.',
+    'Association payments are drafted on the 1st. If the date falls on a weekend, it drafts the next business day.',
     'Forms must be received by the 10th of the previous month to take effect for the next scheduled payment.',
     'Payments can only be drafted from a U.S. bank or credit union.',
     'If the assessment amount increases or decreases, the new amount updates automatically.',

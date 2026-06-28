@@ -1953,9 +1953,9 @@ async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
       const link = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'}/api/owner/ach-form/${await signAchToken(u.assoc, u.account)}`
       await saveConversationState(ctx.phone, 'ach_email_offer', 'awaiting', { account: u.account, assoc: u.assoc, email: u.email ?? '' })
       achLine = translate(ctx.language, {
-        en: `1️⃣ *ACH autopay — FREE* ✅ (drafted on the 10th)\nYour authorization form: ${link}\nComplete it and email it to ar@topfloridaproperties.com.\n👉 Reply *email* and I'll also send the form to your inbox.`,
-        es: `1️⃣ *ACH automático — GRATIS* ✅ (día 10)\nTu formulario de autorización: ${link}\nComplétalo y envíalo a ar@topfloridaproperties.com.\n👉 Responde *email* y también te lo envío al correo.`,
-        pt: `1️⃣ *ACH automático — GRÁTIS* ✅ (dia 10)\nSeu formulário de autorização: ${link}\nPreencha e envie para ar@topfloridaproperties.com.\n👉 Responda *email* que eu também envio para o seu e-mail.`,
+        en: `1️⃣ *ACH autopay — FREE* ✅ (drafted on the 1st)\nYour authorization form: ${link}\nComplete it and email it to ar@topfloridaproperties.com.\n👉 Reply *email* and I'll also send the form to your inbox.`,
+        es: `1️⃣ *ACH automático — GRATIS* ✅ (día 1)\nTu formulario de autorización: ${link}\nComplétalo y envíalo a ar@topfloridaproperties.com.\n👉 Responde *email* y también te lo envío al correo.`,
+        pt: `1️⃣ *ACH automático — GRÁTIS* ✅ (dia 1)\nSeu formulário de autorização: ${link}\nPreencha e envie para ar@topfloridaproperties.com.\n👉 Responda *email* que eu também envio para o seu e-mail.`,
         fr: `1️⃣ *ACH automatique — GRATUIT* ✅\nVotre formulaire : ${link}\nRemplissez-le et envoyez-le à ar@topfloridaproperties.com.\n👉 Répondez *email* et je l'envoie aussi par e-mail.`,
         he: `1️⃣ *ACH אוטומטי — חינם* ✅\nטופס ההרשאה שלך: ${link}\nמלא ושלח ל-ar@topfloridaproperties.com.\n👉 השב *email* ואשלח גם למייל.`,
         ru: `1️⃣ *ACH автоплатёж — БЕСПЛАТНО* ✅\nВаша форма: ${link}\nЗаполните и отправьте на ar@topfloridaproperties.com.\n👉 Ответьте *email*, и я также пришлю на почту.`,
@@ -1963,14 +1963,14 @@ async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
       })
     } else {
       achLine = translate(ctx.language, {
-        en: `1️⃣ *ACH autopay — FREE* ✅ — request the form at ar@topfloridaproperties.com (drafted on the 10th).`,
+        en: `1️⃣ *ACH autopay — FREE* ✅ — request the form at ar@topfloridaproperties.com (drafted on the 1st).`,
         es: `1️⃣ *ACH — GRATIS* ✅ — pide el formulario en ar@topfloridaproperties.com.`,
         pt: `1️⃣ *ACH — GRÁTIS* ✅ — peça o formulário em ar@topfloridaproperties.com.`,
       })
     }
   } else {
     achLine = translate(ctx.language, {
-      en: `1️⃣ *ACH autopay — FREE* ✅ — request the form at ar@topfloridaproperties.com (drafted on the 10th).`,
+      en: `1️⃣ *ACH autopay — FREE* ✅ — request the form at ar@topfloridaproperties.com (drafted on the 1st).`,
       es: `1️⃣ *ACH — GRATIS* ✅ — pide el formulario en ar@topfloridaproperties.com.`,
       pt: `1️⃣ *ACH — GRÁTIS* ✅ — peça o formulário em ar@topfloridaproperties.com.`,
     })
