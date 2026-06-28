@@ -42,8 +42,8 @@ export default function OwnerAchPage({ params }: { params: Promise<{ token: stri
   if (!info)         return <div style={wrap}><p>Loading…</p></div>
   if (done) return (
     <div style={wrap}>
-      <h1 style={{ color: '#f26a1b' }}>✅ You&apos;re all set!</h1>
-      <p>Automatic ACH payments are now set up for <strong>Unit {info.unit ?? info.account}</strong> at {info.association}. Drafts come out on the 1st of each month. Our team will verify the details.</p>
+      <h1 style={{ color: '#f26a1b' }}>✅ Thank you!</h1>
+      <p>We&apos;ve received your signed autopay authorization for <strong>Unit {info.unit ?? info.account}</strong> at {info.association}. Our team will set up your automatic ACH, drafted on the 1st of the month. We&apos;ll reach out if we need anything.</p>
       <p style={{ color: '#6b7280', fontSize: 13 }}>Questions? ar@topfloridaproperties.com · (305) 900-5105</p>
     </div>
   )
