@@ -1084,6 +1084,39 @@ export async function updateVendorRecord(vendorId: number, fields: VendorRecordW
   invalidateVendorCache()
 }
 
+export interface HomeownerAchWrite {
+  propertyAddressId: number          // the OwnerAddress=true row (from listAssociationProperties)
+  propertyId:        number          // for SetAchDate
+  billingTypeId?:    number          // 3 = Automatic ACH (confirmed via ONE701)
+  routing?:          string
+  account?:          string
+  accountType?:      number          // 1 = checking, 2 = savings (per the vendor pattern)
+  achStartDate?:     string          // 'YYYY-MM-DD'
+}
+
+/** Write a homeowner's ACH / autopay setup into CINC: billing type → Automatic
+ *  ACH plus the bank fields, then the ACH start date.
+ *  ⚠ Best-effort: the exact updateBillingType body for routing/account is NOT
+ *  confirmed in Swagger — verify on a throwaway account before enabling for real
+ *  owners. Returns the raw CINC responses so callers can inspect/audit them. */
+export async function setHomeownerAch(w: HomeownerAchWrite): Promise<{ billing: unknown; achDate: unknown }> {
+  const billingBody: Record<string, unknown> = {
+    PropertyAddressId: w.propertyAddressId,
+    BillingTypeID:     w.billingTypeId ?? 3,
+  }
+  if (w.routing)            billingBody.Routing     = w.routing
+  if (w.account)            billingBody.Account     = w.account
+  if (w.accountType != null) billingBody.AccountType = w.accountType
+
+  const billing = await call<unknown>('/management/1/homeowners/updateBillingType', { method: 'PUT', json: billingBody })
+  let achDate: unknown = null
+  if (w.achStartDate) {
+    achDate = await call<unknown>(`/management/1/homeowners/${w.propertyId}/SetAchDate`, { method: 'PATCH', json: { AchStartDate: w.achStartDate } })
+      .catch(e => ({ error: e instanceof Error ? e.message : String(e) }))
+  }
+  return { billing, achDate }
+}
+
 /** CINC's read-only vendor-type catalog (GET /vendors/vendorType). Used to
  *  assign a VendorTypeID to a vendor — CINC has no create-type endpoint, so
  *  trades CINC lacks are handled as MAIA-local overrides instead. */

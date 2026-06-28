@@ -44,6 +44,41 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'owner_ach_submissions',
+    label:       'Owner ACH submissions (audit)',
+    description: 'owner_ach_submissions 2014 audit trail for owner online ACH enrollments (last-4 only; full bank numbers go to CINC)',
+    filename:    '20260627_owner_ach_submissions.sql',
+    artifact:    { type: 'table', table: 'owner_ach_submissions' },
+    sql: `CREATE TABLE IF NOT EXISTS public.owner_ach_submissions (
+  id                 uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code   text        NOT NULL,
+  account_number     text        NOT NULL,
+  property_id        integer,
+  owner_name         text,
+  bank_name          text,
+  account_owner_name text,
+  account_type       text,
+  routing_last4      text,
+  account_last4      text,
+  signature          text,
+  authorized         boolean     NOT NULL DEFAULT false,
+  signed_ip          text,
+  signed_user_agent  text,
+  cinc_written       boolean     NOT NULL DEFAULT false,
+  cinc_response      jsonb,
+  created_at         timestamptz NOT NULL DEFAULT now()
+);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.owner_ach_submissions TO service_role;
+
+ALTER TABLE public.owner_ach_submissions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_owner_ach_submissions" ON public.owner_ach_submissions;
+CREATE POLICY "service_role_all_owner_ach_submissions"
+  ON public.owner_ach_submissions FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'conversation_pinned_persona',
     label:       'Pinned persona (stop re-greeting)',
     description: 'conversation_state.pinned_persona — pin a multi-role contact’s chosen hat so the greeting fires once',
