@@ -14,6 +14,7 @@ import { verifyAchToken } from '@/lib/owner-portal-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { listAssociationProperties, setHomeownerAch } from '@/lib/integrations/cinc'
 import { sendEmail } from '@/lib/gmail'
+import { renderAchAuthorizationPdf } from '@/lib/ach-form'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,6 +53,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const account        = str('account').replace(/\D/g, '')
   const accountTypeRaw = str('accountType').toLowerCase()   // 'checking' | 'savings'
   const signature      = str('signature')
+  const signatureImage = typeof b.signatureImage === 'string' && b.signatureImage.startsWith('data:image') ? b.signatureImage : ''
   const authorized     = b.authorized === true
 
   if (!authorized) return NextResponse.json({ error: 'You must authorize the automatic payments.' }, { status: 400 })
@@ -97,21 +99,37 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     })
   } catch { /* audit best-effort */ }
 
-  // Notify Jonathan (AR) + Karen (billing) to spot-check.
+  // The COMPLETED + signed form (full routing/account so AR can confirm by
+  // phone and set it up manually if the CINC write failed).
+  let pdfB64 = ''
+  try {
+    const pdf = await renderAchAuthorizationPdf({
+      ownerName: o.name, unit: o.unit, address: o.address, association: o.association, account: data.account,
+      generatedOn: today, bankName, accountOwnerName: accountOwner,
+      accountType: accountTypeRaw as 'checking' | 'savings',
+      routing, accountNumber: account, signatureName: signature, signatureImage, signedOn: today,
+    })
+    pdfB64 = Buffer.from(pdf).toString('base64')
+  } catch (e) { console.error('[ach] signed PDF render failed', e) }
+
+  const cincDetail = (() => { try { return JSON.stringify(cincResponse).slice(0, 400) } catch { return String(cincResponse) } })()
+
+  // Notify Jonathan (AR) + Karen (billing) — with the signed form attached.
   void sendEmail({
     to: [JONATHAN, KAREN],
     subject: `ACH autopay set up — ${o.name} (${data.assoc} ${data.account})${cincWritten ? '' : ' — CINC WRITE FAILED'}`,
-    html: `<p>${o.name} (Unit ${o.unit ?? '—'}, ${o.association}, account ${data.account}, CINC PropertyID ${prop.PropertyID}) set up automatic ACH payments online.</p>
+    html: `<p>${o.name} (Unit ${o.unit ?? '—'}, ${o.association}, account ${data.account}, CINC PropertyID ${prop.PropertyID}) set up automatic ACH payments online. <strong>The signed form is attached</strong> (full routing/account for phone confirmation).</p>
       <table style="font-size:13px;border-collapse:collapse">
         <tr><td style="padding:4px 10px;color:#6b7280">Bank</td><td style="padding:4px 10px">${bankName || '—'}</td></tr>
         <tr><td style="padding:4px 10px;color:#6b7280">Account owner</td><td style="padding:4px 10px">${accountOwner || '—'}</td></tr>
         <tr><td style="padding:4px 10px;color:#6b7280">Type</td><td style="padding:4px 10px">${accountTypeRaw}</td></tr>
-        <tr><td style="padding:4px 10px;color:#6b7280">Routing</td><td style="padding:4px 10px">•••${last4(routing)}</td></tr>
-        <tr><td style="padding:4px 10px;color:#6b7280">Account</td><td style="padding:4px 10px">•••${last4(account)}</td></tr>
+        <tr><td style="padding:4px 10px;color:#6b7280">Routing / Account</td><td style="padding:4px 10px">•••${last4(routing)} / •••${last4(account)} (full in the attached form)</td></tr>
         <tr><td style="padding:4px 10px;color:#6b7280">Signature</td><td style="padding:4px 10px">${signature}</td></tr>
-        <tr><td style="padding:4px 10px;color:#6b7280">CINC write</td><td style="padding:4px 10px">${cincWritten ? '✅ written (verify in CINC)' : '❌ FAILED — set up manually'}</td></tr>
+        <tr><td style="padding:4px 10px;color:#6b7280">CINC write</td><td style="padding:4px 10px">${cincWritten ? '✅ written — please verify in CINC' : '❌ FAILED — set up manually from the attached form'}</td></tr>
       </table>
-      <p style="color:#6b7280;font-size:12px">Full routing/account were written to CINC and are not stored in MAIA.</p>`,
+      ${cincWritten ? '' : `<p style="color:#b91c1c;font-size:12px"><strong>CINC response:</strong> ${cincDetail}</p>`}
+      <p style="color:#6b7280;font-size:12px">Full bank numbers are in the attached signed form and were sent to CINC; they are not stored in MAIA's database.</p>`,
+    ...(pdfB64 ? { attachments: [{ filename: `ACH-Authorization-${data.account}.pdf`, content: pdfB64 }] } : {}),
   }).catch(() => null)
 
   return NextResponse.json({ ok: true, cincWritten })

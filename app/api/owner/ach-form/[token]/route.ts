@@ -23,20 +23,18 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   }
 
   const { data: o } = await supabaseAdmin.from('owners')
-    .select('first_name, last_name, entity_name, unit_number, address, association_name, emails')
+    .select('first_name, last_name, entity_name, unit_number, address, association_name')
     .eq('association_code', data.assoc).eq('account_number', data.account).limit(1).maybeSingle()
 
   const ownerName = (o?.entity_name as string)
     || [o?.first_name, o?.last_name].filter(Boolean).join(' ').trim()
     || 'Owner'
-  const email = String(o?.emails ?? '').split(/[,;\s]+/).map(s => s.trim()).find(s => s.includes('@')) ?? null
 
   const pdf = await renderAchAuthorizationPdf({
     ownerName,
     unit:        (o?.unit_number as string) ?? null,
     address:     (o?.address as string) ?? null,
     association: (o?.association_name as string) ?? data.assoc,
-    email,
     account:     data.account,
     generatedOn: new Date().toISOString().slice(0, 10),
   })
