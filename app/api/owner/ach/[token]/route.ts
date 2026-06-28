@@ -12,7 +12,7 @@
 import { NextResponse } from 'next/server'
 import { verifyAchToken } from '@/lib/owner-portal-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { listAssociationProperties, setHomeownerAch } from '@/lib/integrations/cinc'
+import { listAssociationProperties } from '@/lib/integrations/cinc'
 import { sendEmail } from '@/lib/gmail'
 import { renderAchAuthorizationPdf } from '@/lib/ach-form'
 
@@ -69,27 +69,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!prop || !addr) return NextResponse.json({ error: 'Could not locate your unit in CINC — our team will follow up.' }, { status: 502 })
 
   const o = await ownerInfo(data.assoc, data.account)
-  const accountType = accountTypeRaw === 'savings' ? 2 : 1
   const today = new Date().toISOString().slice(0, 10)
 
-  // Write to CINC (best-effort; capture the response for the audit). setHomeownerAch
-  // catch-wraps each call, so success = the billing response carries no error.
-  let cincResponse: unknown = null, cincWritten = false
-  try {
-    cincResponse = await setHomeownerAch({
-      propertyAddressId: addr.PropertyAddressId as number,
-      propertyId:        prop.PropertyID,
-      billingTypeId:     3,           // Automatic ACH
-      routing, account, accountType,
-      achStartDate:      today,
-    })
-    const billing = (cincResponse as { billing?: { error?: unknown } } | null)?.billing
-    cincWritten = !(billing && typeof billing === 'object' && 'error' in billing)
-  } catch (e) {
-    cincResponse = { error: e instanceof Error ? e.message : String(e) }
-  }
+  // NOTE: CINC's integration API has no homeowner ACH/bank write — the bank
+  // fields are only saved by the web UI (POST /Homeowner/PropertyForm/
+  // SaveUpdateData, cookie + anti-forgery auth). So we DON'T auto-write; AR
+  // enters it from the signed form below.
 
-  // Audit (last-4 only; full numbers live in CINC, never here).
+  // Audit (last-4 only; full numbers go to AR via the attached PDF, never stored).
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null
   try {
     await supabaseAdmin.from('owner_ach_submissions').insert({
@@ -97,15 +84,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       owner_name: o.name, bank_name: bankName, account_owner_name: accountOwner, account_type: accountTypeRaw,
       routing_last4: last4(routing), account_last4: last4(account),
       signature, authorized, signed_ip: ip, signed_user_agent: req.headers.get('user-agent'),
-      cinc_written: cincWritten, cinc_response: cincResponse,
+      cinc_written: false, cinc_response: null,
     })
   } catch { /* audit best-effort */ }
 
-  // The COMPLETED + signed form (full routing/account so AR can confirm by
-  // phone and set it up manually if the CINC write failed).
+  // The COMPLETED + signed form (full routing/account so AR can enter it in CINC).
+  const mailing = [addr.StreetNumber, addr.Address].filter(Boolean).join(' ').trim() || null
   let pdfB64 = ''
   try {
-    const mailing = [addr.StreetNumber, addr.Address].filter(Boolean).join(' ').trim() || null
     const pdf = await renderAchAuthorizationPdf({
       ownerName: o.name, unit: o.unit, address: o.address, association: o.association, account: data.account,
       generatedOn: today,
@@ -118,25 +104,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     pdfB64 = Buffer.from(pdf).toString('base64')
   } catch (e) { console.error('[ach] signed PDF render failed', e) }
 
-  const cincDetail = (() => { try { return JSON.stringify(cincResponse).slice(0, 400) } catch { return String(cincResponse) } })()
-
-  // Notify Jonathan (AR) + Karen (billing) — with the signed form attached.
+  // Send Jonathan (AR) + Karen (billing) the signed form to enter into CINC.
   void sendEmail({
     to: [JONATHAN, KAREN],
-    subject: `ACH autopay set up — ${o.name} (${data.assoc} ${data.account})${cincWritten ? '' : ' — CINC WRITE FAILED'}`,
-    html: `<p>${o.name} (Unit ${o.unit ?? '—'}, ${o.association}, account ${data.account}, CINC PropertyID ${prop.PropertyID}) set up automatic ACH payments online. <strong>The signed form is attached</strong> (full routing/account for phone confirmation).</p>
+    subject: `ACH autopay enrollment — please set up in CINC — ${o.name} (${data.assoc} ${data.account})`,
+    html: `<p><strong>${o.name}</strong> (Unit ${o.unit ?? '—'}, ${o.association}, account ${data.account}, CINC PropertyID ${prop.PropertyID}) signed up for automatic ACH online.</p>
+      <p>👉 Please set it up in CINC (Homeowner → Billing → <strong>Automatic ACH</strong>) using the <strong>signed form attached</strong> — it has the full routing/account.</p>
       <table style="font-size:13px;border-collapse:collapse">
         <tr><td style="padding:4px 10px;color:#6b7280">Bank</td><td style="padding:4px 10px">${bankName || '—'}</td></tr>
         <tr><td style="padding:4px 10px;color:#6b7280">Account owner</td><td style="padding:4px 10px">${accountOwner || '—'}</td></tr>
         <tr><td style="padding:4px 10px;color:#6b7280">Type</td><td style="padding:4px 10px">${accountTypeRaw}</td></tr>
         <tr><td style="padding:4px 10px;color:#6b7280">Routing / Account</td><td style="padding:4px 10px">•••${last4(routing)} / •••${last4(account)} (full in the attached form)</td></tr>
-        <tr><td style="padding:4px 10px;color:#6b7280">Signature</td><td style="padding:4px 10px">${signature}</td></tr>
-        <tr><td style="padding:4px 10px;color:#6b7280">CINC write</td><td style="padding:4px 10px">${cincWritten ? '✅ written — please verify in CINC' : '❌ FAILED — set up manually from the attached form'}</td></tr>
+        <tr><td style="padding:4px 10px;color:#6b7280">Signed by</td><td style="padding:4px 10px">${signature}</td></tr>
       </table>
-      ${cincWritten ? '' : `<p style="color:#b91c1c;font-size:12px"><strong>CINC response:</strong> ${cincDetail}</p>`}
-      <p style="color:#6b7280;font-size:12px">Full bank numbers are in the attached signed form and were sent to CINC; they are not stored in MAIA's database.</p>`,
+      <p style="color:#6b7280;font-size:12px">Full bank numbers are in the attached signed form only; they are not stored in MAIA's database.</p>`,
     ...(pdfB64 ? { attachments: [{ filename: `ACH-Authorization-${data.account}.pdf`, content: pdfB64 }] } : {}),
   }).catch(() => null)
 
-  return NextResponse.json({ ok: true, cincWritten })
+  return NextResponse.json({ ok: true })
 }
