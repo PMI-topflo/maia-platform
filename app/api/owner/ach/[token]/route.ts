@@ -10,7 +10,7 @@
 // =====================================================================
 
 import { NextResponse } from 'next/server'
-import { verifyAchToken } from '@/lib/owner-portal-token'
+import { verifyAchToken, signAchConfirmToken } from '@/lib/owner-portal-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { listAssociationProperties } from '@/lib/integrations/cinc'
 import { sendEmail } from '@/lib/gmail'
@@ -21,6 +21,7 @@ export const dynamic = 'force-dynamic'
 
 const JONATHAN = process.env.MAIA_AR_EMAIL ?? 'ar@topfloridaproperties.com'
 const KAREN    = process.env.MAIA_BILLING_ALERT_TO ?? 'billing@topfloridaproperties.com'
+const BASE     = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const last4 = (s: string) => s.replace(/\D/g, '').slice(-4)
 
 async function ownerInfo(assoc: string, account: string) {
@@ -115,12 +116,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   } catch (e) { console.error('[ach] signed PDF render failed', e) }
 
   // Send Jonathan (AR) + Karen (billing) the signed form to enter into CINC.
+  const confirmTok = await signAchConfirmToken(data.assoc, data.account)
+  const confirmUrl = `${BASE}/api/owner/ach/confirm/${confirmTok}`
   void sendEmail({
     to: [JONATHAN, KAREN],
     subject: `ACH autopay enrollment — please set up in CINC — ${o.name} (${data.assoc} ${data.account})`,
     html: `<p><strong>${o.name}</strong> (Unit ${o.unit ?? '—'}, ${o.association}, account ${data.account}, CINC PropertyID ${prop.PropertyID}) signed up for automatic ACH online.</p>
       <p>👉 Please set it up in CINC (Homeowner → Billing → <strong>Automatic ACH</strong>) using the <strong>signed form attached</strong> — it has the full routing/account.</p>
-      <p>📧 Then send an email to the unit owner${addr.Email ? ` at <strong>${addr.Email}</strong>` : ''} to confirm the autopay was set up.</p>
+      <div style="margin:16px 0;padding:14px 16px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px">
+        <p style="margin:0 0 10px;font-size:14px;color:#166534">Once you've finished setting it up in CINC, press this button to confirm the setup was done — <strong>an email will be sent automatically to the unit owner</strong> (with a reminder to check that next month's payment was withdrawn).</p>
+        <a href="${confirmUrl}" style="display:inline-block;padding:11px 20px;background:#16a34a;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:8px">✅ Confirm setup done &amp; notify the owner</a>
+      </div>
       <table style="font-size:13px;border-collapse:collapse">
         <tr><td style="padding:4px 10px;color:#6b7280">Bank</td><td style="padding:4px 10px">${bankName || '—'}</td></tr>
         <tr><td style="padding:4px 10px;color:#6b7280">Account owner</td><td style="padding:4px 10px">${accountOwner || '—'}</td></tr>

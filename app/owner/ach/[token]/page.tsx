@@ -45,6 +45,13 @@ export default function OwnerAchPage({ params }: { params: Promise<{ token: stri
     } catch { setErr('Network error — please try again.') } finally { setBusy(false) }
   }
 
+  const FirstCycleWarning = () => (
+    <div style={{ margin: '14px 0', padding: '13px 16px', background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 10 }}>
+      <p style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#c2410c' }}>⚠️ Check next month&apos;s payment</p>
+      <p style={{ margin: '6px 0 0', fontSize: 14.5, color: '#9a3412', lineHeight: 1.45 }}>Your <strong>first</strong> automatic payment may not start right away. Please make sure <strong>next month&apos;s payment was actually withdrawn</strong> from your bank account — so you don&apos;t fall behind.</p>
+    </div>
+  )
+
   const wrap: React.CSSProperties = { maxWidth: 520, margin: '0 auto', padding: 20, fontFamily: 'system-ui, sans-serif', color: '#1a1a1a' }
   const field: React.CSSProperties = { width: '100%', padding: '10px 12px', fontSize: 15, border: '1px solid #d1d5db', borderRadius: 8, boxSizing: 'border-box', marginTop: 4 }
   const label: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: '#374151', marginTop: 14, display: 'block' }
@@ -55,6 +62,7 @@ export default function OwnerAchPage({ params }: { params: Promise<{ token: stri
     <div style={wrap}>
       <h1 style={{ color: '#f26a1b' }}>✅ Thank you!</h1>
       <p>We&apos;ve received your signed autopay authorization for <strong>Unit {info.unit ?? info.account}</strong> at {info.association}. Our team will set up your automatic ACH, drafted on the 1st of the month. We&apos;ll reach out if we need anything.</p>
+      <FirstCycleWarning />
       <p style={{ color: '#6b7280', fontSize: 13 }}>Questions? ar@topfloridaproperties.com · (305) 900-5105</p>
     </div>
   )
@@ -98,6 +106,7 @@ export default function OwnerAchPage({ params }: { params: Promise<{ token: stri
     <div style={wrap}>
       <h1 style={{ fontSize: 22, color: '#f26a1b', marginBottom: 2 }}>Set up automatic payments (ACH)</h1>
       <p style={{ color: '#6b7280', fontSize: 14, marginTop: 0 }}>{info.name} · Unit {info.unit ?? info.account} · {info.association}</p>
+      <FirstCycleWarning />
 
       <label style={label}>Phone number
         <input style={field} inputMode="tel" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} placeholder="(305) 555-1234" /></label>
