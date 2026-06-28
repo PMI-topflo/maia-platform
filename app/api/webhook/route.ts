@@ -21,6 +21,8 @@ import {
 } from '@/lib/owner-ledger-flow'
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
+import { signAchToken } from '@/lib/owner-portal-token'
+import { sendEmail } from '@/lib/gmail'
 
 function getSupabase() {
   const env = process.env;
@@ -624,6 +626,12 @@ async function routeTextMessage(
       replyText = await handleIntentConfirmation(ctx, state, message)
     } else if (state.current_flow === 'ledger_request') {
       replyText = await continueLedgerFlow(ctx, state, message)
+    } else if (state.current_flow === 'ach_email_offer') {
+      replyText = await continueAchEmailOffer(ctx, state, message)
+    } else if (state.current_flow === 'ach_email_confirm') {
+      replyText = await continueAchEmailConfirm(ctx, state, message)
+    } else if (state.current_flow === 'ach_email_new') {
+      replyText = await continueAchEmailNew(ctx, state, message)
     } else if (state.current_flow === 'agent_identification') {
       replyText = await continueAgentFlow(ctx, state, message)
     } else if (['sticker_register','maintenance_rentvine','maintenance_association','schedule','staff_handoff','unknown_contact'].includes(state.current_flow)) {
@@ -1934,13 +1942,165 @@ async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
   }
 
   void maybeRequestFeedback(ctx.phone, ctx, 'payment', ctx.channel)
+
+  // MAIA-generated ACH authorization form, delivered IN-APP (not a Drive
+  // folder). For association owners we mint a secure link + offer to email it.
+  let achLine: string
+  if (ctx.persona === 'homeowner') {
+    const units = await resolveOwnerUnits(ctx.phone)
+    const u = units.find(x => x.assoc === ctx.associationId) ?? units[0]
+    if (u) {
+      const link = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'}/api/owner/ach-form/${await signAchToken(u.assoc, u.account)}`
+      await saveConversationState(ctx.phone, 'ach_email_offer', 'awaiting', { account: u.account, assoc: u.assoc, email: u.email ?? '' })
+      achLine = translate(ctx.language, {
+        en: `1️⃣ *ACH autopay — FREE* ✅ (drafted on the 10th)\nYour authorization form: ${link}\nComplete it and email it to ar@topfloridaproperties.com.\n👉 Reply *email* and I'll also send the form to your inbox.`,
+        es: `1️⃣ *ACH automático — GRATIS* ✅ (día 10)\nTu formulario de autorización: ${link}\nComplétalo y envíalo a ar@topfloridaproperties.com.\n👉 Responde *email* y también te lo envío al correo.`,
+        pt: `1️⃣ *ACH automático — GRÁTIS* ✅ (dia 10)\nSeu formulário de autorização: ${link}\nPreencha e envie para ar@topfloridaproperties.com.\n👉 Responda *email* que eu também envio para o seu e-mail.`,
+        fr: `1️⃣ *ACH automatique — GRATUIT* ✅\nVotre formulaire : ${link}\nRemplissez-le et envoyez-le à ar@topfloridaproperties.com.\n👉 Répondez *email* et je l'envoie aussi par e-mail.`,
+        he: `1️⃣ *ACH אוטומטי — חינם* ✅\nטופס ההרשאה שלך: ${link}\nמלא ושלח ל-ar@topfloridaproperties.com.\n👉 השב *email* ואשלח גם למייל.`,
+        ru: `1️⃣ *ACH автоплатёж — БЕСПЛАТНО* ✅\nВаша форма: ${link}\nЗаполните и отправьте на ar@topfloridaproperties.com.\n👉 Ответьте *email*, и я также пришлю на почту.`,
+        ht: `1️⃣ *ACH otomatik — GRATIS* ✅\nFòm otorizasyon ou: ${link}\nRanpli l epi voye l bay ar@topfloridaproperties.com.\n👉 Reponn *email* m ap voye l nan imel ou tou.`,
+      })
+    } else {
+      achLine = translate(ctx.language, {
+        en: `1️⃣ *ACH autopay — FREE* ✅ — request the form at ar@topfloridaproperties.com (drafted on the 10th).`,
+        es: `1️⃣ *ACH — GRATIS* ✅ — pide el formulario en ar@topfloridaproperties.com.`,
+        pt: `1️⃣ *ACH — GRÁTIS* ✅ — peça o formulário em ar@topfloridaproperties.com.`,
+      })
+    }
+  } else {
+    achLine = translate(ctx.language, {
+      en: `1️⃣ *ACH autopay — FREE* ✅ — request the form at ar@topfloridaproperties.com (drafted on the 10th).`,
+      es: `1️⃣ *ACH — GRATIS* ✅ — pide el formulario en ar@topfloridaproperties.com.`,
+      pt: `1️⃣ *ACH — GRÁTIS* ✅ — peça o formulário em ar@topfloridaproperties.com.`,
+    })
+  }
+
+  const rest = translate(ctx.language, {
+    en: `\n\n2️⃣ *Pay online* (portal): https://pmitfp.cincwebaxis.com/\n\n3️⃣ *Check by mail* — payable to the full HOA name, account # in the memo:\nPMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    es: `\n\n2️⃣ *Pagar en línea*: https://pmitfp.cincwebaxis.com/\n\n3️⃣ *Cheque* — a nombre de la HOA, con el # de cuenta en el memo:\nPMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    pt: `\n\n2️⃣ *Pagar online*: https://pmitfp.cincwebaxis.com/\n\n3️⃣ *Cheque* — nominal à HOA, com o nº da conta no memo:\nPMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    fr: `\n\n2️⃣ *Payer en ligne* : https://pmitfp.cincwebaxis.com/\n\n3️⃣ *Chèque* : PMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    he: `\n\n2️⃣ *תשלום מקוון*: https://pmitfp.cincwebaxis.com/\n\n3️⃣ *המחאה*: PMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    ru: `\n\n2️⃣ *Оплата онлайн*: https://pmitfp.cincwebaxis.com/\n\n3️⃣ *Чек*: PMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    ht: `\n\n2️⃣ *Peye anliy*: https://pmitfp.cincwebaxis.com/\n\n3️⃣ *Chèk*: PMI, P.O. Box 163556, Miami FL 33116 🌸`,
+  })
+
+  const header = translate(ctx.language, { en: `💰 Hi ${name}! Ways to pay your association:\n\n`, es: `💰 ¡Hola ${name}! Formas de pagar tu asociación:\n\n`, pt: `💰 Olá ${name}! Formas de pagar sua associação:\n\n`, fr: `💰 Bonjour ${name}!\n\n`, he: `💰 שלום ${name}!\n\n`, ru: `💰 Привет ${name}!\n\n`, ht: `💰 Bonjou ${name}!\n\n` })
+  return header + achLine + rest
+}
+
+// ── ACH form email-delivery sub-flow ──────────────────────────────────
+// "reply *email*" → confirm WHICH email (the one on file, a numbered list if
+// several, or a brand-new one). A new email is NOT trusted: we don't send to
+// it — we ask staff to verify credentials + update the record first.
+const maskEmail = (e: string) => e.replace(/^(.{1,2})[^@]*(@.*)$/, '$1***$2')
+
+async function ownerEmailsFor(assoc: string, account: string): Promise<string[]> {
+  const { data } = await getSupabase().from('owners').select('emails')
+    .eq('association_code', assoc).eq('account_number', account).limit(1).maybeSingle()
+  const list = String(data?.emails ?? '').split(/[,;\s]+/).map(s => s.trim().toLowerCase()).filter(s => s.includes('@'))
+  return [...new Set(list)]
+}
+
+async function sendAchToEmail(assoc: string, account: string, email: string): Promise<void> {
+  const link = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'}/api/owner/ach-form/${await signAchToken(assoc, account)}`
+  await sendEmail({
+    to: email,
+    subject: 'Your Direct Debit (ACH) form — PMI Top Florida Properties',
+    html: `<p>Hello,</p><p>Here is your Direct Debit (ACH) authorization form. Complete the bank fields, sign it, and email it back with a voided check to <a href="mailto:ar@topfloridaproperties.com">ar@topfloridaproperties.com</a>.</p><p><a href="${link}" style="background:#f26a1b;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600">Open your ACH form →</a></p><p style="color:#6b7280;font-size:12px">${link}</p>`,
+  }).catch(() => null)
+}
+
+// Step 1 — they replied to "reply *email* to also receive it".
+async function continueAchEmailOffer(ctx: CallerContext, state: ConversationState, message: string): Promise<string> {
+  const data  = state.temporary_data_json ?? {}
+  const assoc = String(data.assoc ?? ''), account = String(data.account ?? '')
+  const wantsEmail = /\b(email|e-?mail|correo|imel|sim|yes|sí|si|oui|да|wi|ok)\b/i.test(message.trim())
+  if (!wantsEmail) { await clearConversationState(ctx.phone); return await getMaiaIntelligentResponse(ctx, message) }
+
+  const emails = await ownerEmailsFor(assoc, account)
+  if (emails.length === 0) {
+    await saveConversationState(ctx.phone, 'ach_email_new', 'awaiting', { assoc, account })
+    return translate(ctx.language, {
+      en: `I don't have an email on your record. What email should we use? 📧`,
+      es: `No tengo un correo en tu registro. ¿Qué correo usamos? 📧`,
+      pt: `Não tenho um e-mail no seu cadastro. Qual e-mail devemos usar? 📧`,
+    })
+  }
+  await saveConversationState(ctx.phone, 'ach_email_confirm', 'awaiting', { assoc, account, emails })
+  if (emails.length === 1) {
+    return translate(ctx.language, {
+      en: `Send the form to ${maskEmail(emails[0])}? Reply *yes*, or *new* for a different email.`,
+      es: `¿Envío el formulario a ${maskEmail(emails[0])}? Responde *sí*, o *nuevo* para otro correo.`,
+      pt: `Envio o formulário para ${maskEmail(emails[0])}? Responda *sim*, ou *novo* para outro e-mail.`,
+    })
+  }
+  const listed = emails.map((e, i) => `${i + 1}. ${maskEmail(e)}`).join('\n')
   return translate(ctx.language, {
-    en: `💰 Hi ${name}! HOA Payment Options:\n\n1️⃣ *ACH Autopay — FREE* ✅\nForm: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\nEmail: ar@topfloridaproperties.com (processed 10th)\n\n2️⃣ *Online Portal* (fee)\nhttps://pmitfp.cincwebaxis.com/\n\n📱 App: "Property Management Inc" (Android/Apple)\n\n3️⃣ *Check by mail*\nPayable to: FULL HOA name | Write account # in MEMO\nPMI, P.O. Box 163556, Miami FL 33116\n\n📞 (305) 900-5105 🌸`,
-    es: `💰 ¡Hola ${name}! Opciones HOA:\n\n1️⃣ ACH GRATIS ✅ — ar@topfloridaproperties.com\nFormulario: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\n\n2️⃣ Portal: https://pmitfp.cincwebaxis.com/\n📱 App "Property Management Inc"\n\n3️⃣ Cheque: PMI, P.O. Box 163556, Miami FL 33116\n\n📞 (305) 900-5105 🌸`,
-    pt: `💰 Olá ${name}! Opções HOA:\n\n1️⃣ ACH GRÁTIS ✅ — ar@topfloridaproperties.com\nFormulário: https://drive.google.com/drive/folders/1RGGBxke8umRS6kH9PTX4P-SJmvuHCsJh\n\n2️⃣ Portal: https://pmitfp.cincwebaxis.com/\n📱 App "Property Management Inc"\n\n3️⃣ Cheque: PMI, P.O. Box 163556, Miami FL 33116\n\n📞 (305) 900-5105 🌸`,
-    fr: `💰 Bonjour ${name}!\n1️⃣ ACH gratuit — ar@topfloridaproperties.com\n2️⃣ https://pmitfp.cincwebaxis.com/\n3️⃣ Chèque: P.O. Box 163556, Miami FL 33116 🌸`,
-    he: `💰 שלום ${name}!\n1️⃣ ACH חינם — ar@topfloridaproperties.com\n2️⃣ https://pmitfp.cincwebaxis.com/\n3️⃣ המחאה: P.O. Box 163556, Miami FL 33116 🌸`,
-    ru: `💰 Привет ${name}!\n1️⃣ ACH бесплатно — ar@topfloridaproperties.com\n2️⃣ https://pmitfp.cincwebaxis.com/\n3️⃣ Чек: P.O. Box 163556, Miami FL 33116 🌸`,
+    en: `Which email should I use? Reply with a number, or *new* for a different one:\n${listed}`,
+    es: `¿A qué correo lo envío? Responde con un número, o *nuevo*:\n${listed}`,
+    pt: `Para qual e-mail envio? Responda com um número, ou *novo*:\n${listed}`,
+  })
+}
+
+// Step 2 — they chose an email (number / yes) or asked for a new one.
+async function continueAchEmailConfirm(ctx: CallerContext, state: ConversationState, message: string): Promise<string> {
+  const data   = state.temporary_data_json ?? {}
+  const assoc  = String(data.assoc ?? ''), account = String(data.account ?? '')
+  const emails = (data.emails as string[]) ?? []
+  const m = message.trim().toLowerCase()
+
+  if (m.includes('@')) return await registerNewAchEmail(ctx, assoc, account, m)
+  if (/\b(new|none|other|otro|otra|outro|nenhum|nuevo|ningun|nouveau|lòt)\b/.test(m)) {
+    await saveConversationState(ctx.phone, 'ach_email_new', 'awaiting', { assoc, account })
+    return translate(ctx.language, {
+      en: `No problem — what email should we use? 📧`, es: `Sin problema — ¿qué correo usamos? 📧`, pt: `Sem problema — qual e-mail usamos? 📧`,
+    })
+  }
+  let chosen = ''
+  const num = parseInt(m.replace(/[^\d]/g, ''), 10)
+  if (Number.isFinite(num) && num >= 1 && num <= emails.length) chosen = emails[num - 1]
+  else if (emails.length === 1 && /\b(yes|sim|sí|si|oui|да|wi|ok|claro)\b/.test(m)) chosen = emails[0]
+  if (!chosen) {
+    const listed = emails.map((e, i) => `${i + 1}. ${maskEmail(e)}`).join('\n')
+    return translate(ctx.language, {
+      en: `Please reply with a number, or *new*:\n${listed}`, es: `Responde con un número, o *nuevo*:\n${listed}`, pt: `Responda com um número, ou *novo*:\n${listed}`,
+    })
+  }
+  await sendAchToEmail(assoc, account, chosen)
+  await clearConversationState(ctx.phone)
+  return translate(ctx.language, {
+    en: `✅ Sent to ${maskEmail(chosen)}! Anything else? 🌸`, es: `✅ ¡Enviado a ${maskEmail(chosen)}! ¿Algo más? 🌸`, pt: `✅ Enviado para ${maskEmail(chosen)}! Mais alguma coisa? 🌸`,
+  })
+}
+
+// Step 3 — they gave a NEW email not on file.
+async function continueAchEmailNew(ctx: CallerContext, state: ConversationState, message: string): Promise<string> {
+  const data = state.temporary_data_json ?? {}
+  if (!message.includes('@')) {
+    return translate(ctx.language, {
+      en: `That doesn't look like an email — please send a valid email address. 📧`,
+      es: `Eso no parece un correo — envía una dirección válida. 📧`,
+      pt: `Isso não parece um e-mail — envie um endereço válido. 📧`,
+    })
+  }
+  return await registerNewAchEmail(ctx, String(data.assoc ?? ''), String(data.account ?? ''), message)
+}
+
+// A new email isn't on record → DON'T send. Ask staff to verify + update first.
+async function registerNewAchEmail(ctx: CallerContext, assoc: string, account: string, raw: string): Promise<string> {
+  const email = (raw.match(/[^\s,;]+@[^\s,;]+/)?.[0] ?? raw).toLowerCase()
+  await clearConversationState(ctx.phone)
+  try {
+    await notifyTeamByEmail(process.env.STAFF_EMAIL ?? 'ar@topfloridaproperties.com',
+      `Verify owner email before ACH form — ${ctx.name} (${assoc} ${account})`,
+      `${ctx.name} (Unit ${ctx.unitId ?? '—'}, ${assoc} account ${account}, phone ${ctx.phone}) requested the Direct Debit (ACH) form sent to a NEW email that is NOT on their record:\n\n  ${email}\n\nPlease verify their credentials, update the owner record, then send the form.`)
+  } catch { /* best-effort */ }
+  return translate(ctx.language, {
+    en: `Thanks! Since ${maskEmail(email)} isn't on your record, I've asked our team to verify your details and update your records before sending the form — they'll follow up shortly. 🌸`,
+    es: `¡Gracias! Como ${maskEmail(email)} no está en tu registro, pedí a nuestro equipo que verifique tus datos y actualice tu cuenta antes de enviar el formulario — te contactarán pronto. 🌸`,
+    pt: `Obrigada! Como ${maskEmail(email)} não está no seu cadastro, pedi à nossa equipe para verificar seus dados e atualizar seu cadastro antes de enviar o formulário — entrarão em contato em breve. 🌸`,
   })
 }
 
