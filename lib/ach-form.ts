@@ -111,7 +111,15 @@ export async function renderAchAuthorizationPdf(meta: AchFormMeta): Promise<Uint
     'If the assessment amount increases or decreases, the new amount updates automatically.',
   ]
   for (const b of bullets) { y -= 14; draw('•', M + 8, 9, font, INK); draw(b, M + 18, 8.5, font, INK) }
-  y -= 22; draw(`Questions? Accounts Receivable: (305) 900-5105 · ar@topfloridaproperties.com`, M, 8, font, GREY)
+
+  // Prominent first-cycle warning.
+  y -= 24
+  page.drawRectangle({ x: M, y: y - 30, width: W - 2 * M, height: 46, color: rgb(1, 0.969, 0.925), borderColor: rgb(0.992, 0.729, 0.455), borderWidth: 1 })
+  draw('IMPORTANT — CHECK NEXT MONTH', M + 10, 10.5, bold, ORANGE)
+  y -= 15; draw("Your first automatic payment may not start right away. Please make sure next month's payment was", M + 10, 8.5, font, INK)
+  y -= 11; draw('actually withdrawn from your bank account so you do not fall behind.', M + 10, 8.5, font, INK)
+
+  y -= 28; draw(`Questions? Accounts Receivable: (305) 900-5105 · ar@topfloridaproperties.com`, M, 8, font, GREY)
   y -= 11; draw(meta.signatureName ? `Electronically signed by ${meta.signatureName} on ${meta.signedOn ?? meta.generatedOn} via MAIA.` : `Pre-filled by MAIA on ${meta.generatedOn}.`, M, 7.5, font, GREY)
 
   return await doc.save()

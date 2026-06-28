@@ -21,7 +21,6 @@
 // =====================================================================
 
 import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
 import PortalDocuments from '@/components/PortalDocuments'
@@ -34,6 +33,7 @@ import { normalizePortalLang, portalStrings, isRtl } from '@/lib/portal-i18n'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { portalConfig } from '@/lib/association-portal-config'
+import { signAchToken } from '@/lib/owner-portal-token'
 
 const TYPE_LABEL: Record<string, string> = {
   condo: 'Condominium', hoa: 'HOA', coop: 'Co-op', 'co-op': 'Co-op', commercial: 'Commercial',
@@ -45,15 +45,19 @@ const prettyType = (t: string) => TYPE_LABEL[t.toLowerCase()] ?? t.replace(/_/g,
 export default async function AssociationPortal({ code, lang }: { code: string; lang?: string }) {
   const upper = code.toUpperCase()
 
-  // Association portals are private — not public micro-sites. A visitor must
-  // identify on the main page first; only PMI staff (incl. "view portal as"
-  // previews) and a logged-in resident OF THIS association may see it. Anyone
-  // else is bounced to the main page to identify (which then routes residents
-  // back to their own association). No name/address leaks to the public.
+  // The page itself is public — the board wants the general public to read an
+  // association's PUBLIC documents without identifying. The identity hero +
+  // public-document list are visible to everyone; the login gate below still
+  // protects all resident-only features (balances, full documents, requests).
+  // Resident data is rendered as children of the client-side gate, which only
+  // mounts them after a verified session — so nothing private is in the public
+  // HTML. Public documents come from a separate is_public-only endpoint.
   const sessTok = (await cookies()).get(SESSION_COOKIE)?.value
   const sess = sessTok ? await verifySession(sessTok) : null
   const allowed = sess?.persona === 'staff' || (sess?.associationCode ?? '').toUpperCase() === upper
-  if (!allowed) redirect('/')
+  // Show the public-docs section to anyone who won't already see the full
+  // gated list (the public + wrong-association visitors), plus staff for QA.
+  const showPublicDocs = !allowed || sess?.persona === 'staff'
 
   // Default to the resident's saved language preference (a ?lang= URL param —
   // e.g. from the in-page language picker — still overrides it).
@@ -83,6 +87,15 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
   const address = [row?.principal_address, row?.city, row?.state].filter(Boolean).join(', ') || null
   const cfg = portalConfig(upper)
 
+  // Owners get the new in-MAIA "Set up autopay (ACH)" link (replaces the old
+  // Google-Drive ACH form) — a secure per-account token to the online form.
+  let achHref: string | null = null
+  if (sess?.persona === 'owner' && sess.userId != null) {
+    const { data: ow } = await supabaseAdmin
+      .from('owners').select('account_number').eq('id', sess.userId).maybeSingle()
+    if (ow?.account_number) achHref = `/owner/ach/${await signAchToken(upper, String(ow.account_number))}`
+  }
+
   return (
     <main className="assoc-page" dir={rtl ? 'rtl' : 'ltr'}>
       <div className="assoc-topbar">
@@ -110,6 +123,10 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
         </div>
       </div>
 
+      {/* Public documents — visible to EVERYONE (no login). Only documents a
+          staff member marked public. Renders nothing when there are none. */}
+      {showPublicDocs && <PortalDocuments assocCode={upper} lang={L} publicOnly />}
+
       <AssociationPortalGate assocCode={upper} assocName={name} lang={L}>
 
         {/* Quick Actions — first thing an owner sees after login. */}
@@ -124,6 +141,17 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
               </div>
               <div className="prow-btn">{t.payBtn}</div>
             </a>
+
+            {achHref && (
+              <a href={achHref} className="prow">
+                <div className="prow-orb">🏦</div>
+                <div className="prow-info">
+                  <div className="prow-t">{t.achTitle}</div>
+                  <div className="prow-d">{t.achDesc}</div>
+                </div>
+                <div className="prow-btn">{t.achBtn}</div>
+              </a>
+            )}
 
             <MobileAppButton lang={L} />
 
