@@ -30,8 +30,13 @@ export interface PortalDocGroup {
 }
 
 // Stable display order, matching the taxonomy order in CATEGORIES.
-const CATEGORY_ORDER = CATEGORIES.map(c => c.key)
-const GROUP_ORDER = [...new Set(CATEGORIES.map(c => c.group))]
+// `ach_forms` is intentionally EXCLUDED from the resident portal: ACH autopay
+// now has its own personalized "Set up autopay (ACH)" button (the online form),
+// so the old static/Drive ACH PDF in the document list would be a stale
+// duplicate. Staff still manage the ach_forms category in admin.
+const PORTAL_HIDDEN_CATEGORIES = new Set(['ach_forms'])
+const CATEGORY_ORDER = CATEGORIES.map(c => c.key).filter(k => !PORTAL_HIDDEN_CATEGORIES.has(k))
+const GROUP_ORDER = [...new Set(CATEGORIES.filter(c => !PORTAL_HIDDEN_CATEGORIES.has(c.key)).map(c => c.group))]
 
 export async function getPortalDocuments(assocCode: string): Promise<PortalDocGroup[]> {
   const code = assocCode.toUpperCase()

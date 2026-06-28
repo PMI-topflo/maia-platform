@@ -38,6 +38,7 @@ export interface PortalStrings {
 
   quickActions: string
   payTitle: string; payDesc: string; payBtn: string
+  achTitle: string; achDesc: string; achBtn: string
   mobileTitle: string; mobileDesc: string; mobileBtn: string
   estoppelTitle: string; estoppelDesc: string; estoppelBtn: string
   appTitle: string; appDesc: string; appBtn: string
@@ -76,7 +77,8 @@ const en: PortalStrings = {
   headerSubtitle: 'Association Portal',
   residentPortal: 'Resident Portal',
   quickActions: 'Quick Actions',
-  payTitle: 'Pay HOA Fees', payDesc: 'Access your balance, make payments, set up ACH autopay', payBtn: 'Open Portal',
+  payTitle: 'Pay HOA Fees', payDesc: 'Access your balance and make a payment', payBtn: 'Open Portal',
+  achTitle: 'Set up Autopay (ACH) — FREE', achDesc: 'Pay automatically from your bank · drafted on the 1st · sign online in 2 minutes', achBtn: 'Set up',
   mobileTitle: 'PMI Mobile App', mobileDesc: 'Pay fees · Submit requests · Manage your account on the go', mobileBtn: 'Download',
   estoppelTitle: 'Estoppel Request – Condocerts', estoppelDesc: 'Required for property sale or refinancing · 5–7 business days', estoppelBtn: 'Submit',
   appTitle: 'Tenant / Buyer Application', appDesc: 'Board approval required · Background and credit check included', appBtn: 'Apply Now',
@@ -118,7 +120,8 @@ const es: PortalStrings = {
   headerSubtitle: 'Portal de la Asociación',
   residentPortal: 'Portal del Residente',
   quickActions: 'Acciones Rápidas',
-  payTitle: 'Pagar Cuotas HOA', payDesc: 'Consulte su saldo, realice pagos, configure el pago automático ACH', payBtn: 'Abrir Portal',
+  payTitle: 'Pagar Cuotas HOA', payDesc: 'Consulte su saldo y realice un pago', payBtn: 'Abrir Portal',
+  achTitle: 'Configurar Pago Automático (ACH) — GRATIS', achDesc: 'Pague automáticamente desde su banco · el día 1 · firme en línea en 2 minutos', achBtn: 'Configurar',
   mobileTitle: 'App Móvil PMI', mobileDesc: 'Pague cuotas · Envíe solicitudes · Administre su cuenta sobre la marcha', mobileBtn: 'Descargar',
   estoppelTitle: 'Solicitud de Estoppel – Condocerts', estoppelDesc: 'Requerido para venta o refinanciamiento · 5–7 días hábiles', estoppelBtn: 'Enviar',
   appTitle: 'Solicitud de Inquilino / Comprador', appDesc: 'Requiere aprobación de la junta · Incluye verificación de antecedentes y crédito', appBtn: 'Solicitar',
@@ -160,7 +163,8 @@ const pt: PortalStrings = {
   headerSubtitle: 'Portal da Associação',
   residentPortal: 'Portal do Residente',
   quickActions: 'Ações Rápidas',
-  payTitle: 'Pagar Taxas HOA', payDesc: 'Acesse seu saldo, faça pagamentos, configure o débito automático ACH', payBtn: 'Abrir Portal',
+  payTitle: 'Pagar Taxas HOA', payDesc: 'Acesse seu saldo e faça um pagamento', payBtn: 'Abrir Portal',
+  achTitle: 'Configurar Débito Automático (ACH) — GRÁTIS', achDesc: 'Pague automaticamente da sua conta · no dia 1 · assine online em 2 minutos', achBtn: 'Configurar',
   mobileTitle: 'Aplicativo PMI', mobileDesc: 'Pague taxas · Envie solicitações · Gerencie sua conta em qualquer lugar', mobileBtn: 'Baixar',
   estoppelTitle: 'Solicitação de Estoppel – Condocerts', estoppelDesc: 'Necessário para venda ou refinanciamento · 5–7 dias úteis', estoppelBtn: 'Enviar',
   appTitle: 'Solicitação de Inquilino / Comprador', appDesc: 'Aprovação do conselho necessária · Inclui verificação de antecedentes e crédito', appBtn: 'Inscrever-se',
@@ -202,7 +206,8 @@ const fr: PortalStrings = {
   headerSubtitle: 'Portail de l’Association',
   residentPortal: 'Portail du Résident',
   quickActions: 'Actions Rapides',
-  payTitle: 'Payer les Frais HOA', payDesc: 'Consultez votre solde, effectuez des paiements, configurez le prélèvement ACH', payBtn: 'Ouvrir le Portail',
+  payTitle: 'Payer les Frais HOA', payDesc: 'Consultez votre solde et effectuez un paiement', payBtn: 'Ouvrir le Portail',
+  achTitle: 'Configurer le Prélèvement (ACH) — GRATUIT', achDesc: 'Payez automatiquement depuis votre banque · le 1er · signez en ligne en 2 minutes', achBtn: 'Configurer',
   mobileTitle: 'Application PMI', mobileDesc: 'Payez les frais · Envoyez des demandes · Gérez votre compte en déplacement', mobileBtn: 'Télécharger',
   estoppelTitle: 'Demande d’Estoppel – Condocerts', estoppelDesc: 'Requis pour la vente ou le refinancement · 5–7 jours ouvrables', estoppelBtn: 'Envoyer',
   appTitle: 'Demande de Locataire / Acheteur', appDesc: 'Approbation du conseil requise · Vérification des antécédents et du crédit incluse', appBtn: 'Postuler',
@@ -244,7 +249,8 @@ const ht: PortalStrings = {
   headerSubtitle: 'Pòtal Asosyasyon an',
   residentPortal: 'Pòtal Rezidan an',
   quickActions: 'Aksyon Rapid',
-  payTitle: 'Peye Frè HOA', payDesc: 'Gade balans ou, fè peman, konfigire otopèman ACH', payBtn: 'Louvri Pòtal',
+  payTitle: 'Peye Frè HOA', payDesc: 'Gade balans ou epi fè yon peman', payBtn: 'Louvri Pòtal',
+  achTitle: 'Konfigire Otopèman (ACH) — GRATIS', achDesc: 'Peye otomatikman nan bank ou · nan dat 1 · siyen anliy nan 2 minit', achBtn: 'Konfigire',
   mobileTitle: 'Aplikasyon Mobil PMI', mobileDesc: 'Peye frè · Voye demann · Jere kont ou kote ou ye', mobileBtn: 'Telechaje',
   estoppelTitle: 'Demann Estoppel – Condocerts', estoppelDesc: 'Obligatwa pou vann oswa refinanse · 5–7 jou ouvrab', estoppelBtn: 'Voye',
   appTitle: 'Aplikasyon Lokatè / Achtè', appDesc: 'Apwobasyon konsèy la nesesè · Verifikasyon background ak kredi enkli', appBtn: 'Aplike',
@@ -286,7 +292,8 @@ const he: PortalStrings = {
   headerSubtitle: 'פורטל האיגוד',
   residentPortal: 'פורטל הדיירים',
   quickActions: 'פעולות מהירות',
-  payTitle: 'תשלום דמי HOA', payDesc: 'צפו ביתרה, בצעו תשלומים, הגדירו תשלום אוטומטי ACH', payBtn: 'פתח פורטל',
+  payTitle: 'תשלום דמי HOA', payDesc: 'צפו ביתרה ובצעו תשלום', payBtn: 'פתח פורטל',
+  achTitle: 'הגדרת תשלום אוטומטי (ACH) — חינם', achDesc: 'תשלום אוטומטי מחשבון הבנק · ב-1 לחודש · חתימה מקוונת ב-2 דקות', achBtn: 'הגדרה',
   mobileTitle: 'אפליקציית PMI', mobileDesc: 'שלמו דמי חבר · שלחו בקשות · נהלו את החשבון בכל מקום', mobileBtn: 'הורדה',
   estoppelTitle: 'בקשת Estoppel – Condocerts', estoppelDesc: 'נדרש למכירה או מימון מחדש · 5–7 ימי עסקים', estoppelBtn: 'שליחה',
   appTitle: 'בקשת שוכר / קונה', appDesc: 'נדרש אישור הוועד · כולל בדיקת רקע ואשראי', appBtn: 'הגשת בקשה',
@@ -328,7 +335,8 @@ const ru: PortalStrings = {
   headerSubtitle: 'Портал ассоциации',
   residentPortal: 'Портал жильца',
   quickActions: 'Быстрые действия',
-  payTitle: 'Оплата взносов HOA', payDesc: 'Просмотр баланса, оплата, настройка автоплатежа ACH', payBtn: 'Открыть портал',
+  payTitle: 'Оплата взносов HOA', payDesc: 'Просмотр баланса и оплата', payBtn: 'Открыть портал',
+  achTitle: 'Настроить автоплатёж (ACH) — БЕСПЛАТНО', achDesc: 'Автосписание из вашего банка · 1-го числа · подпишите онлайн за 2 минуты', achBtn: 'Настроить',
   mobileTitle: 'Мобильное приложение PMI', mobileDesc: 'Оплата взносов · Подача заявок · Управление счётом на ходу', mobileBtn: 'Скачать',
   estoppelTitle: 'Запрос Estoppel – Condocerts', estoppelDesc: 'Требуется при продаже или рефинансировании · 5–7 рабочих дней', estoppelBtn: 'Отправить',
   appTitle: 'Заявка арендатора / покупателя', appDesc: 'Требуется одобрение правления · Включает проверку биографии и кредита', appBtn: 'Подать заявку',

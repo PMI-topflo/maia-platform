@@ -34,6 +34,7 @@ import { normalizePortalLang, portalStrings, isRtl } from '@/lib/portal-i18n'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { portalConfig } from '@/lib/association-portal-config'
+import { signAchToken } from '@/lib/owner-portal-token'
 
 const TYPE_LABEL: Record<string, string> = {
   condo: 'Condominium', hoa: 'HOA', coop: 'Co-op', 'co-op': 'Co-op', commercial: 'Commercial',
@@ -83,6 +84,15 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
   const address = [row?.principal_address, row?.city, row?.state].filter(Boolean).join(', ') || null
   const cfg = portalConfig(upper)
 
+  // Owners get the new in-MAIA "Set up autopay (ACH)" link (replaces the old
+  // Google-Drive ACH form) — a secure per-account token to the online form.
+  let achHref: string | null = null
+  if (sess?.persona === 'owner' && sess.userId != null) {
+    const { data: ow } = await supabaseAdmin
+      .from('owners').select('account_number').eq('id', sess.userId).maybeSingle()
+    if (ow?.account_number) achHref = `/owner/ach/${await signAchToken(upper, String(ow.account_number))}`
+  }
+
   return (
     <main className="assoc-page" dir={rtl ? 'rtl' : 'ltr'}>
       <div className="assoc-topbar">
@@ -124,6 +134,17 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
               </div>
               <div className="prow-btn">{t.payBtn}</div>
             </a>
+
+            {achHref && (
+              <a href={achHref} className="prow">
+                <div className="prow-orb">🏦</div>
+                <div className="prow-info">
+                  <div className="prow-t">{t.achTitle}</div>
+                  <div className="prow-d">{t.achDesc}</div>
+                </div>
+                <div className="prow-btn">{t.achBtn}</div>
+              </a>
+            )}
 
             <MobileAppButton lang={L} />
 
