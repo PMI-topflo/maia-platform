@@ -517,6 +517,24 @@ function DocumentRow({
     onChanged()
   }
 
+  async function onTogglePublic() {
+    const makePublic = !doc.is_public
+    if (makePublic && !confirm(`Make "${doc.filename}" PUBLIC? It will be visible to ANYONE on the ${assocCode} page — no login required.`)) return
+    setBusy(true)
+    const res = await fetch(`/api/admin/associations/${assocCode}/documents/${doc.id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ action: makePublic ? 'set_public' : 'set_private' }),
+    })
+    setBusy(false)
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      alert(`Update failed: ${data?.error ?? res.status}`)
+      return
+    }
+    onChanged()
+  }
+
   async function onOpen() {
     const res = await fetch(`/api/admin/associations/${assocCode}/documents/${doc.id}`)
     if (!res.ok) {
@@ -568,6 +586,11 @@ function DocumentRow({
           <span className={`inline-flex items-center px-1.5 py-0 rounded text-[9px] font-mono uppercase ${statusStyles[doc.extraction_status] ?? 'bg-gray-100 text-gray-500'}`}>
             {doc.extraction_status}
           </span>
+          {doc.is_public && variant === 'current' && (
+            <span className="inline-flex items-center px-1.5 py-0 rounded text-[9px] font-mono font-semibold uppercase bg-blue-600 text-white">
+              🌐 Public
+            </span>
+          )}
           {doc.expiry_date && (
             <span className="text-[10px] font-mono text-amber-700">
               expires {doc.expiry_date}
@@ -604,6 +627,16 @@ function DocumentRow({
             className="text-[10px] font-mono uppercase text-green-700 hover:text-green-900 px-1.5 py-0.5 rounded border border-green-300 hover:border-green-500"
           >
             {busy ? '…' : 'Make current'}
+          </button>
+        )}
+        {variant === 'current' && (
+          <button
+            onClick={onTogglePublic}
+            disabled={busy}
+            className={`text-[10px] font-mono uppercase px-1.5 py-0.5 rounded border ${doc.is_public ? 'text-blue-700 border-blue-300 hover:border-blue-500' : 'text-gray-400 border-transparent hover:text-blue-700 hover:border-blue-200'}`}
+            title={doc.is_public ? 'Visible to the public — click to make private' : 'Private — click to publish to the public page'}
+          >
+            {busy ? '…' : doc.is_public ? 'Make private' : 'Make public'}
           </button>
         )}
         {variant === 'current' && (

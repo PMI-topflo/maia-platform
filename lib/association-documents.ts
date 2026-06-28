@@ -129,6 +129,9 @@ export interface AssociationDocument {
    *  multiple language versions of the same category — applicant picks
    *  which one to read + sign. */
   language:           string
+  /** When true, the document shows on the association's main page to the
+   *  general public (no login). Defaults false — staff opt in per document. */
+  is_public:          boolean
   created_at:         string
   updated_at:         string
 }

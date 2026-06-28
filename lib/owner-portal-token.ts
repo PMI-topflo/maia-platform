@@ -31,7 +31,7 @@ async function hmacKey(): Promise<CryptoKey> {
   return globalThis.crypto.subtle.importKey('raw', enc.encode(SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify'])
 }
 
-type PortalScope = 'owner_compliance' | 'tenant_compliance' | 'owner_ledger' | 'owner_ach'
+type PortalScope = 'owner_compliance' | 'tenant_compliance' | 'owner_ledger' | 'owner_ach' | 'owner_ach_confirm'
 interface PortalTokenPayload { assoc: string; account: string; scope: PortalScope; expiresAt: number }
 export interface OwnerTokenData { assoc: string; account: string }
 
@@ -64,3 +64,6 @@ export const verifyLedgerToken = (token: string) => verify('owner_ledger', token
 // ACH authorization form — blank form (no sensitive data), 30-day TTL.
 export const signAchToken  = (assoc: string, account: string, ttlMs: number = 30 * 24 * 60 * 60 * 1000) => sign('owner_ach', assoc, account, ttlMs)
 export const verifyAchToken = (token: string) => verify('owner_ach', token)
+// Staff "confirm autopay set up" button → emails the owner. 60-day TTL.
+export const signAchConfirmToken  = (assoc: string, account: string, ttlMs: number = 60 * 24 * 60 * 60 * 1000) => sign('owner_ach_confirm', assoc, account, ttlMs)
+export const verifyAchConfirmToken = (token: string) => verify('owner_ach_confirm', token)
