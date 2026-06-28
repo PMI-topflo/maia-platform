@@ -21,6 +21,13 @@ export interface AchFormMeta {
   association: string
   account:     string
   generatedOn: string
+  // Contact info on file (pre-filled on both the printable + signed copy).
+  email?:          string | null
+  phone?:          string | null
+  mailingAddress?: string | null
+  city?:           string | null
+  state?:          string | null
+  zip?:            string | null
   // Optional — present only on the SIGNED copy (owner completed it online).
   bankName?:         string
   accountOwnerName?: string
@@ -66,10 +73,10 @@ export async function renderAchAuthorizationPdf(meta: AchFormMeta): Promise<Uint
   y -= 20; field('Unit Number:', M + 8, 260, meta.unit ?? '')
   y -= 20; field('Property Owner Name(s):', M + 8, 500, meta.ownerName)
   y -= 20; field('Bank Account Owner Name(s):', M + 8, 500, meta.accountOwnerName ?? '')
-  y -= 20; field('Email Address:', M + 8, 500)
-  y -= 20; field('Phone Number:', M + 8, 260)
-  y -= 20; field('Mailing Address:', M + 8, 500)
-  y -= 20; field('City:', M + 8, 200); field('State:', M + 240, 320); field('Zip:', M + 380, 500)
+  y -= 20; field('Email Address:', M + 8, 500, meta.email ?? '')
+  y -= 20; field('Phone Number:', M + 8, 260, meta.phone ?? '')
+  y -= 20; field('Mailing Address:', M + 8, 500, meta.mailingAddress ?? '')
+  y -= 20; field('City:', M + 8, 200, meta.city ?? ''); field('State:', M + 240, 320, meta.state ?? ''); field('Zip:', M + 380, 500, meta.zip ?? '')
   y -= 14; box(hTop, y + 4)
 
   // Banking Information
@@ -90,7 +97,9 @@ export async function renderAchAuthorizationPdf(meta: AchFormMeta): Promise<Uint
       page.drawImage(png, { x: M + 120, y: y - 4, width: w, height: h })
     } catch { if (meta.signatureName) page.drawText(meta.signatureName, { x: M + 124, y: y + 1, size: 11, font: bold, color: INK }) }
   }
-  y -= 14; box(bTop, y + 4)
+  // Printed name of the person who signed/filled the form.
+  if (meta.signatureName) { y -= 13; draw(`Printed name: ${meta.signatureName}`, M + 8, 8.5, font, INK) }
+  y -= 12; box(bTop, y + 4)
 
   // Important Information
   y -= 24; draw('Important Information:', M + 6, 10, bold, BLUE)

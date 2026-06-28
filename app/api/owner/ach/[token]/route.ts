@@ -72,7 +72,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const accountType = accountTypeRaw === 'savings' ? 2 : 1
   const today = new Date().toISOString().slice(0, 10)
 
-  // Write to CINC (best-effort; capture the response for the audit).
+  // Write to CINC (best-effort; capture the response for the audit). setHomeownerAch
+  // catch-wraps each call, so success = the billing response carries no error.
   let cincResponse: unknown = null, cincWritten = false
   try {
     cincResponse = await setHomeownerAch({
@@ -82,7 +83,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       routing, account, accountType,
       achStartDate:      today,
     })
-    cincWritten = true
+    const billing = (cincResponse as { billing?: { error?: unknown } } | null)?.billing
+    cincWritten = !(billing && typeof billing === 'object' && 'error' in billing)
   } catch (e) {
     cincResponse = { error: e instanceof Error ? e.message : String(e) }
   }
@@ -103,9 +105,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // phone and set it up manually if the CINC write failed).
   let pdfB64 = ''
   try {
+    const mailing = [addr.StreetNumber, addr.Address].filter(Boolean).join(' ').trim() || null
     const pdf = await renderAchAuthorizationPdf({
       ownerName: o.name, unit: o.unit, address: o.address, association: o.association, account: data.account,
-      generatedOn: today, bankName, accountOwnerName: accountOwner,
+      generatedOn: today,
+      email: addr.Email ?? null, phone: addr.MobilePhone || addr.HomePhone || addr.WorkPhone || null,
+      mailingAddress: mailing, city: addr.City ?? null, state: addr.State ?? null, zip: addr.Zip ?? null,
+      bankName, accountOwnerName: accountOwner,
       accountType: accountTypeRaw as 'checking' | 'savings',
       routing, accountNumber: account, signatureName: signature, signatureImage, signedOn: today,
     })
