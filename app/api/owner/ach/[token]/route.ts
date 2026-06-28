@@ -36,7 +36,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const data = await verifyAchToken(token)
   if (!data) return NextResponse.json({ error: 'This link has expired or is invalid.' }, { status: 401 })
   const o = await ownerInfo(data.assoc, data.account)
-  return NextResponse.json({ ok: true, ...o, account: data.account, association_code: data.assoc })
+  // Contact info on file (CINC) so the form can show + let the owner confirm it.
+  const props = await listAssociationProperties(data.assoc).catch(() => [])
+  const addr  = props.find(p => String(p.PropertyHOID ?? '').toUpperCase() === data.account.toUpperCase())
+    ?.Address?.find(a => a.OwnerAddress) ?? undefined
+  return NextResponse.json({
+    ok: true, ...o, account: data.account, association_code: data.assoc,
+    email: addr?.Email ?? null,
+    phone: addr?.MobilePhone || addr?.HomePhone || addr?.WorkPhone || null,
+  })
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
@@ -53,6 +61,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const account        = str('account').replace(/\D/g, '')
   const accountTypeRaw = str('accountType').toLowerCase()   // 'checking' | 'savings'
   const signature      = str('signature')
+  const phone          = str('phone')           // confirmed/entered by the owner on the form
   const signatureImage = typeof b.signatureImage === 'string' && b.signatureImage.startsWith('data:image') ? b.signatureImage : ''
   const authorized     = b.authorized === true
 
@@ -95,7 +104,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     const pdf = await renderAchAuthorizationPdf({
       ownerName: o.name, unit: o.unit, address: o.address, association: o.association, account: data.account,
       generatedOn: today,
-      email: addr.Email ?? null, phone: addr.MobilePhone || addr.HomePhone || addr.WorkPhone || null,
+      email: addr.Email ?? null,
+      phone: phone || addr.MobilePhone || addr.HomePhone || addr.WorkPhone || null,
       mailingAddress: mailing, city: addr.City ?? null, state: addr.State ?? null, zip: addr.Zip ?? null,
       bankName, accountOwnerName: accountOwner,
       accountType: accountTypeRaw as 'checking' | 'savings',
@@ -110,6 +120,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     subject: `ACH autopay enrollment — please set up in CINC — ${o.name} (${data.assoc} ${data.account})`,
     html: `<p><strong>${o.name}</strong> (Unit ${o.unit ?? '—'}, ${o.association}, account ${data.account}, CINC PropertyID ${prop.PropertyID}) signed up for automatic ACH online.</p>
       <p>👉 Please set it up in CINC (Homeowner → Billing → <strong>Automatic ACH</strong>) using the <strong>signed form attached</strong> — it has the full routing/account.</p>
+      <p>📧 Then send an email to the unit owner${addr.Email ? ` at <strong>${addr.Email}</strong>` : ''} to confirm the autopay was set up.</p>
       <table style="font-size:13px;border-collapse:collapse">
         <tr><td style="padding:4px 10px;color:#6b7280">Bank</td><td style="padding:4px 10px">${bankName || '—'}</td></tr>
         <tr><td style="padding:4px 10px;color:#6b7280">Account owner</td><td style="padding:4px 10px">${accountOwner || '—'}</td></tr>

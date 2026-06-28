@@ -1946,9 +1946,11 @@ async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
   // MAIA-generated ACH authorization form, delivered IN-APP (not a Drive
   // folder). For association owners we mint a secure link + offer to email it.
   let achLine: string
+  let payUnit: OwnerUnit | undefined
   if (ctx.persona === 'homeowner') {
     const units = await resolveOwnerUnits(ctx.phone)
     const u = units.find(x => x.assoc === ctx.associationId) ?? units[0]
+    payUnit = u
     if (u) {
       const base    = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
       const tok     = await signAchToken(u.assoc, u.account)
@@ -1979,15 +1981,37 @@ async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
     })
   }
 
-  const rest = translate(ctx.language, {
-    en: `\n\n2️⃣ *Pay online* (portal): https://pmitfp.cincwebaxis.com/\n\n3️⃣ *Check by mail* — payable to the full HOA name, account # in the memo:\nPMI, P.O. Box 163556, Miami FL 33116 🌸`,
-    es: `\n\n2️⃣ *Pagar en línea*: https://pmitfp.cincwebaxis.com/\n\n3️⃣ *Cheque* — a nombre de la HOA, con el # de cuenta en el memo:\nPMI, P.O. Box 163556, Miami FL 33116 🌸`,
-    pt: `\n\n2️⃣ *Pagar online*: https://pmitfp.cincwebaxis.com/\n\n3️⃣ *Cheque* — nominal à HOA, com o nº da conta no memo:\nPMI, P.O. Box 163556, Miami FL 33116 🌸`,
-    fr: `\n\n2️⃣ *Payer en ligne* : https://pmitfp.cincwebaxis.com/\n\n3️⃣ *Chèque* : PMI, P.O. Box 163556, Miami FL 33116 🌸`,
-    he: `\n\n2️⃣ *תשלום מקוון*: https://pmitfp.cincwebaxis.com/\n\n3️⃣ *המחאה*: PMI, P.O. Box 163556, Miami FL 33116 🌸`,
-    ru: `\n\n2️⃣ *Оплата онлайн*: https://pmitfp.cincwebaxis.com/\n\n3️⃣ *Чек*: PMI, P.O. Box 163556, Miami FL 33116 🌸`,
-    ht: `\n\n2️⃣ *Peye anliy*: https://pmitfp.cincwebaxis.com/\n\n3️⃣ *Chèk*: PMI, P.O. Box 163556, Miami FL 33116 🌸`,
+  // Check section — when we know the unit, name the association + the exact
+  // account number to write in the memo, and say where to mail it.
+  const payTo  = payUnit?.associationName
+  const acctNo = payUnit?.account
+  const check = (payTo && acctNo) ? translate(ctx.language, {
+    en: `\n\n3️⃣ *Check by mail*\n• Make it payable to: *${payTo}*\n• In the memo, write your account number: *${acctNo}*\n• Mail the check to:\nPMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    es: `\n\n3️⃣ *Cheque por correo*\n• A nombre de: *${payTo}*\n• En el memo, escribe tu número de cuenta: *${acctNo}*\n• Envía el cheque a:\nPMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    pt: `\n\n3️⃣ *Cheque pelo correio*\n• Nominal a: *${payTo}*\n• No memo, escreva o seu número de conta: *${acctNo}*\n• Envie o cheque para:\nPMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    fr: `\n\n3️⃣ *Chèque par courrier*\n• À l'ordre de : *${payTo}*\n• Dans le mémo, écrivez votre numéro de compte : *${acctNo}*\n• Envoyez le chèque à :\nPMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    he: `\n\n3️⃣ *המחאה בדואר*\n• לפקודת: *${payTo}*\n• ברשומה כתוב את מספר החשבון שלך: *${acctNo}*\n• שלח את ההמחאה אל:\nPMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    ru: `\n\n3️⃣ *Чек по почте*\n• Получатель: *${payTo}*\n• В примечании укажите номер счёта: *${acctNo}*\n• Отправьте чек по адресу:\nPMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    ht: `\n\n3️⃣ *Chèk pa lapòs*\n• Fè l peyab a: *${payTo}*\n• Nan memo a, ekri nimewo kont ou: *${acctNo}*\n• Voye chèk la nan:\nPMI, P.O. Box 163556, Miami FL 33116 🌸`,
+  }) : translate(ctx.language, {
+    en: `\n\n3️⃣ *Check by mail* — make it payable to your association's full name, and write your account number in the memo.\nMail the check to: PMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    es: `\n\n3️⃣ *Cheque por correo* — a nombre de tu asociación, con tu número de cuenta en el memo.\nEnvía el cheque a: PMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    pt: `\n\n3️⃣ *Cheque pelo correio* — nominal à sua associação, com o seu número de conta no memo.\nEnvie o cheque para: PMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    fr: `\n\n3️⃣ *Chèque par courrier* — à l'ordre de votre association, avec votre numéro de compte dans le mémo.\nEnvoyez le chèque à : PMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    he: `\n\n3️⃣ *המחאה בדואר* — לפקודת האגודה שלך, עם מספר החשבון ברשומה.\nשלח את ההמחאה אל: PMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    ru: `\n\n3️⃣ *Чек по почте* — на имя вашей ассоциации, с номером счёта в примечании.\nОтправьте чек по адресу: PMI, P.O. Box 163556, Miami FL 33116 🌸`,
+    ht: `\n\n3️⃣ *Chèk pa lapòs* — peyab a asosyasyon ou, ak nimewo kont ou nan memo a.\nVoye chèk la nan: PMI, P.O. Box 163556, Miami FL 33116 🌸`,
   })
+  const payOnline = translate(ctx.language, {
+    en: `\n\n2️⃣ *Pay online* (portal): https://pmitfp.cincwebaxis.com/`,
+    es: `\n\n2️⃣ *Pagar en línea*: https://pmitfp.cincwebaxis.com/`,
+    pt: `\n\n2️⃣ *Pagar online*: https://pmitfp.cincwebaxis.com/`,
+    fr: `\n\n2️⃣ *Payer en ligne* : https://pmitfp.cincwebaxis.com/`,
+    he: `\n\n2️⃣ *תשלום מקוון*: https://pmitfp.cincwebaxis.com/`,
+    ru: `\n\n2️⃣ *Оплата онлайн*: https://pmitfp.cincwebaxis.com/`,
+    ht: `\n\n2️⃣ *Peye anliy*: https://pmitfp.cincwebaxis.com/`,
+  })
+  const rest = payOnline + check
 
   const header = translate(ctx.language, { en: `💰 Hi ${name}! Ways to pay your association:\n\n`, es: `💰 ¡Hola ${name}! Formas de pagar tu asociación:\n\n`, pt: `💰 Olá ${name}! Formas de pagar sua associação:\n\n`, fr: `💰 Bonjour ${name}!\n\n`, he: `💰 שלום ${name}!\n\n`, ru: `💰 Привет ${name}!\n\n`, ht: `💰 Bonjou ${name}!\n\n` })
   return header + achLine + rest
