@@ -17,11 +17,10 @@
 import { useEffect, useState } from 'react'
 import { normalizePortalLang, portalStrings } from '@/lib/portal-i18n'
 
-const REGISTER_URL = 'https://pmitopfloridaproperties.rentvine.com/public/apply?unitID=38'
-
-export default function FinancialsAccessButton({ lang }: { lang?: string }) {
+export default function FinancialsAccessButton({ lang, assocCode }: { lang?: string; assocCode: string }) {
   const t = portalStrings(normalizePortalLang(lang))
   const [open, setOpen] = useState(false)
+  const a = encodeURIComponent(assocCode)
 
   useEffect(() => {
     if (!open) return
@@ -32,11 +31,12 @@ export default function FinancialsAccessButton({ lang }: { lang?: string }) {
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev }
   }, [open])
 
-  const roles: { key: string; label: string }[] = [
-    { key: 'tenant_applicant', label: t.roleTenant },
-    { key: 'buyer_applicant',  label: t.roleBuyer },
-    { key: 'listing_agent',    label: t.roleListing },
-    { key: 'applicant_agent',  label: t.roleApplicantAgent },
+  // Each role starts the matching application flow (which grants financials).
+  const roles: { key: string; label: string; href: string }[] = [
+    { key: 'tenant_applicant', label: t.roleTenant,         href: `/apply/applicant?assoc=${a}&role=tenant` },
+    { key: 'buyer_applicant',  label: t.roleBuyer,          href: `/apply/applicant?assoc=${a}&role=buyer` },
+    { key: 'listing_agent',    label: t.roleListing,        href: `/apply/list?assoc=${a}` },
+    { key: 'applicant_agent',  label: t.roleApplicantAgent, href: `/apply/agent?assoc=${a}` },
   ]
 
   return (
@@ -81,9 +81,7 @@ export default function FinancialsAccessButton({ lang }: { lang?: string }) {
               {roles.map(r => (
                 <a
                   key={r.key}
-                  href={`${REGISTER_URL}&role=${r.key}`}
-                  target="_blank"
-                  rel="noreferrer"
+                  href={r.href}
                   className="prow"
                   style={{ textDecoration: 'none' }}
                 >

@@ -241,7 +241,7 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
 
               {/* Budget & financials are NOT openly public — identify (applicant/
                   agent) to start registration, or owners log in. */}
-              <FinancialsAccessButton lang={L} />
+              <FinancialsAccessButton lang={L} assocCode={upper} />
             </div>
           </section>
 
