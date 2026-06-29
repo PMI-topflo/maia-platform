@@ -123,9 +123,28 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
         </div>
       </div>
 
-      {/* Public documents — visible to EVERYONE (no login). Only documents a
-          staff member marked public. Renders nothing when there are none. */}
-      {showPublicDocs && <PortalDocuments assocCode={upper} lang={L} publicOnly />}
+      {/* PUBLIC view — visible to EVERYONE (no login, no identification asked).
+          A short intro, the public documents (only those staff marked public),
+          and how to reach us. The login gate below is collapsed by default. */}
+      {showPublicDocs && (
+        <>
+          <section className="section">
+            <p style={{ color: 'var(--muted)', fontSize: '0.9rem', maxWidth: '46ch' }}>{t.publicIntro}</p>
+          </section>
+
+          <PortalDocuments assocCode={upper} lang={L} publicOnly />
+
+          <div className="sh">
+            <div className="sh-orb">📞</div>
+            <div className="sh-t">{t.contactTitle}</div>
+            <div className="sh-s">{t.contactHours}</div>
+            <div className="sh-line" />
+          </div>
+          <section className="section" style={{ paddingTop: 0 }}>
+            <AskMaiaButton label="💬 ASK MAIA →" className="prow-btn" />
+          </section>
+        </>
+      )}
 
       <AssociationPortalGate assocCode={upper} assocName={name} lang={L}>
 
