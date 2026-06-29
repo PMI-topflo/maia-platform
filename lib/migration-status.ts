@@ -44,6 +44,122 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'application_stakeholders',
+    label:       'Application stakeholders (leasing/sale)',
+    description: 'unit_listings + applications + application_stakeholders + application_documents — collaborative application foundation (listing agent, owner, applicant agent, applicants) + application-docs storage bucket',
+    filename:    '20260628_application_stakeholders.sql',
+    artifact:    { type: 'table', table: 'unit_listings' },
+    sql: `CREATE TABLE IF NOT EXISTS public.unit_listings (
+  id                     uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code       text        NOT NULL,
+  account_number         text,
+  unit_label             text,
+  listing_type           text        CHECK (listing_type IN ('rent', 'sale')),
+  status                 text        NOT NULL DEFAULT 'open',
+  unit_vacant            boolean,
+  prior_tenant_moved_out boolean,
+  prior_lease_ref        text,
+  owner_validated_at     timestamptz,
+  created_by_role        text,
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS unit_listings_assoc_unit_idx ON public.unit_listings (association_code, account_number, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.listing_applications (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  listing_id      uuid        NOT NULL REFERENCES public.unit_listings(id) ON DELETE CASCADE,
+  status          text        NOT NULL DEFAULT 'started',
+  created_by_role text,
+  started_at      timestamptz NOT NULL DEFAULT now(),
+  completed_at    timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS listing_applications_listing_idx ON public.listing_applications (listing_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.application_stakeholders (
+  id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  listing_id     uuid        REFERENCES public.unit_listings(id) ON DELETE CASCADE,
+  application_id uuid        REFERENCES public.listing_applications(id)   ON DELETE CASCADE,
+  role           text        NOT NULL CHECK (role IN ('listing_agent', 'owner', 'applicant_agent', 'applicant')),
+  name           text,
+  email          text,
+  phone          text,
+  is_primary     boolean     NOT NULL DEFAULT false,
+  token_nonce    text        NOT NULL DEFAULT gen_random_uuid()::text,
+  status         text        NOT NULL DEFAULT 'invited',
+  notified_at    timestamptz,
+  started_at     timestamptz,
+  completed_at   timestamptz,
+  added_by_role  text,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT stakeholder_attached_once CHECK ((listing_id IS NOT NULL)::int + (application_id IS NOT NULL)::int = 1)
+);
+CREATE INDEX IF NOT EXISTS app_stakeholders_listing_idx     ON public.application_stakeholders (listing_id);
+CREATE INDEX IF NOT EXISTS app_stakeholders_application_idx ON public.application_stakeholders (application_id);
+CREATE INDEX IF NOT EXISTS app_stakeholders_email_idx       ON public.application_stakeholders (lower(email));
+
+CREATE TABLE IF NOT EXISTS public.application_documents (
+  id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  listing_id     uuid        REFERENCES public.unit_listings(id) ON DELETE CASCADE,
+  application_id uuid        REFERENCES public.listing_applications(id)   ON DELETE CASCADE,
+  stakeholder_id uuid        REFERENCES public.application_stakeholders(id) ON DELETE SET NULL,
+  kind           text        NOT NULL CHECK (kind IN ('listing_agreement', 'lease', 'purchase_agreement', 'applicant_id', 'other')),
+  storage_path   text        NOT NULL,
+  filename       text        NOT NULL,
+  mime_type      text,
+  uploaded_by_role text,
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS app_documents_listing_idx     ON public.application_documents (listing_id);
+CREATE INDEX IF NOT EXISTS app_documents_application_idx ON public.application_documents (application_id);
+
+INSERT INTO storage.buckets (id, name, public) VALUES ('application-docs', 'application-docs', false) ON CONFLICT (id) DO NOTHING;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.unit_listings            TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.listing_applications            TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.application_stakeholders TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.application_documents    TO service_role;
+
+ALTER TABLE public.unit_listings            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.listing_applications           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.application_stakeholders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.application_documents    ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "service_role_all_unit_listings"            ON public.unit_listings;
+DROP POLICY IF EXISTS "service_role_all_listing_applications" ON public.listing_applications;
+DROP POLICY IF EXISTS "service_role_all_application_stakeholders" ON public.application_stakeholders;
+DROP POLICY IF EXISTS "service_role_all_application_documents"    ON public.application_documents;
+CREATE POLICY "service_role_all_unit_listings"            ON public.unit_listings            FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_listing_applications" ON public.listing_applications             FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_application_stakeholders" ON public.application_stakeholders FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_application_documents"    ON public.application_documents    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'association_documents_public_default',
+    label:       'Association docs — public by default (sensitive excluded)',
+    description: 'is_public defaults TRUE + flips docs public EXCEPT financials/budget/leases_resale (those stay private behind registration/login)',
+    filename:    '20260628_association_documents_public_default.sql',
+    artifact:    { type: 'column', table: 'association_documents', column: 'is_public' },
+    sql: `ALTER TABLE public.association_documents
+  ALTER COLUMN is_public SET DEFAULT true;
+
+UPDATE public.association_documents
+  SET is_public = true
+  WHERE is_public = false
+    AND category NOT IN ('financials', 'budget', 'leases_resale');
+
+UPDATE public.association_documents
+  SET is_public = false
+  WHERE category IN ('financials', 'budget', 'leases_resale');
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'association_documents_is_public',
     label:       'Association docs — public flag',
     description: 'is_public on association_documents — staff opt documents into the no-login public view on the association page',

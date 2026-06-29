@@ -34,6 +34,9 @@ interface Props {
   assocName: string
   children:  React.ReactNode
   lang?:     string
+  /** Public-visitor content shown to the LEFT of the optional resident-login
+   *  affordance (only rendered in the public 'login' state). */
+  publicHeader?: React.ReactNode
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -55,7 +58,7 @@ const PREVIEW_ICON: Record<Exclude<PreviewPersona, 'visitor'>, string> = {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function AssociationPortalGate({ assocCode, assocName, children, lang }: Props) {
+export default function AssociationPortalGate({ assocCode, assocName, children, lang, publicHeader }: Props) {
   const langCode = normalizePortalLang(lang)
   const t = portalStrings(langCode)
   const PERSONA_LABEL: Record<string, string> = {
@@ -80,6 +83,9 @@ export default function AssociationPortalGate({ assocCode, assocName, children, 
   const [lookupPhone,        setLookupPhone]       = useState('')
   const [prevDetails,        setPrevDetails]       = useState<PrevMemberDetails | null>(null)
   const [wrongAssocSession,  setWrongAssocSession] = useState<SessionData | null>(null)
+  // Public visitors are NOT asked to identify — the login form stays collapsed
+  // behind an optional "Residents — log in" affordance until they choose it.
+  const [showLogin,          setShowLogin]         = useState(false)
 
   // Staff preview mode (?preview=visitor|owner|board|onsite_manager) — lets
   // staff see the portal the way each persona sees it, instead of always
@@ -340,53 +346,70 @@ export default function AssociationPortalGate({ assocCode, assocName, children, 
   return (
     <div>
     {preview === 'visitor' && <PreviewBanner prefix={t.previewPrefix} who={PREVIEW_AS_TEXT.visitor} />}
-    <div className="flex justify-center py-10 px-6">
-      <div className="w-full max-w-sm">
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
-          <div className="text-center mb-7">
-            <div className="text-3xl mb-3">🔐</div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">{t.residentPortal}</h2>
-            <p className="text-sm text-gray-500 leading-relaxed">
-              {t.loginInstr}
-            </p>
-          </div>
+    <div className="max-w-5xl mx-auto px-6 py-7">
+      {/* Top row: public intro on the LEFT, optional resident login on the
+          RIGHT. No identification is asked of a visitor — the form only opens
+          if they choose "Residents — log in". */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
+        <div className="flex-1 min-w-0">{publicHeader}</div>
+        {!showLogin && (
+          <button
+            onClick={() => setShowLogin(true)}
+            className="shrink-0 inline-flex items-center gap-2 text-sm font-semibold text-[#f26a1b] hover:text-[#f58140] border border-[#f26a1b]/30 hover:border-[#f26a1b] rounded-full px-5 py-2.5 transition-colors whitespace-nowrap"
+          >
+            🔑 {t.residentLoginCta}
+          </button>
+        )}
+      </div>
 
-          <form onSubmit={handleLookup} className="space-y-4">
-            <div>
-              <label className="block text-[0.68rem] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                {t.loginLabel}
-              </label>
-              <input
-                type="text"
-                value={identifier}
-                onChange={e => { setIdentifier(e.target.value); setError('') }}
-                placeholder={t.loginPlaceholder}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#f26a1b]/30 focus:border-[#f26a1b] transition-shadow"
-                autoFocus
-                autoComplete="email"
-                dir="ltr"
-              />
+      {showLogin && (
+        <div className="w-full max-w-sm mt-5 sm:ml-auto sm:mr-0">
+          <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
+            <div className="text-center mb-7">
+              <div className="text-3xl mb-3">🔐</div>
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">{t.residentPortal}</h2>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                {t.loginInstr}
+              </p>
             </div>
 
-            {error && <p className="text-xs text-red-500">{error}</p>}
+            <form onSubmit={handleLookup} className="space-y-4">
+              <div>
+                <label className="block text-[0.68rem] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                  {t.loginLabel}
+                </label>
+                <input
+                  type="text"
+                  value={identifier}
+                  onChange={e => { setIdentifier(e.target.value); setError('') }}
+                  placeholder={t.loginPlaceholder}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#f26a1b]/30 focus:border-[#f26a1b] transition-shadow"
+                  autoFocus
+                  autoComplete="email"
+                  dir="ltr"
+                />
+              </div>
 
-            <button
-              type="submit"
-              disabled={busy || identifier.trim().length < 5}
-              className="w-full bg-[#f26a1b] hover:bg-[#f58140] disabled:opacity-50 text-white font-semibold text-sm py-2.5 rounded-lg transition-colors"
-            >
-              {busy ? t.loginLookingUp : t.continueBtn}
-            </button>
-          </form>
+              {error && <p className="text-xs text-red-500">{error}</p>}
+
+              <button
+                type="submit"
+                disabled={busy || identifier.trim().length < 5}
+                className="w-full bg-[#f26a1b] hover:bg-[#f58140] disabled:opacity-50 text-white font-semibold text-sm py-2.5 rounded-lg transition-colors"
+              >
+                {busy ? t.loginLookingUp : t.continueBtn}
+              </button>
+            </form>
+          </div>
+
+          <button
+            onClick={() => { setShowLogin(false); setError(''); setIdentifier('') }}
+            className="block w-full text-center text-xs text-gray-400 hover:text-gray-700 mt-4"
+          >
+            ✕ {t.residentLoginHide}
+          </button>
         </div>
-
-        <p className="text-center text-xs text-gray-400 mt-4">
-          {t.notResident}{' '}
-          <Link href="/" className="text-[#f26a1b] hover:underline">
-            {t.visitMain}
-          </Link>
-        </p>
-      </div>
+      )}
     </div>
     </div>
   )

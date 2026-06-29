@@ -21,6 +21,7 @@
 // =====================================================================
 
 import { cookies } from 'next/headers'
+import Link from 'next/link'
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
 import PortalDocuments from '@/components/PortalDocuments'
@@ -28,6 +29,7 @@ import MobileAppButton from '@/components/MobileAppButton'
 import ContactTickets from '@/components/ContactTickets'
 import AskMaiaButton from '@/components/AskMaiaButton'
 import ApplicationButton from '@/components/ApplicationButton'
+import FinancialsAccessButton from '@/components/FinancialsAccessButton'
 import PortalLangBar from '@/components/PortalLangBar'
 import { normalizePortalLang, portalStrings, isRtl } from '@/lib/portal-i18n'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
@@ -113,7 +115,7 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
           <div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', fontWeight: 400, lineHeight: 1.15 }}>{name}</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.85, marginTop: '0.35rem' }}>
-              {t.residentPortal}{type ? ` · ${type}` : ''}{statute ? ` · ${statute}` : ''}
+              {t.siteLabel}{type ? ` · ${type}` : ''}{statute ? ` · ${statute}` : ''}
             </div>
             {address && <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.2rem' }}>{address}</div>}
           </div>
@@ -123,11 +125,21 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
         </div>
       </div>
 
-      {/* Public documents — visible to EVERYONE (no login). Only documents a
-          staff member marked public. Renders nothing when there are none. */}
-      {showPublicDocs && <PortalDocuments assocCode={upper} lang={L} publicOnly />}
-
-      <AssociationPortalGate assocCode={upper} assocName={name} lang={L}>
+      {/* The gate renders the PUBLIC top row (intro on the left, optional
+          resident login on the right) for visitors, or the resident body for a
+          logged-in resident. Public sections (actions, docs, contact) follow
+          below for everyone who isn't a logged-in resident of this association. */}
+      <AssociationPortalGate
+        assocCode={upper}
+        assocName={name}
+        lang={L}
+        publicHeader={
+          <>
+            <p style={{ color: 'var(--muted)', fontSize: '0.9rem', maxWidth: '52ch' }}>{t.publicIntro}</p>
+            <p style={{ color: 'var(--muted)', fontSize: '0.82rem', maxWidth: '52ch', marginTop: '0.4rem', opacity: 0.85 }}>🔒 {t.publicMoreInfo}</p>
+          </>
+        }
+      >
 
         {/* Quick Actions — first thing an owner sees after login. */}
         <section className="section">
@@ -192,6 +204,60 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
         />
 
       </AssociationPortalGate>
+
+      {/* PUBLIC sections (no login) — actions for non-residents, the public
+          documents, and how to reach us. Hidden from a logged-in resident of
+          this association (they see the full gated body above). */}
+      {showPublicDocs && (
+        <>
+          {/* Public actions — prospective tenants/buyers (Application), closing
+              agents (Estoppel), and service providers (Vendor registration). */}
+          <section className="section">
+            <h2 className="section-title">{t.quickActions}</h2>
+            <div className="prow-grid">
+              {!cfg.hideApplication && (
+                <ApplicationButton assocCode={upper} lang={L} publicOnly />
+              )}
+
+              {!cfg.hideEstoppel && (
+                <a href="https://topfloridaproperties.condocerts.com/resale/" target="_blank" rel="noreferrer" className="prow">
+                  <div className="prow-orb">🖨️</div>
+                  <div className="prow-info">
+                    <div className="prow-t">{t.estoppelTitle}</div>
+                    <div className="prow-d">{t.estoppelDesc}</div>
+                  </div>
+                  <div className="prow-btn">{t.estoppelBtn}</div>
+                </a>
+              )}
+
+              <Link href="/register/vendor" className="prow">
+                <div className="prow-orb">🛠️</div>
+                <div className="prow-info">
+                  <div className="prow-t">{t.vendorTitle}</div>
+                  <div className="prow-d">{t.vendorDesc}</div>
+                </div>
+                <div className="prow-btn">{t.vendorBtn}</div>
+              </Link>
+
+              {/* Budget & financials are NOT openly public — identify (applicant/
+                  agent) to start registration, or owners log in. */}
+              <FinancialsAccessButton lang={L} assocCode={upper} />
+            </div>
+          </section>
+
+          <PortalDocuments assocCode={upper} lang={L} publicOnly />
+
+          <div className="sh">
+            <div className="sh-orb">📞</div>
+            <div className="sh-t">{t.contactTitle}</div>
+            <div className="sh-s">{t.contactHours}</div>
+            <div className="sh-line" />
+          </div>
+          <section className="section" style={{ paddingTop: 0 }}>
+            <AskMaiaButton label="💬 ASK MAIA →" className="prow-btn" />
+          </section>
+        </>
+      )}
     </main>
   )
 }

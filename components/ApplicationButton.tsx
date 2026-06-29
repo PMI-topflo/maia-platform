@@ -25,7 +25,7 @@ const APPLICATION_FORMS_LABEL = 'Application Forms'
 interface PortalDoc { id: string; category_label: string; filename: string; download_url: string }
 interface PortalDocGroup { docs: PortalDoc[] }
 
-export default function ApplicationButton({ assocCode, lang }: { assocCode: string; lang?: string }) {
+export default function ApplicationButton({ assocCode, lang, publicOnly }: { assocCode: string; lang?: string; publicOnly?: boolean }) {
   const t = portalStrings(normalizePortalLang(lang))
   const [open, setOpen] = useState(false)
   const [pkg, setPkg] = useState<PortalDoc[] | null>(null)  // null = not yet loaded
@@ -44,9 +44,14 @@ export default function ApplicationButton({ assocCode, lang }: { assocCode: stri
   }, [open])
 
   // Lazily fetch the association's "Application Forms" docs when first opened.
+  // Public visitors (prospective tenants/buyers aren't logged-in residents) use
+  // the no-login endpoint, which returns only is_public documents.
   useEffect(() => {
     if (!open || pkg !== null) return
-    fetch(`/api/portal/documents?assoc=${encodeURIComponent(assocCode)}`, { cache: 'no-store' })
+    const docsUrl = publicOnly
+      ? `/api/portal/documents/public?assoc=${encodeURIComponent(assocCode)}`
+      : `/api/portal/documents?assoc=${encodeURIComponent(assocCode)}`
+    fetch(docsUrl, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : Promise.reject())
       .then((d: { groups?: PortalDocGroup[] }) => {
         const docs = (d.groups ?? [])
@@ -55,7 +60,7 @@ export default function ApplicationButton({ assocCode, lang }: { assocCode: stri
         setPkg(docs)
       })
       .catch(() => setPkg([]))
-  }, [open, pkg, assocCode])
+  }, [open, pkg, assocCode, publicOnly])
 
   return (
     <>
