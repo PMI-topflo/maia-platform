@@ -124,63 +124,21 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
         </div>
       </div>
 
-      {/* PUBLIC view — visible to EVERYONE (no login, no identification asked).
-          A short intro, the public documents (only those staff marked public),
-          and how to reach us. The login gate below is collapsed by default. */}
-      {showPublicDocs && (
-        <>
-          <section className="section">
+      {/* The gate renders the PUBLIC top row (intro on the left, optional
+          resident login on the right) for visitors, or the resident body for a
+          logged-in resident. Public sections (actions, docs, contact) follow
+          below for everyone who isn't a logged-in resident of this association. */}
+      <AssociationPortalGate
+        assocCode={upper}
+        assocName={name}
+        lang={L}
+        publicHeader={
+          <>
             <p style={{ color: 'var(--muted)', fontSize: '0.9rem', maxWidth: '52ch' }}>{t.publicIntro}</p>
             <p style={{ color: 'var(--muted)', fontSize: '0.82rem', maxWidth: '52ch', marginTop: '0.4rem', opacity: 0.85 }}>🔒 {t.publicMoreInfo}</p>
-          </section>
-
-          {/* Public actions — for people who are NOT residents: prospective
-              tenants/buyers (Application), closing agents (Estoppel), and
-              service providers (Vendor registration). No login required. */}
-          <section className="section">
-            <h2 className="section-title">{t.quickActions}</h2>
-            <div className="prow-grid">
-              {!cfg.hideApplication && (
-                <ApplicationButton assocCode={upper} lang={L} publicOnly />
-              )}
-
-              {!cfg.hideEstoppel && (
-                <a href="https://topfloridaproperties.condocerts.com/resale/" target="_blank" rel="noreferrer" className="prow">
-                  <div className="prow-orb">🖨️</div>
-                  <div className="prow-info">
-                    <div className="prow-t">{t.estoppelTitle}</div>
-                    <div className="prow-d">{t.estoppelDesc}</div>
-                  </div>
-                  <div className="prow-btn">{t.estoppelBtn}</div>
-                </a>
-              )}
-
-              <Link href="/register/vendor" className="prow">
-                <div className="prow-orb">🛠️</div>
-                <div className="prow-info">
-                  <div className="prow-t">{t.vendorTitle}</div>
-                  <div className="prow-d">{t.vendorDesc}</div>
-                </div>
-                <div className="prow-btn">{t.vendorBtn}</div>
-              </Link>
-            </div>
-          </section>
-
-          <PortalDocuments assocCode={upper} lang={L} publicOnly />
-
-          <div className="sh">
-            <div className="sh-orb">📞</div>
-            <div className="sh-t">{t.contactTitle}</div>
-            <div className="sh-s">{t.contactHours}</div>
-            <div className="sh-line" />
-          </div>
-          <section className="section" style={{ paddingTop: 0 }}>
-            <AskMaiaButton label="💬 ASK MAIA →" className="prow-btn" />
-          </section>
-        </>
-      )}
-
-      <AssociationPortalGate assocCode={upper} assocName={name} lang={L}>
+          </>
+        }
+      >
 
         {/* Quick Actions — first thing an owner sees after login. */}
         <section className="section">
@@ -245,6 +203,56 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
         />
 
       </AssociationPortalGate>
+
+      {/* PUBLIC sections (no login) — actions for non-residents, the public
+          documents, and how to reach us. Hidden from a logged-in resident of
+          this association (they see the full gated body above). */}
+      {showPublicDocs && (
+        <>
+          {/* Public actions — prospective tenants/buyers (Application), closing
+              agents (Estoppel), and service providers (Vendor registration). */}
+          <section className="section">
+            <h2 className="section-title">{t.quickActions}</h2>
+            <div className="prow-grid">
+              {!cfg.hideApplication && (
+                <ApplicationButton assocCode={upper} lang={L} publicOnly />
+              )}
+
+              {!cfg.hideEstoppel && (
+                <a href="https://topfloridaproperties.condocerts.com/resale/" target="_blank" rel="noreferrer" className="prow">
+                  <div className="prow-orb">🖨️</div>
+                  <div className="prow-info">
+                    <div className="prow-t">{t.estoppelTitle}</div>
+                    <div className="prow-d">{t.estoppelDesc}</div>
+                  </div>
+                  <div className="prow-btn">{t.estoppelBtn}</div>
+                </a>
+              )}
+
+              <Link href="/register/vendor" className="prow">
+                <div className="prow-orb">🛠️</div>
+                <div className="prow-info">
+                  <div className="prow-t">{t.vendorTitle}</div>
+                  <div className="prow-d">{t.vendorDesc}</div>
+                </div>
+                <div className="prow-btn">{t.vendorBtn}</div>
+              </Link>
+            </div>
+          </section>
+
+          <PortalDocuments assocCode={upper} lang={L} publicOnly />
+
+          <div className="sh">
+            <div className="sh-orb">📞</div>
+            <div className="sh-t">{t.contactTitle}</div>
+            <div className="sh-s">{t.contactHours}</div>
+            <div className="sh-line" />
+          </div>
+          <section className="section" style={{ paddingTop: 0 }}>
+            <AskMaiaButton label="💬 ASK MAIA →" className="prow-btn" />
+          </section>
+        </>
+      )}
     </main>
   )
 }
