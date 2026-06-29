@@ -20,6 +20,7 @@ function ApplicantForm() {
   const [err, setErr]   = useState<string | null>(null)
   const [f, setF] = useState({ applicantName: '', applicantEmail: '', applicantPhone: '', agentName: '', agentEmail: '', agentPhone: '', unit: '' })
   const [file, setFile] = useState<File | null>(null)
+  const [handoff, setHandoff] = useState<{ id: string; unit: string } | null>(null)
 
   async function submit() {
     setErr(null)
@@ -34,9 +35,14 @@ function ApplicantForm() {
       const res = await fetch('/api/apply/applicant', { method: 'POST', body: fd })
       const d = await res.json()
       if (!res.ok) { setErr(d.error ?? 'Something went wrong.'); return }
+      if (d.listingApplicationId) setHandoff({ id: d.listingApplicationId, unit: d.unit ?? f.unit })
       setDone(true)
     } catch { setErr('Network error — please try again.') } finally { setBusy(false) }
   }
+
+  const fullApplyHref = handoff
+    ? `/apply?listingApp=${encodeURIComponent(handoff.id)}&assoc=${encodeURIComponent(assoc)}&unit=${encodeURIComponent(handoff.unit)}`
+    : `/apply?assoc=${encodeURIComponent(assoc)}`
 
   const wrap: React.CSSProperties = { maxWidth: 520, margin: '0 auto', padding: 24, fontFamily: 'system-ui, sans-serif', color: '#1a1a1a' }
   const field: React.CSSProperties = { width: '100%', padding: '10px 12px', fontSize: 15, border: '1px solid #d1d5db', borderRadius: 8, boxSizing: 'border-box', marginTop: 4 }
@@ -45,8 +51,13 @@ function ApplicantForm() {
 
   if (done) return (
     <div style={wrap}>
-      <h1 style={{ color: '#f26a1b' }}>✅ Application started</h1>
-      <p>Thanks, {f.applicantName.split(' ')[0]}! We&apos;ve recorded your start for <strong>Unit {f.unit}</strong>{f.agentEmail ? ' and notified your agent' : ''}. Check your email for your access to the association&apos;s budget &amp; financials.</p>
+      <h1 style={{ color: '#f26a1b' }}>✅ You&apos;re registered</h1>
+      <p>Thanks, {f.applicantName.split(' ')[0]}! We&apos;ve recorded your interest in <strong>Unit {f.unit}</strong>{f.agentEmail ? ' and notified your agent' : ''}, and emailed you access to the association&apos;s budget &amp; financials.</p>
+      <p style={{ marginTop: 18, fontWeight: 600 }}>Next: complete your full application (documents, background check, and fee).</p>
+      <a href={fullApplyHref}
+        style={{ display: 'block', textAlign: 'center', marginTop: 12, padding: 14, fontSize: 16, fontWeight: 700, color: '#fff', background: '#f26a1b', borderRadius: 8, textDecoration: 'none' }}>
+        Continue to my full application →
+      </a>
     </div>
   )
 

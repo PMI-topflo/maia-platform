@@ -58,7 +58,8 @@ export async function POST(req: Request) {
     await grantFinancialsToStakeholder(agent)
     for (const r of applicantRows) await grantFinancialsToStakeholder(r)
 
-    return NextResponse.json({ ok: true })
+    // Hand-off context so the done screen can continue into the full /apply wizard.
+    return NextResponse.json({ ok: true, listingApplicationId: app.id, assoc, unit })
   } catch (e) {
     console.error('[apply/agent]', e)
     return NextResponse.json({ error: 'Something went wrong saving the application.' }, { status: 500 })
