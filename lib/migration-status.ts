@@ -66,7 +66,7 @@ export const MIGRATIONS: MigrationEntry[] = [
 );
 CREATE INDEX IF NOT EXISTS unit_listings_assoc_unit_idx ON public.unit_listings (association_code, account_number, created_at DESC);
 
-CREATE TABLE IF NOT EXISTS public.applications (
+CREATE TABLE IF NOT EXISTS public.listing_applications (
   id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   listing_id      uuid        NOT NULL REFERENCES public.unit_listings(id) ON DELETE CASCADE,
   status          text        NOT NULL DEFAULT 'started',
@@ -76,12 +76,12 @@ CREATE TABLE IF NOT EXISTS public.applications (
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS applications_listing_idx ON public.applications (listing_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS listing_applications_listing_idx ON public.listing_applications (listing_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS public.application_stakeholders (
   id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   listing_id     uuid        REFERENCES public.unit_listings(id) ON DELETE CASCADE,
-  application_id uuid        REFERENCES public.applications(id)   ON DELETE CASCADE,
+  application_id uuid        REFERENCES public.listing_applications(id)   ON DELETE CASCADE,
   role           text        NOT NULL CHECK (role IN ('listing_agent', 'owner', 'applicant_agent', 'applicant')),
   name           text,
   email          text,
@@ -104,7 +104,7 @@ CREATE INDEX IF NOT EXISTS app_stakeholders_email_idx       ON public.applicatio
 CREATE TABLE IF NOT EXISTS public.application_documents (
   id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   listing_id     uuid        REFERENCES public.unit_listings(id) ON DELETE CASCADE,
-  application_id uuid        REFERENCES public.applications(id)   ON DELETE CASCADE,
+  application_id uuid        REFERENCES public.listing_applications(id)   ON DELETE CASCADE,
   stakeholder_id uuid        REFERENCES public.application_stakeholders(id) ON DELETE SET NULL,
   kind           text        NOT NULL CHECK (kind IN ('listing_agreement', 'lease', 'purchase_agreement', 'applicant_id', 'other')),
   storage_path   text        NOT NULL,
@@ -119,21 +119,21 @@ CREATE INDEX IF NOT EXISTS app_documents_application_idx ON public.application_d
 INSERT INTO storage.buckets (id, name, public) VALUES ('application-docs', 'application-docs', false) ON CONFLICT (id) DO NOTHING;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.unit_listings            TO service_role;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.applications             TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.listing_applications            TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.application_stakeholders TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.application_documents    TO service_role;
 
 ALTER TABLE public.unit_listings            ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.applications             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.listing_applications           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.application_stakeholders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.application_documents    ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "service_role_all_unit_listings"            ON public.unit_listings;
-DROP POLICY IF EXISTS "service_role_all_applications"             ON public.applications;
+DROP POLICY IF EXISTS "service_role_all_listing_applications" ON public.listing_applications;
 DROP POLICY IF EXISTS "service_role_all_application_stakeholders" ON public.application_stakeholders;
 DROP POLICY IF EXISTS "service_role_all_application_documents"    ON public.application_documents;
 CREATE POLICY "service_role_all_unit_listings"            ON public.unit_listings            FOR ALL TO service_role USING (true) WITH CHECK (true);
-CREATE POLICY "service_role_all_applications"             ON public.applications             FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_all_listing_applications" ON public.listing_applications             FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY "service_role_all_application_stakeholders" ON public.application_stakeholders FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY "service_role_all_application_documents"    ON public.application_documents    FOR ALL TO service_role USING (true) WITH CHECK (true);
 

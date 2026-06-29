@@ -31,7 +31,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   // Resolve the association from the stakeholder's listing (directly or via app).
   let listingId = s.listing_id as string | null
   if (!listingId && s.application_id) {
-    const { data: app } = await supabaseAdmin.from('applications')
+    const { data: app } = await supabaseAdmin.from('listing_applications')
       .select('listing_id').eq('id', s.application_id).maybeSingle()
     listingId = (app?.listing_id as string) ?? null
   }

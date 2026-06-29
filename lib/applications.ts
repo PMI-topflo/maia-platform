@@ -56,9 +56,12 @@ export async function findOrCreateListing(args: {
   return data as UnitListing
 }
 
-/** A new applicant-group application under a listing. */
+/** A new applicant-group application under a listing. Stored in
+ *  listing_applications (the existing public.applications table is the separate
+ *  detailed ApplyCheck/board/payment pipeline — linked later via
+ *  detailed_application_id). */
 export async function createApplication(args: { listingId: string; createdByRole: StakeholderRole | 'staff' }): Promise<{ id: string }> {
-  const { data, error } = await supabaseAdmin.from('applications')
+  const { data, error } = await supabaseAdmin.from('listing_applications')
     .insert({ listing_id: args.listingId, created_by_role: args.createdByRole })
     .select('id').single()
   if (error) throw new Error(`create application: ${error.message}`)
@@ -87,6 +90,18 @@ export async function stakeholderLink(s: Stakeholder, path = '/apply/portal'): P
 }
 
 // ── Documents ─────────────────────────────────────────────────────────
+/** Upload a file (listing agreement, lease, etc.) to the private
+ *  application-docs bucket. Returns the storage path + metadata to record. */
+export async function uploadApplicationFile(file: File, opts: { assocCode: string; scopeId: string; kind: DocumentKind }): Promise<{ storagePath: string; filename: string; mimeType: string | null }> {
+  const safe = (file.name || 'upload').replace(/[^\w.\-]+/g, '_').slice(-80)
+  const path = `${opts.assocCode.toUpperCase()}/${opts.scopeId}/${opts.kind}_${Date.now()}_${safe}`
+  const buf  = Buffer.from(await file.arrayBuffer())
+  const { error } = await supabaseAdmin.storage.from('application-docs')
+    .upload(path, buf, { contentType: file.type || 'application/octet-stream', upsert: false })
+  if (error) throw new Error(`upload: ${error.message}`)
+  return { storagePath: path, filename: file.name || safe, mimeType: file.type || null }
+}
+
 export async function attachDocument(args: {
   listingId?: string; applicationId?: string; stakeholderId?: string
   kind: DocumentKind; storagePath: string; filename: string; mimeType?: string | null; uploadedByRole?: string
