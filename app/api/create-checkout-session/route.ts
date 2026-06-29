@@ -29,6 +29,8 @@ export async function POST(req: NextRequest) {
     } else if (applicationType === "commercial") {
       const numPrincipals = Math.round(amount / 100);
       lineItems = [{ price: process.env.STRIPE_PRICE_COMMERCIAL!, quantity: numPrincipals }];
+    } else if (applicationType === "international") {
+      lineItems = [{ price: process.env.STRIPE_PRICE_INTERNATIONAL!, quantity: 1 }];
     } else {
       return NextResponse.json({ error: `Unknown type: ${applicationType}` }, { status: 400 });
     }

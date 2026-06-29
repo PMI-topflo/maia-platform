@@ -21,7 +21,7 @@ const supabase = createClient(
 // ════════════════════════════════════════════════════════════════
 const translations = {
   en: {
-    title: "Resident Application",
+    title: "New Buyer & Tenant Application",
     subtitle: "PMI Top Florida Properties",
     steps: ["Document", "Type", "Applicants", "Documents", "Payment"],
     selectAssociation: "Select Association",
@@ -36,6 +36,8 @@ const translations = {
     additionalResidentDesc: "Extra occupant on existing application",
     commercial: "Commercial Entity",
     commercialDesc: "Business / corporate applicant",
+    international: "Canadian / International",
+    internationalDesc: "Non-US applicant or foreign address",
     marriageCertUpload: "Marriage Certificate",
     marriageCertNote: "Upload to qualify for couple rate ($150). Without it, each applicant is charged $100.",
     hasCert: "Yes — upload certificate",
@@ -129,7 +131,7 @@ const translations = {
     translationDisclaimer: "",
   },
   es: {
-    title: "Solicitud de Residente",
+    title: "Solicitud de Nuevo Comprador e Inquilino",
     subtitle: "PMI Top Florida Properties",
     steps: ["Documento", "Tipo", "Solicitantes", "Documentos", "Pago"],
     selectAssociation: "Seleccionar Asociación",
@@ -144,6 +146,8 @@ const translations = {
     additionalResidentDesc: "Ocupante adicional en solicitud existente",
     commercial: "Entidad Comercial",
     commercialDesc: "Empresa / solicitante corporativo",
+    international: "Canadiense / Internacional",
+    internationalDesc: "Solicitante no estadounidense o dirección extranjera",
     marriageCertUpload: "Certificado de Matrimonio",
     marriageCertNote: "Suba el certificado para la tarifa de pareja ($150). Sin él, cada solicitante paga $100.",
     hasCert: "Sí — subir certificado",
@@ -231,7 +235,7 @@ const translations = {
     translationDisclaimer: "Este formulario de solicitud ha sido traducido para su conveniencia. La versión en inglés es la versión oficial de este acuerdo y de los documentos vinculados. Al firmar a continuación, usted acepta la versión en inglés. Si no entiende completamente la versión en inglés, busque asesoramiento profesional antes de firmar.",
   },
   pt: {
-    title: "Solicitação de Residente",
+    title: "Solicitação de Novo Comprador e Inquilino",
     subtitle: "PMI Top Florida Properties",
     steps: ["Documento", "Tipo", "Solicitantes", "Documentos", "Pagamento"],
     selectAssociation: "Selecionar Associação",
@@ -246,6 +250,8 @@ const translations = {
     additionalResidentDesc: "Ocupante extra em solicitação existente",
     commercial: "Entidade Comercial",
     commercialDesc: "Empresa / solicitante corporativo",
+    international: "Canadense / Internacional",
+    internationalDesc: "Solicitante não americano ou endereço estrangeiro",
     marriageCertUpload: "Certidão de Casamento",
     marriageCertNote: "Envie a certidão para a tarifa de casal ($150). Sem ela, cada solicitante paga $100.",
     hasCert: "Sim — enviar certidão",
@@ -333,7 +339,7 @@ const translations = {
     translationDisclaimer: "Este formulário de solicitação foi traduzido para sua conveniência. A versão em inglês é a versão oficial deste acordo e dos documentos vinculados. Ao assinar abaixo, você concorda com a versão em inglês. Se você não entender completamente a versão em inglês, procure orientação profissional antes de assinar.",
   },
   fr: {
-    title: "Demande de Résidence",
+    title: "Demande de Nouvel Acheteur et Locataire",
     subtitle: "PMI Top Florida Properties",
     steps: ["Document", "Type", "Demandeurs", "Documents", "Paiement"],
     selectAssociation: "Sélectionner l'Association",
@@ -348,6 +354,8 @@ const translations = {
     additionalResidentDesc: "Occupant supplémentaire sur demande existante",
     commercial: "Entité Commerciale",
     commercialDesc: "Entreprise / demandeur corporatif",
+    international: "Canadien / International",
+    internationalDesc: "Demandeur non américain ou adresse étrangère",
     marriageCertUpload: "Certificat de Mariage",
     marriageCertNote: "Téléchargez le certificat pour le tarif couple ($150). Sans lui, chaque demandeur paie $100.",
     hasCert: "Oui — télécharger le certificat",
@@ -435,7 +443,7 @@ const translations = {
     translationDisclaimer: "Ce formulaire de demande a été traduit pour votre commodité. La version anglaise est la version officielle de cet accord et des documents liés. En signant ci-dessous, vous acceptez la version anglaise. Si vous ne comprenez pas pleinement la version anglaise, veuillez consulter un conseil professionnel avant de signer.",
   },
   he: {
-    title: "בקשת מגורים",
+    title: "בקשת קונה ושוכר חדש",
     subtitle: "PMI Top Florida Properties",
     steps: ["מסמך", "סוג", "מגישים", "מסמכים", "תשלום"],
     selectAssociation: "בחר עמותה",
@@ -450,6 +458,8 @@ const translations = {
     additionalResidentDesc: "דייר נוסף על בקשה קיימת",
     commercial: "ישות מסחרית",
     commercialDesc: "עסק / מגיש תאגידי",
+    international: "קנדי / בינלאומי",
+    internationalDesc: "מבקש שאינו אמריקאי או כתובת בחו״ל",
     marriageCertUpload: "תעודת נישואין",
     marriageCertNote: "העלה תעודת נישואין לתעריף זוגי ($150). ללא תעודה, כל מגיש ישלם $100.",
     hasCert: "כן — העלה תעודה",
@@ -537,7 +547,7 @@ const translations = {
     translationDisclaimer: "טופס בקשה זה תורגם לנוחיותך. הגרסה האנגלית היא הגרסה הרשמית של הסכם זה ושל המסמכים המקושרים. בחתימתך למטה, אתה מסכים לגרסה האנגלית. אם אינך מבין במלואה את הגרסה האנגלית, אנא פנה לייעוץ מקצועי לפני החתימה.",
   },
   ru: {
-    title: "Заявка на проживание",
+    title: "Заявка нового покупателя и арендатора",
     subtitle: "PMI Top Florida Properties",
     steps: ["Документ", "Тип", "Заявители", "Документы", "Оплата"],
     selectAssociation: "Выбрать ассоциацию",
@@ -552,6 +562,8 @@ const translations = {
     additionalResidentDesc: "Дополнительный жилец по существующей заявке",
     commercial: "Юридическое лицо",
     commercialDesc: "Компания / корпоративный заявитель",
+    international: "Канадский / Международный",
+    internationalDesc: "Заявитель не из США или иностранный адрес",
     marriageCertUpload: "Свидетельство о браке",
     marriageCertNote: "Загрузите свидетельство для семейного тарифа ($150). Без него каждый заявитель платит $100.",
     hasCert: "Да — загрузить свидетельство",
@@ -893,6 +905,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const isCouple     = appType === "couple";
   const hasCert      = coupleOption === "yes";
   const isCommercial = appType === "commercial";
+  const isInternational = appType === "international";
 
   // ── Load associations from the associations table (via API route) ─────────
   // On mount, if the URL has ?id=<applicationId>, load the saved
@@ -1088,6 +1101,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     if (appType === "couple")           return hasCert ? 150 : 200;
     if (appType === "additionalResident") return 100;
     if (appType === "commercial")       return principals.length * 100;
+    if (appType === "international")     return 150;
     return 0;
   };
   const total = calcTotal();
@@ -1382,6 +1396,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     { key: "couple",            label: t.couple,            desc: t.coupleDesc,            icon: "💑", price: "$150"           },
     { key: "additionalResident",label: t.additionalResident,desc: t.additionalResidentDesc,icon: "➕", price: "$100"           },
     { key: "commercial",        label: t.commercial,        desc: t.commercialDesc,        icon: "🏢", price: "$100/principal" },
+    { key: "international",      label: t.international,      desc: t.internationalDesc,     icon: "🌍", price: "$150"           },
   ];
 
   // ── Shared input style ─────────────────────────────────────────────────────
@@ -1407,6 +1422,9 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div style={{ textAlign: "center", marginBottom: 28 }}>
+        <div style={{ color: "#f26a1b", fontFamily: "'DM Mono', monospace", fontSize: 11, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 10 }}>
+          {t.subtitle}
+        </div>
         <h1 style={{ color: "#fff", fontFamily: "'Fraunces', Georgia, serif", fontSize: 28, fontWeight: 300, margin: "0 0 14px", letterSpacing: "-0.01em" }}>
           {t.title}
         </h1>
@@ -1686,7 +1704,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                       if (key !== "commercial") setPrincipals([{ name: "", dob: "" }]);
                       setApplicants((prev) => key === "couple" ? [{ ...prev[0] }, {}] : [{ ...prev[0] }]);
                     }}
-                    style={{ border: `2px solid ${appType === key ? "#f26a1b" : "#e5e7eb"}`, borderRadius: 4, padding: "14px 12px", cursor: "pointer", background: appType === key ? "#fff7f0" : "#fafaf9", transition: "all 0.18s" }}
+                    style={{ border: `2px solid ${appType === key ? "#f26a1b" : "#e5e7eb"}`, borderRadius: 4, padding: "14px 12px", cursor: "pointer", background: appType === key ? "#fff7f0" : "#fafaf9", transition: "all 0.18s", gridColumn: key === "international" ? "1 / -1" : "auto" }}
                   >
                     <div style={{ fontSize: 20, marginBottom: 6 }}>{icon}</div>
                     <div style={{ fontFamily: "'Fraunces', serif", fontSize: 14, fontWeight: 600, color: "#0d0d0d" }}>{label}</div>
@@ -2161,6 +2179,11 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                       <span>{p.name || `Principal ${i + 1}`}</span><span style={{ fontWeight: 600 }}>$100</span>
                     </div>
                   ))}
+                  {appType === "international" && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d" }}>
+                      <span>1 × {t.international}</span><span style={{ fontWeight: 600 }}>$150</span>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 700, color: "#0d0d0d", fontFamily: "'Fraunces', serif" }}>
@@ -2168,7 +2191,9 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                   <span style={{ color: "#f26a1b" }}>${total}</span>
                 </div>
                 <div style={{ marginTop: 8, fontSize: 11, color: "#9ca3af" }}>
-                  Includes background check, credit &amp; eviction report (Applycheck)
+                  {isInternational
+                    ? "Includes international background check across 90+ databases, Interpol, FBI & OFAC (Applycheck)"
+                    : "Includes background check, credit & eviction report (Applycheck)"}
                 </div>
               </div>
 
