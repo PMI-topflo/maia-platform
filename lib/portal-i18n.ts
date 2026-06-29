@@ -43,6 +43,10 @@ export interface PortalStrings {
   estoppelTitle: string; estoppelDesc: string; estoppelBtn: string
   appTitle: string; appDesc: string; appBtn: string
   vendorTitle: string; vendorDesc: string; vendorBtn: string
+  finTitle: string; finDesc: string; finBtn: string
+  finModalText: string; finWho: string
+  roleTenant: string; roleBuyer: string; roleListing: string; roleApplicantAgent: string
+  finOwnerNote: string
 
   docsTitle: string; docsLoading: string; docsEmpty: string; docsUnavailable: string; download: string
   publicDocsTitle: string
@@ -120,6 +124,10 @@ const en: PortalStrings = {
   publicIntro: 'Public documents and information for this association — no login needed.', residentLoginCta: 'Residents — log in to your account', residentLoginHide: 'Hide',
   siteLabel: 'Association Site', publicMoreInfo: 'Owners, residents, and board members can log in for account details and more.',
   vendorTitle: 'Vendors — Register', vendorDesc: 'Service providers: register and submit your insurance (COI), W-9, and license', vendorBtn: 'Register',
+  finTitle: 'Budget & Financial Statements', finDesc: 'For applicants and owners — identify yourself to request access', finBtn: 'Access',
+  finModalText: 'Our budget and financial statements are available once you start your registration. Owners can access them after logging in.', finWho: 'I am a:',
+  roleTenant: 'Tenant Applicant', roleBuyer: 'Buyer Applicant', roleListing: 'Listing Agent', roleApplicantAgent: 'Applicant’s Agent',
+  finOwnerNote: 'Owner? Use “Residents — log in to your account” at the top of the page.',
   langLabel: 'Language',
   openTicket: 'Open a ticket',
 }
@@ -167,6 +175,10 @@ const es: PortalStrings = {
   publicIntro: 'Documentos e información pública de esta asociación — sin iniciar sesión.', residentLoginCta: 'Residentes — inicie sesión en su cuenta', residentLoginHide: 'Ocultar',
   siteLabel: 'Sitio de la Asociación', publicMoreInfo: 'Propietarios, residentes y miembros de la junta pueden iniciar sesión para ver los detalles de su cuenta y más.',
   vendorTitle: 'Proveedores — Registrarse', vendorDesc: 'Proveedores de servicios: regístrese y envíe su seguro (COI), W-9 y licencia', vendorBtn: 'Registrarse',
+  finTitle: 'Presupuesto y Estados Financieros', finDesc: 'Para solicitantes y propietarios — identifíquese para solicitar acceso', finBtn: 'Acceder',
+  finModalText: 'El presupuesto y los estados financieros están disponibles una vez que inicie su registro. Los propietarios pueden acceder después de iniciar sesión.', finWho: 'Soy:',
+  roleTenant: 'Solicitante Inquilino', roleBuyer: 'Solicitante Comprador', roleListing: 'Agente de Venta', roleApplicantAgent: 'Agente del Solicitante',
+  finOwnerNote: '¿Propietario? Use “Residentes — inicie sesión” en la parte superior.',
   langLabel: 'Idioma',
   openTicket: 'Abrir un ticket',
 }
@@ -214,6 +226,10 @@ const pt: PortalStrings = {
   publicIntro: 'Documentos e informações públicas desta associação — sem login.', residentLoginCta: 'Moradores — entre na sua conta', residentLoginHide: 'Ocultar',
   siteLabel: 'Site da Associação', publicMoreInfo: 'Proprietários, moradores e membros do conselho podem entrar para ver os detalhes da conta e mais.',
   vendorTitle: 'Fornecedores — Cadastrar', vendorDesc: 'Prestadores de serviço: cadastre-se e envie seu seguro (COI), W-9 e licença', vendorBtn: 'Cadastrar',
+  finTitle: 'Orçamento e Demonstrações Financeiras', finDesc: 'Para candidatos e proprietários — identifique-se para solicitar acesso', finBtn: 'Acessar',
+  finModalText: 'O orçamento e as demonstrações financeiras ficam disponíveis assim que você inicia o seu registro. Proprietários podem acessar após fazer login.', finWho: 'Eu sou:',
+  roleTenant: 'Candidato Inquilino', roleBuyer: 'Candidato Comprador', roleListing: 'Corretor de Venda', roleApplicantAgent: 'Corretor do Candidato',
+  finOwnerNote: 'Proprietário? Use “Moradores — entre na sua conta” no topo da página.',
   langLabel: 'Idioma',
   openTicket: 'Abrir um chamado',
 }
@@ -261,6 +277,10 @@ const fr: PortalStrings = {
   publicIntro: 'Documents et informations publics de cette association — sans connexion.', residentLoginCta: 'Résidents — connectez-vous à votre compte', residentLoginHide: 'Masquer',
   siteLabel: 'Site de l’Association', publicMoreInfo: 'Les propriétaires, résidents et membres du conseil peuvent se connecter pour accéder à leur compte et plus.',
   vendorTitle: 'Fournisseurs — S’inscrire', vendorDesc: 'Prestataires : inscrivez-vous et envoyez votre assurance (COI), W-9 et licence', vendorBtn: 'S’inscrire',
+  finTitle: 'Budget et États Financiers', finDesc: 'Pour les candidats et propriétaires — identifiez-vous pour demander l’accès', finBtn: 'Accéder',
+  finModalText: 'Notre budget et nos états financiers sont disponibles une fois votre inscription commencée. Les propriétaires peuvent y accéder après connexion.', finWho: 'Je suis :',
+  roleTenant: 'Candidat Locataire', roleBuyer: 'Candidat Acheteur', roleListing: 'Agent du Vendeur', roleApplicantAgent: 'Agent du Candidat',
+  finOwnerNote: 'Propriétaire ? Utilisez « Résidents — connectez-vous » en haut de la page.',
   langLabel: 'Langue',
   openTicket: 'Ouvrir un ticket',
 }
@@ -308,6 +328,10 @@ const ht: PortalStrings = {
   publicIntro: 'Dokiman ak enfòmasyon piblik asosyasyon an — san koneksyon.', residentLoginCta: 'Rezidan — konekte nan kont ou', residentLoginHide: 'Kache',
   siteLabel: 'Sit Asosyasyon an', publicMoreInfo: 'Pwopriyetè, rezidan, ak manm konsèy yo ka konekte pou wè detay kont yo ak plis.',
   vendorTitle: 'Founisè — Enskri', vendorDesc: 'Founisè sèvis: enskri epi voye asirans (COI), W-9 ak lisans ou', vendorBtn: 'Enskri',
+  finTitle: 'Bidjè ak Deklarasyon Finansye', finDesc: 'Pou aplikan ak pwopriyetè — idantifye w pou mande aksè', finBtn: 'Aksè',
+  finModalText: 'Bidjè ak deklarasyon finansye yo disponib apre ou kòmanse enskripsyon w. Pwopriyetè yo ka jwenn aksè apre yo konekte.', finWho: 'Mwen se yon:',
+  roleTenant: 'Aplikan Lokatè', roleBuyer: 'Aplikan Achtè', roleListing: 'Ajan Vandè', roleApplicantAgent: 'Ajan Aplikan an',
+  finOwnerNote: 'Pwopriyetè? Itilize “Rezidan — konekte” anwo paj la.',
   langLabel: 'Lang',
   openTicket: 'Louvri yon tikè',
 }
@@ -355,6 +379,10 @@ const he: PortalStrings = {
   publicIntro: 'מסמכים ומידע ציבורי של האיגוד — ללא התחברות.', residentLoginCta: 'תושבים — היכנסו לחשבון שלכם', residentLoginHide: 'הסתר',
   siteLabel: 'אתר האיגוד', publicMoreInfo: 'בעלים, דיירים וחברי ועד יכולים להתחבר לפרטי החשבון ועוד.',
   vendorTitle: 'ספקים — הרשמה', vendorDesc: 'נותני שירות: הירשמו ושלחו ביטוח (COI), W-9 ורישיון', vendorBtn: 'הרשמה',
+  finTitle: 'תקציב ודוחות כספיים', finDesc: 'למבקשים ולבעלים — הזדהו כדי לבקש גישה', finBtn: 'גישה',
+  finModalText: 'התקציב והדוחות הכספיים זמינים לאחר שתתחילו בהרשמה. בעלים יכולים לגשת לאחר התחברות.', finWho: 'אני:',
+  roleTenant: 'מועמד שוכר', roleBuyer: 'מועמד קונה', roleListing: 'סוכן מוכר', roleApplicantAgent: 'סוכן המועמד',
+  finOwnerNote: 'בעלים? השתמשו ב“תושבים — היכנסו” בראש העמוד.',
   langLabel: 'שפה',
   openTicket: 'פתחו פנייה',
 }
@@ -402,6 +430,10 @@ const ru: PortalStrings = {
   publicIntro: 'Публичные документы и информация ассоциации — без входа.', residentLoginCta: 'Жители — войдите в свой аккаунт', residentLoginHide: 'Скрыть',
   siteLabel: 'Сайт ассоциации', publicMoreInfo: 'Владельцы, жители и члены правления могут войти, чтобы увидеть данные аккаунта и больше.',
   vendorTitle: 'Подрядчики — Регистрация', vendorDesc: 'Поставщики услуг: зарегистрируйтесь и отправьте страховку (COI), W-9 и лицензию', vendorBtn: 'Регистрация',
+  finTitle: 'Бюджет и финансовая отчётность', finDesc: 'Для заявителей и владельцев — укажите, кто вы, чтобы запросить доступ', finBtn: 'Доступ',
+  finModalText: 'Бюджет и финансовая отчётность доступны после начала регистрации. Владельцы получают доступ после входа.', finWho: 'Я:',
+  roleTenant: 'Заявитель-арендатор', roleBuyer: 'Заявитель-покупатель', roleListing: 'Агент продавца', roleApplicantAgent: 'Агент заявителя',
+  finOwnerNote: 'Владелец? Используйте «Жители — войдите» вверху страницы.',
   langLabel: 'Язык',
   openTicket: 'Создать обращение',
 }

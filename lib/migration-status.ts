@@ -45,8 +45,8 @@ export interface MigrationCheckResult extends MigrationEntry {
 export const MIGRATIONS: MigrationEntry[] = [
   {
     key:         'association_documents_public_default',
-    label:       'Association docs — public by default',
-    description: 'is_public defaults TRUE + flips all existing docs public (board: public by default; staff can privatize sensitive files per document)',
+    label:       'Association docs — public by default (sensitive excluded)',
+    description: 'is_public defaults TRUE + flips docs public EXCEPT financials/budget/leases_resale (those stay private behind registration/login)',
     filename:    '20260628_association_documents_public_default.sql',
     artifact:    { type: 'column', table: 'association_documents', column: 'is_public' },
     sql: `ALTER TABLE public.association_documents
@@ -54,7 +54,12 @@ export const MIGRATIONS: MigrationEntry[] = [
 
 UPDATE public.association_documents
   SET is_public = true
-  WHERE is_public = false;
+  WHERE is_public = false
+    AND category NOT IN ('financials', 'budget', 'leases_resale');
+
+UPDATE public.association_documents
+  SET is_public = false
+  WHERE category IN ('financials', 'budget', 'leases_resale');
 
 NOTIFY pgrst, 'reload schema';`,
   },

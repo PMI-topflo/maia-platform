@@ -38,6 +38,12 @@ const PORTAL_HIDDEN_CATEGORIES = new Set(['ach_forms'])
 const CATEGORY_ORDER = CATEGORIES.map(c => c.key).filter(k => !PORTAL_HIDDEN_CATEGORIES.has(k))
 const GROUP_ORDER = [...new Set(CATEGORIES.filter(c => !PORTAL_HIDDEN_CATEGORIES.has(c.key)).map(c => c.group))]
 
+// Sensitive categories NEVER appear in the no-login public list — even if a
+// document is mistakenly flagged is_public. They're reachable only after a
+// tenant/buyer/agent starts registration or an owner logs in (see the
+// "Budget & Financial Statements" access flow on the public page).
+export const PUBLIC_RESTRICTED_CATEGORIES = new Set(['financials', 'budget', 'leases_resale'])
+
 // publicOnly = the no-login public view: only documents a staff member has
 // explicitly marked is_public. The full (login-gated) view passes false.
 export async function getPortalDocuments(assocCode: string, opts: { publicOnly?: boolean } = {}): Promise<PortalDocGroup[]> {
@@ -54,7 +60,9 @@ export async function getPortalDocuments(assocCode: string, opts: { publicOnly?:
   // Show every current document we have a real file for. We keep all rows
   // (not just newest-per-category) so an association can publish several
   // files in one category (e.g. multiple application forms).
-  const rows = (data ?? []).filter(r => CATEGORY_ORDER.includes(r.category))
+  const rows = (data ?? [])
+    .filter(r => CATEGORY_ORDER.includes(r.category))
+    .filter(r => !(opts.publicOnly && PUBLIC_RESTRICTED_CATEGORIES.has(r.category)))
 
   const docs = await Promise.all(rows.map(async row => {
     let url: string | null = null

@@ -29,6 +29,7 @@ import MobileAppButton from '@/components/MobileAppButton'
 import ContactTickets from '@/components/ContactTickets'
 import AskMaiaButton from '@/components/AskMaiaButton'
 import ApplicationButton from '@/components/ApplicationButton'
+import FinancialsAccessButton from '@/components/FinancialsAccessButton'
 import PortalLangBar from '@/components/PortalLangBar'
 import { normalizePortalLang, portalStrings, isRtl } from '@/lib/portal-i18n'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
@@ -237,6 +238,10 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
                 </div>
                 <div className="prow-btn">{t.vendorBtn}</div>
               </Link>
+
+              {/* Budget & financials are NOT openly public — identify (applicant/
+                  agent) to start registration, or owners log in. */}
+              <FinancialsAccessButton lang={L} />
             </div>
           </section>
 
