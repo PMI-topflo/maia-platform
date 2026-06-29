@@ -44,6 +44,21 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'association_documents_public_default',
+    label:       'Association docs — public by default',
+    description: 'is_public defaults TRUE + flips all existing docs public (board: public by default; staff can privatize sensitive files per document)',
+    filename:    '20260628_association_documents_public_default.sql',
+    artifact:    { type: 'column', table: 'association_documents', column: 'is_public' },
+    sql: `ALTER TABLE public.association_documents
+  ALTER COLUMN is_public SET DEFAULT true;
+
+UPDATE public.association_documents
+  SET is_public = true
+  WHERE is_public = false;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'association_documents_is_public',
     label:       'Association docs — public flag',
     description: 'is_public on association_documents — staff opt documents into the no-login public view on the association page',

@@ -113,7 +113,7 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
           <div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', fontWeight: 400, lineHeight: 1.15 }}>{name}</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.85, marginTop: '0.35rem' }}>
-              {t.residentPortal}{type ? ` · ${type}` : ''}{statute ? ` · ${statute}` : ''}
+              {t.siteLabel}{type ? ` · ${type}` : ''}{statute ? ` · ${statute}` : ''}
             </div>
             {address && <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.2rem' }}>{address}</div>}
           </div>
@@ -129,7 +129,8 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
       {showPublicDocs && (
         <>
           <section className="section">
-            <p style={{ color: 'var(--muted)', fontSize: '0.9rem', maxWidth: '46ch' }}>{t.publicIntro}</p>
+            <p style={{ color: 'var(--muted)', fontSize: '0.9rem', maxWidth: '52ch' }}>{t.publicIntro}</p>
+            <p style={{ color: 'var(--muted)', fontSize: '0.82rem', maxWidth: '52ch', marginTop: '0.4rem', opacity: 0.85 }}>🔒 {t.publicMoreInfo}</p>
           </section>
 
           <PortalDocuments assocCode={upper} lang={L} publicOnly />
