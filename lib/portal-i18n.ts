@@ -42,6 +42,7 @@ export interface PortalStrings {
   mobileTitle: string; mobileDesc: string; mobileBtn: string
   estoppelTitle: string; estoppelDesc: string; estoppelBtn: string
   appTitle: string; appDesc: string; appBtn: string
+  vendorTitle: string; vendorDesc: string; vendorBtn: string
 
   docsTitle: string; docsLoading: string; docsEmpty: string; docsUnavailable: string; download: string
   publicDocsTitle: string
@@ -118,6 +119,7 @@ const en: PortalStrings = {
   networkErr: 'Network error. Please try again.', notResident: 'Not a resident?', visitMain: 'Visit main site',
   publicIntro: 'Public documents and information for this association — no login needed.', residentLoginCta: 'Residents — log in to your account', residentLoginHide: 'Hide',
   siteLabel: 'Association Site', publicMoreInfo: 'Owners, residents, and board members can log in for account details and more.',
+  vendorTitle: 'Vendors — Register', vendorDesc: 'Service providers: register and submit your insurance (COI), W-9, and license', vendorBtn: 'Register',
   langLabel: 'Language',
   openTicket: 'Open a ticket',
 }
@@ -164,6 +166,7 @@ const es: PortalStrings = {
   networkErr: 'Error de red. Inténtelo de nuevo.', notResident: '¿No es residente?', visitMain: 'Visitar sitio principal',
   publicIntro: 'Documentos e información pública de esta asociación — sin iniciar sesión.', residentLoginCta: 'Residentes — inicie sesión en su cuenta', residentLoginHide: 'Ocultar',
   siteLabel: 'Sitio de la Asociación', publicMoreInfo: 'Propietarios, residentes y miembros de la junta pueden iniciar sesión para ver los detalles de su cuenta y más.',
+  vendorTitle: 'Proveedores — Registrarse', vendorDesc: 'Proveedores de servicios: regístrese y envíe su seguro (COI), W-9 y licencia', vendorBtn: 'Registrarse',
   langLabel: 'Idioma',
   openTicket: 'Abrir un ticket',
 }
@@ -210,6 +213,7 @@ const pt: PortalStrings = {
   networkErr: 'Erro de rede. Tente novamente.', notResident: 'Não é residente?', visitMain: 'Visitar site principal',
   publicIntro: 'Documentos e informações públicas desta associação — sem login.', residentLoginCta: 'Moradores — entre na sua conta', residentLoginHide: 'Ocultar',
   siteLabel: 'Site da Associação', publicMoreInfo: 'Proprietários, moradores e membros do conselho podem entrar para ver os detalhes da conta e mais.',
+  vendorTitle: 'Fornecedores — Cadastrar', vendorDesc: 'Prestadores de serviço: cadastre-se e envie seu seguro (COI), W-9 e licença', vendorBtn: 'Cadastrar',
   langLabel: 'Idioma',
   openTicket: 'Abrir um chamado',
 }
@@ -256,6 +260,7 @@ const fr: PortalStrings = {
   networkErr: 'Erreur réseau. Veuillez réessayer.', notResident: 'Pas un résident ?', visitMain: 'Visiter le site principal',
   publicIntro: 'Documents et informations publics de cette association — sans connexion.', residentLoginCta: 'Résidents — connectez-vous à votre compte', residentLoginHide: 'Masquer',
   siteLabel: 'Site de l’Association', publicMoreInfo: 'Les propriétaires, résidents et membres du conseil peuvent se connecter pour accéder à leur compte et plus.',
+  vendorTitle: 'Fournisseurs — S’inscrire', vendorDesc: 'Prestataires : inscrivez-vous et envoyez votre assurance (COI), W-9 et licence', vendorBtn: 'S’inscrire',
   langLabel: 'Langue',
   openTicket: 'Ouvrir un ticket',
 }
@@ -302,6 +307,7 @@ const ht: PortalStrings = {
   networkErr: 'Erè rezo. Tanpri eseye ankò.', notResident: 'Ou pa yon rezidan?', visitMain: 'Vizite sit prensipal la',
   publicIntro: 'Dokiman ak enfòmasyon piblik asosyasyon an — san koneksyon.', residentLoginCta: 'Rezidan — konekte nan kont ou', residentLoginHide: 'Kache',
   siteLabel: 'Sit Asosyasyon an', publicMoreInfo: 'Pwopriyetè, rezidan, ak manm konsèy yo ka konekte pou wè detay kont yo ak plis.',
+  vendorTitle: 'Founisè — Enskri', vendorDesc: 'Founisè sèvis: enskri epi voye asirans (COI), W-9 ak lisans ou', vendorBtn: 'Enskri',
   langLabel: 'Lang',
   openTicket: 'Louvri yon tikè',
 }
@@ -348,6 +354,7 @@ const he: PortalStrings = {
   networkErr: 'שגיאת רשת. אנא נסו שוב.', notResident: 'לא דייר?', visitMain: 'בקרו באתר הראשי',
   publicIntro: 'מסמכים ומידע ציבורי של האיגוד — ללא התחברות.', residentLoginCta: 'תושבים — היכנסו לחשבון שלכם', residentLoginHide: 'הסתר',
   siteLabel: 'אתר האיגוד', publicMoreInfo: 'בעלים, דיירים וחברי ועד יכולים להתחבר לפרטי החשבון ועוד.',
+  vendorTitle: 'ספקים — הרשמה', vendorDesc: 'נותני שירות: הירשמו ושלחו ביטוח (COI), W-9 ורישיון', vendorBtn: 'הרשמה',
   langLabel: 'שפה',
   openTicket: 'פתחו פנייה',
 }
@@ -394,6 +401,7 @@ const ru: PortalStrings = {
   networkErr: 'Ошибка сети. Пожалуйста, попробуйте снова.', notResident: 'Не житель?', visitMain: 'Перейти на главный сайт',
   publicIntro: 'Публичные документы и информация ассоциации — без входа.', residentLoginCta: 'Жители — войдите в свой аккаунт', residentLoginHide: 'Скрыть',
   siteLabel: 'Сайт ассоциации', publicMoreInfo: 'Владельцы, жители и члены правления могут войти, чтобы увидеть данные аккаунта и больше.',
+  vendorTitle: 'Подрядчики — Регистрация', vendorDesc: 'Поставщики услуг: зарегистрируйтесь и отправьте страховку (COI), W-9 и лицензию', vendorBtn: 'Регистрация',
   langLabel: 'Язык',
   openTicket: 'Создать обращение',
 }

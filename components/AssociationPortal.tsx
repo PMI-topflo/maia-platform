@@ -133,6 +133,38 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
             <p style={{ color: 'var(--muted)', fontSize: '0.82rem', maxWidth: '52ch', marginTop: '0.4rem', opacity: 0.85 }}>🔒 {t.publicMoreInfo}</p>
           </section>
 
+          {/* Public actions — for people who are NOT residents: prospective
+              tenants/buyers (Application), closing agents (Estoppel), and
+              service providers (Vendor registration). No login required. */}
+          <section className="section">
+            <h2 className="section-title">{t.quickActions}</h2>
+            <div className="prow-grid">
+              {!cfg.hideApplication && (
+                <ApplicationButton assocCode={upper} lang={L} publicOnly />
+              )}
+
+              {!cfg.hideEstoppel && (
+                <a href="https://topfloridaproperties.condocerts.com/resale/" target="_blank" rel="noreferrer" className="prow">
+                  <div className="prow-orb">🖨️</div>
+                  <div className="prow-info">
+                    <div className="prow-t">{t.estoppelTitle}</div>
+                    <div className="prow-d">{t.estoppelDesc}</div>
+                  </div>
+                  <div className="prow-btn">{t.estoppelBtn}</div>
+                </a>
+              )}
+
+              <a href="/register/vendor" className="prow">
+                <div className="prow-orb">🛠️</div>
+                <div className="prow-info">
+                  <div className="prow-t">{t.vendorTitle}</div>
+                  <div className="prow-d">{t.vendorDesc}</div>
+                </div>
+                <div className="prow-btn">{t.vendorBtn}</div>
+              </a>
+            </div>
+          </section>
+
           <PortalDocuments assocCode={upper} lang={L} publicOnly />
 
           <div className="sh">
