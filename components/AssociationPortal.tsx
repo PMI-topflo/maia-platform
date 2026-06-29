@@ -21,6 +21,7 @@
 // =====================================================================
 
 import { cookies } from 'next/headers'
+import Link from 'next/link'
 import SiteHeader from '@/components/SiteHeader'
 import AssociationPortalGate from '@/components/AssociationPortalGate'
 import PortalDocuments from '@/components/PortalDocuments'
@@ -154,14 +155,14 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
                 </a>
               )}
 
-              <a href="/register/vendor" className="prow">
+              <Link href="/register/vendor" className="prow">
                 <div className="prow-orb">🛠️</div>
                 <div className="prow-info">
                   <div className="prow-t">{t.vendorTitle}</div>
                   <div className="prow-d">{t.vendorDesc}</div>
                 </div>
                 <div className="prow-btn">{t.vendorBtn}</div>
-              </a>
+              </Link>
             </div>
           </section>
 
