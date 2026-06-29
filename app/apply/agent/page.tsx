@@ -19,6 +19,7 @@ function AgentForm() {
   const [f, setF] = useState({ unit: '', agreementKind: 'lease', agentName: '', agentEmail: '', agentPhone: '' })
   const [file, setFile] = useState<File | null>(null)
   const [applicants, setApplicants] = useState<Applicant[]>([{ name: '', email: '', phone: '' }])
+  const [handoff, setHandoff] = useState<{ id: string; unit: string } | null>(null)
 
   const setApp = (i: number, k: keyof Applicant, v: string) =>
     setApplicants(a => a.map((x, j) => j === i ? { ...x, [k]: v } : x))
@@ -39,9 +40,14 @@ function AgentForm() {
       const res = await fetch('/api/apply/agent', { method: 'POST', body: fd })
       const d = await res.json()
       if (!res.ok) { setErr(d.error ?? 'Something went wrong.'); return }
+      if (d.listingApplicationId) setHandoff({ id: d.listingApplicationId, unit: d.unit ?? f.unit })
       setDone(true)
     } catch { setErr('Network error — please try again.') } finally { setBusy(false) }
   }
+
+  const fullApplyHref = handoff
+    ? `/apply?listingApp=${encodeURIComponent(handoff.id)}&assoc=${encodeURIComponent(assoc)}&unit=${encodeURIComponent(handoff.unit)}`
+    : `/apply?assoc=${encodeURIComponent(assoc)}`
 
   const wrap: React.CSSProperties = { maxWidth: 540, margin: '0 auto', padding: 24, fontFamily: 'system-ui, sans-serif', color: '#1a1a1a' }
   const field: React.CSSProperties = { width: '100%', padding: '10px 12px', fontSize: 15, border: '1px solid #d1d5db', borderRadius: 8, boxSizing: 'border-box', marginTop: 4 }
@@ -50,8 +56,13 @@ function AgentForm() {
 
   if (done) return (
     <div style={wrap}>
-      <h1 style={{ color: '#f26a1b' }}>✅ Application submitted</h1>
-      <p>Thanks! We&apos;ve recorded the application for <strong>Unit {f.unit}</strong> with {applicants.filter(a => a.name || a.email).length} applicant(s). Everyone added has been emailed access to the association&apos;s budget &amp; financials.</p>
+      <h1 style={{ color: '#f26a1b' }}>✅ Applicants registered</h1>
+      <p>Thanks! We&apos;ve recorded <strong>Unit {f.unit}</strong> with {applicants.filter(a => a.name || a.email).length} applicant(s), and emailed everyone access to the association&apos;s budget &amp; financials.</p>
+      <p style={{ marginTop: 18, fontWeight: 600 }}>Next: complete the full application (documents, background check, and fee) — you can do it now or your applicant can finish it.</p>
+      <a href={fullApplyHref}
+        style={{ display: 'block', textAlign: 'center', marginTop: 12, padding: 14, fontSize: 16, fontWeight: 700, color: '#fff', background: '#f26a1b', borderRadius: 8, textDecoration: 'none' }}>
+        Continue to the full application →
+      </a>
     </div>
   )
 

@@ -889,10 +889,38 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [rulesSignature, setRulesSignature] = useState("");
   const [inviteSent, setInviteSent] = useState(false);
   const [inviteSending, setInviteSending] = useState(false);
+  // Hand-off from a collaborative stakeholder flow (/apply/applicant|agent):
+  // ?listingApp=<id>&assoc=<code>&unit=<n> — prefill + link back on submit.
+  const [listingAppId, setListingAppId]         = useState<string | null>(null);
+  const [prefillAssocCode, setPrefillAssocCode] = useState<string | null>(null);
+  const [prefillUnit, setPrefillUnit]           = useState<string | null>(null);
 
   const isCouple     = appType === "couple";
   const hasCert      = coupleOption === "yes";
   const isCommercial = appType === "commercial";
+
+  // ── Stakeholder-flow hand-off: read ?listingApp / ?assoc / ?unit ─────────
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const p = new URLSearchParams(window.location.search);
+    const la = p.get('listingApp'); if (la) setListingAppId(la);
+    const ac = p.get('assoc');      if (ac) setPrefillAssocCode(ac.toUpperCase());
+    const un = p.get('unit');       if (un) setPrefillUnit(un);
+  }, []);
+
+  // Resolve the prefilled association by code once the list loads.
+  useEffect(() => {
+    if (!prefillAssocCode || associations.length === 0) return;
+    const m = associations.find(a => a.code.toUpperCase() === prefillAssocCode);
+    if (m) { setAssociation(m.name); setAssocCode(m.code); setAssocSearch(m.name); }
+  }, [prefillAssocCode, associations]);
+
+  // Prefill the unit on the first applicant (survives type selection — the type
+  // cards spread prev[0]).
+  useEffect(() => {
+    if (!prefillUnit) return;
+    setApplicants(prev => { const n = [...prev]; n[0] = { ...n[0], unitApplying: prefillUnit }; return n; });
+  }, [prefillUnit]);
 
   // ── Load associations from the associations table (via API route) ─────────
   // On mount, if the URL has ?id=<applicationId>, load the saved
@@ -1313,6 +1341,15 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         if (insertErr) throw insertErr;
         appId = row.id;
         setApplicationId(appId);
+      }
+
+      // If we arrived from a collaborative stakeholder flow, link this detailed
+      // application back to its listing_applications record (fire-and-forget).
+      if (listingAppId && appId) {
+        void fetch('/api/apply/link-listing', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ listingApplicationId: listingAppId, detailedApplicationId: appId }),
+        }).catch(() => { /* non-fatal */ });
       }
 
       // Record signature evidence — IP (server-captured), drawn
