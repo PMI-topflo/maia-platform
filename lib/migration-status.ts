@@ -433,6 +433,66 @@ NOTIFY pgrst, 'reload schema';`,
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'applications_drafts',
+    label:       'Applications — save-and-resume drafts',
+    description: 'draft_step/draft_data/resume_email/resume_link_sent_at on applications — power the /apply save-and-continue-later flow (save-draft, load-draft, send-resume-link). A missing column breaks draft save/resume.',
+    filename:    '20260518_applications_drafts.sql',
+    artifact:    { type: 'column', table: 'applications', column: 'draft_step' },
+    sql: `ALTER TABLE public.applications
+  ADD COLUMN IF NOT EXISTS draft_step          int  NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS draft_data          jsonb,
+  ADD COLUMN IF NOT EXISTS resume_email        text,
+  ADD COLUMN IF NOT EXISTS resume_link_sent_at timestamptz;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'applications_signature_evidence',
+    label:       'Applications — rules-signature evidence',
+    description: 'rules_signature_image/rules_applicant_photo/rules_signed_ip/rules_signed_user_agent/rules_signed_geolocation on applications — captured by /api/apply/record-signature-evidence at sign time. A missing column breaks the evidence write.',
+    filename:    '20260518_applications_signature_evidence.sql',
+    artifact:    { type: 'column', table: 'applications', column: 'rules_signature_image' },
+    sql: `ALTER TABLE public.applications
+  ADD COLUMN IF NOT EXISTS rules_signature_image    text,
+  ADD COLUMN IF NOT EXISTS rules_applicant_photo    text,
+  ADD COLUMN IF NOT EXISTS rules_signed_ip          text,
+  ADD COLUMN IF NOT EXISTS rules_signed_user_agent  text,
+  ADD COLUMN IF NOT EXISTS rules_signed_geolocation jsonb;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'association_documents_versioning',
+    label:       'Association docs — soft-archive versioning',
+    description: 'archived_at/archived_by_email on association_documents — uploading a newer version archives the prior row (NULL archived_at = current). The apply flow + portals filter on archived_at IS NULL.',
+    filename:    '20260518_association_documents_versioning.sql',
+    artifact:    { type: 'column', table: 'association_documents', column: 'archived_at' },
+    sql: `ALTER TABLE public.association_documents
+  ADD COLUMN IF NOT EXISTS archived_at       timestamptz,
+  ADD COLUMN IF NOT EXISTS archived_by_email text;
+
+CREATE INDEX IF NOT EXISTS adocs_active_per_category_idx
+  ON public.association_documents (association_code, category, created_at DESC)
+  WHERE archived_at IS NULL;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'association_documents_language',
+    label:       'Association docs — per-document language',
+    description: "language (default 'en') on association_documents — lets staff upload a doc in multiple languages per category; the apply form offers a language picker when >1 exists. Index depends on archived_at (see association_documents_versioning).",
+    filename:    '20260518_association_documents_language.sql',
+    artifact:    { type: 'column', table: 'association_documents', column: 'language' },
+    sql: `ALTER TABLE public.association_documents
+  ADD COLUMN IF NOT EXISTS language text NOT NULL DEFAULT 'en';
+
+CREATE INDEX IF NOT EXISTS adocs_active_per_cat_lang_idx
+  ON public.association_documents (association_code, category, language, created_at DESC)
+  WHERE archived_at IS NULL;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'pmi_staff_can_see_all',
     label:       'Comms visibility flag',
     description: 'pmi_staff.can_see_all_communications',
