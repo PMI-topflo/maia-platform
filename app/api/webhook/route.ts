@@ -138,6 +138,20 @@ const FEEDBACK_MSG = {
   } as Record<string, string>)[lang] ?? (type === 'stars' ? `Reply 1–5.` : `Reply UP or DOWN.`),
 }
 
+// Does this reply actually look like an answer to the survey (a 1–5 star, or a
+// thumbs up/down word)? Used so a pending survey never traps a real request.
+function isRatingShaped(message: string, type: FeedbackType): boolean {
+  const m = message.trim().toLowerCase()
+  if (type === 'stars') return /^[1-5](\b|$)/.test(m)
+  return /^(up|down|bien|mal|bom|ruim|good|bad|👍|👎|si|sim|yes|no|nao|não|хорошо|плохо|טוב|רע)\b/.test(m)
+}
+
+// Does the reply clearly name a fresh request (ledger, payment, maintenance, …)
+// in any supported language? If so, a stale/pending survey should yield to it.
+function looksLikeCommand(message: string): boolean {
+  return /ledger|extrato|estado de cuenta|statement|balance|saldo|solde|maintenance|manuten|repair|repara|réparation|payment|\bpay\b|pagar|pago|paiement|document|sticker|estaciona|parking|stationnement|schedule|agenda|appointment|emergenc|emergência|ACH|autopay/i.test(message)
+}
+
 // ============================================================
 // ✅ FIX 1 — GET handler for Meta + Twilio webhook verification
 // Without this, Meta's "Verify and save" button stays grayed out
@@ -238,11 +252,11 @@ async function handleVoice(phone: string, body: FormData): Promise<NextResponse>
   const voice    = getVoiceForLanguage(ctx.language)
   const twiml    = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="${voice}">${escapeXml(greeting)}</Say>
+  <Say voice="${voice}">${ttsSay(greeting)}</Say>
   <Gather input="speech" speechTimeout="4" action="/api/webhook" method="POST">
-    <Say voice="${voice}">${escapeXml(getListenPrompt(ctx.language))}</Say>
+    <Say voice="${voice}">${ttsSay(getListenPrompt(ctx.language))}</Say>
   </Gather>
-  <Say voice="${voice}">I did not catch that. Please call our office at 3 0 5, 9 0 0, 5 0 7 7. Thank you for calling PMI Top Florida Properties!</Say>
+  <Say voice="${voice}">I did not catch that. Please call our office at 3 0 5, 9 0 0, 5 0 7 7. Thank you for calling <lang xml:lang="en-US">PMI Top Florida Properties</lang>!</Say>
   <Hangup/>
 </Response>`
   return new NextResponse(twiml, { headers: { 'Content-Type': 'text/xml' } })
@@ -378,7 +392,7 @@ async function handleVoiceToWhatsApp(
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="${voice}">${escapeXml(ask)}</Say>
+  <Say voice="${voice}">${ttsSay(ask)}</Say>
   <Gather input="speech dtmf" speechTimeout="8" finishOnKey="#" action="/api/webhook" method="POST">
   </Gather>
   <Say voice="${voice}">I did not catch that. I will send the information to the number you called from instead.</Say>
@@ -467,11 +481,11 @@ async function sendWhatsAppFromVoice(toPhone: string, content: string, ctx: Call
 function voiceTwiml(voice: string, spoken: string, farewell: string): NextResponse {
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="${voice}">${escapeXml(spoken)}</Say>
+  <Say voice="${voice}">${ttsSay(spoken)}</Say>
   <Gather input="speech" speechTimeout="4" action="/api/webhook" method="POST">
-    <Say voice="${voice}">${escapeXml(farewell)}</Say>
+    <Say voice="${voice}">${ttsSay(farewell)}</Say>
   </Gather>
-  <Say voice="${voice}">Thank you for calling PMI Top Florida Properties. Have a wonderful day!</Say>
+  <Say voice="${voice}">Thank you for calling <lang xml:lang="en-US">PMI Top Florida Properties</lang>. Have a wonderful day!</Say>
   <Hangup/>
 </Response>`
   return new NextResponse(twiml, { headers: { 'Content-Type': 'text/xml' } })
@@ -617,6 +631,21 @@ async function routeTextMessage(
     // Not a role answer — they restated the request. Pin the default role so we
     // don't re-greet, then fall through to route their message.
     await setPinnedPersona(phone, ctx.persona)
+  }
+
+  // A pending satisfaction survey must never trap a real request. If the reply
+  // isn't a rating — and it either names a fresh command or the survey is stale
+  // (>10 min) — drop the survey and let the message route normally. Without this,
+  // a lingering "rate us 1–5" ate replies like "ledger" as invalid ratings (and
+  // logged a bogus 1★ + low-rating staff alert).
+  if (state?.current_flow === 'awaiting_feedback') {
+    const fb = (state.temporary_data_json ?? {}) as { feedbackType?: FeedbackType; sentAt?: string }
+    const ratingShaped = isRatingShaped(message, fb.feedbackType ?? 'thumbs')
+    const stale = fb.sentAt ? (Date.now() - Date.parse(fb.sentAt)) > 10 * 60 * 1000 : false
+    if (!ratingShaped && (stale || looksLikeCommand(message))) {
+      await clearConversationState(phone)
+      state.current_flow = 'idle'
+    }
   }
 
   if (!isGreeting && state?.current_flow && state.current_flow !== 'idle' && !inClarify) {
@@ -894,7 +923,10 @@ async function processFeedbackReply(phone: string, message: string, ctx: CallerC
     language: string; channel: string; sentAt: string
   }
 
-  const lang         = data.language ?? ctx.language
+  // Prefer the LIVE conversation language (ctx already reflects session_language)
+  // over the snapshot frozen when the survey was queued — otherwise a mid-convo
+  // language switch makes the prompt and the reply land in different languages.
+  const lang         = ctx.language || data.language
   const feedbackType = data.feedbackType ?? 'thumbs'
   const msg          = message.trim().toLowerCase()
 
@@ -2454,6 +2486,18 @@ function getVoiceForLanguage(lang: string): string {
 
 function escapeXml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
+}
+
+// Voice <Say> content. Escapes the text, then wraps the English brand name in an
+// SSML <lang> span so non-English Polly voices (pt/ru/es/…) pronounce "PMI Top
+// Florida Properties" in English instead of mangling it. Escape runs first — the
+// brand has no XML-special chars, so it passes through intact — then the raw SSML
+// is injected. (Amazon Polly + Twilio <Say> support the <lang> tag.)
+function ttsSay(text: string): string {
+  return escapeXml(text).replace(
+    /PMI Top Florida Properties/g,
+    '<lang xml:lang="en-US">PMI Top Florida Properties</lang>',
+  )
 }
 
 // ============================================================
