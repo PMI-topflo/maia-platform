@@ -461,6 +461,10 @@ export interface FundsCheckResult {
   openInvoicesCount:      number
   /** Itemized open invoices subtracted (the "what's in the $X" breakdown). */
   openInvoiceItems:       Array<{ invoiceNumber: string | null; vendorName: string | null; amount: number; dueDate: string | null }>
+  /** Stale "open" invoices (>1yr old) that were IGNORED — almost certainly
+   *  already paid in CINC and not counted against the projection. */
+  staleOpenCount:         number
+  staleOpenTotal:         number
   /** Average monthly net (income − outflow) from the last few complete
    *  months on this account's cash ledger. */
   avgMonthlyNet:          number
@@ -682,7 +686,18 @@ export async function forecastFundsForDate(opts: {
   // which ones: 'all' (every open invoice — most conservative) or
   // 'due-by-scheduled' (only those due on/before the end of the scheduled
   // month, so invoices not yet due don't deflate a near-term check).
-  const allOpen = await listOpenInvoices({ assocCode: opts.assocCode }).catch(() => [])
+  const allOpenRaw = await listOpenInvoices({ assocCode: opts.assocCode }).catch(() => [])
+  // Drop STALE open invoices — balances CINC still lists as "open" but that are
+  // over a year old. Older invoices were almost certainly paid (or abandoned)
+  // and simply never cleared in CINC; counting them wrongly deflates the
+  // projection (e.g. a 2024 invoice subtracted from the 2026 balance). Judge by
+  // the latest available date (due date, else invoice date); keep ones with no
+  // date at all (can't prove stale).
+  const staleCutoff = isoDate(new Date(Date.now() - 365 * 24 * 60 * 60 * 1000))
+  const refDate = (o: typeof allOpenRaw[number]) => (o.DueDate || o.InvoiceDate || '').slice(0, 10)
+  const isStaleOpen = (o: typeof allOpenRaw[number]) => { const r = refDate(o); return r !== '' && r < staleCutoff }
+  const staleOpen = allOpenRaw.filter(isStaleOpen)
+  const allOpen   = allOpenRaw.filter(o => !isStaleOpen(o))
   const schedCutoff = endOfMonthISO(scheduledMonth)   // YYYY-MM-DD, last day of scheduled month
   const balanceOf = (o: typeof allOpen[number]) => typeof o.Balance === 'number' ? o.Balance : (typeof o.InvoiceAmount === 'number' ? o.InvoiceAmount : 0)
   const open = openInvoiceScope === 'due-by-scheduled'
@@ -796,6 +811,10 @@ export async function forecastFundsForDate(opts: {
   const openInvoiceItems = dueByScheduled
     .map(o => ({ invoiceNumber: o.InvoiceNumber ?? null, vendorName: o.InvoicePayTo ?? null, amount: balanceOf(o), dueDate: o.DueDate ? o.DueDate.slice(0, 10) : null }))
     .sort((a, b) => b.amount - a.amount)
+  const staleOpenTotal = staleOpen.reduce((s, o) => s + balanceOf(o), 0)
+  if (staleOpen.length > 0) {
+    caveats.push(`Ignored ${staleOpen.length} stale "open" invoice${staleOpen.length === 1 ? '' : 's'} over 1 year old (≈ $${Math.abs(Math.round(staleOpenTotal)).toLocaleString()}) — almost certainly already paid; clear them in CINC so they stop showing as open.`)
+  }
   caveats.push(income.note)
   if (flow.avgOut > 0) caveats.push(`Future months also assume ≈ $${Math.round(flow.avgOut).toLocaleString()}/mo typical recurring spend where bills aren't entered yet.`)
   if (Math.round(lowPoint.balance) < Math.round(projectedAtScheduled)) {
@@ -810,6 +829,8 @@ export async function forecastFundsForDate(opts: {
     openInvoicesTotal,
     openInvoicesCount:      dueByScheduled.length,
     openInvoiceItems,
+    staleOpenCount:         staleOpen.length,
+    staleOpenTotal,
     avgMonthlyNet:          flow.avgNet,
     avgMonthlyIn:           flow.avgIn,
     avgMonthlyOut:          flow.avgOut,
