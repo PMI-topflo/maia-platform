@@ -58,6 +58,54 @@ export async function GET(req: NextRequest) {
 
   const letterTemplate = config?.approval_letter_template ?? null;
 
+  // ── Assemble the full board package ──────────────────────────────────
+  // 1. Documents — the stored values are private storage PATHS; sign them so
+  //    the board can open each one (1-hour links).
+  const docPaths: Record<string, string | null> = {
+    govId:        application.docs_gov_id_url        ?? null,
+    proofIncome:  application.docs_proof_income_url  ?? null,
+    marriageCert: application.docs_marriage_cert_url ?? null,
+    lease:        application.docs_lease_url         ?? null,
+  };
+  const documents: Record<string, string | null> = {};
+  for (const [k, path] of Object.entries(docPaths)) {
+    if (!path) { documents[k] = null; continue; }
+    // Already a full URL (legacy rows)? pass through; else sign the path.
+    if (/^https?:\/\//i.test(path)) { documents[k] = path; continue; }
+    const { data: signed } = await supabaseAdmin.storage
+      .from('application-docs')
+      .createSignedUrl(path, 60 * 60);
+    documents[k] = signed?.signedUrl ?? null;
+  }
+
+  // 2. Acknowledged governing documents — resolve the ids to names/dates.
+  let acknowledgedDocs: { id: string; filename: string | null; category: string | null; effective_date: string | null }[] = [];
+  const ackIds = (application.acknowledged_document_ids as string[] | null) ?? [];
+  if (ackIds.length > 0) {
+    const { data: docs } = await supabaseAdmin
+      .from('association_documents')
+      .select('id, filename, category, effective_date')
+      .in('id', ackIds);
+    acknowledgedDocs = docs ?? [];
+  }
+
+  // 3. Collaborative stakeholders — if this detailed application is linked to a
+  //    listing application, surface everyone involved (listing agent, owner,
+  //    applicant's agent, applicants).
+  let stakeholders: { role: string; name: string | null; email: string | null; phone: string | null }[] = [];
+  const { data: la } = await supabaseAdmin
+    .from('listing_applications')
+    .select('id, listing_id')
+    .eq('detailed_application_id', review.application_id)
+    .maybeSingle();
+  if (la) {
+    const { data: sh } = await supabaseAdmin
+      .from('application_stakeholders')
+      .select('role, name, email, phone')
+      .or(`application_id.eq.${la.id},listing_id.eq.${la.listing_id}`);
+    stakeholders = sh ?? [];
+  }
+
   return NextResponse.json({
     ok: true,
     application,
@@ -67,6 +115,9 @@ export async function GET(req: NextRequest) {
     },
     letterTemplate,
     alreadyDecided,
+    documents,
+    acknowledgedDocs,
+    stakeholders,
   });
 }
 
