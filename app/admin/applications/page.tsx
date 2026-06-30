@@ -5,7 +5,7 @@
 // Client Component for the interactive table.
 // =====================================================================
 
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import SiteHeader from '@/components/SiteHeader';
 import AdminNav from '../components/AdminNav';
 import { ApplicationsTable } from './ApplicationsTable';
@@ -19,11 +19,10 @@ interface ApplicationRow {
 }
 
 async function getData() {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY!,
-    { auth: { persistSession: false } }
-  );
+  // Shared admin client resolves the canonical SUPABASE_URL + service key.
+  // (Was an inline createClient on NEXT_PUBLIC_SUPABASE_URL, which is the
+  // app domain — not the project URL — so every query 404'd.)
+  const supabase = supabaseAdmin;
 
   const { data: applications, error } = await supabase
     .from('applications')

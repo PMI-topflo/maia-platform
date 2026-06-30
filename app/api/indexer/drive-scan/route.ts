@@ -15,15 +15,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
 // ---- Clients ----
+// Delegate to the shared admin client so we always resolve the canonical
+// SUPABASE_URL + SUPABASE_SERVICE_KEY (with legacy fallbacks). The old
+// inline version read NEXT_PUBLIC_SUPABASE_URL (the app domain, not the
+// project URL) + SUPABASE_SERVICE_ROLE_KEY (non-canonical name) and 404'd.
 function getSupabase() {
-  const env = process.env;
-  const url = env['NEXT_PUBLIC_SUPABASE_URL'];
-  const key = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase env vars missing');
-  return createClient(url, key, { auth: { persistSession: false } });
+  return getSupabaseAdmin();
 }
 
 function getGemini() {
