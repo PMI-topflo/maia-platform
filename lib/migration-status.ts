@@ -44,6 +44,21 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'applications_missing_columns',
+    label:       'Applications — core columns backfill',
+    description: 'is_married_couple/occupants/rules_agreed_at/rules_signature/board_decision on applications — /apply submit + board approval write these; a missing column breaks the insert',
+    filename:    '20260630_applications_missing_columns.sql',
+    artifact:    { type: 'column', table: 'applications', column: 'rules_signature' },
+    sql: `ALTER TABLE public.applications
+  ADD COLUMN IF NOT EXISTS is_married_couple boolean,
+  ADD COLUMN IF NOT EXISTS occupants         jsonb,
+  ADD COLUMN IF NOT EXISTS rules_agreed_at   timestamptz,
+  ADD COLUMN IF NOT EXISTS rules_signature   text,
+  ADD COLUMN IF NOT EXISTS board_decision    text DEFAULT 'pending';
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'application_stakeholders',
     label:       'Application stakeholders (leasing/sale)',
     description: 'unit_listings + applications + application_stakeholders + application_documents — collaborative application foundation (listing agent, owner, applicant agent, applicants) + application-docs storage bucket',

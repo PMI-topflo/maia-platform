@@ -17,6 +17,11 @@ export async function middleware(req: NextRequest) {
   // Staff login page is always public — never intercept it or an infinite loop results
   if (pathname === '/admin/login') return NextResponse.next()
 
+  // The board-review page is a PUBLIC, token-gated page: board members open it
+  // from a unique emailed link with no session. It must NOT require a board
+  // login (the /board portal does) or the review link is unusable.
+  if (pathname === '/board/review') return NextResponse.next()
+
   const match = Object.entries(PROTECTED).find(([prefix]) =>
     pathname === prefix || pathname.startsWith(`${prefix}/`)
   )

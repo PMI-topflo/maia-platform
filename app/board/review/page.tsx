@@ -29,6 +29,14 @@ interface ApplicationData {
   entity_name: string | null;
   stripe_payment_status: string | null;
   unit?: string | null;
+  occupants?: { name?: string; relationship?: string; dob?: string; age?: string }[] | null;
+  principals?: { name?: string; dob?: string }[] | null;
+  is_married_couple?: boolean | null;
+  total_charged?: number | null;
+  applycheck_status?: string | null;
+  applycheck_report_url?: string | null;
+  rules_signature?: string | null;
+  rules_agreed_at?: string | null;
   [key: string]: unknown;
 }
 
@@ -36,6 +44,10 @@ interface BoardMember {
   name: string;
   email: string;
 }
+
+interface Documents { govId: string | null; proofIncome: string | null; marriageCert: string | null; lease: string | null }
+interface AckDoc { id: string; filename: string | null; category: string | null; effective_date: string | null }
+interface Stakeholder { role: string; name: string | null; email: string | null; phone: string | null }
 
 type LoadState = 'loading' | 'invalid' | 'decided' | 'ready';
 
@@ -90,6 +102,9 @@ export default function BoardReviewPage() {
   const [application, setApplication] = useState<ApplicationData | null>(null);
   const [boardMember, setBoardMember] = useState<BoardMember | null>(null);
   const [letterTemplate, setLetterTemplate] = useState<string | null>(null);
+  const [documents, setDocuments] = useState<Documents | null>(null);
+  const [ackDocs, setAckDocs] = useState<AckDoc[]>([]);
+  const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
   const [token, setToken] = useState<string | null>(null);
 
   const [decision, setDecision] = useState<'approved' | 'rejected' | null>(null);
@@ -124,6 +139,9 @@ export default function BoardReviewPage() {
         setApplication(json.application);
         setBoardMember(json.boardMember);
         setLetterTemplate(json.letterTemplate);
+        setDocuments(json.documents ?? null);
+        setAckDocs(json.acknowledgedDocs ?? []);
+        setStakeholders(json.stakeholders ?? []);
         setLoadState('ready');
       })
       .catch(() => setLoadState('invalid'));
@@ -324,6 +342,96 @@ export default function BoardReviewPage() {
               </table>
             </div>
           </div>
+
+          {/* ── Full review package ───────────────────────────────────── */}
+          {application && (
+            <>
+              {/* Applicants / principals + occupants */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <div style={sectionTitle}>{application.app_type === 'commercial' ? 'Entity & Principals' : 'Applicants'}</div>
+                {application.app_type === 'commercial' && application.entity_name && (
+                  <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.5rem' }}>{application.entity_name}</div>
+                )}
+                {(application.app_type === 'commercial' ? (application.principals ?? []) : (application.applicants ?? [])).map((p, i) => {
+                  const a = p as Record<string, unknown>;
+                  const name = application.app_type === 'commercial'
+                    ? String(a.name ?? `Principal ${i + 1}`)
+                    : [a.firstName, a.lastName].filter(Boolean).join(' ') || `Applicant ${i + 1}`;
+                  const meta = [a.email, a.phone, a.dob && `DOB ${a.dob}`, a.unitApplying && `Unit ${a.unitApplying}`].filter(Boolean).join('  ·  ');
+                  return (
+                    <div key={i} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.65rem 0.9rem', marginBottom: '0.5rem' }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{name}</div>
+                      {meta && <div style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: '0.15rem' }}>{meta}</div>}
+                    </div>
+                  );
+                })}
+                {application.is_married_couple && <div style={{ fontSize: '0.8rem', color: '#16a34a', marginTop: '0.3rem' }}>✓ Married couple</div>}
+                {(application.occupants ?? []).length > 0 && (
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#374151' }}>
+                    <strong>Other occupants:</strong> {(application.occupants ?? []).map(o => `${o.name ?? '—'}${o.age ? ` (${o.age})` : ''}`).join(', ')}
+                  </div>
+                )}
+              </div>
+
+              {/* Documents */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <div style={sectionTitle}>Documents</div>
+                <div style={{ display: 'grid', gap: '0.5rem' }}>
+                  {([['Government ID', 'govId'], ['Proof of income', 'proofIncome'], ['Lease / purchase agreement', 'lease'], ['Marriage certificate', 'marriageCert']] as const).map(([label, key]) => {
+                    const url = documents ? documents[key] : null;
+                    return (
+                      <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.55rem 0.9rem', fontSize: '0.85rem' }}>
+                        <span>📄 {label}</span>
+                        {url ? <a href={url} target="_blank" rel="noreferrer" style={{ color: '#f26a1b', fontWeight: 700 }}>Open ↗</a> : <span style={{ color: '#9ca3af' }}>Not provided</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Background / credit / eviction */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <div style={sectionTitle}>Background, Credit & Eviction</div>
+                {application.applycheck_report_url ? (
+                  <a href={application.applycheck_report_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', color: '#f26a1b', fontWeight: 700, fontSize: '0.9rem' }}>View screening report ↗</a>
+                ) : (
+                  <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '0.7rem 1rem', fontSize: '0.83rem', color: '#92400e' }}>
+                    Screening {application.applycheck_status ? `— ${application.applycheck_status}` : 'pending'}. The full report appears here once it completes.
+                  </div>
+                )}
+              </div>
+
+              {/* Rules acknowledgment */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <div style={sectionTitle}>Rules Acknowledgment</div>
+                <div style={{ fontSize: '0.85rem', color: '#374151' }}>
+                  {application.rules_signature
+                    ? <>Signed by <strong>{application.rules_signature}</strong>{application.rules_agreed_at ? ` on ${new Date(application.rules_agreed_at).toLocaleDateString('en-US')}` : ''}.</>
+                    : <span style={{ color: '#9ca3af' }}>Not signed.</span>}
+                </div>
+                {ackDocs.length > 0 && (
+                  <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem', fontSize: '0.78rem', color: '#6b7280' }}>
+                    {ackDocs.map(d => <li key={d.id}>{d.filename ?? d.category}{d.effective_date ? `  ·  ${d.effective_date}` : ''}</li>)}
+                  </ul>
+                )}
+              </div>
+
+              {/* People involved (collaborative stakeholders) */}
+              {stakeholders.length > 0 && (
+                <div style={{ marginBottom: '1.75rem' }}>
+                  <div style={sectionTitle}>People Involved</div>
+                  <div style={{ display: 'grid', gap: '0.35rem' }}>
+                    {stakeholders.map((s, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.85rem', borderBottom: '1px solid #f3f4f6', padding: '0.3rem 0' }}>
+                        <span style={{ color: '#6b7280', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>{s.role.replace(/_/g, ' ')}</span>
+                        <span style={{ fontWeight: 600, textAlign: 'right' }}>{s.name ?? '—'}{s.email ? `  ·  ${s.email}` : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
           {/* Approval letter */}
           <div style={{ marginBottom: '1.75rem' }}>
