@@ -24,11 +24,24 @@ export type VendorDocType =
   | 'w9' | 'coi' | 'ach' | 'license' | 'insurance'
   | 'estimate' | 'invoice' | 'other'
 
+/** An entity named on a COI — an additional insured or the certificate holder. */
+export interface CoiEntity {
+  name:    string
+  address: string | null
+}
+
 export interface VendorDocExtraction {
   docType:    VendorDocType
   confidence: number                       // 0..1
   summary:    string | null                // short human label
   fields:     Record<string, string>       // type-specific, sensitive values masked
+  // Populated only for coi/insurance docs — the entities the certificate
+  // protects. Used by lib/coi-validation.ts to verify PMI + the association
+  // are listed as additional insured. Never sensitive, never masked.
+  coi?: {
+    additionalInsured:  CoiEntity[]
+    certificateHolder:  CoiEntity | null
+  }
 }
 
 const PROMPT = `You are classifying and reading a document a vendor sent to a property-management company. The document is ONE of: a W-9, a Certificate of Insurance (COI), an ACH / bank authorization form, a business/contractor license, an insurance policy, a job estimate/quote, an invoice, or something else.
@@ -44,11 +57,17 @@ Return a SINGLE JSON object and nothing else (no prose, no markdown fences):
     // ach:       "account_holder", "bank_name", "routing_last4", "account_last4", "account_type"
     // license:   "license_name", "license_number", "license_type", "issuer", "expiration_date"
     // estimate/invoice: "vendor_name", "amount", "invoice_number", "date", "scope"
-  }
+  },
+  // ONLY when doc_type is "coi" or "insurance" — otherwise omit both keys:
+  "additional_insured": [           // every entity named as ADDITIONAL INSURED (often in the Description box / endorsements)
+    { "name": string, "address": string or null }
+  ],
+  "certificate_holder": { "name": string, "address": string or null }  // the CERTIFICATE HOLDER box, or null if none
 }
 
 CRITICAL RULES:
 - Dates MUST be ISO YYYY-MM-DD (convert "5/1/2026" → "2026-05-01").
+- For additional_insured: read the Description of Operations box AND any attached endorsement pages; copy each entity's name and (if printed) its full address EXACTLY as shown, typos and all. Include the certificate holder there too if the form says the holder is also an additional insured. Empty array if none.
 %%SENSITIVE%%
 - Omit any field you can't read; do not guess. Use a string for every value you include.
 - If it isn't clearly one of the listed types, use "other" with confidence below 0.3.`
@@ -140,7 +159,22 @@ export async function extractVendorDocument(
     }
   }
 
-  return { docType, confidence: conf(obj.confidence), summary: str(obj.summary), fields }
+  // COI entities (additional insured + certificate holder) — only for coi/insurance.
+  let coi: VendorDocExtraction['coi']
+  if (docType === 'coi' || docType === 'insurance') {
+    const toEntity = (v: unknown): CoiEntity | null => {
+      if (!v || typeof v !== 'object') return null
+      const name = str((v as Record<string, unknown>).name)
+      if (!name) return null
+      return { name, address: str((v as Record<string, unknown>).address) }
+    }
+    const ai = Array.isArray(obj.additional_insured)
+      ? (obj.additional_insured as unknown[]).map(toEntity).filter((e): e is CoiEntity => e !== null)
+      : []
+    coi = { additionalInsured: ai, certificateHolder: toEntity(obj.certificate_holder) }
+  }
+
+  return { docType, confidence: conf(obj.confidence), summary: str(obj.summary), fields, coi }
 }
 
 const DOC_TYPE_LABEL: Record<VendorDocType, string> = {
