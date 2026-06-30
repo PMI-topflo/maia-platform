@@ -1437,12 +1437,18 @@ function DraftCard(props: {
                       : '— pick GL line —'}
                   </option>
                   {glOptions.map(o => {
-                    // Surface budget context so Karen picks lines that
-                    // still have room. Format: "5000 — Repairs  ·  $5,400 left of $20,000"
-                    const parts: string[] = []
-                    if (o.remaining != null) parts.push(`$${o.remaining.toLocaleString('en-US', { maximumFractionDigits: 0 })} left`)
-                    if (o.budget    != null) parts.push(`of $${o.budget.toLocaleString('en-US', { maximumFractionDigits: 0 })}`)
-                    const ctx = parts.length > 0 ? `  ·  ${parts.join(' ')}` : ''
+                    // Surface useful budget context. When the association has a
+                    // real budget on this line → "$5,400 left of $20,000". When
+                    // it doesn't (CINC budget not loaded) → show year-to-date
+                    // spend instead → "$1,234 spent this year". Never "$0 of $0".
+                    const usd = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`
+                    let ctx = ''
+                    if (o.budget != null && o.budget > 0) {
+                      const left = o.remaining != null ? `${usd(o.remaining)} left ` : ''
+                      ctx = `  ·  ${left}of ${usd(o.budget)}`
+                    } else if (o.actual != null && Math.abs(o.actual) > 0) {
+                      ctx = `  ·  ${usd(Math.abs(o.actual))} spent this year`
+                    }
                     return (
                       <option key={o.id} value={o.id}>
                         {o.number ? `${o.number} — ` : ''}{o.name}{ctx}
