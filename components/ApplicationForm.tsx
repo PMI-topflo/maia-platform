@@ -54,6 +54,8 @@ const translations = {
     sunbizId: "Sunbiz Registration Number",
     principals: "Listed Principals",
     addPrincipal: "+ Add Principal",
+    commercialPersonLabel: "I’m buying under my personal name (not a company)",
+    commercialPersonNote: "No Sunbiz or entity needed — we’ll screen you as an individual.",
     principalName: "Principal Name",
     principalDOB: "Date of Birth",
     documents: "Required Documents",
@@ -162,6 +164,8 @@ const translations = {
     sunbizId: "Número de Registro Sunbiz",
     principals: "Principales Listados",
     addPrincipal: "+ Agregar Principal",
+    commercialPersonLabel: "Compro a mi nombre personal (no una empresa)",
+    commercialPersonNote: "Sin Sunbiz ni entidad: lo evaluamos como persona física.",
     principalName: "Nombre del Principal",
     principalDOB: "Fecha de Nacimiento",
     documents: "Documentos Requeridos",
@@ -264,6 +268,8 @@ const translations = {
     sunbizId: "Número de Registro Sunbiz",
     principals: "Sócios Listados",
     addPrincipal: "+ Adicionar Sócio",
+    commercialPersonLabel: "Estou comprando em meu nome pessoal (não uma empresa)",
+    commercialPersonNote: "Sem Sunbiz nem entidade — avaliamos você como pessoa física.",
     principalName: "Nome do Sócio",
     principalDOB: "Data de Nascimento",
     documents: "Documentos Necessários",
@@ -366,6 +372,8 @@ const translations = {
     sunbizId: "Numéro d'Enregistrement Sunbiz",
     principals: "Dirigeants Listés",
     addPrincipal: "+ Ajouter un Dirigeant",
+    commercialPersonLabel: "J’achète à mon nom personnel (pas une société)",
+    commercialPersonNote: "Aucun Sunbiz ni entité requis — vérification en tant que particulier.",
     principalName: "Nom du Dirigeant",
     principalDOB: "Date de Naissance",
     documents: "Documents Requis",
@@ -468,6 +476,8 @@ const translations = {
     sunbizId: "מספר רישום Sunbiz",
     principals: "בעלי עניין רשומים",
     addPrincipal: "+ הוסף בעל עניין",
+    commercialPersonLabel: "אני קונה על שמי הפרטי (לא חברה)",
+    commercialPersonNote: "ללא Sunbiz או ישות — נבדוק אותך כיחיד.",
     principalName: "שם בעל עניין",
     principalDOB: "תאריך לידה",
     documents: "מסמכים נדרשים",
@@ -570,6 +580,8 @@ const translations = {
     sunbizId: "Регистрационный номер Sunbiz",
     principals: "Зарегистрированные руководители",
     addPrincipal: "+ Добавить руководителя",
+    commercialPersonLabel: "Покупаю на своё личное имя (не компания)",
+    commercialPersonNote: "Sunbiz и юрлицо не нужны — проверим вас как физлицо.",
     principalName: "Имя руководителя",
     principalDOB: "Дата рождения",
     documents: "Необходимые документы",
@@ -638,10 +650,114 @@ const translations = {
     docsRequiredError:  "Пожалуйста, скачайте и прочитайте все {n} документ{s} выше перед подписанием.",
     translationDisclaimer: "Эта форма заявки была переведена для вашего удобства. Английская версия является официальной версией этого соглашения и связанных документов. Подписывая ниже, вы соглашаетесь с английской версией. Если вы не полностью понимаете английскую версию, обратитесь за профессиональной консультацией перед подписанием.",
   },
+  ht: {
+    title: "Aplikasyon Rezidan",
+    subtitle: "PMI Top Florida Properties",
+    steps: ["Dokiman", "Tip", "Aplikan", "Dokiman", "Peman"],
+    selectAssociation: "Chwazi Asosyasyon",
+    associationPlaceholder: "Chwazi asosyasyon ou…",
+    loadingAssociations: "Y ap chaje asosyasyon yo…",
+    applicantType: "Tip Aplikasyon",
+    individual: "Endividyèl",
+    individualDesc: "Yon sèl aplikan",
+    couple: "Koup Marye",
+    coupleDesc: "Aplikasyon ansanm ak konjwen",
+    additionalResident: "Rezidan Siplemantè",
+    additionalResidentDesc: "Okipan anplis sou yon aplikasyon ki egziste",
+    commercial: "Antite Komèsyal",
+    commercialDesc: "Biznis / aplikan kòporatif",
+    marriageCertUpload: "Sètifika Maryaj",
+    marriageCertNote: "Telechaje l pou kalifye pou tarif koup la ($150). San li, chak aplikan peye $100.",
+    hasCert: "Wi — telechaje sètifika a",
+    noCert: "Pa gen sètifika — chaje separeman ($100 chak)",
+    applicant: "Aplikan",
+    firstName: "Prenon",
+    lastName: "Siyati",
+    dob: "Dat Nesans",
+    email: "Adrès Imèl",
+    phone: "Nimewo Telefòn",
+    currentAddress: "Adrès Aktyèl",
+    ssn: "SSN (oswa # Paspò pou aplikan entènasyonal)",
+    unitApplying: "Inite w ap Aplike Pou",
+    moveInDate: "Dat Antre / Fèmti",
+    entityName: "Non Antite (jan li ye nan Sunbiz)",
+    sunbizId: "Nimewo Enskripsyon Sunbiz",
+    principals: "Prensipal ki Endike",
+    addPrincipal: "+ Ajoute Prensipal",
+    commercialPersonLabel: "M ap achte nan non pèsonèl mwen (se pa yon konpayi)",
+    commercialPersonNote: "Pa gen Sunbiz oswa antite ki nesesè — n ap tcheke w kòm yon endividi.",
+    principalName: "Non Prensipal",
+    principalDOB: "Dat Nesans",
+    documents: "Dokiman Obligatwa",
+    govId: "Idantifikasyon Gouvènman an bay",
+    proofIncome: "Prèv Revni",
+    marriageCert: "Sètifika Maryaj",
+    uploadFile: "Klike pou telechaje oswa lonje lage",
+    uploadFormats: "PDF, JPG, PNG · maksimòm 10 MB",
+    uploaded: "Telechaje",
+    paymentSummary: "Rezime Peman",
+    payTotal: "Total pou Peye",
+    payOnline: "Peye an Sekirite ak Kat",
+    signature: "Konsantman & Otorizasyon",
+    signatureConsent: "Mwen otorize PMI Top Florida Properties pou fè yon tcheke background, kredi, ak ekspilsyon sou tout aplikan ki endike anwo yo. Mwen sètifye ke tout enfòmasyon yo bay yo egzak e konplè.",
+    iAgree: "Mwen dakò ak kondisyon ki anwo yo",
+    next: "Kontinye",
+    back: "Tounen",
+    submit: "Soumèt Aplikasyon",
+    priceBreakdown: "Detay Pri",
+    perApplicant: "pa aplikan",
+    coupleRate: "Tarif koup (ak sètifika)",
+    applicationFee: "Frè Aplikasyon",
+    backgroundCheck: "Tcheke Background (Applycheck)",
+    yourMargin: "Frè Tretman",
+    addlResident: "Rezidan Siplemantè",
+    chooseLanguage: "Lang",
+    consentRequired: "Tanpri dakò ak kondisyon yo pou kontinye.",
+    allFieldsRequired: "Tanpri ranpli tout chan obligatwa yo.",
+    selectType: "Tanpri chwazi yon tip aplikasyon.",
+    selectAssocPlaceholder: "Tanpri chwazi yon asosyasyon.",
+    payingNote: "Y ap voye w nan peman sekirize…",
+    uploadError: "Telechajman echwe — tanpri eseye ankò.",
+    uploadLease: "Telechaje Kontra Lwaye oswa Acha ou",
+    uploadLeaseHint: "N ap li l pou idantifye pwopriyete w otomatikman — pa gen lis pou chwazi.",
+    reading: "Y ap li dokiman ou…",
+    docFound: "Pwopriyete Idantifye",
+    assocUnknown: "Asosyasyon pa rekonèt — tanpri kontakte nou anvan ou aplike.",
+    confirmDetails: "Konfime & Kontinye",
+    uploadAgain: "Telechaje yon lòt dokiman",
+    verifyNote: "Verifye detay sa yo koresponn ak dokiman ou anvan w kontinye.",
+    leaseRequired: "Tanpri telechaje kontra lwaye oswa acha ou pou kontinye.",
+    parseError: "Nou pa t ka li dokiman ou klèman. Tanpri telechaje yon eskan oswa foto pi bon kalite epi eseye ankò.",
+    areYouMarried: "Èske ko-aplikan ki anwo yo se yon koup marye?",
+    yes: "Wi",
+    no: "Non",
+    marriedCertWillBeRequired: "Y ap mande yon sètifika maryaj nan etap Dokiman yo.",
+    otherOccupants: "Lòt Okipan",
+    otherOccupantsHint: "Endike tout lòt moun ki pral abite nan inite a. Granmoun 18 an+ ap resevwa yon envitasyon pou konplete tcheke yo.",
+    occupantName: "Non Konplè",
+    occupantAge: "Laj",
+    occupantEmail: "Imèl (18 an+ sèlman)",
+    addOccupant: "+ Ajoute Okipan",
+    sendInvite: "Voye envitasyon bay ko-aplikan an",
+    inviteSentLabel: "Envitasyon voye ✓",
+    sendingInvite: "Y ap voye…",
+    rulesTitle: "Règ & Règleman",
+    rulesConsent: "Mwen li epi mwen dakò pou respekte Règ ak Règleman",
+    rulesSignaturePlaceholder: "Tape non legal konplè w pou siyen",
+    rulesSignatureLabel: "Siyati Elektwonik",
+    rulesSignatureNote: "Lè w tape non w anwo a, w ap siyen akò sa a elektwonikman.",
+    rulesRequired: "Tanpri siyen rekonesans Règ & Règleman yo pou kontinye.",
+    docsReviewTitle: "Telechaje & revize dokiman sa yo",
+    docsOpenedLabel: "✓ Ouvè",
+    docsDownloadLabel: "Telechaje ↗",
+    docsOpenAllPrompt: "Tanpri ouvè tout {n} dokiman{s} anvan w siyen.",
+    docsRequiredError: "Tanpri telechaje epi revize tout {n} dokiman{s} anwo yo anvan w siyen.",
+    translationDisclaimer: "Fòm aplikasyon sa a tradwi pou konvenyans ou. Vèsyon anglè a se vèsyon ofisyèl akò sa a ak dokiman ki asosye yo. Lè w siyen anba a, w ap dakò ak vèsyon anglè a. Si w pa konprann vèsyon anglè a nèt, chèche konsèy pwofesyonèl anvan w siyen.",
+  },
 };
 
-const flags     = { en: "🇺🇸", es: "🇪🇸", pt: "🇧🇷", fr: "🇫🇷", he: "🇮🇱", ru: "🇷🇺" };
-const langNames = { en: "English", es: "Español", pt: "Português", fr: "Français", he: "עברית", ru: "Русский" };
+const flags     = { en: "🇺🇸", es: "🇪🇸", pt: "🇧🇷", fr: "🇫🇷", ht: "🇭🇹", he: "🇮🇱", ru: "🇷🇺" };
+const langNames = { en: "English", es: "Español", pt: "Português", fr: "Français", ht: "Kreyòl", he: "עברית", ru: "Русский" };
 
 // ── Stripe singleton ──────────────────────────────────────────────────────────
 let stripePromise: ReturnType<typeof loadStripe> | null = null;
@@ -875,6 +991,9 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [principals, setPrincipals]   = useState([{ name: "", dob: "" }]);
   const [sunbizId, setSunbizId]       = useState("");
   const [entityName, setEntityName]   = useState("");
+  // A commercial-property buyer applying under their PERSONAL name (no LLC/Corp)
+  // → skip the Sunbiz entity fields and screen them as the individual(s).
+  const [commercialAsPerson, setCommercialAsPerson] = useState(false);
   const [docs, setDocs]               = useState({ govId: null, proofIncome: null, marriageCert: null });
   const [docUrls, setDocUrls]         = useState({ govId: null, proofIncome: null, marriageCert: null });
   const [uploading, setUploading]     = useState({ govId: false, proofIncome: false, marriageCert: false });
@@ -1199,6 +1318,9 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
       if (!appType)                  { setError(t.selectType); return; }
       if (isCouple && !coupleOption) { setError(t.selectType); return; }
     }
+    if (step === 2 && isCommercial && !commercialAsPerson) {
+      if (!entityName.trim() || !sunbizId.trim()) { setError(t.allFieldsRequired); return; }
+    }
     if (step === 3 && !rulesSignature.trim()) { setError(t.rulesRequired); return; }
     // Block signature submission until every governing document has
     // been opened. Hardcoded English message — i18n keys live with the
@@ -1307,8 +1429,8 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         couple_has_cert:  isCouple ? hasCert : null,
         applicants:       isCommercial ? null : applicants,
         principals:       isCommercial ? principals : null,
-        entity_name:      isCommercial ? entityName : null,
-        sunbiz_id:        isCommercial ? sunbizId : null,
+        entity_name:      isCommercial && !commercialAsPerson ? entityName : null,
+        sunbiz_id:        isCommercial && !commercialAsPerson ? sunbizId : null,
         total_charged:    total,
         docs_gov_id_url:        docUrls.govId,
         docs_proof_income_url:  docUrls.proofIncome,
@@ -1756,6 +1878,16 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
             <div>
               {isCommercial ? (
                 <div>
+                  {/* Buying under a personal name? Skip the Sunbiz entity fields. */}
+                  <label onClick={() => setCommercialAsPerson(v => !v)} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 18, padding: "12px 14px", borderRadius: 4, border: `1.5px solid ${commercialAsPerson ? "#f26a1b" : "#e5e7eb"}`, background: commercialAsPerson ? "#fff7f0" : "#fafaf9", cursor: "pointer" }}>
+                    <input type="checkbox" checked={commercialAsPerson} onChange={(e) => setCommercialAsPerson(e.target.checked)} style={{ marginTop: 2 }} />
+                    <span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#0d0d0d" }}>{t.commercialPersonLabel}</span>
+                      <span style={{ display: "block", fontSize: 12, color: "#6b7280", marginTop: 2, lineHeight: 1.4 }}>{t.commercialPersonNote}</span>
+                    </span>
+                  </label>
+
+                  {!commercialAsPerson && (<>
                   <div style={{ marginBottom: 14 }}>
                     <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: "monospace" }}>{t.entityName} *</label>
                     <input type="text" value={entityName} onChange={(e) => setEntityName(e.target.value)} style={inp} onFocus={(e) => (e.target.style.borderColor = "#f26a1b")} onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")} />
@@ -1764,8 +1896,9 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                     <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: "monospace" }}>{t.sunbizId} *</label>
                     <input type="text" value={sunbizId} onChange={(e) => setSunbizId(e.target.value)} style={inp} onFocus={(e) => (e.target.style.borderColor = "#f26a1b")} onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")} />
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#0d0d0d", marginBottom: 4, fontFamily: "monospace" }}>{t.principals} <span style={{ color: "#f26a1b" }}>($100 each)</span></div>
-                  <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>List all natural persons (individuals) over 18 years old who are members, officers, trustees, or beneficial owners of this entity.</p>
+                  </>)}
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#0d0d0d", marginBottom: 4, fontFamily: "monospace" }}>{commercialAsPerson ? t.applicant : t.principals} <span style={{ color: "#f26a1b" }}>($100 each)</span></div>
+                  <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>{commercialAsPerson ? "List each buyer purchasing under their personal name (over 18)." : "List all natural persons (individuals) over 18 years old who are members, officers, trustees, or beneficial owners of this entity."}</p>
                   {principals.map((p, idx) => (
                     <div key={idx} style={{ background: "#fafaf9", borderRadius: 4, padding: 16, marginBottom: 10, border: "1px solid #e5e7eb" }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: "#f26a1b", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: "monospace" }}>Principal {idx + 1}</div>
