@@ -36,6 +36,11 @@ const translations = {
     additionalResidentDesc: "Extra occupant on existing application",
     commercial: "Commercial Entity",
     commercialDesc: "Business / corporate applicant",
+    international: "Canadian / International",
+    internationalDesc: "Non-US applicant or foreign address",
+    sunbizUploadTitle: "Upload your Sunbiz registration (optional)",
+    sunbizUploadHint: "We'll auto-fill the entity name and all principals — review them below.",
+    sunbizError: "Couldn't read it automatically — please fill in the fields below.",
     marriageCertUpload: "Marriage Certificate",
     marriageCertNote: "Upload to qualify for couple rate ($150). Without it, each applicant is charged $100.",
     hasCert: "Yes — upload certificate",
@@ -54,6 +59,8 @@ const translations = {
     sunbizId: "Sunbiz Registration Number",
     principals: "Listed Principals",
     addPrincipal: "+ Add Principal",
+    commercialPersonLabel: "I’m buying under my personal name (not a company)",
+    commercialPersonNote: "No Sunbiz or entity needed — we’ll screen you as an individual.",
     principalName: "Principal Name",
     principalDOB: "Date of Birth",
     documents: "Required Documents",
@@ -144,6 +151,11 @@ const translations = {
     additionalResidentDesc: "Ocupante adicional en solicitud existente",
     commercial: "Entidad Comercial",
     commercialDesc: "Empresa / solicitante corporativo",
+    international: "Canadiense / Internacional",
+    internationalDesc: "Solicitante no estadounidense o dirección extranjera",
+    sunbizUploadTitle: "Suba su registro de Sunbiz (opcional)",
+    sunbizUploadHint: "Completaremos el nombre de la entidad y los principales — revíselos abajo.",
+    sunbizError: "No se pudo leer automáticamente — complete los campos abajo.",
     marriageCertUpload: "Certificado de Matrimonio",
     marriageCertNote: "Suba el certificado para la tarifa de pareja ($150). Sin él, cada solicitante paga $100.",
     hasCert: "Sí — subir certificado",
@@ -162,6 +174,8 @@ const translations = {
     sunbizId: "Número de Registro Sunbiz",
     principals: "Principales Listados",
     addPrincipal: "+ Agregar Principal",
+    commercialPersonLabel: "Compro a mi nombre personal (no una empresa)",
+    commercialPersonNote: "Sin Sunbiz ni entidad: lo evaluamos como persona física.",
     principalName: "Nombre del Principal",
     principalDOB: "Fecha de Nacimiento",
     documents: "Documentos Requeridos",
@@ -246,6 +260,11 @@ const translations = {
     additionalResidentDesc: "Ocupante extra em solicitação existente",
     commercial: "Entidade Comercial",
     commercialDesc: "Empresa / solicitante corporativo",
+    international: "Canadense / Internacional",
+    internationalDesc: "Solicitante não americano ou endereço estrangeiro",
+    sunbizUploadTitle: "Envie seu registro Sunbiz (opcional)",
+    sunbizUploadHint: "Preencheremos o nome da entidade e os sócios — confira abaixo.",
+    sunbizError: "Não foi possível ler automaticamente — preencha os campos abaixo.",
     marriageCertUpload: "Certidão de Casamento",
     marriageCertNote: "Envie a certidão para a tarifa de casal ($150). Sem ela, cada solicitante paga $100.",
     hasCert: "Sim — enviar certidão",
@@ -264,6 +283,8 @@ const translations = {
     sunbizId: "Número de Registro Sunbiz",
     principals: "Sócios Listados",
     addPrincipal: "+ Adicionar Sócio",
+    commercialPersonLabel: "Estou comprando em meu nome pessoal (não uma empresa)",
+    commercialPersonNote: "Sem Sunbiz nem entidade — avaliamos você como pessoa física.",
     principalName: "Nome do Sócio",
     principalDOB: "Data de Nascimento",
     documents: "Documentos Necessários",
@@ -348,6 +369,11 @@ const translations = {
     additionalResidentDesc: "Occupant supplémentaire sur demande existante",
     commercial: "Entité Commerciale",
     commercialDesc: "Entreprise / demandeur corporatif",
+    international: "Canadien / International",
+    internationalDesc: "Demandeur non américain ou adresse étrangère",
+    sunbizUploadTitle: "Téléchargez votre enregistrement Sunbiz (facultatif)",
+    sunbizUploadHint: "Nous remplirons le nom de l'entité et les dirigeants — vérifiez ci-dessous.",
+    sunbizError: "Lecture automatique impossible — remplissez les champs ci-dessous.",
     marriageCertUpload: "Certificat de Mariage",
     marriageCertNote: "Téléchargez le certificat pour le tarif couple ($150). Sans lui, chaque demandeur paie $100.",
     hasCert: "Oui — télécharger le certificat",
@@ -366,6 +392,8 @@ const translations = {
     sunbizId: "Numéro d'Enregistrement Sunbiz",
     principals: "Dirigeants Listés",
     addPrincipal: "+ Ajouter un Dirigeant",
+    commercialPersonLabel: "J’achète à mon nom personnel (pas une société)",
+    commercialPersonNote: "Aucun Sunbiz ni entité requis — vérification en tant que particulier.",
     principalName: "Nom du Dirigeant",
     principalDOB: "Date de Naissance",
     documents: "Documents Requis",
@@ -450,6 +478,11 @@ const translations = {
     additionalResidentDesc: "דייר נוסף על בקשה קיימת",
     commercial: "ישות מסחרית",
     commercialDesc: "עסק / מגיש תאגידי",
+    international: "Kanadyen / Entènasyonal",
+    internationalDesc: "Aplikan ki pa Ameriken oswa adrès etranje",
+    sunbizUploadTitle: "Telechaje enskripsyon Sunbiz ou (opsyonèl)",
+    sunbizUploadHint: "N ap ranpli non antite a ak tout prensipal yo — verifye yo anba a.",
+    sunbizError: "Nou pa t ka li l otomatikman — tanpri ranpli chan yo anba a.",
     marriageCertUpload: "תעודת נישואין",
     marriageCertNote: "העלה תעודת נישואין לתעריף זוגי ($150). ללא תעודה, כל מגיש ישלם $100.",
     hasCert: "כן — העלה תעודה",
@@ -468,6 +501,8 @@ const translations = {
     sunbizId: "מספר רישום Sunbiz",
     principals: "בעלי עניין רשומים",
     addPrincipal: "+ הוסף בעל עניין",
+    commercialPersonLabel: "אני קונה על שמי הפרטי (לא חברה)",
+    commercialPersonNote: "ללא Sunbiz או ישות — נבדוק אותך כיחיד.",
     principalName: "שם בעל עניין",
     principalDOB: "תאריך לידה",
     documents: "מסמכים נדרשים",
@@ -552,6 +587,11 @@ const translations = {
     additionalResidentDesc: "Дополнительный жилец по существующей заявке",
     commercial: "Юридическое лицо",
     commercialDesc: "Компания / корпоративный заявитель",
+    international: "קנדי / בינלאומי",
+    internationalDesc: "מבקש שאינו אמריקאי או כתובת בחו״ל",
+    sunbizUploadTitle: "העלו את רישום ה-Sunbiz שלכם (אופציונלי)",
+    sunbizUploadHint: "נמלא את שם הישות וכל בעלי המניות — בדקו למטה.",
+    sunbizError: "לא הצלחנו לקרוא אוטומטית — מלאו את השדות למטה.",
     marriageCertUpload: "Свидетельство о браке",
     marriageCertNote: "Загрузите свидетельство для семейного тарифа ($150). Без него каждый заявитель платит $100.",
     hasCert: "Да — загрузить свидетельство",
@@ -570,6 +610,8 @@ const translations = {
     sunbizId: "Регистрационный номер Sunbiz",
     principals: "Зарегистрированные руководители",
     addPrincipal: "+ Добавить руководителя",
+    commercialPersonLabel: "Покупаю на своё личное имя (не компания)",
+    commercialPersonNote: "Sunbiz и юрлицо не нужны — проверим вас как физлицо.",
     principalName: "Имя руководителя",
     principalDOB: "Дата рождения",
     documents: "Необходимые документы",
@@ -638,10 +680,119 @@ const translations = {
     docsRequiredError:  "Пожалуйста, скачайте и прочитайте все {n} документ{s} выше перед подписанием.",
     translationDisclaimer: "Эта форма заявки была переведена для вашего удобства. Английская версия является официальной версией этого соглашения и связанных документов. Подписывая ниже, вы соглашаетесь с английской версией. Если вы не полностью понимаете английскую версию, обратитесь за профессиональной консультацией перед подписанием.",
   },
+  ht: {
+    title: "Aplikasyon Rezidan",
+    subtitle: "PMI Top Florida Properties",
+    steps: ["Dokiman", "Tip", "Aplikan", "Dokiman", "Peman"],
+    selectAssociation: "Chwazi Asosyasyon",
+    associationPlaceholder: "Chwazi asosyasyon ou…",
+    loadingAssociations: "Y ap chaje asosyasyon yo…",
+    applicantType: "Tip Aplikasyon",
+    individual: "Endividyèl",
+    individualDesc: "Yon sèl aplikan",
+    couple: "Koup Marye",
+    coupleDesc: "Aplikasyon ansanm ak konjwen",
+    additionalResident: "Rezidan Siplemantè",
+    additionalResidentDesc: "Okipan anplis sou yon aplikasyon ki egziste",
+    commercial: "Antite Komèsyal",
+    commercialDesc: "Biznis / aplikan kòporatif",
+    international: "Канадский / Международный",
+    internationalDesc: "Заявитель не из США или иностранный адрес",
+    sunbizUploadTitle: "Загрузите регистрацию Sunbiz (необязательно)",
+    sunbizUploadHint: "Мы заполним название организации и всех принципалов — проверьте ниже.",
+    sunbizError: "Не удалось прочитать автоматически — заполните поля ниже.",
+    marriageCertUpload: "Sètifika Maryaj",
+    marriageCertNote: "Telechaje l pou kalifye pou tarif koup la ($150). San li, chak aplikan peye $100.",
+    hasCert: "Wi — telechaje sètifika a",
+    noCert: "Pa gen sètifika — chaje separeman ($100 chak)",
+    applicant: "Aplikan",
+    firstName: "Prenon",
+    lastName: "Siyati",
+    dob: "Dat Nesans",
+    email: "Adrès Imèl",
+    phone: "Nimewo Telefòn",
+    currentAddress: "Adrès Aktyèl",
+    ssn: "SSN (oswa # Paspò pou aplikan entènasyonal)",
+    unitApplying: "Inite w ap Aplike Pou",
+    moveInDate: "Dat Antre / Fèmti",
+    entityName: "Non Antite (jan li ye nan Sunbiz)",
+    sunbizId: "Nimewo Enskripsyon Sunbiz",
+    principals: "Prensipal ki Endike",
+    addPrincipal: "+ Ajoute Prensipal",
+    commercialPersonLabel: "M ap achte nan non pèsonèl mwen (se pa yon konpayi)",
+    commercialPersonNote: "Pa gen Sunbiz oswa antite ki nesesè — n ap tcheke w kòm yon endividi.",
+    principalName: "Non Prensipal",
+    principalDOB: "Dat Nesans",
+    documents: "Dokiman Obligatwa",
+    govId: "Idantifikasyon Gouvènman an bay",
+    proofIncome: "Prèv Revni",
+    marriageCert: "Sètifika Maryaj",
+    uploadFile: "Klike pou telechaje oswa lonje lage",
+    uploadFormats: "PDF, JPG, PNG · maksimòm 10 MB",
+    uploaded: "Telechaje",
+    paymentSummary: "Rezime Peman",
+    payTotal: "Total pou Peye",
+    payOnline: "Peye an Sekirite ak Kat",
+    signature: "Konsantman & Otorizasyon",
+    signatureConsent: "Mwen otorize PMI Top Florida Properties pou fè yon tcheke background, kredi, ak ekspilsyon sou tout aplikan ki endike anwo yo. Mwen sètifye ke tout enfòmasyon yo bay yo egzak e konplè.",
+    iAgree: "Mwen dakò ak kondisyon ki anwo yo",
+    next: "Kontinye",
+    back: "Tounen",
+    submit: "Soumèt Aplikasyon",
+    priceBreakdown: "Detay Pri",
+    perApplicant: "pa aplikan",
+    coupleRate: "Tarif koup (ak sètifika)",
+    applicationFee: "Frè Aplikasyon",
+    backgroundCheck: "Tcheke Background (Applycheck)",
+    yourMargin: "Frè Tretman",
+    addlResident: "Rezidan Siplemantè",
+    chooseLanguage: "Lang",
+    consentRequired: "Tanpri dakò ak kondisyon yo pou kontinye.",
+    allFieldsRequired: "Tanpri ranpli tout chan obligatwa yo.",
+    selectType: "Tanpri chwazi yon tip aplikasyon.",
+    selectAssocPlaceholder: "Tanpri chwazi yon asosyasyon.",
+    payingNote: "Y ap voye w nan peman sekirize…",
+    uploadError: "Telechajman echwe — tanpri eseye ankò.",
+    uploadLease: "Telechaje Kontra Lwaye oswa Acha ou",
+    uploadLeaseHint: "N ap li l pou idantifye pwopriyete w otomatikman — pa gen lis pou chwazi.",
+    reading: "Y ap li dokiman ou…",
+    docFound: "Pwopriyete Idantifye",
+    assocUnknown: "Asosyasyon pa rekonèt — tanpri kontakte nou anvan ou aplike.",
+    confirmDetails: "Konfime & Kontinye",
+    uploadAgain: "Telechaje yon lòt dokiman",
+    verifyNote: "Verifye detay sa yo koresponn ak dokiman ou anvan w kontinye.",
+    leaseRequired: "Tanpri telechaje kontra lwaye oswa acha ou pou kontinye.",
+    parseError: "Nou pa t ka li dokiman ou klèman. Tanpri telechaje yon eskan oswa foto pi bon kalite epi eseye ankò.",
+    areYouMarried: "Èske ko-aplikan ki anwo yo se yon koup marye?",
+    yes: "Wi",
+    no: "Non",
+    marriedCertWillBeRequired: "Y ap mande yon sètifika maryaj nan etap Dokiman yo.",
+    otherOccupants: "Lòt Okipan",
+    otherOccupantsHint: "Endike tout lòt moun ki pral abite nan inite a. Granmoun 18 an+ ap resevwa yon envitasyon pou konplete tcheke yo.",
+    occupantName: "Non Konplè",
+    occupantAge: "Laj",
+    occupantEmail: "Imèl (18 an+ sèlman)",
+    addOccupant: "+ Ajoute Okipan",
+    sendInvite: "Voye envitasyon bay ko-aplikan an",
+    inviteSentLabel: "Envitasyon voye ✓",
+    sendingInvite: "Y ap voye…",
+    rulesTitle: "Règ & Règleman",
+    rulesConsent: "Mwen li epi mwen dakò pou respekte Règ ak Règleman",
+    rulesSignaturePlaceholder: "Tape non legal konplè w pou siyen",
+    rulesSignatureLabel: "Siyati Elektwonik",
+    rulesSignatureNote: "Lè w tape non w anwo a, w ap siyen akò sa a elektwonikman.",
+    rulesRequired: "Tanpri siyen rekonesans Règ & Règleman yo pou kontinye.",
+    docsReviewTitle: "Telechaje & revize dokiman sa yo",
+    docsOpenedLabel: "✓ Ouvè",
+    docsDownloadLabel: "Telechaje ↗",
+    docsOpenAllPrompt: "Tanpri ouvè tout {n} dokiman{s} anvan w siyen.",
+    docsRequiredError: "Tanpri telechaje epi revize tout {n} dokiman{s} anwo yo anvan w siyen.",
+    translationDisclaimer: "Fòm aplikasyon sa a tradwi pou konvenyans ou. Vèsyon anglè a se vèsyon ofisyèl akò sa a ak dokiman ki asosye yo. Lè w siyen anba a, w ap dakò ak vèsyon anglè a. Si w pa konprann vèsyon anglè a nèt, chèche konsèy pwofesyonèl anvan w siyen.",
+  },
 };
 
-const flags     = { en: "🇺🇸", es: "🇪🇸", pt: "🇧🇷", fr: "🇫🇷", he: "🇮🇱", ru: "🇷🇺" };
-const langNames = { en: "English", es: "Español", pt: "Português", fr: "Français", he: "עברית", ru: "Русский" };
+const flags     = { en: "🇺🇸", es: "🇪🇸", pt: "🇧🇷", fr: "🇫🇷", ht: "🇭🇹", he: "🇮🇱", ru: "🇷🇺" };
+const langNames = { en: "English", es: "Español", pt: "Português", fr: "Français", ht: "Kreyòl", he: "עברית", ru: "Русский" };
 
 // ── Stripe singleton ──────────────────────────────────────────────────────────
 let stripePromise: ReturnType<typeof loadStripe> | null = null;
@@ -875,6 +1026,12 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [principals, setPrincipals]   = useState([{ name: "", dob: "" }]);
   const [sunbizId, setSunbizId]       = useState("");
   const [entityName, setEntityName]   = useState("");
+  // A commercial-property buyer applying under their PERSONAL name (no LLC/Corp)
+  // → skip the Sunbiz entity fields and screen them as the individual(s).
+  const [commercialAsPerson, setCommercialAsPerson] = useState(false);
+  const [sunbizExtracting, setSunbizExtracting] = useState(false);
+  const [sunbizError, setSunbizError] = useState("");
+  const [sunbizDocName, setSunbizDocName] = useState("");
   const [docs, setDocs]               = useState({ govId: null, proofIncome: null, marriageCert: null });
   const [docUrls, setDocUrls]         = useState({ govId: null, proofIncome: null, marriageCert: null });
   const [uploading, setUploading]     = useState({ govId: false, proofIncome: false, marriageCert: false });
@@ -898,6 +1055,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const isCouple     = appType === "couple";
   const hasCert      = coupleOption === "yes";
   const isCommercial = appType === "commercial";
+  const isInternational = appType === "international";
 
   // ── Stakeholder-flow hand-off: read ?listingApp / ?assoc / ?unit ─────────
   useEffect(() => {
@@ -1116,6 +1274,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     if (appType === "couple")           return hasCert ? 150 : 200;
     if (appType === "additionalResident") return 100;
     if (appType === "commercial")       return principals.length * 100;
+    if (appType === "international")     return 150;
     return 0;
   };
   const total = calcTotal();
@@ -1125,6 +1284,22 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
 
   const updatePrincipal = (idx: number, key: string, val: string) =>
     setPrincipals((prev) => { const n = [...prev]; n[idx] = { ...n[idx], [key]: val }; return n; });
+
+  // Read a Sunbiz registration doc → auto-fill entity name, registration #,
+  // and principals (server-side extraction, so the API key is never exposed).
+  const handleSunbizUpload = async (file: File) => {
+    setSunbizDocName(file.name); setSunbizExtracting(true); setSunbizError("");
+    try {
+      const fd = new FormData(); fd.append("sunbiz", file);
+      const res = await fetch("/api/apply/parse-sunbiz", { method: "POST", body: fd });
+      if (!res.ok) throw new Error();
+      const d = await res.json() as { entity_name?: string | null; registration_number?: string | null; principals?: { name: string; title?: string }[] };
+      if (d.entity_name)         setEntityName(d.entity_name);
+      if (d.registration_number) setSunbizId(d.registration_number);
+      if (d.principals?.length)  setPrincipals(d.principals.map(p => ({ name: p.name, dob: "" })));
+      else                       setSunbizError(t.sunbizError);
+    } catch { setSunbizError(t.sunbizError); } finally { setSunbizExtracting(false); }
+  };
 
   const updateOccupant = (idx: number, key: string, val: string) =>
     setOccupants((prev) => { const n = [...prev]; n[idx] = { ...n[idx], [key]: val }; return n; });
@@ -1198,6 +1373,9 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     if (step === 1) {
       if (!appType)                  { setError(t.selectType); return; }
       if (isCouple && !coupleOption) { setError(t.selectType); return; }
+    }
+    if (step === 2 && isCommercial && !commercialAsPerson) {
+      if (!entityName.trim() || !sunbizId.trim()) { setError(t.allFieldsRequired); return; }
     }
     if (step === 3 && !rulesSignature.trim()) { setError(t.rulesRequired); return; }
     // Block signature submission until every governing document has
@@ -1307,8 +1485,8 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         couple_has_cert:  isCouple ? hasCert : null,
         applicants:       isCommercial ? null : applicants,
         principals:       isCommercial ? principals : null,
-        entity_name:      isCommercial ? entityName : null,
-        sunbiz_id:        isCommercial ? sunbizId : null,
+        entity_name:      isCommercial && !commercialAsPerson ? entityName : null,
+        sunbiz_id:        isCommercial && !commercialAsPerson ? sunbizId : null,
         total_charged:    total,
         docs_gov_id_url:        docUrls.govId,
         docs_proof_income_url:  docUrls.proofIncome,
@@ -1419,6 +1597,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     { key: "couple",            label: t.couple,            desc: t.coupleDesc,            icon: "💑", price: "$150"           },
     { key: "additionalResident",label: t.additionalResident,desc: t.additionalResidentDesc,icon: "➕", price: "$100"           },
     { key: "commercial",        label: t.commercial,        desc: t.commercialDesc,        icon: "🏢", price: "$100/principal" },
+    { key: "international",      label: t.international,      desc: t.internationalDesc,     icon: "🌍", price: "$150"           },
   ];
 
   // ── Shared input style ─────────────────────────────────────────────────────
@@ -1723,7 +1902,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                       if (key !== "commercial") setPrincipals([{ name: "", dob: "" }]);
                       setApplicants((prev) => key === "couple" ? [{ ...prev[0] }, {}] : [{ ...prev[0] }]);
                     }}
-                    style={{ border: `2px solid ${appType === key ? "#f26a1b" : "#e5e7eb"}`, borderRadius: 4, padding: "14px 12px", cursor: "pointer", background: appType === key ? "#fff7f0" : "#fafaf9", transition: "all 0.18s" }}
+                    style={{ border: `2px solid ${appType === key ? "#f26a1b" : "#e5e7eb"}`, borderRadius: 4, padding: "14px 12px", cursor: "pointer", background: appType === key ? "#fff7f0" : "#fafaf9", transition: "all 0.18s", gridColumn: key === "international" ? "1 / -1" : "auto" }}
                   >
                     <div style={{ fontSize: 20, marginBottom: 6 }}>{icon}</div>
                     <div style={{ fontFamily: "'Fraunces', serif", fontSize: 14, fontWeight: 600, color: "#0d0d0d" }}>{label}</div>
@@ -1756,6 +1935,36 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
             <div>
               {isCommercial ? (
                 <div>
+                  {/* Buying under a personal name? Skip the Sunbiz entity fields. */}
+                  <label onClick={() => setCommercialAsPerson(v => !v)} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 18, padding: "12px 14px", borderRadius: 4, border: `1.5px solid ${commercialAsPerson ? "#f26a1b" : "#e5e7eb"}`, background: commercialAsPerson ? "#fff7f0" : "#fafaf9", cursor: "pointer" }}>
+                    <input type="checkbox" checked={commercialAsPerson} onChange={(e) => setCommercialAsPerson(e.target.checked)} style={{ marginTop: 2 }} />
+                    <span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#0d0d0d" }}>{t.commercialPersonLabel}</span>
+                      <span style={{ display: "block", fontSize: 12, color: "#6b7280", marginTop: 2, lineHeight: 1.4 }}>{t.commercialPersonNote}</span>
+                    </span>
+                  </label>
+
+                  {!commercialAsPerson && (<>
+                  {/* Sunbiz auto-fill — upload the registration, we read the
+                      entity name + principals (server-side extraction). */}
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: "monospace" }}>{t.sunbizUploadTitle}</label>
+                    <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 8px", lineHeight: 1.4 }}>{t.sunbizUploadHint}</p>
+                    <div
+                      onClick={() => document.getElementById("sunbiz-upload")?.click()}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleSunbizUpload(f); }}
+                      style={{ border: `2px dashed ${sunbizDocName && !sunbizError ? "#1a6b3c" : "#d1d5db"}`, borderRadius: 4, padding: "16px", textAlign: "center", cursor: "pointer", background: sunbizDocName && !sunbizError ? "#f0fdf4" : "#fafaf9" }}
+                    >
+                      <input id="sunbiz-upload" type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleSunbizUpload(f); }} />
+                      {sunbizExtracting
+                        ? <span style={{ fontSize: 13, color: "#6b7280" }}>{t.reading}</span>
+                        : sunbizDocName && !sunbizError
+                          ? <span style={{ fontSize: 13, color: "#1a6b3c", fontWeight: 600 }}>✓ {sunbizDocName} — {principals.filter(p => p.name).length} principal(s)</span>
+                          : <span style={{ fontSize: 13, color: "#6b7280" }}>📎 {t.uploadFile}<br /><span style={{ fontSize: 11, color: "#9ca3af" }}>{t.uploadFormats}</span></span>}
+                    </div>
+                    {sunbizError && <p style={{ fontSize: 12, color: "#b45309", marginTop: 6 }}>⚠ {sunbizError}</p>}
+                  </div>
                   <div style={{ marginBottom: 14 }}>
                     <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: "monospace" }}>{t.entityName} *</label>
                     <input type="text" value={entityName} onChange={(e) => setEntityName(e.target.value)} style={inp} onFocus={(e) => (e.target.style.borderColor = "#f26a1b")} onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")} />
@@ -1764,8 +1973,9 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                     <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: "monospace" }}>{t.sunbizId} *</label>
                     <input type="text" value={sunbizId} onChange={(e) => setSunbizId(e.target.value)} style={inp} onFocus={(e) => (e.target.style.borderColor = "#f26a1b")} onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")} />
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#0d0d0d", marginBottom: 4, fontFamily: "monospace" }}>{t.principals} <span style={{ color: "#f26a1b" }}>($100 each)</span></div>
-                  <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>List all natural persons (individuals) over 18 years old who are members, officers, trustees, or beneficial owners of this entity.</p>
+                  </>)}
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#0d0d0d", marginBottom: 4, fontFamily: "monospace" }}>{commercialAsPerson ? t.applicant : t.principals} <span style={{ color: "#f26a1b" }}>($100 each)</span></div>
+                  <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>{commercialAsPerson ? "List each buyer purchasing under their personal name (over 18)." : "List all natural persons (individuals) over 18 years old who are members, officers, trustees, or beneficial owners of this entity."}</p>
                   {principals.map((p, idx) => (
                     <div key={idx} style={{ background: "#fafaf9", borderRadius: 4, padding: 16, marginBottom: 10, border: "1px solid #e5e7eb" }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: "#f26a1b", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: "monospace" }}>Principal {idx + 1}</div>
@@ -2198,6 +2408,11 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                       <span>{p.name || `Principal ${i + 1}`}</span><span style={{ fontWeight: 600 }}>$100</span>
                     </div>
                   ))}
+                  {appType === "international" && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d" }}>
+                      <span>1 × {t.international}</span><span style={{ fontWeight: 600 }}>$150</span>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 700, color: "#0d0d0d", fontFamily: "'Fraunces', serif" }}>
@@ -2205,7 +2420,9 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                   <span style={{ color: "#f26a1b" }}>${total}</span>
                 </div>
                 <div style={{ marginTop: 8, fontSize: 11, color: "#9ca3af" }}>
-                  Includes background check, credit &amp; eviction report (Applycheck)
+                  {isInternational
+                    ? "Includes international background check across 90+ databases, Interpol, FBI & OFAC (Applycheck)"
+                    : "Includes background check, credit & eviction report (Applycheck)"}
                 </div>
               </div>
 
