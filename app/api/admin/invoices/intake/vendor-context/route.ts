@@ -197,6 +197,26 @@ export async function GET(req: Request) {
     } catch { /* leave null */ }
   }
 
+  // Suggested PAY-FROM bank — the account this vendor's last MAIA invoice at
+  // this association was actually paid from. Critical when that was NOT the
+  // operating account (a reserve/project invoice), so the next one defaults to
+  // the same source instead of snapping back to operating.
+  let suggestedBank: { id: number; source: string } | null = null
+  try {
+    const { data: priorBank } = await supabaseAdmin
+      .from('invoice_intake_drafts')
+      .select('pay_from_bank_account_id, created_at')
+      .eq('matched_cinc_vendor_id', String(vendorId))
+      .eq('extracted_association_code', assoc)
+      .not('pay_from_bank_account_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (priorBank?.pay_from_bank_account_id != null) {
+      suggestedBank = { id: Number(priorBank.pay_from_bank_account_id), source: 'last MAIA invoice' }
+    }
+  } catch { /* leave null */ }
+
   // ── Double-pay guard ──────────────────────────────────────────────
   // EXACT = same vendor + same invoice# (CINC's dup endpoint + our pushed
   //   drafts, normalized so "1551" == "#1551"). These hard-block "ready".
@@ -312,5 +332,5 @@ export async function GET(req: Request) {
     } catch { /* best-effort */ }
   }
 
-  return NextResponse.json({ suggestedGl, suggestedAccountNumber, suggestedPayBy, recentPayments, duplicate, scanned })
+  return NextResponse.json({ suggestedGl, suggestedAccountNumber, suggestedPayBy, suggestedBank, recentPayments, duplicate, scanned })
 }

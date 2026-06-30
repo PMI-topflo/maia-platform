@@ -484,6 +484,11 @@ function DraftCard(props: {
   const [woPartial, setWoPartial] = useState<boolean>(!!draft.wo_partial_payment)
   const [showApproval, setShowApproval] = useState(false)
   const [bankId, setBankId]       = useState<string>(draft.pay_from_bank_account_id != null ? String(draft.pay_from_bank_account_id) : '')
+  // True while bankId holds an auto-picked default (operating) — lets the
+  // vendor's last-used-bank suggestion replace it when it arrives, but never
+  // overrides a manual pick or an already-saved choice.
+  const [bankAutoFilled, setBankAutoFilled] = useState(draft.pay_from_bank_account_id == null)
+  const [bankSuggestApplied, setBankSuggestApplied] = useState(false)
 
   // GL options for the selected association — fetched on demand the
   // first time edit mode + assoc are both set, then memoised. Refresh
@@ -600,16 +605,22 @@ function DraftCard(props: {
         const accounts: BankAccountOption[] = data.accounts ?? []
         setBankOptions(accounts)
         setBankLoadedFor(assoc)
-        // Default to the SouthState (SSB) Operating account when nothing is
-        // chosen yet — prefer SSB among operating accounts (some assocs also
-        // carry a CSB operating account). Runs in any mode and persists, so the
-        // invoice carries a bank account without entering edit; never overrides
-        // an existing/pushed pick.
+        // Default to the operating account when nothing is chosen yet. Some
+        // associations have MULTIPLE operating-classified accounts (e.g. MANXI
+        // carries both "…Operating" and "…Manors Club"), so prefer the one
+        // literally named "Operating" — otherwise a plain "find SouthState"
+        // matches both and picks whichever is first (the Club account). The
+        // vendor's last-used bank (below) supersedes this when known. Runs in
+        // any mode and persists; never overrides an existing/pushed pick.
         if (!bankId) {
           const ops = accounts.filter(a => a.kind === 'operating')
-          const operating = ops.find(a => /\bssb\b|south\s*state/i.test(a.description)) ?? ops[0]
+          const operating =
+            ops.find(a => /\boperating\b/i.test(a.description))
+            ?? ops.find(a => /\bssb\b|south\s*state/i.test(a.description))
+            ?? ops[0]
           if (operating) {
             setBankId(String(operating.id))
+            setBankAutoFilled(true)
             if (draft.pay_from_bank_account_id == null) persistDraftFields({ pay_from_bank_account_id: operating.id })
           }
         }
@@ -984,6 +995,24 @@ function DraftCard(props: {
     if (!acctNum) setAcctNum(sa)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auditCtx, vendorId, assoc, acctAutoAppliedFor])
+
+  // Once the vendor audit context arrives, prefer the bank this vendor's last
+  // MAIA invoice was actually paid from (which may be NON-operating) over the
+  // operating default — but only while the pick is still the auto default
+  // (never overrides a manual or already-saved choice), and only if that
+  // account is valid for this association.
+  useEffect(() => {
+    if (bankSuggestApplied) return
+    const sug = auditCtx?.suggestedBank?.id
+    if (sug == null || !bankAutoFilled) return
+    if (!bankOptions.some(a => a.id === sug)) return
+    setBankSuggestApplied(true)
+    if (String(sug) !== bankId) {
+      setBankId(String(sug))
+      persistDraftFields({ pay_from_bank_account_id: sug })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auditCtx, bankOptions, bankAutoFilled, bankId, bankSuggestApplied])
 
   const REQUIRED_CHECKS =['association', 'vendor', 'invoice_number', 'short_name', 'amount', 'invoice_date', 'gl_account', 'bank_account', 'due_date', 'filename']
   const requiredOk = REQUIRED_CHECKS.every(k => checked[k])
@@ -1478,7 +1507,7 @@ function DraftCard(props: {
               <>
                 <select
                   value={bankId}
-                  onChange={e => setBankId(e.target.value)}
+                  onChange={e => { setBankId(e.target.value); setBankAutoFilled(false); setBankSuggestApplied(true) }}
                   disabled={readOnly || !assoc}
                   style={{ width: '100%', padding: 6 }}
                 >
@@ -2088,6 +2117,7 @@ interface VendorCtx {
   suggestedGl: { glAccount: string | null; accountNumber: string | null; source?: string } | null
   suggestedAccountNumber?: string | null
   suggestedPayBy?: { method: string; source: string } | null
+  suggestedBank?: { id: number; source: string } | null
   recentPayments: Array<{ date: string | null; description: string | null; amount: number; matchedByName?: boolean }>
   duplicate: { exact: DupHit[]; sameAmount: DupHit[]; anyPaid: boolean; hasHardDuplicate: boolean; amountLabel: string | null }
   scanned?: { cincDuplicates: boolean; ledgerPayments: number; ourHistory: number }
