@@ -1,111 +1,79 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: 2026-06-04. Living document. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked._
-_Companion to `docs/SESSION-HANDOFF.md` (session-by-session state + gotchas)._
+_Last updated: **2026-06-30** (full reconciliation against `main`). Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior 2026-06-04 version drifted badly — ~11 items it marked 🔴/🟡 had actually shipped. Verified via 3 parallel code-audit agents + direct checks._
 
-This is the consolidated backlog. Items marked **[carry-over]** predate the 2026-06-03/04 session.
+> **How to keep this honest:** before quoting a status, grep the codebase — squash-merges land features without anyone updating this file. When you ship something here, flip its status in the same PR.
 
 ---
 
-## ✅ Shipped & live (2026-06-03/04 session)
-- **Invoice Tier-1** (#262): GL auto-select, auto-association inference, expense-GL on Pushed.
-- **Invoice Tier-2** (#263): Upcoming-Payments from `scheduled_pay_date`, debt/escrow account guard, funds-check tuning.
-- **Invoice process rework** (#267): auto-save on confirm, Pending=Transfer-to-Push only, PDF block-on-fail, **double-pay hard-block** (same vendor+amount+assoc, Karen-only override), Drive-mirror-at-transfer, **Re-attach PDF to CINC**.
-- **Drive mirror fixed** (#268): service-account quota → **domain-wide-delegation impersonation as billing@** (`GOOGLE_DRIVE_IMPERSONATE` set + DWD authorized with the SA's numeric client id). Files now land in the INVOICE TO INPUT folder.
-- **PDF compressor works in prod** (#269): `@napi-rs/canvas`/`pdfjs-dist`/`sharp` made direct deps + `outputFileTracingIncludes` so the native canvas binary ships. + edit-by-default in Pending review, Reject in a red box, **due-date captured at intake**.
-- **Compress on ALL upload paths** (#270): `normalizeStoredFile` for the 4 browser signed-URL uploads (association docs, safety, insurance, work-order photos).
-- **Compliance doc AI date extraction — Phase 1** (#271): uploading a COI / inspection report → Claude reads the deadline → **pre-fills** the field (staff confirm); Sunbiz "last date to file without penalty (May 1) · $400 after · dissolution 4th Fri Sept".
-- **Staff "PMI Top Florida Daily News"** (#265/#266): branded Mon–Fri 6am-ET email, per-staff week-to-date ticket/WO counts (open/resolved/late) + "Team · Unassigned" + improvement-ideas board (`/admin/ideas`) + "Send now" button. AI bot excluded.
-- **Gmail add-on deployed to Workspace Marketplace** (private) + admin-installed org-wide. Manifest `urlFetchWhitelist` fix + store assets (#272).
-- **CINC_SYNC_ENABLED=true** set in Vercel — work-order→CINC sync (`createLinkedWorkOrder` via the outbox drain cron) is now active.
-- **Invoice single-card pager** (#274): one invoice per view across all 4 tabs + ◀ N/total ▶ pager; payment-method auto-fills from the vendor's CINC default.
-- **Invoice "On Hold" workflow** (#275): On-hold tab; ⏸ put-on-hold modal (request COI/license/W-9/ACH checklist + note), optional follow-up Vendor-Compliance work order, tokenized vendor upload-link email; on-hold banner + Release.
-- **Admin nav cleanup** (#275/#276): trimmed to day-to-day tabs, Performance/CINC-Sync/Sunbiz/Ideas/Tools moved into the Control Panel "Admin tools" row, Recurring → orange button on the Work Orders page; nav now fills the bar left-aligned.
-- 🟡 **Vendor attachments: view / download / AI-read** (#276, in review): PDFs/docs render as openable file cards (not broken thumbnails) + one-click **Download**; vendor uploads hard-capped at 4 MB after compression (refused otherwise); **Claude reads each vendor doc on upload, before compression** — classifies W-9/COI/ACH/license/insurance + pulls key fields (sensitive values masked to last-4) → doc-type badge + "🔎 Detected" staff note + `extracted_data` stored. Migration `20260605_vendor_doc_extraction.sql`.
+## ✅ Shipped & live — previously mis-marked 🔴/🟡 (verified 2026-06-30)
+
+These were on the "not built" list but are confirmed on `main`:
+
+- **Owner self-service** — ledger-by-request (email/WhatsApp/SMS → CINC statement → PDF, OTP-once, collections gate), balance/payments/ACH-autopay surfaced on `/my-account` via CINC WebAxis (per locked decision; Stripe is application-fee only). `lib/owner-ledger-flow.ts`, `/api/owner/*`, #445–#457.
+- **Per-association rules acknowledgment in `/apply`** — doc-gated sign step (must open all required docs), typed + drawn signature + webcam photo + IP/geo evidence, all 7 languages. `/api/apply/association-documents|association-rules|document-text`, `ApplicationForm.tsx`, cols `rules_agreed_at`/`rules_signature`/`rules_signature_image`/`acknowledged_document_ids`.
+- **Background-check end-to-end** — `/api/trigger-applycheck` (per-subject, webhook callback) + `/api/applycheck-webhook` + `applycheck_result` cols + `/board/review` surfacing status & report link. `20260625_applycheck_results.sql`.
+- **Vendor COI → CINC** (`updateVendorInsuranceFile`, `PATCH /vendors/vendorInsuranceUpdateByteArray`) and **License → CINC** (`createVendorLicense`, `POST /vendors/vendorLicense`).
+- **`/admin/vendor-compliance` page** — per-vendor RAG audit, compliance chips, missing-doc list, file viewer.
+- **Estimate request → comparison → board approval flow** — `RequestEstimatesModal`, `EstimatesComparison`, `/board/estimate` token approval + signed PDF (`estimate-approval-pdf.ts`), `/api/admin/tickets/[id]/vendor-link`.
+- **Forward-invoice-to-maia@** in the Gmail add-on (`forwardToMaiaAction`, `gmail-addon/Code.gs`).
+- **MAIA Teaching mode** — `/admin/teach` knowledge studio (upload → AI parse → approve, scoped per association/persona/unit), `maia_knowledge`.
+- **True vendor name for CINC-native invoices in reconciliation** (`lib/bank-reconciliation-sync.ts`).
+- **`react-hooks/set-state-in-effect` lint errors** — gone.
+
+---
+
+## 🟢 Development backlog — the REAL remaining work
+
+### Top — unblocked, high value
+- 🔴 **COI validation** (Paola) — only the expiry check exists today. Build: extract additional-insured entities + each policy's expiry; verify the COI is **not expired** AND lists **PMI Top Florida Properties** (1031 Ives Dairy Road, Suite 228, Miami FL 33179) **and the job's association** as additional insured. **Fuzzy match name AND address** (insurers mangle both): normalize case/punctuation, expand abbreviations (Rd↔Road, Ste↔Suite, FL↔Florida…), anchor on street# + ZIP + core name tokens, accept typos; fail only on genuine absence / clearly-different anchor. On invalid → red flag, **block** marking compliant / releasing the invoice, **auto-draft a correction email** with the exact additional-insured wording.
+- 🟡 **Estimate board report WITH IMAGES** — the flow is live; only **estimate image previews** + the board-picks model are missing. Parked tiny on local branch `wip/estimate-board-compare` (`lib/estimate-preview.ts` + `20260619_estimate_board_compare.sql`), tangled with already-merged portal commits — rebuild clean off `main`.
+- 🔴 **service@ email-from-WO** — send vendor emails from inside a work order via `service@topfloridaproperties.com`/`service@pmitop.com`, replies thread back onto the WO (the compose tabs + tokenized upload link + comparison + board approval already exist; only the service@ send path is missing). ⚠️ Decide: sender (`service@` vs `maia@`) and whether the mailbox is Gmail-watched for replies.
+
+### Medium
+- 🟡 **Recurring-WO Control Panel card** — vendor weekly-report status (🟢/🟠/🔴) in the card itself (the card + `/admin/recurring-services/coverage` table exist; the per-vendor report status indicator doesn't).
+- 🟡 **Phase 3b** — weekly "missing photos" reminders + numeric "X of Y documented" coverage (the coverage page shows status only; no reminder cron, no count).
+- 🔴 **Add-on sidebar "vendor upload link" button** + `/api/addon/tickets/[id]/vendor-link` (the **admin** route exists; the add-on button + endpoint don't).
+- 🔴 **Non-recurring WO weekly office chase** (extend the Friday agenda email; today `recurring-agenda.ts` is recurring-only).
+- 🟡 **Applications edge cases** — co-applicant payment split, partial-pay, resume-link expiry (resume-link + co-applicant invite exist; payment-split/partial-pay/expiry don't).
+
+### Bigger / deferred
+- **Compliance Phase 2** — 🟡 unit-level AI date extraction (the `document_intake` foundation + taxonomy exist; association unit-lease/HO-6/CoU upload routes don't) · 🔴 generalized **deadline-rules config** (`last_date_without_penalty`/`penalty_after`/`final_date`) · 🟡 reserve-study (generic compliance only — no 3-yr/lender rule) · 🟡 D&O renewal workflow (tracked, no workflow) · 🔴 **document AI retrieval / RAG** over stored compliance docs.
+- 🔴 **Funds-check persisted settings panel** (per-assoc knobs without a deploy; today hardcoded constants in `cash-flow-forecast.ts`).
+- 🔴 **Auto-association first-time** — live CINC cross-association ledger scan for brand-new vendors (`detectAssociationCode` only does local cache today).
+- 🔴 **SENT-folder Gmail watch** — capture staff replies sent without maia@ on the thread (`registerGmailWatch` watches INBOX only).
+- ⚠️ **Phase 3c** — monthly-invoice rollup → ONE CINC work order bundling the month's visits (decisions locked, not implemented).
+- 🔴 **Drive link for manually-placed files** — SA `drive.file` can't see hand-dropped files (MAIA-created copies are covered by the impersonation fix).
+- 🔴 **Ticket "kind" badges** (RTK/ATK/ITK, AWK/RWK) — display-only, low value.
+
+---
+
+## 🗣️ Voice / channels
+
+- ✅ **Live:** SMS / WhatsApp / phone voice across all 7 languages (Twilio TwiML `<Say>`/`<Gather>` + Amazon Polly, mid-call language auto-switch). **Voice language parity is 5 native + 2 degraded:** EN/ES/PT/FR/RU native; **Hebrew falls back to an English voice (broken), Haitian Creole to French (approximate)** — Polly has no Hebrew/Creole voice. Text/WhatsApp = full 7. *(English brand-name pronunciation in non-English voices fixed via SSML `<lang>` — PR #470.)*
+- 🟡 **Deferred — natural-voice agent** (`voice_plan.md`): Vapi + bring-your-own-Claude `/chat/completions` SSE shim + Deepgram STT + Cartesia/ElevenLabs TTS + pgvector. Not built; needs accounts/keys. **Would also bring voice to 7/7** (ElevenLabs/Cartesia support Hebrew + Creole). Deferred because MAIA is staff-only today.
+- ⛔ **Alexa / Siri / Google Assistant** — deliberately **not building**. Phone caller-ID identity already works (`buildCallerContext`); device OAuth-linking is friction with no payoff and forces their robotic voices.
 
 ---
 
 ## 🟠 Owner / admin actions (not dev)
-- One-time **reconciliation "Sync" per association** (or wire a "Sync ALL" button) — **[carry-over BLOCK 3]**.
-- **CINC config gaps** for Jonathan: DELA mgmt budget = $0; VEN1/VEN2 empty budgets — **[carry-over BLOCK 4]**.
+- One-time reconciliation **"Sync" per association** (or wire a "Sync ALL").
+- **CINC config gaps** for Jonathan: DELA mgmt budget = $0; VEN1/VEN2 empty budgets.
 - Each staffer pastes their add-on token from `/admin/addon` once.
 - ⚠️ CINC WO auto-create needs **one seed WO per association** in CINC first (else "Cannot resolve AssocId").
 
 ---
 
-## 🟢 Development backlog
+## Decisions captured (spec for the above)
+1. **Owner ledger** — 1× OTP then request by email/WhatsApp/SMS; CINC per-owner statement → PDF. ✅ built.
+2. **Owner payments** — CINC WebAxis / check / ACH; **no Stripe** for owner assessments. ✅ built.
+3. **Background check** — verify Applycheck end-to-end + surface to board. ✅ built; screening provider pivot to Certn is the open piece (⚠️ blocked on sandbox keys — ApplyCheck has no API).
+4. **Per-association rules ack** in `/apply`. ✅ built.
 
-### 1. Owner Self-Service — *decisions locked, nothing built (highest new value)*
-- 🔴 **Owner ledger by request** — owner identified once via OTP, then requests by **email / WhatsApp / SMS** → fetch CINC per-owner statement → deliver PDF.
-- 🔴 **Owner balance/status on `/my-account`** — current balance, last payment, next due (from CINC).
-- 🔴 **Owner payments** — surface **CINC WebAxis link + check/ACH** info on `/my-account` (Stripe is application-fee ONLY).
-
-### 2. Leasing / Applications
-- 🔴 **Per-association rules acknowledgment** inside `/apply` (rules content + sign step) — decision #1; likely a small migration.
-- 🟡 **Background-check end-to-end verification** + clear board status (Applycheck callback/poll, re-invite) — decision #4 · **[carry-over H1]**.
-- 🟡 Edge cases: co-applicant payment split, resume-link expiry, partial-pay.
-
-### 3. Compliance — *Phase 2 (needs migrations)*
-- 🔴 Upload + AI date extraction for **unit-level** items (leases, HO-6, CoU, violations) and **vendor COI/license** expiry — **[carry-over I5]**.
-- 🔴 Generalized **deadline-rules config** (municipal CoU/permit cycles, Sunbiz) + `last_date_without_penalty`/`penalty_after`/`final_date` columns.
-- 🔴 **Reserve-study tracking** (3-yr freshness, lender req) — **[carry-over I14]**.
-- 🔴 **D&O renewal workflow** — **[carry-over I9]**.
-- 🔴 **Document AI retrieval** (ask questions against stored compliance docs) — **[carry-over I13]**.
-
-### 4. Vendor / Recurring Services — *[carry-over 2026-05-31]*
-- 🟡 **Push extracted vendor data → CINC vendor record** (NEW 2026-06-04 · **ACH + W-9 BUILT (PR pending); COI + license next**) — Claude reads an ACH/W-9/COI/license off a vendor upload (#276); staff push it to the CINC vendor file via the **"→ CINC"** action on the attachment. Endpoints all confirmed writable:
-    - ✅ **ACH banking** → `PATCH /vendors/vendor` `{ VendorID, Routing, Account, AccountType }` (read-back from `GET /vendors`). **BUILT.**
-    - ✅ **W-9 / 1099** → `PATCH /vendors/vendor` `{ TaxID, CheckName, ... }`. **BUILT.**
-    - 🔴 **COI (+ PDF)** → `PATCH /vendors/vendorInsuranceUpdateByteArray` (file as base64; `InsuranceId`=type, `AccountNumber`=policy#, `Expiration`, `InsuranceCarrier`). *Next.*
-    - 🔴 **License** → `POST /vendors/vendorLicense` `{ VendorId, LicenseType, LicenseNumber, LicenseExpiration, ... }`. *Next.*
-    - UX (built): `GET …/attachments/[attId]/cinc-vendor` returns a **masked** current-vs-extracted diff; `POST` applies staff-approved field keys. ⚠️ Full ACH/EIN are **re-extracted server-side at apply** (`extractVendorDocument(..., {mask:false})`) and written to CINC — never stored, never sent to the browser. Only `VendorID` required on the PATCH → writes just the changed fields. Resolves `VendorId` from `work_order_details.cinc_vendor_id` (prompts to link a vendor if missing).
-    - Future: **auto-apply** (skip the modal) once trusted; backfill button for pre-existing attachments.
-- 🟡 **Vendor-compliance pre-check + COI validation + audit** (NEW 2026-06-04, Paola):
-    - ✅ **Pre-check (BUILT, #279):** `getVendorComplianceStatus(vendorId, assoc)` reads CINC (ACH/W-9/COI/license + expiry); On-Hold modal shows ✅ on file / ⚠️ expired / ❌ missing and only requests the missing/expired.
-    - 🔴 **COI validation:** extract additional-insured entities + each policy's expiry; verify the COI is **not expired** AND lists **PMI Top Florida Properties** (1031 Ives Dairy Road, Suite 228, Miami FL 33179) **and the job's association** as additional insured. Association **property address** from CINC (`/associations/addresses` or unit address minus unit #).
-    - 🔴 **Matching is FUZZY for BOTH name AND address** — insurers misspell/shorten constantly, including the **PMI name and the association name** themselves. Normalize case/punctuation, expand abbreviations (Rd↔Road, Ste↔Suite, St↔Street, Ave↔Avenue, FL↔Florida…), then edit-distance/token match. Anchor on the strongest available signals (**street number + ZIP + core name tokens**) and accept the rest with typos / missing or shortened letters; when the **name** is mangled, lean on the **address** anchors to confirm the entity (and vice-versa). Only fail when an entity is genuinely **absent** or an anchor is clearly different (different street #/ZIP) — never over a typo like "PMI Top Floryda" or "Ives Dairy Rd".
-    - 🔴 **Invalid COI → all three:** flag+warn (red), **block** marking the vendor compliant / releasing the invoice, AND **auto-draft a correction email** to the vendor with the exact additional-insured wording.
-    - 🔴 **Audit (both):** vendor-compliance **panel** on the ticket + dedicated **`/admin/vendor-compliance`** page (RAG per vendor).
-- 🔴 **Vendor procurement inside work orders** (NEW 2026-06-04, Paola) — drive ALL vendor comms from inside the WO so a service request *forces* a work order + keeps the whole thread in Maia. Sub-parts:
-    - **Send vendor emails from a WO** using a service mailbox (`service@topfloridaproperties.com` / `service@pmitop.com`) — the ticket detail already has Email/SMS/WhatsApp/Internal-note compose tabs (`appendMessage` + `lib/gmail`); work = wire the **From/Reply-To to service@** + ensure replies thread back onto the WO (Gmail watch / Message-ID). *(Feasible now.)*
-    - **Request-for-estimate email** with the tokenized vendor **upload link** (reuse `signVendorUploadToken`) so vendors upload estimates straight to the WO.
-    - **Estimate comparison view** — side-by-side vendor/amount/scope (with estimate images) once ≥2 estimates are in.
-    - **Board approval report** — generate a comparison report → email the board → capture approve/decline → on approve, set the WO vendor + move it forward (ties into the existing "non-recurring WO → estimates board report" item below).
-    - ⚠️ Decisions needed: which sender (`service@` vs `maia@`), whether the mailbox is Gmail-watched for replies, board-approval delivery (email link vs `/board`).
-- 🔴 **Control Panel "Recurring Work Orders" card** (🟢/🟠/🔴 vendor weekly-report status) + status table.
-- 🔴 **Non-recurring WO → estimates board report** (vendor/amount/scope comparison **with estimate images**) for board approval.
-- 🔴 **Non-recurring WO weekly office chase** (extend the Friday agenda email).
-- 🟡 **Phase 3b** — weekly reminders for visits missing photos + "X of Y documented" coverage report (buildable now).
-- ⚠️ **Phase 3c** — monthly-invoice rollup → ONE CINC work order bundling the month's visits (decisions locked; verify CINC WO-create end-to-end now that `CINC_SYNC_ENABLED=true`).
-- 🔴 Add-on sidebar **"vendor upload link"** button + `/api/addon/tickets/[id]/vendor-link`.
-
-### 5. Invoice (remaining)
-- 🔴 **Drive link for manually-placed files** — SA `drive.file` can't see hand-dropped files (MAIA-created copies are covered by the impersonation fix).
-- 🟡 **Funds-check persisted settings panel** (per-assoc knobs without a deploy).
-- 🔴 **Auto-association first-time** (brand-new vendor, no history) — live CINC cross-association ledger scan (deferred from the webhook path).
-
-### 6. Comms / Gmail / MAIA
-- ⚠️ **One-click "forward invoice to maia@"** in the add-on — was blocked on `gmail.compose` re-consent; now the add-on is admin-installed with that scope trusted → **revisit / enable** · **[carry-over]**.
-- 🔴 **SENT-folder Gmail watch** — capture staff replies sent *without* maia@ on the thread — **[carry-over]**.
-- 🟡 **Ticket "kind" badges** (RTK/ATK/ITK, AWK/RWK) display-only — **[carry-over]**.
-- 🔴 **MAIA "Teaching" mode** (freeform) — **[carry-over C1]**.
-
-### 7. Reconciliation / CINC *(mostly cleared this session)*
-- 🟡 True vendor name for **CINC-native** invoices in reconciliation (per-invoice CINC lookup during sync) — **[carry-over follow-up]**.
-
-### 8. Infra / cleanup — *[carry-over]*
-- 🟡 Pre-existing `react-hooks/set-state-in-effect` lint errors (FundsCheck, VendorCombobox, compliance managers' load effects).
-- 🟡 Prune merged local branches; `middleware → proxy` Next.js 16 deprecation.
-
----
-
-## Decisions captured (the spec for the above)
-1. **Application forms** — only remaining work is per-association rules acknowledgment inside `/apply`.
-2. **Owner ledger** — 1× OTP then request by email/WhatsApp/SMS; multi-channel delivery; needs a CINC per-owner statement fetch.
-3. **Owner payments** — CINC WebAxis / check / ACH; **no Stripe** for owner assessments.
-4. **Background check** — verify Applycheck end-to-end + surface status to the board.
-
-(Detail in memory: `owner_self_service_decisions.md`, `staff_daily_news.md`, `compliance_deadlines.md`, `invoice_process_rework.md`, `gmail_addon.md`.)
+(Detail in memory: `roadmap_reconciliation_2026_06_30.md`, `owner_self_service_decisions.md`, `screening_provider_pivot.md`, `voice_plan.md`.)
 
 ## Suggested priority
-1. Background-check verification (decision #4) → 2. Owner Self-Service (ledger + balance + payment links) → 3. Recurring-WO Control Panel card + estimates board report → 4. Compliance Phase 2 → 5. Per-association app rules, then smaller comms/invoice follow-ups.
+1. **COI validation** (top unblocked, real operational need) → 2. **Estimate board report with images** (near-done quick win) → 3. **service@ email-from-WO** (completes vendor procurement) → 4. medium WO/recurring items → 5. Compliance Phase 2 (deadline-rules + document RAG) → 6. smaller comms/invoice follow-ups.
+
+**Blocked / external:** screening adapter → Certn (sandbox keys); natural-voice agent (Vapi/Deepgram/ElevenLabs accounts).
