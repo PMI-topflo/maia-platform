@@ -10,6 +10,8 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getVendorComplianceStatus, type VendorComplianceStatus } from '@/lib/integrations/cinc'
+import { loadCoiVerdict } from '@/lib/coi-verdict'
+import type { CoiVerdict } from '@/lib/coi-validation'
 
 const ACTIVE_WO_STATUSES = ['open', 'pending', 'waiting_external'] as const
 
@@ -79,6 +81,9 @@ export interface VendorComplianceRow extends ActiveWorkOrderVendor {
   needKeys:   ('ach' | 'w9')[]
   /** Human labels for everything missing/expired (incl. COI/license). */
   missing:    string[]
+  /** Deep COI verdict (additional-insured + expiry) from our stored COI, or
+   *  null when no COI attachment exists on these work orders. */
+  coiVerdict: CoiVerdict | null
 }
 
 /** Run `fn` over `items` with at most `limit` in flight at once. */
@@ -110,10 +115,11 @@ function gaps(c: VendorComplianceStatus | null): { needKeys: ('ach' | 'w9')[]; m
 export async function loadVendorComplianceOverview(): Promise<VendorComplianceRow[]> {
   const vendors = await getActiveWorkOrderVendors()
   return mapPool(vendors, 4, async (v): Promise<VendorComplianceRow> => {
-    const compliance = v.vendorId != null
-      ? await getVendorComplianceStatus(v.vendorId, v.assocCode).catch(() => null)
-      : null
+    const [compliance, coiVerdict] = await Promise.all([
+      v.vendorId != null ? getVendorComplianceStatus(v.vendorId, v.assocCode).catch(() => null) : Promise.resolve(null),
+      loadCoiVerdict(v.ticketIds, v.assocCode).catch(() => null),
+    ])
     const { needKeys, missing } = gaps(compliance)
-    return { ...v, compliance, linked: v.vendorId != null, needKeys, missing }
+    return { ...v, compliance, linked: v.vendorId != null, needKeys, missing, coiVerdict }
   })
 }

@@ -16,6 +16,9 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { signVendorUploadToken } from '@/lib/vendor-upload-token'
 import { sendEmail } from '@/lib/gmail'
 import { appendMessage } from '@/lib/tickets'
+import { PMI_ENTITY } from '@/lib/coi-validation'
+import { associationEntity } from '@/lib/coi-verdict'
+import { VENDOR_REPLY_TO, VENDOR_NOTIFY_CC } from '@/lib/notify-recipients'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -39,6 +42,43 @@ export async function POST(req: Request) {
   const action = String(body.action ?? '')
   const repTicketId = Number(body.repTicketId)
   if (!Number.isFinite(repTicketId)) return NextResponse.json({ error: 'repTicketId required' }, { status: 400 })
+
+  // COI correction — a specific "fix your certificate of insurance" email that
+  // spells out the exact additional-insured wording. Managed by Paola: replies
+  // reach service@ and she's BCC'd (see the send branch below).
+  if (action === 'preview' && body.mode === 'coi') {
+    const vendorName = String(body.vendorName ?? '').trim()
+    const issues     = Array.isArray(body.coiIssues) ? body.coiIssues.map(String).filter(Boolean) : []
+    const assoc      = await associationEntity(String(body.assocCode ?? '') || null)
+
+    const uploadToken = await signVendorUploadToken(repTicketId)
+    const link = `${APP}/vendor/upload/${uploadToken}?need=coi`
+
+    const pmiLine   = `${PMI_ENTITY.name}, ${PMI_ENTITY.address}`
+    const assocLine = assoc ? `${assoc.name}${assoc.address ? `, ${assoc.address}` : ''}` : 'the association'
+    const problem   = issues.length ? issues.map(i => `  • ${i}`).join('\n') : '  • The certificate needs to be corrected.'
+
+    const subject = `Action needed: Certificate of Insurance correction — PMI Top Florida Properties`
+    const draft =
+`Hello${vendorName ? ` ${vendorName}` : ''},
+
+We reviewed the Certificate of Insurance on file and it needs a correction before we can clear it:
+
+${problem}
+
+Please ask your insurance agent to issue an updated COI that lists BOTH of the following as ADDITIONAL INSURED, then send it back through the secure link below:
+
+  • ${pmiLine}
+  • ${assocLine}
+
+Secure upload — no account needed:
+${link}
+
+Thank you,
+PMI Top Florida Properties`
+
+    return NextResponse.json({ subject, body: draft, link })
+  }
 
   if (action === 'preview') {
     const vendorName = String(body.vendorName ?? '').trim()
@@ -78,16 +118,19 @@ PMI Top Florida Properties`
   if (!to.includes('@')) return NextResponse.json({ error: 'A valid vendor email is required.' }, { status: 400 })
   if (!text) return NextResponse.json({ error: 'The message is empty.' }, { status: 400 })
 
+  const isCoi = body.mode === 'coi'
   const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">${esc(text).replace(/\n/g, '<br>')}</div>`
   try {
-    await sendEmail({ to, subject, html, text })
+    // COI corrections are managed by Paola: vendor replies go to service@ and
+    // she + Fabio are BCC'd, matching the vendor-email convention.
+    await sendEmail({ to, subject, html, text, ...(isCoi && { replyTo: VENDOR_REPLY_TO, bcc: VENDOR_NOTIFY_CC }) })
   } catch (e) {
     return NextResponse.json({ error: `Couldn't send: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 })
   }
 
   await appendMessage(repTicketId, {
     direction: 'outbound', channel: 'email', from_addr: me, to_addr: to, subject,
-    body: `📤 Sent ${to} a vendor-compliance document request.\n\n${text}`,
+    body: `📤 Sent ${to} a ${isCoi ? 'COI correction request (Paola CC/reply-to)' : 'vendor-compliance document request'}.\n\n${text}`,
   }).catch(() => null)
 
   return NextResponse.json({ ok: true })
