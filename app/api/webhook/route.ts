@@ -2464,6 +2464,22 @@ async function sendReply(phone: string, text: string, channel: Channel) {
 
 async function getVoiceGreeting(ctx: CallerContext): Promise<string> {
   const first = ctx.name !== 'there' ? ctx.name.split(' ')[0] : ''
+
+  // New / unrecognized caller → a full introduction: who Maia is, that she's
+  // available 24/7, and that she routes messages to the team for next-business-
+  // day handling. Recognized callers get the shorter, warm personal greeting.
+  if (ctx.persona === 'unknown') {
+    return ({
+      en: `Hello! This is Maia, your 24 hours a day, 7 days a week PMI Top Florida Properties AI assistant. I'm here to help with anything you need and make sure your message reaches our team so they can handle your request the next business day. Tell me how I can help you today!`,
+      es: `¡Hola! Soy Maia, su asistente de inteligencia artificial de PMI Top Florida Properties, disponible las 24 horas del día, los 7 días de la semana. Estoy aquí para ayudarle en lo que necesite y hacer llegar su mensaje a nuestro equipo, para que atiendan su solicitud el siguiente día hábil. ¡Dígame cómo puedo ayudarle hoy!`,
+      pt: `Olá! Aqui é a Maia, sua assistente de inteligência artificial da PMI Top Florida Properties, disponível 24 horas por dia, 7 dias por semana. Estou aqui para ajudar no que você precisar e encaminhar sua mensagem para a nossa equipe, que vai atender sua solicitação no próximo dia útil. Me diga como posso te ajudar hoje!`,
+      fr: `Bonjour ! Je suis Maia, votre assistante d'intelligence artificielle de PMI Top Florida Properties, disponible 24 heures sur 24, 7 jours sur 7. Je suis là pour vous aider et transmettre votre message à notre équipe afin qu'elle traite votre demande le jour ouvrable suivant. Dites-moi comment je peux vous aider aujourd'hui !`,
+      he: `שלום! אני מאיה, עוזרת הבינה המלאכותית של PMI Top Florida Properties, זמינה 24 שעות ביממה, 7 ימים בשבוע. אני כאן כדי לעזור בכל מה שתצטרך ולהעביר את ההודעה שלך לצוות שלנו, כדי שיטפלו בבקשתך ביום העסקים הבא. ספר לי איך אוכל לעזור לך היום!`,
+      ru: `Здравствуйте! Я Мая, ваш ИИ-ассистент компании PMI Top Florida Properties, доступный 24 часа в сутки, 7 дней в неделю. Я здесь, чтобы помочь вам с чем угодно и передать ваше сообщение нашей команде, чтобы они обработали ваш запрос на следующий рабочий день. Расскажите, чем я могу помочь вам сегодня!`,
+      ht: `Bonjou! Se Maia mwen ye, asistan entèlijans atifisyèl PMI Top Florida Properties ou a, ki disponib 24 sou 24, 7 jou sou 7. Mwen la pou ede w ak nenpòt bagay ou bezwen epi asire mesaj ou rive jwenn ekip nou an, pou yo ka okipe demann ou nan pwochen jou ouvrab la. Di m kijan mwen ka ede w jodi a!`,
+    } as Record<string, string>)[ctx.language] ?? `Hello! This is Maia, your 24/7 PMI Top Florida Properties AI assistant. I'm here to help and pass your message to our team for the next business day. How can I help you today?`
+  }
+
   return ({ en:`Hello ${first}! Thank you for calling PMI Top Florida Properties. How can I help you today?`, es:`Hola ${first}! Gracias por llamar a PMI Top Florida Properties. ¿En qué puedo ayudarle?`, pt:`Olá ${first}! Obrigado por ligar para a PMI Top Florida Properties. Como posso ajudar?`, fr:`Bonjour! Merci d'avoir appelé PMI Top Florida Properties. Comment puis-je vous aider?`, he:`שלום! תודה על השיחה ל-PMI Top Florida Properties.`, ru:`Здравствуйте! Спасибо за звонок в PMI Top Florida Properties.`, ht:`Bonjou ${first}! Mèsi dèske w rele PMI Top Florida Properties. Kijan mwen ka ede w jodi a?` } as Record<string,string>)[ctx.language] ?? `Hello! How can I help?`
 }
 
