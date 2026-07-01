@@ -8,10 +8,15 @@ interface Compliance {
   coi:     { onFile: boolean; expiration: string | null; valid: boolean | null; carrier: string | null }
   license: { onFile: boolean; expiration: string | null; valid: boolean | null }
 }
+interface CoiVerdict {
+  status: 'valid' | 'invalid' | 'expiring' | 'unverifiable'
+  expiresInDays: number | null; pmiListed: boolean; associationListed: boolean; issues: string[]
+}
 export interface Row {
   key: string; vendorId: number | null; vendorName: string; vendorEmail: string | null
   assocCode: string | null; ticketIds: number[]; ticketNumbers: string[]; repTicketId: number
   compliance: Compliance | null; linked: boolean; needKeys: ('ach' | 'w9')[]; missing: string[]
+  coiVerdict: CoiVerdict | null
 }
 interface VFile { id: string; ticketId: number; filename: string; url: string | null; isImage: boolean; isPdf: boolean; docType: string | null }
 
@@ -24,6 +29,16 @@ const CHIP: Record<ChipState, string> = {
 }
 function Chip({ label, state, title }: { label: string; state: ChipState; title?: string }) {
   return <span title={title} className={`text-[11px] font-medium px-2 py-0.5 rounded border ${CHIP[state]}`}>{label}</span>
+}
+
+// The additional-insured verdict (from our stored COI), distinct from the CINC
+// "COI on file / expiry" chip above. Only shown when we have a verdict.
+function coiVerdictChip(v: CoiVerdict | null): { label: string; state: ChipState; title?: string } | null {
+  if (!v) return null
+  if (v.status === 'valid')    return { label: 'Add’l insured ✓', state: 'ok',   title: 'PMI + association listed as additional insured' }
+  if (v.status === 'expiring') return { label: 'COI expiring',    state: 'warn', title: v.expiresInDays != null ? `${v.expiresInDays} day(s) left` : undefined }
+  if (v.status === 'invalid')  return { label: 'Add’l insured ✗', state: 'bad',  title: v.issues.join(' · ') }
+  return { label: 'COI unverified', state: 'na', title: 'Re-upload the COI to validate additional insured' }
 }
 
 function complianceChips(c: Compliance) {
@@ -42,7 +57,7 @@ function complianceChips(c: Compliance) {
 export default function VendorComplianceClient({ rows }: { rows: Row[] }) {
   const [filesFor, setFilesFor] = useState<string | null>(null)
   const [files, setFiles] = useState<Record<string, VFile[] | 'loading'>>({})
-  const [modal, setModal] = useState<Row | null>(null)
+  const [modal, setModal] = useState<{ row: Row; mode: 'missing' | 'coi' } | null>(null)
 
   const withGaps = rows.filter(r => r.missing.length > 0 || !r.linked).length
 
@@ -87,6 +102,7 @@ export default function VendorComplianceClient({ rows }: { rows: Row[] }) {
                   {r.linked && r.compliance
                     ? complianceChips(r.compliance).map((c, i) => <Chip key={i} {...c} />)
                     : <Chip label="Not linked to CINC" state="na" title="Assign the vendor on the work order to check compliance" />}
+                  {(() => { const cv = coiVerdictChip(r.coiVerdict); return cv ? <Chip {...cv} /> : null })()}
                 </div>
               </div>
 
@@ -99,8 +115,13 @@ export default function VendorComplianceClient({ rows }: { rows: Row[] }) {
                   {expanded ? 'Hide files' : 'Files'}
                 </button>
                 {r.missing.length > 0 && (
-                  <button onClick={() => setModal(r)} className="text-xs font-semibold px-3 py-1.5 rounded bg-[#f26a1b] text-white hover:bg-[#d95c12]">
+                  <button onClick={() => setModal({ row: r, mode: 'missing' })} className="text-xs font-semibold px-3 py-1.5 rounded bg-[#f26a1b] text-white hover:bg-[#d95c12]">
                     Request missing docs →
+                  </button>
+                )}
+                {r.coiVerdict?.status === 'invalid' && (
+                  <button onClick={() => setModal({ row: r, mode: 'coi' })} className="text-xs font-semibold px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50">
+                    Draft COI correction →
                   </button>
                 )}
               </div>
@@ -128,12 +149,13 @@ export default function VendorComplianceClient({ rows }: { rows: Row[] }) {
         })}
       </div>
 
-      {modal && <RequestModal row={modal} onClose={() => setModal(null)} />}
+      {modal && <RequestModal row={modal.row} mode={modal.mode} onClose={() => setModal(null)} />}
     </div>
   )
 }
 
-function RequestModal({ row, onClose }: { row: Row; onClose: () => void }) {
+function RequestModal({ row, mode, onClose }: { row: Row; mode: 'missing' | 'coi'; onClose: () => void }) {
+  const isCoi = mode === 'coi'
   const [loading, setLoading] = useState(true)
   const [to, setTo] = useState(row.vendorEmail ?? '')
   const [subject, setSubject] = useState('')
@@ -147,14 +169,16 @@ function RequestModal({ row, onClose }: { row: Row; onClose: () => void }) {
     let alive = true
     fetch('/api/admin/vendor-compliance/request', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'preview', repTicketId: row.repTicketId, vendorName: row.vendorName, needKeys: row.needKeys, missing: row.missing }),
+      body: JSON.stringify(isCoi
+        ? { action: 'preview', mode: 'coi', repTicketId: row.repTicketId, vendorName: row.vendorName, assocCode: row.assocCode, coiIssues: row.coiVerdict?.issues ?? [] }
+        : { action: 'preview', repTicketId: row.repTicketId, vendorName: row.vendorName, needKeys: row.needKeys, missing: row.missing }),
     }).then(r => r.json()).then(j => {
       if (!alive) return
       if (j.error) setError(j.error)
       else { setSubject(j.subject ?? ''); setBodyText(j.body ?? '') }
     }).catch(() => { if (alive) setError('Could not build the draft.') }).finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [row])
+  }, [row, isCoi])
 
   async function send() {
     setError(null)
@@ -163,7 +187,7 @@ function RequestModal({ row, onClose }: { row: Row; onClose: () => void }) {
     try {
       const res = await fetch('/api/admin/vendor-compliance/request', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'send', repTicketId: row.repTicketId, to, subject, body: bodyText }),
+        body: JSON.stringify({ action: 'send', ...(isCoi && { mode: 'coi' }), repTicketId: row.repTicketId, to, subject, body: bodyText }),
       })
       const j = await res.json()
       if (!res.ok) throw new Error(j?.error ?? 'failed')
@@ -175,13 +199,13 @@ function RequestModal({ row, onClose }: { row: Row; onClose: () => void }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold text-gray-900">Request documents — {row.vendorName}</h2>
+          <h2 className="font-semibold text-gray-900">{isCoi ? 'COI correction' : 'Request documents'} — {row.vendorName}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
         </div>
 
         {sent ? (
           <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg p-4">
-            ✓ Request sent to {to}. It’s logged on the work order.
+            ✓ Sent to {to}.{isCoi ? ' Replies go to service@ and Paola is copied.' : ''} It’s logged on the work order.
             <div className="mt-3 text-right"><button onClick={onClose} className="text-xs font-semibold px-3 py-1.5 rounded bg-gray-900 text-white">Done</button></div>
           </div>
         ) : loading ? (
@@ -200,7 +224,7 @@ function RequestModal({ row, onClose }: { row: Row; onClose: () => void }) {
             {error && <div className="text-sm text-red-600 mt-2">⚠ {error}</div>}
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={onClose} className="text-sm px-4 py-2 rounded border border-gray-300 text-gray-700 hover:bg-gray-50">Cancel</button>
-              <button onClick={send} disabled={busy} className="text-sm font-semibold px-4 py-2 rounded bg-[#f26a1b] text-white hover:bg-[#d95c12] disabled:opacity-60">{busy ? 'Sending…' : 'Send request'}</button>
+              <button onClick={send} disabled={busy} className="text-sm font-semibold px-4 py-2 rounded bg-[#f26a1b] text-white hover:bg-[#d95c12] disabled:opacity-60">{busy ? 'Sending…' : isCoi ? 'Send to vendor' : 'Send request'}</button>
             </div>
           </>
         )}

@@ -97,7 +97,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         if (extraction && extraction.confidence >= 0.3 && extraction.docType !== 'other') {
           await supabaseAdmin.from('work_order_attachments').update({
             extracted_doc_type: extraction.docType,
-            extracted_data:     { confidence: extraction.confidence, summary: extraction.summary, fields: extraction.fields },
+            extracted_data:     { confidence: extraction.confidence, summary: extraction.summary, fields: extraction.fields, coi: extraction.coi },
             extracted_at:       new Date().toISOString(),
           }).eq('id', r.id).then(() => null, () => null)
           const exp = extraction.fields.expiration_date
