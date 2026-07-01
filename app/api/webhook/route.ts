@@ -14,6 +14,7 @@ import { createClient } from '@supabase/supabase-js'
 import { findOrCreateTicket, appendMessage, createTicket } from '@/lib/tickets'
 import { translateToEnglish, detectLanguage, SUPPORTED_LANGS } from '@/lib/translate'
 import { sendSMS } from '@/lib/twilio-send'
+import { signPreregisterToken } from '@/lib/preregister-token'
 import {
   resolveOwnerUnits, isPhoneVerified, markPhoneVerified,
   sendLedgerOtp, verifyLedgerOtp, deliverLedger, annotateBlocked,
@@ -326,6 +327,13 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
     return handleVoiceToWhatsApp(phone, speechText, ctx, voice)
   }
 
+  // ── Unknown caller → pre-registration handoff ──────────────────────────────
+  // Not in the system: we can't serve account-specific requests. Text a
+  // pre-registration link and let staff (PMI + Jonathan) follow up.
+  if (ctx.persona === 'unknown') {
+    return handleUnknownVoiceCaller(phone, ctx, voice, langNote)
+  }
+
   // ── Normal intelligent response ────────────────────────────────────────────
   let responseText: string
   try {
@@ -335,6 +343,38 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
   }
 
   return voiceTwiml(voice, stripForTTS(langNote + responseText), getFarewell(ctx.language))
+}
+
+// Unknown caller: text a pre-registration form link + explain that staff will
+// follow up. The token carries the caller's phone + language.
+async function handleUnknownVoiceCaller(
+  phone: string, ctx: CallerContext, voice: string, langNote: string,
+): Promise<NextResponse> {
+  const base = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
+  try {
+    const token = await signPreregisterToken(phone, ctx.language, 'voice')
+    const link  = `${base}/pre-register/${token}`
+    await sendSMS(phone, translate(ctx.language, {
+      en: `Hi! This is Maia from PMI Top Florida Properties 🌸 I couldn't find your number in our system. Please pre-register here so our team can help you: ${link}`,
+      es: `¡Hola! Soy Maia de PMI Top Florida Properties 🌸 No encontré tu número en nuestro sistema. Regístrate aquí para que nuestro equipo pueda ayudarte: ${link}`,
+      pt: `Olá! Aqui é a Maia da PMI Top Florida Properties 🌸 Não encontrei seu número no nosso sistema. Faça seu pré-cadastro aqui para que nossa equipe possa te ajudar: ${link}`,
+      fr: `Bonjour ! C'est Maia de PMI Top Florida Properties 🌸 Je n'ai pas trouvé votre numéro. Pré-inscrivez-vous ici pour que notre équipe puisse vous aider : ${link}`,
+      he: `שלום! זו מאיה מ-PMI Top Florida Properties 🌸 לא מצאתי את המספר שלך במערכת. הירשם כאן כדי שהצוות שלנו יוכל לעזור: ${link}`,
+      ru: `Здравствуйте! Это Мая из PMI Top Florida Properties 🌸 Я не нашла ваш номер в системе. Пройдите предварительную регистрацию, чтобы наша команда помогла вам: ${link}`,
+      ht: `Bonjou! Se Maia nan PMI Top Florida Properties 🌸 Mwen pa jwenn nimewo w nan sistèm nan. Tanpri pre-anrejistre isit la pou ekip nou an ka ede w: ${link}`,
+    }))
+  } catch { /* best-effort — still tell them what to expect */ }
+
+  const spoken = translate(ctx.language, {
+    en: `I couldn't find your number in our system, so I've just texted you a link to pre-register. Once you fill it out, a member of our team will reach out to help and add you to our system if needed.`,
+    es: `No encontré tu número en nuestro sistema, así que te acabo de enviar un mensaje con un enlace para registrarte. Cuando lo completes, un miembro de nuestro equipo te contactará para ayudarte y agregarte al sistema si es necesario.`,
+    pt: `Não encontrei seu número no nosso sistema, então acabei de te enviar um link por mensagem para você se pré-cadastrar. Assim que preencher, um membro da nossa equipe entrará em contato para ajudar e adicionar você ao sistema se necessário.`,
+    fr: `Je n'ai pas trouvé votre numéro dans notre système, je viens donc de vous envoyer un lien par SMS pour vous pré-inscrire. Une fois rempli, un membre de notre équipe vous contactera pour vous aider.`,
+    he: `לא מצאתי את המספר שלך במערכת, אז שלחתי לך עכשיו קישור בהודעה כדי להירשם. אחרי שתמלא, חבר צוות ייצור איתך קשר.`,
+    ru: `Я не нашла ваш номер в нашей системе, поэтому только что отправила вам ссылку для регистрации. После заполнения с вами свяжется сотрудник нашей команды.`,
+    ht: `Mwen pa jwenn nimewo w nan sistèm nan, kidonk mwen fèk voye yon lyen ba ou pou w pre-anrejistre. Lè w fin ranpli l, yon manm ekip nou an ap kontakte w pou ede w.`,
+  })
+  return voiceTwiml(voice, stripForTTS(langNote + spoken), getFarewell(ctx.language))
 }
 
 // ── WhatsApp-send intent detection ────────────────────────────────────────────
