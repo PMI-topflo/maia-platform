@@ -696,16 +696,44 @@ async function unknownCallerHandoff(phone: string, ctx: CallerContext, voice: st
       ht: `Bonjou! Se Maia nan PMI Top Florida Properties 🌸 Mwen pa jwenn nimewo w nan sistèm nan. Tanpri pre-anrejistre isit la pou ekip nou an ka ede w: ${link}`,
     }))
   } catch { /* best-effort */ }
-  const spoken = translate(ctx.language, {
-    en: `I couldn't find your number in our system, so I've just texted you a link to pre-register. Once you fill it out, a member of our team will reach out to help and add you to our system.`,
-    es: `No encontré tu número en nuestro sistema, así que te acabo de enviar un mensaje con un enlace para registrarte. Cuando lo completes, un miembro de nuestro equipo te contactará para ayudarte y agregarte al sistema.`,
-    pt: `Não encontrei seu número no nosso sistema, então acabei de te enviar um link por mensagem para você se pré-cadastrar. Assim que preencher, um membro da nossa equipe entrará em contato para ajudar e adicionar você ao sistema.`,
-    fr: `Je n'ai pas trouvé votre numéro dans notre système, je viens donc de vous envoyer un lien par SMS pour vous pré-inscrire. Une fois rempli, un membre de notre équipe vous contactera pour vous aider.`,
-    he: `לא מצאתי את המספר שלך במערכת, אז שלחתי לך עכשיו קישור בהודעה כדי להירשם. אחרי שתמלא, חבר צוות ייצור איתך קשר.`,
-    ru: `Я не нашла ваш номер в нашей системе, поэтому только что отправила вам ссылку для регистрации. После заполнения с вами свяжется сотрудник нашей команды.`,
-    ht: `Mwen pa jwenn nimewo w nan sistèm nan, kidonk mwen fèk voye yon lyen ba ou pou w pre-anrejistre. Lè w fin ranpli l, yon manm ekip nou an ap kontakte w.`,
+  // Rendered as two separate <Say> blocks (not concatenated into one string)
+  // so a long combined message can't hit stripForTTS's per-call length cap.
+  const explain = translate(ctx.language, {
+    en: `I see that your call is coming from a non-registered phone number, so I've just texted you a link to pre-register. Once you fill it out, a member of our team will reach out to help and add you to our system.`,
+    es: `Veo que su llamada proviene de un número de teléfono no registrado, así que le acabo de enviar un mensaje con un enlace para registrarse. Cuando lo complete, un miembro de nuestro equipo se pondrá en contacto para ayudarle y agregarlo a nuestro sistema.`,
+    pt: `Vejo que sua ligação está vindo de um número de telefone não cadastrado, então acabei de te enviar um link por mensagem para você se pré-cadastrar. Assim que preencher, um membro da nossa equipe entrará em contato para ajudar e adicionar você ao sistema.`,
+    fr: `Je vois que votre appel provient d'un numéro de téléphone non enregistré, je viens donc de vous envoyer un lien par SMS pour vous pré-inscrire. Une fois rempli, un membre de notre équipe vous contactera pour vous aider et vous ajouter à notre système.`,
+    he: `אני רואה שהשיחה שלך מגיעה ממספר טלפון שאינו רשום במערכת, אז שלחתי לך עכשיו קישור בהודעה כדי להירשם. אחרי שתמלא אותו, חבר צוות ייצור איתך קשר כדי לעזור ולהוסיף אותך למערכת שלנו.`,
+    ru: `Я вижу, что ваш звонок поступает с незарегистрированного номера телефона, поэтому я только что отправила вам ссылку для регистрации. После заполнения с вами свяжется сотрудник нашей команды, чтобы помочь и добавить вас в нашу систему.`,
+    ht: `Mwen wè apèl ou a ap soti nan yon nimewo telefòn ki pa anrejistre, kidonk mwen fèk voye yon lyen ba ou pou w pre-anrejistre. Lè w fin ranpli l, yon manm ekip nou an ap kontakte w pou ede w epi ajoute w nan sistèm nou an.`,
   })
-  return voiceTwiml(voice, stripForTTS(langNote + spoken), getFarewell(ctx.language), ctx.language)
+
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="${voice}">${ttsSay(stripForTTS(langNote + UNKNOWN_CALLER_INTRO(ctx.language)))}</Say>
+  <Say voice="${voice}">${ttsSay(stripForTTS(explain))}</Say>
+  <Gather input="speech dtmf" speechTimeout="4" action="/api/webhook" method="POST">
+    <Say voice="${voice}">${ttsSay(getFarewell(ctx.language))}</Say>
+  </Gather>
+  <Say voice="${voice}">${ttsSay(voiceClosing(ctx.language))}</Say>
+  <Hangup/>
+</Response>`
+  return new NextResponse(twiml, { headers: { 'Content-Type': 'text/xml' } })
+}
+
+// Maia's self-introduction, kept for unknown callers (dropped the "Tell me how
+// I can help you today!" tail — the explain sentence right after it makes that
+// no longer fit).
+function UNKNOWN_CALLER_INTRO(lang: string): string {
+  return translate(lang, {
+    en: `Hello! This is Maia, your 24 hours a day, 7 days a week PMI Top Florida Properties AI assistant. I'm here to help with anything you need and make sure your message reaches our team so they can handle your request the next business day.`,
+    es: `¡Hola! Soy Maia, su asistente de inteligencia artificial de PMI Top Florida Properties, disponible las 24 horas del día, los 7 días de la semana. Estoy aquí para ayudarle en lo que necesite y hacer llegar su mensaje a nuestro equipo, para que atiendan su solicitud el siguiente día hábil.`,
+    pt: `Olá! Aqui é a Maia, sua assistente de inteligência artificial da PMI Top Florida Properties, disponível 24 horas por dia, 7 dias por semana. Estou aqui para ajudar no que você precisar e encaminhar sua mensagem para a nossa equipe, que vai atender sua solicitação no próximo dia útil.`,
+    fr: `Bonjour ! Je suis Maia, votre assistante d'intelligence artificielle de PMI Top Florida Properties, disponible 24 heures sur 24, 7 jours sur 7. Je suis là pour vous aider et transmettre votre message à notre équipe afin qu'elle traite votre demande le jour ouvrable suivant.`,
+    he: `שלום! אני מאיה, עוזרת הבינה המלאכותית של PMI Top Florida Properties, זמינה 24 שעות ביממה, 7 ימים בשבוע. אני כאן כדי לעזור בכל מה שתצטרך ולהעביר את ההודעה שלך לצוות שלנו, כדי שיטפלו בבקשתך ביום העסקים הבא.`,
+    ru: `Здравствуйте! Я Мая, ваш ИИ-ассистент компании PMI Top Florida Properties, доступный 24 часа в сутки, 7 дней в неделю. Я здесь, чтобы помочь вам с чем угодно и передать ваше сообщение нашей команде, чтобы они обработали ваш запрос на следующий рабочий день.`,
+    ht: `Bonjou! Se Maia mwen ye, asistan entèlijans atifisyèl PMI Top Florida Properties ou a, ki disponib 24 sou 24, 7 jou sou 7. Mwen la pou ede w ak nenpòt bagay ou bezwen epi asire mesaj ou rive jwenn ekip nou an, pou yo ka okipe demann ou nan pwochen jou ouvrab la.`,
+  })
 }
 
 // Handle a pick on the language menu (main or 'more' step).
@@ -2743,24 +2771,11 @@ async function sendReply(phone: string, text: string, channel: Channel) {
 // VOICE HELPERS
 // ============================================================
 
+// Only ever called for a KNOWN persona — unknown callers get
+// unknownCallerHandoff's own intro + explanation instead (see
+// UNKNOWN_CALLER_INTRO above). Both call sites guard on ctx.persona first.
 async function getVoiceGreeting(ctx: CallerContext): Promise<string> {
   const first = ctx.name !== 'there' ? ctx.name.split(' ')[0] : ''
-
-  // New / unrecognized caller → a full introduction: who Maia is, that she's
-  // available 24/7, and that she routes messages to the team for next-business-
-  // day handling. Recognized callers get the shorter, warm personal greeting.
-  if (ctx.persona === 'unknown') {
-    return ({
-      en: `Hello! This is Maia, your 24 hours a day, 7 days a week PMI Top Florida Properties AI assistant. I'm here to help with anything you need and make sure your message reaches our team so they can handle your request the next business day. Tell me how I can help you today!`,
-      es: `¡Hola! Soy Maia, su asistente de inteligencia artificial de PMI Top Florida Properties, disponible las 24 horas del día, los 7 días de la semana. Estoy aquí para ayudarle en lo que necesite y hacer llegar su mensaje a nuestro equipo, para que atiendan su solicitud el siguiente día hábil. ¡Dígame cómo puedo ayudarle hoy!`,
-      pt: `Olá! Aqui é a Maia, sua assistente de inteligência artificial da PMI Top Florida Properties, disponível 24 horas por dia, 7 dias por semana. Estou aqui para ajudar no que você precisar e encaminhar sua mensagem para a nossa equipe, que vai atender sua solicitação no próximo dia útil. Me diga como posso te ajudar hoje!`,
-      fr: `Bonjour ! Je suis Maia, votre assistante d'intelligence artificielle de PMI Top Florida Properties, disponible 24 heures sur 24, 7 jours sur 7. Je suis là pour vous aider et transmettre votre message à notre équipe afin qu'elle traite votre demande le jour ouvrable suivant. Dites-moi comment je peux vous aider aujourd'hui !`,
-      he: `שלום! אני מאיה, עוזרת הבינה המלאכותית של PMI Top Florida Properties, זמינה 24 שעות ביממה, 7 ימים בשבוע. אני כאן כדי לעזור בכל מה שתצטרך ולהעביר את ההודעה שלך לצוות שלנו, כדי שיטפלו בבקשתך ביום העסקים הבא. ספר לי איך אוכל לעזור לך היום!`,
-      ru: `Здравствуйте! Я Мая, ваш ИИ-ассистент компании PMI Top Florida Properties, доступный 24 часа в сутки, 7 дней в неделю. Я здесь, чтобы помочь вам с чем угодно и передать ваше сообщение нашей команде, чтобы они обработали ваш запрос на следующий рабочий день. Расскажите, чем я могу помочь вам сегодня!`,
-      ht: `Bonjou! Se Maia mwen ye, asistan entèlijans atifisyèl PMI Top Florida Properties ou a, ki disponib 24 sou 24, 7 jou sou 7. Mwen la pou ede w ak nenpòt bagay ou bezwen epi asire mesaj ou rive jwenn ekip nou an, pou yo ka okipe demann ou nan pwochen jou ouvrab la. Di m kijan mwen ka ede w jodi a!`,
-    } as Record<string, string>)[ctx.language] ?? `Hello! This is Maia, your 24/7 PMI Top Florida Properties AI assistant. I'm here to help and pass your message to our team for the next business day. How can I help you today?`
-  }
-
   return ({ en:`Hello ${first}! Thank you for calling PMI Top Florida Properties. How can I help you today?`, es:`Hola ${first}! Gracias por llamar a PMI Top Florida Properties. ¿En qué puedo ayudarle?`, pt:`Olá ${first}! Obrigado por ligar para a PMI Top Florida Properties. Como posso ajudar?`, fr:`Bonjour! Merci d'avoir appelé PMI Top Florida Properties. Comment puis-je vous aider?`, he:`שלום! תודה על השיחה ל-PMI Top Florida Properties.`, ru:`Здравствуйте! Спасибо за звонок в PMI Top Florida Properties.`, ht:`Bonjou ${first}! Mèsi dèske w rele PMI Top Florida Properties. Kijan mwen ka ede w jodi a?` } as Record<string,string>)[ctx.language] ?? `Hello! How can I help?`
 }
 
