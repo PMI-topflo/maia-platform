@@ -330,6 +330,11 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
     return voiceTwiml(voice, stripForTTS(langNote + bye), getFarewell(ctx.language), ctx.language)
   }
 
+  // ── Unregistered caller → non-identified path (pre-register) ───────────────
+  if (ctx.persona === 'unknown') {
+    return unknownCallerHandoff(phone, ctx, voice, langNote)
+  }
+
   // ── Detect "send to WhatsApp / text me" intent ─────────────────────────────
   if (detectWhatsAppSendIntent(speechText)) {
     return handleVoiceToWhatsApp(phone, speechText, ctx, voice)
@@ -362,7 +367,6 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
     })
   }
 
-  responseText += await maybePreregisterAppend(ctx, phone)
   return voiceTwiml(voice, stripForTTS(langNote + responseText), getFarewell(ctx.language), ctx.language)
 }
 
@@ -615,33 +619,35 @@ function categoryMenuTwiml(lang: string, lead = ''): NextResponse {
   return menuTwiml(`${leadSay}<Say voice="${voice}">${ttsSay(stripForTTS(prompt))}</Say>`, lang)
 }
 
-// Unknown caller: text a pre-registration link and return a short spoken suffix
-// to append. Known callers: no-op (empty string).
-async function maybePreregisterAppend(ctx: CallerContext, phone: string): Promise<string> {
-  if (ctx.persona !== 'unknown') return ''
+// Unregistered caller → the "non-identified" path: we can't serve account-
+// specific requests, so text a pre-registration link and tell them the team
+// will follow up. This is a full response (not an append) so unknown callers
+// get a clear handoff instead of being routed through account menus.
+async function unknownCallerHandoff(phone: string, ctx: CallerContext, voice: string, langNote: string): Promise<NextResponse> {
   const base = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
   try {
     const token = await signPreregisterToken(phone, ctx.language, 'voice')
     const link  = `${base}/pre-register/${token}`
     await sendSMS(phone, translate(ctx.language, {
-      en: `Maia here 🌸 I couldn't find your number in our system — please pre-register so our team can help: ${link}`,
-      es: `Soy Maia 🌸 No encontré tu número en el sistema — regístrate para que nuestro equipo te ayude: ${link}`,
-      pt: `Aqui é a Maia 🌸 Não encontrei seu número no sistema — faça seu pré-cadastro para nossa equipe te ajudar: ${link}`,
-      fr: `Maia 🌸 Je n'ai pas trouvé votre numéro — pré-inscrivez-vous : ${link}`,
-      he: `כאן מאיה 🌸 לא מצאתי את מספרך — הירשם: ${link}`,
-      ru: `Это Мая 🌸 Не нашла ваш номер — зарегистрируйтесь: ${link}`,
-      ht: `Se Maia 🌸 Mwen pa jwenn nimewo w — pre-anrejistre: ${link}`,
+      en: `Hi! This is Maia from PMI Top Florida Properties 🌸 I couldn't find your number in our system. Please pre-register here so our team can help you: ${link}`,
+      es: `¡Hola! Soy Maia de PMI Top Florida Properties 🌸 No encontré tu número en nuestro sistema. Regístrate aquí para que nuestro equipo pueda ayudarte: ${link}`,
+      pt: `Olá! Aqui é a Maia da PMI Top Florida Properties 🌸 Não encontrei seu número no nosso sistema. Faça seu pré-cadastro aqui para que nossa equipe possa te ajudar: ${link}`,
+      fr: `Bonjour ! C'est Maia de PMI Top Florida Properties 🌸 Je n'ai pas trouvé votre numéro. Pré-inscrivez-vous ici pour que notre équipe puisse vous aider : ${link}`,
+      he: `שלום! זו מאיה מ-PMI Top Florida Properties 🌸 לא מצאתי את המספר שלך במערכת. הירשם כאן כדי שהצוות שלנו יוכל לעזור: ${link}`,
+      ru: `Здравствуйте! Это Мая из PMI Top Florida Properties 🌸 Я не нашла ваш номер в системе. Пройдите регистрацию, чтобы наша команда помогла вам: ${link}`,
+      ht: `Bonjou! Se Maia nan PMI Top Florida Properties 🌸 Mwen pa jwenn nimewo w nan sistèm nan. Tanpri pre-anrejistre isit la pou ekip nou an ka ede w: ${link}`,
     }))
   } catch { /* best-effort */ }
-  return ' ' + translate(ctx.language, {
-    en: 'I also texted you a link to pre-register so our team can add you to our system.',
-    es: 'También te envié un enlace para registrarte y que nuestro equipo te agregue al sistema.',
-    pt: 'Também te enviei um link para se cadastrar para que nossa equipe te adicione ao sistema.',
-    fr: 'Je vous ai aussi envoyé un lien pour vous pré-inscrire.',
-    he: 'שלחתי לך גם קישור להרשמה.',
-    ru: 'Я также отправила вам ссылку для регистрации.',
-    ht: 'Mwen voye yon lyen ba ou tou pou w pre-anrejistre.',
+  const spoken = translate(ctx.language, {
+    en: `I couldn't find your number in our system, so I've just texted you a link to pre-register. Once you fill it out, a member of our team will reach out to help and add you to our system.`,
+    es: `No encontré tu número en nuestro sistema, así que te acabo de enviar un mensaje con un enlace para registrarte. Cuando lo completes, un miembro de nuestro equipo te contactará para ayudarte y agregarte al sistema.`,
+    pt: `Não encontrei seu número no nosso sistema, então acabei de te enviar um link por mensagem para você se pré-cadastrar. Assim que preencher, um membro da nossa equipe entrará em contato para ajudar e adicionar você ao sistema.`,
+    fr: `Je n'ai pas trouvé votre numéro dans notre système, je viens donc de vous envoyer un lien par SMS pour vous pré-inscrire. Une fois rempli, un membre de notre équipe vous contactera pour vous aider.`,
+    he: `לא מצאתי את המספר שלך במערכת, אז שלחתי לך עכשיו קישור בהודעה כדי להירשם. אחרי שתמלא, חבר צוות ייצור איתך קשר.`,
+    ru: `Я не нашла ваш номер в нашей системе, поэтому только что отправила вам ссылку для регистрации. После заполнения с вами свяжется сотрудник нашей команды.`,
+    ht: `Mwen pa jwenn nimewo w nan sistèm nan, kidonk mwen fèk voye yon lyen ba ou pou w pre-anrejistre. Lè w fin ranpli l, yon manm ekip nou an ap kontakte w.`,
   })
+  return voiceTwiml(voice, stripForTTS(langNote + spoken), getFarewell(ctx.language), ctx.language)
 }
 
 // Handle a pick on the language menu (main or 'more' step).
@@ -656,6 +662,14 @@ async function handleVoiceLangSelect(phone: string, speechText: string, ctx: Cal
 
   ctx.language = choice
   await setSessionLanguage(phone, choice)
+
+  // Unregistered caller → the non-identified path (pre-register), not the
+  // account category menu they can't use.
+  if (ctx.persona === 'unknown') {
+    await clearConversationState(phone)
+    return unknownCallerHandoff(phone, ctx, getVoiceForLanguage(choice), '')
+  }
+
   await saveConversationState(phone, 'voice_menu', 'awaiting', {})
   const greeting = await getVoiceGreeting(ctx)
   return categoryMenuTwiml(choice, greeting + ' ')
@@ -687,7 +701,6 @@ async function handleVoiceCategorySelect(phone: string, speechText: string, ctx:
     responseText = translate(ctx.language, { en: 'I had trouble with that. Please call our office at (305) 900-5077.', es: 'Tuve un problema. Llame a (305) 900-5077.', pt: 'Tive um problema. Ligue para (305) 900-5077.' })
   }
 
-  responseText += await maybePreregisterAppend(ctx, phone)
   return voiceTwiml(voice, stripForTTS(responseText), getFarewell(ctx.language), ctx.language)
 }
 
