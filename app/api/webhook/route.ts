@@ -253,9 +253,20 @@ async function handleVoice(phone: string, body: FormData): Promise<NextResponse>
     return languageMenuTwiml('main')
   }
 
-  // Returning caller → greet in their language and let them speak. The category
-  // menu only appears later if their request is unclear.
-  ctx.language   = savedLang
+  ctx.language = savedLang
+
+  // Returning UNKNOWN caller → straight to the non-identified path (the same
+  // handoff a first-time unknown caller gets right after picking a language).
+  // Skips the generic greeting entirely — it doesn't mention the unregistered
+  // number, and stacked with the listen prompt it repeated "how can I help"
+  // twice ("Tell me how I can help you today!" + "Please describe how I can
+  // help you.").
+  if (ctx.persona === 'unknown') {
+    return unknownCallerHandoff(phone, ctx, getVoiceForLanguage(ctx.language), '')
+  }
+
+  // Returning (known) caller → greet in their language and let them speak. The
+  // category menu only appears later if their request is unclear.
   const greeting = await getVoiceGreeting(ctx)
   const voice    = getVoiceForLanguage(ctx.language)
   const twiml    = `<?xml version="1.0" encoding="UTF-8"?>
