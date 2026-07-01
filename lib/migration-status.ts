@@ -44,6 +44,37 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'pre_registrations',
+    label:       'Pre-registrations (unknown-caller intake)',
+    description: 'pre_registrations table — an unknown caller pre-registers via a texted /pre-register link; PMI + Jonathan are emailed to follow up and add them to the system',
+    filename:    '20260701_pre_registrations.sql',
+    artifact:    { type: 'table', table: 'pre_registrations' },
+    sql: `CREATE TABLE IF NOT EXISTS public.pre_registrations (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone        text,
+  persona      text,
+  full_name    text,
+  email        text,
+  association   text,
+  unit         text,
+  request      text,
+  source       text NOT NULL DEFAULT 'voice',
+  language     text,
+  status       text NOT NULL DEFAULT 'new',
+  handled_by   text,
+  handled_at   timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS pre_registrations_status_idx ON public.pre_registrations (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS pre_registrations_phone_idx  ON public.pre_registrations (phone);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.pre_registrations
+  TO anon, authenticated, service_role;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'applications_missing_columns',
     label:       'Applications — core columns backfill',
     description: 'is_married_couple/occupants/rules_agreed_at/rules_signature/board_decision on applications — /apply submit + board approval write these; a missing column breaks the insert',
