@@ -243,21 +243,28 @@ async function handleVoice(phone: string, body: FormData): Promise<NextResponse>
   if (VOICE_COMPLETED.has(callStatus)) return new NextResponse('OK')
 
   const ctx      = await buildCallerContext(phone, 'voice')
-  // Carry a remembered conversation language (set when the caller switched on a
-  // prior turn/call) so the greeting opens in the language they last used.
   const state    = await getConversationState(phone)
-  if (state?.session_language && (SUPPORTED_LANGS as readonly string[]).includes(state.session_language)) {
-    ctx.language = state.session_language
+  const savedLang = state?.session_language && (SUPPORTED_LANGS as readonly string[]).includes(state.session_language)
+    ? state.session_language : null
+
+  // First-time caller (no saved language) → language menu (EN/ES/PT + press 9).
+  if (!savedLang) {
+    await saveConversationState(phone, 'voice_lang_select', 'main', {})
+    return languageMenuTwiml('main')
   }
+
+  // Returning caller → greet in their language and let them speak. The category
+  // menu only appears later if their request is unclear.
+  ctx.language   = savedLang
   const greeting = await getVoiceGreeting(ctx)
   const voice    = getVoiceForLanguage(ctx.language)
   const twiml    = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="${voice}">${ttsSay(greeting)}</Say>
-  <Gather input="speech" speechTimeout="4" action="/api/webhook" method="POST">
+  <Gather input="speech dtmf" speechTimeout="4" action="/api/webhook" method="POST">
+    <Say voice="${voice}">${ttsSay(greeting)}</Say>
     <Say voice="${voice}">${ttsSay(getListenPrompt(ctx.language))}</Say>
   </Gather>
-  <Say voice="${voice}">I did not catch that. Please call our office at 3 0 5, 9 0 0, 5 0 7 7. Thank you for calling <lang xml:lang="en-US">PMI Top Florida Properties</lang>!</Say>
+  <Say voice="${voice}">${ttsSay(voiceClosing(ctx.language))}</Say>
   <Hangup/>
 </Response>`
   return new NextResponse(twiml, { headers: { 'Content-Type': 'text/xml' } })
@@ -271,7 +278,7 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
   if (state?.session_language && (SUPPORTED_LANGS as readonly string[]).includes(state.session_language)) {
     ctx.language = state.session_language
   }
-  let voice = getVoiceForLanguage(ctx.language)
+  const voice = getVoiceForLanguage(ctx.language)
 
   // ── Resolve pending WhatsApp number ────────────────────────────────────────
   if (state?.current_flow === 'voice_awaiting_whatsapp') {
@@ -281,21 +288,22 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
   // Strip DTMF prefix if present (not in a WhatsApp-number-collection context)
   const speechText = voiceInput.startsWith('DTMF:') ? voiceInput.slice(5) : voiceInput
 
-  // ── Voice language auto-switch ──────────────────────────────────────────────
-  // No numbered menu on a call — just continue in whatever language they spoke,
-  // remember it for the rest of the call, and acknowledge the switch verbally.
-  let langNote = ''
+  // ── Voice IVR menus (language pick, then category pick) ─────────────────────
+  if (state?.current_flow === 'voice_lang_select') {
+    return handleVoiceLangSelect(phone, speechText, ctx, state)
+  }
+  if (state?.current_flow === 'voice_menu') {
+    return handleVoiceCategorySelect(phone, speechText, ctx, voice)
+  }
+
+  // ── Language switch → re-offer the menu ─────────────────────────────────────
+  // The caller opened in their saved language; if they now clearly speak a
+  // different one, let them pick again rather than silently switching.
+  const langNote = ''
   const detected = await detectLanguage(speechText)
-  if (detected && detected !== ctx.language) {
-    ctx.language = detected
-    voice = getVoiceForLanguage(detected)
-    await setSessionLanguage(phone, detected)
-    langNote = translate(detected, {
-      en: 'Sure, continuing in English.', es: 'Claro, continúo en español.',
-      pt: 'Claro, vou continuar em português.', fr: 'Bien sûr, je continue en français.',
-      he: 'בסדר, אמשיך בעברית.', ru: 'Хорошо, продолжу на русском.',
-      ht: 'Dakò, m ap kontinye an kreyòl.',
-    }) + ' '
+  if (detected && detected !== ctx.language && speechText.trim().split(/\s+/).length >= 3) {
+    await saveConversationState(phone, 'voice_lang_select', 'main', {})
+    return languageMenuTwiml('main')
   }
 
   // ── Answer to a pending "is that what you want?" confirmation ──────────────
@@ -303,7 +311,7 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
     let confirmResp: string
     try { confirmResp = await handleIntentConfirmation(ctx, state, speechText) }
     catch { confirmResp = 'I had trouble with that. Please call our office at (305) 900-5077.' }
-    return voiceTwiml(voice, stripForTTS(langNote + confirmResp), getFarewell(ctx.language))
+    return voiceTwiml(voice, stripForTTS(langNote + confirmResp), getFarewell(ctx.language), ctx.language)
   }
 
   // ── Answer to "would you like the collection agency's info?" (voice) ───────
@@ -316,10 +324,10 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
         es: `Su número es 8 0 0, 8 7 5, 9 2 2 1. También te envié por mensaje su correo y sitio web. ¡Cuídate!`,
         pt: `O telefone deles é 8 0 0, 8 7 5, 9 2 2 1. Também te enviei por mensagem o e-mail e o site. Cuide-se!`,
       })
-      return voiceTwiml(voice, stripForTTS(langNote + spoken), getFarewell(ctx.language))
+      return voiceTwiml(voice, stripForTTS(langNote + spoken), getFarewell(ctx.language), ctx.language)
     }
     const bye = translate(ctx.language, { en: `No problem. Have a great day!`, es: `Sin problema. ¡Que tengas buen día!`, pt: `Sem problema. Tenha um ótimo dia!` })
-    return voiceTwiml(voice, stripForTTS(langNote + bye), getFarewell(ctx.language))
+    return voiceTwiml(voice, stripForTTS(langNote + bye), getFarewell(ctx.language), ctx.language)
   }
 
   // ── Detect "send to WhatsApp / text me" intent ─────────────────────────────
@@ -327,54 +335,35 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
     return handleVoiceToWhatsApp(phone, speechText, ctx, voice)
   }
 
-  // ── Unknown caller → pre-registration handoff ──────────────────────────────
-  // Not in the system: we can't serve account-specific requests. Text a
-  // pre-registration link and let staff (PMI + Jonathan) follow up.
-  if (ctx.persona === 'unknown') {
-    return handleUnknownVoiceCaller(phone, ctx, voice, langNote)
-  }
-
-  // ── Normal intelligent response ────────────────────────────────────────────
+  // ── Classify → confirm if unsure · menu if unclear · else answer ───────────
   let responseText: string
   try {
-    responseText = await getMaiaIntelligentResponse(ctx, speechText)
+    const c = await classifyIntent(ctx, speechText)
+
+    // Low-confidence actionable intent → confirm before acting ("is that right?").
+    if (c.confidence === 'low' && c.restate && c.intent !== 'emergency' &&
+        (CONFIRMABLE_INTENTS.has(c.intent) || c.intent === 'general')) {
+      await saveConversationState(phone, 'confirm_intent', 'awaiting', { intent: c.intent, summary: c.summary, original: speechText })
+      return voiceTwiml(voice, stripForTTS(langNote + c.restate), getFarewell(ctx.language), ctx.language)
+    }
+
+    // Truly unclear → disambiguate with the category menu.
+    if (c.intent === 'general') {
+      await saveConversationState(phone, 'voice_menu', 'awaiting', {})
+      return categoryMenuTwiml(ctx.language, langNote)
+    }
+
+    responseText = await getMaiaIntelligentResponse(ctx, speechText, { intent: c.intent, summary: c.summary })
   } catch {
-    responseText = 'I had trouble with that request. Please call our office at (305) 900-5077 and our team will assist you.'
+    responseText = translate(ctx.language, {
+      en: 'I had trouble with that request. Please call our office at (305) 900-5077 and our team will assist you.',
+      es: 'Tuve un problema con esa solicitud. Llame a nuestra oficina al (305) 900-5077.',
+      pt: 'Tive um problema com esse pedido. Ligue para o nosso escritório: (305) 900-5077.',
+    })
   }
 
-  return voiceTwiml(voice, stripForTTS(langNote + responseText), getFarewell(ctx.language))
-}
-
-// Unknown caller: text a pre-registration form link + explain that staff will
-// follow up. The token carries the caller's phone + language.
-async function handleUnknownVoiceCaller(
-  phone: string, ctx: CallerContext, voice: string, langNote: string,
-): Promise<NextResponse> {
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
-  try {
-    const token = await signPreregisterToken(phone, ctx.language, 'voice')
-    const link  = `${base}/pre-register/${token}`
-    await sendSMS(phone, translate(ctx.language, {
-      en: `Hi! This is Maia from PMI Top Florida Properties 🌸 I couldn't find your number in our system. Please pre-register here so our team can help you: ${link}`,
-      es: `¡Hola! Soy Maia de PMI Top Florida Properties 🌸 No encontré tu número en nuestro sistema. Regístrate aquí para que nuestro equipo pueda ayudarte: ${link}`,
-      pt: `Olá! Aqui é a Maia da PMI Top Florida Properties 🌸 Não encontrei seu número no nosso sistema. Faça seu pré-cadastro aqui para que nossa equipe possa te ajudar: ${link}`,
-      fr: `Bonjour ! C'est Maia de PMI Top Florida Properties 🌸 Je n'ai pas trouvé votre numéro. Pré-inscrivez-vous ici pour que notre équipe puisse vous aider : ${link}`,
-      he: `שלום! זו מאיה מ-PMI Top Florida Properties 🌸 לא מצאתי את המספר שלך במערכת. הירשם כאן כדי שהצוות שלנו יוכל לעזור: ${link}`,
-      ru: `Здравствуйте! Это Мая из PMI Top Florida Properties 🌸 Я не нашла ваш номер в системе. Пройдите предварительную регистрацию, чтобы наша команда помогла вам: ${link}`,
-      ht: `Bonjou! Se Maia nan PMI Top Florida Properties 🌸 Mwen pa jwenn nimewo w nan sistèm nan. Tanpri pre-anrejistre isit la pou ekip nou an ka ede w: ${link}`,
-    }))
-  } catch { /* best-effort — still tell them what to expect */ }
-
-  const spoken = translate(ctx.language, {
-    en: `I couldn't find your number in our system, so I've just texted you a link to pre-register. Once you fill it out, a member of our team will reach out to help and add you to our system if needed.`,
-    es: `No encontré tu número en nuestro sistema, así que te acabo de enviar un mensaje con un enlace para registrarte. Cuando lo completes, un miembro de nuestro equipo te contactará para ayudarte y agregarte al sistema si es necesario.`,
-    pt: `Não encontrei seu número no nosso sistema, então acabei de te enviar um link por mensagem para você se pré-cadastrar. Assim que preencher, um membro da nossa equipe entrará em contato para ajudar e adicionar você ao sistema se necessário.`,
-    fr: `Je n'ai pas trouvé votre numéro dans notre système, je viens donc de vous envoyer un lien par SMS pour vous pré-inscrire. Une fois rempli, un membre de notre équipe vous contactera pour vous aider.`,
-    he: `לא מצאתי את המספר שלך במערכת, אז שלחתי לך עכשיו קישור בהודעה כדי להירשם. אחרי שתמלא, חבר צוות ייצור איתך קשר.`,
-    ru: `Я не нашла ваш номер в нашей системе, поэтому только что отправила вам ссылку для регистрации. После заполнения с вами свяжется сотрудник нашей команды.`,
-    ht: `Mwen pa jwenn nimewo w nan sistèm nan, kidonk mwen fèk voye yon lyen ba ou pou w pre-anrejistre. Lè w fin ranpli l, yon manm ekip nou an ap kontakte w pou ede w.`,
-  })
-  return voiceTwiml(voice, stripForTTS(langNote + spoken), getFarewell(ctx.language))
+  responseText += await maybePreregisterAppend(ctx, phone)
+  return voiceTwiml(voice, stripForTTS(langNote + responseText), getFarewell(ctx.language), ctx.language)
 }
 
 // ── WhatsApp-send intent detection ────────────────────────────────────────────
@@ -412,7 +401,7 @@ async function handleVoiceToWhatsApp(
       he: `נשלח לוואטסאפ שלך! האם יש עוד שאוכל לעזור?`,
       ru: `Отправлено в ваш WhatsApp! Чем ещё я могу помочь?`,
     })
-    return voiceTwiml(voice, stripForTTS(spoken), getFarewell(ctx.language))
+    return voiceTwiml(voice, stripForTTS(spoken), getFarewell(ctx.language), ctx.language)
   }
 
   // ── Caller is unknown — ask for their WhatsApp number ─────────────────────
@@ -468,7 +457,7 @@ async function handleVoiceAwaitingWhatsAppNumber(
       es: `No pude entender ese número, así que envié la información al número desde el que llamaste. ¿Hay algo más en que pueda ayudarte?`,
       pt: `Não entendi o número, então enviei para o número de onde você ligou. Posso ajudar em mais alguma coisa?`,
     })
-    return voiceTwiml(voice, stripForTTS(sorry), getFarewell(lang))
+    return voiceTwiml(voice, stripForTTS(sorry), getFarewell(lang), lang)
   }
 
   await sendWhatsAppFromVoice(e164, content, ctx)
@@ -480,7 +469,7 @@ async function handleVoiceAwaitingWhatsAppNumber(
     he: `נשלח ל-${formatPhoneForSpeech(e164)}. האם יש עוד שאוכל לעזור?`,
     ru: `Отправлено на ${formatPhoneForSpeech(e164)}. Чем ещё я могу помочь?`,
   })
-  return voiceTwiml(voice, stripForTTS(confirm), getFarewell(lang))
+  return voiceTwiml(voice, stripForTTS(confirm), getFarewell(lang), lang)
 }
 
 // ── Send WhatsApp message from voice call context + log ───────────────────────
@@ -518,17 +507,188 @@ async function sendWhatsAppFromVoice(toPhone: string, content: string, ctx: Call
 
 // ── TwiML builder ─────────────────────────────────────────────────────────────
 
-function voiceTwiml(voice: string, spoken: string, farewell: string): NextResponse {
+// Sign-off line, in the caller's language (was hard-coded English → caused a
+// jarring language flip at the end of every non-English call).
+function voiceClosing(lang: string): string {
+  return ({
+    en: 'Thank you for calling PMI Top Florida Properties. Have a wonderful day!',
+    es: 'Gracias por llamar a PMI Top Florida Properties. ¡Que tenga un excelente día!',
+    pt: 'Obrigado por ligar para a PMI Top Florida Properties. Tenha um ótimo dia!',
+    fr: "Merci d'avoir appelé PMI Top Florida Properties. Bonne journée !",
+    he: 'תודה שהתקשרת ל-PMI Top Florida Properties. שיהיה לך יום נפלא!',
+    ru: 'Спасибо, что позвонили в PMI Top Florida Properties. Хорошего дня!',
+    ht: 'Mèsi dèske w rele PMI Top Florida Properties. Pase yon bèl jounen!',
+  } as Record<string, string>)[lang] ?? 'Thank you for calling PMI Top Florida Properties. Have a wonderful day!'
+}
+
+function voiceTwiml(voice: string, spoken: string, farewell: string, lang = 'en'): NextResponse {
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="${voice}">${ttsSay(spoken)}</Say>
-  <Gather input="speech" speechTimeout="4" action="/api/webhook" method="POST">
+  <Gather input="speech dtmf" speechTimeout="4" action="/api/webhook" method="POST">
     <Say voice="${voice}">${ttsSay(farewell)}</Say>
   </Gather>
-  <Say voice="${voice}">Thank you for calling <lang xml:lang="en-US">PMI Top Florida Properties</lang>. Have a wonderful day!</Say>
+  <Say voice="${voice}">${ttsSay(voiceClosing(lang))}</Say>
   <Hangup/>
 </Response>`
   return new NextResponse(twiml, { headers: { 'Content-Type': 'text/xml' } })
+}
+
+// A Gather that presents a menu (dtmf OR speech), then falls back to the sign-off
+// if nothing is captured. `innerSay` is one or more <Say> blocks (menus mix
+// per-language voices). `lang` sets the fallback voice + closing.
+function menuTwiml(innerSay: string, lang: string): NextResponse {
+  const voice = getVoiceForLanguage(lang)
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Gather input="dtmf speech" numDigits="1" speechTimeout="3" action="/api/webhook" method="POST">
+    ${innerSay}
+  </Gather>
+  <Say voice="${voice}">${ttsSay(voiceClosing(lang))}</Say>
+  <Hangup/>
+</Response>`
+  return new NextResponse(twiml, { headers: { 'Content-Type': 'text/xml' } })
+}
+
+// ── Voice IVR: language + category menus ──────────────────────────────────────
+
+// Extract a pressed or spoken single digit (1-9). Handles the "DTMF:" prefix and
+// spoken numerals across the supported languages.
+function parseVoiceDigit(text: string): number | null {
+  const t = (text.startsWith('DTMF:') ? text.slice(5) : text).trim().toLowerCase()
+  const d = t.match(/([1-9])/)
+  if (d) return Number(d[1])
+  const NUM: [RegExp, number][] = [
+    [/\b(one|uno|um|un)\b/, 1], [/\b(two|dos|dois|deux)\b/, 2], [/\b(three|tr[eéê]s|trois)\b/, 3],
+    [/\b(four|cuatro|quatro|quatre)\b/, 4], [/\b(five|cinco|cinq)\b/, 5], [/\b(six|seis)\b/, 6],
+    [/\b(seven|siete|sete|sept)\b/, 7], [/\b(eight|ocho|oito|huit)\b/, 8], [/\b(nine|nueve|nove|neuf)\b/, 9],
+  ]
+  for (const [re, n] of NUM) if (re.test(t)) return n
+  return null
+}
+
+// Language pick from a digit or a spoken language name. Main: 1 en, 2 es, 3 pt,
+// 9 → 'more'. More: 4 fr, 5 he, 6 ru, 7 ht.
+function parseLanguageChoice(text: string, step: 'main' | 'more'): string | 'more' | null {
+  const t = (text.startsWith('DTMF:') ? text.slice(5) : text).toLowerCase()
+  const byName: [RegExp, string][] = [
+    [/\b(english|ingl[eé]s|anglais)\b/, 'en'], [/\b(spanish|espa[nñ]ol|espanol)\b/, 'es'],
+    [/\b(portugu[eêé]s|portuguese)\b/, 'pt'], [/\b(fran[cç]ais|french|franc[eê]s)\b/, 'fr'],
+    [/\b(hebrew|hebreo)\b/, 'he'], [/\b(russian|ruso|русск)\b/, 'ru'],
+    [/\b(creole|krey[oò]l|criollo|haitian)\b/, 'ht'],
+  ]
+  for (const [re, code] of byName) if (re.test(t)) return code
+  const d = parseVoiceDigit(text)
+  if (step === 'main') return d === 1 ? 'en' : d === 2 ? 'es' : d === 3 ? 'pt' : d === 9 ? 'more' : null
+  return d === 4 ? 'fr' : d === 5 ? 'he' : d === 6 ? 'ru' : d === 7 ? 'ht' : null
+}
+
+function languageMenuTwiml(step: 'main' | 'more'): NextResponse {
+  const inner = step === 'main'
+    ? `<Say voice="Polly.Joanna">For English, press or say 1.</Say>
+    <Say voice="Polly.Lupe">Para español, oprima o diga 2.</Say>
+    <Say voice="Polly.Camila">Para português, aperte ou diga 3.</Say>
+    <Say voice="Polly.Joanna">For more languages, press 9.</Say>`
+    : `<Say voice="Polly.Celine">Pour le français, appuyez sur 4.</Say>
+    <Say voice="Polly.Joanna">For Hebrew, press 5.</Say>
+    <Say voice="Polly.Tatyana">Для русского, нажмите 6.</Say>
+    <Say voice="Polly.Celine">Pou Kreyòl, peze 7.</Say>`
+  return menuTwiml(inner, 'en')
+}
+
+const CATEGORY_PROMPT: Record<string, string> = {
+  en: 'Please say what you need, or press: 1 for maintenance or a repair. 2 for payments or your account balance. 3 for a new tenant or buyer application. 4 for association documents. Or 5 to leave a message for our team.',
+  es: 'Diga lo que necesita, u oprima: 1 para mantenimiento o una reparación. 2 para pagos o el saldo de su cuenta. 3 para una solicitud de nuevo inquilino o comprador. 4 para documentos de la asociación. O 5 para dejar un mensaje a nuestro equipo.',
+  pt: 'Diga o que precisa, ou aperte: 1 para manutenção ou reparo. 2 para pagamentos ou saldo da sua conta. 3 para uma solicitação de novo inquilino ou comprador. 4 para documentos da associação. Ou 5 para deixar uma mensagem para nossa equipe.',
+  fr: "Dites ce dont vous avez besoin, ou appuyez sur : 1 pour l'entretien ou une réparation. 2 pour les paiements ou votre solde. 3 pour une demande de nouveau locataire ou acheteur. 4 pour les documents de l'association. Ou 5 pour laisser un message à notre équipe.",
+  he: 'אמור מה תרצה, או הקש: 1 לתחזוקה או תיקון. 2 לתשלומים או יתרת החשבון. 3 לבקשת דייר או קונה חדש. 4 למסמכי האגודה. או 5 להשארת הודעה לצוות.',
+  ru: 'Скажите, что вам нужно, или нажмите: 1 — обслуживание или ремонт. 2 — платежи или баланс счёта. 3 — заявка нового арендатора или покупателя. 4 — документы ассоциации. Или 5 — оставить сообщение нашей команде.',
+  ht: 'Di sa ou bezwen, oswa peze: 1 pou antretyen oswa reparasyon. 2 pou peman oswa balans kont ou. 3 pou yon demann nouvo lokatè oswa achtè. 4 pou dokiman asosyasyon an. Oswa 5 pou kite yon mesaj pou ekip nou an.',
+}
+
+function categoryMenuTwiml(lang: string, lead = ''): NextResponse {
+  const voice = getVoiceForLanguage(lang)
+  const prompt = CATEGORY_PROMPT[lang] ?? CATEGORY_PROMPT.en
+  // Separate <Say> blocks so a long lead (e.g. the intro greeting) + the menu
+  // don't get truncated together by stripForTTS's length cap.
+  const leadSay = lead.trim() ? `<Say voice="${voice}">${ttsSay(stripForTTS(lead))}</Say>\n    ` : ''
+  return menuTwiml(`${leadSay}<Say voice="${voice}">${ttsSay(stripForTTS(prompt))}</Say>`, lang)
+}
+
+// Unknown caller: text a pre-registration link and return a short spoken suffix
+// to append. Known callers: no-op (empty string).
+async function maybePreregisterAppend(ctx: CallerContext, phone: string): Promise<string> {
+  if (ctx.persona !== 'unknown') return ''
+  const base = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
+  try {
+    const token = await signPreregisterToken(phone, ctx.language, 'voice')
+    const link  = `${base}/pre-register/${token}`
+    await sendSMS(phone, translate(ctx.language, {
+      en: `Maia here 🌸 I couldn't find your number in our system — please pre-register so our team can help: ${link}`,
+      es: `Soy Maia 🌸 No encontré tu número en el sistema — regístrate para que nuestro equipo te ayude: ${link}`,
+      pt: `Aqui é a Maia 🌸 Não encontrei seu número no sistema — faça seu pré-cadastro para nossa equipe te ajudar: ${link}`,
+      fr: `Maia 🌸 Je n'ai pas trouvé votre numéro — pré-inscrivez-vous : ${link}`,
+      he: `כאן מאיה 🌸 לא מצאתי את מספרך — הירשם: ${link}`,
+      ru: `Это Мая 🌸 Не нашла ваш номер — зарегистрируйтесь: ${link}`,
+      ht: `Se Maia 🌸 Mwen pa jwenn nimewo w — pre-anrejistre: ${link}`,
+    }))
+  } catch { /* best-effort */ }
+  return ' ' + translate(ctx.language, {
+    en: 'I also texted you a link to pre-register so our team can add you to our system.',
+    es: 'También te envié un enlace para registrarte y que nuestro equipo te agregue al sistema.',
+    pt: 'Também te enviei um link para se cadastrar para que nossa equipe te adicione ao sistema.',
+    fr: 'Je vous ai aussi envoyé un lien pour vous pré-inscrire.',
+    he: 'שלחתי לך גם קישור להרשמה.',
+    ru: 'Я также отправила вам ссылку для регистрации.',
+    ht: 'Mwen voye yon lyen ba ou tou pou w pre-anrejistre.',
+  })
+}
+
+// Handle a pick on the language menu (main or 'more' step).
+async function handleVoiceLangSelect(phone: string, speechText: string, ctx: CallerContext, state: ConversationState): Promise<NextResponse> {
+  const step   = (state.current_step === 'more' ? 'more' : 'main') as 'main' | 'more'
+  const choice = parseLanguageChoice(speechText, step)
+  if (choice === 'more') {
+    await saveConversationState(phone, 'voice_lang_select', 'more', {})
+    return languageMenuTwiml('more')
+  }
+  if (!choice) return languageMenuTwiml(step)   // unrecognized → repeat this step
+
+  ctx.language = choice
+  await setSessionLanguage(phone, choice)
+  await saveConversationState(phone, 'voice_menu', 'awaiting', {})
+  const greeting = await getVoiceGreeting(ctx)
+  return categoryMenuTwiml(choice, greeting + ' ')
+}
+
+// Handle a pick on the category menu (digit) OR a spoken request (classified).
+async function handleVoiceCategorySelect(phone: string, speechText: string, ctx: CallerContext, voice: string): Promise<NextResponse> {
+  const digit = parseVoiceDigit(speechText)
+  const spoken = speechText.startsWith('DTMF:') ? '' : speechText.trim()
+  await clearConversationState(phone)   // downstream flows set their own state
+
+  let responseText: string
+  try {
+    if (digit == null && spoken.split(/\s+/).length >= 3) {
+      responseText = await getMaiaIntelligentResponse(ctx, spoken)   // they described it instead of pressing
+    } else {
+      switch (digit) {
+        case 1: responseText = await getMaiaIntelligentResponse(ctx, 'I have a maintenance or repair problem', { intent: 'maintenance', summary: 'Maintenance/repair (phone menu)' }); break
+        case 2: responseText = await startLedgerFlow(ctx); break
+        case 3: responseText = await getMaiaIntelligentResponse(ctx, 'question about a new tenant or buyer application', { intent: 'documents', summary: 'New tenant/buyer application (phone menu)' }); break
+        case 4: responseText = await getMaiaIntelligentResponse(ctx, 'I need an association document', { intent: 'documents', summary: 'Association document (phone menu)' }); break
+        case 5: responseText = await getMaiaIntelligentResponse(ctx, 'I would like to leave a message for the team', { intent: 'general', summary: 'Wants to speak with the team (phone menu)' }); break
+        default:
+          await saveConversationState(phone, 'voice_menu', 'awaiting', {})
+          return categoryMenuTwiml(ctx.language, translate(ctx.language, { en: "Sorry, I didn't catch that. ", es: 'Perdón, no entendí. ', pt: 'Desculpe, não entendi. ', fr: "Désolée, je n'ai pas compris. " }))
+      }
+    }
+  } catch {
+    responseText = translate(ctx.language, { en: 'I had trouble with that. Please call our office at (305) 900-5077.', es: 'Tuve un problema. Llame a (305) 900-5077.', pt: 'Tive um problema. Ligue para (305) 900-5077.' })
+  }
+
+  responseText += await maybePreregisterAppend(ctx, phone)
+  return voiceTwiml(voice, stripForTTS(responseText), getFarewell(ctx.language), ctx.language)
 }
 
 // ── TTS / speech helpers ──────────────────────────────────────────────────────
