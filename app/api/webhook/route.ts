@@ -1429,7 +1429,7 @@ Intents:
 - payment: HOW to pay or set up a payment — payment methods, the payment portal, autopay, where to send money. NOT their balance/statement (that is "ledger").
 - ledger: ANY request to see their own account financials — phrased MANY ways, in any language:
     • the document: "my ledger", "account statement", "statement of account", "owner/resident/homeowner account", "account summary/history/details", "financial statement"
-    • balance / what they owe: "what's my balance", "how much do I owe", "do I owe anything", "am I current / paid up / up to date", "is my account current"
+    • balance / what they owe: "what's my balance", "how much do I owe", "do I owe anything", "am I current / paid up / up to date", "is my account current". In other languages this is the SAME ledger intent — e.g. PT "meu saldo", "meu balanço", "quanto eu devo", "meu extrato"; ES "mi saldo", "cuánto debo", "mi estado de cuenta"; FR "mon solde", "combien je dois".
     • payment / transaction history: "my payment history", "list of my payments", "transaction history", "account activity", "all charges and payments", "review my account", "what's on my account"
     • assessments / fees already charged: "what assessments/dues/HOA/condo/maintenance FEES have been charged", "record of my assessments", "what charges are on my account", "why was I charged"
     • bill / invoice: "send my bill/invoice", "monthly statement", "billing statement", "latest bill", "what was I billed for"
@@ -1713,6 +1713,10 @@ async function continueLedgerFlow(ctx: CallerContext, state: ConversationState, 
   return buildMainMenu(ctx)
 }
 
+// Ledger-specific terms across languages (balance / statement / what-I-owe) —
+// NOT payment ("how to pay"). Used only to rescue a 'general' misclassification.
+const LEDGER_TERMS = /\b(ledger|statement|balance|owe|account\s+(summary|history|activity|statement)|saldo|balan[çc]o|extrato|extracto|estado\s+de\s+cuenta|demonstrativo|solde|relev[ée]|cu[aá]nto\s+debo|quanto.{0,6}devo|combien\s+je\s+dois)\b/i
+
 async function getMaiaIntelligentResponse(ctx: CallerContext, message: string, forced?: { intent: MaiaIntent; summary: string }): Promise<string> {
   const langName = LANGUAGE_NAMES[ctx.language] ?? 'English'
   const msg      = message.toLowerCase()
@@ -1738,6 +1742,12 @@ async function getMaiaIntelligentResponse(ctx: CallerContext, message: string, f
       return c.restate
     }
   }
+  // Keyword backstop: a clear "my balance / statement / ledger" ask in any
+  // language still routes to the ledger flow when the classifier fell back to
+  // the safe 'general' default (e.g. PT "meu balanço/saldo/extrato", ES "mi
+  // saldo"). Only overrides 'general' — never a confident payment/other intent.
+  if (intent === 'general' && LEDGER_TERMS.test(msg)) intent = 'ledger'
+
   // Ledger request → its own multi-step self-service flow (unit pick → confirm
   // address → OTP-once → delivery → secure PDF link).
   if (intent === 'ledger') return await startLedgerFlow(ctx)
