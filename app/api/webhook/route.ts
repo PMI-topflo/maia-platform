@@ -261,6 +261,7 @@ async function handleVoice(phone: string, body: FormData): Promise<NextResponse>
   const twiml    = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="speech dtmf" speechTimeout="4" action="/api/webhook" method="POST">
+    <Pause length="1"/>
     <Say voice="${voice}">${ttsSay(greeting)}</Say>
     <Say voice="${voice}">${ttsSay(getListenPrompt(ctx.language))}</Say>
   </Gather>
@@ -287,6 +288,12 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
 
   // Strip DTMF prefix if present (not in a WhatsApp-number-collection context)
   const speechText = voiceInput.startsWith('DTMF:') ? voiceInput.slice(5) : voiceInput
+
+  // ── Caller is wrapping up ("that's all, thank you", "bye", …) → warm close ──
+  if (isConversationEnd(speechText)) {
+    await clearConversationState(phone)
+    return goodbyeTwiml(voice, ctx.language)
+  }
 
   // ── Voice IVR menus (language pick, then category pick) ─────────────────────
   if (state?.current_flow === 'voice_lang_select') {
@@ -525,6 +532,44 @@ function voiceClosing(lang: string): string {
   } as Record<string, string>)[lang] ?? 'Thank you for calling PMI Top Florida Properties. Have a wonderful day!'
 }
 
+// Does the caller's utterance signal they're wrapping up? Covers the many ways
+// people end a call — "that's all", "no thanks", "bye", a standalone "thank you",
+// and the same across the supported languages.
+function isConversationEnd(text: string): boolean {
+  const t = text.trim().toLowerCase().replace(/[.!,]+$/g, '')
+  if (!t) return false
+  if (/\b(bye|goodbye|good bye|that'?s (all|it|everything)|nothing else|no,? (thank|thanks)|i'?m (all )?(done|good|set)|we'?re (all )?(good|set)|have a (good|nice|great))\b/.test(t)) return true
+  // Accented phrases: \b misbehaves at non-ASCII letters, so match as substrings.
+  if (/(tchau|é só isso|so isso|isso é tudo|era só isso|so era isso|não obrigad|nao obrigad|valeu|até logo|ate logo|até mais|ate mais)/.test(t)) return true
+  if (/(adiós|adios|chau|hasta luego|eso es todo|nada más|nada mas|no gracias)/.test(t)) return true
+  if (/(au revoir|c'est tout|c est tout|non merci|bonne journée|bonne journee)/.test(t)) return true
+  // A bare thanks/goodbye that IS the whole message → they're closing.
+  if (/^(thank you( so much| very much)?|thanks( a lot)?|obrigad[oa]( demais)?|muito obrigad[oa]|gracias|muchas gracias|merci( beaucoup)?|m[eè]si( anpil)?|spasibo|спасибо|toda|תודה)$/.test(t)) return true
+  return false
+}
+
+function voiceGoodbye(lang: string): string {
+  return translate(lang, {
+    en: `You're very welcome! It was my pleasure to help. Take care and have a wonderful day! 🌸`,
+    es: `¡Con mucho gusto! Fue un placer ayudarte. ¡Cuídate y que tengas un excelente día! 🌸`,
+    pt: `De nada! Foi um prazer te ajudar. Cuide-se e tenha um ótimo dia! 🌸`,
+    fr: `Je vous en prie ! C'était un plaisir de vous aider. Prenez soin de vous et bonne journée ! 🌸`,
+    he: `בשמחה! היה לי לעונג לעזור. שיהיה לך יום נפלא! 🌸`,
+    ru: `Пожалуйста! Было приятно помочь. Берегите себя и хорошего дня! 🌸`,
+    ht: `Pa gen pwoblèm! Se te yon plezi pou m ede w. Pran swen tèt ou epi pase yon bèl jounen! 🌸`,
+  })
+}
+
+// A warm sign-off that ENDS the call (no Gather — the caller said goodbye).
+function goodbyeTwiml(voice: string, lang: string): NextResponse {
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="${voice}">${ttsSay(stripForTTS(voiceGoodbye(lang)))}</Say>
+  <Hangup/>
+</Response>`
+  return new NextResponse(twiml, { headers: { 'Content-Type': 'text/xml' } })
+}
+
 function voiceTwiml(voice: string, spoken: string, farewell: string, lang = 'en'): NextResponse {
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -588,8 +633,10 @@ function parseLanguageChoice(text: string, step: 'main' | 'more'): string | 'mor
 }
 
 function languageMenuTwiml(step: 'main' | 'more'): NextResponse {
+  // A brief lead pause on the opening menu so the first words aren't clipped
+  // while the caller is still lifting the phone to their ear.
   const inner = step === 'main'
-    ? `<Say voice="Polly.Joanna">For English, press or say 1.</Say>
+    ? `<Pause length="1"/><Say voice="Polly.Joanna">For English, press or say 1.</Say>
     <Say voice="Polly.Lupe">Para español, oprima o diga 2.</Say>
     <Say voice="Polly.Camila">Para português, aperte ou diga 3.</Say>
     <Say voice="Polly.Joanna">For more languages, press 9.</Say>`
