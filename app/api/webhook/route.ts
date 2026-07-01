@@ -271,7 +271,7 @@ async function handleVoice(phone: string, body: FormData): Promise<NextResponse>
   const voice    = getVoiceForLanguage(ctx.language)
   const twiml    = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Gather input="speech dtmf" speechTimeout="4" action="/api/webhook" method="POST">
+  <Gather input="speech dtmf" language="${sttLangFor(ctx.language)}" speechTimeout="4" action="/api/webhook" method="POST">
     <Pause length="1"/>
     <Say voice="${voice}">${ttsSay(greeting)}</Say>
     <Say voice="${voice}">${ttsSay(getListenPrompt(ctx.language))}</Say>
@@ -444,7 +444,7 @@ async function handleVoiceToWhatsApp(
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="${voice}">${ttsSay(ask)}</Say>
-  <Gather input="speech dtmf" speechTimeout="8" finishOnKey="#" action="/api/webhook" method="POST">
+  <Gather input="speech dtmf" language="${sttLangFor(ctx.language)}" speechTimeout="8" finishOnKey="#" action="/api/webhook" method="POST">
   </Gather>
   <Say voice="${voice}">I did not catch that. I will send the information to the number you called from instead.</Say>
 </Response>`
@@ -585,7 +585,7 @@ function voiceTwiml(voice: string, spoken: string, farewell: string, lang = 'en'
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="${voice}">${ttsSay(spoken)}</Say>
-  <Gather input="speech dtmf" speechTimeout="4" action="/api/webhook" method="POST">
+  <Gather input="speech dtmf" language="${sttLangFor(lang)}" speechTimeout="4" action="/api/webhook" method="POST">
     <Say voice="${voice}">${ttsSay(farewell)}</Say>
   </Gather>
   <Say voice="${voice}">${ttsSay(voiceClosing(lang))}</Say>
@@ -601,7 +601,7 @@ function menuTwiml(innerSay: string, lang: string): NextResponse {
   const voice = getVoiceForLanguage(lang)
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Gather input="dtmf speech" numDigits="1" speechTimeout="3" action="/api/webhook" method="POST">
+  <Gather input="dtmf speech" language="${sttLangFor(lang)}" numDigits="1" speechTimeout="3" action="/api/webhook" method="POST">
     ${innerSay}
   </Gather>
   <Say voice="${voice}">${ttsSay(voiceClosing(lang))}</Say>
@@ -712,7 +712,7 @@ async function unknownCallerHandoff(phone: string, ctx: CallerContext, voice: st
 <Response>
   <Say voice="${voice}">${ttsSay(stripForTTS(langNote + UNKNOWN_CALLER_INTRO(ctx.language)))}</Say>
   <Say voice="${voice}">${ttsSay(stripForTTS(explain))}</Say>
-  <Gather input="speech dtmf" speechTimeout="4" action="/api/webhook" method="POST">
+  <Gather input="speech dtmf" language="${sttLangFor(ctx.language)}" speechTimeout="4" action="/api/webhook" method="POST">
     <Say voice="${voice}">${ttsSay(getFarewell(ctx.language))}</Say>
   </Gather>
   <Say voice="${voice}">${ttsSay(voiceClosing(ctx.language))}</Say>
@@ -2794,6 +2794,23 @@ function getVoiceForLanguage(lang: string): string {
     ru: 'Polly.Tatyana',
     ht: 'Polly.Celine',  // No Polly Creole; French voice reads the (French-derived) orthography closest
   } as Record<string, string>)[lang] ?? 'Polly.Joanna'
+}
+
+// Twilio <Gather input="speech"> recognition locale. Without this the
+// recognizer defaults to en-US for EVERY call, regardless of the caller's
+// selected language — a non-English utterance gets badly mis-transcribed into
+// English-ish text, which then gets answered (in English) and spoken back in
+// the caller's already-selected voice, sounding like "English with an accent."
+function sttLangFor(lang: string): string {
+  return ({
+    en: 'en-US',
+    es: 'es-US',
+    pt: 'pt-BR',
+    fr: 'fr-FR',
+    he: 'en-US',  // Twilio speech recognition has no Hebrew locale; same fallback as the TTS voice
+    ru: 'ru-RU',
+    ht: 'fr-FR',  // No Haitian Creole locale; same closest-orthography fallback as the TTS voice
+  } as Record<string, string>)[lang] ?? 'en-US'
 }
 
 function escapeXml(s: string): string {
