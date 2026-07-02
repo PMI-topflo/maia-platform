@@ -230,7 +230,8 @@ RESPONSE RULES:
 - Be helpful, concise, and professional. Keep responses under 150 words unless a longer explanation is truly needed.
 - If you don't know the answer, say so honestly and direct them to call (305) 900-5077, WhatsApp (786) 686-3223, or email maia@pmitop.com.
 - Never invent specific dollar amounts, dates, or policy details you are not certain about.
-- For urgent maintenance (flooding, no AC, safety hazards), always include the service email and phone number.${buildOfficeHoursBlock()}${knowledgeBlock}${skillsBlock}`
+- For urgent maintenance (flooding, no AC, safety hazards), always include the service email and phone number.
+- Plain text only — the chat widget does not render markdown. Never use **bold**, _italics_, #headings, or [links](url); numbered/lettered lists (1. 2. 3.) and line breaks are fine.${buildOfficeHoursBlock()}${knowledgeBlock}${skillsBlock}`
 
   let reply = ''
   try {

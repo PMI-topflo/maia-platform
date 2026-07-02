@@ -41,3 +41,18 @@ export function associationPortalPath(code: string | null | undefined): string |
   if (!code) return null
   return ASSOCIATION_PORTAL_PATH[code.toUpperCase()] ?? null
 }
+
+// Inverted once at module load — path (leading slash, no trailing slash) → code.
+const PATH_TO_ASSOCIATION: Record<string, string> = Object.fromEntries(
+  Object.entries(ASSOCIATION_PORTAL_PATH).map(([code, path]) => [path, code]),
+)
+
+/** Association code for a resident-portal path (or any sub-path under it),
+ *  or null if the path isn't one of the 25 association portals. Lets a
+ *  globally-mounted component (e.g. the floating MAIA widget) infer which
+ *  association it's on from `usePathname()`. */
+export function associationCodeForPath(pathname: string | null | undefined): string | null {
+  if (!pathname) return null
+  const first = '/' + pathname.split('/').filter(Boolean)[0]
+  return PATH_TO_ASSOCIATION[first] ?? null
+}
