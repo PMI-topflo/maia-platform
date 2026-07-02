@@ -55,6 +55,7 @@ const NAV: Node[] = [
     { label: 'Sunbiz', href: '/admin/sunbiz' },
     { label: 'Ideas', href: '/admin/ideas' },
     { label: 'Skills', href: '/admin/skills' },
+    { label: 'Voice Flow', href: '/admin/voice-flow' },
     { label: 'Tools', href: '/admin/tools' },
   ] },
   { type: 'item', label: 'Help', icon: '?', href: '/admin/help' },
