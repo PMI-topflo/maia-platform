@@ -322,7 +322,7 @@ const S = {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function MaiaWidget({ embedded = false }: { embedded?: boolean }) {
+export default function MaiaWidget({ embedded = false, associationCode }: { embedded?: boolean; associationCode?: string }) {
   const router = useRouter()
 
   const [open,       setOpen]       = useState(false)
@@ -422,7 +422,11 @@ export default function MaiaWidget({ embedded = false }: { embedded?: boolean })
     if (p === 'homeowner')  { setPhase('lookup');      return }
     if (p === 'agent')      { setPhase('agent-form');  return }
     if (p === 'vendor')     { setPhase('vendor-form'); return }
-    startChat(p)
+    // Tenant/buyer/board/title go straight to chat — if the widget knows
+    // which association portal it's mounted on (see FloatingWidget), scope
+    // the conversation to it from the first message instead of answering
+    // with generic PMI-wide info.
+    startChat(p, undefined, associationCode)
   }
 
   const handleLookup = async (e: React.FormEvent) => {
