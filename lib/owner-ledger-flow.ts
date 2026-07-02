@@ -194,7 +194,18 @@ export async function deliverLedger(opts: {
   }
 
   const body = `${intro}\n${lines}\n\n(Link expires in 7 days.)`
-  if (opts.method === 'whatsapp') { await sendWhatsApp(opts.toPhone, body); return { ok: true, note: 'whatsapp' } }
-  await sendSMS(opts.toPhone, body)
+  if (opts.method === 'whatsapp') {
+    // WhatsApp Business API rejects a business-initiated freeform message
+    // (no approved template) unless the recipient messaged us within the
+    // last 24h — a caller who dialed in by phone almost never has an open
+    // WhatsApp session, so this send fails silently far more often than
+    // SMS. Fall back to SMS with the same link rather than deliver nothing.
+    const sent = await sendWhatsApp(opts.toPhone, body)
+    if (sent) return { ok: true, note: 'whatsapp' }
+    const smsSent = await sendSMS(opts.toPhone, body)
+    return smsSent ? { ok: true, note: 'whatsapp_fallback_sms' } : { ok: false, note: 'send_failed' }
+  }
+  const sent = await sendSMS(opts.toPhone, body)
+  if (!sent) return { ok: false, note: 'send_failed' }
   return { ok: true, note: 'sms' }
 }

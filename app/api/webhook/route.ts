@@ -578,7 +578,7 @@ function isConversationEnd(text: string): boolean {
   if (!t) return false
   if (/\b(bye|goodbye|good bye|that'?s (all|it|everything)|nothing else|no,? (thank|thanks)|i'?m (all )?(done|good|set)|we'?re (all )?(good|set)|have a (good|nice|great))\b/.test(t)) return true
   // Accented phrases: \b misbehaves at non-ASCII letters, so match as substrings.
-  if (/(tchau|é só isso|so isso|isso é tudo|era só isso|so era isso|não obrigad|nao obrigad|valeu|até logo|ate logo|até mais|ate mais)/.test(t)) return true
+  if (/(tchau|só isso|so isso|isso é tudo|era só isso|so era isso|não obrigad|nao obrigad|valeu|até logo|ate logo|até mais|ate mais)/.test(t)) return true
   if (/(adiós|adios|chau|hasta luego|eso es todo|nada más|nada mas|no gracias)/.test(t)) return true
   if (/(au revoir|c'est tout|c est tout|non merci|bonne journée|bonne journee)/.test(t)) return true
   // A bare thanks/goodbye that IS the whole message → they're closing.
@@ -1974,23 +1974,40 @@ async function startLedgerFlow(ctx: CallerContext, deliverVia: 'sms' | 'whatsapp
   // defaulting to SMS — previously this always sent SMS regardless of what the
   // caller asked for, so "send my ledger by WhatsApp" delivered nothing useful.
   if (ctx.channel === 'voice') {
-    const prompt = translate(ctx.language, {
-      en: `Hi! Reply to this ${deliverVia === 'whatsapp' ? 'WhatsApp message' : 'text'} with "ledger" and I'll securely send your account statement. 🌸`,
-      es: `¡Hola! Responde a este mensaje con "estado de cuenta" y te lo envío de forma segura. 🌸`,
-      pt: `Olá! Responda a esta mensagem com "extrato" e eu te envio com segurança. 🌸`,
-    })
-    try {
-      if (deliverVia === 'whatsapp') await sendWhatsApp(ctx.phone, prompt)
-      else await sendSMS(ctx.phone, prompt)
-    } catch { /* best-effort */ }
-    return deliverVia === 'whatsapp'
+    // WhatsApp Business API rejects a business-initiated freeform message
+    // (this nudge) unless the caller already has an open 24h session with
+    // us — someone who just dialed in by PHONE almost never does, so this
+    // send silently fails far more often than SMS. Try it, but fall back to
+    // SMS (which has no such restriction) rather than leave the caller with
+    // no nudge at all.
+    let sentVia: 'whatsapp' | 'sms' = deliverVia
+    if (deliverVia === 'whatsapp') {
+      const waPrompt = translate(ctx.language, {
+        en: `Hi! Reply to this WhatsApp message with "ledger" and I'll securely send your account statement. 🌸`,
+        es: `¡Hola! Responde a este mensaje con "estado de cuenta" y te lo envío de forma segura. 🌸`,
+        pt: `Olá! Responda a esta mensagem com "extrato" e eu te envio com segurança. 🌸`,
+      })
+      const ok = await sendWhatsApp(ctx.phone, waPrompt).catch(() => false)
+      if (!ok) sentVia = 'sms'
+    }
+    if (sentVia === 'sms') {
+      const smsPrompt = translate(ctx.language, {
+        en: `Hi! Reply to this text with "ledger" and I'll securely send your account statement. 🌸`,
+        es: `¡Hola! Responde a este mensaje con "estado de cuenta" y te lo envío de forma segura. 🌸`,
+        pt: `Olá! Responda a esta mensagem com "extrato" e eu te envio com segurança. 🌸`,
+      })
+      await sendSMS(ctx.phone, smsPrompt).catch(() => false)
+    }
+    return sentVia === 'whatsapp'
       ? translate(ctx.language, {
           en: `I've sent you a WhatsApp message — reply "ledger" there and I'll send your account statement securely.`,
           es: `Te envié un mensaje de WhatsApp — responde "estado de cuenta" ahí y te enviaré tu estado de cuenta de forma segura.`,
           pt: `Te enviei uma mensagem no WhatsApp — responda "extrato" lá e eu te envio seu extrato com segurança.`,
         })
       : translate(ctx.language, {
-          en: `I'll text you to send your account statement securely — please check your messages.`,
+          en: deliverVia === 'whatsapp'
+            ? `WhatsApp isn't available right now, so I texted you instead — reply "ledger" there and I'll send your account statement securely.`
+            : `I'll text you to send your account statement securely — please check your messages.`,
           es: `Te enviaré un mensaje de texto para mandarte tu estado de cuenta — revisa tus mensajes.`,
           pt: `Vou te enviar uma mensagem de texto para mandar seu extrato com segurança — verifique suas mensagens.`,
         })
@@ -2079,7 +2096,18 @@ async function continueLedgerFlow(ctx: CallerContext, state: ConversationState, 
     if (!res.ok && res.note === 'no_email') {
       return translate(ctx.language, { en: `I don't have an email on file. Reply 2 or 3 to get it by WhatsApp or text instead. 🌸`, es: `No tengo un correo registrado. Responde 2 o 3 para recibirlo por WhatsApp o texto. 🌸`, pt: `Não tenho um e-mail registrado. Responda 2 ou 3 para receber por WhatsApp ou texto. 🌸` })
     }
-    const where = method === 'email' ? { en: 'email', es: 'correo', pt: 'e-mail' } : method === 'whatsapp' ? { en: 'WhatsApp', es: 'WhatsApp', pt: 'WhatsApp' } : { en: 'messages', es: 'mensajes', pt: 'mensagens' }
+    if (!res.ok) {
+      return translate(ctx.language, { en: `I'm sorry, I wasn't able to send that right now. Please try again in a bit, or email ar@topfloridaproperties.com. 🌸`, es: `Lo siento, no pude enviarlo ahora. Intenta de nuevo en un momento, o escribe a ar@topfloridaproperties.com. 🌸`, pt: `Desculpe, não consegui enviar agora. Tente novamente em instantes, ou escreva para ar@topfloridaproperties.com. 🌸` })
+    }
+    // WhatsApp is a business-initiated (not a reply) message here, which
+    // WhatsApp's own policy blocks without an approved template unless the
+    // recipient messaged us in the last 24h — deliverLedger silently falls
+    // back to SMS when that happens, so be honest about where it landed.
+    const where = res.note === 'whatsapp_fallback_sms'
+      ? { en: 'text messages (WhatsApp wasn\'t available right now)', es: 'mensajes de texto (WhatsApp no estaba disponible)', pt: 'mensagens de texto (o WhatsApp não estava disponível)' }
+      : method === 'email' ? { en: 'email', es: 'correo', pt: 'e-mail' }
+      : method === 'whatsapp' ? { en: 'WhatsApp', es: 'WhatsApp', pt: 'WhatsApp' }
+      : { en: 'messages', es: 'mensajes', pt: 'mensagens' }
     return translate(ctx.language, {
       en: `✅ Sent! Check your ${where.en}. The secure link works for 7 days. Anything else I can help with? 🌸`,
       es: `✅ ¡Enviado! Revisa tu ${where.es}. El enlace seguro funciona por 7 días. ¿Algo más? 🌸`,
