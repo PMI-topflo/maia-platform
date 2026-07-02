@@ -1318,6 +1318,18 @@ async function processFeedbackReply(phone: string, message: string, ctx: CallerC
 // CLAUDE AI — feedback analysis
 // ============================================================
 
+// Extract the text block from a raw /v1/messages JSON response. Claude Sonnet
+// 5 runs adaptive thinking ON BY DEFAULT when the `thinking` param is omitted
+// (unlike Opus, where omitting it means no thinking) — and `thinking.display`
+// defaults to "omitted", so a leading thinking block appears with EMPTY text.
+// content[0] is therefore NOT reliably the text block; find it by type instead.
+function extractClaudeText(content: unknown): string {
+  if (!Array.isArray(content)) return ''
+  const block = content.find((b): b is { type: string; text: string } =>
+    !!b && typeof b === 'object' && (b as { type?: string }).type === 'text')
+  return block?.text ?? ''
+}
+
 async function analyzeFeedback(params: {
   comment: string | null; starsValue: number | null; thumbsValue: 'up' | 'down' | null
   flowType: string; persona: string; language: string
@@ -1340,10 +1352,10 @@ Tags only from: slow_response, wrong_information, language_barrier, very_helpful
     const res  = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 200, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 200, messages: [{ role: 'user', content: prompt }] }),
     })
     const data = await res.json()
-    return JSON.parse(data.content?.[0]?.text?.replace(/```json|```/g, '').trim() ?? '{}')
+    return JSON.parse(extractClaudeText(data.content).replace(/```json|```/g, '').trim() || '{}')
   } catch {
     return { sentiment: params.starsValue && params.starsValue >= 4 ? 'positive' : 'negative', tags: [], improvement: 'Review this interaction.' }
   }
@@ -1786,7 +1798,7 @@ Respond with ONLY a JSON object: {"intent":"<one intent>","summary":"<one short 
       body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 200, system, messages: [{ role: 'user', content: `<message>${message}</message>` }] }),
     })
     const d = await res.json()
-    const text: string = d.content?.[0]?.text ?? ''
+    const text: string = extractClaudeText(d.content)
     const m = text.match(/\{[\s\S]*\}/)
     if (!m) return fallback
     const parsed = JSON.parse(m[0]) as { intent?: string; summary?: string; confidence?: string; restate?: string }
@@ -2266,10 +2278,13 @@ Always end with a warm offer to help with anything else. 🌸${officeBlock}${ski
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 500, system, messages: [{ role: 'user', content: message }] }),
+      // Generous headroom: Sonnet 5 runs adaptive thinking by default, which
+      // counts against max_tokens — too tight a cap risks thinking consuming
+      // the whole budget and leaving no room for the reply text.
+      body: JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 1500, system, messages: [{ role: 'user', content: message }] }),
     })
     const d = await res.json()
-    const text = d.content?.[0]?.text
+    const text = extractClaudeText(d.content)
     if (text) return text
   } catch (err) {
     console.error('[MAIA AI]', err)

@@ -119,7 +119,7 @@ in one short line rather than omitting the section. Do not invent figures. ${fin
   try {
     await assertClaudeBudget('route')
     const msg = await anthropic.messages.create({
-      model:      'claude-sonnet-4-20250514',
+      model:      'claude-sonnet-5',
       max_tokens: 4000,
       system:
         'You are MAIA, the operations assistant for PMI Top Florida Properties, ' +

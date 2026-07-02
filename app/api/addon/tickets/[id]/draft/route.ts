@@ -19,7 +19,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
-const MODEL = 'claude-sonnet-4-20250514'
+const MODEL = 'claude-sonnet-5'
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const staff = await addonStaffEmail(req)
@@ -76,7 +76,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     await assertClaudeBudget('route')
     const resp = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 800,
+      // Generous headroom: Sonnet 5 runs adaptive thinking by default, which
+      // counts against max_tokens — too tight a cap risks thinking consuming
+      // the whole budget and leaving no room for the reply text.
+      max_tokens: 1500,
       system,
       messages: [{ role: 'user', content: user }],
     })

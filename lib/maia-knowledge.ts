@@ -71,7 +71,7 @@ const MAX_KNOWLEDGE_CHARS = 30_000
 // MAIA's teach/understanding model. Haiku 4.5 is capable enough for
 // reading docs + summarizing, and keeps the cost profile in line with the
 // chat route which uses the same model.
-const TEACH_MODEL = 'claude-haiku-4-5-20251001'
+const TEACH_MODEL = 'claude-sonnet-5'
 
 // ── Injection (hot read path) ────────────────────────────────────────
 // Pull approved knowledge that applies to this (association, persona) and
@@ -188,11 +188,16 @@ Return ONLY the JSON object — no prose, no code fences.`
 
   const resp = await client.messages.create({
     model: TEACH_MODEL,
-    max_tokens: 1200,
+    // Generous headroom: Sonnet 5 runs adaptive thinking by default, which
+    // counts against max_tokens — too tight a cap risks thinking consuming
+    // the whole budget and leaving no room for the reply text.
+    max_tokens: 2000,
     system,
     messages: [{ role: 'user', content: userText.slice(0, 200_000) }],
   })
-  const text = resp.content[0]?.type === 'text' ? resp.content[0].text : '{}'
+  // Sonnet 5 runs adaptive thinking by default, so content[0] may be an
+  // empty-text thinking block rather than the reply — find by type.
+  const text = resp.content.find((b) => b.type === 'text')?.text ?? '{}'
   return parseUnderstood(text, rawText)
 }
 
@@ -219,11 +224,16 @@ A staff member is correcting or refining you. Apply their feedback and return a 
 
   const resp = await client.messages.create({
     model: TEACH_MODEL,
-    max_tokens: 1200,
+    // Generous headroom: Sonnet 5 runs adaptive thinking by default, which
+    // counts against max_tokens — too tight a cap risks thinking consuming
+    // the whole budget and leaving no room for the reply text.
+    max_tokens: 2000,
     system,
     messages: [{ role: 'user', content: `Staff correction: ${correction}` }],
   })
-  const text = resp.content[0]?.type === 'text' ? resp.content[0].text : '{}'
+  // Sonnet 5 runs adaptive thinking by default, so content[0] may be an
+  // empty-text thinking block rather than the reply — find by type.
+  const text = resp.content.find((b) => b.type === 'text')?.text ?? '{}'
   return parseUnderstood(text, current.knowledge ?? '')
 }
 

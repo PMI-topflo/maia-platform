@@ -1313,8 +1313,11 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
     // goes last as a separate, uncached block (keeping the cached prefix stable).
     const staticSystem = GENERAL_SYSTEM_PROMPT + officeBlock + skillsBlock + ESCALATION_INSTRUCTION
     const message = await anthropic.messages.create({
-      model:      'claude-sonnet-4-20250514',
-      max_tokens: 1024,
+      model:      'claude-sonnet-5',
+      // Generous headroom: Sonnet 5 runs adaptive thinking by default, which
+      // counts against max_tokens — too tight a cap risks thinking consuming
+      // the whole budget and leaving no room for the reply text.
+      max_tokens: 2000,
       system: [
         { type: 'text', text: staticSystem, cache_control: { type: 'ephemeral' } },
         ...(assocBlock ? [{ type: 'text' as const, text: assocBlock }] : []),
@@ -1694,7 +1697,9 @@ async function extractBoardUpdate(emailContent: string): Promise<ExtractedBoardU
     system:      BOARD_UPDATE_PROMPT,
     messages:    [{ role: 'user', content: emailContent }],
   })
-  const text = (message.content[0] as { type: string; text: string }).text
+  // Sonnet 5 runs adaptive thinking by default, so content[0] may be an
+  // empty-text thinking block rather than the reply — find by type.
+  const text = message.content.find(b => b.type === 'text')?.text ?? '{}'
   try {
     return JSON.parse(text) as ExtractedBoardUpdate
   } catch {
