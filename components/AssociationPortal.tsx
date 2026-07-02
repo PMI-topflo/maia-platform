@@ -253,6 +253,16 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
             <div className="sh-s">{t.contactHours}</div>
             <div className="sh-line" />
           </div>
+
+          {/* Contact a department by opening a tracked MAIA ticket — same
+              on-platform mechanism as the logged-in view above (no
+              published phone/email), just usable before identifying. */}
+          <ContactTickets
+            openLabel={t.openTicket}
+            labels={{ ar: t.contactAR, maintenance: t.contactMaint, compliance: t.contactCompliance, billing: t.contactBilling }}
+            assocCode={upper}
+          />
+
           <section className="section" style={{ paddingTop: 0 }}>
             <AskMaiaButton label="💬 ASK MAIA →" className="prow-btn" />
           </section>

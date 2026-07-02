@@ -17,7 +17,7 @@ type DeptKey = 'ar' | 'maintenance' | 'compliance' | 'billing'
 const ICON: Record<DeptKey, string> = { ar: '💰', maintenance: '🔧', compliance: '⚖️', billing: '🧾' }
 const ORDER: DeptKey[] = ['ar', 'maintenance', 'compliance', 'billing']
 
-export default function ContactTickets({ labels, openLabel }: { labels: Record<DeptKey, string>; openLabel: string }) {
+export default function ContactTickets({ labels, openLabel, assocCode }: { labels: Record<DeptKey, string>; openLabel: string; assocCode?: string }) {
   const [dept, setDept] = useState<DeptKey | null>(null)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -27,11 +27,14 @@ export default function ContactTickets({ labels, openLabel }: { labels: Record<D
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [signedIn, setSignedIn] = useState(false)
 
-  // Pre-fill the resident's name from their session (best-effort).
+  // Pre-fill the resident's name from their session (best-effort). A public,
+  // not-signed-in visitor gets none of this and must fill name/email themselves.
   useEffect(() => {
     fetch('/api/auth/check-session').then(r => r.ok ? r.json() : null).then(d => {
       if (d?.valid && d.session) {
+        setSignedIn(true)
         setName(d.session.contactName || d.session.displayName || '')
         if (typeof d.session.userId === 'string' && d.session.userId.includes('@')) setEmail(d.session.userId)
       }
@@ -42,11 +45,18 @@ export default function ContactTickets({ labels, openLabel }: { labels: Record<D
 
   async function submit() {
     if (!subject.trim() || !message.trim()) { setErr('Please add a subject and a message.'); return }
+    // Not signed in → there's no session to identify the sender, so name +
+    // a valid email are required (the API rejects an anonymous submission
+    // without them anyway; catch it client-side for a clearer message).
+    if (!signedIn) {
+      if (!name.trim() || !email.trim()) { setErr('Please add your name and email so we can reply.'); return }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setErr('Please enter a valid email.'); return }
+    }
     setBusy(true); setErr(null)
     try {
       const res = await fetch('/api/contact/ticket', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dept, subject, message, contactName: name, contactEmail: email, contactPhone: phone }),
+        body: JSON.stringify({ dept, subject, message, contactName: name, contactEmail: email, contactPhone: phone, assocCode }),
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d?.error ?? 'Could not send.')
