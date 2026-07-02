@@ -1,10 +1,17 @@
 // =====================================================================
 // POST /api/contact/ticket
-// A logged-in resident opens a tracked ticket to a department straight from
-// the portal's contact cards (instead of an untracked email/phone). Creates
-// the ticket, files their message, and emails the department inbox so the
-// conversation stays inside MAIA. Session required.
-// Body: { dept, subject, message, contactEmail, contactName?, contactPhone? }
+// A resident (or a public portal visitor who hasn't logged in) opens a
+// tracked ticket to a department straight from the portal's contact cards
+// (instead of an untracked email/phone). Creates the ticket, files their
+// message, and emails the department inbox so the conversation stays
+// inside MAIA.
+//
+// Session is used when present (prefills name/email/association), but is
+// NOT required — the public (pre-login) section of every association
+// portal renders this same form for visitors, who must instead supply
+// assocCode + a valid contactEmail directly in the body. Rate-limited by
+// contactEmail since this is now reachable without authentication.
+// Body: { dept, subject, message, contactEmail, contactName?, contactPhone?, assocCode? }
 // =====================================================================
 
 import { NextResponse } from 'next/server'
@@ -13,12 +20,14 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { createTicket, appendMessage } from '@/lib/tickets'
 import { sendEmail } from '@/lib/gmail'
 import { getAssociationName } from '@/lib/association-name'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const APP = process.env['NEXT_PUBLIC_APP_URL'] ?? 'https://www.pmitop.com'
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 // The four contact-card departments → their inbox.
 const DEPTS: Record<string, { email: string; label: string }> = {
@@ -28,11 +37,26 @@ const DEPTS: Record<string, { email: string; label: string }> = {
   billing:     { email: 'billing@topfloridaproperties.com', label: 'Vendor Billing' },
 }
 
+// Best-effort abuse guard for the now-anonymous-reachable endpoint — no
+// more than 5 tickets per email in a rolling hour. Fails open (allows the
+// request) if the count query errors, matching lib/rate-limit.ts's
+// fail-open convention.
+async function underRateLimit(email: string): Promise<boolean> {
+  try {
+    const since = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const { count } = await supabaseAdmin
+      .from('tickets')
+      .select('*', { count: 'exact', head: true })
+      .eq('contact_email', email)
+      .gte('created_at', since)
+    return (count ?? 0) < 5
+  } catch { return true }
+}
+
 export async function POST(req: Request) {
   const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value ?? '')
-  if (!session) return NextResponse.json({ error: 'Not signed in' }, { status: 401 })
 
-  let body: { dept?: string; subject?: string; message?: string; contactEmail?: string; contactName?: string; contactPhone?: string }
+  let body: { dept?: string; subject?: string; message?: string; contactEmail?: string; contactName?: string; contactPhone?: string; assocCode?: string }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
 
   const dept = DEPTS[String(body.dept ?? '')]
@@ -41,17 +65,28 @@ export async function POST(req: Request) {
   const message = String(body.message ?? '').trim()
   if (!subject || !message) return NextResponse.json({ error: 'Subject and message are required' }, { status: 400 })
 
-  const assoc = (session.associationCode || '').toUpperCase() || null
-  const contactName = String(body.contactName ?? '').trim() || session.contactName || session.displayName || null
-  const sessionEmail = typeof session.userId === 'string' && session.userId.includes('@') ? session.userId.toLowerCase() : ''
+  const assoc = (session?.associationCode || String(body.assocCode ?? '')).toUpperCase() || null
+  const contactName = String(body.contactName ?? '').trim() || session?.contactName || session?.displayName || null
+  const sessionEmail = typeof session?.userId === 'string' && session.userId.includes('@') ? session.userId.toLowerCase() : ''
   const contactEmail = (String(body.contactEmail ?? '').trim() || sessionEmail).toLowerCase() || null
   const contactPhone = String(body.contactPhone ?? '').trim() || null
+
+  // A signed-in session already vouches for the sender; an anonymous public
+  // visitor must supply both a valid email (so staff can reply) and which
+  // association they mean.
+  if (!session) {
+    if (!contactEmail || !EMAIL_RE.test(contactEmail)) return NextResponse.json({ error: 'A valid email is required' }, { status: 400 })
+    if (!assoc) return NextResponse.json({ error: 'Missing association' }, { status: 400 })
+  }
+  if (contactEmail && !(await underRateLimit(contactEmail))) {
+    return NextResponse.json({ error: 'Too many requests — please try again later or call our office.' }, { status: 429 })
+  }
 
   const ticket = await createTicket({
     type:             'ticket',
     channel_origin:   'web',
     association_code: assoc,
-    persona:          session.persona,
+    persona:          session?.persona ?? 'public_visitor',
     contact_name:     contactName,
     contact_email:    contactEmail,
     contact_phone:    contactPhone,
