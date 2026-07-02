@@ -695,6 +695,44 @@ const CATEGORY_PROMPT: Record<string, string> = {
   ht: 'Di sa ou bezwen, oswa peze: 1 pou antretyen oswa reparasyon. 2 pou peman oswa balans kont ou. 3 pou yon demann nouvo lokatè oswa achtè. 4 pou dokiman asosyasyon an. Oswa 5 pou kite yon mesaj pou ekip nou an.',
 }
 
+// Text-channel (SMS/WhatsApp) version of the same 5 options — a numbered
+// list instead of a spoken sentence. Unlike voice, a reply here can still
+// be a bare number OR a full description; only the menu ITSELF changed
+// (no more bare "what do you need?" open question) — free text still
+// routes normally via classifyIntent/getMaiaIntelligentResponse.
+const TEXT_CATEGORY_MENU: Record<string, string> = {
+  en: `What do you need? Reply with a number, or just describe it:\n1️⃣ Maintenance or a repair\n2️⃣ Payments or your account balance\n3️⃣ New tenant or buyer application\n4️⃣ Association documents\n5️⃣ Leave a message for our team`,
+  es: `¿Qué necesitas? Responde con un número, o descríbelo:\n1️⃣ Mantenimiento o una reparación\n2️⃣ Pagos o el saldo de tu cuenta\n3️⃣ Solicitud de nuevo inquilino o comprador\n4️⃣ Documentos de la asociación\n5️⃣ Dejar un mensaje para nuestro equipo`,
+  pt: `O que você precisa? Responda com um número, ou descreva:\n1️⃣ Manutenção ou reparo\n2️⃣ Pagamentos ou saldo da sua conta\n3️⃣ Solicitação de novo inquilino ou comprador\n4️⃣ Documentos da associação\n5️⃣ Deixar uma mensagem para nossa equipe`,
+  fr: `De quoi avez-vous besoin ? Répondez avec un numéro, ou décrivez-le :\n1️⃣ Entretien ou réparation\n2️⃣ Paiements ou solde du compte\n3️⃣ Demande de nouveau locataire ou acheteur\n4️⃣ Documents de l'association\n5️⃣ Laisser un message à notre équipe`,
+  he: `מה תרצה? השב במספר, או פשוט תאר:\n1️⃣ תחזוקה או תיקון\n2️⃣ תשלומים או יתרת חשבון\n3️⃣ בקשת דייר או קונה חדש\n4️⃣ מסמכי האגודה\n5️⃣ להשאיר הודעה לצוות`,
+  ru: `Что вам нужно? Ответьте номером или опишите:\n1️⃣ Обслуживание или ремонт\n2️⃣ Платежи или баланс счёта\n3️⃣ Заявка нового арендатора или покупателя\n4️⃣ Документы ассоциации\n5️⃣ Оставить сообщение нашей команде`,
+  ht: `Kisa ou bezwen? Reponn ak yon nimewo, oswa dekri l:\n1️⃣ Antretyen oswa reparasyon\n2️⃣ Peman oswa balans kont ou\n3️⃣ Demann nouvo lokatè oswa achtè\n4️⃣ Dokiman asosyasyon an\n5️⃣ Kite yon mesaj pou ekip nou an`,
+}
+
+function textCategoryMenu(lang: string): string {
+  return TEXT_CATEGORY_MENU[lang] ?? TEXT_CATEGORY_MENU.en
+}
+
+// Bare-digit reply to the text category menu (1-5, optionally with
+// punctuation/emoji around it) — anything else is treated as a real
+// description, not a menu pick.
+function parseTextCategoryDigit(message: string): number | null {
+  const m = message.trim().match(/^([1-5])\D*$/)
+  return m ? Number(m[1]) : null
+}
+
+async function handleTextCategoryPick(ctx: CallerContext, digit: number): Promise<string> {
+  switch (digit) {
+    case 1: return await getMaiaIntelligentResponse(ctx, 'I have a maintenance or repair problem', { intent: 'maintenance', summary: 'Maintenance/repair (text menu)' })
+    case 2: return await startLedgerFlow(ctx, ctx.channel === 'whatsapp' ? 'whatsapp' : 'sms')
+    case 3: return await newApplicationResponse(ctx)
+    case 4: return await associationDocumentResponse(ctx)
+    case 5: return await getMaiaIntelligentResponse(ctx, 'I would like to leave a message for the team', { intent: 'general', summary: 'Wants to speak with the team (text menu)' })
+    default: return textCategoryMenu(ctx.language)
+  }
+}
+
 function categoryMenuTwiml(lang: string, lead = ''): NextResponse {
   const voice = getVoiceForLanguage(lang)
   const prompt = CATEGORY_PROMPT[lang] ?? CATEGORY_PROMPT.en
@@ -969,15 +1007,17 @@ async function routeTextMessage(
     if (picked) {
       await setPinnedPersona(phone, picked)
       ctx.persona = picked
-      replyText = translate(ctx.language, {
-        en: `Perfect — I'll help you as ${personaNoun(picked, ctx.language)}. What do you need? 🌸`,
-        es: `¡Perfecto! Te ayudo como ${personaNoun(picked, ctx.language)}. ¿Qué necesitas? 🌸`,
-        pt: `Perfeito! Vou te ajudar como ${personaNoun(picked, ctx.language)}. O que você precisa? 🌸`,
-        fr: `Parfait ! Je vous aide en tant que ${personaNoun(picked, ctx.language)}. De quoi avez-vous besoin ? 🌸`,
-        he: `מצוין! אעזור לך בתור ${personaNoun(picked, ctx.language)}. מה תרצה? 🌸`,
-        ru: `Отлично! Помогу вам как ${personaNoun(picked, ctx.language)}. Что вам нужно? 🌸`,
-        ht: `Pafè! M ap ede w kòm ${personaNoun(picked, ctx.language)}. Kisa ou bezwen? 🌸`,
+      const confirm = translate(ctx.language, {
+        en: `Perfect — I'll help you as ${personaNoun(picked, ctx.language)}.`,
+        es: `¡Perfecto! Te ayudo como ${personaNoun(picked, ctx.language)}.`,
+        pt: `Perfeito! Vou te ajudar como ${personaNoun(picked, ctx.language)}.`,
+        fr: `Parfait ! Je vous aide en tant que ${personaNoun(picked, ctx.language)}.`,
+        he: `מצוין! אעזור לך בתור ${personaNoun(picked, ctx.language)}.`,
+        ru: `Отлично! Помогу вам как ${personaNoun(picked, ctx.language)}.`,
+        ht: `Pafè! M ap ede w kòm ${personaNoun(picked, ctx.language)}.`,
       })
+      replyText = `${confirm}\n\n${textCategoryMenu(ctx.language)}`
+      await saveConversationState(phone, 'text_menu', 'awaiting', {})
       await sendReply(phone, replyText, channel)
       await logConversation(phone, message, replyText, ctx)
       return NextResponse.json({ status: 'ok' })
@@ -1009,6 +1049,13 @@ async function routeTextMessage(
       replyText = await handleIntentConfirmation(ctx, state, message)
     } else if (state.current_flow === 'ledger_request') {
       replyText = await continueLedgerFlow(ctx, state, message)
+    } else if (state.current_flow === 'text_menu') {
+      // A bare 1-5 reply to the category menu picks a fixed/known path (same
+      // handlers voice uses); anything else is a real description, so just
+      // route it normally instead of re-showing the menu.
+      const digit = parseTextCategoryDigit(message)
+      await clearConversationState(phone)
+      replyText = digit ? await handleTextCategoryPick(ctx, digit) : await getMaiaIntelligentResponse(ctx, message)
     } else if (state.current_flow === 'ach_email_offer') {
       replyText = await continueAchEmailOffer(ctx, state, message)
     } else if (state.current_flow === 'ach_email_confirm') {
@@ -1028,15 +1075,8 @@ async function routeTextMessage(
       const greeting = buildPersonalGreeting(ctx)
       await sendReply(phone, greeting, channel)
       await new Promise(r => setTimeout(r, 1500))
-      replyText = translate(ctx.language, {
-        en: `Just tell me what you need and I'll take care of it! 😊`,
-        es: `¡Solo dime qué necesitas y yo me encargo! 😊`,
-        pt: `É só me dizer o que você precisa e eu resolvo! 😊`,
-        fr: `Dites-moi simplement ce dont vous avez besoin! 😊`,
-        he: `פשוט תגיד לי מה אתה צריך ואני אטפל בזה! 😊`,
-        ru: `Просто скажите что вам нужно и я позабочусь! 😊`,
-        ht: `Annik di m sa w bezwen epi m ap okipe l! 😊`,
-      })
+      replyText = textCategoryMenu(ctx.language)
+      await saveConversationState(phone, 'text_menu', 'awaiting', {})
     } else {
       await saveConversationState(phone, 'unknown_contact', 'awaiting_info', {})
       replyText = translate(ctx.language, {
