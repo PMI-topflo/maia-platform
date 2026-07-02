@@ -435,15 +435,24 @@ async function handleVoiceToWhatsApp(
 
   // ── Caller is known — send to calling number directly ─────────────────────
   if (ctx.persona !== 'unknown') {
-    await sendWhatsAppFromVoice(phone, whatsappContent, ctx)
-    const spoken = translate(ctx.language, {
-      en: `Done! I've sent that information to your WhatsApp. Is there anything else I can help you with?`,
-      es: `¡Listo! Envié esa información a tu WhatsApp. ¿Hay algo más en que pueda ayudarte?`,
-      pt: `Pronto! Enviei essa informação para o seu WhatsApp. Posso ajudar em mais alguma coisa?`,
-      fr: `Envoyé sur votre WhatsApp! Puis-je vous aider avec autre chose?`,
-      he: `נשלח לוואטסאפ שלך! האם יש עוד שאוכל לעזור?`,
-      ru: `Отправлено в ваш WhatsApp! Чем ещё я могу помочь?`,
-    })
+    const sent = await sendWhatsAppFromVoice(phone, whatsappContent, ctx)
+    const spoken = sent
+      ? translate(ctx.language, {
+          en: `Done! I've sent that information to your WhatsApp. Is there anything else I can help you with?`,
+          es: `¡Listo! Envié esa información a tu WhatsApp. ¿Hay algo más en que pueda ayudarte?`,
+          pt: `Pronto! Enviei essa informação para o seu WhatsApp. Posso ajudar em mais alguma coisa?`,
+          fr: `Envoyé sur votre WhatsApp! Puis-je vous aider avec autre chose?`,
+          he: `נשלח לוואטסאפ שלך! האם יש עוד שאוכל לעזור?`,
+          ru: `Отправлено в ваш WhatsApp! Чем ещё я могу помочь?`,
+        })
+      : translate(ctx.language, {
+          en: `I'm sorry, I wasn't able to send that to your WhatsApp. Please call our office at (305) 900-5077 or email service@topfloridaproperties.com and our team will help.`,
+          es: `Lo siento, no pude enviar eso a tu WhatsApp. Llama a nuestra oficina al (305) 900-5077 o escribe a service@topfloridaproperties.com.`,
+          pt: `Desculpe, não consegui enviar para o seu WhatsApp. Ligue para (305) 900-5077 ou envie um e-mail para service@topfloridaproperties.com.`,
+          fr: `Désolée, je n'ai pas pu envoyer cela sur votre WhatsApp. Appelez le (305) 900-5077 ou écrivez à service@topfloridaproperties.com.`,
+          he: `מצטערת, לא הצלחתי לשלוח את זה לוואטסאפ שלך. התקשר ל-(305) 900-5077 או שלח מייל ל-service@topfloridaproperties.com.`,
+          ru: `Извините, не удалось отправить это в ваш WhatsApp. Позвоните по номеру (305) 900-5077 или напишите на service@topfloridaproperties.com.`,
+        })
     return voiceTwiml(voice, stripForTTS(spoken), getFarewell(ctx.language), ctx.language)
   }
 
@@ -494,41 +503,56 @@ async function handleVoiceAwaitingWhatsAppNumber(
 
   if (digits.length < 10) {
     // Can't parse a valid number — fall back to calling number
-    await sendWhatsAppFromVoice(phone, content, ctx)
-    const sorry = translate(lang, {
-      en: `I had trouble understanding that number, so I sent the information to the number you called from. Is there anything else I can help you with?`,
-      es: `No pude entender ese número, así que envié la información al número desde el que llamaste. ¿Hay algo más en que pueda ayudarte?`,
-      pt: `Não entendi o número, então enviei para o número de onde você ligou. Posso ajudar em mais alguma coisa?`,
-    })
+    const sent = await sendWhatsAppFromVoice(phone, content, ctx)
+    const sorry = sent
+      ? translate(lang, {
+          en: `I had trouble understanding that number, so I sent the information to the number you called from. Is there anything else I can help you with?`,
+          es: `No pude entender ese número, así que envié la información al número desde el que llamaste. ¿Hay algo más en que pueda ayudarte?`,
+          pt: `Não entendi o número, então enviei para o número de onde você ligou. Posso ajudar em mais alguma coisa?`,
+        })
+      : translate(lang, {
+          en: `I had trouble understanding that number, and I wasn't able to send the information. Please call our office at (305) 900-5077 or email service@topfloridaproperties.com.`,
+          es: `No pude entender ese número, y tampoco pude enviar la información. Llama a nuestra oficina al (305) 900-5077 o escribe a service@topfloridaproperties.com.`,
+          pt: `Não entendi o número, e também não consegui enviar a informação. Ligue para (305) 900-5077 ou envie um e-mail para service@topfloridaproperties.com.`,
+        })
     return voiceTwiml(voice, stripForTTS(sorry), getFarewell(lang), lang)
   }
 
-  await sendWhatsAppFromVoice(e164, content, ctx)
-  const confirm = translate(lang, {
-    en: `Done! I've sent that to WhatsApp at ${formatPhoneForSpeech(e164)}. Is there anything else I can help you with?`,
-    es: `¡Listo! Envié eso al WhatsApp al ${formatPhoneForSpeech(e164)}. ¿Hay algo más en que pueda ayudarte?`,
-    pt: `Pronto! Enviei para o WhatsApp no ${formatPhoneForSpeech(e164)}. Posso ajudar em mais alguma coisa?`,
-    fr: `Envoyé au ${formatPhoneForSpeech(e164)}. Autre chose?`,
-    he: `נשלח ל-${formatPhoneForSpeech(e164)}. האם יש עוד שאוכל לעזור?`,
-    ru: `Отправлено на ${formatPhoneForSpeech(e164)}. Чем ещё я могу помочь?`,
-  })
+  const sent = await sendWhatsAppFromVoice(e164, content, ctx)
+  const confirm = sent
+    ? translate(lang, {
+        en: `Done! I've sent that to WhatsApp at ${formatPhoneForSpeech(e164)}. Is there anything else I can help you with?`,
+        es: `¡Listo! Envié eso al WhatsApp al ${formatPhoneForSpeech(e164)}. ¿Hay algo más en que pueda ayudarte?`,
+        pt: `Pronto! Enviei para o WhatsApp no ${formatPhoneForSpeech(e164)}. Posso ajudar em mais alguma coisa?`,
+        fr: `Envoyé au ${formatPhoneForSpeech(e164)}. Autre chose?`,
+        he: `נשלח ל-${formatPhoneForSpeech(e164)}. האם יש עוד שאוכל לעזור?`,
+        ru: `Отправлено на ${formatPhoneForSpeech(e164)}. Чем ещё я могу помочь?`,
+      })
+    : translate(lang, {
+        en: `I'm sorry, I wasn't able to send that to WhatsApp at ${formatPhoneForSpeech(e164)}. Please call our office at (305) 900-5077 or email service@topfloridaproperties.com.`,
+        es: `Lo siento, no pude enviar eso al WhatsApp al ${formatPhoneForSpeech(e164)}. Llama a nuestra oficina al (305) 900-5077 o escribe a service@topfloridaproperties.com.`,
+        pt: `Desculpe, não consegui enviar para o WhatsApp no ${formatPhoneForSpeech(e164)}. Ligue para (305) 900-5077 ou envie um e-mail para service@topfloridaproperties.com.`,
+      })
   return voiceTwiml(voice, stripForTTS(confirm), getFarewell(lang), lang)
 }
 
 // ── Send WhatsApp message from voice call context + log ───────────────────────
 
-async function sendWhatsAppFromVoice(toPhone: string, content: string, ctx: CallerContext): Promise<void> {
-  const to   = toPhone.startsWith('whatsapp:') ? toPhone : `whatsapp:${toPhone}`
-  const from = `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`
+// Returns whether the WhatsApp message actually sent — callers MUST check this
+// before telling the caller "Done!"; previously this always claimed success
+// even when the Twilio send failed (wrong number, no WhatsApp on that number,
+// send error), which is why callers reported "WhatsApp still not working"
+// despite hearing a confirmation. Also switched to the shared sendWhatsApp()
+// helper (lib/twilio-send.ts), which falls back to TWILIO_PHONE_NUMBER if
+// TWILIO_WHATSAPP_NUMBER is unset — this function previously had no such
+// fallback and would silently build `from: "whatsapp:undefined"`.
+async function sendWhatsAppFromVoice(toPhone: string, content: string, ctx: CallerContext): Promise<boolean> {
   const header = `*PMI Top Florida Properties* 🌸\n_Information sent during your call_\n${'─'.repeat(28)}\n\n`
   const footer = `\n\n${'─'.repeat(28)}\n📞 (305) 900-5077  💬 (786) 686-3223\nservice@topfloridaproperties.com`
 
-  try {
-    await twilioClient.messages.create({ from, to, body: header + content + footer })
-    console.log(`[VOICE→WHATSAPP] Sent to ${toPhone}`)
-  } catch (err) {
-    console.error('[VOICE→WHATSAPP] Send failed:', err)
-  }
+  const ok = await sendWhatsApp(toPhone, header + content + footer)
+  if (ok) console.log(`[VOICE→WHATSAPP] Sent to ${toPhone}`)
+  else console.error(`[VOICE→WHATSAPP] Send failed to ${toPhone}`)
 
   void getSupabase().from('general_conversations').insert({
     session_id:    `voice-wa-${ctx.phone}-${Date.now()}`,
@@ -541,11 +565,13 @@ async function sendWhatsAppFromVoice(toPhone: string, content: string, ctx: Call
     topic:         'cross_channel_whatsapp',
     summary:       `Voice→WhatsApp to ${toPhone}: ${content.slice(0, 100)}`,
     messages:      [{ role: 'assistant', content: `[WhatsApp → ${toPhone}] ${content}` }],
-    status:        'resolved',
-    notes:         `Cross-channel: sent from voice call to WhatsApp ${toPhone}`,
+    status:        ok ? 'resolved' : 'needs_attention',
+    notes:         ok ? `Cross-channel: sent from voice call to WhatsApp ${toPhone}` : `Cross-channel: WhatsApp send FAILED for ${toPhone}`,
     created_at:    new Date().toISOString(),
     updated_at:    new Date().toISOString(),
   })
+
+  return ok
 }
 
 // ── TwiML builder ─────────────────────────────────────────────────────────────
