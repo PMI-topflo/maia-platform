@@ -13,7 +13,7 @@ import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import { findOrCreateTicket, appendMessage, createTicket } from '@/lib/tickets'
 import { translateToEnglish, detectLanguage, SUPPORTED_LANGS } from '@/lib/translate'
-import { sendSMS } from '@/lib/twilio-send'
+import { sendSMS, sendWhatsApp } from '@/lib/twilio-send'
 import { signPreregisterToken } from '@/lib/preregister-token'
 import {
   resolveOwnerUnits, isPhoneVerified, markPhoneVerified,
@@ -283,8 +283,25 @@ async function handleVoice(phone: string, body: FormData): Promise<NextResponse>
 }
 
 async function handleVoiceInput(phone: string, voiceInput: string): Promise<NextResponse> {
-  const ctx   = await buildCallerContext(phone, 'voice')
   const state = await getConversationState(phone)
+  // Strip DTMF prefix if present (not in a WhatsApp-number-collection context)
+  const speechText = voiceInput.startsWith('DTMF:') ? voiceInput.slice(5) : voiceInput
+
+  // ── Caller is wrapping up ("that's all, thank you", "bye", …) → warm close ──
+  // Checked BEFORE resolving the caller's full persona — buildCallerContext runs
+  // several sequential DB lookups (owners/tenants/board/vendors/agents/RentVine)
+  // that a goodbye doesn't need; skipping them was a noticeable latency win
+  // ("Maia takes too long to say bye" after this used to run the full lookup
+  // chain first). clearConversationState is fire-and-forget for the same reason
+  // — it doesn't need to finish before we respond.
+  if (isConversationEnd(speechText)) {
+    const lang = state?.session_language && (SUPPORTED_LANGS as readonly string[]).includes(state.session_language)
+      ? state.session_language : 'en'
+    void clearConversationState(phone)
+    return goodbyeTwiml(getVoiceForLanguage(lang), lang)
+  }
+
+  const ctx = await buildCallerContext(phone, 'voice')
 
   // Apply a remembered conversation language before anything else.
   if (state?.session_language && (SUPPORTED_LANGS as readonly string[]).includes(state.session_language)) {
@@ -295,15 +312,6 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
   // ── Resolve pending WhatsApp number ────────────────────────────────────────
   if (state?.current_flow === 'voice_awaiting_whatsapp') {
     return handleVoiceAwaitingWhatsAppNumber(phone, voiceInput, ctx, state, voice)
-  }
-
-  // Strip DTMF prefix if present (not in a WhatsApp-number-collection context)
-  const speechText = voiceInput.startsWith('DTMF:') ? voiceInput.slice(5) : voiceInput
-
-  // ── Caller is wrapping up ("that's all, thank you", "bye", …) → warm close ──
-  if (isConversationEnd(speechText)) {
-    await clearConversationState(phone)
-    return goodbyeTwiml(voice, ctx.language)
   }
 
   // ── Voice IVR menus (language pick, then category pick) ─────────────────────
@@ -400,6 +408,19 @@ function detectWhatsAppSendIntent(speech: string): boolean {
 async function handleVoiceToWhatsApp(
   phone: string, speechText: string, ctx: CallerContext, voice: string
 ): Promise<NextResponse> {
+  // Ledger requests need their own multi-step OTP flow (startLedgerFlow), not
+  // the generic "generate a WhatsApp message" path below — routing a ledger ask
+  // through the generic path used to produce a confusing, useless result: the
+  // ledger flow's own "I'll text you" SMS branch would fire unconditionally
+  // (ignoring the caller asked for WhatsApp), and its response TEXT (about
+  // texting them) would then get forwarded AGAIN as if it were the answer,
+  // spoken as "Done, I sent that to your WhatsApp" — no actual ledger prompt
+  // ever reached WhatsApp. Detect it here and hand off directly instead.
+  if (ctx.persona !== 'unknown' && LEDGER_TERMS.test(speechText.toLowerCase())) {
+    const responseText = await startLedgerFlow(ctx, 'whatsapp')
+    return voiceTwiml(voice, stripForTTS(responseText), getFarewell(ctx.language), ctx.language)
+  }
+
   // Generate rich content for WhatsApp (full emoji/markdown, not truncated for TTS)
   const contentRequest = speechText
     .replace(/(\s*(please|por favor))?\s*(send|text|message|whatsapp|enviar|manda|envia)\s*(this|me|it|that|to\s+my)?\s*(whatsapp|text|sms|phone|número)?.*/i, '')
@@ -1879,7 +1900,7 @@ async function collectionsResponse(ctx: CallerContext, label?: string): Promise<
   return collectionsFullInfo(ctx, label)
 }
 
-async function startLedgerFlow(ctx: CallerContext): Promise<string> {
+async function startLedgerFlow(ctx: CallerContext, deliverVia: 'sms' | 'whatsapp' = 'sms'): Promise<string> {
   const all = await resolveOwnerUnits(ctx.phone)
   if (all.length === 0) {
     // Not an association owner — residential/RentVine balance goes through the
@@ -1901,20 +1922,32 @@ async function startLedgerFlow(ctx: CallerContext): Promise<string> {
     return await collectionsResponse(ctx, label)
   }
 
-  // Voice can't run OTP / numbered menus well — nudge to text and run it there.
+  // Voice can't run OTP / numbered menus well — nudge to text/WhatsApp and run
+  // it there. `deliverVia` lets a caller who asked for WhatsApp during the call
+  // (routed here via handleVoiceToWhatsApp) get the nudge on WhatsApp instead of
+  // defaulting to SMS — previously this always sent SMS regardless of what the
+  // caller asked for, so "send my ledger by WhatsApp" delivered nothing useful.
   if (ctx.channel === 'voice') {
-    try {
-      await sendSMS(ctx.phone, translate(ctx.language, {
-        en: `Hi! Reply to this text with "ledger" and I'll securely send your account statement. 🌸`,
-        es: `¡Hola! Responde a este mensaje con "estado de cuenta" y te lo envío de forma segura. 🌸`,
-        pt: `Olá! Responda a esta mensagem com "extrato" e eu te envio com segurança. 🌸`,
-      }))
-    } catch { /* best-effort */ }
-    return translate(ctx.language, {
-      en: `I'll text you to send your account statement securely — please check your messages.`,
-      es: `Te enviaré un mensaje de texto para mandarte tu estado de cuenta — revisa tus mensajes.`,
-      pt: `Vou te enviar uma mensagem de texto para mandar seu extrato com segurança — verifique suas mensagens.`,
+    const prompt = translate(ctx.language, {
+      en: `Hi! Reply to this ${deliverVia === 'whatsapp' ? 'WhatsApp message' : 'text'} with "ledger" and I'll securely send your account statement. 🌸`,
+      es: `¡Hola! Responde a este mensaje con "estado de cuenta" y te lo envío de forma segura. 🌸`,
+      pt: `Olá! Responda a esta mensagem com "extrato" e eu te envio com segurança. 🌸`,
     })
+    try {
+      if (deliverVia === 'whatsapp') await sendWhatsApp(ctx.phone, prompt)
+      else await sendSMS(ctx.phone, prompt)
+    } catch { /* best-effort */ }
+    return deliverVia === 'whatsapp'
+      ? translate(ctx.language, {
+          en: `I've sent you a WhatsApp message — reply "ledger" there and I'll send your account statement securely.`,
+          es: `Te envié un mensaje de WhatsApp — responde "estado de cuenta" ahí y te enviaré tu estado de cuenta de forma segura.`,
+          pt: `Te enviei uma mensagem no WhatsApp — responda "extrato" lá e eu te envio seu extrato com segurança.`,
+        })
+      : translate(ctx.language, {
+          en: `I'll text you to send your account statement securely — please check your messages.`,
+          es: `Te enviaré un mensaje de texto para mandarte tu estado de cuenta — revisa tus mensajes.`,
+          pt: `Vou te enviar uma mensagem de texto para mandar seu extrato com segurança — verifique suas mensagens.`,
+        })
   }
 
   if (units.length === 1) {
@@ -2774,9 +2807,13 @@ async function sendReply(phone: string, text: string, channel: Channel) {
 // Only ever called for a KNOWN persona — unknown callers get
 // unknownCallerHandoff's own intro + explanation instead (see
 // UNKNOWN_CALLER_INTRO above). Both call sites guard on ctx.persona first.
+//
+// Deliberately does NOT end with a "how can I help you?" question — the
+// immediately-following getListenPrompt() already asks that. Stacking both
+// made the greeting ask twice in a row.
 async function getVoiceGreeting(ctx: CallerContext): Promise<string> {
   const first = ctx.name !== 'there' ? ctx.name.split(' ')[0] : ''
-  return ({ en:`Hello ${first}! Thank you for calling PMI Top Florida Properties. How can I help you today?`, es:`Hola ${first}! Gracias por llamar a PMI Top Florida Properties. ¿En qué puedo ayudarle?`, pt:`Olá ${first}! Obrigado por ligar para a PMI Top Florida Properties. Como posso ajudar?`, fr:`Bonjour! Merci d'avoir appelé PMI Top Florida Properties. Comment puis-je vous aider?`, he:`שלום! תודה על השיחה ל-PMI Top Florida Properties.`, ru:`Здравствуйте! Спасибо за звонок в PMI Top Florida Properties.`, ht:`Bonjou ${first}! Mèsi dèske w rele PMI Top Florida Properties. Kijan mwen ka ede w jodi a?` } as Record<string,string>)[ctx.language] ?? `Hello! How can I help?`
+  return ({ en:`Hello ${first}! Thank you for calling PMI Top Florida Properties.`, es:`Hola ${first}! Gracias por llamar a PMI Top Florida Properties.`, pt:`Olá ${first}! Obrigado por ligar para a PMI Top Florida Properties.`, fr:`Bonjour ${first}! Merci d'avoir appelé PMI Top Florida Properties.`, he:`שלום! תודה על השיחה ל-PMI Top Florida Properties.`, ru:`Здравствуйте! Спасибо за звонок в PMI Top Florida Properties.`, ht:`Bonjou ${first}! Mèsi dèske w rele PMI Top Florida Properties.` } as Record<string,string>)[ctx.language] ?? `Hello! Thank you for calling PMI Top Florida Properties.`
 }
 
 function getListenPrompt(lang: string): string {
