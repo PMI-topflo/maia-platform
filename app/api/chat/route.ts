@@ -236,8 +236,11 @@ RESPONSE RULES:
   try {
     await assertClaudeBudget('chat')
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
+      model: 'claude-sonnet-5',
+      // Generous headroom: Sonnet 5 runs adaptive thinking by default, which
+      // counts against max_tokens — too tight a cap risks thinking consuming
+      // the whole budget and leaving no room for the reply text.
+      max_tokens: 1500,
       // Prompt caching: the system prompt (instructions + skills block) is
       // identical across every turn of a conversation, so cache it — turns
       // 2+ within the 5-min window bill its input tokens at ~10% on a hit.
@@ -247,7 +250,9 @@ RESPONSE RULES:
         content: m.content,
       })),
     })
-    reply = response.content[0].type === 'text' ? response.content[0].text : ''
+    // Sonnet 5 runs adaptive thinking by default (unset `thinking` param), so
+    // content[0] may be an empty-text thinking block, not the reply — find by type.
+    reply = response.content.find((b) => b.type === 'text')?.text ?? ''
   } catch (err) {
     console.error('[chat]', err)
     return NextResponse.json({ reply: 'Sorry, I ran into an issue. Please contact us at maia@pmitop.com or (305) 900-5077.' })

@@ -20,7 +20,7 @@ import { normalizeUpload } from '@/lib/pdf-normalize'
 export const FINANCIALS_BUCKET = 'report-financials'
 const SIGNED_URL_TTL_SECONDS = 60 * 60          // 1 hour
 const FILE_SIZE_LIMIT_BYTES  = 20 * 1024 * 1024 // 20 MB — CINC PDFs are far smaller
-const EXTRACT_MODEL          = 'claude-sonnet-4-20250514'
+const EXTRACT_MODEL          = 'claude-haiku-4-5-20251001'
 
 // ─────────────────────────────────────────────────────────────────────
 // Types

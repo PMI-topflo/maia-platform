@@ -60,7 +60,9 @@ export async function extractImageText(
         ],
       }],
     })
-    const text = resp.content[0]?.type === 'text' ? resp.content[0].text.trim() : ''
+    // Sonnet 5 runs adaptive thinking by default, so content[0] may be an
+    // empty-text thinking block rather than the transcription — find by type.
+    const text = (resp.content.find((b) => b.type === 'text')?.text ?? '').trim()
     return { status: 'done', text: text || null, error: text ? null : 'No text returned' }
   } catch (err) {
     return { status: 'failed', text: null, error: err instanceof Error ? err.message : String(err) }
