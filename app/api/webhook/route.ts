@@ -265,21 +265,14 @@ async function handleVoice(phone: string, body: FormData): Promise<NextResponse>
     return unknownCallerHandoff(phone, ctx, getVoiceForLanguage(ctx.language), '')
   }
 
-  // Returning (known) caller → greet in their language and let them speak. The
-  // category menu only appears later if their request is unclear.
+  // Returning (known) caller → greet in their language, then go straight to
+  // the fixed category menu. Open free-speech interpretation on the first
+  // turn wasn't reliable enough (even on Sonnet 5) to trust as the primary
+  // routing step, so every known caller now gets the same numbered menu a
+  // first-time caller gets right after picking a language.
+  await saveConversationState(phone, 'voice_menu', 'awaiting', {})
   const greeting = await getVoiceGreeting(ctx)
-  const voice    = getVoiceForLanguage(ctx.language)
-  const twiml    = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Gather input="speech dtmf" language="${sttLangFor(ctx.language)}" speechTimeout="4" action="/api/webhook" method="POST">
-    <Pause length="1"/>
-    <Say voice="${voice}">${ttsSay(greeting)}</Say>
-    <Say voice="${voice}">${ttsSay(getListenPrompt(ctx.language))}</Say>
-  </Gather>
-  <Say voice="${voice}">${ttsSay(voiceClosing(ctx.language))}</Say>
-  <Hangup/>
-</Response>`
-  return new NextResponse(twiml, { headers: { 'Content-Type': 'text/xml' } })
+  return categoryMenuTwiml(ctx.language, greeting + ' ')
 }
 
 async function handleVoiceInput(phone: string, voiceInput: string): Promise<NextResponse> {
@@ -366,34 +359,21 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
     return handleVoiceToWhatsApp(phone, speechText, ctx, voice)
   }
 
-  // ── Classify → confirm if unsure · menu if unclear · else answer ───────────
-  let responseText: string
+  // ── Free-speech intent guessing wasn't reliable enough on voice (even on
+  // Sonnet 5) to trust as the primary routing step, so it's dropped in favor
+  // of the fixed category menu below. The one thing still worth a quick
+  // classification pass for is a true emergency (flooding, no AC, safety
+  // hazard) — that shouldn't wait behind a numbered menu.
   try {
     const c = await classifyIntent(ctx, speechText)
-
-    // Low-confidence actionable intent → confirm before acting ("is that right?").
-    if (c.confidence === 'low' && c.restate && c.intent !== 'emergency' &&
-        (CONFIRMABLE_INTENTS.has(c.intent) || c.intent === 'general')) {
-      await saveConversationState(phone, 'confirm_intent', 'awaiting', { intent: c.intent, summary: c.summary, original: speechText })
-      return voiceTwiml(voice, stripForTTS(langNote + c.restate), getFarewell(ctx.language), ctx.language)
+    if (c.intent === 'emergency') {
+      const responseText = await getMaiaIntelligentResponse(ctx, speechText, { intent: c.intent, summary: c.summary })
+      return voiceTwiml(voice, stripForTTS(langNote + responseText), getFarewell(ctx.language), ctx.language)
     }
+  } catch { /* fall through to the menu */ }
 
-    // Truly unclear → disambiguate with the category menu.
-    if (c.intent === 'general') {
-      await saveConversationState(phone, 'voice_menu', 'awaiting', {})
-      return categoryMenuTwiml(ctx.language, langNote)
-    }
-
-    responseText = await getMaiaIntelligentResponse(ctx, speechText, { intent: c.intent, summary: c.summary })
-  } catch {
-    responseText = translate(ctx.language, {
-      en: 'I had trouble with that request. Please call our office at (305) 900-5077 and our team will assist you.',
-      es: 'Tuve un problema con esa solicitud. Llame a nuestra oficina al (305) 900-5077.',
-      pt: 'Tive um problema com esse pedido. Ligue para o nosso escritório: (305) 900-5077.',
-    })
-  }
-
-  return voiceTwiml(voice, stripForTTS(langNote + responseText), getFarewell(ctx.language), ctx.language)
+  await saveConversationState(phone, 'voice_menu', 'awaiting', {})
+  return categoryMenuTwiml(ctx.language, langNote)
 }
 
 // ── WhatsApp-send intent detection ────────────────────────────────────────────
@@ -782,27 +762,55 @@ async function handleVoiceLangSelect(phone: string, speechText: string, ctx: Cal
   return categoryMenuTwiml(choice, greeting + ' ')
 }
 
-// Handle a pick on the category menu (digit) OR a spoken request (classified).
+// Fixed (non-LLM) scripts for the category-menu picks that need a precise,
+// reliable answer rather than a generated one — application/document
+// requests are pointed to the real link by text instead of read aloud.
+async function newApplicationResponse(ctx: CallerContext): Promise<string> {
+  const link = 'https://pmitopfloridaproperties.rentvine.com/public/apply'
+  try { await sendSMS(ctx.phone, `PMI Top Florida Properties 🌸 New tenant/buyer application: ${link}`) } catch { /* best-effort */ }
+  return translate(ctx.language, {
+    en: `For a new tenant or buyer application, I've just texted you the link to apply online. If you have any questions, our leasing team is happy to help at service@topfloridaproperties.com.`,
+    es: `Para una solicitud de nuevo inquilino o comprador, te acabo de enviar por mensaje el enlace para aplicar en línea. Si tienes alguna pregunta, nuestro equipo de arrendamiento te puede ayudar en service@topfloridaproperties.com.`,
+    pt: `Para uma solicitação de novo inquilino ou comprador, acabei de te enviar por mensagem o link para se candidatar online. Se tiver alguma dúvida, nossa equipe de locação pode ajudar em service@topfloridaproperties.com.`,
+    fr: `Pour une demande de nouveau locataire ou acheteur, je viens de vous envoyer par SMS le lien pour postuler en ligne. Pour toute question, notre équipe de location peut vous aider à service@topfloridaproperties.com.`,
+    he: `לבקשת דייר או קונה חדש, שלחתי לך עכשיו הודעה עם קישור להגשת הבקשה באינטרנט. לכל שאלה, צוות ההשכרה שלנו ישמח לעזור ב-service@topfloridaproperties.com.`,
+    ru: `Для заявки нового арендатора или покупателя я только что отправила вам ссылку для подачи заявки онлайн. Если у вас есть вопросы, наша команда по аренде поможет вам по адресу service@topfloridaproperties.com.`,
+    ht: `Pou yon demann nouvo lokatè oswa achtè, mwen fèk voye ba ou yon lyen pou aplike sou entènèt. Si ou gen kesyon, ekip lokasyon nou an kapab ede w nan service@topfloridaproperties.com.`,
+  })
+}
+
+async function associationDocumentResponse(ctx: CallerContext): Promise<string> {
+  const link = 'https://pmitfp.cincwebaxis.com/'
+  try { await sendSMS(ctx.phone, `PMI Top Florida Properties 🌸 Your resident portal: ${link}`) } catch { /* best-effort */ }
+  return translate(ctx.language, {
+    en: `For association documents like governing documents, financials, or meeting minutes, I've texted you a link to your resident portal. If you don't see what you need there, email support@topfloridaproperties.com and our team will send it to you.`,
+    es: `Para documentos de la asociación, como documentos de gobierno, estados financieros o actas de reuniones, te envié un enlace a tu portal de residente. Si no encuentras lo que necesitas ahí, escribe a support@topfloridaproperties.com y nuestro equipo te lo enviará.`,
+    pt: `Para documentos da associação, como documentos de governança, financeiros ou atas de reuniões, enviei um link para o seu portal de morador. Se não encontrar o que precisa lá, envie um e-mail para support@topfloridaproperties.com e nossa equipe vai te enviar.`,
+    fr: `Pour les documents de l'association, comme les documents de gouvernance, les états financiers ou les procès-verbaux, je vous ai envoyé un lien vers votre portail résident. Si vous n'y trouvez pas ce dont vous avez besoin, écrivez à support@topfloridaproperties.com.`,
+    he: `למסמכי האגודה, כמו מסמכי ניהול, דוחות כספיים או פרוטוקולים, שלחתי לך קישור לפורטל הדיירים שלך. אם לא מצאת שם את מה שאתה צריך, שלח מייל ל-support@topfloridaproperties.com והצוות שלנו ישלח לך.`,
+    ru: `Для документов ассоциации, таких как уставные документы, финансовые отчёты или протоколы собраний, я отправила вам ссылку на портал жителя. Если вы не найдёте там нужное, напишите на support@topfloridaproperties.com, и наша команда вышлет вам.`,
+    ht: `Pou dokiman asosyasyon an, tankou dokiman gouvènans, finansye, oswa pwosè-vèbal reyinyon, mwen voye ba ou yon lyen pou pòtay rezidan ou. Si ou pa jwenn sa ou bezwen la, voye yon imèl nan support@topfloridaproperties.com epi ekip nou an ap voye l ba ou.`,
+  })
+}
+
+// Only digits 1-5 are handled — free-speech description was dropped (see
+// handleVoiceInput) because it wasn't reliable enough on voice, even on
+// Sonnet 5. An unrecognized press/word just repeats the menu.
 async function handleVoiceCategorySelect(phone: string, speechText: string, ctx: CallerContext, voice: string): Promise<NextResponse> {
   const digit = parseVoiceDigit(speechText)
-  const spoken = speechText.startsWith('DTMF:') ? '' : speechText.trim()
   await clearConversationState(phone)   // downstream flows set their own state
 
   let responseText: string
   try {
-    if (digit == null && spoken.split(/\s+/).length >= 3) {
-      responseText = await getMaiaIntelligentResponse(ctx, spoken)   // they described it instead of pressing
-    } else {
-      switch (digit) {
-        case 1: responseText = await getMaiaIntelligentResponse(ctx, 'I have a maintenance or repair problem', { intent: 'maintenance', summary: 'Maintenance/repair (phone menu)' }); break
-        case 2: responseText = await startLedgerFlow(ctx); break
-        case 3: responseText = await getMaiaIntelligentResponse(ctx, 'question about a new tenant or buyer application', { intent: 'documents', summary: 'New tenant/buyer application (phone menu)' }); break
-        case 4: responseText = await getMaiaIntelligentResponse(ctx, 'I need an association document', { intent: 'documents', summary: 'Association document (phone menu)' }); break
-        case 5: responseText = await getMaiaIntelligentResponse(ctx, 'I would like to leave a message for the team', { intent: 'general', summary: 'Wants to speak with the team (phone menu)' }); break
-        default:
-          await saveConversationState(phone, 'voice_menu', 'awaiting', {})
-          return categoryMenuTwiml(ctx.language, translate(ctx.language, { en: "Sorry, I didn't catch that. ", es: 'Perdón, no entendí. ', pt: 'Desculpe, não entendi. ', fr: "Désolée, je n'ai pas compris. " }))
-      }
+    switch (digit) {
+      case 1: responseText = await getMaiaIntelligentResponse(ctx, 'I have a maintenance or repair problem', { intent: 'maintenance', summary: 'Maintenance/repair (phone menu)' }); break
+      case 2: responseText = await startLedgerFlow(ctx); break
+      case 3: responseText = await newApplicationResponse(ctx); break
+      case 4: responseText = await associationDocumentResponse(ctx); break
+      case 5: responseText = await getMaiaIntelligentResponse(ctx, 'I would like to leave a message for the team', { intent: 'general', summary: 'Wants to speak with the team (phone menu)' }); break
+      default:
+        await saveConversationState(phone, 'voice_menu', 'awaiting', {})
+        return categoryMenuTwiml(ctx.language, translate(ctx.language, { en: "Sorry, I didn't catch that. ", es: 'Perdón, no entendí. ', pt: 'Desculpe, não entendi. ', fr: "Désolée, je n'ai pas compris. " }))
     }
   } catch {
     responseText = translate(ctx.language, { en: 'I had trouble with that. Please call our office at (305) 900-5077.', es: 'Tuve un problema. Llame a (305) 900-5077.', pt: 'Tive um problema. Ligue para (305) 900-5077.' })
@@ -2823,16 +2831,11 @@ async function sendReply(phone: string, text: string, channel: Channel) {
 // unknownCallerHandoff's own intro + explanation instead (see
 // UNKNOWN_CALLER_INTRO above). Both call sites guard on ctx.persona first.
 //
-// Deliberately does NOT end with a "how can I help you?" question — the
-// immediately-following getListenPrompt() already asks that. Stacking both
-// made the greeting ask twice in a row.
+// Deliberately does NOT end with a "how can I help you?" question — it's
+// always followed by the category menu, which asks its own question.
 async function getVoiceGreeting(ctx: CallerContext): Promise<string> {
   const first = ctx.name !== 'there' ? ctx.name.split(' ')[0] : ''
   return ({ en:`Hello ${first}! Thank you for calling PMI Top Florida Properties.`, es:`Hola ${first}! Gracias por llamar a PMI Top Florida Properties.`, pt:`Olá ${first}! Obrigado por ligar para a PMI Top Florida Properties.`, fr:`Bonjour ${first}! Merci d'avoir appelé PMI Top Florida Properties.`, he:`שלום! תודה על השיחה ל-PMI Top Florida Properties.`, ru:`Здравствуйте! Спасибо за звонок в PMI Top Florida Properties.`, ht:`Bonjou ${first}! Mèsi dèske w rele PMI Top Florida Properties.` } as Record<string,string>)[ctx.language] ?? `Hello! Thank you for calling PMI Top Florida Properties.`
-}
-
-function getListenPrompt(lang: string): string {
-  return ({ en:'Please describe how I can help you.', es:'Por favor describa cómo puedo ayudarle.', pt:'Por favor descreva como posso ajudar.', fr:'Veuillez décrire comment je peux vous aider.', he:'אנא תאר כיצד אוכל לעזור לך.', ru:'Пожалуйста, опишите, как я могу вам помочь.', ht:'Tanpri di m kijan mwen ka ede w.' } as Record<string,string>)[lang] ?? 'How can I help?'
 }
 
 // Amazon Polly voices — available on all Twilio accounts, no add-on required
