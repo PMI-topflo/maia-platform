@@ -415,8 +415,8 @@ async function handleVoiceToWhatsApp(
 
   // ── Caller is known — send to calling number directly ─────────────────────
   if (ctx.persona !== 'unknown') {
-    const sent = await sendWhatsAppFromVoice(phone, whatsappContent, ctx)
-    const spoken = sent
+    const landedOn = await sendWhatsAppFromVoice(phone, whatsappContent, ctx)
+    const spoken = landedOn === 'whatsapp'
       ? translate(ctx.language, {
           en: `Done! I've sent that information to your WhatsApp. Is there anything else I can help you with?`,
           es: `¡Listo! Envié esa información a tu WhatsApp. ¿Hay algo más en que pueda ayudarte?`,
@@ -424,6 +424,15 @@ async function handleVoiceToWhatsApp(
           fr: `Envoyé sur votre WhatsApp! Puis-je vous aider avec autre chose?`,
           he: `נשלח לוואטסאפ שלך! האם יש עוד שאוכל לעזור?`,
           ru: `Отправлено в ваш WhatsApp! Чем ещё я могу помочь?`,
+        })
+      : landedOn === 'sms'
+      ? translate(ctx.language, {
+          en: `WhatsApp isn't available right now, so I texted you that information instead. Is there anything else I can help you with?`,
+          es: `WhatsApp no está disponible ahora, así que te envié esa información por mensaje de texto. ¿Hay algo más en que pueda ayudarte?`,
+          pt: `O WhatsApp não está disponível agora, então te enviei essa informação por mensagem de texto. Posso ajudar em mais alguma coisa?`,
+          fr: `WhatsApp n'est pas disponible, alors je vous ai envoyé cette information par SMS. Puis-je vous aider avec autre chose?`,
+          he: `הוואטסאפ אינו זמין כרגע, אז שלחתי לך את המידע בהודעת טקסט. האם יש עוד שאוכל לעזור?`,
+          ru: `WhatsApp сейчас недоступен, поэтому я отправила информацию по СМС. Чем ещё я могу помочь?`,
         })
       : translate(ctx.language, {
           en: `I'm sorry, I wasn't able to send that to your WhatsApp. Please call our office at (305) 900-5077 or email service@topfloridaproperties.com and our team will help.`,
@@ -483,12 +492,12 @@ async function handleVoiceAwaitingWhatsAppNumber(
 
   if (digits.length < 10) {
     // Can't parse a valid number — fall back to calling number
-    const sent = await sendWhatsAppFromVoice(phone, content, ctx)
-    const sorry = sent
+    const landedOn = await sendWhatsAppFromVoice(phone, content, ctx)
+    const sorry = landedOn !== 'failed'
       ? translate(lang, {
-          en: `I had trouble understanding that number, so I sent the information to the number you called from. Is there anything else I can help you with?`,
-          es: `No pude entender ese número, así que envié la información al número desde el que llamaste. ¿Hay algo más en que pueda ayudarte?`,
-          pt: `Não entendi o número, então enviei para o número de onde você ligou. Posso ajudar em mais alguma coisa?`,
+          en: `I had trouble understanding that number, so I sent the information to the number you called from${landedOn === 'sms' ? ' by text (WhatsApp wasn\'t available)' : ''}. Is there anything else I can help you with?`,
+          es: `No pude entender ese número, así que envié la información al número desde el que llamaste${landedOn === 'sms' ? ' por mensaje de texto (WhatsApp no estaba disponible)' : ''}. ¿Hay algo más en que pueda ayudarte?`,
+          pt: `Não entendi o número, então enviei para o número de onde você ligou${landedOn === 'sms' ? ' por mensagem de texto (o WhatsApp não estava disponível)' : ''}. Posso ajudar em mais alguma coisa?`,
         })
       : translate(lang, {
           en: `I had trouble understanding that number, and I wasn't able to send the information. Please call our office at (305) 900-5077 or email service@topfloridaproperties.com.`,
@@ -498,8 +507,8 @@ async function handleVoiceAwaitingWhatsAppNumber(
     return voiceTwiml(voice, stripForTTS(sorry), getFarewell(lang), lang)
   }
 
-  const sent = await sendWhatsAppFromVoice(e164, content, ctx)
-  const confirm = sent
+  const landedOn = await sendWhatsAppFromVoice(e164, content, ctx)
+  const confirm = landedOn === 'whatsapp'
     ? translate(lang, {
         en: `Done! I've sent that to WhatsApp at ${formatPhoneForSpeech(e164)}. Is there anything else I can help you with?`,
         es: `¡Listo! Envié eso al WhatsApp al ${formatPhoneForSpeech(e164)}. ¿Hay algo más en que pueda ayudarte?`,
@@ -507,6 +516,12 @@ async function handleVoiceAwaitingWhatsAppNumber(
         fr: `Envoyé au ${formatPhoneForSpeech(e164)}. Autre chose?`,
         he: `נשלח ל-${formatPhoneForSpeech(e164)}. האם יש עוד שאוכל לעזור?`,
         ru: `Отправлено на ${formatPhoneForSpeech(e164)}. Чем ещё я могу помочь?`,
+      })
+    : landedOn === 'sms'
+    ? translate(lang, {
+        en: `WhatsApp isn't available right now, so I texted that to ${formatPhoneForSpeech(e164)} instead. Is there anything else I can help you with?`,
+        es: `WhatsApp no está disponible ahora, así que envié eso por mensaje de texto al ${formatPhoneForSpeech(e164)}. ¿Hay algo más en que pueda ayudarte?`,
+        pt: `O WhatsApp não está disponível agora, então enviei isso por mensagem de texto para o ${formatPhoneForSpeech(e164)}. Posso ajudar em mais alguma coisa?`,
       })
     : translate(lang, {
         en: `I'm sorry, I wasn't able to send that to WhatsApp at ${formatPhoneForSpeech(e164)}. Please call our office at (305) 900-5077 or email service@topfloridaproperties.com.`,
@@ -518,21 +533,31 @@ async function handleVoiceAwaitingWhatsAppNumber(
 
 // ── Send WhatsApp message from voice call context + log ───────────────────────
 
-// Returns whether the WhatsApp message actually sent — callers MUST check this
-// before telling the caller "Done!"; previously this always claimed success
-// even when the Twilio send failed (wrong number, no WhatsApp on that number,
-// send error), which is why callers reported "WhatsApp still not working"
-// despite hearing a confirmation. Also switched to the shared sendWhatsApp()
-// helper (lib/twilio-send.ts), which falls back to TWILIO_PHONE_NUMBER if
-// TWILIO_WHATSAPP_NUMBER is unset — this function previously had no such
-// fallback and would silently build `from: "whatsapp:undefined"`.
-async function sendWhatsAppFromVoice(toPhone: string, content: string, ctx: CallerContext): Promise<boolean> {
+// Returns which channel the message actually landed on — callers MUST check
+// this before telling the caller "Done, check your WhatsApp!"; previously
+// this always claimed success even when the Twilio send failed, which is why
+// callers reported "WhatsApp still not working" despite hearing a
+// confirmation. Also switched to the shared sendWhatsApp() helper
+// (lib/twilio-send.ts), which falls back to TWILIO_PHONE_NUMBER if
+// TWILIO_WHATSAPP_NUMBER is unset.
+//
+// WhatsApp Business API rejects a business-initiated freeform message (no
+// approved template) unless the recipient messaged us within the last 24h —
+// a caller who dialed in by PHONE almost never has an open WhatsApp session,
+// so this send fails far more often than SMS. Falls back to SMS (same
+// content) rather than deliver nothing, matching lib/owner-ledger-flow.ts's
+// deliverLedger().
+async function sendWhatsAppFromVoice(toPhone: string, content: string, ctx: CallerContext): Promise<'whatsapp' | 'sms' | 'failed'> {
   const header = `*PMI Top Florida Properties* 🌸\n_Information sent during your call_\n${'─'.repeat(28)}\n\n`
   const footer = `\n\n${'─'.repeat(28)}\n📞 (305) 900-5077  💬 (786) 686-3223\nservice@topfloridaproperties.com`
+  const body   = header + content + footer
 
-  const ok = await sendWhatsApp(toPhone, header + content + footer)
-  if (ok) console.log(`[VOICE→WHATSAPP] Sent to ${toPhone}`)
-  else console.error(`[VOICE→WHATSAPP] Send failed to ${toPhone}`)
+  let landedOn: 'whatsapp' | 'sms' | 'failed' = await sendWhatsApp(toPhone, body) ? 'whatsapp' : 'failed'
+  if (landedOn === 'failed') {
+    landedOn = await sendSMS(toPhone, body) ? 'sms' : 'failed'
+  }
+  if (landedOn !== 'failed') console.log(`[VOICE→WHATSAPP] Sent to ${toPhone} via ${landedOn}`)
+  else console.error(`[VOICE→WHATSAPP] Send failed to ${toPhone} (WhatsApp and SMS both failed)`)
 
   void getSupabase().from('general_conversations').insert({
     session_id:    `voice-wa-${ctx.phone}-${Date.now()}`,
@@ -544,14 +569,14 @@ async function sendWhatsAppFromVoice(toPhone: string, content: string, ctx: Call
     channel:       'voice',
     topic:         'cross_channel_whatsapp',
     summary:       `Voice→WhatsApp to ${toPhone}: ${content.slice(0, 100)}`,
-    messages:      [{ role: 'assistant', content: `[WhatsApp → ${toPhone}] ${content}` }],
-    status:        ok ? 'resolved' : 'needs_attention',
-    notes:         ok ? `Cross-channel: sent from voice call to WhatsApp ${toPhone}` : `Cross-channel: WhatsApp send FAILED for ${toPhone}`,
+    messages:      [{ role: 'assistant', content: `[${landedOn === 'failed' ? 'FAILED' : landedOn} → ${toPhone}] ${content}` }],
+    status:        landedOn !== 'failed' ? 'resolved' : 'needs_attention',
+    notes:         landedOn !== 'failed' ? `Cross-channel: sent from voice call via ${landedOn} to ${toPhone}` : `Cross-channel: send FAILED (WhatsApp + SMS) for ${toPhone}`,
     created_at:    new Date().toISOString(),
     updated_at:    new Date().toISOString(),
   })
 
-  return ok
+  return landedOn
 }
 
 // ── TwiML builder ─────────────────────────────────────────────────────────────
