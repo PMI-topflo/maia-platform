@@ -17,7 +17,7 @@ import { assertClaudeBudget } from '@/lib/anthropic-guard'
 import { COMPLIANCE_TAXONOMY } from '@/lib/compliance-taxonomy'
 
 const HAIKU  = 'claude-haiku-4-5-20251001'
-const SONNET = 'claude-sonnet-4-20250514'
+const SONNET = 'claude-sonnet-5'
 const ESCALATE_BELOW = 0.6
 
 export interface AssociationRef {
