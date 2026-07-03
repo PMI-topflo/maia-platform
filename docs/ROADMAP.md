@@ -7,6 +7,16 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 
 ---
 
+## 🟡 In review — Estimate board report with images (#501, OPEN)
+
+- **Board-picks vendor comparison** (#501) — replaces "staff pre-picks ONE vendor" with "staff send the whole comparison, each board signer picks which vendor they approve." New columns (migration applied): `estimate_approval_reviews.selected_vendor_request_id` (which vendor each signer picked) + `estimate_approvals.recommended_vendor_request_id` (optional staff highlight). The approval's `vendor_request_id`/`vendor_name`/`amount` stay NULL until enough signers converge on the SAME vendor.
+- **Inline image previews** — new shared `lib/estimate-preview.ts` renders a vendor's estimate (PDF or image) to inline JPEG pages; used by a new staff preview route and the existing board preview route (now supports per-vendor selection instead of only the stamped winner).
+- **Rebuilt clean off `main`**, not merged from the parked `wip/estimate-board-compare` branch — that branch was ~2 weeks stale (predates COI validation, the portal rewrite, WhatsApp templates, voice IVR redesign — 179 files of divergence) and would have reverted all of it. Pulled just the isolated estimate files and reconciled each against current `main` (e.g. preserving the `VENDOR_NOTIFY_CC` bcc convention the WIP branch predates). That local branch can now be deleted.
+- **Correctness fix found while wiring this up**: `finalizeEstimateApproval`'s signer list only filtered on `decision='approve'`, not which vendor was picked — with signers now able to disagree, that could've listed a signature under the wrong vendor's official approval PDF. Fixed with an added `selected_vendor_request_id` filter.
+- Verified end-to-end with real fixtures (cleaned up after, no CINC/email side effects): confirmed two signers picking different vendors correctly stays unfinalized (the core new consensus logic), then confirmed a converging approval finalizes correctly (winner/loser outcome stamped, real signed PDF generated + filed, estimate request closed).
+
+---
+
 ## ✅ Shipped & live — COI validation PR2b: invoice-push block (#500, merged + verified landed)
 
 - **Invalid-COI invoice-push guard** (#500) — clones the double-pay hard-block pattern in `app/api/admin/invoices/intake/[id]/push/route.ts`: pushing an invoice for a vendor with a genuinely invalid COI (expired, or missing a required additional-insured) now 409s unless the pusher is Karen. Unverifiable/no-COI-at-all never blocks (stays the existing soft "flag for re-upload" treatment).
@@ -63,7 +73,7 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 
 ### Top — unblocked, high value
 - ✅ **COI validation — PR2b (block + Karen override)** — done, see #500 at the top of this doc.
-- 🟡 **Estimate board report WITH IMAGES** — the flow is live; only **estimate image previews** + the board-picks model are missing. Parked tiny on local branch `wip/estimate-board-compare` (`lib/estimate-preview.ts` + `20260619_estimate_board_compare.sql`), tangled with already-merged portal commits — rebuild clean off `main`.
+- ✅ **Estimate board report WITH IMAGES** — done, see #501 at the top of this doc.
 - 🔴 **service@ email-from-WO** — send vendor emails from inside a work order via `service@topfloridaproperties.com`/`service@pmitop.com`, replies thread back onto the WO (the compose tabs + tokenized upload link + comparison + board approval already exist; only the service@ send path is missing). ⚠️ Decide: sender (`service@` vs `maia@`) and whether the mailbox is Gmail-watched for replies.
 - 🔴 **Pre-registration triage** — the new `pre_registrations` table + staff email alert are live (#476), but there's no admin UI to view/mark-contacted/dismiss submissions yet. Small — worth a quick `/admin/pre-registrations` list page once a few real submissions come in.
 
@@ -118,7 +128,7 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 (Detail in memory: `roadmap_reconciliation_2026_06_30.md`, `owner_self_service_decisions.md`, `screening_provider_pivot.md`, `voice_plan.md`.)
 
 ## Suggested priority
-1. **Review + merge #500** (COI validation PR2b — invoice-push block, code done, needs review) → 2. **Estimate board report with images** (near-done quick win) → 3. **service@ email-from-WO** (completes vendor procurement) → 4. medium WO/recurring items → 5. Compliance Phase 2 (deadline-rules + document RAG) → 6. smaller comms/invoice follow-ups.
+1. **Review + merge #501** (Estimate board report with images — code done, needs review) → 2. **service@ email-from-WO** (completes vendor procurement) → 3. medium WO/recurring items → 4. Compliance Phase 2 (deadline-rules + document RAG) → 5. smaller comms/invoice follow-ups.
 
 **Verify on next real call:** the renumbered menu (#497) + payments delivery-channel sub-flow (#498) — confirm a real call reaches the "text/WhatsApp/email?" prompt on digit 1 and the message actually arrives via the chosen channel; confirm a real collections-blocked unit now correctly hears the agency message on digit 1 (not just the test account). Also confirm the resident portal's new "Get my account statement" button delivers a real ledger email in production (local testing was code-path-verified via curl/DB only, since local dev has no email provider credentials).
 
