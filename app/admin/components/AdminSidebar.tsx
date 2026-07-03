@@ -48,6 +48,10 @@ const NAV: Node[] = [
     { label: 'Registrations', href: '/admin/registrations' },
     { label: 'Approvals', href: '/admin/pending-approvals' },
   ] },
+  { type: 'group', label: 'Flows', icon: '🔀', items: [
+    { label: 'Voice & Text Routing', href: '/admin/voice-flow' },
+    { label: 'Estimate & Board Approval', href: '/admin/flows/estimate-approval' },
+  ] },
   { type: 'group', label: 'Tools', icon: '⚙', items: [
     { label: 'Staff Performance', href: '/admin/staff-performance' },
     { label: 'Audit', href: '/admin/audit' },
@@ -55,7 +59,6 @@ const NAV: Node[] = [
     { label: 'Sunbiz', href: '/admin/sunbiz' },
     { label: 'Ideas', href: '/admin/ideas' },
     { label: 'Skills', href: '/admin/skills' },
-    { label: 'Voice Flow', href: '/admin/voice-flow' },
     { label: 'Tools', href: '/admin/tools' },
   ] },
   { type: 'item', label: 'Help', icon: '?', href: '/admin/help' },
