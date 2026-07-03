@@ -2042,15 +2042,15 @@ export async function ingestInboundEmailToTicket(
   // When omitted, emailed work-order photos are simply not ingested.
   fetchAttachment?: (attachmentId: string) => Promise<Buffer>,
 ): Promise<void> {
-  if (!allowed) return
-
   try {
     // 0. Explicit @maia append TKT-YYYY-NNNN → append to the named ticket.
     //    Wins over both thread-reply and subject-match because staff are
     //    explicitly targeting a specific ticket (typical use: forwarding
     //    a vendor estimate into an existing work order). On a typo we
-    //    reply so the email content isn't silently lost.
-    const appendTo = detectAppendTrigger(parsed.body)
+    //    reply so the email content isn't silently lost. Gated to allowed
+    //    (internal) senders — it's a command, not a reply, so an outside
+    //    sender guessing a ticket number shouldn't be able to invoke it.
+    const appendTo = allowed ? detectAppendTrigger(parsed.body) : null
     if (appendTo) {
       const { data: target } = await supabaseAdmin
         .from('tickets')
@@ -2077,7 +2077,11 @@ export async function ingestInboundEmailToTicket(
       return
     }
 
-    // 1. Reply in existing thread → append, no trigger required.
+    // 1. Reply in existing thread → append, no trigger required. Runs for
+    //    EVERY sender, including external vendors/board members replying to
+    //    a WO email MAIA sent — a Gmail threadId can only be produced by a
+    //    real participant in that specific conversation, so it's inherently
+    //    scoped and safe to accept regardless of sender domain.
     if (parsed.threadId) {
       const existing = await findOpenTicketByGmailThread(parsed.threadId)
       if (existing) {
@@ -2102,7 +2106,9 @@ export async function ingestInboundEmailToTicket(
     //     body — only when it resolves to a WORK ORDER. Lets a vendor's
     //     photo email land on the work order without the @maia command,
     //     as long as the WO number appears somewhere (MAIA puts it in the
-    //     subject of every work-order email it sends).
+    //     subject of every work-order email it sends). Runs for every
+    //     sender for the same reason as step 1 — it only appends to an
+    //     ALREADY-EXISTING work order, it can't create or expose anything.
     const mentioned = detectTicketNumberMention(`${parsed.subject} ${parsed.body}`)
     if (mentioned) {
       const { data: woTarget } = await supabaseAdmin
@@ -2116,6 +2122,11 @@ export async function ingestInboundEmailToTicket(
         return
       }
     }
+
+    // Everything below CREATES tickets or matches across separate threads —
+    // gate to allowed (internal) senders only, same as before this function
+    // was opened up to external reply-threading above.
+    if (!allowed) return
 
     // 2. New tickets only when a trigger phrase is present.
     if (!detectTicketTrigger(parsed.body)) return

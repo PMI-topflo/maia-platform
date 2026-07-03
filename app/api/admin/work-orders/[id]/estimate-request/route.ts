@@ -15,13 +15,12 @@ import { signEstimateRequestToken } from '@/lib/estimate-request-token'
 import { sendEmail } from '@/lib/gmail'
 import { appendMessage } from '@/lib/tickets'
 import { getAssociationName } from '@/lib/association-name'
-import { VENDOR_NOTIFY_CC } from '@/lib/notify-recipients'
+import { VENDOR_NOTIFY_CC, VENDOR_REPLY_TO, PAOLA_EMAIL } from '@/lib/notify-recipients'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-const PAOLA = 'service@topfloridaproperties.com'
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
 
@@ -70,7 +69,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const link = `${APP}/vendor/estimate/${await signEstimateRequestToken(erv.id)}`
     sentTo.push({ name: v.vendor_name ?? v.vendor_email, email: v.vendor_email, link })
     await sendEmail({
-      to: v.vendor_email, bcc: VENDOR_NOTIFY_CC, replyTo: PAOLA,
+      to: v.vendor_email, bcc: VENDOR_NOTIFY_CC, replyTo: VENDOR_REPLY_TO,
       subject: `Estimate request${assocName ? ` — ${assocName}` : ` — ${woLabel}`}`,
       html: `<p>Hello${v.vendor_name ? ` ${esc(v.vendor_name)}` : ''},</p>
         <p>PMI Top Florida Properties is requesting an estimate${assocName ? ` for <strong>${esc(assocName)}</strong>` : ''} (work order <strong>${esc(ticket.ticket_number)}</strong>).</p>
@@ -83,7 +82,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   // Summary to Paola — every vendor this went to.
   await sendEmail({
-    to: PAOLA,
+    to: PAOLA_EMAIL,
     subject: `Estimate request sent — ${woLabel} (${sentTo.length} vendor${sentTo.length === 1 ? '' : 's'})`,
     html: `<p>An estimate request went out for <strong>${esc(woLabel)}</strong>${ticket.subject ? ` — ${esc(ticket.subject)}` : ''}.</p>
       <p><strong>Scope:</strong><br>${esc(scope).replace(/\n/g, '<br>')}</p>

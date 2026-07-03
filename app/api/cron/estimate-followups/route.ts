@@ -8,11 +8,11 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { signEstimateRequestToken } from '@/lib/estimate-request-token'
 import { sendEmail } from '@/lib/gmail'
+import { VENDOR_REPLY_TO } from '@/lib/notify-recipients'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
-const PAOLA = 'service@topfloridaproperties.com'
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const DAY = 86_400_000
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
@@ -39,7 +39,7 @@ export async function GET(req: Request) {
     const link = `${APP}/vendor/estimate/${await signEstimateRequestToken(v.id)}`
 
     await sendEmail({
-      to: v.vendor_email, replyTo: PAOLA,
+      to: v.vendor_email, replyTo: VENDOR_REPLY_TO,
       subject: `Reminder: estimate request — ${woLabel}`,
       html: `<p>Hi${v.vendor_name ? ` ${esc(v.vendor_name)}` : ''}, just following up on our estimate request for <strong>${esc(woLabel)}</strong>.</p>
         <p>Please let us know if you can quote it and by when:</p>

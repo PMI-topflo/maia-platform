@@ -17,12 +17,17 @@
 export const PAOLA_EMAIL    = process.env.MAIA_VENDOR_REQUEST_CC ?? 'service@topfloridaproperties.com'
 export const FABIO_EMAIL    = process.env.MAIA_OWNER_NOTIFY_EMAIL ?? 'fabio@pmitop.com'
 export const JONATHAN_EMAIL = process.env.MAIA_AR_EMAIL ?? 'ar@topfloridaproperties.com'
+/** The main MAIA inbox — Gmail-watched, so replies land somewhere that
+ *  actually threads back onto the work order automatically. */
+export const MAIA_EMAIL = 'maia@pmitop.com'
 
 /** BCC list for vendor + work-order emails (crew links, agenda, estimate/doc
  *  requests, onboarding, estimate-to-board) — staff get a blind copy. */
 export const VENDOR_NOTIFY_CC: string[] = [PAOLA_EMAIL, FABIO_EMAIL]
-/** Reply-To for vendor + work-order emails — recipient replies reach Paola. */
-export const VENDOR_REPLY_TO = PAOLA_EMAIL
+/** Reply-To for vendor + work-order emails — maia@ first so a vendor's
+ *  reply auto-threads onto the work order (see ingestInboundEmailToTicket),
+ *  Paola also listed so she keeps seeing replies land in her own inbox too. */
+export const VENDOR_REPLY_TO: string[] = [MAIA_EMAIL, PAOLA_EMAIL]
 
 /** BCC list for tenant-application board emails — staff get a blind copy. */
 export const APPLICATION_NOTIFY_CC: string[] = [JONATHAN_EMAIL, FABIO_EMAIL]

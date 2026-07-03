@@ -33,7 +33,7 @@ async function sendViaResend({
   subject: string
   html: string
   text?: string
-  replyTo?: string
+  replyTo?: string | string[]
   headers?: Record<string, string>
   attachments?: EmailAttachment[]
 }): Promise<string | undefined> {
@@ -489,7 +489,7 @@ export async function sendEmail({
   subject: string
   html?: string
   text?: string
-  replyTo?: string
+  replyTo?: string | string[]
   headers?: Record<string, string>
   attachments?: EmailAttachment[]
 }): Promise<SendEmailResult> {

@@ -16,12 +16,11 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { appendMessage } from '@/lib/tickets'
 import { getAssociationName } from '@/lib/association-name'
-import { VENDOR_NOTIFY_CC } from '@/lib/notify-recipients'
+import { VENDOR_NOTIFY_CC, VENDOR_REPLY_TO, PAOLA_EMAIL } from '@/lib/notify-recipients'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const PAOLA = 'service@topfloridaproperties.com'
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const ORANGE = '#f26a1b'
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
@@ -107,7 +106,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (insErr) continue
     const link = `${APP}/board/estimate?token=${tk}`
     await sendEmail({
-      to: t.email!, bcc: VENDOR_NOTIFY_CC, replyTo: PAOLA,
+      to: t.email!, bcc: VENDOR_NOTIFY_CC, replyTo: VENDOR_REPLY_TO,
       subject: `Board approval needed — estimates for ${woLabel}`,
       html: `<p>Dear ${esc(t.name ?? 'Board Member')},</p>
         <p>Estimates for <strong>${esc(woLabel)}</strong> are ready for the board to review. Please compare the vendors and approve the one you choose.</p>
@@ -119,7 +118,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     sent++; sentTo.push(t.name ?? t.email!)
   }
 
-  await sendEmail({ to: PAOLA, subject: `Estimate comparison sent to board — ${woLabel}`, html: `<p>A comparison of ${submitted.length} estimate(s)${recName ? ` (recommended: ${esc(recName)})` : ''} for <strong>${esc(woLabel)}</strong> was sent to ${sent} board member(s): ${esc(sentTo.join(', '))}.</p><p>Needs ${required} approval(s) for the same vendor. <a href="${APP}/admin/tickets/${ticketId}">Open the work order →</a></p>` }).catch(() => null)
+  await sendEmail({ to: PAOLA_EMAIL, subject: `Estimate comparison sent to board — ${woLabel}`, html: `<p>A comparison of ${submitted.length} estimate(s)${recName ? ` (recommended: ${esc(recName)})` : ''} for <strong>${esc(woLabel)}</strong> was sent to ${sent} board member(s): ${esc(sentTo.join(', '))}.</p><p>Needs ${required} approval(s) for the same vendor. <a href="${APP}/admin/tickets/${ticketId}">Open the work order →</a></p>` }).catch(() => null)
   await appendMessage(ticketId, { direction: 'internal_note', channel: 'internal', from_addr: actor ?? 'staff', body: `🏛️ Estimate comparison sent to board — ${submitted.length} vendor(s)${recName ? `, recommended ${recName}` : ''}. Needs ${required} approval(s). Sent to: ${sentTo.join(', ')}.` }).catch(() => null)
 
   return NextResponse.json({ ok: true, approval_id: approval.id, sent, required, vendors: submitted.length })
