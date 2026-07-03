@@ -15,7 +15,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { assertClaudeBudget } from '@/lib/anthropic-guard'
 
 const HAIKU  = 'claude-haiku-4-5-20251001'
-const SONNET = 'claude-sonnet-4-20250514'
+const SONNET = 'claude-sonnet-5'
 const ESCALATE_BELOW = 0.6
 
 export interface DocSpec { key: string; label: string; expects: string; expiry?: boolean }
