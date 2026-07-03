@@ -13,7 +13,7 @@ import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import { findOrCreateTicket, appendMessage, createTicket } from '@/lib/tickets'
 import { translateToEnglish, detectLanguage, SUPPORTED_LANGS } from '@/lib/translate'
-import { sendSMS, sendWhatsApp } from '@/lib/twilio-send'
+import { sendSMS, sendWhatsApp, sendWhatsAppTemplate } from '@/lib/twilio-send'
 import { signPreregisterToken } from '@/lib/preregister-token'
 import {
   resolveOwnerUnits, isPhoneVerified, markPhoneVerified,
@@ -2047,12 +2047,19 @@ async function startLedgerFlow(ctx: CallerContext, deliverVia: 'sms' | 'whatsapp
     // no nudge at all.
     let sentVia: 'whatsapp' | 'sms' = deliverVia
     if (deliverVia === 'whatsapp') {
-      const waPrompt = translate(ctx.language, {
-        en: `Hi! Reply to this WhatsApp message with "ledger" and I'll securely send your account statement. 🌸`,
-        es: `¡Hola! Responde a este mensaje con "estado de cuenta" y te lo envío de forma segura. 🌸`,
-        pt: `Olá! Responda a esta mensagem com "extrato" e eu te envio com segurança. 🌸`,
-      })
-      const ok = await sendWhatsApp(ctx.phone, waPrompt).catch(() => false)
+      // Approved Twilio Content Template ("pmi_ledger_nudge") — the only
+      // reliable way to send this as a business-initiated WhatsApp message.
+      // English only for now (that's the template's approved language); other
+      // languages still attempt the freeform send, which works within an
+      // active 24h session and otherwise falls through to SMS below.
+      const templateSid = process.env.TWILIO_LEDGER_NUDGE_TEMPLATE_SID
+      const ok = ctx.language === 'en' && templateSid
+        ? await sendWhatsAppTemplate(ctx.phone, templateSid)
+        : await sendWhatsApp(ctx.phone, translate(ctx.language, {
+            en: `Hi! Reply to this WhatsApp message with "ledger" and I'll securely send your account statement. 🌸`,
+            es: `¡Hola! Responde a este mensaje con "estado de cuenta" y te lo envío de forma segura. 🌸`,
+            pt: `Olá! Responda a esta mensagem com "extrato" e eu te envio com segurança. 🌸`,
+          })).catch(() => false)
       if (!ok) sentVia = 'sms'
     }
     if (sentVia === 'sms') {
