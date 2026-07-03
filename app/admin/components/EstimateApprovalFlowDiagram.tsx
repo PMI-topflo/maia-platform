@@ -28,9 +28,18 @@ const DOC: Record<string, NodeDoc> = {
   },
   vendorInvite: {
     title: '🔧 Vendor — Tokenized Invite',
-    lines: ['Each invited vendor gets an emailed link (no login) to a page showing the scope, photos, and a respond-by date.'],
-    note: 'EXTERNAL step. The vendor never sees MAIA\'s admin — just a public, token-scoped page for this one RFQ.',
-    source: 'app/api/vendor/estimate/[token]/route.ts',
+    note: 'EXTERNAL step. The vendor never sees MAIA\'s admin — just a public, token-scoped page for this one RFQ. Sent from app/api/admin/work-orders/[id]/estimate-request/route.ts the moment staff kick off the request.',
+    source: 'app/api/admin/work-orders/[id]/estimate-request/route.ts',
+    preview: {
+      type: 'email', to: 'vendor@example.com',
+      subject: 'Estimate request — Galleria Village Homeowners Association, Inc.',
+      html: `<p>Hello Test Vendor A,</p>
+        <p>PMI Top Florida Properties is requesting an estimate for <strong>Galleria Village Homeowners Association, Inc.</strong> (work order <strong>GVH-0472</strong>).</p>
+        <p><strong>Scope of work:</strong><br>Full roof replacement — inspect decking, replace with 20-year architectural shingles, haul away debris.</p>
+        <p>Please review the details and photos, let us know if you'll quote and by when, and upload your estimate:</p>
+        <p><a href="#" style="background:#f26a1b;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:700">Review &amp; respond →</a></p>
+        <p style="font-size:12px;color:#6b7280">Questions? Just reply to this email — it goes to our maintenance coordinator.</p>`,
+    },
   },
   vendorAccepts: {
     title: 'Vendor accepts the invite?',
@@ -44,9 +53,18 @@ const DOC: Record<string, NodeDoc> = {
   },
   vendorSubmits: {
     title: '🔧 Vendor — Submits Estimate',
-    lines: ['Vendor uploads their quote (PDF or photo) and enters the amount, on the same tokenized page.'],
-    note: 'EXTERNAL step. Sets status → \'submitted\', extracted_amount, estimate_summary, estimate_path (→ work_order_attachments). A weekly cron chases vendors who haven\'t responded yet — see the followup note on this node\'s source.',
-    source: 'app/api/vendor/estimate/[token]/route.ts + api/cron/estimate-followups',
+    note: 'EXTERNAL step, the same public page as the invite — the vendor accepts (with a respond-by date) then uploads their quote whenever ready. Sets status → \'submitted\', extracted_amount, estimate_summary, estimate_path (→ work_order_attachments). A weekly cron chases vendors who haven\'t responded yet.',
+    source: 'app/vendor/estimate/[token]/EstimateResponder.tsx + api/cron/estimate-followups',
+    preview: {
+      type: 'form', pageTitle: 'Estimate request — PMI Top Florida Properties',
+      fields: [
+        { label: 'Scope of work', kind: 'readonly', value: 'Full roof replacement — inspect decking, replace with 20-year architectural shingles, haul away debris.' },
+        { label: 'Photos', kind: 'photos' },
+        { label: "I'll respond by", kind: 'date', value: '2026-07-10' },
+        { label: '', kind: 'button', value: 'Accept to quote' },
+        { label: 'Once accepted', kind: 'file', value: 'Upload estimate (PDF or photo)' },
+      ],
+    },
   },
   staffCompare: {
     title: '🧰 Staff — Compare Estimates',
@@ -58,12 +76,34 @@ const DOC: Record<string, NodeDoc> = {
     title: '🧰 Staff — Send Comparison to Board',
     note: 'Creates ONE estimate_approvals row for the whole comparison (vendor_request_id stays NULL — nobody\'s picked yet) + one estimate_approval_reviews row per chosen signer, each with its own unique token. Emails each signer a review link.',
     source: 'app/api/admin/work-orders/[id]/send-estimate-to-board/route.ts',
+    preview: {
+      type: 'email', to: 'board.president@example.com',
+      subject: 'Board approval needed — estimates for GVH-0472 · Galleria Village Homeowners Association, Inc.',
+      html: `<p>Dear Test President,</p>
+        <p>Estimates for <strong>GVH-0472 · Galleria Village Homeowners Association, Inc.</strong> are ready for the board to review. Please compare the vendors and approve the one you choose.</p>
+        <p style="font-size:13px;color:#374151"><strong>Scope:</strong> Full roof replacement — inspect decking, replace with 20-year architectural shingles, haul away debris.</p>
+        <table style="border-collapse:collapse;margin:14px 0;font-size:14px">
+          <tr><th style="padding:6px 10px;background:#f9f9f9;border:1px solid #eee;text-align:left">Vendor</th><th style="padding:6px 10px;background:#f9f9f9;border:1px solid #eee;text-align:right">Amount</th></tr>
+          <tr style="background:#fff7ed"><td style="padding:6px 10px;border:1px solid #eee">Test Vendor B <strong style="color:#f26a1b">★ recommended</strong></td><td style="padding:6px 10px;border:1px solid #eee;text-align:right">$4,200.00</td></tr>
+          <tr><td style="padding:6px 10px;border:1px solid #eee">Test Vendor A</td><td style="padding:6px 10px;border:1px solid #eee;text-align:right">$5,000.00</td></tr>
+        </table>
+        <p><a href="#" style="display:inline-block;background:#f26a1b;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:700">Review estimates &amp; approve →</a></p>
+        <p style="font-size:12px;color:#6b7280">You'll see each vendor's full estimate and can pick which one to approve and sign. Reply to this email to reach our maintenance coordinator.</p>`,
+    },
   },
   boardReview: {
     title: '🏛️ Board — Reviews the Comparison',
-    lines: ['Each signer opens their own link and sees every vendor\'s amount, scope, and estimate rendered inline — the staff recommendation and the lowest bid are both flagged.'],
-    note: 'EXTERNAL step. Signers decide independently — two board members can (and sometimes do) pick different vendors.',
+    note: 'EXTERNAL step. Signers decide independently — two board members can (and sometimes do) pick different vendors. The estimate PDF/photo itself renders inline under each option (not shown in this mockup) — no download needed.',
     source: 'app/board/estimate/EstimateApprovalClient.tsx',
+    preview: {
+      type: 'form', pageTitle: 'Estimate approval — PMI Top Florida Properties',
+      fields: [
+        { label: 'Scope', kind: 'readonly', value: 'Full roof replacement — inspect decking, replace with 20-year architectural shingles, haul away debris. · needs 2 approvals' },
+        { label: 'Option', kind: 'readonly', value: '○ Test Vendor B — $4,200.00  ★ RECOMMENDED' },
+        { label: 'Option', kind: 'readonly', value: '● Test Vendor A — $5,000.00' },
+        { label: '', kind: 'button', value: 'Approve selected' },
+      ],
+    },
   },
   boardDecision: {
     title: 'Approve or request revision?',
@@ -78,9 +118,16 @@ const DOC: Record<string, NodeDoc> = {
   },
   boardApprove: {
     title: '🏛️ Board — Approve & E-Sign',
-    lines: ['Signer picks ONE vendor from the comparison, then signs (draws a new signature or reuses their saved one).'],
-    note: 'EXTERNAL step. Records THIS signer\'s pick on estimate_approval_reviews.selected_vendor_request_id — it does NOT touch the approval\'s own vendor fields yet.',
+    note: 'EXTERNAL step. Records THIS signer\'s pick on estimate_approval_reviews.selected_vendor_request_id — it does NOT touch the approval\'s own vendor fields yet. Reuses a previously-saved signature if the board member has one on file.',
     source: 'app/api/board/estimate/route.ts — decision === \'approve\'',
+    preview: {
+      type: 'form', pageTitle: 'Estimate approval — signature',
+      fields: [
+        { label: 'Approving', kind: 'readonly', value: 'Test Vendor B · $4,200.00' },
+        { label: 'Your signature', kind: 'signature', value: 'Test President' },
+        { label: '', kind: 'button', value: 'Approve & sign' },
+      ],
+    },
   },
   consensusCheck: {
     title: 'Enough signers picked the SAME vendor?',
@@ -101,21 +148,44 @@ const DOC: Record<string, NodeDoc> = {
   },
   vendorAwarded: {
     title: '🔧 Vendor — Awarded',
-    lines: ['"Congratulations, you\'ve been selected" email with the signed copy.'],
-    note: 'EXTERNAL. Also auto-checks the winning vendor\'s CINC compliance (ACH/W-9/COI/license) and requests anything missing via a deep-linked portal tab — before the work can be paid.',
+    note: 'EXTERNAL. Also auto-checks the winning vendor\'s CINC compliance (ACH/W-9/COI/license) and requests anything missing via a deep-linked portal tab — before the work can be paid. The compliance-docs block only appears if something is actually missing.',
     source: 'lib/estimate-approval-pdf.ts — award branch',
+    preview: {
+      type: 'email', to: 'vendorb@example.com',
+      subject: "You've been awarded — Test Vendor B · GVH-0472 · Galleria Village Homeowners Association, Inc.",
+      html: `<p>Congratulations — the board approved your estimate of <strong>$4,200.00</strong> for <strong>GVH-0472 · Galleria Village Homeowners Association, Inc.</strong> at Galleria Village Homeowners Association, Inc.</p>
+        <p><a href="#" style="display:inline-block;background:#f26a1b;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700">Download the signed approval →</a></p>
+        <p style="margin-top:18px">Before we schedule the work, please send us the following so your vendor file is current:</p>
+        <ul><li>Certificate of Insurance (COI)</li></ul>
+        <p><a href="#" style="display:inline-block;background:#f26a1b;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700">Upload your documents →</a></p>
+        <p>Our coordinator will follow up with next steps.</p>
+        <p style="font-size:12px;color:#6b7280">Reply to reach PMI Top Florida Properties.</p>`,
+    },
   },
   vendorNotSelected: {
     title: '🔧 Vendor — Not Selected',
-    lines: ['"Thank you for quoting — we selected another vendor" email.'],
     note: 'EXTERNAL. Sets outcome = \'lost\' on every other submitted vendor so they\'re not chased by the followup cron either.',
     source: 'lib/estimate-approval-pdf.ts — loser-notification branch',
+    preview: {
+      type: 'email', to: 'vendora@example.com',
+      subject: 'Update on your estimate — GVH-0472 · Galleria Village Homeowners Association, Inc.',
+      html: `<p>Hello Test Vendor A,</p>
+        <p>Thank you for submitting an estimate for <strong>GVH-0472 · Galleria Village Homeowners Association, Inc.</strong> at Galleria Village Homeowners Association, Inc. After review, the board has selected another vendor for this project.</p>
+        <p>We genuinely appreciate the time you put into your proposal and look forward to inviting you to quote on future work.</p>
+        <p style="font-size:12px;color:#6b7280">PMI Top Florida Properties</p>`,
+    },
   },
   notifyBoardStaff: {
     title: '🏛️ Board + 🧰 Staff — Notified',
-    lines: ['Signed copy download link + internal note on the work order.'],
-    note: 'The work order shows "Board approved" with the final vendor/amount and signer count.',
+    note: 'The work order shows "Board approved" with the final vendor/amount and signer count. Sent to every signer plus Paola.',
     source: 'lib/estimate-approval-pdf.ts — board/Paola notification',
+    preview: {
+      type: 'email', to: 'board.president@example.com, service@topfloridaproperties.com',
+      subject: 'Board APPROVED — GVH-0472 · Galleria Village Homeowners Association, Inc.',
+      html: `<p>The board approved the <strong>Test Vendor B</strong> estimate ($4,200.00) for <strong>GVH-0472 · Galleria Village Homeowners Association, Inc.</strong>.</p>
+        <p><a href="#" style="display:inline-block;background:#f26a1b;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700">Download the signed approval →</a></p>
+        <p style="font-size:12px;color:#6b7280">The signed copy is filed on the work order and in CINC.</p>`,
+    },
   },
 }
 
