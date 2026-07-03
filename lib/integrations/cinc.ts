@@ -1278,11 +1278,12 @@ function notExpired(iso: string | null): boolean | null {
 
 export interface CincVendorInsurance {
   VendorInsuranceId: number | null
-  InsuranceTypeId:   number | null
+  insuranceType:     string | null   // e.g. "General Liability" — the read payload has no type ID, only this name
   policyNumber:      string | null
   carrier:           string | null
   expiration:        string | null   // ISO
   assocCode:         string | null
+  isRequired:        boolean         // per-vendor, per-type — set via setVendorInsuranceRequired(). Confirmed live 2026-07-03: exists on every row but NOT actively maintained by staff (always false today) — don't treat false as a deliberate exemption unless it's been explicitly set through our own UI.
 }
 export async function getVendorInsurances(vendorId: number): Promise<CincVendorInsurance[]> {
   const raw = await call<unknown>('/management/1/vendors/vendorInsurance', {
@@ -1292,11 +1293,12 @@ export async function getVendorInsurances(vendorId: number): Promise<CincVendorI
   const rows = Array.isArray(raw) ? raw : ((raw as { VendorInsurances?: unknown[] }).VendorInsurances ?? [])
   return (rows as Record<string, unknown>[]).map(r => ({
     VendorInsuranceId: asNum(r.VendorInsuranceId),
-    InsuranceTypeId:   asNum(r.InsuranceTypeId ?? r.InsuranceId),
+    insuranceType:     asStr(r.InsuranceType),
     policyNumber:      asStr(r.AccountNumber),
     carrier:          asStr(r.InsuranceCarrier),
     expiration:       isoOrNull(r.Expiration),
     assocCode:        asStr(r.AssocCode),
+    isRequired:       r.isRequired === true,
   }))
 }
 
@@ -1404,6 +1406,20 @@ export async function updateVendorInsuranceFile(input: {
       File:             input.fileBase64,
       FileName:         input.fileName,
     },
+  })
+}
+
+/** Toggle whether a specific insurance type is required for a vendor —
+ *  metadata-only PATCH (no file), confirmed live 2026-07-03 to update the
+ *  existing VendorInsurance row in place (keyed by VendorId+InsuranceId,
+ *  no duplicate created) rather than requiring a re-upload. Lets staff mark
+ *  a vendor exempt from the COI-required invoice-push guard
+ *  (app/api/admin/invoices/intake/[id]/push/route.ts) directly in CINC,
+ *  since CINC's own isRequired flag isn't maintained by anyone otherwise. */
+export async function setVendorInsuranceRequired(vendorId: number, insuranceTypeId: number, isRequired: boolean): Promise<void> {
+  await call<unknown>('/management/1/vendors/vendorInsuranceUpdateByteArray', {
+    method: 'PATCH',
+    json: { VendorId: vendorId, InsuranceId: insuranceTypeId, isRequired },
   })
 }
 

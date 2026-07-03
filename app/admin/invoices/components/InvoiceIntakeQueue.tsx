@@ -793,6 +793,14 @@ function DraftCard(props: {
         else setMsg(data.error)
         return
       }
+      // Invalid-COI guard: same Karen-only override pattern as double-pay.
+      if (res.status === 409 && data?.coiGuard) {
+        setBusy(false)
+        if (data.karenOnly) { setMsg(data.error); return }
+        if (!pushAnyway && confirm(`⚠ ${data.error}\n\nPush anyway?`)) { void push(true) }
+        else setMsg(data.error)
+        return
+      }
       if (!res.ok && res.status !== 207) throw new Error((data?.error ?? `HTTP ${res.status}`) + (data?.normalizeNote ? ` [compressor: ${data.normalizeNote}]` : ''))
       setMsg(data.warning ?? `Pushed to CINC (id ${data.cincInvoiceId}).`)
       onMutate()
