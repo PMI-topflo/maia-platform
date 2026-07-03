@@ -7,9 +7,9 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 
 ---
 
-## 🟡 In progress — PR #499 (OPEN, code-side done, needs Twilio Console action)
+## ✅ Shipped & live — second WhatsApp template (#499, merged + approved)
 
-- **Second WhatsApp template wired in code** (#499) — `sendWhatsAppFromVoice()` (the general voice→WhatsApp cross-channel case) now uses a "reply and I'll send it" Content Template + a `voice_info_pending_whatsapp` conversation-state branch to deliver the actual content once the caller replies, mirroring the already-approved `pmi_ledger_nudge` pattern. **Fully inert** until the template exists — falls back to the current freeform+SMS behavior unchanged. ⚠️ **I have no Twilio API credentials in this dev environment** (unlike CINC), so the template itself must be created by hand: Twilio Console → Messaging → Content Editor → name `pmi_voice_info_send`, category Utility, language English, content type **Text** (not "WhatsApp card"), body `Hi! I have some information for you from your call with PMI Top Florida Properties — reply to this message and I'll send it right over securely. 🌸`, zero variables. Submit for Meta approval, then set `TWILIO_VOICE_INFO_SEND_TEMPLATE_SID` in Vercel once approved.
+- **`pmi_voice_info_send` template — code + Twilio approval both done** (#499) — `sendWhatsAppFromVoice()` (the general voice→WhatsApp cross-channel case) uses a "reply and I'll send it" Content Template + a `voice_info_pending_whatsapp` conversation-state branch to deliver the actual content once the caller replies, mirroring the already-approved `pmi_ledger_nudge` pattern. Template created + **approved by Meta same-day** 2026-07-03 (Utility category, English, zero variables, SID `HXe6761eefc7ca28eb76e21a4a9a347eb7`). **Pending your action:** confirm `TWILIO_VOICE_INFO_SEND_TEMPLATE_SID` is set in Vercel prod env (dashboard, not CLI) and a deploy has picked it up — once that's done this is fully live, no further code changes needed.
 
 ---
 
@@ -35,7 +35,7 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 - **Voice Flow diagram** (#486, admin: Tools → Voice Flow) — clickable SVG reference diagram of the IVR call flow; clicking a node shows the real spoken sentence (or notes it's LLM-generated with no fixed script). Updated for the menu-first redesign in #496, and again in #498 for the renumbered menu — see the 2026-07-03 section above.
 
 **Pending your action:**
-- **Second WhatsApp template** (`pmi_voice_info_send`) — code is wired in (PR #499, see above), just needs creating + submitting in Twilio Console + the SID set in Vercel once approved.
+- **`pmi_voice_info_send`** — approved (see #499 above); just confirm the Vercel env var is set + deployed.
 - Spanish/Portuguese versions of `pmi_ledger_nudge` aren't built — those languages still rely on the freeform-send + SMS-fallback path (works, just not template-reliable yet).
 
 ---
@@ -110,8 +110,8 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 (Detail in memory: `roadmap_reconciliation_2026_06_30.md`, `owner_self_service_decisions.md`, `screening_provider_pivot.md`, `voice_plan.md`.)
 
 ## Suggested priority
-1. **Merge #499 + create/submit the `pmi_voice_info_send` template in Twilio Console** (code's done, just needs the manual Twilio step + Vercel env once approved) → 2. **COI validation PR2b** (block + Karen override — small, finishes an already-shipped feature) → 3. **Estimate board report with images** (near-done quick win) → 4. **service@ email-from-WO** (completes vendor procurement) → 5. medium WO/recurring items → 6. Compliance Phase 2 (deadline-rules + document RAG) → 7. smaller comms/invoice follow-ups.
+1. **Confirm `TWILIO_VOICE_INFO_SEND_TEMPLATE_SID` is set in Vercel + deployed** (template already approved, PR #499 merged — this is the last step) → 2. **COI validation PR2b** (block + Karen override — small, finishes an already-shipped feature) → 3. **Estimate board report with images** (near-done quick win) → 4. **service@ email-from-WO** (completes vendor procurement) → 5. medium WO/recurring items → 6. Compliance Phase 2 (deadline-rules + document RAG) → 7. smaller comms/invoice follow-ups.
 
 **Verify on next real call:** the renumbered menu (#497) + payments delivery-channel sub-flow (#498) — confirm a real call reaches the "text/WhatsApp/email?" prompt on digit 1 and the message actually arrives via the chosen channel; confirm a real collections-blocked unit now correctly hears the agency message on digit 1 (not just the test account). Also confirm the resident portal's new "Get my account statement" button delivers a real ledger email in production (local testing was code-path-verified via curl/DB only, since local dev has no email provider credentials).
 
-**Blocked / external:** screening adapter → Certn (sandbox keys); natural-voice agent (Vapi/Deepgram/ElevenLabs accounts); second WhatsApp template (`pmi_voice_info_send`) awaiting submission + Twilio/Meta approval.
+**Blocked / external:** screening adapter → Certn (sandbox keys); natural-voice agent (Vapi/Deepgram/ElevenLabs accounts).
