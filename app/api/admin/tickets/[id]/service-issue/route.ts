@@ -13,11 +13,11 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { appendMessage } from '@/lib/tickets'
+import { VENDOR_REPLY_TO, PAOLA_EMAIL } from '@/lib/notify-recipients'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const PAOLA  = 'service@topfloridaproperties.com'
 const ORANGE = '#f26a1b'
 const esc = (s: string) => (s ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
 
@@ -117,7 +117,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   let vendorNotified = false
   if (vendorEmail && vendorEmail.includes('@')) {
     await sendEmail({
-      to: vendorEmail, replyTo: PAOLA,
+      to: vendorEmail, replyTo: VENDOR_REPLY_TO,
       subject: `Service issue to resolve on your next visit — ${esc(ticket.association_code as string)} (${esc(svc.service_type as string ?? '')})`,
       html: `<p>A resident reported an issue with your <strong>${esc(svc.service_type as string ?? 'service')}</strong> at <strong>${esc(ticket.association_code as string)}</strong>.</p>
         <p><strong>Issue:</strong> ${esc(issueSummary)}</p>
@@ -129,12 +129,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   // Paola: record.
-  await sendEmail({ to: PAOLA, subject: `Routed to recurring vendor — ${woLabel}`,
+  await sendEmail({ to: PAOLA_EMAIL, subject: `Routed to recurring vendor — ${woLabel}`,
     html: `<p>The complaint <strong>${esc(issueSummary)}</strong> for <strong>${esc(woLabel)}</strong> was routed to <strong>${esc(svc.vendor_name as string)}</strong> to fix on their next visit (${niceDate})${vendorNotified ? '' : ' — ⚠ no vendor office email on file, please notify them'}.</p>` }).catch(() => null)
 
   // Resident acknowledgment (optional).
   if (residentEmail && residentEmail.includes('@')) {
-    await sendEmail({ to: residentEmail, replyTo: PAOLA, subject: `We've notified the vendor — ${esc(ticket.association_code as string)}`,
+    await sendEmail({ to: residentEmail, replyTo: VENDOR_REPLY_TO, subject: `We've notified the vendor — ${esc(ticket.association_code as string)}`,
       html: `<p>Thank you for reporting this. We've notified <strong>${esc(svc.vendor_name as string)}</strong>, who services ${esc(svc.service_type as string ?? 'this')} here, to resolve it on their next scheduled visit (around <strong>${niceDate}</strong>).</p><p>If it isn't resolved, just reply and we'll escalate.</p>` }).catch(() => null)
   }
 
