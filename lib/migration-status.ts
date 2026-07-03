@@ -44,6 +44,20 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'estimate_board_compare',
+    label:       'Estimate board-picks comparison',
+    description: 'estimate_approval_reviews.selected_vendor_request_id + estimate_approvals.recommended_vendor_request_id — staff send the whole vendor comparison to the board, each signer picks which one they approve, instead of staff pre-selecting a single vendor',
+    filename:    '20260703_estimate_board_compare.sql',
+    artifact:    { type: 'column', table: 'estimate_approval_reviews', column: 'selected_vendor_request_id' },
+    sql: `ALTER TABLE public.estimate_approval_reviews
+  ADD COLUMN IF NOT EXISTS selected_vendor_request_id uuid;
+
+ALTER TABLE public.estimate_approvals
+  ADD COLUMN IF NOT EXISTS recommended_vendor_request_id uuid;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'vendor_coi_exemptions',
     label:       'Vendor COI exemptions (invoice-push guard)',
     description: 'vendor_coi_exemptions table — staff can mark a vendor exempt from the invalid-COI invoice-push hard-block (e.g. attorney/appraiser that never carries general liability); mirrored into CINC isRequired but this table is the actual gate',

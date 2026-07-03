@@ -1,9 +1,12 @@
 // =====================================================================
 // POST /api/admin/work-orders/[id]/send-estimate-to-board
-// Send a chosen vendor estimate to the board for approval. Creates the
-// approval + per-board-member review rows (capped to required_signatures,
-// honoring substitutes) and emails each a sign link. Staff-only.
-// Body: { vendor_request_id }
+// Send the vendor-estimate COMPARISON to the board for approval. The board
+// sees every submitted vendor (amount · scope · estimate images) and each
+// signer picks which one they approve; the winner is stamped onto the
+// approval once `required` signers pick the same vendor. Creates the
+// approval + per-board-member review rows (capped to the chosen signers,
+// honoring substitutes) and emails each a review link. Staff-only.
+// Body: { recommended_vendor_request_id?, signer_ids? }
 // =====================================================================
 
 import { NextResponse } from 'next/server'
@@ -32,22 +35,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const { id } = await ctx.params
   const ticketId = parseInt(id, 10)
-  let body: { vendor_request_id?: string; signer_ids?: string[] }
+  let body: { recommended_vendor_request_id?: string; signer_ids?: string[] }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
-  const ervId = String(body.vendor_request_id ?? '').trim()
-  if (!ervId) return NextResponse.json({ error: 'vendor_request_id is required' }, { status: 400 })
+  const recommendedId = String(body.recommended_vendor_request_id ?? '').trim() || null
 
-  const { data: erv } = await supabaseAdmin.from('estimate_request_vendors')
-    .select('id, request_id, vendor_name, extracted_amount').eq('id', ervId).single()
-  if (!erv) return NextResponse.json({ error: 'estimate not found' }, { status: 404 })
-  const { data: reqRow } = await supabaseAdmin.from('estimate_requests').select('scope, association_code').eq('id', erv.request_id).single()
-  const assoc = reqRow?.association_code ?? null
+  // Latest estimate request on this work order + its submitted vendors.
+  const { data: reqRow } = await supabaseAdmin.from('estimate_requests')
+    .select('id, scope, association_code').eq('ticket_id', ticketId).order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (!reqRow) return NextResponse.json({ error: 'no estimate request on this work order' }, { status: 404 })
+  const assoc = reqRow.association_code ?? null
   if (!assoc) return NextResponse.json({ error: 'association unknown for this work order' }, { status: 400 })
+
+  const { data: vendors } = await supabaseAdmin.from('estimate_request_vendors')
+    .select('id, vendor_name, extracted_amount, status, estimate_path').eq('request_id', reqRow.id)
+    .order('extracted_amount', { ascending: true, nullsFirst: false })
+  const submitted = (vendors ?? []).filter(v => v.status === 'submitted' || !!v.estimate_path)
+  if (submitted.length === 0) return NextResponse.json({ error: 'no submitted estimates to compare yet' }, { status: 400 })
+  if (recommendedId && !submitted.some(v => v.id === recommendedId)) return NextResponse.json({ error: 'recommended vendor is not among the submitted estimates' }, { status: 400 })
+
   const { data: ticket } = await supabaseAdmin.from('tickets').select('ticket_number').eq('id', ticketId).single()
 
-  // C1: Paola chooses which board members must sign. Default = President only
-  // (the platform already records the approval); fall back to required_signatures
-  // members if there's no President. `required` = number of chosen signers.
+  // Paola chooses which board members must sign. Default = President only;
+  // fall back to required_signatures members if there's no President.
   const signerIds: string[] = Array.isArray(body.signer_ids) ? body.signer_ids.map(String).filter(Boolean) : []
   const { data: config } = await supabaseAdmin.from('association_config').select('required_signatures').eq('association_code', assoc).maybeSingle()
   const { data: members } = await supabaseAdmin.from('association_board_members')
@@ -65,15 +74,31 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const required = targets.length || 1
   if (targets.length === 0) return NextResponse.json({ error: 'No active board members with email for this association' }, { status: 400 })
 
-  const amount = erv.extracted_amount != null ? Number(erv.extracted_amount) : null
+  // The approval row holds the COMPARISON; the winning vendor/amount get
+  // stamped on once `required` signers pick the same vendor.
   const { data: approval } = await supabaseAdmin.from('estimate_approvals').insert({
-    request_id: erv.request_id, ticket_id: ticketId, association_code: assoc, vendor_request_id: erv.id,
-    vendor_name: erv.vendor_name, amount, scope: reqRow?.scope ?? null, required, created_by: actor,
+    request_id: reqRow.id, ticket_id: ticketId, association_code: assoc,
+    scope: reqRow.scope ?? null, required, created_by: actor,
+    recommended_vendor_request_id: recommendedId,
   }).select('id').single()
   if (!approval) return NextResponse.json({ error: 'could not create approval' }, { status: 500 })
 
   const assocName = await getAssociationName(assoc)
   const woLabel = `${ticket?.ticket_number ?? `WO ${ticketId}`} · ${assocName ?? assoc}`
+  const recName = recommendedId ? (submitted.find(v => v.id === recommendedId)?.vendor_name ?? null) : null
+
+  // Comparison table shown in the board email (every submitted estimate).
+  const rows = submitted.map(v => {
+    const amt = v.extracted_amount != null ? Number(v.extracted_amount) : null
+    const rec = v.id === recommendedId
+    return `<tr${rec ? ' style="background:#fff7ed"' : ''}>
+      <td style="padding:6px 10px;border:1px solid #eee">${esc(v.vendor_name ?? '—')}${rec ? ' <strong style="color:' + ORANGE + '">★ recommended</strong>' : ''}</td>
+      <td style="padding:6px 10px;border:1px solid #eee;text-align:right">${money(amt)}</td></tr>`
+  }).join('')
+  const compTable = `<table style="border-collapse:collapse;margin:14px 0;font-size:14px">
+      <tr><th style="padding:6px 10px;background:#f9f9f9;border:1px solid #eee;text-align:left">Vendor</th><th style="padding:6px 10px;background:#f9f9f9;border:1px solid #eee;text-align:right">Amount</th></tr>
+      ${rows}</table>`
+
   let sent = 0
   const sentTo: string[] = []
   for (const t of targets) {
@@ -83,22 +108,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const link = `${APP}/board/estimate?token=${tk}`
     await sendEmail({
       to: t.email!, bcc: VENDOR_NOTIFY_CC, replyTo: PAOLA,
-      subject: `Board approval needed — estimate for ${woLabel}`,
+      subject: `Board approval needed — estimates for ${woLabel}`,
       html: `<p>Dear ${esc(t.name ?? 'Board Member')},</p>
-        <p>An estimate needs your approval for <strong>${esc(woLabel)}</strong>.</p>
-        <table style="border-collapse:collapse;margin:14px 0;font-size:14px">
-          <tr><td style="padding:6px 10px;background:#f9f9f9;border:1px solid #eee;font-weight:600">Vendor</td><td style="padding:6px 10px;border:1px solid #eee">${esc(erv.vendor_name ?? '—')}</td></tr>
-          <tr><td style="padding:6px 10px;background:#f9f9f9;border:1px solid #eee;font-weight:600">Amount</td><td style="padding:6px 10px;border:1px solid #eee">${money(amount)}</td></tr>
-          <tr><td style="padding:6px 10px;background:#f9f9f9;border:1px solid #eee;font-weight:600">Scope</td><td style="padding:6px 10px;border:1px solid #eee">${esc(reqRow?.scope ?? '')}</td></tr>
-        </table>
-        <p><a href="${link}" style="display:inline-block;background:${ORANGE};color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:700">Review &amp; sign →</a></p>
-        <p style="font-size:12px;color:#6b7280">Reply to this email to reach our maintenance coordinator.</p>`,
+        <p>Estimates for <strong>${esc(woLabel)}</strong> are ready for the board to review. Please compare the vendors and approve the one you choose.</p>
+        <p style="font-size:13px;color:#374151"><strong>Scope:</strong> ${esc(reqRow.scope ?? '')}</p>
+        ${compTable}
+        <p><a href="${link}" style="display:inline-block;background:${ORANGE};color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:700">Review estimates &amp; approve →</a></p>
+        <p style="font-size:12px;color:#6b7280">You'll see each vendor's full estimate and can pick which one to approve and sign. Reply to this email to reach our maintenance coordinator.</p>`,
     }).catch(() => null)
     sent++; sentTo.push(t.name ?? t.email!)
   }
 
-  await sendEmail({ to: PAOLA, subject: `Estimate sent to board — ${woLabel}`, html: `<p>The ${esc(erv.vendor_name ?? '')} estimate (${money(amount)}) for <strong>${esc(woLabel)}</strong> was sent to ${sent} board member(s): ${esc(sentTo.join(', '))}.</p><p>Needs ${required} approval(s). <a href="${APP}/admin/tickets/${ticketId}">Open the work order →</a></p>` }).catch(() => null)
-  await appendMessage(ticketId, { direction: 'internal_note', channel: 'internal', from_addr: actor ?? 'staff', body: `🏛️ Estimate sent to board for approval — ${erv.vendor_name} (${money(amount)}). Needs ${required} approval(s). Sent to: ${sentTo.join(', ')}.` }).catch(() => null)
+  await sendEmail({ to: PAOLA, subject: `Estimate comparison sent to board — ${woLabel}`, html: `<p>A comparison of ${submitted.length} estimate(s)${recName ? ` (recommended: ${esc(recName)})` : ''} for <strong>${esc(woLabel)}</strong> was sent to ${sent} board member(s): ${esc(sentTo.join(', '))}.</p><p>Needs ${required} approval(s) for the same vendor. <a href="${APP}/admin/tickets/${ticketId}">Open the work order →</a></p>` }).catch(() => null)
+  await appendMessage(ticketId, { direction: 'internal_note', channel: 'internal', from_addr: actor ?? 'staff', body: `🏛️ Estimate comparison sent to board — ${submitted.length} vendor(s)${recName ? `, recommended ${recName}` : ''}. Needs ${required} approval(s). Sent to: ${sentTo.join(', ')}.` }).catch(() => null)
 
-  return NextResponse.json({ ok: true, approval_id: approval.id, sent, required })
+  return NextResponse.json({ ok: true, approval_id: approval.id, sent, required, vendors: submitted.length })
 }
