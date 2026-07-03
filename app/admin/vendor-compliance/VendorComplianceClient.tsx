@@ -17,6 +17,7 @@ export interface Row {
   assocCode: string | null; ticketIds: number[]; ticketNumbers: string[]; repTicketId: number
   compliance: Compliance | null; linked: boolean; needKeys: ('ach' | 'w9')[]; missing: string[]
   coiVerdict: CoiVerdict | null
+  coiExemptReason: string | null
 }
 interface VFile { id: string; ticketId: number; filename: string; url: string | null; isImage: boolean; isPdf: boolean; docType: string | null }
 
@@ -33,7 +34,8 @@ function Chip({ label, state, title }: { label: string; state: ChipState; title?
 
 // The additional-insured verdict (from our stored COI), distinct from the CINC
 // "COI on file / expiry" chip above. Only shown when we have a verdict.
-function coiVerdictChip(v: CoiVerdict | null): { label: string; state: ChipState; title?: string } | null {
+function coiVerdictChip(v: CoiVerdict | null, exemptReason: string | null): { label: string; state: ChipState; title?: string } | null {
+  if (exemptReason) return { label: 'COI not required', state: 'na', title: exemptReason }
   if (!v) return null
   if (v.status === 'valid')    return { label: 'Add’l insured ✓', state: 'ok',   title: 'PMI + association listed as additional insured' }
   if (v.status === 'expiring') return { label: 'COI expiring',    state: 'warn', title: v.expiresInDays != null ? `${v.expiresInDays} day(s) left` : undefined }
@@ -54,12 +56,34 @@ function complianceChips(c: Compliance) {
   return out
 }
 
-export default function VendorComplianceClient({ rows }: { rows: Row[] }) {
+export default function VendorComplianceClient({ rows: initialRows }: { rows: Row[] }) {
+  const [rows, setRows] = useState(initialRows)
   const [filesFor, setFilesFor] = useState<string | null>(null)
   const [files, setFiles] = useState<Record<string, VFile[] | 'loading'>>({})
   const [modal, setModal] = useState<{ row: Row; mode: 'missing' | 'coi' } | null>(null)
+  const [exemptBusy, setExemptBusy] = useState<string | null>(null)
 
   const withGaps = rows.filter(r => r.missing.length > 0 || !r.linked).length
+
+  async function toggleExemption(r: Row) {
+    if (r.vendorId == null) return
+    const next = !r.coiExemptReason
+    const reason = next ? (prompt(`Why is ${r.vendorName} exempt from needing a COI?`, '') ?? '') : ''
+    if (next && !reason.trim()) return
+    setExemptBusy(r.key)
+    try {
+      const res = await fetch('/api/admin/vendor-compliance/coi-exemption', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ vendorId: r.vendorId, vendorName: r.vendorName, exempt: next, reason }),
+      })
+      if (!res.ok) throw new Error((await res.json())?.error ?? 'failed')
+      setRows(rs => rs.map(row => row.key === r.key ? { ...row, coiExemptReason: next ? (reason.trim() || 'Marked exempt') : null } : row))
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Could not update the exemption.')
+    } finally {
+      setExemptBusy(null)
+    }
+  }
 
   async function toggleFiles(r: Row) {
     if (filesFor === r.key) { setFilesFor(null); return }
@@ -102,7 +126,7 @@ export default function VendorComplianceClient({ rows }: { rows: Row[] }) {
                   {r.linked && r.compliance
                     ? complianceChips(r.compliance).map((c, i) => <Chip key={i} {...c} />)
                     : <Chip label="Not linked to CINC" state="na" title="Assign the vendor on the work order to check compliance" />}
-                  {(() => { const cv = coiVerdictChip(r.coiVerdict); return cv ? <Chip {...cv} /> : null })()}
+                  {(() => { const cv = coiVerdictChip(r.coiVerdict, r.coiExemptReason); return cv ? <Chip {...cv} /> : null })()}
                 </div>
               </div>
 
@@ -119,9 +143,15 @@ export default function VendorComplianceClient({ rows }: { rows: Row[] }) {
                     Request missing docs →
                   </button>
                 )}
-                {r.coiVerdict?.status === 'invalid' && (
+                {r.coiVerdict?.status === 'invalid' && !r.coiExemptReason && (
                   <button onClick={() => setModal({ row: r, mode: 'coi' })} className="text-xs font-semibold px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50">
                     Draft COI correction →
+                  </button>
+                )}
+                {r.linked && (
+                  <button onClick={() => toggleExemption(r)} disabled={exemptBusy === r.key}
+                    className="text-xs font-medium px-3 py-1.5 rounded border border-gray-300 text-gray-500 hover:bg-gray-50 disabled:opacity-60">
+                    {exemptBusy === r.key ? 'Saving…' : r.coiExemptReason ? 'Require COI again' : 'Mark COI not required'}
                   </button>
                 )}
               </div>

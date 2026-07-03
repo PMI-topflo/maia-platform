@@ -32,6 +32,7 @@ import { updateTicket, appendMessage } from '@/lib/tickets'
 import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
 import { normalizePdf } from '@/lib/pdf-normalize'
 import { trustedDomainVariants } from '@/lib/staff-lookup'
+import { loadCoiVerdict, isVendorCoiExempt } from '@/lib/coi-verdict'
 
 // CINC rejects invoice attachments over ~1 MB. The bug wasn't the limit —
 // it was WHAT we measured: the old gate compared the BASE64-encoded length
@@ -185,6 +186,46 @@ export async function POST(
           duplicateGuard: true,
           karenOnly: body.pushAnyway && !isKaren,
           existing: dupes.map(d => ({ id: d.id, cincInvoiceId: d.cinc_invoice_id, invoiceNumber: d.extracted_invoice_number, status: d.status })),
+        }, { status: 409 })
+      }
+    }
+  }
+
+  // COI compliance guard. A vendor's Certificate of Insurance must be
+  // current and list BOTH PMI and this association as additional insured
+  // (lib/coi-validation.ts) — reads OUR stored/parsed COI, not CINC's own
+  // on-file flag, since CINC only tracks presence + expiry, not who's listed.
+  // Hard-block a genuinely INVALID COI (expired, or missing a required
+  // insured) the same way as the double-pay guard above — only Karen may
+  // override (pushAnyway). A COI we can't parse ('unverifiable') or no COI
+  // on file at all never blocks here — that's a softer "flag for re-upload"
+  // case already surfaced on /admin/vendor-compliance, not a hard stop on
+  // payment. A vendor staff has explicitly marked exempt (isVendorCoiExempt
+  // — e.g. an attorney or appraiser that never carries general liability)
+  // skips this guard entirely.
+  if (draft.matched_cinc_vendor_id) {
+    const vendorId = Number(draft.matched_cinc_vendor_id)
+    const exempt = await isVendorCoiExempt(vendorId)
+    const { data: vendorTickets } = exempt
+      ? { data: null }
+      : await supabaseAdmin.from('work_order_details').select('ticket_id').eq('cinc_vendor_id', vendorId)
+    const vendorTicketIds = (vendorTickets ?? []).map(t => t.ticket_id as number).filter(Boolean)
+    const coiVerdict = vendorTicketIds.length
+      ? await loadCoiVerdict(vendorTicketIds, (draft.extracted_association_code as string) ?? null).catch(() => null)
+      : null
+
+    if (coiVerdict?.status === 'invalid') {
+      const karenSet = new Set(trustedDomainVariants(KAREN_EMAIL).map(e => e.toLowerCase()))
+      const isKaren  = karenSet.has((pushedBy ?? '').toLowerCase())
+      if (!(body.pushAnyway && isKaren)) {
+        const tail = body.pushAnyway && !isKaren
+          ? 'Only Karen can override an invalid COI.'
+          : 'Correct the COI, or Karen can push again with override.'
+        return NextResponse.json({
+          error: `Invalid Certificate of Insurance for ${draft.matched_vendor_name ?? 'this vendor'}: ${coiVerdict.issues.join(' ')} ${tail}`,
+          coiGuard: true,
+          karenOnly: body.pushAnyway && !isKaren,
+          coiIssues: coiVerdict.issues,
         }, { status: 409 })
       }
     }

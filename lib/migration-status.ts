@@ -44,6 +44,33 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'vendor_coi_exemptions',
+    label:       'Vendor COI exemptions (invoice-push guard)',
+    description: 'vendor_coi_exemptions table — staff can mark a vendor exempt from the invalid-COI invoice-push hard-block (e.g. attorney/appraiser that never carries general liability); mirrored into CINC isRequired but this table is the actual gate',
+    filename:    '20260703_vendor_coi_exemptions.sql',
+    artifact:    { type: 'table', table: 'vendor_coi_exemptions' },
+    sql: `CREATE TABLE IF NOT EXISTS public.vendor_coi_exemptions (
+  cinc_vendor_id   integer PRIMARY KEY,
+  vendor_name      text,
+  exempt           boolean     NOT NULL DEFAULT true,
+  reason           text,
+  set_by_email     text,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now()
+);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.vendor_coi_exemptions
+  TO anon, authenticated, service_role;
+
+ALTER TABLE public.vendor_coi_exemptions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "service_role_all_vendor_coi_exemptions" ON public.vendor_coi_exemptions;
+CREATE POLICY "service_role_all_vendor_coi_exemptions"
+  ON public.vendor_coi_exemptions FOR ALL TO service_role USING (true);
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'pre_registrations',
     label:       'Pre-registrations (unknown-caller intake)',
     description: 'pre_registrations table — an unknown caller pre-registers via a texted /pre-register link; PMI + Jonathan are emailed to follow up and add them to the system',
