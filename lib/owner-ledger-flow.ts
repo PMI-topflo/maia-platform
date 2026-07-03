@@ -12,7 +12,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { sendSMS, sendWhatsApp } from '@/lib/twilio-send'
 import { signLedgerToken } from '@/lib/owner-portal-token'
-import { listHomeownersInCollections } from '@/lib/integrations/cinc'
+import { listHomeownersInCollections, getHomeownerPaymentBlockStatus } from '@/lib/integrations/cinc'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 
@@ -31,7 +31,7 @@ function phoneVariants(phone: string): string[] {
   return [phone, '+' + clean, clean.replace(/^1/, '')]
 }
 
-function firstEmail(raw: unknown): string | null {
+export function firstEmail(raw: unknown): string | null {
   const s = String(raw ?? '').trim()
   if (!s) return null
   const m = s.split(/[,;\s]+/).map(x => x.trim()).find(x => x.includes('@'))
@@ -71,18 +71,30 @@ export async function resolveOwnerUnits(phone: string): Promise<OwnerUnit[]> {
 }
 
 // ── Collections / "Block Payments" gate ──────────────────────────────
-// A unit in collections must NOT get its ledger or a pay-online link — it's
-// redirected to the collection agency instead. Source: CINC's
-// flaggedCollections/homeownersInCollections list (membership by PropertyHOID).
-// Cached briefly per association. Fail-open (treat as NOT blocked) on a CINC
-// error so an outage never denies every owner — the probe
-// (/api/admin/cinc/owner-status) confirms the flag matches "Block Payments".
-const _collCache = new Map<string, { at: number; accounts: Set<string> }>()
+// A unit must be blocked from its ledger/pay-online link if EITHER of two
+// INDEPENDENT CINC signals fires — staff can flag a delinquent unit either
+// way, and both must redirect to the collection agency:
+//   1. The formal collections WORKFLOW list — flaggedCollections/
+//      homeownersInCollections (membership by PropertyHOID). Reflects the
+//      "Collection Status" / "Hold Collections" dropdowns on the Homeowner
+//      record.
+//   2. The separate, simpler per-homeowner "Block Payments" TOGGLE —
+//      getHomeownerDetailsForIVRPayment's BlockPaymentsFlag /
+//      IsHomeownerOrAssociationBlocked. CONFIRMED against prod 2026-07-03
+//      via a live self-block test: a unit with "Block Payments" ON but
+//      "Collection Status"/"Hold Collections" left unset was NOT caught by
+//      (1) alone — MAIA read out normal payment info instead of the agency
+//      message. Both checks are needed; neither supersedes the other.
+// Cached briefly per key. Fail-open (treat as NOT blocked) on a CINC error
+// so an outage never denies every owner.
+const _collCache  = new Map<string, { at: number; accounts: Set<string> }>()
+const _blockCache = new Map<string, { at: number; blocked: boolean }>()
+const CACHE_MS = 5 * 60 * 1000
 
 async function collectionsAccountsFor(assoc: string): Promise<Set<string>> {
   const key = assoc.toUpperCase()
   const hit = _collCache.get(key)
-  if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.accounts
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.accounts
   const accounts = new Set<string>()
   try {
     const rows = await listHomeownersInCollections(key)
@@ -93,16 +105,36 @@ async function collectionsAccountsFor(assoc: string): Promise<Set<string>> {
       }
     }
   } catch (err) {
-    console.error('[ledger] collections lookup failed:', err instanceof Error ? err.message : err)
+    console.error('[ledger] collections list lookup failed:', err instanceof Error ? err.message : err)
   }
   _collCache.set(key, { at: Date.now(), accounts })
   return accounts
 }
 
-/** Is this owner account flagged into the collections workflow (blocked)? */
+async function isBlockPaymentsFlagged(account: string): Promise<boolean> {
+  const key = account.trim().toUpperCase()
+  const hit = _blockCache.get(key)
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.blocked
+  let blocked = false
+  try {
+    blocked = (await getHomeownerPaymentBlockStatus(key))?.blocked ?? false
+  } catch (err) {
+    console.error('[ledger] Block Payments lookup failed:', err instanceof Error ? err.message : err)
+  }
+  _blockCache.set(key, { at: Date.now(), blocked })
+  return blocked
+}
+
+/** Is this owner account blocked — either flagged into the collections
+ *  workflow list, or has the "Block Payments" toggle on? */
 export async function isAccountInCollections(assoc: string, account: string): Promise<boolean> {
   if (!assoc || !account) return false
-  return (await collectionsAccountsFor(assoc)).has(account.trim().toUpperCase())
+  const acct = account.trim().toUpperCase()
+  const [inList, blockFlag] = await Promise.all([
+    collectionsAccountsFor(assoc).then(s => s.has(acct)),
+    isBlockPaymentsFlagged(acct),
+  ])
+  return inList || blockFlag
 }
 
 /** Annotate units with `blocked` (in collections). Batched by association. */
@@ -189,7 +221,12 @@ export async function deliverLedger(opts: {
     const email = opts.toEmail || opts.units.find(u => u.email)?.email
     if (!email) return { ok: false, note: 'no_email' }
     const html = `<p>${intro}</p>${links.map(l => `<p><a href="${l.url}" style="color:#f26a1b;font-weight:600">${l.label} — view statement (PDF)</a></p>`).join('')}<p style="color:#9ca3af;font-size:12px">Link expires in 7 days.</p>`
-    await sendEmail({ to: email, subject: 'Your PMI account statement', html })
+    try {
+      await sendEmail({ to: email, subject: 'Your PMI account statement', html })
+    } catch (err) {
+      console.error('[ledger] deliverLedger email send failed:', err instanceof Error ? err.message : err)
+      return { ok: false, note: 'send_failed' }
+    }
     return { ok: true, note: `email:${email}` }
   }
 

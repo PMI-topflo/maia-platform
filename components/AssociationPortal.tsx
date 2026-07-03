@@ -36,6 +36,8 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { portalConfig } from '@/lib/association-portal-config'
 import { signAchToken } from '@/lib/owner-portal-token'
+import { isAccountInCollections } from '@/lib/owner-ledger-flow'
+import LedgerRequestButton from '@/components/LedgerRequestButton'
 
 const TYPE_LABEL: Record<string, string> = {
   condo: 'Condominium', hoa: 'HOA', coop: 'Co-op', 'co-op': 'Co-op', commercial: 'Commercial',
@@ -91,11 +93,20 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
 
   // Owners get the new in-MAIA "Set up autopay (ACH)" link (replaces the old
   // Google-Drive ACH form) — a secure per-account token to the online form.
+  // Also check the SAME collections gate voice/text already enforce — a
+  // blocked owner must not be sent to WebAxis to pay; assessments go through
+  // the collection agency instead.
   let achHref: string | null = null
+  let ownerAccount: string | null = null
+  let inCollections = false
   if (sess?.persona === 'owner' && sess.userId != null) {
     const { data: ow } = await supabaseAdmin
       .from('owners').select('account_number').eq('id', sess.userId).maybeSingle()
-    if (ow?.account_number) achHref = `/owner/ach/${await signAchToken(upper, String(ow.account_number))}`
+    if (ow?.account_number) {
+      ownerAccount = String(ow.account_number)
+      achHref = `/owner/ach/${await signAchToken(upper, ownerAccount)}`
+      inCollections = await isAccountInCollections(upper, ownerAccount)
+    }
   }
 
   return (
@@ -144,17 +155,27 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
         {/* Quick Actions — first thing an owner sees after login. */}
         <section className="section">
           <h2 className="section-title">{t.quickActions}</h2>
-          <div className="prow-grid">
-            <a href="https://pmitfp.cincwebaxis.com/" target="_blank" rel="noreferrer" className="prow">
-              <div className="prow-orb">💳</div>
-              <div className="prow-info">
-                <div className="prow-t">{t.payTitle}</div>
-                <div className="prow-d">{t.payDesc}</div>
-              </div>
-              <div className="prow-btn">{t.payBtn}</div>
-            </a>
 
-            {achHref && (
+          {inCollections && (
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '1rem 1.1rem', marginBottom: '1rem', fontSize: '0.88rem', color: '#7f1d1d', lineHeight: 1.6 }}>
+              Your account is currently with our collection agency, so payments and account statements aren&rsquo;t available here. Please contact them directly:
+              <br />📞 (800) 875-9221 &nbsp;·&nbsp; ✉️ info@schwartzvays.com &nbsp;·&nbsp; 🌐 schwartzvays.com
+            </div>
+          )}
+
+          <div className="prow-grid">
+            {!inCollections && (
+              <a href="https://pmitfp.cincwebaxis.com/" target="_blank" rel="noreferrer" className="prow">
+                <div className="prow-orb">💳</div>
+                <div className="prow-info">
+                  <div className="prow-t">{t.payTitle}</div>
+                  <div className="prow-d">{t.payDesc}</div>
+                </div>
+                <div className="prow-btn">{t.payBtn}</div>
+              </a>
+            )}
+
+            {achHref && !inCollections && (
               <a href={achHref} className="prow">
                 <div className="prow-orb">🏦</div>
                 <div className="prow-info">
@@ -163,6 +184,10 @@ export default async function AssociationPortal({ code, lang }: { code: string; 
                 </div>
                 <div className="prow-btn">{t.achBtn}</div>
               </a>
+            )}
+
+            {ownerAccount && !inCollections && (
+              <LedgerRequestButton assocCode={upper} />
             )}
 
             <MobileAppButton lang={L} />

@@ -9,12 +9,22 @@ import { useState } from 'react'
 // diagram alongside it.
 //
 // Post-2026-07-02 redesign: known callers now go straight from the greeting
-// to the fixed 1-5 category menu (free-speech intent guessing was dropped —
-// it wasn't reliable enough on voice, even on Sonnet 5). Category picks 3
-// (new tenant/buyer application) and 4 (association documents) are fixed,
-// non-LLM scripts that text the caller a real link; only 1 (maintenance)
-// and 5 (leave a message) still run through the Sonnet answer engine. A
-// quick emergency check is the only thing that can still bypass the menu.
+// to the fixed category menu (free-speech intent guessing was dropped — it
+// wasn't reliable enough on voice, even on Sonnet 5). A quick emergency
+// check is the only thing that can still bypass the menu.
+//
+// 2026-07-03: menu renumbered (1 payments, 2 account balance, 3 maintenance,
+// 4 association documents, 5 new tenant/buyer application, 6 leave a
+// message) and split payments from balance into separate digits. Digit 1
+// (payments) now asks which channel to deliver on (text/WhatsApp/email)
+// instead of reading the whole ways-to-pay message aloud, but ONLY after
+// checking collections first — a blocked unit skips the question entirely
+// and hears the agency info directly. That collections check itself was
+// fixed to OR two independent CINC signals (the collections-workflow list
+// AND the separate "Block Payments" toggle) instead of only the first.
+// Digits 4 (association documents) and 5 (new tenant/buyer application)
+// are fixed, non-LLM scripts; only 3 (maintenance) and 6 (leave a message)
+// still run through the Sonnet answer engine.
 
 const COLOR = {
   navy:   '#0d0d0d',
@@ -111,15 +121,37 @@ const DOC: Record<string, NodeDoc> = {
   categoryMenu: {
     title: 'Category Menu',
     lines: [
-      '"Please say what you need, or press: 1 for maintenance or a repair. 2 for payments or your account balance. 3 for a new tenant or buyer application. 4 for association documents. Or 5 to leave a message for our team."',
+      '"Please say what you need, or press: 1 for payments. 2 for your account balance. 3 for maintenance or a repair. 4 for association documents. 5 for a new tenant or buyer application. Or 6 to leave a message for our team."',
     ],
-    note: 'Only digits 1-5 (or their spoken names) are handled — the old "describe it instead of pressing" free-text fallback was dropped. Anything unrecognized just repeats this menu.',
+    note: 'Renumbered 2026-07-03 — payments and account balance used to share one digit, now split. Only digits 1-6 (or their spoken names) are handled — the old "describe it instead of pressing" free-text fallback was dropped. Anything unrecognized just repeats this menu.',
     source: 'categoryMenuTwiml() — CATEGORY_PROMPT.en',
   },
   answerEngine: {
     title: 'MAIA Answer Engine',
-    note: 'Not a fixed sentence — every reply here is generated live by Claude Sonnet 5, guided by a system prompt built from caller context (name/persona/unit/association), the taught knowledge base, and buildSkillsPromptBlock(\'customer\') (Association Attorney, Customer Negotiator, Trade Troubleshoot, PMI Triage Policy, etc.). Reached by menu digit 1 (maintenance), digit 5 (leave a message), or the emergency fast-path.',
+    note: 'Not a fixed sentence — every reply here is generated live by Claude Sonnet 5, guided by a system prompt built from caller context (name/persona/unit/association), the taught knowledge base, and buildSkillsPromptBlock(\'customer\') (Association Attorney, Customer Negotiator, Trade Troubleshoot, PMI Triage Policy, etc.). Reached by menu digit 3 (maintenance), digit 6 (leave a message), or the emergency fast-path.',
     source: 'getMaiaIntelligentResponse()',
+  },
+  paymentsCollectionsCheck: {
+    title: 'In collections?',
+    note: 'Checked FIRST, before anything else on digit 1 — a blocked unit must never hear normal payment instructions. Combines TWO independent CINC signals with OR: the collections-workflow list (flaggedCollections/homeownersInCollections — "Collection Status"/"Hold Collections" dropdowns) and the separate "Block Payments" toggle (getHomeownerDetailsForIVRPayment — BlockPaymentsFlag/IsHomeownerOrAssociationBlocked). Fixed 2026-07-03 after a live test showed the toggle alone wasn\'t being caught.',
+    source: 'isCallerInCollections(ctx) — lib/owner-ledger-flow.ts isAccountInCollections()',
+  },
+  paymentsDeliveryChoice: {
+    title: 'Ask Delivery Channel',
+    lines: ['"Would you like that by text message, WhatsApp, or email? Just say \\"text,\\" \\"WhatsApp,\\" or \\"email.\\""'],
+    note: 'Voice can\'t read a long list of payment methods + links well (ACH links, WebAxis URL, mailing address, PMI app store links), so it asks which channel to deliver on instead of speaking the whole thing — same "voice can\'t do menus well" pattern the Ledger Flow already used. Added 2026-07-03 after a live test call showed MAIA reading the entire message aloud.',
+    source: 'handleVoiceCategorySelect() case 1 → handleVoicePaymentDeliveryChoice()',
+  },
+  paymentsInfoSent: {
+    title: 'Payment Info Sent',
+    note: 'The full ways-to-pay message (ACH online setup + printable form, WebAxis link, mailing address, PMI mobile app store links) is sent via whichever channel the caller picked. WhatsApp falls back to SMS on failure. The voice confirmation is honest about where it actually landed, not assumed.',
+    source: 'handleVoicePaymentDeliveryChoice() → handlePaymentInquiry(ctx)',
+  },
+  collectionsAgency: {
+    title: 'Collections / Agency Info',
+    lines: ['"Unfortunately, your account has been sent to our collection agency, so I can\'t share a statement or take a payment here. Would you like their contact information?" → Schwartz & Vays, (800) 875-9221, info@schwartzvays.com'],
+    note: 'Shared by both the Payments digit (1) and the Ledger Flow (digit 2) — either flow redirects here the moment its own collections check fires, instead of ever reading account details or ways to pay.',
+    source: 'collectionsResponse(ctx)',
   },
   ledger: {
     title: 'Ledger Flow',
@@ -127,19 +159,19 @@ const DOC: Record<string, NodeDoc> = {
       'By SMS: "Hi! Reply to this text with \\"ledger\\" and I\'ll securely send your account statement. 🌸" → confirms: "I\'ll text you to send your account statement securely — please check your messages."',
       'By WhatsApp: "Hi! Reply to this WhatsApp message with \\"ledger\\" and I\'ll securely send your account statement. 🌸" → confirms: "I\'ve sent you a WhatsApp message — reply \\"ledger\\" there and I\'ll send your account statement securely."',
     ],
-    note: 'Voice can\'t run OTP/numbered menus well, so it nudges the caller to continue on text/WhatsApp instead of reading the ledger aloud. Menu digit 2.',
+    note: 'Voice can\'t run OTP/numbered menus well, so it nudges the caller to continue on text/WhatsApp instead of reading the ledger aloud. Menu digit 2. Checks collections first (annotateBlocked) and redirects to the Collections/Agency Info node if blocked. The resident portal now has a parallel web version of this same flow — a logged-in owner can request their statement directly, still gated behind a fresh OTP confirmation (components/LedgerRequestButton.tsx).',
     source: 'startLedgerFlow(ctx, deliverVia)',
   },
   newApplication: {
     title: 'New Application (fixed)',
     lines: ['"For a new tenant or buyer application, I\'ve just texted you the link to apply online. If you have any questions, our leasing team is happy to help at service@topfloridaproperties.com."'],
-    note: 'Fixed script — NOT generated by Sonnet. Texts the real application link (pmitopfloridaproperties.rentvine.com/public/apply) instead of reading a URL aloud or risking a generated answer. Menu digit 3.',
+    note: 'Fixed script — NOT generated by Sonnet. Texts the real application link (pmitopfloridaproperties.rentvine.com/public/apply) instead of reading a URL aloud or risking a generated answer. Menu digit 5.',
     source: 'newApplicationResponse()',
   },
   associationDocs: {
     title: 'Association Documents (fixed)',
-    lines: ['"For association documents like governing documents, financials, or meeting minutes, I\'ve texted you a link to your resident portal. If you don\'t see what you need there, email support@topfloridaproperties.com and our team will send it to you."'],
-    note: 'Fixed script — NOT generated by Sonnet. Texts the resident portal link (pmitfp.cincwebaxis.com). Menu digit 4.',
+    lines: ['"I\'ve texted you (and emailed you, since I have your address on file) a link to your association\'s documents — you can browse and download whichever one you need. If you don\'t see what you\'re looking for, email support@topfloridaproperties.com and our team will send it to you."'],
+    note: 'Fixed script — NOT generated by Sonnet. Rewritten 2026-07-03 to resolve the caller\'s OWN association and link their real portal (associationPortalPath) instead of a generic CINC WebAxis URL, and to also email the link when an address is on file. Menu digit 4.',
     source: 'associationDocumentResponse()',
   },
 }
@@ -241,7 +273,7 @@ export default function VoiceFlowDiagram() {
 
   return (
     <div style={{ overflowX: 'auto', background: COLOR.bg, borderRadius: 8, padding: '1rem' }}>
-      <svg viewBox="-40 0 1150 1780" width="100%" style={{ minWidth: 940, display: 'block' }} xmlns="http://www.w3.org/2000/svg">
+      <svg viewBox="-40 0 1220 1780" width="100%" style={{ minWidth: 940, display: 'block' }} xmlns="http://www.w3.org/2000/svg">
         <defs>
           <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
             <path d="M0,0 L6,3 L0,6 Z" fill={COLOR.muted} />
@@ -285,36 +317,61 @@ export default function VoiceFlowDiagram() {
 
         {/* Row 5 — category menu (the main hub now) */}
         <Box x={480} y={780} w={280} h={130} title="Category Menu" fill="#fff7ed" stroke={COLOR.gold}
-          lines={['1 Maintenance · 2 Payments', '3 New tenant/buyer app', '4 Association documents', '5 Leave a message']}
+          lines={['1 Payments · 2 Balance', '3 Maintenance · 4 Assoc docs', '5 New app · 6 Leave msg']}
           nodeKey="categoryMenu" onSelect={setSelected} />
 
-        {/* Row 6 — 4 outcomes of the category menu */}
-        <Arrow path="M560,910 L200,970" label="digit 1 / 5" labelX={330} labelY={935} />
-        <Arrow path="M640,910 L480,970" label="digit 2" labelX={555} labelY={945} />
-        <Arrow path="M700,910 L750,970" label="digit 3" labelX={730} labelY={945} />
-        <Arrow path="M740,910 L1040,970" label="digit 4" labelX={900} labelY={950} />
+        {/* Row 6 — 6 outcomes of the category menu (renumbered 2026-07-03) */}
+        <Arrow path="M500,910 L125,970" label="digit 1" labelX={280} labelY={932} />
+        <Arrow path="M540,910 L345,970" label="digit 2" labelX={510} labelY={945} />
+        <Arrow path="M580,910 L560,970" label="digit 3" labelX={580} labelY={945} />
+        <Arrow path="M620,910 L660,970" label="digit 6" labelX={650} labelY={935} />
+        <Arrow path="M660,910 L855,970" label="digit 4" labelX={790} labelY={945} />
+        <Arrow path="M700,910 L1065,970" label="digit 5" labelX={950} labelY={945} />
 
-        <Box x={40} y={970} w={280} h={110} title="MAIA Answer Engine" fill={COLOR.navy} stroke={COLOR.navy} titleColor="#fff"
+        {/* Row 6 — payments sub-flow (digit 1): collections gate FIRST, then
+            ask which channel to deliver on instead of reading it all aloud */}
+        <Diamond x={30} y={970} w={190} h={80} label={['In', 'collections?']}
+          nodeKey="paymentsCollectionsCheck" onSelect={setSelected} />
+        <Arrow path="M125,1050 L125,1090" label="not blocked" labelX={132} labelY={1075} />
+        <Arrow path="M220,1010 L220,1135 L760,1135" label="blocked" labelX={280} labelY={1128} />
+
+        <Box x={30} y={1090} w={190} h={90} title="Ask Delivery Channel" fill="#fff7ed" stroke={COLOR.gold}
+          lines={['"Text, WhatsApp,', 'or email?"']}
+          nodeKey="paymentsDeliveryChoice" onSelect={setSelected} />
+        <Arrow path="M125,1180 L125,1220" dashed label="picks channel" labelX={132} labelY={1205} />
+
+        <Box x={30} y={1220} w={190} h={100} title="Payment Info Sent" fill={COLOR.card} stroke={COLOR.navy}
+          lines={['Ways to pay + ACH', '+ PMI app links,', 'WhatsApp→SMS fallback']}
+          nodeKey="paymentsInfoSent" onSelect={setSelected} />
+
+        <Box x={250} y={970} w={190} h={110} title="Ledger Flow" fill={COLOR.card} stroke={COLOR.navy}
+          lines={['OTP + CINC lookup', '→ SMS or WhatsApp']}
+          nodeKey="ledger" onSelect={setSelected} />
+        <Arrow path="M345,1080 L345,1160 L760,1160" dashed label="also redirects if blocked" labelX={355} labelY={1153} />
+
+        <Box x={470} y={970} w={260} h={110} title="MAIA Answer Engine" fill={COLOR.navy} stroke={COLOR.navy} titleColor="#fff"
           lines={['Claude Sonnet 5 + Skills', '(maintenance / leave a', 'message / emergency)']}
           nodeKey="answerEngine" onSelect={setSelected} />
 
-        <Box x={370} y={970} w={220} h={110} title="Ledger Flow" fill={COLOR.card} stroke={COLOR.navy}
-          lines={['OTP + CINC lookup', '→ SMS or WhatsApp']}
-          nodeKey="ledger" onSelect={setSelected} />
+        <Box x={760} y={970} w={190} h={110} title="Association Docs" fill={COLOR.card} stroke={COLOR.navy}
+          lines={['Fixed script —', 'texts + emails their', 'own portal link']}
+          nodeKey="associationDocs" onSelect={setSelected} />
 
-        <Box x={640} y={970} w={220} h={110} title="New Application" fill={COLOR.card} stroke={COLOR.navy}
+        <Box x={760} y={1105} w={190} h={90} title="Collections / Agency Info" fill={COLOR.card} stroke={COLOR.gold}
+          lines={['Schwartz & Vays', '(800) 875-9221']}
+          nodeKey="collectionsAgency" onSelect={setSelected} />
+
+        <Box x={980} y={970} w={170} h={110} title="New Application" fill={COLOR.card} stroke={COLOR.navy}
           lines={['Fixed script —', 'texts the real', 'application link']}
           nodeKey="newApplication" onSelect={setSelected} />
 
-        <Box x={900} y={970} w={200} h={110} title="Association Docs" fill={COLOR.card} stroke={COLOR.navy}
-          lines={['Fixed script —', 'texts the resident', 'portal link']}
-          nodeKey="associationDocs" onSelect={setSelected} />
-
         {/* Row 7 — every outcome's follow-up Gather funnels to the same re-entry point */}
-        <Arrow path="M180,1080 L420,1440" />
-        <Arrow path="M480,1080 L460,1440" />
-        <Arrow path="M750,1080 L500,1440" />
-        <Arrow path="M1000,1080 L540,1440" />
+        <Arrow path="M125,1320 L400,1440" />
+        <Arrow path="M345,1080 L435,1440" />
+        <Arrow path="M600,1080 L470,1440" />
+        <Arrow path="M855,1080 L505,1440" />
+        <Arrow path="M855,1195 L540,1440" />
+        <Arrow path="M1065,1080 L575,1440" />
 
         <Box x={390} y={1440} w={200} h={54} title="Caller Speaks / Presses" fill={COLOR.navy} stroke={COLOR.navy} titleColor="#fff"
           nodeKey="callerSpeaks" onSelect={setSelected} />

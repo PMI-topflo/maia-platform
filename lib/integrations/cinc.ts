@@ -2235,6 +2235,30 @@ export async function listLegalStatusByAssociation(assocCode: string): Promise<R
   })
 }
 
+/** GET /management/1/homeowners/getHomeownerDetailsForIVRPayment?hoId=
+ *  — the REAL per-homeowner "Block Payments" status. CONFIRMED against prod
+ *  2026-07-03 via a live self-block test (toggling "Block Payments" on the
+ *  Homeowner record in CINC's UI): returns `BlockPaymentsFlag` and
+ *  `IsHomeownerOrAssociationBlocked` (the latter also covers the whole
+ *  association being blocked, not just this homeowner — prefer it).
+ *  `hoId` = owners.account_number = CINC PropertyHOID (e.g. "ISLAND4").
+ *  Returns null if the homeowner isn't found (never throws for a 4xx). */
+export async function getHomeownerPaymentBlockStatus(hoId: string): Promise<{ blocked: boolean; balance: number | null } | null> {
+  const rows = await call<Array<{ BlockPaymentsFlag?: boolean; IsHomeownerOrAssociationBlocked?: boolean; Balance?: number }>>(
+    '/management/1/homeowners/getHomeownerDetailsForIVRPayment',
+    { method: 'GET', query: { hoId } },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) return []
+    throw err
+  })
+  const row = rows[0]
+  if (!row) return null
+  return {
+    blocked: !!(row.IsHomeownerOrAssociationBlocked ?? row.BlockPaymentsFlag),
+    balance: typeof row.Balance === 'number' ? row.Balance : null,
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Invoice CRUD — used by the intake-queue push flow
 //
