@@ -31,7 +31,7 @@ function phoneVariants(phone: string): string[] {
   return [phone, '+' + clean, clean.replace(/^1/, '')]
 }
 
-function firstEmail(raw: unknown): string | null {
+export function firstEmail(raw: unknown): string | null {
   const s = String(raw ?? '').trim()
   if (!s) return null
   const m = s.split(/[,;\s]+/).map(x => x.trim()).find(x => x.includes('@'))
@@ -221,7 +221,12 @@ export async function deliverLedger(opts: {
     const email = opts.toEmail || opts.units.find(u => u.email)?.email
     if (!email) return { ok: false, note: 'no_email' }
     const html = `<p>${intro}</p>${links.map(l => `<p><a href="${l.url}" style="color:#f26a1b;font-weight:600">${l.label} — view statement (PDF)</a></p>`).join('')}<p style="color:#9ca3af;font-size:12px">Link expires in 7 days.</p>`
-    await sendEmail({ to: email, subject: 'Your PMI account statement', html })
+    try {
+      await sendEmail({ to: email, subject: 'Your PMI account statement', html })
+    } catch (err) {
+      console.error('[ledger] deliverLedger email send failed:', err instanceof Error ? err.message : err)
+      return { ok: false, note: 'send_failed' }
+    }
     return { ok: true, note: `email:${email}` }
   }
 
