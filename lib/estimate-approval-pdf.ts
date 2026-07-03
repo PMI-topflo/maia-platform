@@ -113,10 +113,13 @@ export async function finalizeEstimateApproval(approvalId: string): Promise<Fina
     .eq('id', approvalId).single()
   if (!a) return { ok: false, cincPushed: false, emailed: 0, note: 'approval not found' }
 
-  // Signers who approved, with their board title.
+  // Signers who approved THE WINNING VENDOR, with their board title. In the
+  // board-picks comparison, different signers can pick different vendors —
+  // only count/list the ones who agreed on the vendor that actually won,
+  // so a signature never ends up on the wrong vendor's approval page.
   const { data: reviews } = await supabaseAdmin.from('estimate_approval_reviews')
     .select('board_member_name, board_member_email, signature_image, decided_at')
-    .eq('approval_id', approvalId).eq('decision', 'approve')
+    .eq('approval_id', approvalId).eq('decision', 'approve').eq('selected_vendor_request_id', a.vendor_request_id)
   const { data: members } = await supabaseAdmin.from('association_board_members')
     .select('email, role').eq('association_code', a.association_code)
   const roleByEmail = new Map((members ?? []).map(m => [(m.email as string ?? '').toLowerCase(), m.role as string | null]))
