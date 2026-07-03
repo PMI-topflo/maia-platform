@@ -7,7 +7,7 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 
 ---
 
-## 🟡 In review — COI validation PR2b: invoice-push block (#500, OPEN)
+## ✅ Shipped & live — COI validation PR2b: invoice-push block (#500, merged + verified landed)
 
 - **Invalid-COI invoice-push guard** (#500) — clones the double-pay hard-block pattern in `app/api/admin/invoices/intake/[id]/push/route.ts`: pushing an invoice for a vendor with a genuinely invalid COI (expired, or missing a required additional-insured) now 409s unless the pusher is Karen. Unverifiable/no-COI-at-all never blocks (stays the existing soft "flag for re-upload" treatment).
 - **Vendor exemptions** — before building, checked whether CINC already tracks "does this vendor need a COI." It does (`vendorInsurance.isRequired`, per vendor + insurance type) but live-probing 10 real vendors (27 rows) showed **every single one reads `false`** — the field is never touched by anyone, so it can't be trusted as a real signal on its own. New `vendor_coi_exemptions` table (migration applied) is the actual gate — staff toggle "Mark COI not required" on `/admin/vendor-compliance` with a reason — which also mirrors the value into CINC's `isRequired` flag on a best-effort basis. Also fixed `getVendorInsurances()`, which was silently dropping `isRequired`/`InsuranceType` due to wrong field names.
