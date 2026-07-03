@@ -431,6 +431,12 @@ async function handleVoiceToWhatsApp(
           he: `נשלח לוואטסאפ שלך! האם יש עוד שאוכל לעזור?`,
           ru: `Отправлено в ваш WhatsApp! Чем ещё я могу помочь?`,
         })
+      : landedOn === 'whatsapp_nudge'
+      ? translate(ctx.language, {
+          en: `I've sent you a WhatsApp message — just reply to it and I'll send that information right over. Is there anything else I can help you with?`,
+          es: `Te envié un mensaje de WhatsApp — solo respóndelo y te envío esa información enseguida. ¿Hay algo más en que pueda ayudarte?`,
+          pt: `Te enviei uma mensagem no WhatsApp — só responder que eu te envio essa informação na hora. Posso ajudar em mais alguma coisa?`,
+        })
       : landedOn === 'sms'
       ? translate(ctx.language, {
           en: `WhatsApp isn't available right now, so I texted you that information instead. Is there anything else I can help you with?`,
@@ -501,9 +507,9 @@ async function handleVoiceAwaitingWhatsAppNumber(
     const landedOn = await sendWhatsAppFromVoice(phone, content, ctx)
     const sorry = landedOn !== 'failed'
       ? translate(lang, {
-          en: `I had trouble understanding that number, so I sent the information to the number you called from${landedOn === 'sms' ? ' by text (WhatsApp wasn\'t available)' : ''}. Is there anything else I can help you with?`,
-          es: `No pude entender ese número, así que envié la información al número desde el que llamaste${landedOn === 'sms' ? ' por mensaje de texto (WhatsApp no estaba disponible)' : ''}. ¿Hay algo más en que pueda ayudarte?`,
-          pt: `Não entendi o número, então enviei para o número de onde você ligou${landedOn === 'sms' ? ' por mensagem de texto (o WhatsApp não estava disponível)' : ''}. Posso ajudar em mais alguma coisa?`,
+          en: `I had trouble understanding that number, so I sent the information to the number you called from${landedOn === 'sms' ? ' by text (WhatsApp wasn\'t available)' : landedOn === 'whatsapp_nudge' ? ' — check your WhatsApp and reply to get it' : ''}. Is there anything else I can help you with?`,
+          es: `No pude entender ese número, así que envié la información al número desde el que llamaste${landedOn === 'sms' ? ' por mensaje de texto (WhatsApp no estaba disponible)' : landedOn === 'whatsapp_nudge' ? ' — revisa tu WhatsApp y responde para recibirla' : ''}. ¿Hay algo más en que pueda ayudarte?`,
+          pt: `Não entendi o número, então enviei para o número de onde você ligou${landedOn === 'sms' ? ' por mensagem de texto (o WhatsApp não estava disponível)' : landedOn === 'whatsapp_nudge' ? ' — confira seu WhatsApp e responda para recebê-la' : ''}. Posso ajudar em mais alguma coisa?`,
         })
       : translate(lang, {
           en: `I had trouble understanding that number, and I wasn't able to send the information. Please call our office at (305) 900-5077 or email service@topfloridaproperties.com.`,
@@ -522,6 +528,12 @@ async function handleVoiceAwaitingWhatsAppNumber(
         fr: `Envoyé au ${formatPhoneForSpeech(e164)}. Autre chose?`,
         he: `נשלח ל-${formatPhoneForSpeech(e164)}. האם יש עוד שאוכל לעזור?`,
         ru: `Отправлено на ${formatPhoneForSpeech(e164)}. Чем ещё я могу помочь?`,
+      })
+    : landedOn === 'whatsapp_nudge'
+    ? translate(lang, {
+        en: `I've sent a WhatsApp message to ${formatPhoneForSpeech(e164)} — reply to it and I'll send that information right over. Is there anything else I can help you with?`,
+        es: `Envié un mensaje de WhatsApp al ${formatPhoneForSpeech(e164)} — respóndelo y te envío esa información enseguida. ¿Hay algo más en que pueda ayudarte?`,
+        pt: `Enviei uma mensagem no WhatsApp para o ${formatPhoneForSpeech(e164)} — responda que eu te envio essa informação na hora. Posso ajudar em mais alguma coisa?`,
       })
     : landedOn === 'sms'
     ? translate(lang, {
@@ -621,14 +633,35 @@ async function handleVoicePaymentDeliveryChoice(phone: string, speechText: strin
 // so this send fails far more often than SMS. Falls back to SMS (same
 // content) rather than deliver nothing, matching lib/owner-ledger-flow.ts's
 // deliverLedger().
-async function sendWhatsAppFromVoice(toPhone: string, content: string, ctx: CallerContext): Promise<'whatsapp' | 'sms' | 'failed'> {
+async function sendWhatsAppFromVoice(toPhone: string, content: string, ctx: CallerContext): Promise<'whatsapp' | 'whatsapp_nudge' | 'sms' | 'failed'> {
   const header = `*PMI Top Florida Properties* 🌸\n_Information sent during your call_\n${'─'.repeat(28)}\n\n`
   const footer = `\n\n${'─'.repeat(28)}\n📞 (305) 900-5077  💬 (786) 686-3223\nservice@topfloridaproperties.com`
   const body   = header + content + footer
 
-  let landedOn: 'whatsapp' | 'sms' | 'failed' = await sendWhatsApp(toPhone, body) ? 'whatsapp' : 'failed'
-  if (landedOn === 'failed') {
-    landedOn = await sendSMS(toPhone, body) ? 'sms' : 'failed'
+  let landedOn: 'whatsapp' | 'whatsapp_nudge' | 'sms' | 'failed'
+
+  // Same reasoning as the ledger nudge (lib/owner-ledger-flow.ts): a
+  // business-initiated freeform WhatsApp message is rejected unless the
+  // recipient messaged us in the last 24h, which a phone caller almost never
+  // has. Rather than gamble on freeform, use the approved "reply and I'll
+  // send it" template when available — this always lands, but only delivers
+  // a NUDGE, not the actual content. The content is persisted and delivered
+  // for real the moment the caller replies (routeTextMessage's
+  // voice_info_pending_whatsapp branch), which by then has an open session.
+  const templateSid = process.env.TWILIO_VOICE_INFO_SEND_TEMPLATE_SID
+  if (ctx.language === 'en' && templateSid) {
+    const nudged = await sendWhatsAppTemplate(toPhone, templateSid)
+    if (nudged) {
+      await saveConversationState(toPhone, 'voice_info_pending_whatsapp', 'pending', { pendingContent: body })
+      landedOn = 'whatsapp_nudge'
+    } else {
+      landedOn = await sendSMS(toPhone, body) ? 'sms' : 'failed'
+    }
+  } else {
+    landedOn = await sendWhatsApp(toPhone, body) ? 'whatsapp' : 'failed'
+    if (landedOn === 'failed') {
+      landedOn = await sendSMS(toPhone, body) ? 'sms' : 'failed'
+    }
   }
   if (landedOn !== 'failed') console.log(`[VOICE→WHATSAPP] Sent to ${toPhone} via ${landedOn}`)
   else console.error(`[VOICE→WHATSAPP] Send failed to ${toPhone} (WhatsApp and SMS both failed)`)
@@ -1191,6 +1224,15 @@ async function routeTextMessage(
       replyText = await handleIntentConfirmation(ctx, state, message)
     } else if (state.current_flow === 'ledger_request') {
       replyText = await continueLedgerFlow(ctx, state, message)
+    } else if (state.current_flow === 'voice_info_pending_whatsapp') {
+      // Reply to the "reply and I'll send it" WhatsApp template nudge
+      // (sendWhatsAppFromVoice) — whatever they replied opens a fresh 24h
+      // session, so the ALREADY-GENERATED content from their call can now
+      // be delivered as a normal message instead of the freeform send that
+      // triggered the nudge in the first place.
+      const pending = (state.temporary_data_json ?? {}) as { pendingContent?: string }
+      await clearConversationState(phone)
+      replyText = pending.pendingContent || await getMaiaIntelligentResponse(ctx, message)
     } else if (state.current_flow === 'text_menu') {
       // A bare 1-5 reply to the category menu picks a fixed/known path (same
       // handlers voice uses); anything else is a real description, so just
