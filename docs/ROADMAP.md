@@ -139,7 +139,7 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 (Detail in memory: `roadmap_reconciliation_2026_06_30.md`, `owner_self_service_decisions.md`, `screening_provider_pivot.md`, `voice_plan.md`.)
 
 ## Suggested priority
-1. **Continue the Flows diagrams series** — Vendor Onboarding next (ACH/W-9/COI/license → CINC), then `/apply` Tenant/Buyer Application → 2. **service@ email-from-WO** (completes vendor procurement) → 3. medium WO/recurring items → 4. Compliance Phase 2 (deadline-rules + document RAG) → 5. smaller comms/invoice follow-ups.
+1. **Review + merge #504** (Vendor Onboarding flow diagram, code done) → 2. Continue the Flows diagrams series — `/apply` Tenant/Buyer Application next → 3. **Pre-registration triage** (small — `/admin/pre-registrations` list page) → 4. medium WO/recurring items → 5. Compliance Phase 2 (deadline-rules + document RAG) → 6. smaller comms/invoice follow-ups.
 
 **Verify on next real call:** the renumbered menu (#497) + payments delivery-channel sub-flow (#498) — confirm a real call reaches the "text/WhatsApp/email?" prompt on digit 1 and the message actually arrives via the chosen channel; confirm a real collections-blocked unit now correctly hears the agency message on digit 1 (not just the test account). Also confirm the resident portal's new "Get my account statement" button delivers a real ledger email in production (local testing was code-path-verified via curl/DB only, since local dev has no email provider credentials).
 
