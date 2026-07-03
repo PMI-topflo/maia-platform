@@ -7,7 +7,16 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 
 ---
 
-## 🟡 In review — Estimate board report with images (#501, OPEN)
+## 🟡 In review — Flows diagrams initiative (#502, OPEN)
+
+- **Flow inventory** — MAIA has ~51 distinct end-to-end business flows across 10 categories (communications, invoicing, vendor management, work orders/estimates, recurring services, leasing, compliance, self-service, board/governance, operational). Full list in memory (`maia_flows_inventory.md`).
+- **New sidebar "Flows" section** — houses every flow diagram in one place (previously just "Voice Flow" buried under Tools). Moved Voice & Text Routing here, added Estimate & Board Approval.
+- **`FlowDiagramKit.tsx`** — shared Box/Diamond/Arrow/NodeModal/Legend SVG components, extracted so future diagrams don't re-copy the Voice Flow diagram's original ~150 lines of hand-rolled boilerplate.
+- **First new diagram: Estimate & Board Approval** — built first since it was just rebuilt this session (#501) and freshest in context. Prioritization going forward: flows where MAIA talks to someone **outside the company** (vendors, board members, applicants) first, not the full 51 speculatively. Next candidates: Vendor Onboarding, `/apply` Tenant/Buyer Application, Weekly Agenda/Service Visit.
+
+---
+
+## ✅ Shipped & live — Estimate board report with images (#501, merged + verified landed)
 
 - **Board-picks vendor comparison** (#501) — replaces "staff pre-picks ONE vendor" with "staff send the whole comparison, each board signer picks which vendor they approve." New columns (migration applied): `estimate_approval_reviews.selected_vendor_request_id` (which vendor each signer picked) + `estimate_approvals.recommended_vendor_request_id` (optional staff highlight). The approval's `vendor_request_id`/`vendor_name`/`amount` stay NULL until enough signers converge on the SAME vendor.
 - **Inline image previews** — new shared `lib/estimate-preview.ts` renders a vendor's estimate (PDF or image) to inline JPEG pages; used by a new staff preview route and the existing board preview route (now supports per-vendor selection instead of only the stamped winner).
@@ -128,7 +137,7 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 (Detail in memory: `roadmap_reconciliation_2026_06_30.md`, `owner_self_service_decisions.md`, `screening_provider_pivot.md`, `voice_plan.md`.)
 
 ## Suggested priority
-1. **Review + merge #501** (Estimate board report with images — code done, needs review) → 2. **service@ email-from-WO** (completes vendor procurement) → 3. medium WO/recurring items → 4. Compliance Phase 2 (deadline-rules + document RAG) → 5. smaller comms/invoice follow-ups.
+1. **Review + merge #502** (Flows diagrams — Estimate & Board Approval diagram, code done) → 2. Continue the Flows diagrams series (Vendor Onboarding next) alongside → 3. **service@ email-from-WO** (completes vendor procurement) → 4. medium WO/recurring items → 5. Compliance Phase 2 (deadline-rules + document RAG) → 6. smaller comms/invoice follow-ups.
 
 **Verify on next real call:** the renumbered menu (#497) + payments delivery-channel sub-flow (#498) — confirm a real call reaches the "text/WhatsApp/email?" prompt on digit 1 and the message actually arrives via the chosen channel; confirm a real collections-blocked unit now correctly hears the agency message on digit 1 (not just the test account). Also confirm the resident portal's new "Get my account statement" button delivers a real ledger email in production (local testing was code-path-verified via curl/DB only, since local dev has no email provider credentials).
 
