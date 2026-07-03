@@ -308,6 +308,11 @@ async function handleVoiceInput(phone: string, voiceInput: string): Promise<Next
     return handleVoiceAwaitingWhatsAppNumber(phone, voiceInput, ctx, state, voice)
   }
 
+  // ── Resolve which channel to send the payment info to (category menu 1) ────
+  if (state?.current_flow === 'voice_awaiting_payment_delivery') {
+    return handleVoicePaymentDeliveryChoice(phone, speechText, ctx, voice)
+  }
+
   // ── Voice IVR menus (language pick, then category pick) ─────────────────────
   if (state?.current_flow === 'voice_lang_select') {
     return handleVoiceLangSelect(phone, speechText, ctx, state)
@@ -530,6 +535,74 @@ async function handleVoiceAwaitingWhatsAppNumber(
         pt: `Desculpe, não consegui enviar para o WhatsApp no ${formatPhoneForSpeech(e164)}. Ligue para (305) 900-5077 ou envie um e-mail para service@topfloridaproperties.com.`,
       })
   return voiceTwiml(voice, stripForTTS(confirm), getFarewell(lang), lang)
+}
+
+// ── Deliver the full "ways to pay" message to whichever channel the caller
+// asked for (category menu digit 1) — voice can't read the whole thing well.
+function htmlifyPaymentInfo(text: string): string {
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*([^*]+)\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br/>')
+}
+
+async function handleVoicePaymentDeliveryChoice(phone: string, speechText: string, ctx: CallerContext, voice: string): Promise<NextResponse> {
+  const t = speechText.toLowerCase()
+  const wantsWhatsapp = /whatsapp|wasap|watsap|וואטסאפ/.test(t)
+  const wantsEmail    = /email|e-?mail|correo|imel|אימייל|почт/.test(t)
+  const wantsText     = /\btext\b|texto|mensagem|mensaje|sms|smS|טקסט|смс/.test(t)
+
+  if (!wantsWhatsapp && !wantsEmail && !wantsText) {
+    const ask = translate(ctx.language, {
+      en: `Sorry, I didn't catch that. Would you like it by text message, WhatsApp, or email?`,
+      es: `Perdón, no entendí. ¿Por mensaje de texto, WhatsApp o correo electrónico?`,
+      pt: `Desculpe, não entendi. Por mensagem de texto, WhatsApp ou e-mail?`,
+      fr: `Désolée, je n'ai pas compris. Par SMS, WhatsApp ou e-mail ?`,
+      he: `סליחה, לא הבנתי. בהודעת טקסט, וואטסאפ, או אימייל?`,
+      ru: `Извините, я не поняла. По СМС, WhatsApp или email?`,
+    })
+    return voiceTwiml(voice, stripForTTS(ask), getFarewell(ctx.language), ctx.language)
+  }
+
+  await clearConversationState(phone)
+  const info = await handlePaymentInquiry(ctx)   // re-checks collections; safe if status changed mid-call
+
+  let landedOn: 'whatsapp' | 'sms' | 'email' | 'failed' = 'failed'
+  if (wantsEmail) {
+    const units = await resolveOwnerUnits(ctx.phone)
+    const unit  = units.find(u => u.assoc === ctx.associationId) ?? units[0]
+    if (unit?.email) {
+      try {
+        await sendEmail({
+          to: unit.email,
+          subject: 'Ways to pay your association — PMI Top Florida Properties',
+          html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6">${htmlifyPaymentInfo(info)}</div>`,
+        })
+        landedOn = 'email'
+      } catch { /* fall through to SMS below */ }
+    }
+    if (landedOn !== 'email') {
+      landedOn = (await sendSMS(ctx.phone, info)) ? 'sms' : 'failed'
+    }
+  } else if (wantsWhatsapp) {
+    landedOn = (await sendWhatsApp(ctx.phone, info)) ? 'whatsapp' : (await sendSMS(ctx.phone, info)) ? 'sms' : 'failed'
+  } else {
+    landedOn = (await sendSMS(ctx.phone, info)) ? 'sms' : 'failed'
+  }
+
+  const where = { whatsapp: { en: 'WhatsApp', es: 'WhatsApp', pt: 'WhatsApp' }, sms: { en: 'text messages', es: 'mensajes de texto', pt: 'mensagens de texto' }, email: { en: 'email', es: 'correo', pt: 'e-mail' } }[landedOn as 'whatsapp' | 'sms' | 'email']
+  const confirm = landedOn !== 'failed'
+    ? translate(ctx.language, {
+        en: `Done! Check your ${where?.en}. Is there anything else I can help you with?`,
+        es: `¡Listo! Revisa tu ${where?.es}. ¿Hay algo más en que pueda ayudarte?`,
+        pt: `Pronto! Verifique seu ${where?.pt}. Posso ajudar em mais alguma coisa?`,
+      })
+    : translate(ctx.language, {
+        en: `I'm sorry, I wasn't able to send that. Please call our office at (305) 900-5077 or email ar@topfloridaproperties.com.`,
+        es: `Lo siento, no pude enviarlo. Llama a nuestra oficina al (305) 900-5077 o escribe a ar@topfloridaproperties.com.`,
+        pt: `Desculpe, não consegui enviar. Ligue para (305) 900-5077 ou envie um e-mail para ar@topfloridaproperties.com.`,
+      })
+  return voiceTwiml(voice, stripForTTS(confirm), getFarewell(ctx.language), ctx.language)
 }
 
 // ── Send WhatsApp message from voice call context + log ───────────────────────
@@ -918,7 +991,24 @@ async function handleVoiceCategorySelect(phone: string, speechText: string, ctx:
   let responseText: string
   try {
     switch (digit) {
-      case 1: responseText = await handlePaymentInquiry(ctx); break
+      case 1: {
+        // Voice can't read a long list of payment methods + links well, so
+        // ask which channel to deliver it on instead of speaking the whole
+        // thing (mirrors the ledger flow's voice-can't-do-menus pattern).
+        // Collections is checked FIRST and skips the delivery question
+        // entirely — a blocked unit just hears the agency info directly.
+        if (await isCallerInCollections(ctx)) { responseText = await collectionsResponse(ctx); break }
+        await saveConversationState(phone, 'voice_awaiting_payment_delivery', 'pending', {})
+        const ask = translate(ctx.language, {
+          en: `Would you like that by text message, WhatsApp, or email? Just say "text," "WhatsApp," or "email."`,
+          es: `¿Prefieres recibirlo por mensaje de texto, WhatsApp o correo electrónico? Solo di "texto," "WhatsApp" o "correo."`,
+          pt: `Prefere receber por mensagem de texto, WhatsApp ou e-mail? Diga "texto," "WhatsApp" ou "e-mail."`,
+          fr: `Préférez-vous recevoir cela par SMS, WhatsApp ou e-mail ? Dites simplement "SMS," "WhatsApp" ou "e-mail."`,
+          he: `תרצה לקבל את זה בהודעת טקסט, וואטסאפ, או אימייל? פשוט אמור "טקסט," "וואטסאפ" או "אימייל."`,
+          ru: `Хотите получить это по СМС, WhatsApp или email? Просто скажите «смс», «вотсап» или «email».`,
+        })
+        return voiceTwiml(voice, stripForTTS(ask), getFarewell(ctx.language), ctx.language)
+      }
       case 2: responseText = await startLedgerFlow(ctx); break
       case 3: responseText = await getMaiaIntelligentResponse(ctx, 'I have a maintenance or repair problem', { intent: 'maintenance', summary: 'Maintenance/repair (phone menu)' }); break
       case 4: responseText = await associationDocumentResponse(ctx); break
@@ -2461,16 +2551,24 @@ Always end with a warm offer to help with anything else. 🌸${officeBlock}${ski
 // PAYMENT INQUIRY
 // ============================================================
 
+// An association owner in collections must NOT see payment methods or a
+// ledger — assessments go through the collection agency instead. Shared by
+// handlePaymentInquiry, startLedgerFlow, and the voice payments delivery-
+// channel ask (so voice can skip straight to the agency message without
+// asking "text or WhatsApp?" first).
+async function isCallerInCollections(ctx: CallerContext): Promise<boolean> {
+  if (ctx.persona !== 'homeowner' || !ctx.associationId) return false
+  const units = await resolveOwnerUnits(ctx.phone)
+  return (await annotateBlocked(units)).some(u => u.blocked)
+}
+
 async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
   const name = ctx.name.split(' ')[0]
 
   // An association owner in collections must NOT be sent to WebAxis to pay —
   // assessments go through the collection agency. (RentVine/residential is
   // separate and handled below.)
-  if (ctx.persona === 'homeowner' && ctx.associationId) {
-    const units = await resolveOwnerUnits(ctx.phone)
-    if ((await annotateBlocked(units)).some(u => u.blocked)) return await collectionsResponse(ctx)
-  }
+  if (await isCallerInCollections(ctx)) return await collectionsResponse(ctx)
 
   if (ctx.division === 'residential' && ctx.rentvineContactId) {
     try {
