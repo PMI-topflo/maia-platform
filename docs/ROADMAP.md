@@ -12,8 +12,9 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 - **Flow inventory** — MAIA has ~51 distinct end-to-end business flows across 10 categories (communications, invoicing, vendor management, work orders/estimates, recurring services, leasing, compliance, self-service, board/governance, operational). Full list in memory (`maia_flows_inventory.md`).
 - **New sidebar "Flows" section** — houses every flow diagram in one place (previously just "Voice Flow" buried under Tools). Moved Voice & Text Routing here, added Estimate & Board Approval.
 - **`FlowDiagramKit.tsx`** — shared Box/Diamond/Arrow/NodeModal/Legend SVG components, extracted so future diagrams don't re-copy the Voice Flow diagram's original ~150 lines of hand-rolled boilerplate.
-- **First new diagram: Estimate & Board Approval** — built first since it was just rebuilt this session (#501) and freshest in context. Prioritization going forward: flows where MAIA talks to someone **outside the company** (vendors, board members, applicants) first, not the full 51 speculatively. Next candidates: Vendor Onboarding, `/apply` Tenant/Buyer Application, Weekly Agenda/Service Visit.
+- **First new diagram: Estimate & Board Approval** — built first since it was just rebuilt this session (#501) and freshest in context. Prioritization going forward: flows where MAIA talks to someone **outside the company** (vendors, board members, applicants) first, not the full 51 speculatively.
 - **Click-to-preview real content** — every external-facing node's modal shows the actual email (To/Subject/HTML body, lifted verbatim from the sending code) or actual form UI the person sees, not a paraphrase. Standing rule going forward: keep each diagram in sync with its flow's code in the SAME PR whenever behavior changes — never let it drift (see `feedback_diagram_maintenance` in memory).
+- **Second diagram: Vendor Onboarding** — staff dedupe-check + CINC create/link → vendor's token-scoped self-service portal (W-9/ACH/COI/license) → W-9 and COI/license auto-apply to CINC immediately, ACH is deliberately held for a staff fraud-control confirm before it touches CINC. Next candidates: `/apply` Tenant/Buyer Application, Weekly Agenda/Service Visit.
 
 ---
 
@@ -138,7 +139,7 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 (Detail in memory: `roadmap_reconciliation_2026_06_30.md`, `owner_self_service_decisions.md`, `screening_provider_pivot.md`, `voice_plan.md`.)
 
 ## Suggested priority
-1. **Continue the Flows diagrams series** — Vendor Onboarding next (ACH/W-9/COI/license → CINC), then `/apply` Tenant/Buyer Application → 2. **service@ email-from-WO** (completes vendor procurement) → 3. medium WO/recurring items → 4. Compliance Phase 2 (deadline-rules + document RAG) → 5. smaller comms/invoice follow-ups.
+1. **Review + merge #504** (Vendor Onboarding flow diagram, code done) → 2. Continue the Flows diagrams series — `/apply` Tenant/Buyer Application next → 3. **Pre-registration triage** (small — `/admin/pre-registrations` list page) → 4. medium WO/recurring items → 5. Compliance Phase 2 (deadline-rules + document RAG) → 6. smaller comms/invoice follow-ups.
 
 **Verify on next real call:** the renumbered menu (#497) + payments delivery-channel sub-flow (#498) — confirm a real call reaches the "text/WhatsApp/email?" prompt on digit 1 and the message actually arrives via the chosen channel; confirm a real collections-blocked unit now correctly hears the agency message on digit 1 (not just the test account). Also confirm the resident portal's new "Get my account statement" button delivers a real ledger email in production (local testing was code-path-verified via curl/DB only, since local dev has no email provider credentials).
 
