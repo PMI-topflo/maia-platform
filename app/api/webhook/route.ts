@@ -15,6 +15,7 @@ import { findOrCreateTicket, appendMessage, createTicket } from '@/lib/tickets'
 import { translateToEnglish, detectLanguage, SUPPORTED_LANGS } from '@/lib/translate'
 import { sendSMS, sendWhatsApp, sendWhatsAppTemplate } from '@/lib/twilio-send'
 import { signPreregisterToken } from '@/lib/preregister-token'
+import { associationPortalPath } from '@/lib/association-portal'
 import {
   resolveOwnerUnits, isPhoneVerified, markPhoneVerified,
   sendLedgerOtp, verifyLedgerOtp, deliverLedger, annotateBlocked,
@@ -711,13 +712,13 @@ function languageMenuTwiml(step: 'main' | 'more'): NextResponse {
 }
 
 const CATEGORY_PROMPT: Record<string, string> = {
-  en: 'Please say what you need, or press: 1 for maintenance or a repair. 2 for payments or your account balance. 3 for a new tenant or buyer application. 4 for association documents. Or 5 to leave a message for our team.',
-  es: 'Diga lo que necesita, u oprima: 1 para mantenimiento o una reparación. 2 para pagos o el saldo de su cuenta. 3 para una solicitud de nuevo inquilino o comprador. 4 para documentos de la asociación. O 5 para dejar un mensaje a nuestro equipo.',
-  pt: 'Diga o que precisa, ou aperte: 1 para manutenção ou reparo. 2 para pagamentos ou saldo da sua conta. 3 para uma solicitação de novo inquilino ou comprador. 4 para documentos da associação. Ou 5 para deixar uma mensagem para nossa equipe.',
-  fr: "Dites ce dont vous avez besoin, ou appuyez sur : 1 pour l'entretien ou une réparation. 2 pour les paiements ou votre solde. 3 pour une demande de nouveau locataire ou acheteur. 4 pour les documents de l'association. Ou 5 pour laisser un message à notre équipe.",
-  he: 'אמור מה תרצה, או הקש: 1 לתחזוקה או תיקון. 2 לתשלומים או יתרת החשבון. 3 לבקשת דייר או קונה חדש. 4 למסמכי האגודה. או 5 להשארת הודעה לצוות.',
-  ru: 'Скажите, что вам нужно, или нажмите: 1 — обслуживание или ремонт. 2 — платежи или баланс счёта. 3 — заявка нового арендатора или покупателя. 4 — документы ассоциации. Или 5 — оставить сообщение нашей команде.',
-  ht: 'Di sa ou bezwen, oswa peze: 1 pou antretyen oswa reparasyon. 2 pou peman oswa balans kont ou. 3 pou yon demann nouvo lokatè oswa achtè. 4 pou dokiman asosyasyon an. Oswa 5 pou kite yon mesaj pou ekip nou an.',
+  en: 'Please say what you need, or press: 1 for payments. 2 for your account balance. 3 for maintenance or a repair. 4 for association documents. 5 for a new tenant or buyer application. Or 6 to leave a message for our team.',
+  es: 'Diga lo que necesita, u oprima: 1 para pagos. 2 para el saldo de su cuenta. 3 para mantenimiento o una reparación. 4 para documentos de la asociación. 5 para una solicitud de nuevo inquilino o comprador. O 6 para dejar un mensaje a nuestro equipo.',
+  pt: 'Diga o que precisa, ou aperte: 1 para pagamentos. 2 para saldo da sua conta. 3 para manutenção ou reparo. 4 para documentos da associação. 5 para uma solicitação de novo inquilino ou comprador. Ou 6 para deixar uma mensagem para nossa equipe.',
+  fr: "Dites ce dont vous avez besoin, ou appuyez sur : 1 pour les paiements. 2 pour votre solde. 3 pour l'entretien ou une réparation. 4 pour les documents de l'association. 5 pour une demande de nouveau locataire ou acheteur. Ou 6 pour laisser un message à notre équipe.",
+  he: 'אמור מה תרצה, או הקש: 1 לתשלומים. 2 ליתרת החשבון. 3 לתחזוקה או תיקון. 4 למסמכי האגודה. 5 לבקשת דייר או קונה חדש. או 6 להשארת הודעה לצוות.',
+  ru: 'Скажите, что вам нужно, или нажмите: 1 — платежи. 2 — баланс счёта. 3 — обслуживание или ремонт. 4 — документы ассоциации. 5 — заявка нового арендатора или покупателя. Или 6 — оставить сообщение нашей команде.',
+  ht: 'Di sa ou bezwen, oswa peze: 1 pou peman. 2 pou balans kont ou. 3 pou antretyen oswa reparasyon. 4 pou dokiman asosyasyon an. 5 pou yon demann nouvo lokatè oswa achtè. Oswa 6 pou kite yon mesaj pou ekip nou an.',
 }
 
 // Text-channel (SMS/WhatsApp) version of the same 5 options — a numbered
@@ -726,34 +727,35 @@ const CATEGORY_PROMPT: Record<string, string> = {
 // (no more bare "what do you need?" open question) — free text still
 // routes normally via classifyIntent/getMaiaIntelligentResponse.
 const TEXT_CATEGORY_MENU: Record<string, string> = {
-  en: `What do you need? Reply with a number, or just describe it:\n1️⃣ Maintenance or a repair\n2️⃣ Payments or your account balance\n3️⃣ New tenant or buyer application\n4️⃣ Association documents\n5️⃣ Leave a message for our team`,
-  es: `¿Qué necesitas? Responde con un número, o descríbelo:\n1️⃣ Mantenimiento o una reparación\n2️⃣ Pagos o el saldo de tu cuenta\n3️⃣ Solicitud de nuevo inquilino o comprador\n4️⃣ Documentos de la asociación\n5️⃣ Dejar un mensaje para nuestro equipo`,
-  pt: `O que você precisa? Responda com um número, ou descreva:\n1️⃣ Manutenção ou reparo\n2️⃣ Pagamentos ou saldo da sua conta\n3️⃣ Solicitação de novo inquilino ou comprador\n4️⃣ Documentos da associação\n5️⃣ Deixar uma mensagem para nossa equipe`,
-  fr: `De quoi avez-vous besoin ? Répondez avec un numéro, ou décrivez-le :\n1️⃣ Entretien ou réparation\n2️⃣ Paiements ou solde du compte\n3️⃣ Demande de nouveau locataire ou acheteur\n4️⃣ Documents de l'association\n5️⃣ Laisser un message à notre équipe`,
-  he: `מה תרצה? השב במספר, או פשוט תאר:\n1️⃣ תחזוקה או תיקון\n2️⃣ תשלומים או יתרת חשבון\n3️⃣ בקשת דייר או קונה חדש\n4️⃣ מסמכי האגודה\n5️⃣ להשאיר הודעה לצוות`,
-  ru: `Что вам нужно? Ответьте номером или опишите:\n1️⃣ Обслуживание или ремонт\n2️⃣ Платежи или баланс счёта\n3️⃣ Заявка нового арендатора или покупателя\n4️⃣ Документы ассоциации\n5️⃣ Оставить сообщение нашей команде`,
-  ht: `Kisa ou bezwen? Reponn ak yon nimewo, oswa dekri l:\n1️⃣ Antretyen oswa reparasyon\n2️⃣ Peman oswa balans kont ou\n3️⃣ Demann nouvo lokatè oswa achtè\n4️⃣ Dokiman asosyasyon an\n5️⃣ Kite yon mesaj pou ekip nou an`,
+  en: `What do you need? Reply with a number, or just describe it:\n1️⃣ Payments\n2️⃣ Your account balance\n3️⃣ Maintenance or a repair\n4️⃣ Association documents\n5️⃣ New tenant or buyer application\n6️⃣ Leave a message for our team`,
+  es: `¿Qué necesitas? Responde con un número, o descríbelo:\n1️⃣ Pagos\n2️⃣ El saldo de tu cuenta\n3️⃣ Mantenimiento o una reparación\n4️⃣ Documentos de la asociación\n5️⃣ Solicitud de nuevo inquilino o comprador\n6️⃣ Dejar un mensaje para nuestro equipo`,
+  pt: `O que você precisa? Responda com um número, ou descreva:\n1️⃣ Pagamentos\n2️⃣ Saldo da sua conta\n3️⃣ Manutenção ou reparo\n4️⃣ Documentos da associação\n5️⃣ Solicitação de novo inquilino ou comprador\n6️⃣ Deixar uma mensagem para nossa equipe`,
+  fr: `De quoi avez-vous besoin ? Répondez avec un numéro, ou décrivez-le :\n1️⃣ Paiements\n2️⃣ Votre solde de compte\n3️⃣ Entretien ou réparation\n4️⃣ Documents de l'association\n5️⃣ Demande de nouveau locataire ou acheteur\n6️⃣ Laisser un message à notre équipe`,
+  he: `מה תרצה? השב במספר, או פשוט תאר:\n1️⃣ תשלומים\n2️⃣ יתרת החשבון שלך\n3️⃣ תחזוקה או תיקון\n4️⃣ מסמכי האגודה\n5️⃣ בקשת דייר או קונה חדש\n6️⃣ להשאיר הודעה לצוות`,
+  ru: `Что вам нужно? Ответьте номером или опишите:\n1️⃣ Платежи\n2️⃣ Баланс вашего счёта\n3️⃣ Обслуживание или ремонт\n4️⃣ Документы ассоциации\n5️⃣ Заявка нового арендатора или покупателя\n6️⃣ Оставить сообщение нашей команде`,
+  ht: `Kisa ou bezwen? Reponn ak yon nimewo, oswa dekri l:\n1️⃣ Peman\n2️⃣ Balans kont ou\n3️⃣ Antretyen oswa reparasyon\n4️⃣ Dokiman asosyasyon an\n5️⃣ Demann nouvo lokatè oswa achtè\n6️⃣ Kite yon mesaj pou ekip nou an`,
 }
 
 function textCategoryMenu(lang: string): string {
   return TEXT_CATEGORY_MENU[lang] ?? TEXT_CATEGORY_MENU.en
 }
 
-// Bare-digit reply to the text category menu (1-5, optionally with
+// Bare-digit reply to the text category menu (1-6, optionally with
 // punctuation/emoji around it) — anything else is treated as a real
 // description, not a menu pick.
 function parseTextCategoryDigit(message: string): number | null {
-  const m = message.trim().match(/^([1-5])\D*$/)
+  const m = message.trim().match(/^([1-6])\D*$/)
   return m ? Number(m[1]) : null
 }
 
 async function handleTextCategoryPick(ctx: CallerContext, digit: number): Promise<string> {
   switch (digit) {
-    case 1: return await getMaiaIntelligentResponse(ctx, 'I have a maintenance or repair problem', { intent: 'maintenance', summary: 'Maintenance/repair (text menu)' })
+    case 1: return await handlePaymentInquiry(ctx)
     case 2: return await startLedgerFlow(ctx, ctx.channel === 'whatsapp' ? 'whatsapp' : 'sms')
-    case 3: return await newApplicationResponse(ctx)
+    case 3: return await getMaiaIntelligentResponse(ctx, 'I have a maintenance or repair problem', { intent: 'maintenance', summary: 'Maintenance/repair (text menu)' })
     case 4: return await associationDocumentResponse(ctx)
-    case 5: return await getMaiaIntelligentResponse(ctx, 'I would like to leave a message for the team', { intent: 'general', summary: 'Wants to speak with the team (text menu)' })
+    case 5: return await newApplicationResponse(ctx)
+    case 6: return await getMaiaIntelligentResponse(ctx, 'I would like to leave a message for the team', { intent: 'general', summary: 'Wants to speak with the team (text menu)' })
     default: return textCategoryMenu(ctx.language)
   }
 }
@@ -868,17 +870,41 @@ async function newApplicationResponse(ctx: CallerContext): Promise<string> {
   })
 }
 
+// Points the caller at THEIR association's own document list (governing
+// docs, forms, financials — whatever staff have uploaded for that specific
+// association) instead of the generic CINC WebAxis portal, so they can
+// browse and pick the one they need. Texted always; also emailed when we
+// have an address on file.
 async function associationDocumentResponse(ctx: CallerContext): Promise<string> {
-  const link = 'https://pmitfp.cincwebaxis.com/'
-  try { await sendSMS(ctx.phone, `PMI Top Florida Properties 🌸 Your resident portal: ${link}`) } catch { /* best-effort */ }
+  const base = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
+  const units = await resolveOwnerUnits(ctx.phone)
+  const unit = units.find(u => u.assoc === ctx.associationId) ?? units[0]
+  const assocCode = unit?.assoc ?? ctx.associationId ?? null
+  const path = associationPortalPath(assocCode)
+  const link = path ? `${base}${path}` : `${base}/`
+
+  try { await sendSMS(ctx.phone, `PMI Top Florida Properties 🌸 Your association's documents: ${link}`) } catch { /* best-effort */ }
+
+  let emailed = false
+  if (unit?.email) {
+    try {
+      await sendEmail({
+        to: unit.email,
+        subject: `Your association documents — ${unit.associationName}`,
+        html: `<p>Hello,</p><p>Here's a link to your association's documents — browse and download whichever one you need (governing documents, forms, financials, and more):</p><p><a href="${link}" style="background:#f26a1b;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600">Open your documents →</a></p><p style="color:#6b7280;font-size:12px">${link}</p><p>If you don't see what you're looking for, email support@topfloridaproperties.com and our team will send it to you.</p>`,
+      })
+      emailed = true
+    } catch { /* best-effort */ }
+  }
+
   return translate(ctx.language, {
-    en: `For association documents like governing documents, financials, or meeting minutes, I've texted you a link to your resident portal. If you don't see what you need there, email support@topfloridaproperties.com and our team will send it to you.`,
-    es: `Para documentos de la asociación, como documentos de gobierno, estados financieros o actas de reuniones, te envié un enlace a tu portal de residente. Si no encuentras lo que necesitas ahí, escribe a support@topfloridaproperties.com y nuestro equipo te lo enviará.`,
-    pt: `Para documentos da associação, como documentos de governança, financeiros ou atas de reuniões, enviei um link para o seu portal de morador. Se não encontrar o que precisa lá, envie um e-mail para support@topfloridaproperties.com e nossa equipe vai te enviar.`,
-    fr: `Pour les documents de l'association, comme les documents de gouvernance, les états financiers ou les procès-verbaux, je vous ai envoyé un lien vers votre portail résident. Si vous n'y trouvez pas ce dont vous avez besoin, écrivez à support@topfloridaproperties.com.`,
-    he: `למסמכי האגודה, כמו מסמכי ניהול, דוחות כספיים או פרוטוקולים, שלחתי לך קישור לפורטל הדיירים שלך. אם לא מצאת שם את מה שאתה צריך, שלח מייל ל-support@topfloridaproperties.com והצוות שלנו ישלח לך.`,
-    ru: `Для документов ассоциации, таких как уставные документы, финансовые отчёты или протоколы собраний, я отправила вам ссылку на портал жителя. Если вы не найдёте там нужное, напишите на support@topfloridaproperties.com, и наша команда вышлет вам.`,
-    ht: `Pou dokiman asosyasyon an, tankou dokiman gouvènans, finansye, oswa pwosè-vèbal reyinyon, mwen voye ba ou yon lyen pou pòtay rezidan ou. Si ou pa jwenn sa ou bezwen la, voye yon imèl nan support@topfloridaproperties.com epi ekip nou an ap voye l ba ou.`,
+    en: `I've texted you${emailed ? ' (and emailed you, since I have your address on file)' : ''} a link to your association's documents — you can browse and download whichever one you need. If you don't see what you're looking for, email support@topfloridaproperties.com and our team will send it to you.`,
+    es: `Te envié por mensaje${emailed ? ' (y por correo, ya que tengo tu dirección registrada)' : ''} un enlace a los documentos de tu asociación — puedes explorarlos y descargar el que necesites. Si no encuentras lo que buscas, escribe a support@topfloridaproperties.com y nuestro equipo te lo enviará.`,
+    pt: `Te enviei por mensagem${emailed ? ' (e por e-mail, já que tenho seu endereço registrado)' : ''} um link para os documentos da sua associação — você pode navegar e baixar o que precisar. Se não encontrar o que procura, envie um e-mail para support@topfloridaproperties.com e nossa equipe vai te enviar.`,
+    fr: `Je vous ai envoyé par SMS${emailed ? ' (et par e-mail, puisque j\'ai votre adresse)' : ''} un lien vers les documents de votre association — vous pouvez parcourir et télécharger celui dont vous avez besoin. Si vous ne trouvez pas ce qu'il vous faut, écrivez à support@topfloridaproperties.com.`,
+    he: `שלחתי לך הודעה${emailed ? ' (וגם מייל, כי יש לי את הכתובת שלך)' : ''} עם קישור למסמכי האגודה שלך — תוכל לעיין ולהוריד את מה שאתה צריך. אם לא מצאת את מה שחיפשת, שלח מייל ל-support@topfloridaproperties.com.`,
+    ru: `Я отправила вам сообщение${emailed ? ' (и письмо на почту, так как у меня есть ваш адрес)' : ''} со ссылкой на документы вашей ассоциации — вы можете просмотреть и скачать нужный. Если не найдёте то, что искали, напишите на support@topfloridaproperties.com.`,
+    ht: `Mwen voye ba ou yon mesaj${emailed ? ' (ak yon imèl, paske mwen gen adrès ou)' : ''} ak yon lyen pou dokiman asosyasyon ou — ou ka gade epi telechaje sa ou bezwen. Si ou pa jwenn sa ou t ap chèche a, voye yon imèl nan support@topfloridaproperties.com.`,
   })
 }
 
@@ -892,11 +918,12 @@ async function handleVoiceCategorySelect(phone: string, speechText: string, ctx:
   let responseText: string
   try {
     switch (digit) {
-      case 1: responseText = await getMaiaIntelligentResponse(ctx, 'I have a maintenance or repair problem', { intent: 'maintenance', summary: 'Maintenance/repair (phone menu)' }); break
+      case 1: responseText = await handlePaymentInquiry(ctx); break
       case 2: responseText = await startLedgerFlow(ctx); break
-      case 3: responseText = await newApplicationResponse(ctx); break
+      case 3: responseText = await getMaiaIntelligentResponse(ctx, 'I have a maintenance or repair problem', { intent: 'maintenance', summary: 'Maintenance/repair (phone menu)' }); break
       case 4: responseText = await associationDocumentResponse(ctx); break
-      case 5: responseText = await getMaiaIntelligentResponse(ctx, 'I would like to leave a message for the team', { intent: 'general', summary: 'Wants to speak with the team (phone menu)' }); break
+      case 5: responseText = await newApplicationResponse(ctx); break
+      case 6: responseText = await getMaiaIntelligentResponse(ctx, 'I would like to leave a message for the team', { intent: 'general', summary: 'Wants to speak with the team (phone menu)' }); break
       default:
         await saveConversationState(phone, 'voice_menu', 'awaiting', {})
         return categoryMenuTwiml(ctx.language, translate(ctx.language, { en: "Sorry, I didn't catch that. ", es: 'Perdón, no entendí. ', pt: 'Desculpe, não entendi. ', fr: "Désolée, je n'ai pas compris. " }))
@@ -2534,7 +2561,16 @@ async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
     ru: `\n\n2️⃣ *Оплата онлайн*: https://pmitfp.cincwebaxis.com/`,
     ht: `\n\n2️⃣ *Peye anliy*: https://pmitfp.cincwebaxis.com/`,
   })
-  const rest = payOnline + check
+  const app = translate(ctx.language, {
+    en: `\n\n4️⃣ *Pay from the PMI app* — Property Management Inc.\n🍎 iPhone: https://apps.apple.com/us/app/property-management-inc/id1572855043\n🤖 Android: https://play.google.com/store/apps/details?id=com.cinc.pmiapp&hl=en_US`,
+    es: `\n\n4️⃣ *Pagar desde la app de PMI* — Property Management Inc.\n🍎 iPhone: https://apps.apple.com/us/app/property-management-inc/id1572855043\n🤖 Android: https://play.google.com/store/apps/details?id=com.cinc.pmiapp&hl=en_US`,
+    pt: `\n\n4️⃣ *Pagar pelo app da PMI* — Property Management Inc.\n🍎 iPhone: https://apps.apple.com/us/app/property-management-inc/id1572855043\n🤖 Android: https://play.google.com/store/apps/details?id=com.cinc.pmiapp&hl=en_US`,
+    fr: `\n\n4️⃣ *Payer depuis l'appli PMI* — Property Management Inc.\n🍎 iPhone : https://apps.apple.com/us/app/property-management-inc/id1572855043\n🤖 Android : https://play.google.com/store/apps/details?id=com.cinc.pmiapp&hl=en_US`,
+    he: `\n\n4️⃣ *תשלום דרך אפליקציית PMI* — Property Management Inc.\n🍎 iPhone: https://apps.apple.com/us/app/property-management-inc/id1572855043\n🤖 Android: https://play.google.com/store/apps/details?id=com.cinc.pmiapp&hl=en_US`,
+    ru: `\n\n4️⃣ *Оплата через приложение PMI* — Property Management Inc.\n🍎 iPhone: https://apps.apple.com/us/app/property-management-inc/id1572855043\n🤖 Android: https://play.google.com/store/apps/details?id=com.cinc.pmiapp&hl=en_US`,
+    ht: `\n\n4️⃣ *Peye nan app PMI a* — Property Management Inc.\n🍎 iPhone: https://apps.apple.com/us/app/property-management-inc/id1572855043\n🤖 Android: https://play.google.com/store/apps/details?id=com.cinc.pmiapp&hl=en_US`,
+  })
+  const rest = payOnline + check + app
 
   const header = translate(ctx.language, { en: `💰 Hi ${name}! Ways to pay your association:\n\n`, es: `💰 ¡Hola ${name}! Formas de pagar tu asociación:\n\n`, pt: `💰 Olá ${name}! Formas de pagar sua associação:\n\n`, fr: `💰 Bonjour ${name}!\n\n`, he: `💰 שלום ${name}!\n\n`, ru: `💰 Привет ${name}!\n\n`, ht: `💰 Bonjou ${name}!\n\n` })
   return header + achLine + rest
