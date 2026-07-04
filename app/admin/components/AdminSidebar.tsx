@@ -37,6 +37,7 @@ const NAV: Node[] = [
     { label: 'Board Setup', href: '/admin/board-setup' },
     { label: 'Ownership History', href: '/admin/ownership-history' },
     { label: 'Tenancy History', href: '/admin/tenancy-history' },
+    { label: 'Unit Status', href: '/admin/unit-status' },
   ] },
   { type: 'group', label: 'Accounting', icon: '$', items: [
     { label: 'Invoices', href: '/admin/invoices' },
