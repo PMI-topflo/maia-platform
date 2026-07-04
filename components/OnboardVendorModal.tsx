@@ -15,14 +15,18 @@ import { useEffect, useState } from 'react'
 interface Match { vendorId: number; name: string; dba: string | null; email: string | null; phone: string | null; address: string | null; score: number; reasons: string[] }
 interface VType { id: string; name: string }
 
-export default function OnboardVendorModal({ onClose, prefill }: {
+export default function OnboardVendorModal({ onClose, onSuccess, prefill }: {
   onClose: () => void
-  prefill?: { name?: string | null; email?: string | null }
+  /** Fires once, only after a vendor is actually created/linked — NOT on
+   *  cancel/backdrop-click/× (those only call onClose). Use this for any
+   *  side effect that should depend on the vendor really being onboarded. */
+  onSuccess?: () => void
+  prefill?: { name?: string | null; email?: string | null; phone?: string | null }
 }) {
   const [name, setName]   = useState(prefill?.name ?? '')
   const [dba, setDba]     = useState('')
   const [email, setEmail] = useState(prefill?.email ?? '')
-  const [phone, setPhone] = useState('')
+  const [phone, setPhone] = useState(prefill?.phone ?? '')
   const [address1, setAddress1] = useState('')
   const [city, setCity]   = useState('')
   const [state, setState] = useState('')
@@ -78,6 +82,7 @@ export default function OnboardVendorModal({ onClose, prefill }: {
       const d = await r.json()
       if (!r.ok) throw new Error(d?.error ?? `${action} failed`)
       setDone({ link: d.link, emailed: !!d.emailed, linked: action === 'link' })
+      onSuccess?.()
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)) } finally { setBusy(null) }
   }
 

@@ -4,10 +4,43 @@ import { useState } from 'react'
 
 type TabKey = 'owner' | 'board' | 'unit_manager' | 'building_manager' | 'agent' | 'vendor' | 'staff'
 
+interface Prefill { fullName?: string; email?: string; phone?: string; association?: string }
+
 interface Props {
   associations: Array<{ association_code: string; association_name: string }>
   onClose: () => void
   onAdded: () => void
+  initialTab?: TabKey
+  prefill?: Prefill
+}
+
+/** Maps a generic {fullName, email, phone} prefill onto the field names
+ *  each tab actually uses (owner/board split into first/last name; agent
+ *  keeps one full_name field; etc). Used when opening from an external
+ *  source (e.g. the pre-registrations dashboard) that only has a single
+ *  name string, not pre-split first/last. */
+function prefillForTab(tab: TabKey, p?: Prefill): Record<string, string> {
+  if (!p) return {}
+  const [first, ...rest] = (p.fullName ?? '').trim().split(/\s+/)
+  const last = rest.join(' ')
+  const assocCode = p.association ?? ''
+  switch (tab) {
+    case 'owner':
+      return { first_name: first ?? '', last_name: last, emails: p.email ?? '', phone: p.phone ?? '', association_code: assocCode }
+    case 'board':
+      return { first_name: first ?? '', last_name: last, email: p.email ?? '', phone: p.phone ?? '', association_code: assocCode }
+    case 'unit_manager':
+    case 'building_manager':
+      return { first_name: first ?? '', last_name: last, email: p.email ?? '', phone: p.phone ?? '', association_code: assocCode }
+    case 'agent':
+      return { full_name: p.fullName ?? '', email: p.email ?? '', phone: p.phone ?? '' }
+    case 'vendor':
+      return { company_name: p.fullName ?? '', email: p.email ?? '', phone: p.phone ?? '' }
+    case 'staff':
+      return { name: p.fullName ?? '', email: p.email ?? '', phone: p.phone ?? '' }
+    default:
+      return {}
+  }
 }
 
 const TABS: { key: TabKey; label: string; icon: string }[] = [
@@ -28,9 +61,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><label className={labelCls}>{label}</label>{children}</div>
 }
 
-export default function AddPersonModal({ associations, onClose, onAdded }: Props) {
-  const [tab,    setTab]    = useState<TabKey>('owner')
-  const [form,   setForm]   = useState<Record<string, string>>({})
+export default function AddPersonModal({ associations, onClose, onAdded, initialTab, prefill }: Props) {
+  const [tab,    setTab]    = useState<TabKey>(initialTab ?? 'owner')
+  const [form,   setForm]   = useState<Record<string, string>>(() => prefillForTab(initialTab ?? 'owner', prefill))
   const [busy,   setBusy]   = useState(false)
   const [error,  setError]  = useState('')
   const [done,   setDone]   = useState(false)
@@ -38,7 +71,7 @@ export default function AddPersonModal({ associations, onClose, onAdded }: Props
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
 
-  function switchTab(t: TabKey) { setTab(t); setForm({}); setError('') }
+  function switchTab(t: TabKey) { setTab(t); setForm(prefillForTab(t, prefill)); setError('') }
 
   async function submit() {
     setBusy(true); setError('')

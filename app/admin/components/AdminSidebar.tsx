@@ -45,6 +45,7 @@ const NAV: Node[] = [
   ] },
   { type: 'group', label: 'Leasing', icon: '📝', items: [
     { label: 'Applications', href: '/admin/applications' },
+    { label: 'Pre-Registrations', href: '/admin/pre-registrations' },
     { label: 'Registrations', href: '/admin/registrations' },
     { label: 'Approvals', href: '/admin/pending-approvals' },
   ] },
