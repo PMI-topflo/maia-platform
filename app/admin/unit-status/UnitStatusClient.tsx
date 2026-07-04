@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import DriveImport from '@/app/admin/documents/inbox/DriveImport'
 
 interface UnitRow {
   associationCode: string; associationName: string | null; unit: string | null
@@ -27,6 +28,9 @@ export default function UnitStatusClient({ associations }: { associations: Array
   const [assocFilter, setAssocFilter] = useState('')
   const [occFilter, setOccFilter] = useState('')
   const [expiringOnly, setExpiringOnly] = useState(false)
+  const [surveyPreview, setSurveyPreview] = useState<{ sent: number; scanned: number } | null>(null)
+  const [surveyBusy, setSurveyBusy] = useState(false)
+  const [surveyMsg, setSurveyMsg] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/admin/unit-status').then(r => r.json()).then(d => setRows(d.rows ?? [])).catch(() => setRows([]))
@@ -56,10 +60,35 @@ export default function UnitStatusClient({ associations }: { associations: Array
 
   const selectCls = 'rounded border border-gray-300 px-2.5 py-1.5 text-xs'
 
+  async function previewSurvey() {
+    setSurveyBusy(true); setSurveyMsg(null); setSurveyPreview(null)
+    try {
+      const res = await fetch('/api/admin/unit-status/send-survey', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ assoc: assocFilter || undefined }),
+      })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j?.error ?? 'failed')
+      setSurveyPreview({ sent: j.sent, scanned: j.scanned })
+    } catch (e) { setSurveyMsg(e instanceof Error ? e.message : String(e)) } finally { setSurveyBusy(false) }
+  }
+
+  async function sendSurveyForReal() {
+    setSurveyBusy(true); setSurveyMsg(null)
+    try {
+      const res = await fetch('/api/admin/unit-status/send-survey', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ assoc: assocFilter || undefined, confirm: true }),
+      })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j?.error ?? 'failed')
+      setSurveyMsg(`Sent to ${j.sent} owner(s).`)
+      setSurveyPreview(null)
+    } catch (e) { setSurveyMsg(e instanceof Error ? e.message : String(e)) } finally { setSurveyBusy(false) }
+  }
+
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <select value={assocFilter} onChange={e => setAssocFilter(e.target.value)} className={selectCls}>
+        <select value={assocFilter} onChange={e => { setAssocFilter(e.target.value); setSurveyPreview(null); setSurveyMsg(null) }} className={selectCls}>
           <option value="">All associations</option>
           {associations.map(a => <option key={a.association_code} value={a.association_code}>{a.association_name} ({a.association_code})</option>)}
         </select>
@@ -75,7 +104,24 @@ export default function UnitStatusClient({ associations }: { associations: Array
           Lease expiring within 30 days
         </label>
         <span className="text-xs text-gray-400">{filtered.length} of {rows.length} units</span>
+
+        <div className="ml-auto flex items-center gap-2">
+          {surveyPreview ? (
+            <>
+              <span className="text-xs text-gray-600">Would email {surveyPreview.sent} of {surveyPreview.scanned} owner(s){assocFilter ? ` in ${assocFilter}` : ''}.</span>
+              <button onClick={sendSurveyForReal} disabled={surveyBusy} className="rounded bg-[#f26a1b] px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-[#d85a10] disabled:opacity-50">
+                {surveyBusy ? 'Sending…' : 'Confirm send'}
+              </button>
+              <button onClick={() => setSurveyPreview(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+            </>
+          ) : (
+            <button onClick={previewSurvey} disabled={surveyBusy} className="rounded border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+              {surveyBusy ? 'Checking…' : 'Send occupancy & insurance survey…'}
+            </button>
+          )}
+        </div>
       </div>
+      {surveyMsg && <div className="mb-3 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">{surveyMsg}</div>}
 
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
         <table className="w-full text-sm">
@@ -113,6 +159,10 @@ export default function UnitStatusClient({ associations }: { associations: Array
           </tbody>
         </table>
         {filtered.length === 0 && <p className="p-6 text-center text-sm text-gray-400">No units match this filter.</p>}
+      </div>
+
+      <div className="mt-4">
+        <DriveImport onImported={() => setSurveyMsg('Imported — review in Document Inbox to file it.')} />
       </div>
     </div>
   )

@@ -9,7 +9,7 @@
 import { NextResponse } from 'next/server'
 import { verifyOwnerComplianceToken } from '@/lib/owner-portal-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { getUnitComplianceState, setUnitOccupancy, OCCUPANCY_LABEL, type Occupancy } from '@/lib/unit-required-docs'
+import { getUnitComplianceState, setUnitOccupancy, setCommercialUseType, OCCUPANCY_LABEL, type Occupancy } from '@/lib/unit-required-docs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -38,10 +38,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     else await supabaseAdmin.from('owner_compliance_requests').insert({ association_code: cx.assoc, unit_ref: cx.account, opened_at: new Date().toISOString() })
   })().catch(() => null)
 
-  const { occupancy, missing } = await getUnitComplianceState(cx.assoc, cx.account)
+  const { occupancy, kind, commercialUseType, missing } = await getUnitComplianceState(cx.assoc, cx.account)
   return NextResponse.json({
     ownerName: cx.ownerName, unit: cx.unit, associationName: cx.associationName,
-    occupancy, occupancyLabel: occupancy ? OCCUPANCY_LABEL[occupancy] : null, missing,
+    occupancy, occupancyLabel: occupancy ? OCCUPANCY_LABEL[occupancy] : null, kind, commercialUseType, missing,
   })
 }
 
@@ -50,8 +50,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const cx = await ownerContext(token)
   if (!cx) return NextResponse.json({ error: 'invalid or expired link' }, { status: 401 })
 
-  let body: { status?: string }
+  let body: { status?: string; commercialUseType?: string }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
+
+  if (body.commercialUseType !== undefined) {
+    const saved = await setCommercialUseType(cx.assoc, cx.account, body.commercialUseType, 'owner')
+    if (!saved) return NextResponse.json({ error: 'Please pick how the unit is used above first.' }, { status: 409 })
+    const { missing } = await getUnitComplianceState(cx.assoc, cx.account)
+    return NextResponse.json({ ok: true, commercialUseType: body.commercialUseType, missing })
+  }
+
   const status = body.status as Occupancy
   if (!['owner_occupied', 'leased', 'vacant'].includes(status)) return NextResponse.json({ error: 'pick owner-occupied, leased, or vacant' }, { status: 400 })
 

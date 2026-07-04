@@ -45,27 +45,41 @@ export function requiredItemKeys(kind: AssocKind, occupancy: Occupancy | null): 
   return req
 }
 
-export interface MissingItem { key: string; label: string }
+export interface MissingItem { key: string; label: string; declaredType: string | null }
 const onFileSet = (recs: { item_key: string; status: string }[] | null) =>
   new Set((recs ?? []).filter(r => r.status !== 'missing' && r.status !== 'na').map(r => r.item_key))
 
+/** Self-report insurance-type choices, by item_key — shown as a dropdown next
+ *  to that item on the owner survey. Deliberately not the single "expected"
+ *  policy: an owner's real coverage sometimes differs, and that mismatch is
+ *  itself the compliance signal worth surfacing. */
+export const INSURANCE_TYPE_OPTIONS: Record<string, string[]> = {
+  'unit.ho6': ['HO-6 (Condo/Co-op Unit Owners Policy)', 'HO-3 (Homeowners Policy)', 'Landlord/Rental Dwelling Policy', 'Umbrella/Other', 'None currently'],
+  'unit.ho3': ['HO-3 (Homeowners Policy)', 'Landlord/Rental Dwelling Policy', 'Umbrella/Other', 'None currently'],
+  'unit.commercial_property': ['Commercial Package Policy (CPP)', 'Business Owners Policy (BOP)', 'Separate Property + Liability', 'Umbrella/Other', 'None currently'],
+  'unit.vacant_policy': ['Vacant Property Policy', 'None currently'],
+  'unit.ho4': ['HO-4 (Renters/Tenant Policy)', 'Other', 'None currently'],
+  'unit.cgl': ['Commercial General Liability (CGL)', 'CGL + Property', 'Other', 'None currently'],
+}
+
 /** This unit's occupancy + which required documents are still missing. */
-export async function getUnitComplianceState(assoc: string, unitRef: string): Promise<{ occupancy: Occupancy | null; kind: AssocKind; missing: MissingItem[] }> {
+export async function getUnitComplianceState(assoc: string, unitRef: string): Promise<{ occupancy: Occupancy | null; kind: AssocKind; commercialUseType: string | null; missing: MissingItem[] }> {
   const [{ data: occ }, { data: recs }, kind] = await Promise.all([
-    supabaseAdmin.from('unit_occupancy').select('status').eq('association_code', assoc).eq('unit_ref', unitRef).maybeSingle(),
-    supabaseAdmin.from('compliance_records').select('item_key, status').eq('association_code', assoc).eq('scope', 'unit').eq('unit_ref', unitRef),
+    supabaseAdmin.from('unit_occupancy').select('status, commercial_use_type').eq('association_code', assoc).eq('unit_ref', unitRef).maybeSingle(),
+    supabaseAdmin.from('compliance_records').select('item_key, status, declared_type').eq('association_code', assoc).eq('scope', 'unit').eq('unit_ref', unitRef),
     associationKind(assoc),
   ])
   const occupancy = (occ?.status as Occupancy | undefined) ?? null
   const onFile = onFileSet(recs)
-  const missing = requiredItemKeys(kind, occupancy).filter(k => !onFile.has(k)).map(k => ({ key: k, label: labelFor(k) }))
-  return { occupancy, kind, missing }
+  const declaredByKey = new Map((recs ?? []).map(r => [r.item_key as string, r.declared_type as string | null]))
+  const missing = requiredItemKeys(kind, occupancy).filter(k => !onFile.has(k)).map(k => ({ key: k, label: labelFor(k), declaredType: declaredByKey.get(k) ?? null }))
+  return { occupancy, kind, commercialUseType: (occ?.commercial_use_type as string | null) ?? null, missing }
 }
 
 /** What a TENANT must provide, by association kind (commercial → CGL+COI). */
 export async function getTenantComplianceState(assoc: string, unitRef: string): Promise<{ missing: MissingItem[]; commercial: boolean }> {
   const [{ data: recs }, kind] = await Promise.all([
-    supabaseAdmin.from('compliance_records').select('item_key, status').eq('association_code', assoc).eq('scope', 'unit').eq('unit_ref', unitRef),
+    supabaseAdmin.from('compliance_records').select('item_key, status, declared_type').eq('association_code', assoc).eq('scope', 'unit').eq('unit_ref', unitRef),
     associationKind(assoc),
   ])
   const commercial = kind === 'commercial'
@@ -74,7 +88,8 @@ export async function getTenantComplianceState(assoc: string, unitRef: string): 
   const required = ['unit.tenant', 'unit.vehicle', 'unit.rules_ack', 'unit.leasing', commercial ? 'unit.cgl' : 'unit.ho4']
   required.push(commercial ? 'unit.usage_type' : 'unit.pet')
   const onFile = onFileSet(recs)
-  return { missing: required.filter(k => !onFile.has(k)).map(k => ({ key: k, label: labelFor(k) })), commercial }
+  const declaredByKey = new Map((recs ?? []).map(r => [r.item_key as string, r.declared_type as string | null]))
+  return { missing: required.filter(k => !onFile.has(k)).map(k => ({ key: k, label: labelFor(k), declaredType: declaredByKey.get(k) ?? null })), commercial }
 }
 
 export async function setUnitOccupancy(assoc: string, unitRef: string, status: Occupancy, updatedBy: string): Promise<void> {
@@ -82,4 +97,35 @@ export async function setUnitOccupancy(assoc: string, unitRef: string, status: O
     { association_code: assoc, unit_ref: unitRef, status, updated_by: updatedBy, updated_at: new Date().toISOString() },
     { onConflict: 'association_code,unit_ref' },
   )
+}
+
+/** unit_occupancy.status is NOT NULL — a use-type save can't create a row
+ *  from scratch (there'd be no occupancy value to put in it), only update
+ *  one that already exists. Returns false when the owner hasn't picked
+ *  occupancy yet, so the caller can ask for that first. */
+export async function setCommercialUseType(assoc: string, unitRef: string, useType: string, updatedBy: string): Promise<boolean> {
+  const { data: existing } = await supabaseAdmin.from('unit_occupancy')
+    .select('id').eq('association_code', assoc).eq('unit_ref', unitRef).maybeSingle()
+  if (!existing) return false
+  await supabaseAdmin.from('unit_occupancy')
+    .update({ commercial_use_type: useType, updated_by: updatedBy, updated_at: new Date().toISOString() })
+    .eq('id', existing.id)
+  return true
+}
+
+/** Self-reported insurance-type dropdown for a specific item — stored on
+ *  compliance_records without disturbing an existing status (declaring a
+ *  type is metadata about intent, not the same as the document being on
+ *  file/reviewed). Inserts a 'missing' placeholder row only if none exists. */
+export async function setDeclaredType(assoc: string, unitRef: string, itemKey: string, declaredType: string, updatedBy: string): Promise<void> {
+  const { data: existing } = await supabaseAdmin.from('compliance_records')
+    .select('id').eq('association_code', assoc).eq('scope', 'unit').eq('unit_ref', unitRef).eq('item_key', itemKey).maybeSingle()
+  if (existing) {
+    await supabaseAdmin.from('compliance_records').update({ declared_type: declaredType, updated_by: updatedBy }).eq('id', existing.id)
+  } else {
+    await supabaseAdmin.from('compliance_records').insert({
+      scope: 'unit', association_code: assoc, unit_ref: unitRef, item_key: itemKey,
+      applicable: true, status: 'missing', declared_type: declaredType, updated_by: updatedBy,
+    })
+  }
 }

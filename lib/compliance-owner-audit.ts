@@ -26,7 +26,13 @@ export interface AuditResult {
   samples: { account: string; email: string | null; missing: string[] }[]
 }
 
-export async function runOwnerComplianceAudit(opts: { assoc?: string | null; dryRun?: boolean; limit?: number } = {}): Promise<AuditResult> {
+/** opts.surveyMode: sends to EVERY active owner regardless of whether their
+ *  file is already complete (an explicit occupancy/insurance-type survey
+ *  campaign, staff-triggered from /admin/unit-status) — the normal mode
+ *  only reaches out when something's missing. Both modes share the same
+ *  owner_compliance_requests cadence/cap so a survey send doesn't re-spam
+ *  someone the automated audit already reached this cycle. */
+export async function runOwnerComplianceAudit(opts: { assoc?: string | null; dryRun?: boolean; limit?: number; surveyMode?: boolean } = {}): Promise<AuditResult> {
   const limit = Math.max(1, Math.min(opts.limit ?? 50, 500))
   let q = supabaseAdmin.from('owners')
     .select('account_number, association_code, emails, first_name, last_name, association_name')
@@ -46,13 +52,14 @@ export async function runOwnerComplianceAudit(opts: { assoc?: string | null; dry
     res.scanned++
 
     const { missing } = await getUnitComplianceState(o.association_code, o.account_number)
-    // Mark resolved + skip when the unit's file is complete.
+    // Mark resolved + skip when the unit's file is complete — unless this is
+    // a deliberate survey send, which goes out to everyone regardless.
     if (missing.length === 0) {
       await supabaseAdmin.from('owner_compliance_requests')
         .update({ resolved_at: new Date().toISOString() })
         .eq('association_code', o.association_code).eq('unit_ref', o.account_number).is('resolved_at', null)
         .then(() => null, () => null)
-      continue
+      if (!opts.surveyMode) continue
     }
     res.needDocs++
     const email = firstEmail(o.emails)
@@ -70,15 +77,21 @@ export async function runOwnerComplianceAudit(opts: { assoc?: string | null; dry
 
     const name = [o.first_name, o.last_name].filter(Boolean).join(' ').trim()
     const link = `${APP}/owner/compliance/${await signOwnerComplianceToken(o.association_code, o.account_number)}`
-    const list = missing.map(m => `<li>${esc(m.label)}</li>`).join('')
+    const subject = opts.surveyMode
+      ? `Quick survey — occupancy & insurance for your unit at ${o.association_name ?? o.association_code}`
+      : `Documents needed for your unit — ${o.association_name ?? o.association_code}`
+    const intro = opts.surveyMode
+      ? `<p>PMI Top Florida Properties manages <strong>${esc(o.association_name ?? o.association_code)}</strong>. We're updating our records — please confirm how your unit is used and what insurance you carry, and upload anything below we don't already have on file:</p>`
+      : `<p>PMI Top Florida Properties manages <strong>${esc(o.association_name ?? o.association_code)}</strong>. To keep your unit file current, we still need:</p>`
+    const list = missing.length > 0 ? `<ul>${missing.map(m => `<li>${esc(m.label)}</li>`).join('')}</ul>` : ''
     await sendEmail({
       to: email,
-      subject: `Documents needed for your unit — ${o.association_name ?? o.association_code}`,
+      subject,
       html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
         <p>Hello${name ? ` ${esc(name)}` : ''},</p>
-        <p>PMI Top Florida Properties manages <strong>${esc(o.association_name ?? o.association_code)}</strong>. To keep your unit file current, we still need:</p>
-        <ul>${list}</ul>
-        <p style="margin:22px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Confirm &amp; upload →</a></p>
+        ${intro}
+        ${list}
+        <p style="margin:22px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">${opts.surveyMode ? 'Take the survey →' : 'Confirm &amp; upload →'}</a></p>
         <p style="color:#6b7280;font-size:12px">No account needed. This link is specific to your unit and expires in 30 days.</p>
         <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p>
       </div>`,

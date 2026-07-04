@@ -2747,6 +2747,16 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `ALTER TABLE public.maia_knowledge ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'knowledge';
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'unit_survey_fields',
+    label:       'Unit occupancy/insurance survey fields',
+    description: 'compliance_records.declared_type (self-reported insurance policy type, independent of doc review status) + unit_occupancy.commercial_use_type (business/usage type, commercial units only) — powers the owner occupancy/insurance survey campaign from /admin/unit-status',
+    filename:    '20260704_unit_survey_fields.sql',
+    artifact:    { type: 'column', table: 'compliance_records', column: 'declared_type' },
+    sql: `ALTER TABLE public.compliance_records ADD COLUMN IF NOT EXISTS declared_type text;
+ALTER TABLE public.unit_occupancy ADD COLUMN IF NOT EXISTS commercial_use_type text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

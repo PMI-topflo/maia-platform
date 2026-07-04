@@ -2,14 +2,20 @@
 
 import { useEffect, useState } from 'react'
 
-interface MissingItem { key: string; label: string }
-interface Status { ownerName: string | null; unit: string | null; associationName: string | null; occupancy: string | null; missing: MissingItem[] }
+interface MissingItem { key: string; label: string; declaredType: string | null }
+interface Status { ownerName: string | null; unit: string | null; associationName: string | null; occupancy: string | null; kind: string; commercialUseType: string | null; missing: MissingItem[] }
 type Occ = 'owner_occupied' | 'leased' | 'vacant'
 const OCC: { key: Occ; label: string; hint: string }[] = [
   { key: 'owner_occupied', label: 'Owner-occupied', hint: 'You live here' },
   { key: 'leased', label: 'Leased', hint: 'A tenant rents it' },
   { key: 'vacant', label: 'Vacant', hint: 'No one lives here' },
 ]
+const INSURANCE_TYPE_OPTIONS: Record<string, string[]> = {
+  'unit.ho6': ['HO-6 (Condo/Co-op Unit Owners Policy)', 'HO-3 (Homeowners Policy)', 'Landlord/Rental Dwelling Policy', 'Umbrella/Other', 'None currently'],
+  'unit.ho3': ['HO-3 (Homeowners Policy)', 'Landlord/Rental Dwelling Policy', 'Umbrella/Other', 'None currently'],
+  'unit.commercial_property': ['Commercial Package Policy (CPP)', 'Business Owners Policy (BOP)', 'Separate Property + Liability', 'Umbrella/Other', 'None currently'],
+  'unit.vacant_policy': ['Vacant Property Policy', 'None currently'],
+}
 
 export default function OwnerComplianceClient({ token }: { token: string }) {
   const [s, setS] = useState<Status | null>(null)
@@ -21,6 +27,8 @@ export default function OwnerComplianceClient({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null)
   const [tName, setTName] = useState(''); const [tPhone, setTPhone] = useState(''); const [tEmail, setTEmail] = useState('')
   const [savingTenant, setSavingTenant] = useState(false); const [tenantSaved, setTenantSaved] = useState(false)
+  const [useType, setUseType] = useState(''); const [savingUseType, setSavingUseType] = useState(false); const [useTypeSaved, setUseTypeSaved] = useState(false)
+  const [savingDeclared, setSavingDeclared] = useState<string | null>(null)
 
   async function saveTenant() {
     setError(null)
@@ -37,11 +45,31 @@ export default function OwnerComplianceClient({ token }: { token: string }) {
   useEffect(() => {
     let alive = true
     fetch(`/api/owner/compliance/${token}`).then(r => r.json())
-      .then((d: Status) => { if (alive) setS(d) })
+      .then((d: Status) => { if (alive) { setS(d); setUseType(d.commercialUseType ?? '') } })
       .catch(() => { if (alive) setError('Could not load your unit.') })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
   }, [token])
+
+  async function saveUseType() {
+    setSavingUseType(true); setError(null)
+    try {
+      const res = await fetch(`/api/owner/compliance/${token}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ commercialUseType: useType }) })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j?.error ?? 'failed')
+      setS(prev => prev ? { ...prev, commercialUseType: useType, missing: j.missing ?? prev.missing } : prev); setUseTypeSaved(true)
+    } catch (e) { setError((e as Error).message) } finally { setSavingUseType(false) }
+  }
+
+  async function declareType(itemKey: string, declaredType: string) {
+    setSavingDeclared(itemKey); setError(null)
+    try {
+      const res = await fetch(`/api/owner/compliance/${token}/declare-type`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ itemKey, declaredType }) })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j?.error ?? 'failed')
+      setS(prev => prev ? { ...prev, missing: j.missing ?? prev.missing } : prev)
+    } catch (e) { setError((e as Error).message) } finally { setSavingDeclared(null) }
+  }
 
   async function setOccupancy(status: Occ) {
     setSavingOcc(status); setError(null)
@@ -97,6 +125,15 @@ export default function OwnerComplianceClient({ token }: { token: string }) {
         })}
       </div>
 
+      {/* Business/usage type — commercial units only */}
+      {s.kind === 'commercial' && (
+        <div style={{ border: '1px solid #dbeafe', background: '#eff6ff', borderRadius: 8, padding: 14, marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#1e40af', marginBottom: 8 }}>What is this unit used for?</div>
+          <input value={useType} onChange={e => { setUseType(e.target.value); setUseTypeSaved(false) }} placeholder="e.g. Retail, Restaurant, Professional office, Warehouse" style={{ width: '100%', padding: '9px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, marginBottom: 10, boxSizing: 'border-box' }} />
+          <button onClick={saveUseType} disabled={savingUseType || !useType.trim()} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: useTypeSaved ? '#059669' : '#f26a1b', color: '#fff', fontSize: 13, fontWeight: 600 }}>{savingUseType ? 'Saving…' : useTypeSaved ? '✓ Saved' : 'Save'}</button>
+        </div>
+      )}
+
       {/* Tenant info — only when leased */}
       {s.occupancy === 'leased' && (
         <div style={{ border: '1px solid #fed7aa', background: '#fff7ed', borderRadius: 8, padding: 14, marginBottom: 20 }}>
@@ -119,11 +156,21 @@ export default function OwnerComplianceClient({ token }: { token: string }) {
         </div>
       ) : (
         <ul style={{ margin: '0 0 18px', padding: 0, listStyle: 'none' }}>
-          {s.missing.map(m => (
-            <li key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', padding: '5px 0', borderTop: '1px solid #f1f5f9' }}>
-              <span style={{ color: '#dc2626' }}>•</span>{m.label}
-            </li>
-          ))}
+          {s.missing.map(m => {
+            const options = INSURANCE_TYPE_OPTIONS[m.key]
+            return (
+              <li key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: '#374151', padding: '5px 0', borderTop: '1px solid #f1f5f9', flexWrap: 'wrap' }}>
+                <span style={{ color: '#dc2626' }}>•</span>{m.label}
+                {options && (
+                  <select value={m.declaredType ?? ''} disabled={savingDeclared === m.key} onChange={e => declareType(m.key, e.target.value)}
+                    style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: 6 }}>
+                    <option value="" disabled>What type do you carry?</option>
+                    {options.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
 
