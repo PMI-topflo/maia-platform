@@ -1,13 +1,19 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-07-03**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-07-04**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
 
 ---
 
-## ✅ Shipped & live — Flows diagrams initiative (#502, merged + verified landed)
+## ✅ Shipped & live — Pre-registration triage Phase 1 (#505, merged + verified landed)
+
+See the full entry under "Development backlog" below (kept there since it started as that backlog item) — staff alert broadened to all staff, `/admin/pre-registrations` dashboard, Approve/Add routes per persona to existing mechanisms (owner/board/agent/vendor/buyer). Tenant is a placeholder pending Phase 2 (lease + board-approval-letter verification — design agreed, not built, see `pre_registration_triage.md` in memory).
+
+---
+
+## ✅ Shipped & live — Flows diagrams initiative (#502, #504, both merged + verified landed)
 
 - **Flow inventory** — MAIA has ~51 distinct end-to-end business flows across 10 categories (communications, invoicing, vendor management, work orders/estimates, recurring services, leasing, compliance, self-service, board/governance, operational). Full list in memory (`maia_flows_inventory.md`).
 - **New sidebar "Flows" section** — houses every flow diagram in one place (previously just "Voice Flow" buried under Tools). Moved Voice & Text Routing here, added Estimate & Board Approval.
@@ -133,14 +139,17 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 ## Decisions captured (spec for the above)
 1. **Owner ledger** — 1× OTP then request by email/WhatsApp/SMS; CINC per-owner statement → PDF. ✅ built.
 2. **Owner payments** — CINC WebAxis / check / ACH; **no Stripe** for owner assessments. ✅ built.
-3. **Background check** — verify Applycheck end-to-end + surface to board. ✅ built; screening provider pivot to Certn is the open piece (⚠️ blocked on sandbox keys — ApplyCheck has no API).
+3. **Background check** — verify Applycheck end-to-end + surface to board. ✅ built (Applycheck itself); provider pivot is the open piece — ApplyCheck has no API, Certn was explored but stalled/abandoned, **final decision 2026-07-04 is Checkr** (docs.checkr.com) — integration NOT built, planned for next session.
 4. **Per-association rules ack** in `/apply`. ✅ built.
 
 (Detail in memory: `roadmap_reconciliation_2026_06_30.md`, `owner_self_service_decisions.md`, `screening_provider_pivot.md`, `voice_plan.md`.)
 
 ## Suggested priority
-1. **Review + merge #504** (Vendor Onboarding flow diagram, code done) → 2. Continue the Flows diagrams series — `/apply` Tenant/Buyer Application next → 3. **Pre-registration triage** (small — `/admin/pre-registrations` list page) → 4. medium WO/recurring items → 5. Compliance Phase 2 (deadline-rules + document RAG) → 6. smaller comms/invoice follow-ups.
+1. **Checkr integration (NEXT SESSION)** — build the provider-agnostic `lib/screening/` adapter against https://docs.checkr.com/ and repoint the background-check trigger/webhook from the dead ApplyCheck-API assumption to Checkr. See [[screening_provider_pivot]] in memory for full history (ApplyCheck rejected → Certn stalled → Checkr is final).
+2. **Pre-registration triage — Phase 2** — the tenant self-identification verification flow (lease + board-approval-letter, owner confirms, staff can shortcut with Drive docs) — see `pre_registration_triage.md` in memory for the full agreed design. Phase 1 (#505) is merged; tenant persona is currently just a placeholder.
+3. Continue the Flows diagrams series — `/apply` Tenant/Buyer Application next.
+4. Medium WO/recurring items → 5. Compliance Phase 2 (deadline-rules + document RAG) → 6. smaller comms/invoice follow-ups.
 
 **Verify on next real call:** the renumbered menu (#497) + payments delivery-channel sub-flow (#498) — confirm a real call reaches the "text/WhatsApp/email?" prompt on digit 1 and the message actually arrives via the chosen channel; confirm a real collections-blocked unit now correctly hears the agency message on digit 1 (not just the test account). Also confirm the resident portal's new "Get my account statement" button delivers a real ledger email in production (local testing was code-path-verified via curl/DB only, since local dev has no email provider credentials).
 
-**Blocked / external:** screening adapter → Certn (sandbox keys); natural-voice agent (Vapi/Deepgram/ElevenLabs accounts).
+**Blocked / external:** natural-voice agent (Vapi/Deepgram/ElevenLabs accounts).
