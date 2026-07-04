@@ -29,6 +29,10 @@ const COPY: Record<string, { subject: string; body: (assoc: string | null) => st
     subject: 'Your PMI Top Florida Agent Registration — Approved ✅',
     body: () => `<p>We're pleased to inform you that your registration with PMI Top Florida Properties has been <strong style="color:#22c55e">approved</strong>! You can now access our network and receive listing referrals.</p>`,
   },
+  tenant: {
+    subject: "You're verified — PMI Top Florida Properties",
+    body: assoc => `<p>You're now on file as the tenant${assoc ? ` at <strong>${assoc}</strong>` : ''}. Call or text us anytime — we'll recognize your number, or you can log in at <a href="${APP}/tenant">${APP}/tenant</a> with a one-time code sent to this email or your phone.</p>`,
+  },
 }
 
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {

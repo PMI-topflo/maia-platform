@@ -50,6 +50,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   }).select('id').single()
   if (error || !row) return NextResponse.json({ error: 'Could not save your request. Please try again.' }, { status: 500 })
 
+  // Tenant self-identification: create the linked verification row now so
+  // the form can offer an immediate lease/board-letter upload step. Staff
+  // later resolve the free-text association/unit into a real association_code.
+  let tenantVerificationId: string | null = null
+  if (persona === 'tenant') {
+    const { data: tv } = await supabaseAdmin.from('tenant_verifications').insert({
+      pre_registration_id: row.id, tenant_name: fullName, email: email || null,
+      unit_number: unit || null, created_by: 'pre_registration',
+    }).select('id').single()
+    tenantVerificationId = (tv?.id as string | undefined) ?? null
+  }
+
   // Notify every staff member so anyone can recognize/claim it — not just a
   // fixed two-address list. Falls back gracefully to no email if the staff
   // list is empty (row is saved either way).
@@ -83,5 +95,5 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     } catch { /* the row is saved either way; don't fail the submission on email */ }
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, tenantVerificationId })
 }

@@ -13,6 +13,18 @@ See the full entry under "Development backlog" below (kept there since it starte
 
 ---
 
+## 🟡 Built & verified locally — Pre-registration triage Phase 2 (tenant verification, NOT YET COMMITTED/PR'd)
+
+- **New `tenant_verifications` table + `tenant-verification-docs` private bucket** (migration `20260704_tenant_verifications.sql`, applied to prod DB via `exec_migration`, registered in `lib/migration-status.ts`). Tracks lease/board-approval-letter path + source (`tenant`|`owner`|`staff`) per doc, owner confirmation, and a derived `status` (`pending`→`awaiting_owner`/`ready`→`approved`/`rejected`) computed by the shared `lib/tenant-verification.ts:computeStatus()` so staff/owner/tenant routes can't drift on the readiness rule: ready when both docs are present AND (owner confirmed OR both docs staff-sourced).
+- **Three upload paths, one shared table**: (1) tenant uploads immediately after submitting `/pre-register/<token>` with persona=tenant (reuses the same pre-register token, no new token type — `app/api/pre-register/[token]/tenant-docs/route.ts`); (2) owner gets a new token-gated `/owner/tenant-verify/<token>` page (`lib/tenant-verification-token.ts`, 21-day TTL) to confirm "is this your tenant?" and upload whatever's missing, with a clean "No" → `rejected` + staff-alert branch; (3) staff upload directly from a new `TenantVerificationModal` on `/admin/pre-registrations` (replaces the old "coming soon" badge), which also resolves the pre-registration's free-text association/unit into a real `association_code` (required before an owner lookup is possible — `pre_registrations` has no `association_code` column, only free text).
+- **Approve** (`POST /api/admin/tenant-verifications/[id]/approve`) mirrors the existing MAIA "new tenant" email-command side effects (archives any existing active tenant for the unit, `tenant_history` audit rows, `added_by:'maia'`) and additionally calls `setUnitOccupancy(assoc, unit, 'leased', 'maia')` — closing the loop with the pre-existing `unit_occupancy` table (see `unit_occupancy_lease_tracking_landscape.md` in memory) so a verified tenant automatically updates the compliance-requirements engine.
+- **Verified end-to-end with disposable test fixtures** (inserted directly, cleaned up after — no real emails sent): pre-register submission → linked verification row auto-created → tenant doc upload (+ confirmed a mismatched-phone token is correctly 403'd) → staff association/unit resolve → staff dual upload flips status to `ready` automatically → Approve inserts `association_tenants` + flips `unit_occupancy` to `leased` + marks the pre-registration `added`. Owner-confirm page verified separately (Yes → `ready` once docs land; No → `rejected`). **Did not live-test the actual outbound "send owner link" email** (verified the negative 404 path — no owner found — instead, consistent with not sending unsolicited test email to a real production owner).
+- **Not yet committed** — working tree only as of 2026-07-04; commit/PR pending.
+
+Next up in this initiative: a staff-facing `/admin/unit-status` occupancy + lease-expiry dashboard, then a portfolio-wide owner occupancy/insurance self-report survey campaign (design table for both in `pre_registration_triage.md` memory).
+
+---
+
 ## ✅ Shipped & live — Flows diagrams initiative (#502, #504, both merged + verified landed)
 
 - **Flow inventory** — MAIA has ~51 distinct end-to-end business flows across 10 categories (communications, invoicing, vendor management, work orders/estimates, recurring services, leasing, compliance, self-service, board/governance, operational). Full list in memory (`maia_flows_inventory.md`).
@@ -146,7 +158,7 @@ See the full entry under "Development backlog" below (kept there since it starte
 
 ## Suggested priority
 1. **Checkr integration (NEXT SESSION)** — build the provider-agnostic `lib/screening/` adapter against https://docs.checkr.com/ and repoint the background-check trigger/webhook from the dead ApplyCheck-API assumption to Checkr. See [[screening_provider_pivot]] in memory for full history (ApplyCheck rejected → Certn stalled → Checkr is final).
-2. **Pre-registration triage — Phase 2** — the tenant self-identification verification flow (lease + board-approval-letter, owner confirms, staff can shortcut with Drive docs) — see `pre_registration_triage.md` in memory for the full agreed design. Phase 1 (#505) is merged; tenant persona is currently just a placeholder.
+2. **Pre-registration triage — Phase 2** — ✅ built + locally verified 2026-07-04, not yet committed/PR'd (see the section near the top of this doc). Next: `/admin/unit-status` occupancy dashboard, then the owner survey campaign.
 3. Continue the Flows diagrams series — `/apply` Tenant/Buyer Application next.
 4. Medium WO/recurring items → 5. Compliance Phase 2 (deadline-rules + document RAG) → 6. smaller comms/invoice follow-ups.
 

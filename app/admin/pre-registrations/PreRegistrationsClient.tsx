@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import AddPersonModal from '../components/AddPersonModal'
 import OnboardVendorModal from '@/components/OnboardVendorModal'
+import TenantVerificationModal from '../components/TenantVerificationModal'
 
 interface PreReg {
   id: string; phone: string | null; persona: string | null; full_name: string | null
@@ -24,6 +25,7 @@ export default function PreRegistrationsClient({ associations }: { associations:
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [addPersonFor, setAddPersonFor] = useState<PreReg | null>(null)
   const [onboardVendorFor, setOnboardVendorFor] = useState<PreReg | null>(null)
+  const [verifyTenantFor, setVerifyTenantFor] = useState<PreReg | null>(null)
 
   const load = useCallback(() => {
     fetch('/api/admin/pre-registrations').then(r => r.json()).then(d => setRows(d.preRegistrations ?? [])).catch(() => setRows([]))
@@ -94,7 +96,7 @@ export default function PreRegistrationsClient({ associations }: { associations:
                 <td className="px-4 py-2.5"><StatusPill status={r.status} /></td>
                 <td className="px-4 py-2.5 text-right">
                   <div className="flex flex-wrap justify-end gap-1.5">
-                    <ApproveButton row={r} busy={busy === r.id} onOpenAddPerson={() => setAddPersonFor(r)} onOpenVendor={() => setOnboardVendorFor(r)} onAddToProcess={() => post(r.id, 'add-to-process', `Application link sent to ${r.full_name}.`)} />
+                    <ApproveButton row={r} busy={busy === r.id} onOpenAddPerson={() => setAddPersonFor(r)} onOpenVendor={() => setOnboardVendorFor(r)} onOpenTenantVerify={() => setVerifyTenantFor(r)} onAddToProcess={() => post(r.id, 'add-to-process', `Application link sent to ${r.full_name}.`)} />
                     {r.status === 'added' && (
                       <button onClick={() => post(r.id, 'notify-access', `Access notice sent to ${r.full_name}.`)} disabled={busy === r.id}
                         className="rounded bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
@@ -132,13 +134,22 @@ export default function PreRegistrationsClient({ associations }: { associations:
           onSuccess={() => patch(onboardVendorFor.id, { status: 'added' })}
         />
       )}
+
+      {verifyTenantFor && (
+        <TenantVerificationModal
+          preRegistrationId={verifyTenantFor.id}
+          associations={associations}
+          onClose={() => setVerifyTenantFor(null)}
+          onApproved={() => { load() }}
+        />
+      )}
     </div>
   )
 }
 
-function ApproveButton({ row, busy, onOpenAddPerson, onOpenVendor, onAddToProcess }: {
+function ApproveButton({ row, busy, onOpenAddPerson, onOpenVendor, onOpenTenantVerify, onAddToProcess }: {
   row: PreReg; busy: boolean
-  onOpenAddPerson: () => void; onOpenVendor: () => void; onAddToProcess: () => void
+  onOpenAddPerson: () => void; onOpenVendor: () => void; onOpenTenantVerify: () => void; onAddToProcess: () => void
 }) {
   if (row.status === 'added') return <span className="text-xs text-emerald-700">✓ Added</span>
   if (row.status === 'dismissed') return <span className="text-xs text-gray-400">Dismissed</span>
@@ -165,7 +176,11 @@ function ApproveButton({ row, busy, onOpenAddPerson, onOpenVendor, onAddToProces
     )
   }
   if (row.persona === 'tenant') {
-    return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">Verification flow — coming soon</span>
+    return (
+      <button onClick={onOpenTenantVerify} disabled={busy} className="rounded bg-[#f26a1b] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#d85a10] disabled:opacity-50">
+        Verify tenant
+      </button>
+    )
   }
   return <span className="text-xs text-gray-300">Set role first</span>
 }
