@@ -22,10 +22,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ sessionId: str
   if (!app) return NextResponse.json({ ready: false }, { status: 404 })
 
   const { data: subjects } = await supabaseAdmin.from('screening_subjects')
-    .select('id, name, status, checkr_candidate_id').eq('application_id', app.id).order('subject_index')
+    .select('id, name, status').eq('application_id', app.id).order('subject_index')
 
   return NextResponse.json({
     ready: true, applicationId: app.id, screeningStatus: app.screening_status,
-    subjects: (subjects ?? []).map(s => ({ id: s.id, name: s.name, status: s.status, candidateId: s.checkr_candidate_id })),
+    subjects: (subjects ?? []).map(s => ({ id: s.id, name: s.name, status: s.status })),
   })
 }

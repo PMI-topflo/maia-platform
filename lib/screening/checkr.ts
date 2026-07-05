@@ -1,31 +1,37 @@
 // =====================================================================
 // lib/screening/checkr.ts
-// Checkr implementation of the ScreeningProvider interface (Option 3 —
-// Self-Hosted Flow + Disclosure & Consent Embed): we collect the
-// candidate's info in our own /apply UI, the browser-side Disclosure &
-// Consent Embed captures the legally-required consent, and only THEN do we
-// call the Report API — Checkr's docs are explicit that consent must be
-// captured before a Report is created.
+// Checkr TENANT Screening API implementation (checkr-tenant-api-docs.redocly.app,
+// confirmed live 2026-07-05) -- NOT Checkr's general employment-background-check
+// API. Key differences from a typical Checkr integration:
+//   - Bearer token auth (Authorization: Bearer ckr_sk_...), not HTTP Basic.
+//   - A single POST /orders call creates the whole screening (applicant +
+//     property + package) -- no separate Candidate-then-Report step.
+//   - There is NO embeddable consent widget. Checkr emails the applicant a
+//     link to their own hosted page (tenant.checkr.com/apply/<code>) to
+//     complete consent/questionnaire -- the applicant leaves our /apply flow
+//     for that step. This is a real, confirmed product constraint, not a
+//     placeholder.
+//   - Webhook signature: `Tenant-Signature: t=<unix_ts>,v1=<hex>` where v1 is
+//     HMAC-SHA256 of "<t>.<raw_body>".
+//   - Order creation requires an Idempotency-Key header.
 //
-// ⚠ Built from Checkr's API Guided Onboarding materials (slides/screenshots
-// the user supplied), not a live test against a real Checkr account — there
-// is no CHECKR_API_KEY configured anywhere in this repo yet. The candidate/
-// report request shapes and the webhook signature scheme below are Checkr's
-// well-documented, stable v1 REST conventions and should be correct, but
-// confirm against https://docs.checkr.com/ (and check real staging webhook
-// payloads once CHECKR_API_KEY + a staging account exist) before the first
-// live run — see lib/screening/index.ts for where this plugs in.
+// ⚠ Still unconfirmed: the exact package slug for international applicants
+// (public docs only show "starter"/"essential" as named packages, plus
+// individual add-on products like global_watchlist) -- CHECKR_PACKAGE_INTERNATIONAL
+// needs confirming with a real Checkr account rep before go-live. Webhook
+// payload's exact JSON shape for extracting the order id is also a
+// best-effort guess (docs describe event *names* but not a full payload
+// example) -- getOrder() re-fetches authoritative state rather than trusting
+// the webhook body, specifically to route around that gap.
 // =====================================================================
 
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import type { ScreeningProvider, ScreeningSubject, CreateCandidateResult, CreateReportResult, ScreeningWebhookEvent } from './types'
+import type { ScreeningProvider, ScreeningSubject, ScreeningProperty, CreateOrderResult, ScreeningWebhookEvent } from './types'
 
 const API_BASE = 'https://api.checkr.com/v1'
 
 function authHeader(): string {
-  // Checkr auth: HTTP Basic with the API key as the username, blank password.
-  const key = process.env.CHECKR_API_KEY ?? ''
-  return `Basic ${Buffer.from(`${key}:`).toString('base64')}`
+  return `Bearer ${process.env.CHECKR_API_KEY ?? ''}`
 }
 
 function packageFor(subject: ScreeningSubject): string {
@@ -44,11 +50,17 @@ function splitName(name: string): { first: string; last: string } {
   return { first: parts[0] ?? name, last: parts.slice(1).join(' ') || parts[0] || name }
 }
 
-async function checkrFetch(path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+/** Deterministic (not random) so a retried request after a network error
+ *  reuses the same key -- true idempotency, unlike a fresh UUID per attempt. */
+function idempotencyKey(subject: ScreeningSubject, property: ScreeningProperty): string {
+  return `screening-${property.unit ?? 'unit'}-${subject.index}-${subject.name}`.replace(/\s+/g, '_').slice(0, 255)
+}
+
+async function checkrFetch(path: string, method: 'GET' | 'POST', body?: Record<string, unknown>, extraHeaders?: Record<string, string>): Promise<Record<string, unknown>> {
   const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    method,
+    headers: { Authorization: authHeader(), 'Content-Type': 'application/json', ...extraHeaders },
+    body: body ? JSON.stringify(body) : undefined,
   })
   const json = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(`Checkr ${path} ${res.status}: ${JSON.stringify(json)}`)
@@ -57,9 +69,9 @@ async function checkrFetch(path: string, body: Record<string, unknown>): Promise
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null)
 
-/** Defensive extraction across a few plausible nesting shapes — mirrors the
- *  pattern the old ApplyCheck webhook handler used, since we don't yet have
- *  a real captured Checkr webhook payload to confirm the exact shape against. */
+/** Defensive extraction across a few plausible nesting shapes for the order
+ *  id in a webhook payload — the exact envelope isn't confirmed against a
+ *  real captured payload yet (see file header). */
 function pick(obj: Record<string, unknown>, keys: string[]): unknown {
   const nests = [obj, obj.data, (obj.data as Record<string, unknown> | undefined)?.object].filter(
     (o): o is Record<string, unknown> => !!o && typeof o === 'object',
@@ -75,50 +87,60 @@ export const checkrProvider: ScreeningProvider = {
     return !!process.env.CHECKR_API_KEY
   },
 
-  async createCandidate(subject: ScreeningSubject): Promise<CreateCandidateResult> {
+  async createOrder(subject: ScreeningSubject, property: ScreeningProperty): Promise<CreateOrderResult> {
     if (!this.isConfigured()) throw new Error('CHECKR_API_KEY is not configured')
     const { first, last } = splitName(subject.name)
-    const json = await checkrFetch('/candidates', {
-      first_name: first,
-      last_name: last,
-      email: subject.email ?? undefined,
-      dob: subject.dob ?? undefined,
-      ssn: subject.ssn ?? undefined,
-      no_middle_name: true,
-    })
-    const candidateId = str(json.id)
-    if (!candidateId) throw new Error('Checkr candidate response had no id')
-    return { candidateId }
+    const json = await checkrFetch('/orders', 'POST', {
+      order: {
+        package: packageFor(subject),
+        property: {
+          name: property.name ?? undefined,
+          street: property.street,
+          unit: property.unit ?? undefined,
+          city: property.city,
+          state: property.state,
+          zipcode: property.zipcode,
+        },
+        applicant: {
+          email: subject.email ?? undefined,
+          first_name: first,
+          last_name: last,
+          dob: subject.dob ?? undefined,
+          ssn: subject.ssn ?? undefined,
+        },
+      },
+    }, { 'Idempotency-Key': idempotencyKey(subject, property) })
+    const orderId = str(json.id)
+    if (!orderId) throw new Error('Checkr order response had no id')
+    return { orderId, status: str(json.status) ?? 'waiting_for_applicant' }
   },
 
-  async createReport(candidateId: string, subject: ScreeningSubject): Promise<CreateReportResult> {
+  async getOrder(orderId: string): Promise<{ status: string }> {
     if (!this.isConfigured()) throw new Error('CHECKR_API_KEY is not configured')
-    const json = await checkrFetch('/reports', {
-      candidate_id: candidateId,
-      package: packageFor(subject),
-    })
-    const reportId = str(json.id)
-    if (!reportId) throw new Error('Checkr report response had no id')
-    return { reportId, status: str(json.status) ?? 'pending' }
+    const json = await checkrFetch(`/orders/${orderId}`, 'GET')
+    return { status: str(json.status) ?? 'pending' }
   },
 
   verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean {
     const secret = process.env.CHECKR_WEBHOOK_SECRET
     if (!secret) return true   // no secret configured — accept unauthenticated, matches the old ApplyCheck fallback behavior
     if (!signatureHeader) return false
-    const expected = createHmac('sha256', secret).update(rawBody).digest('hex')
+    // Format: "t=<unix_ts>,v1=<hex_hmac>"
+    const parts = Object.fromEntries(signatureHeader.split(',').map(p => p.split('=') as [string, string]))
+    const t = parts.t
+    const v1 = parts.v1
+    if (!t || !v1) return false
+    const expected = createHmac('sha256', secret).update(`${t}.${rawBody}`).digest('hex')
     const a = Buffer.from(expected)
-    const b = Buffer.from(signatureHeader)
+    const b = Buffer.from(v1)
     return a.length === b.length && timingSafeEqual(a, b)
   },
 
   parseWebhookEvent(payload: unknown): ScreeningWebhookEvent {
     const obj = (payload ?? {}) as Record<string, unknown>
     const type = str(obj.type) ?? 'unknown'
-    const candidateId = str(pick(obj, ['candidate_id']))
-    const reportId = str(pick(obj, ['id', 'report_id']))
-    const status = str(pick(obj, ['status', 'result']))
-    const reportUrl = str(pick(obj, ['report_url', 'document_url', 'result_url']))
-    return { type, candidateId, reportId, status, reportUrl, raw: payload }
+    const orderId = str(pick(obj, ['order_id', 'id']))
+    const status = str(pick(obj, ['status']))
+    return { type, orderId, status, raw: payload }
   },
 }

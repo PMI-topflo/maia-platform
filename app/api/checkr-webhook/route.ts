@@ -1,15 +1,15 @@
 // =====================================================================
 // POST /api/checkr-webhook
-// Replaces the old /api/applycheck-webhook. Inbound Checkr candidate/report
-// status events — resolve by checkr_candidate_id or checkr_report_id
-// (Checkr doesn't echo back an arbitrary "reference" the way ApplyCheck's
-// assumed payload did), update the matching screening_subjects row, archive
-// the raw payload, and recompute the parent application's aggregate status.
+// Inbound Checkr Tenant API order/report events. Resolved by
+// checkr_order_id (the Tenant API's only identifier — no separate
+// candidate/report split). Re-fetches authoritative order status via
+// GET /orders/{id} rather than trusting the webhook payload's own fields,
+// since the exact payload shape isn't confirmed against a real capture yet.
 //
-// ⚠ Signature header name/scheme (X-Checkr-Signature, HMAC-SHA256 of the raw
-// body) is Checkr's documented convention but hasn't been confirmed against
-// a real captured webhook — verify against a live staging send before
-// relying on it to reject forged requests in production.
+// Signature: `Tenant-Signature: t=<unix_ts>,v1=<hex hmac-sha256("t.rawbody")>`
+// — confirmed against https://checkr-tenant-api-docs.redocly.app/webhooks
+// 2026-07-05 (this replaces an earlier, incorrect guess of a plain
+// X-Checkr-Signature header with no timestamp component).
 // =====================================================================
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -20,9 +20,15 @@ import { computeAggregateStatus } from '@/lib/screening/aggregate'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+function mapOrderStatus(checkrStatus: string): string {
+  if (checkrStatus === 'completed') return 'complete'
+  if (checkrStatus === 'canceled') return 'error'
+  return 'awaiting_applicant'   // waiting_for_applicant | pending
+}
+
 export async function POST(req: NextRequest) {
   const rawBody = await req.text()
-  const signature = req.headers.get('x-checkr-signature')
+  const signature = req.headers.get('tenant-signature')
   if (!screening.verifyWebhookSignature(rawBody, signature)) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
@@ -31,31 +37,35 @@ export async function POST(req: NextRequest) {
   try { payload = JSON.parse(rawBody) } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
 
   const event = screening.parseWebhookEvent(payload)
-  if (!event.candidateId && !event.reportId) {
-    console.error('[checkr-webhook] no candidate_id or report_id in payload', event.type)
-    return NextResponse.json({ error: 'Missing candidate/report id' }, { status: 400 })
+  if (!event.orderId) {
+    console.error('[checkr-webhook] no order id in payload', event.type)
+    return NextResponse.json({ error: 'Missing order id' }, { status: 400 })
   }
 
-  let query = supabase.from('screening_subjects').select('id, application_id, result')
-  query = event.reportId ? query.eq('checkr_report_id', event.reportId) : query.eq('checkr_candidate_id', event.candidateId as string)
-  const { data: subject, error: fetchErr } = await query.maybeSingle()
+  const { data: subject, error: fetchErr } = await supabase.from('screening_subjects')
+    .select('id, application_id, result').eq('checkr_order_id', event.orderId).maybeSingle()
 
   if (fetchErr || !subject) {
-    // Let Checkr retry — the subject row should exist by the time results land.
-    console.error('[checkr-webhook] no screening_subjects row for', event.candidateId, event.reportId)
+    // Let Checkr retry — the subject row should exist by the time events land.
+    console.error('[checkr-webhook] no screening_subjects row for order', event.orderId)
     return NextResponse.json({ error: 'Subject not found' }, { status: 404 })
+  }
+
+  // Re-fetch authoritative status rather than trusting the webhook body.
+  let checkrStatus = event.status ?? 'pending'
+  try {
+    const order = await screening.getOrder(event.orderId)
+    checkrStatus = order.status
+  } catch (e) {
+    console.error('[checkr-webhook] getOrder failed, falling back to payload status:', e)
   }
 
   const prior = Array.isArray(subject.result) ? subject.result : subject.result ? [subject.result] : []
   prior.push({ received_at: new Date().toISOString(), type: event.type, payload })
 
-  const update: Record<string, unknown> = { result: prior, updated_at: new Date().toISOString() }
-  if (event.reportUrl) update.report_url = event.reportUrl
-  if (event.status) update.status = event.status.toLowerCase()
-  if (event.status && ['clear', 'complete', 'completed'].includes(event.status.toLowerCase())) {
-    update.status = 'complete'
-    update.completed_at = new Date().toISOString()
-  }
+  const status = mapOrderStatus(checkrStatus)
+  const update: Record<string, unknown> = { result: prior, status, updated_at: new Date().toISOString() }
+  if (status === 'complete') update.completed_at = new Date().toISOString()
 
   const { error: updateErr } = await supabase.from('screening_subjects').update(update).eq('id', subject.id)
   if (updateErr) {
@@ -66,7 +76,6 @@ export async function POST(req: NextRequest) {
   const { data: subjectRows } = await supabase.from('screening_subjects').select('status').eq('application_id', subject.application_id)
   const aggregate = computeAggregateStatus((subjectRows ?? []).map(r => r.status as string))
   const appUpdate: Record<string, unknown> = { screening_status: aggregate }
-  if (update.report_url) appUpdate.screening_report_url = update.report_url
   if (aggregate === 'complete') appUpdate.screening_completed_at = new Date().toISOString()
   await supabase.from('applications').update(appUpdate).eq('id', subject.application_id)
 

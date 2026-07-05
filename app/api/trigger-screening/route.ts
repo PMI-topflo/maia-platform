@@ -1,15 +1,17 @@
 // =====================================================================
 // POST /api/trigger-screening   (internal — x-internal-secret)
 // Replaces the dead trigger-applycheck (ApplyCheck had no public API).
-// Self-Hosted Flow (Option 3): create a Checkr Candidate per subject now,
-// but do NOT create the Report yet — consent must be captured first via
-// the Disclosure & Consent Embed (see /api/screening/[subjectId]/consent).
+// Checkr's real Tenant Screening API creates the whole order in one call —
+// applicant + property + package — there is no separate consent step to
+// defer here. Once the order exists, Checkr emails the applicant a link to
+// their own hosted page to complete consent/questionnaire.
 // =====================================================================
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { screening } from '@/lib/screening'
 import { computeAggregateStatus } from '@/lib/screening/aggregate'
+import type { ScreeningProperty } from '@/lib/screening/types'
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get('x-internal-secret')
@@ -28,6 +30,23 @@ export async function POST(req: NextRequest) {
   if (error || !app) return NextResponse.json({ error: 'Application not found' }, { status: 404 })
   if (app.stripe_payment_status !== 'paid') {
     return NextResponse.json({ error: 'Payment not confirmed' }, { status: 400 })
+  }
+
+  // applications.association stores the association NAME (selected from the
+  // same dropdown that populates it), not a code — resolve the street
+  // address needed for the Checkr order's required `property` object.
+  const { data: assocRow } = await supabase.from('associations')
+    .select('association_name, principal_address, city, state, zip')
+    .eq('association_name', app.association).maybeSingle()
+  if (!assocRow?.principal_address) {
+    return NextResponse.json({ error: `Could not resolve a street address for association "${app.association}"` }, { status: 500 })
+  }
+  const unit = app.app_type === 'commercial'
+    ? (app.principals?.[0]?.unit ?? null)
+    : (app.applicants?.[0]?.unitApplying ?? null)
+  const property: ScreeningProperty = {
+    name: assocRow.association_name, street: assocRow.principal_address, unit,
+    city: assocRow.city, state: assocRow.state, zipcode: assocRow.zip,
   }
 
   type Subject = { index: number; name: string; email?: string; dob?: string; ssn?: string; isCommercial: boolean; isInternational: boolean }
@@ -49,22 +68,23 @@ export async function POST(req: NextRequest) {
 
   const results = await Promise.allSettled(
     subjects.map(async s => {
-      const { candidateId } = await screening.createCandidate(s)
+      const { orderId, status } = await screening.createOrder(s, property)
       const { error: upErr } = await supabase.from('screening_subjects').upsert({
         application_id: applicationId, subject_index: s.index, name: s.name, email: s.email ?? null,
-        is_commercial: s.isCommercial, is_international: s.isInternational, checkr_candidate_id: candidateId, status: 'awaiting_consent',
+        is_commercial: s.isCommercial, is_international: s.isInternational, checkr_order_id: orderId,
+        status: status === 'completed' ? 'complete' : 'awaiting_applicant',
         updated_at: new Date().toISOString(),
       }, { onConflict: 'application_id,subject_index' })
       if (upErr) throw new Error(`screening_subjects upsert: ${upErr.message}`)
-      return candidateId
+      return orderId
     }),
   )
 
   const succeeded = results.filter(r => r.status === 'fulfilled').length
   const failed = results.filter(r => r.status === 'rejected').length
-  for (const r of results) if (r.status === 'rejected') console.error('[trigger-screening] candidate creation failed:', r.reason)
+  for (const r of results) if (r.status === 'rejected') console.error('[trigger-screening] order creation failed:', r.reason)
 
-  // Any subject we couldn't even create a candidate for is recorded as an error.
+  // Any subject we couldn't even create an order for is recorded as an error.
   if (failed > 0) {
     await supabase.from('screening_subjects')
       .update({ status: 'error' }).eq('application_id', applicationId).eq('status', 'pending')

@@ -10,6 +10,6 @@ export function computeAggregateStatus(subjectStatuses: string[]): string {
   if (subjectStatuses.every(s => s === 'complete')) return 'complete'
   if (subjectStatuses.every(s => s === 'error')) return 'error'
   if (subjectStatuses.some(s => s === 'error')) return 'partial'
-  if (subjectStatuses.every(s => s === 'awaiting_consent')) return 'awaiting_consent'
-  return 'invited'
+  if (subjectStatuses.every(s => s === 'awaiting_applicant')) return 'awaiting_applicant'
+  return 'pending'
 }

@@ -2898,6 +2898,16 @@ ON CONFLICT (association_code, rule_key) DO UPDATE SET value = EXCLUDED.value, l
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'screening_checkr_orders_api',
+    label:       'Background checks — Checkr Tenant Orders API correction',
+    description: 'Adds screening_subjects.checkr_order_id. The original Checkr build (commit 1353567) was written against Checkr\'s general employment-background-check API conventions (Candidates+Reports, HTTP Basic auth) -- confirmed live against the real Checkr TENANT Screening API docs (checkr-tenant-api-docs.redocly.app) 2026-07-05 that this is the wrong product: the real API is a single POST /orders call with Bearer auth, no embeddable consent widget (Checkr emails the applicant a hosted-page link instead), and a different webhook signature scheme (Tenant-Signature header). Old checkr_candidate_id/checkr_report_id/consented columns are left in place, unused, not destroyed',
+    filename:    '20260705_screening_checkr_orders_api.sql',
+    artifact:    { type: 'column', table: 'screening_subjects', column: 'checkr_order_id' },
+    sql: `ALTER TABLE public.screening_subjects ADD COLUMN IF NOT EXISTS checkr_order_id text;
+CREATE INDEX IF NOT EXISTS screening_subjects_order_idx ON public.screening_subjects (checkr_order_id);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

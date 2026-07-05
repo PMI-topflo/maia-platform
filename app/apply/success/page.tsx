@@ -2,9 +2,8 @@
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
-import CheckrConsentEmbed from "@/components/CheckrConsentEmbed";
 
-interface ScreeningSubject { id: string; name: string | null; status: string; candidateId: string | null }
+interface ScreeningSubject { id: string; name: string | null; status: string }
 
 const copy: Record<string, Record<string, string>> = {
   en: {
@@ -13,7 +12,7 @@ const copy: Record<string, Record<string, string>> = {
     ref: "Reference Number",
     next: "What happens next",
     s1: "Your documents are forwarded to the association board.",
-    s2: "Complete the background check authorization below.",
+    s2: "Checkr will email each applicant a secure link to complete a quick background-check step.",
     s3: "The board will review and vote — typically within 7–10 business days.",
     s4: "You will receive written notice of the board's decision.",
     support: "Questions? Email us at",
@@ -25,7 +24,7 @@ const copy: Record<string, Record<string, string>> = {
     ref: "Número de Referencia",
     next: "¿Qué sigue?",
     s1: "Sus documentos son enviados a la junta de la asociación.",
-    s2: "Complete la autorización de verificación de antecedentes a continuación.",
+    s2: "Checkr le enviará a cada solicitante un enlace seguro para completar un breve paso de verificación de antecedentes.",
     s3: "La junta revisará y votará — normalmente en 7–10 días hábiles.",
     s4: "Recibirá notificación escrita de la decisión.",
     support: "¿Preguntas? Escríbanos a",
@@ -37,7 +36,7 @@ const copy: Record<string, Record<string, string>> = {
     ref: "Número de Referência",
     next: "O que acontece agora",
     s1: "Seus documentos são encaminhados ao conselho da associação.",
-    s2: "Complete a autorização de verificação de antecedentes abaixo.",
+    s2: "A Checkr enviará a cada solicitante um link seguro para concluir uma breve etapa de verificação de antecedentes.",
     s3: "O conselho revisará e votará — geralmente em 7–10 dias úteis.",
     s4: "Você receberá notificação escrita da decisão.",
     support: "Dúvidas? Envie e-mail para",
@@ -49,7 +48,7 @@ const copy: Record<string, Record<string, string>> = {
     ref: "Numéro de Référence",
     next: "Prochaines étapes",
     s1: "Vos documents sont transmis au conseil de l'association.",
-    s2: "Complétez l'autorisation de vérification des antécédents ci-dessous.",
+    s2: "Checkr enverra à chaque demandeur un lien sécurisé pour compléter une brève étape de vérification des antécédents.",
     s3: "Le conseil examinera et votera — généralement sous 7 à 10 jours ouvrables.",
     s4: "Vous recevrez une notification écrite de la décision.",
     support: "Questions ? Écrivez-nous à",
@@ -61,7 +60,7 @@ const copy: Record<string, Record<string, string>> = {
     ref: "מספר אסמכתא",
     next: "מה קורה עכשיו",
     s1: "המסמכים שלך יועברו לוועד העמותה.",
-    s2: "השלם את אישור בדיקת הרקע למטה.",
+    s2: "Checkr תשלח לכל מגיש בקשה קישור מאובטח להשלמת שלב קצר של בדיקת רקע.",
     s3: "הוועד יסקור ויצביע — בדרך כלל תוך 7–10 ימי עסקים.",
     s4: "תקבל הודעה בכתב על החלטת הוועד.",
     support: "שאלות? שלח לנו אימייל",
@@ -73,7 +72,7 @@ const copy: Record<string, Record<string, string>> = {
     ref: "Номер заявки",
     next: "Дальнейшие шаги",
     s1: "Ваши документы переданы в совет ассоциации.",
-    s2: "Заполните авторизацию проверки биографии ниже.",
+    s2: "Checkr отправит каждому заявителю защищённую ссылку для завершения краткой проверки биографических данных.",
     s3: "Совет рассмотрит и проголосует — как правило, в течение 7–10 рабочих дней.",
     s4: "Вы получите письменное уведомление о решении совета.",
     support: "Вопросы? Напишите нам по адресу",
@@ -163,8 +162,8 @@ function SuccessContent() {
             {subjects.map(s => (
               <div key={s.id} className="mb-4 last:mb-0">
                 <p className="text-sm font-medium text-gray-700 mb-1">{s.name}</p>
-                {s.status === "awaiting_consent" && s.candidateId ? (
-                  <CheckrConsentEmbed applicationId={applicationId} subjectId={s.id} candidateId={s.candidateId} />
+                {s.status === "awaiting_applicant" ? (
+                  <p className="text-sm text-gray-600">Checkr has emailed {s.name} a secure link to complete a quick background-check step.</p>
                 ) : s.status === "error" ? (
                   <p className="text-sm text-red-600">⚠ We couldn&apos;t start this background check — our team will follow up by email.</p>
                 ) : (
