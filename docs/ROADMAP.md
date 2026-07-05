@@ -7,13 +7,26 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 
 ---
 
-## 🟡 Built, not yet live-tested — Checkr background-check integration (commit 1353567, merged 2026-07-05)
+## 🟡 Built, not yet live-tested — Checkr background-check integration, REBUILT against the real Tenant API (commit 90b5f9e, 2026-07-05)
 
-Replaces the dead ApplyCheck integration (no public API). Self-Hosted Flow + Disclosure & Consent Embed (Option 3 of 4 presented — keeps applicants in PMI's own `/apply` flow rather than redirecting to Checkr's hosted page, while offloading the FCRA-consent legal risk to Checkr's maintained embed). Provider-agnostic `lib/screening/` interface + `lib/screening/checkr.ts` implementation; new `screening_subjects` table (one row per applicant/commercial-principal — independent candidate/report/consent tracking); `applications.applycheck_*` renamed to `screening_*` (aggregate rollup, unchanged board/review UI). Candidate created right after payment; consent captured via `CheckrConsentEmbed` on the new `/apply/success` flow; Report created only after consent per Checkr's requirement; `checkr-webhook` resolves inbound events by indexed candidate/report id.
+Replaces the dead ApplyCheck integration (no public API). **The first build (commit 1353567) targeted the wrong Checkr product** — written from Checkr's general employment-background-check API conventions. Corrected against the real docs (`checkr-tenant-api-docs.redocly.app`): Bearer token auth (not HTTP Basic), a single `POST /orders` call per subject (applicant+property+package together, not a Candidate-then-Report two-step), and **no embeddable consent widget** — Checkr emails the applicant a link to their own hosted page (`tenant.checkr.com/apply/<code>`) to finish consent/questionnaire, so the applicant does leave PMI's `/apply` flow for that one step. `CheckrConsentEmbed.tsx` and its consent route were deleted (obsolete). Webhook signature corrected to the real `Tenant-Signature: t=<ts>,v1=<hex hmac-sha256("t.rawbody")>` scheme. New `screening_subjects.checkr_order_id` column (old candidate/report columns left in place, unused).
 
-**⚠️ No `CHECKR_API_KEY`/`CHECKR_WEBHOOK_SECRET`/`CHECKR_PACKAGE_*` configured anywhere yet** — nothing has been live-tested against a real Checkr account. Two specific pieces are flagged unverified in-code (fail gracefully, don't crash): the Disclosure & Consent Embed's exact script URL/init call (`components/CheckrConsentEmbed.tsx`), and the webhook signature header/scheme (`lib/screening/checkr.ts`) — confirm both against docs.checkr.com or a real staging payload once credentials exist. Full non-Checkr-dependent data flow (Stripe session → application → screening_subjects → success page → embed mount) verified end-to-end with disposable test data. See `screening_provider_pivot.md` in memory for full history.
+Also fixed same day: **application fees raised to Florida's statutory max, $150/applicant** (Fla. Stat. §718.112(2)(k)) — was $100 individual/additional-resident/commercial-principal, $200 couple-without-cert; now $150/$150/$150/$300 respectively (couple-with-cert stays $150, already the legal cap for one applicant). Commercial principals confirmed to use the identical Essential package/price as individuals (no separate `CHECKR_PACKAGE_COMMERCIAL`). `additionalResident` was silently billing against `STRIPE_PRICE_INDIVIDUAL` — fixed to use its own dedicated Stripe price. **Pending your action**: new Stripe Price IDs for Individual/Additional/Commercial were created in the Dashboard but still need adding to **Vercel's Production environment variables** (not just locally) for the new $150 rate to actually take effect in production.
 
-**Next**: get a Checkr staging account + `CHECKR_API_KEY`, confirm the embed + webhook pieces against real docs/payloads, submit the Customer API Authorization Checklist before going live in production (per Checkr's own onboarding process).
+**⚠️ No `CHECKR_API_KEY`/`CHECKR_WEBHOOK_SECRET`/`CHECKR_PACKAGE_*` configured anywhere yet** — nothing has been live-tested against a real Checkr account. Still unconfirmed: the exact international package slug (public docs only show `starter`/`essential` as named packages) and the webhook payload's precise JSON envelope (handler re-fetches authoritative state via `GET /orders/{id}` to route around that gap). See `screening_provider_pivot.md` in memory for full history.
+
+**Next**: get Checkr staging credentials (Customer API Authorization Checklist submitted — pick "Checkr Hosted Flow" as the Integration Flow, since that now matches what's built; staging account request still pending), confirm the international package slug + webhook payload shape against real staging traffic.
+
+---
+
+## 🟡 Built, in progress — per-association "in-Maia application" + eligibility rules (commit 80bcad3, 2026-07-05)
+
+Replaces the static per-association PDF "Application Forms" (`lib/association-documents.ts`'s own comment flagged this as temporary). Two pieces:
+- **`association_application_rules` table + new "Application rules" admin tab** (next to Association Document Setup) — per-association eligibility rules (individuals-only/no-LLC, min lease term, rental frequency, post-purchase hold period), each tagged `block` (mechanically enforced — `/apply` hides the option, checkout hard-rejects server-side too) or `warn` (shown to the applicant as a notice only, since checking it reliably needs data that isn't populated yet). **VPCI's 4 rules seeded** from its real Declaration + Rules and Regulations.
+- **Gap found while building**: `owners.ownership_start_date` already existed in the schema but is populated for only 1 of VPCI's 78 active owners — this is what blocks the "no renting for 2 years post-purchase" rule from being a hard `block` today. Confirmed Broward County's Property Appraiser site (`bcpa.net`) has the real purchase dates (Sales History per parcel) and is readable — backfill is in progress manually (association by association), pulling the last **qualified sale** date (not just the latest deed — trust transfers/quitclaims show up too and aren't purchases).
+- **Content build, one association at a time** (23 real associations, 2 `master_hoa` excluded: LCLUB, VPREC — no direct unit sales/leases). VPCI is first: extracted from its real uploaded PDFs (fixed 2 that had never actually been OCR'd — the automated pipeline had silently returned blank text for the Declaration), built a static HTML mockup for sign-off, generated an updated application-form PDF (new $150 fee, corrected board-response timeline) delivered to Downloads + the association's Drive folder.
+
+**Next**: finish backfilling VPCI's remaining ~59 units' `ownership_start_date` (in progress with the user, manually via BCPA), wire the VPCI mockup into real `association_config.rules_sections` once approved, then move to association #2.
 
 ---
 
@@ -159,16 +172,18 @@ See the full entry under "Development backlog" below (kept there since it starte
 ## Decisions captured (spec for the above)
 1. **Owner ledger** — 1× OTP then request by email/WhatsApp/SMS; CINC per-owner statement → PDF. ✅ built.
 2. **Owner payments** — CINC WebAxis / check / ACH; **no Stripe** for owner assessments. ✅ built.
-3. **Background check** — ApplyCheck rejected (no API), Certn abandoned, **Checkr integration built 2026-07-05** (see section near the top of this doc) — not yet live-tested, no credentials configured.
+3. **Background check** — ApplyCheck rejected (no API), Certn abandoned, **Checkr Tenant API integration built + corrected 2026-07-05** (see section near the top of this doc) — not yet live-tested, no credentials configured.
 4. **Per-association rules ack** in `/apply`. ✅ built.
 
 (Detail in memory: `roadmap_reconciliation_2026_06_30.md`, `owner_self_service_decisions.md`, `screening_provider_pivot.md`, `voice_plan.md`.)
 
 ## Suggested priority
-1. ✅ **Checkr integration** — done, see the section near the top of this doc (2026-07-05, committed). Pending your action: get a Checkr staging account + API key, confirm the Disclosure & Consent Embed + webhook signature pieces against real docs/payloads, submit the Customer API Authorization Checklist before production go-live.
-2. ✅ **Pre-registration triage Phase 2 + unit occupancy control** — done, see the section near the top of this doc (2026-07-04, committed). Pending your action: try `/admin/unit-status`'s survey button for real (it dry-runs by default) and confirm the Send Occupancy & Insurance Survey copy reads right before the first live send to real owners.
-3. Continue the Flows diagrams series — `/apply` Tenant/Buyer Application next.
-4. Medium WO/recurring items → 5. Compliance Phase 2 (deadline-rules + document RAG) → 6. smaller comms/invoice follow-ups.
+1. 🟡 **In-Maia application process, association by association** — VPCI in progress (mockup + PDF built, pending your sign-off), 22 real associations to go. Ownership-date backfill for the eligibility rules is the current bottleneck (manual, BCPA lookups).
+2. ⏳ **Checkr staging account** — request pending; once you have `ckr_sk_test_...` credentials, hand them over to confirm the international package slug + real webhook payload shape, and finish the Customer API Authorization Checklist (pick "Checkr Hosted Flow").
+3. ⏳ **Vercel Production env vars** for the 3 new Stripe Price IDs (Individual/Additional/Commercial) — code is ready, just needs the Dashboard update to actually charge $150 in production.
+4. ✅ **Pre-registration triage Phase 2 + unit occupancy control** — done (2026-07-04). Pending your action: try `/admin/unit-status`'s survey button for real (it dry-runs by default) and confirm the Send Occupancy & Insurance Survey copy reads right before the first live send to real owners.
+5. Continue the Flows diagrams series — `/apply` Tenant/Buyer Application next.
+6. Medium WO/recurring items → 7. Compliance Phase 2 (deadline-rules + document RAG) → 8. smaller comms/invoice follow-ups.
 
 **Verify on next real call:** the renumbered menu (#497) + payments delivery-channel sub-flow (#498) — confirm a real call reaches the "text/WhatsApp/email?" prompt on digit 1 and the message actually arrives via the chosen channel; confirm a real collections-blocked unit now correctly hears the agency message on digit 1 (not just the test account). Also confirm the resident portal's new "Get my account statement" button delivers a real ledger email in production (local testing was code-path-verified via curl/DB only, since local dev has no email provider credentials).
 
