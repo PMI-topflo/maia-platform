@@ -29,7 +29,11 @@ function authHeader(): string {
 }
 
 function packageFor(subject: ScreeningSubject): string {
-  const tier = subject.isCommercial ? 'COMMERCIAL' : subject.isInternational ? 'INTERNATIONAL' : 'RESIDENTIAL'
+  // Commercial-application principals get the same Essential check as an
+  // individual applicant (same package, same price, per principal) — the
+  // "commercial" distinction only affects which applications.* array the
+  // subject came from, not which Checkr package runs.
+  const tier = subject.isInternational ? 'INTERNATIONAL' : 'RESIDENTIAL'
   const slug = process.env[`CHECKR_PACKAGE_${tier}`]
   if (!slug) throw new Error(`CHECKR_PACKAGE_${tier} is not configured`)
   return slug
