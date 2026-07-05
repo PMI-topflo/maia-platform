@@ -18,8 +18,10 @@ export async function POST(req: NextRequest) {
 
     let lineItems: Stripe.Checkout.SessionCreateParams.LineItem[];
 
-    if (applicationType === "individual" || applicationType === "additionalResident") {
+    if (applicationType === "individual") {
       lineItems = [{ price: process.env.STRIPE_PRICE_INDIVIDUAL!, quantity: 1 }];
+    } else if (applicationType === "additionalResident") {
+      lineItems = [{ price: process.env.STRIPE_PRICE_ADDITIONAL!, quantity: 1 }];
     } else if (applicationType === "couple") {
       if (amount === 150) {
         lineItems = [{ price: process.env.STRIPE_PRICE_COUPLE!, quantity: 1 }];
