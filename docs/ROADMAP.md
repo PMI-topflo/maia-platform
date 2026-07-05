@@ -1,9 +1,19 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-07-04**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-07-05**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
+
+---
+
+## 🟡 Built, not yet live-tested — Checkr background-check integration (commit 1353567, merged 2026-07-05)
+
+Replaces the dead ApplyCheck integration (no public API). Self-Hosted Flow + Disclosure & Consent Embed (Option 3 of 4 presented — keeps applicants in PMI's own `/apply` flow rather than redirecting to Checkr's hosted page, while offloading the FCRA-consent legal risk to Checkr's maintained embed). Provider-agnostic `lib/screening/` interface + `lib/screening/checkr.ts` implementation; new `screening_subjects` table (one row per applicant/commercial-principal — independent candidate/report/consent tracking); `applications.applycheck_*` renamed to `screening_*` (aggregate rollup, unchanged board/review UI). Candidate created right after payment; consent captured via `CheckrConsentEmbed` on the new `/apply/success` flow; Report created only after consent per Checkr's requirement; `checkr-webhook` resolves inbound events by indexed candidate/report id.
+
+**⚠️ No `CHECKR_API_KEY`/`CHECKR_WEBHOOK_SECRET`/`CHECKR_PACKAGE_*` configured anywhere yet** — nothing has been live-tested against a real Checkr account. Two specific pieces are flagged unverified in-code (fail gracefully, don't crash): the Disclosure & Consent Embed's exact script URL/init call (`components/CheckrConsentEmbed.tsx`), and the webhook signature header/scheme (`lib/screening/checkr.ts`) — confirm both against docs.checkr.com or a real staging payload once credentials exist. Full non-Checkr-dependent data flow (Stripe session → application → screening_subjects → success page → embed mount) verified end-to-end with disposable test data. See `screening_provider_pivot.md` in memory for full history.
+
+**Next**: get a Checkr staging account + `CHECKR_API_KEY`, confirm the embed + webhook pieces against real docs/payloads, submit the Customer API Authorization Checklist before going live in production (per Checkr's own onboarding process).
 
 ---
 
@@ -149,13 +159,13 @@ See the full entry under "Development backlog" below (kept there since it starte
 ## Decisions captured (spec for the above)
 1. **Owner ledger** — 1× OTP then request by email/WhatsApp/SMS; CINC per-owner statement → PDF. ✅ built.
 2. **Owner payments** — CINC WebAxis / check / ACH; **no Stripe** for owner assessments. ✅ built.
-3. **Background check** — verify Applycheck end-to-end + surface to board. ✅ built (Applycheck itself); provider pivot is the open piece — ApplyCheck has no API, Certn was explored but stalled/abandoned, **final decision 2026-07-04 is Checkr** (docs.checkr.com) — integration NOT built, planned for next session.
+3. **Background check** — ApplyCheck rejected (no API), Certn abandoned, **Checkr integration built 2026-07-05** (see section near the top of this doc) — not yet live-tested, no credentials configured.
 4. **Per-association rules ack** in `/apply`. ✅ built.
 
 (Detail in memory: `roadmap_reconciliation_2026_06_30.md`, `owner_self_service_decisions.md`, `screening_provider_pivot.md`, `voice_plan.md`.)
 
 ## Suggested priority
-1. **Checkr integration (NEXT SESSION)** — build the provider-agnostic `lib/screening/` adapter against https://docs.checkr.com/ and repoint the background-check trigger/webhook from the dead ApplyCheck-API assumption to Checkr. See [[screening_provider_pivot]] in memory for full history (ApplyCheck rejected → Certn stalled → Checkr is final).
+1. ✅ **Checkr integration** — done, see the section near the top of this doc (2026-07-05, committed). Pending your action: get a Checkr staging account + API key, confirm the Disclosure & Consent Embed + webhook signature pieces against real docs/payloads, submit the Customer API Authorization Checklist before production go-live.
 2. ✅ **Pre-registration triage Phase 2 + unit occupancy control** — done, see the section near the top of this doc (2026-07-04, committed). Pending your action: try `/admin/unit-status`'s survey button for real (it dry-runs by default) and confirm the Send Occupancy & Insurance Survey copy reads right before the first live send to real owners.
 3. Continue the Flows diagrams series — `/apply` Tenant/Buyer Application next.
 4. Medium WO/recurring items → 5. Compliance Phase 2 (deadline-rules + document RAG) → 6. smaller comms/invoice follow-ups.
