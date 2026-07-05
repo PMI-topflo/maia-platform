@@ -16,6 +16,9 @@ export interface ScreeningSubject {
   dob?: string | null
   ssn?: string | null
   isCommercial: boolean
+  /** app_type === 'international' — routes to the International Basic package
+   *  instead of the domestic Essential one. Mutually exclusive with isCommercial. */
+  isInternational: boolean
 }
 
 export interface CreateCandidateResult {

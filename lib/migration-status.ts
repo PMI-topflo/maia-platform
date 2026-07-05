@@ -2851,6 +2851,15 @@ CREATE POLICY "service_role_all_screening_subjects" ON public.screening_subjects
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'screening_international',
+    label:       'Background checks — International Basic package tracking',
+    description: 'Adds screening_subjects.is_international — app_type === \'international\' applicants now route to Checkr\'s International Basic package (Intl criminal/adverse media + global watchlist, from $32/check) instead of the domestic Essential package ($34.99/report), restoring the domestic/international distinction the old ApplyCheck code had via an SSN check',
+    filename:    '20260705_screening_international.sql',
+    artifact:    { type: 'column', table: 'screening_subjects', column: 'is_international' },
+    sql: `ALTER TABLE public.screening_subjects ADD COLUMN IF NOT EXISTS is_international boolean NOT NULL DEFAULT false;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

@@ -29,7 +29,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ subjectId:
   try {
     const { reportId } = await screening.createReport(subject.checkr_candidate_id, {
       index: subject.subject_index, name: subject.name ?? '', email: subject.email ?? undefined,
-      isCommercial: subject.is_commercial,
+      isCommercial: subject.is_commercial, isInternational: subject.is_international,
     })
     await supabase.from('screening_subjects').update({
       checkr_report_id: reportId, status: 'invited', updated_at: new Date().toISOString(),

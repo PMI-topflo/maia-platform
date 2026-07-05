@@ -30,18 +30,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Payment not confirmed' }, { status: 400 })
   }
 
-  type Subject = { index: number; name: string; email?: string; dob?: string; ssn?: string; isCommercial: boolean }
+  type Subject = { index: number; name: string; email?: string; dob?: string; ssn?: string; isCommercial: boolean; isInternational: boolean }
   const subjects: Subject[] = []
 
   if (app.app_type === 'commercial') {
     (app.principals || []).forEach((p: Record<string, string>, i: number) => {
-      subjects.push({ index: i, name: p.name, dob: p.dob, isCommercial: true })
+      subjects.push({ index: i, name: p.name, dob: p.dob, isCommercial: true, isInternational: false })
     })
   } else {
+    const isInternational = app.app_type === 'international';
     (app.applicants || []).forEach((a: Record<string, string>, i: number) => {
       subjects.push({
         index: i, name: `${a.firstName} ${a.lastName}`.trim(),
-        email: a.email, dob: a.dob, ssn: a.ssn, isCommercial: false,
+        email: a.email, dob: a.dob, ssn: a.ssn, isCommercial: false, isInternational,
       })
     })
   }
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
       const { candidateId } = await screening.createCandidate(s)
       const { error: upErr } = await supabase.from('screening_subjects').upsert({
         application_id: applicationId, subject_index: s.index, name: s.name, email: s.email ?? null,
-        is_commercial: s.isCommercial, checkr_candidate_id: candidateId, status: 'awaiting_consent',
+        is_commercial: s.isCommercial, is_international: s.isInternational, checkr_candidate_id: candidateId, status: 'awaiting_consent',
         updated_at: new Date().toISOString(),
       }, { onConflict: 'application_id,subject_index' })
       if (upErr) throw new Error(`screening_subjects upsert: ${upErr.message}`)

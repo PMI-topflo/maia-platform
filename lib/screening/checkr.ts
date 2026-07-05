@@ -29,8 +29,9 @@ function authHeader(): string {
 }
 
 function packageFor(subject: ScreeningSubject): string {
-  const slug = subject.isCommercial ? process.env.CHECKR_PACKAGE_COMMERCIAL : process.env.CHECKR_PACKAGE_RESIDENTIAL
-  if (!slug) throw new Error(`CHECKR_PACKAGE_${subject.isCommercial ? 'COMMERCIAL' : 'RESIDENTIAL'} is not configured`)
+  const tier = subject.isCommercial ? 'COMMERCIAL' : subject.isInternational ? 'INTERNATIONAL' : 'RESIDENTIAL'
+  const slug = process.env[`CHECKR_PACKAGE_${tier}`]
+  if (!slug) throw new Error(`CHECKR_PACKAGE_${tier} is not configured`)
   return slug
 }
 
