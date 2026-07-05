@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import DriveImport from '@/app/admin/documents/inbox/DriveImport'
+import UnitDetailModal from './UnitDetailModal'
+import ManualUnitUpload from './ManualUnitUpload'
 
 interface UnitRow {
-  associationCode: string; associationName: string | null; unit: string | null
+  associationCode: string; associationName: string | null; unit: string | null; accountNumber: string
   ownerName: string; occupancy: 'owner_occupied' | 'leased' | 'vacant' | null; kind: string
   tenantName: string | null; leaseEndDate: string | null; missingCount: number
 }
@@ -31,6 +33,7 @@ export default function UnitStatusClient({ associations }: { associations: Array
   const [surveyPreview, setSurveyPreview] = useState<{ sent: number; scanned: number } | null>(null)
   const [surveyBusy, setSurveyBusy] = useState(false)
   const [surveyMsg, setSurveyMsg] = useState<string | null>(null)
+  const [detailFor, setDetailFor] = useState<{ assoc: string; account: string } | null>(null)
 
   useEffect(() => {
     fetch('/api/admin/unit-status').then(r => r.json()).then(d => setRows(d.rows ?? [])).catch(() => setRows([]))
@@ -55,6 +58,15 @@ export default function UnitStatusClient({ associations }: { associations: Array
       return (a.associationCode + a.unit).localeCompare(b.associationCode + b.unit)
     })
   }, [rows, assocFilter, occFilter, expiringOnly])
+
+  const unitsByAssoc = useMemo(() => {
+    const out: Record<string, { accountNumber: string; unit: string | null; ownerName: string }[]> = {}
+    for (const r of rows ?? []) {
+      if (!out[r.associationCode]) out[r.associationCode] = []
+      out[r.associationCode].push({ accountNumber: r.accountNumber, unit: r.unit, ownerName: r.ownerName })
+    }
+    return out
+  }, [rows])
 
   if (!rows) return <p className="text-sm text-gray-400">Loading…</p>
 
@@ -140,8 +152,10 @@ export default function UnitStatusClient({ associations }: { associations: Array
               const d = daysUntil(r.leaseEndDate)
               const expiring = d !== null && d <= 30
               return (
-                <tr key={`${r.associationCode}-${r.unit}-${i}`} className="align-top hover:bg-gray-50">
-                  <td className="px-4 py-2.5 text-xs text-gray-700">{r.associationName ?? r.associationCode}{r.unit ? ` · Unit ${r.unit}` : ''}</td>
+                <tr key={`${r.associationCode}-${r.accountNumber}-${i}`} className="align-top hover:bg-gray-50">
+                  <td className="px-4 py-2.5 text-xs text-gray-700">
+                    {r.associationName ?? r.associationCode}{r.unit ? ` · Unit ${r.unit}` : ''} <span className="text-gray-400">({r.accountNumber})</span>
+                  </td>
                   <td className="px-4 py-2.5 text-xs text-gray-600">{r.ownerName || '—'}</td>
                   <td className="px-4 py-2.5"><OccupancyBadge status={r.occupancy} /></td>
                   <td className="px-4 py-2.5 text-xs text-gray-600">{r.tenantName ?? '—'}</td>
@@ -149,9 +163,11 @@ export default function UnitStatusClient({ associations }: { associations: Array
                     {r.leaseEndDate ?? '—'}{expiring ? ` (${d! < 0 ? 'expired' : `${d}d`})` : ''}
                   </td>
                   <td className="px-4 py-2.5 text-xs">
-                    {r.missingCount === 0
-                      ? <span className="text-emerald-700">✓ complete</span>
-                      : <span className="text-amber-700">{r.missingCount} missing</span>}
+                    <button onClick={() => setDetailFor({ assoc: r.associationCode, account: r.accountNumber })} className="hover:underline">
+                      {r.missingCount === 0
+                        ? <span className="text-emerald-700">✓ complete</span>
+                        : <span className="text-amber-700">{r.missingCount} missing</span>}
+                    </button>
                   </td>
                 </tr>
               )
@@ -161,9 +177,14 @@ export default function UnitStatusClient({ associations }: { associations: Array
         {filtered.length === 0 && <p className="p-6 text-center text-sm text-gray-400">No units match this filter.</p>}
       </div>
 
-      <div className="mt-4">
+      <div className="mt-4 space-y-3">
+        <ManualUnitUpload associations={associations} unitsByAssoc={unitsByAssoc} />
         <DriveImport onImported={() => setSurveyMsg('Imported — review in Document Inbox to file it.')} />
       </div>
+
+      {detailFor && (
+        <UnitDetailModal assoc={detailFor.assoc} account={detailFor.account} onClose={() => setDetailFor(null)} />
+      )}
     </div>
   )
 }
