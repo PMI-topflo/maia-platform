@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
       if (error) throw new Error("Supabase update failed: " + error.message);
 
-      await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/trigger-applycheck`, {
+      await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/trigger-screening`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

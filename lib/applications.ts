@@ -58,7 +58,7 @@ export async function findOrCreateListing(args: {
 
 /** A new applicant-group application under a listing. Stored in
  *  listing_applications (the existing public.applications table is the separate
- *  detailed ApplyCheck/board/payment pipeline — linked later via
+ *  detailed screening/board/payment pipeline — linked later via
  *  detailed_application_id). */
 export async function createApplication(args: { listingId: string; createdByRole: StakeholderRole | 'staff' }): Promise<{ id: string }> {
   const { data, error } = await supabaseAdmin.from('listing_applications')

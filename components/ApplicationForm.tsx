@@ -83,7 +83,7 @@ const translations = {
     perApplicant: "per applicant",
     coupleRate: "Couple rate (with certificate)",
     applicationFee: "Application Fee",
-    backgroundCheck: "Background Check (Applycheck)",
+    backgroundCheck: "Background Check (Checkr)",
     yourMargin: "Processing Fee",
     addlResident: "Additional Resident",
     chooseLanguage: "Language",
@@ -198,7 +198,7 @@ const translations = {
     perApplicant: "por solicitante",
     coupleRate: "Tarifa de pareja (con certificado)",
     applicationFee: "Tarifa de Solicitud",
-    backgroundCheck: "Verificación (Applycheck)",
+    backgroundCheck: "Verificación (Checkr)",
     yourMargin: "Cargo de Procesamiento",
     addlResident: "Residente Adicional",
     chooseLanguage: "Idioma",
@@ -307,7 +307,7 @@ const translations = {
     perApplicant: "por solicitante",
     coupleRate: "Tarifa de casal (com certidão)",
     applicationFee: "Taxa de Solicitação",
-    backgroundCheck: "Verificação (Applycheck)",
+    backgroundCheck: "Verificação (Checkr)",
     yourMargin: "Taxa de Processamento",
     addlResident: "Residente Adicional",
     chooseLanguage: "Idioma",
@@ -416,7 +416,7 @@ const translations = {
     perApplicant: "par demandeur",
     coupleRate: "Tarif couple (avec certificat)",
     applicationFee: "Frais de Dossier",
-    backgroundCheck: "Vérification (Applycheck)",
+    backgroundCheck: "Vérification (Checkr)",
     yourMargin: "Frais de Traitement",
     addlResident: "Résident Supplémentaire",
     chooseLanguage: "Langue",
@@ -525,7 +525,7 @@ const translations = {
     perApplicant: "למגיש",
     coupleRate: "תעריף זוגי (עם תעודה)",
     applicationFee: "דמי בקשה",
-    backgroundCheck: "בדיקת רקע (Applycheck)",
+    backgroundCheck: "בדיקת רקע (Checkr)",
     yourMargin: "דמי עיבוד",
     addlResident: "דייר נוסף",
     chooseLanguage: "שפה",
@@ -634,7 +634,7 @@ const translations = {
     perApplicant: "за заявителя",
     coupleRate: "Семейный тариф (со свидетельством)",
     applicationFee: "Взнос за заявку",
-    backgroundCheck: "Проверка биографии (Applycheck)",
+    backgroundCheck: "Проверка биографии (Checkr)",
     yourMargin: "Сбор за обработку",
     addlResident: "Дополнительный жилец",
     chooseLanguage: "Язык",
@@ -743,7 +743,7 @@ const translations = {
     perApplicant: "pa aplikan",
     coupleRate: "Tarif koup (ak sètifika)",
     applicationFee: "Frè Aplikasyon",
-    backgroundCheck: "Tcheke Background (Applycheck)",
+    backgroundCheck: "Tcheke Background (Checkr)",
     yourMargin: "Frè Tretman",
     addlResident: "Rezidan Siplemantè",
     chooseLanguage: "Lang",
@@ -2421,8 +2421,8 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                 </div>
                 <div style={{ marginTop: 8, fontSize: 11, color: "#9ca3af" }}>
                   {isInternational
-                    ? "Includes international background check across 90+ databases, Interpol, FBI & OFAC (Applycheck)"
-                    : "Includes background check, credit & eviction report (Applycheck)"}
+                    ? "Includes international background check across 90+ databases, Interpol, FBI & OFAC (Checkr)"
+                    : "Includes background check, credit & eviction report (Checkr)"}
                 </div>
               </div>
 

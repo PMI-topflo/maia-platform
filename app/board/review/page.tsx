@@ -33,8 +33,8 @@ interface ApplicationData {
   principals?: { name?: string; dob?: string }[] | null;
   is_married_couple?: boolean | null;
   total_charged?: number | null;
-  applycheck_status?: string | null;
-  applycheck_report_url?: string | null;
+  screening_status?: string | null;
+  screening_report_url?: string | null;
   rules_signature?: string | null;
   rules_agreed_at?: string | null;
   [key: string]: unknown;
@@ -392,11 +392,11 @@ export default function BoardReviewPage() {
               {/* Background / credit / eviction */}
               <div style={{ marginBottom: '1.75rem' }}>
                 <div style={sectionTitle}>Background, Credit & Eviction</div>
-                {application.applycheck_report_url ? (
-                  <a href={application.applycheck_report_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', color: '#f26a1b', fontWeight: 700, fontSize: '0.9rem' }}>View screening report ↗</a>
+                {application.screening_report_url ? (
+                  <a href={application.screening_report_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', color: '#f26a1b', fontWeight: 700, fontSize: '0.9rem' }}>View screening report ↗</a>
                 ) : (
                   <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '0.7rem 1rem', fontSize: '0.83rem', color: '#92400e' }}>
-                    Screening {application.applycheck_status ? `— ${application.applycheck_status}` : 'pending'}. The full report appears here once it completes.
+                    Screening {application.screening_status ? `— ${application.screening_status}` : 'pending'}. The full report appears here once it completes.
                   </div>
                 )}
               </div>

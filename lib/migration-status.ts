@@ -2794,6 +2794,63 @@ NOTIFY pgrst, 'reload schema';`,
 ALTER TABLE public.document_intake ADD COLUMN IF NOT EXISTS applied_items jsonb;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'screening_checkr',
+    label:       'Background checks — Checkr (replaces dead ApplyCheck)',
+    description: 'Renames applications.applycheck_* to screening_* (ApplyCheck had no public API and was rejected) + new screening_subjects table tracking each applicant/principal\'s own Checkr candidate/report/consent state — applications.screening_* stays the aggregate rollup the board/review page reads',
+    filename:    '20260705_screening_checkr.sql',
+    artifact:    { type: 'table', table: 'screening_subjects' },
+    sql: `DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='applications' AND column_name='applycheck_status') THEN
+    ALTER TABLE public.applications RENAME COLUMN applycheck_status TO screening_status;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='applications' AND column_name='applycheck_report_url') THEN
+    ALTER TABLE public.applications RENAME COLUMN applycheck_report_url TO screening_report_url;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='applications' AND column_name='applycheck_result') THEN
+    ALTER TABLE public.applications RENAME COLUMN applycheck_result TO screening_result;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='applications' AND column_name='applycheck_completed_at') THEN
+    ALTER TABLE public.applications RENAME COLUMN applycheck_completed_at TO screening_completed_at;
+  END IF;
+END $$;
+
+ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS screening_status text NOT NULL DEFAULT 'pending';
+ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS screening_report_url text;
+ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS screening_result jsonb;
+ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS screening_completed_at timestamptz;
+ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS screening_provider text NOT NULL DEFAULT 'checkr';
+
+CREATE TABLE IF NOT EXISTS public.screening_subjects (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id     uuid NOT NULL REFERENCES public.applications(id),
+  subject_index      int  NOT NULL,
+  name               text,
+  email              text,
+  is_commercial      boolean NOT NULL DEFAULT false,
+  checkr_candidate_id text,
+  checkr_report_id    text,
+  consented          boolean NOT NULL DEFAULT false,
+  consented_at       timestamptz,
+  status             text NOT NULL DEFAULT 'pending',
+  report_url         text,
+  result             jsonb,
+  completed_at       timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT screening_subjects_uniq UNIQUE (application_id, subject_index)
+);
+CREATE INDEX IF NOT EXISTS screening_subjects_candidate_idx ON public.screening_subjects (checkr_candidate_id);
+CREATE INDEX IF NOT EXISTS screening_subjects_report_idx ON public.screening_subjects (checkr_report_id);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.screening_subjects TO anon, authenticated, service_role;
+ALTER TABLE public.screening_subjects ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_screening_subjects" ON public.screening_subjects;
+CREATE POLICY "service_role_all_screening_subjects" ON public.screening_subjects FOR ALL TO service_role USING (true);
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

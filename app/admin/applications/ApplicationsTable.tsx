@@ -60,6 +60,8 @@ export type Application = {
   board_decision: 'approved' | 'rejected' | 'pending' | 'board_review' | null;
   board_decided_at: string | null;
   board_notes: string | null;
+  screening_status: string | null;
+  screening_report_url: string | null;
 };
 
 interface Props {
@@ -554,14 +556,33 @@ function DetailPanel({
         </div>
       </section>
 
-      {/* Background check placeholder */}
+      {/* Background check */}
       <section>
         <h3 className="text-sm font-semibold text-[#0d0d0d] uppercase tracking-wide mb-3">
           Background Check
         </h3>
-        <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800">
-          Applycheck: Pending
-        </span>
+        {app.screening_report_url ? (
+          <a
+            href={app.screening_report_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded border border-[#f26a1b] px-3 py-1.5 text-sm text-[#f26a1b] hover:bg-orange-50 transition-colors"
+          >
+            View screening report ↗
+          </a>
+        ) : (
+          <span
+            className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${
+              app.screening_status === 'complete'
+                ? 'bg-emerald-100 text-emerald-800'
+                : app.screening_status === 'error'
+                ? 'bg-red-100 text-red-800'
+                : 'bg-yellow-100 text-yellow-800'
+            }`}
+          >
+            Checkr: {app.screening_status ?? 'pending'}
+          </span>
+        )}
       </section>
 
       {/* Board decision */}

@@ -5,7 +5,7 @@
 // can rehydrate when the applicant resumes from an emailed link.
 //
 // Public — the row id IS the resume token. We don't return any data
-// staff entered (board_decision, applycheck_status, etc.); only the
+// staff entered (board_decision, screening_status, etc.); only the
 // applicant-facing fields the form itself wrote.
 //
 // Returns null when the row doesn't exist (typo in URL) so the form
