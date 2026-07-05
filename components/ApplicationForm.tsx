@@ -978,6 +978,10 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [leaseConfirmed, setLeaseConfirmed] = useState(!!preselectedAssociation);
   const [leaseParseError, setLeaseParseError] = useState("");
   const [rulesSections, setRulesSections] = useState<string[]>([]);
+  interface ApplicationRule { rule_key: string; value: unknown; label: string; enforcement: "block" | "warn" }
+  const [applicationRules, setApplicationRules] = useState<ApplicationRule[]>([]);
+  const individualsOnly = applicationRules.some(r => r.rule_key === "individuals_only" && r.enforcement === "block" && r.value === true);
+  const warnRules = applicationRules.filter(r => r.enforcement === "warn");
   // Governing documents required for the rules acknowledgment step.
   // The endpoint groups by category and lists EVERY uploaded language
   // version per category (English Rules, Spanish Rules, etc.) so the
@@ -1224,8 +1228,11 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         .catch(() => setAssocUnits([]));
       fetch(`/api/apply/association-rules?code=${encodeURIComponent(code)}`)
         .then((r) => r.json())
-        .then(({ sections }: { sections: string[] }) => setRulesSections(sections))
-        .catch(() => setRulesSections([]));
+        .then(({ sections, applicationRules }: { sections: string[]; applicationRules?: ApplicationRule[] }) => {
+          setRulesSections(sections);
+          setApplicationRules(applicationRules ?? []);
+        })
+        .catch(() => { setRulesSections([]); setApplicationRules([]); });
       // Pull the current Condo Docs + Rules versions for every
       // uploaded language. The new endpoint groups them so the rules
       // step can show a language picker per category.
@@ -1574,6 +1581,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
           applicantEmail,
           applicationType: appType,
           association,
+          associationCode: assocCode,
           applicationId:  appId,
           lang,
         }),
@@ -1892,8 +1900,16 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
               <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12, fontFamily: "monospace" }}>
                 {t.applicantType}
               </label>
+              {warnRules.length > 0 && (
+                <div style={{ fontSize: 12, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 4, padding: "10px 12px", marginBottom: 16, lineHeight: 1.5 }}>
+                  <strong>Please note this association&apos;s rental rules:</strong>
+                  <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                    {warnRules.map(r => <li key={r.rule_key}>{r.label}</li>)}
+                  </ul>
+                </div>
+              )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
-                {typeCards.map(({ key, label, desc, icon, price }) => (
+                {typeCards.filter(c => !(c.key === "commercial" && individualsOnly)).map(({ key, label, desc, icon, price }) => (
                   <div
                     key={key}
                     onClick={() => {

@@ -2860,6 +2860,44 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `ALTER TABLE public.screening_subjects ADD COLUMN IF NOT EXISTS is_international boolean NOT NULL DEFAULT false;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'association_application_rules',
+    label:       'Per-association application eligibility rules',
+    description: 'New association_application_rules table -- individuals-only / min-lease-term / rental-frequency / post-purchase-hold rules per association, extracted from each association\'s own governing documents as they\'re onboarded. Text rule_key means adding a new rule or a new association is always just another row, never a migration. Seeds VPCI\'s 4 rules found in its Declaration + Rules and Regulations',
+    filename:    '20260705_association_application_rules.sql',
+    artifact:    { type: 'table', table: 'association_application_rules' },
+    sql: `CREATE TABLE IF NOT EXISTS public.association_application_rules (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code text        NOT NULL,
+  rule_key         text        NOT NULL,
+  value            jsonb       NOT NULL,
+  label            text        NOT NULL,
+  enforcement      text        NOT NULL DEFAULT 'warn',
+  active           boolean     NOT NULL DEFAULT true,
+  created_by       text,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_assoc_app_rules_enforcement CHECK (enforcement IN ('block','warn'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS association_application_rules_uniq ON public.association_application_rules (association_code, rule_key);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.association_application_rules TO anon, authenticated, service_role;
+ALTER TABLE public.association_application_rules ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_association_application_rules" ON public.association_application_rules;
+CREATE POLICY "service_role_all_association_application_rules" ON public.association_application_rules FOR ALL TO service_role USING (true);
+DROP POLICY IF EXISTS "public_read_association_application_rules" ON public.association_application_rules;
+CREATE POLICY "public_read_association_application_rules" ON public.association_application_rules FOR SELECT TO anon, authenticated USING (active = true);
+
+INSERT INTO public.association_application_rules (association_code, rule_key, value, label, enforcement, created_by)
+VALUES
+  ('VPCI', 'individuals_only', 'true'::jsonb, 'Individuals only -- no LLC/corporate purchasers (effective 10/13/21)', 'block', 'maia_seed'),
+  ('VPCI', 'min_lease_days', '90'::jsonb, 'Minimum lease term is 90 days', 'warn', 'maia_seed'),
+  ('VPCI', 'max_rentals_per_12mo', '1'::jsonb, 'A unit may be rented at most once every 12 months', 'warn', 'maia_seed'),
+  ('VPCI', 'no_rent_years_after_purchase', '2'::jsonb, 'An owner may not rent out the unit for the first 2 years after purchase', 'warn', 'maia_seed')
+ON CONFLICT (association_code, rule_key) DO UPDATE SET value = EXCLUDED.value, label = EXCLUDED.label, enforcement = EXCLUDED.enforcement, updated_at = now();
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

@@ -1,9 +1,11 @@
 import { getAssociations } from '../actions'
 import AssociationDocumentSetupClient from './AssociationDocumentSetupClient'
+import AssociationApplicationRulesClient from './AssociationApplicationRulesClient'
+import AssociationSetupTabs from './AssociationSetupTabs'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../components/AdminNav'
 
-export const metadata = { title: 'Association Document Setup — PMI Top Florida' }
+export const metadata = { title: 'Association Setup — PMI Top Florida' }
 
 export default async function AssociationDocumentSetupPage() {
   const associations = await getAssociations()
@@ -16,13 +18,16 @@ export default async function AssociationDocumentSetupPage() {
 
       <main className="max-w-screen-lg mx-auto px-6 py-6">
         <div className="mb-6">
-          <h1 className="text-xl font-semibold text-gray-900">Association Document Setup</h1>
+          <h1 className="text-xl font-semibold text-gray-900">Association Setup</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Custom unit-level document requirements for one association only — e.g. the City of Lauderhill&apos;s Certificate of Use (Manors XI), or a lease addendum a specific association wants signed. These merge into the standard requirement list wherever it&apos;s used (owner portal, unit dashboard, resend requests).
+            Custom per-association settings — document requirements (e.g. the City of Lauderhill&apos;s Certificate of Use for Manors XI) and application eligibility rules (e.g. Venetian Park I&apos;s individuals-only / minimum-lease-term restrictions). Both merge into the standard flow wherever they&apos;re used.
           </p>
         </div>
 
-        <AssociationDocumentSetupClient associations={associations} />
+        <AssociationSetupTabs
+          documentSetup={<AssociationDocumentSetupClient associations={associations} />}
+          applicationRules={<AssociationApplicationRulesClient associations={associations} />}
+        />
       </main>
     </div>
   )
