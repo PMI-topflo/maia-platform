@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
         lineItems = [{ price: process.env.STRIPE_PRICE_INDIVIDUAL!, quantity: 2 }];
       }
     } else if (applicationType === "commercial") {
-      const numPrincipals = Math.round(amount / 100);
+      const numPrincipals = Math.round(amount / 150);
       lineItems = [{ price: process.env.STRIPE_PRICE_COMMERCIAL!, quantity: numPrincipals }];
     } else if (applicationType === "international") {
       lineItems = [{ price: process.env.STRIPE_PRICE_INTERNATIONAL!, quantity: 1 }];

@@ -42,9 +42,9 @@ const translations = {
     sunbizUploadHint: "We'll auto-fill the entity name and all principals — review them below.",
     sunbizError: "Couldn't read it automatically — please fill in the fields below.",
     marriageCertUpload: "Marriage Certificate",
-    marriageCertNote: "Upload to qualify for couple rate ($150). Without it, each applicant is charged $100.",
+    marriageCertNote: "Upload to qualify for couple rate ($150 total). Without it, each applicant is charged $150 individually ($300 total).",
     hasCert: "Yes — upload certificate",
-    noCert: "No certificate — charge separately ($100 each)",
+    noCert: "No certificate — charge separately ($150 each)",
     applicant: "Applicant",
     firstName: "First Name",
     lastName: "Last Name",
@@ -157,9 +157,9 @@ const translations = {
     sunbizUploadHint: "Completaremos el nombre de la entidad y los principales — revíselos abajo.",
     sunbizError: "No se pudo leer automáticamente — complete los campos abajo.",
     marriageCertUpload: "Certificado de Matrimonio",
-    marriageCertNote: "Suba el certificado para la tarifa de pareja ($150). Sin él, cada solicitante paga $100.",
+    marriageCertNote: "Suba el certificado para la tarifa de pareja ($150 en total). Sin él, cada solicitante paga $150 por separado ($300 en total).",
     hasCert: "Sí — subir certificado",
-    noCert: "Sin certificado — cobrar por separado ($100 c/u)",
+    noCert: "Sin certificado — cobrar por separado ($150 c/u)",
     applicant: "Solicitante",
     firstName: "Nombre",
     lastName: "Apellido",
@@ -266,9 +266,9 @@ const translations = {
     sunbizUploadHint: "Preencheremos o nome da entidade e os sócios — confira abaixo.",
     sunbizError: "Não foi possível ler automaticamente — preencha os campos abaixo.",
     marriageCertUpload: "Certidão de Casamento",
-    marriageCertNote: "Envie a certidão para a tarifa de casal ($150). Sem ela, cada solicitante paga $100.",
+    marriageCertNote: "Envie a certidão para a tarifa de casal ($150 no total). Sem ela, cada solicitante paga $150 separadamente ($300 no total).",
     hasCert: "Sim — enviar certidão",
-    noCert: "Sem certidão — cobrar separadamente ($100 cada)",
+    noCert: "Sem certidão — cobrar separadamente ($150 cada)",
     applicant: "Solicitante",
     firstName: "Nome",
     lastName: "Sobrenome",
@@ -375,9 +375,9 @@ const translations = {
     sunbizUploadHint: "Nous remplirons le nom de l'entité et les dirigeants — vérifiez ci-dessous.",
     sunbizError: "Lecture automatique impossible — remplissez les champs ci-dessous.",
     marriageCertUpload: "Certificat de Mariage",
-    marriageCertNote: "Téléchargez le certificat pour le tarif couple ($150). Sans lui, chaque demandeur paie $100.",
+    marriageCertNote: "Téléchargez le certificat pour le tarif couple ($150 au total). Sans lui, chaque demandeur paie $150 séparément ($300 au total).",
     hasCert: "Oui — télécharger le certificat",
-    noCert: "Pas de certificat — facturer séparément ($100 chacun)",
+    noCert: "Pas de certificat — facturer séparément ($150 chacun)",
     applicant: "Demandeur",
     firstName: "Prénom",
     lastName: "Nom de famille",
@@ -484,9 +484,9 @@ const translations = {
     sunbizUploadHint: "N ap ranpli non antite a ak tout prensipal yo — verifye yo anba a.",
     sunbizError: "Nou pa t ka li l otomatikman — tanpri ranpli chan yo anba a.",
     marriageCertUpload: "תעודת נישואין",
-    marriageCertNote: "העלה תעודת נישואין לתעריף זוגי ($150). ללא תעודה, כל מגיש ישלם $100.",
+    marriageCertNote: "העלה תעודת נישואין לתעריף זוגי ($150 בסך הכול). ללא תעודה, כל מגיש ישלם $150 בנפרד ($300 בסך הכול).",
     hasCert: "כן — העלה תעודה",
-    noCert: "ללא תעודה — חיוב נפרד ($100 לכל אחד)",
+    noCert: "ללא תעודה — חיוב נפרד ($150 לכל אחד)",
     applicant: "מגיש",
     firstName: "שם פרטי",
     lastName: "שם משפחה",
@@ -593,9 +593,9 @@ const translations = {
     sunbizUploadHint: "נמלא את שם הישות וכל בעלי המניות — בדקו למטה.",
     sunbizError: "לא הצלחנו לקרוא אוטומטית — מלאו את השדות למטה.",
     marriageCertUpload: "Свидетельство о браке",
-    marriageCertNote: "Загрузите свидетельство для семейного тарифа ($150). Без него каждый заявитель платит $100.",
+    marriageCertNote: "Загрузите свидетельство для семейного тарифа ($150 всего). Без него каждый заявитель платит $150 отдельно ($300 всего).",
     hasCert: "Да — загрузить свидетельство",
-    noCert: "Без свидетельства — оплата раздельно ($100 каждый)",
+    noCert: "Без свидетельства — оплата раздельно ($150 каждый)",
     applicant: "Заявитель",
     firstName: "Имя",
     lastName: "Фамилия",
@@ -702,9 +702,9 @@ const translations = {
     sunbizUploadHint: "Мы заполним название организации и всех принципалов — проверьте ниже.",
     sunbizError: "Не удалось прочитать автоматически — заполните поля ниже.",
     marriageCertUpload: "Sètifika Maryaj",
-    marriageCertNote: "Telechaje l pou kalifye pou tarif koup la ($150). San li, chak aplikan peye $100.",
+    marriageCertNote: "Telechaje l pou kalifye pou tarif koup la ($150 an total). San li, chak aplikan peye $150 separeman ($300 an total).",
     hasCert: "Wi — telechaje sètifika a",
-    noCert: "Pa gen sètifika — chaje separeman ($100 chak)",
+    noCert: "Pa gen sètifika — chaje separeman ($150 chak)",
     applicant: "Aplikan",
     firstName: "Prenon",
     lastName: "Siyati",
@@ -1270,10 +1270,10 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
 
   // ── Pricing ────────────────────────────────────────────────────────────────
   const calcTotal = () => {
-    if (appType === "individual")       return 100;
-    if (appType === "couple")           return hasCert ? 150 : 200;
-    if (appType === "additionalResident") return 100;
-    if (appType === "commercial")       return principals.length * 100;
+    if (appType === "individual")       return 150;
+    if (appType === "couple")           return hasCert ? 150 : 300;
+    if (appType === "additionalResident") return 150;
+    if (appType === "commercial")       return principals.length * 150;
     if (appType === "international")     return 150;
     return 0;
   };
@@ -1593,10 +1593,10 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
 
   // ── Type card config ───────────────────────────────────────────────────────
   const typeCards = [
-    { key: "individual",        label: t.individual,        desc: t.individualDesc,        icon: "👤", price: "$100"           },
+    { key: "individual",        label: t.individual,        desc: t.individualDesc,        icon: "👤", price: "$150"           },
     { key: "couple",            label: t.couple,            desc: t.coupleDesc,            icon: "💑", price: "$150"           },
-    { key: "additionalResident",label: t.additionalResident,desc: t.additionalResidentDesc,icon: "➕", price: "$100"           },
-    { key: "commercial",        label: t.commercial,        desc: t.commercialDesc,        icon: "🏢", price: "$100/principal" },
+    { key: "additionalResident",label: t.additionalResident,desc: t.additionalResidentDesc,icon: "➕", price: "$150"           },
+    { key: "commercial",        label: t.commercial,        desc: t.commercialDesc,        icon: "🏢", price: "$150/principal" },
     { key: "international",      label: t.international,      desc: t.internationalDesc,     icon: "🌍", price: "$150"           },
   ];
 
@@ -1974,7 +1974,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                     <input type="text" value={sunbizId} onChange={(e) => setSunbizId(e.target.value)} style={inp} onFocus={(e) => (e.target.style.borderColor = "#f26a1b")} onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")} />
                   </div>
                   </>)}
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#0d0d0d", marginBottom: 4, fontFamily: "monospace" }}>{commercialAsPerson ? t.applicant : t.principals} <span style={{ color: "#f26a1b" }}>($100 each)</span></div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#0d0d0d", marginBottom: 4, fontFamily: "monospace" }}>{commercialAsPerson ? t.applicant : t.principals} <span style={{ color: "#f26a1b" }}>($150 each)</span></div>
                   <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>{commercialAsPerson ? "List each buyer purchasing under their personal name (over 18)." : "List all natural persons (individuals) over 18 years old who are members, officers, trustees, or beneficial owners of this entity."}</p>
                   {principals.map((p, idx) => (
                     <div key={idx} style={{ background: "#fafaf9", borderRadius: 4, padding: 16, marginBottom: 10, border: "1px solid #e5e7eb" }}>
@@ -2389,23 +2389,23 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
 
                   {appType === "individual" && (
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d" }}>
-                      <span>1 × Individual</span><span style={{ fontWeight: 600 }}>$100</span>
+                      <span>1 × Individual</span><span style={{ fontWeight: 600 }}>$150</span>
                     </div>
                   )}
                   {appType === "couple" && (
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d" }}>
                       <span>{hasCert ? t.coupleRate : "2 × Individual"}</span>
-                      <span style={{ fontWeight: 600 }}>{hasCert ? "$150" : "$200"}</span>
+                      <span style={{ fontWeight: 600 }}>{hasCert ? "$150" : "$300"}</span>
                     </div>
                   )}
                   {appType === "additionalResident" && (
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d" }}>
-                      <span>1 × {t.addlResident}</span><span style={{ fontWeight: 600 }}>$100</span>
+                      <span>1 × {t.addlResident}</span><span style={{ fontWeight: 600 }}>$150</span>
                     </div>
                   )}
                   {appType === "commercial" && principals.map((p, i) => (
                     <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d", marginBottom: 4 }}>
-                      <span>{p.name || `Principal ${i + 1}`}</span><span style={{ fontWeight: 600 }}>$100</span>
+                      <span>{p.name || `Principal ${i + 1}`}</span><span style={{ fontWeight: 600 }}>$150</span>
                     </div>
                   ))}
                   {appType === "international" && (
