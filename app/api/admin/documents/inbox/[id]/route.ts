@@ -1,14 +1,15 @@
 // GET   /api/admin/documents/inbox/[id]/file? (via ?file=1) — preview redirect
-// PATCH /api/admin/documents/inbox/[id] — apply (file the doc → write the
-// compliance_records item) or dismiss. Staff-only.
-// Body (apply):   { action:'apply', association_code, item_key, effective_date?, expiration_date? }
+// PATCH /api/admin/documents/inbox/[id] — apply (file the doc → write ONE
+// compliance_records row per checked item, all pointing at the same
+// undivided document — a single upload can satisfy several items at once)
+// or dismiss. Staff-only.
+// Body (apply):   { action:'apply', association_code, scope, unit_ref?, items: [{item_key, effective_date?, expiration_date?}] }
 // Body (dismiss): { action:'dismiss' }
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { COMPLIANCE_TAXONOMY } from '@/lib/compliance-taxonomy'
-import { splitPdfRange } from '@/lib/pdf-split'
 
 export const dynamic = 'force-dynamic'
 
@@ -61,77 +62,53 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: true })
   }
 
-  // Merge this split row INTO the previous one (MAIA over-split one policy into
-  // two consecutive pieces). Re-split the union page range from the original
-  // packet, attach it to the previous row, and drop this piece.
-  if (body.action === 'merge_prev') {
-    const prevId = String(body.prev_id ?? '')
-    if (!prevId) return NextResponse.json({ error: 'prev_id is required' }, { status: 400 })
-    const sel = 'id, source_storage_path, page_start, page_end'
-    const [{ data: cur }, { data: prev }] = await Promise.all([
-      supabaseAdmin.from('document_intake').select(sel).eq('id', id).maybeSingle(),
-      supabaseAdmin.from('document_intake').select(sel).eq('id', prevId).maybeSingle(),
-    ])
-    if (!cur || !prev) return NextResponse.json({ error: 'row not found' }, { status: 404 })
-    if (!cur.source_storage_path || cur.source_storage_path !== prev.source_storage_path)
-      return NextResponse.json({ error: 'these came from different uploads' }, { status: 400 })
-    if (cur.page_start == null || cur.page_end == null || prev.page_start == null || prev.page_end == null)
-      return NextResponse.json({ error: 'no page range to merge' }, { status: 400 })
+  if (body.action !== 'apply') return NextResponse.json({ error: 'action must be apply or dismiss' }, { status: 400 })
 
-    const start = Math.min(Number(prev.page_start), Number(cur.page_start))
-    const end   = Math.max(Number(prev.page_end), Number(cur.page_end))
-    const { data: blob } = await supabaseAdmin.storage.from(BUCKET).download(prev.source_storage_path as string)
-    if (!blob) return NextResponse.json({ error: 'source packet not found' }, { status: 404 })
-    const merged = await splitPdfRange(Buffer.from(await blob.arrayBuffer()), start, end)
-    if (!merged) return NextResponse.json({ error: 'could not merge pages' }, { status: 500 })
-
-    const mergedPath = `${(prev.source_storage_path as string).replace(/\.pdf$/i, '')}__merged_p${start}-${end}.pdf`
-    const up = await supabaseAdmin.storage.from(BUCKET).upload(mergedPath, merged, { contentType: 'application/pdf', upsert: true })
-    if (up.error) return NextResponse.json({ error: `merge upload failed: ${up.error.message}` }, { status: 500 })
-
-    await supabaseAdmin.from('document_intake').update({ storage_path: mergedPath, page_start: start, page_end: end }).eq('id', prevId)
-    await supabaseAdmin.from('document_intake').update({ status: 'dismissed' }).eq('id', id)
-    return NextResponse.json({ ok: true, prev_id: prevId, page_start: start, page_end: end })
-  }
-
-  if (body.action !== 'apply') return NextResponse.json({ error: 'action must be apply, merge_prev, or dismiss' }, { status: 400 })
-
-  const assoc   = String(body.association_code ?? '').trim().toUpperCase()
-  const itemKey = String(body.item_key ?? '').trim()
-  const scope   = body.scope === 'unit' ? 'unit' : 'association'
+  const assoc = String(body.association_code ?? '').trim().toUpperCase()
+  const scope = body.scope === 'unit' ? 'unit' : 'association'
   const unitRef = scope === 'unit' ? String(body.unit_ref ?? '').trim() : ''
+  const rawItems = Array.isArray(body.items) ? body.items : []
   if (!assoc) return NextResponse.json({ error: 'association_code is required to apply' }, { status: 400 })
-  if (!VALID_ITEMS.has(itemKey)) {
-    // Not a fixed taxonomy item — check it's an active custom requirement
-    // (/admin/association-document-setup) for this association.
-    const { data: custom } = await supabaseAdmin.from('association_document_requirements')
-      .select('id').eq('association_code', assoc).eq('item_key', itemKey).eq('active', true).maybeSingle()
-    if (!custom) return NextResponse.json({ error: 'a valid compliance item_key is required' }, { status: 400 })
-  }
+  if (rawItems.length === 0) return NextResponse.json({ error: 'check at least one item this document satisfies' }, { status: 400 })
   if (scope === 'unit' && !unitRef) return NextResponse.json({ error: 'pick the owner/unit this document belongs to' }, { status: 400 })
+
+  const items: { itemKey: string; expiry: string | null }[] = []
+  for (const raw of rawItems) {
+    const r = raw as Record<string, unknown>
+    const itemKey = String(r.item_key ?? '').trim()
+    if (!VALID_ITEMS.has(itemKey)) {
+      // Not a fixed taxonomy item — check it's an active custom requirement
+      // (/admin/association-document-setup) for this association.
+      const { data: custom } = await supabaseAdmin.from('association_document_requirements')
+        .select('id').eq('association_code', assoc).eq('item_key', itemKey).eq('active', true).maybeSingle()
+      if (!custom) return NextResponse.json({ error: `"${itemKey}" is not a valid compliance item` }, { status: 400 })
+    }
+    items.push({ itemKey, expiry: dateOrNull(r.expiration_date) })
+  }
 
   const { data: doc, error: docErr } = await supabaseAdmin.from('document_intake').select('storage_path, status').eq('id', id).single()
   if (docErr || !doc) return NextResponse.json({ error: 'intake row not found' }, { status: 404 })
 
-  const expiry = dateOrNull(body.expiration_date)
-  const newStatus = statusFromExpiry(expiry)
-  const { error: upErr } = await supabaseAdmin.from('compliance_records').upsert({
-    scope, association_code: assoc, unit_ref: unitRef, item_key: itemKey,
-    applicable: true, status: newStatus, expiry_date: expiry,
-    source_path: doc.storage_path, updated_by: actor(session),
-  }, { onConflict: 'scope,association_code,unit_ref,item_key' })
-  if (upErr) return NextResponse.json({ error: `could not write compliance record: ${upErr.message}` }, { status: 500 })
+  for (const it of items) {
+    const newStatus = statusFromExpiry(it.expiry)
+    const { error: upErr } = await supabaseAdmin.from('compliance_records').upsert({
+      scope, association_code: assoc, unit_ref: unitRef, item_key: it.itemKey,
+      applicable: true, status: newStatus, expiry_date: it.expiry,
+      source_path: doc.storage_path, updated_by: actor(session),
+    }, { onConflict: 'scope,association_code,unit_ref,item_key' })
+    if (upErr) return NextResponse.json({ error: `could not write compliance record for ${it.itemKey}: ${upErr.message}` }, { status: 500 })
 
-  // Filing a satisfying association doc closes the matching compliance task
-  // right away (the daily sync would too). Expired/pending docs leave it open.
-  if (scope === 'association' && (newStatus === 'current' || newStatus === 'expiring')) {
-    await supabaseAdmin.from('staff_tasks').update({ active: false })
-      .eq('source', 'maia').eq('source_ref', `compliance:${assoc}:${itemKey}`)
+    // Filing a satisfying association doc closes the matching compliance task
+    // right away (the daily sync would too). Expired/pending docs leave it open.
+    if (scope === 'association' && (newStatus === 'current' || newStatus === 'expiring')) {
+      await supabaseAdmin.from('staff_tasks').update({ active: false })
+        .eq('source', 'maia').eq('source_ref', `compliance:${assoc}:${it.itemKey}`)
+    }
   }
 
   const { error } = await supabaseAdmin.from('document_intake').update({
-    status: 'applied', applied_association_code: assoc, applied_item_key: itemKey,
-    applied_scope: scope, applied_unit_ref: unitRef || null,
+    status: 'applied', applied_association_code: assoc, applied_item_key: items[0]?.itemKey ?? null,
+    applied_scope: scope, applied_unit_ref: unitRef || null, applied_items: rawItems,
     applied_at: new Date().toISOString(), applied_by: actor(session),
   }).eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

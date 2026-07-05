@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import DriveImport from '@/app/admin/documents/inbox/DriveImport'
 import UnitDetailModal from './UnitDetailModal'
 import ManualUnitUpload from './ManualUnitUpload'
@@ -34,6 +35,7 @@ export default function UnitStatusClient({ associations }: { associations: Array
   const [surveyBusy, setSurveyBusy] = useState(false)
   const [surveyMsg, setSurveyMsg] = useState<string | null>(null)
   const [detailFor, setDetailFor] = useState<{ assoc: string; account: string } | null>(null)
+  const [importedCount, setImportedCount] = useState(0)
 
   useEffect(() => {
     fetch('/api/admin/unit-status').then(r => r.json()).then(d => setRows(d.rows ?? [])).catch(() => setRows([]))
@@ -179,7 +181,13 @@ export default function UnitStatusClient({ associations }: { associations: Array
 
       <div className="mt-4 space-y-3">
         <ManualUnitUpload associations={associations} unitsByAssoc={unitsByAssoc} />
-        <DriveImport onImported={() => setSurveyMsg('Imported — review in Document Inbox to file it.')} />
+        <DriveImport onImported={rows => setImportedCount(n => n + (rows?.length ?? 1))} />
+        {importedCount > 0 && (
+          <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 flex items-center justify-between">
+            <span>Imported {importedCount} file{importedCount === 1 ? '' : 's'} — MAIA classified {importedCount === 1 ? 'it' : 'them'} and staged for review.</span>
+            <Link href="/admin/documents/inbox" className="font-semibold underline hover:no-underline">Open Document Inbox →</Link>
+          </div>
+        )}
       </div>
 
       {detailFor && (

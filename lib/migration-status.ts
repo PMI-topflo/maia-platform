@@ -2784,6 +2784,16 @@ CREATE POLICY "service_role_all_association_document_requirements" ON public.ass
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'document_intake_multi_tag',
+    label:       'Document Inbox — multi-tag instead of splitting',
+    description: 'document_intake.suggested_items (jsonb) — MAIA no longer physically splits a bundled document (e.g. an insurance ACORD packet) into per-coverage files; one upload = one row, tagged with every compliance item it satisfies, staff multi-select and file once per tag against the same undivided file',
+    filename:    '20260705_document_intake_multi_tag.sql',
+    artifact:    { type: 'column', table: 'document_intake', column: 'suggested_items' },
+    sql: `ALTER TABLE public.document_intake ADD COLUMN IF NOT EXISTS suggested_items jsonb;
+ALTER TABLE public.document_intake ADD COLUMN IF NOT EXISTS applied_items jsonb;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
