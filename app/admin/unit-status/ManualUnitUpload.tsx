@@ -1,9 +1,10 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { categoriesForScope } from '@/lib/compliance-taxonomy'
 
 interface UnitOption { accountNumber: string; unit: string | null; ownerName: string }
+interface CustomReq { association_code: string; item_key: string; label: string }
 
 const UNIT_ITEMS = categoriesForScope('unit').flatMap(c => c.items)
 
@@ -18,9 +19,15 @@ export default function ManualUnitUpload({ associations, unitsByAssoc }: {
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [customReqs, setCustomReqs] = useState<CustomReq[]>([])
+
+  useEffect(() => {
+    fetch('/api/admin/association-document-requirements').then(r => r.json()).then(d => setCustomReqs(d.requirements ?? [])).catch(() => null)
+  }, [])
 
   const units = useMemo(() => (assoc ? unitsByAssoc[assoc] ?? [] : []), [assoc, unitsByAssoc])
   const selectedUnit = units.find(u => u.accountNumber === account)
+  const customItemsForAssoc = useMemo(() => customReqs.filter(r => r.association_code === assoc), [customReqs, assoc])
 
   async function upload() {
     if (!assoc || !account || !itemKey || !file) { setMsg({ kind: 'err', text: 'Pick an association, unit, document type, and file.' }); return }
@@ -59,6 +66,7 @@ export default function ManualUnitUpload({ associations, unitsByAssoc }: {
             <select value={itemKey} onChange={e => setItemKey(e.target.value)} className={selectCls}>
               <option value="">Document type…</option>
               {UNIT_ITEMS.map(i => <option key={i.key} value={i.key}>{i.label}</option>)}
+              {customItemsForAssoc.map(i => <option key={i.item_key} value={i.item_key}>{i.label} (custom)</option>)}
             </select>
           </div>
           <div className="flex items-center gap-2">

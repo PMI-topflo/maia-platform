@@ -47,7 +47,7 @@ export async function GET() {
   const session = token ? await verifySession(token) : null
   if (!session || session.persona !== 'staff') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const [assocs, owners, occ, tenants, recs] = await Promise.all([
+  const [assocs, owners, occ, tenants, recs, customReqs] = await Promise.all([
     fetchAll<{ association_code: string; association_type: string | null }>((from, to) =>
       supabaseAdmin.from('associations').select('association_code, association_type').range(from, to)),
     fetchAll<{ account_number: string | null; association_code: string; association_name: string | null; unit_number: string | null; first_name: string | null; last_name: string | null; entity_name: string | null }>((from, to) =>
@@ -61,9 +61,16 @@ export async function GET() {
         .select('association_code, unit_number, first_name, last_name, lease_end_date').eq('status', 'active').range(from, to)),
     fetchAll<{ association_code: string; unit_ref: string; item_key: string; status: string }>((from, to) =>
       supabaseAdmin.from('compliance_records').select('association_code, unit_ref, item_key, status').eq('scope', 'unit').range(from, to)),
+    fetchAll<{ association_code: string; item_key: string; occupancy_filter: string | null }>((from, to) =>
+      supabaseAdmin.from('association_document_requirements').select('association_code, item_key, occupancy_filter').eq('active', true).range(from, to)),
   ])
 
   const kindByAssoc = new Map<string, AssocKind>(assocs.map(a => [String(a.association_code), kindFromType(a.association_type)]))
+  const customReqsByAssoc = new Map<string, { itemKey: string; occupancyFilter: Occupancy | null }[]>()
+  for (const c of customReqs) {
+    if (!customReqsByAssoc.has(c.association_code)) customReqsByAssoc.set(c.association_code, [])
+    customReqsByAssoc.get(c.association_code)!.push({ itemKey: c.item_key, occupancyFilter: (c.occupancy_filter as Occupancy | null) ?? null })
+  }
   const key = (assoc: string | null, ref: string | null) => `${assoc ?? ''}::${ref ?? ''}`
 
   // unit_occupancy / compliance_records / owner-portal tokens all key on the
@@ -111,7 +118,9 @@ export async function GET() {
     const k = key(u.associationCode, u.accountNumber)
     const occupancy = occByUnit.get(k) ?? null
     const kind = kindByAssoc.get(u.associationCode) ?? 'condo'
-    const required = requiredItemKeys(kind, occupancy)
+    const customKeys = (customReqsByAssoc.get(u.associationCode) ?? [])
+      .filter(c => c.occupancyFilter === null || c.occupancyFilter === occupancy).map(c => c.itemKey)
+    const required = [...requiredItemKeys(kind, occupancy), ...customKeys]
     const onFile = onFileByUnit.get(k) ?? new Set<string>()
     const missingCount = required.filter(rk => !onFile.has(rk)).length
     const tenant = occupancy === 'leased' ? tenantByUnit.get(key(u.associationCode, u.unitNumber)) : undefined

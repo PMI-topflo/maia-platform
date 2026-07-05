@@ -2757,6 +2757,33 @@ NOTIFY pgrst, 'reload schema';`,
 ALTER TABLE public.unit_occupancy ADD COLUMN IF NOT EXISTS commercial_use_type text;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'association_document_requirements',
+    label:       'Association Document Setup (custom per-association requirements)',
+    description: 'association_document_requirements table — staff-defined custom unit-level compliance requirements scoped to one association (e.g. City of Lauderhill Certificate of Use for Manors XI only, Del Vista lease addendum), merged into the fixed compliance-taxonomy required-items list for that association',
+    filename:    '20260705_association_document_requirements.sql',
+    artifact:    { type: 'table', table: 'association_document_requirements' },
+    sql: `CREATE TABLE IF NOT EXISTS public.association_document_requirements (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code text        NOT NULL,
+  item_key         text        NOT NULL,
+  label            text        NOT NULL,
+  occupancy_filter text,
+  active           boolean     NOT NULL DEFAULT true,
+  created_by       text,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_assoc_doc_req_occ CHECK (occupancy_filter IS NULL OR occupancy_filter IN ('owner_occupied','leased','vacant'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS association_document_requirements_uniq ON public.association_document_requirements (association_code, item_key);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.association_document_requirements TO anon, authenticated, service_role;
+ALTER TABLE public.association_document_requirements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_association_document_requirements" ON public.association_document_requirements;
+CREATE POLICY "service_role_all_association_document_requirements" ON public.association_document_requirements FOR ALL TO service_role USING (true);
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

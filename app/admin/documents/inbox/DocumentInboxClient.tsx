@@ -61,9 +61,25 @@ export default function DocumentInboxClient({ associations }: { associations: As
   const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<Set<string>>(new Set())
+  const [customReqs, setCustomReqs] = useState<{ association_code: string; item_key: string; label: string }[]>([])
 
   function togglePreview(id: string) {
     setPreview(p => { const s = new Set(p); if (s.has(id)) s.delete(id); else s.add(id); return s })
+  }
+
+  // Custom per-association unit requirements (/admin/association-document-setup,
+  // e.g. City of Lauderhill's Certificate of Use) merge into the 'unit'
+  // category's item list here, scoped to whichever association a row has
+  // selected — otherwise staff would have no way to file an uploaded custom-
+  // item doc against the right item at all.
+  useEffect(() => {
+    fetch('/api/admin/association-document-requirements').then(r => r.json()).then(d => setCustomReqs(d.requirements ?? [])).catch(() => null)
+  }, [])
+  function itemsForRow(row: Row) {
+    const base = itemsFor(row.category)
+    if (row.category !== 'unit' || !row.association_code) return base
+    const custom = customReqs.filter(r => r.association_code === row.association_code).map(r => ({ key: r.item_key, label: `${r.label} (custom)` }))
+    return [...base, ...custom]
   }
 
   async function ensureOwners(code: string) {
@@ -210,7 +226,7 @@ export default function DocumentInboxClient({ associations }: { associations: As
                       <Field label="Document is">
                         <select value={row.item_key} onChange={e => patch(row.id, { item_key: e.target.value })} className="w-full rounded border border-gray-300 px-1.5 py-1 text-[11px]">
                           <option value="">— select —</option>
-                          {itemsFor(row.category).map(i => <option key={i.key} value={i.key}>{i.label}</option>)}
+                          {itemsForRow(row).map(i => <option key={i.key} value={i.key}>{i.label}</option>)}
                         </select>
                       </Field>
                       <Field label="Effective"><input type="date" value={row.effective_date} onChange={e => patch(row.id, { effective_date: e.target.value })} className="w-full rounded border border-gray-300 px-1.5 py-1 text-[11px]" /></Field>

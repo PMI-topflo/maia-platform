@@ -38,7 +38,12 @@ export async function POST(req: Request) {
   const file = form.get('file')
 
   if (!assoc || !account) return NextResponse.json({ error: 'pick an association and unit' }, { status: 400 })
-  if (!UNIT_ITEM_KEYS.has(itemKey)) return NextResponse.json({ error: 'pick a document type' }, { status: 400 })
+  if (!UNIT_ITEM_KEYS.has(itemKey)) {
+    // Not a fixed taxonomy item — check it's an active custom requirement for this association.
+    const { data: custom } = await supabaseAdmin.from('association_document_requirements')
+      .select('id').eq('association_code', assoc).eq('item_key', itemKey).eq('active', true).maybeSingle()
+    if (!custom) return NextResponse.json({ error: 'pick a document type' }, { status: 400 })
+  }
   if (!(file instanceof File) || file.size === 0) return NextResponse.json({ error: 'no file' }, { status: 400 })
   if (!ALLOWED.test(file.name)) return NextResponse.json({ error: 'unsupported file type' }, { status: 400 })
 

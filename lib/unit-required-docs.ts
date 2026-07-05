@@ -62,17 +62,33 @@ export const INSURANCE_TYPE_OPTIONS: Record<string, string[]> = {
   'unit.cgl': ['Commercial General Liability (CGL)', 'CGL + Property', 'Other', 'None currently'],
 }
 
+export interface CustomRequirement { itemKey: string; label: string; occupancyFilter: Occupancy | null }
+
+/** Staff-defined custom requirements for one association (e.g. City of
+ *  Lauderhill's Certificate of Use for Manors XI, Del Vista's lease
+ *  addendum) — see /admin/association-document-setup. Merged into the
+ *  fixed compliance-taxonomy required-items list for that association only. */
+export async function getCustomRequirements(assoc: string): Promise<CustomRequirement[]> {
+  const { data } = await supabaseAdmin.from('association_document_requirements')
+    .select('item_key, label, occupancy_filter').eq('association_code', assoc).eq('active', true)
+  return (data ?? []).map(r => ({ itemKey: r.item_key as string, label: r.label as string, occupancyFilter: (r.occupancy_filter as Occupancy | null) ?? null }))
+}
+
 /** This unit's occupancy + which required documents are still missing. */
 export async function getUnitComplianceState(assoc: string, unitRef: string): Promise<{ occupancy: Occupancy | null; kind: AssocKind; commercialUseType: string | null; missing: MissingItem[] }> {
-  const [{ data: occ }, { data: recs }, kind] = await Promise.all([
+  const [{ data: occ }, { data: recs }, kind, custom] = await Promise.all([
     supabaseAdmin.from('unit_occupancy').select('status, commercial_use_type').eq('association_code', assoc).eq('unit_ref', unitRef).maybeSingle(),
     supabaseAdmin.from('compliance_records').select('item_key, status, declared_type').eq('association_code', assoc).eq('scope', 'unit').eq('unit_ref', unitRef),
     associationKind(assoc),
+    getCustomRequirements(assoc),
   ])
   const occupancy = (occ?.status as Occupancy | undefined) ?? null
   const onFile = onFileSet(recs)
   const declaredByKey = new Map((recs ?? []).map(r => [r.item_key as string, r.declared_type as string | null]))
-  const missing = requiredItemKeys(kind, occupancy).filter(k => !onFile.has(k)).map(k => ({ key: k, label: labelFor(k), declaredType: declaredByKey.get(k) ?? null }))
+  const customLabelByKey = new Map(custom.map(c => [c.itemKey, c.label]))
+  const customKeys = custom.filter(c => c.occupancyFilter === null || c.occupancyFilter === occupancy).map(c => c.itemKey)
+  const allKeys = [...requiredItemKeys(kind, occupancy), ...customKeys]
+  const missing = allKeys.filter(k => !onFile.has(k)).map(k => ({ key: k, label: customLabelByKey.get(k) ?? labelFor(k), declaredType: declaredByKey.get(k) ?? null }))
   return { occupancy, kind, commercialUseType: (occ?.commercial_use_type as string | null) ?? null, missing }
 }
 

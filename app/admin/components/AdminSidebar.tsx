@@ -49,6 +49,7 @@ const NAV: Node[] = [
     { label: 'Pre-Registrations', href: '/admin/pre-registrations' },
     { label: 'Registrations', href: '/admin/registrations' },
     { label: 'Approvals', href: '/admin/pending-approvals' },
+    { label: 'Association Document Setup', href: '/admin/association-document-setup' },
   ] },
   { type: 'group', label: 'Flows', icon: '🔀', items: [
     { label: 'Voice & Text Routing', href: '/admin/voice-flow' },

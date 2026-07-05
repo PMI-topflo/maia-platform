@@ -101,7 +101,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const scope   = body.scope === 'unit' ? 'unit' : 'association'
   const unitRef = scope === 'unit' ? String(body.unit_ref ?? '').trim() : ''
   if (!assoc) return NextResponse.json({ error: 'association_code is required to apply' }, { status: 400 })
-  if (!VALID_ITEMS.has(itemKey)) return NextResponse.json({ error: 'a valid compliance item_key is required' }, { status: 400 })
+  if (!VALID_ITEMS.has(itemKey)) {
+    // Not a fixed taxonomy item — check it's an active custom requirement
+    // (/admin/association-document-setup) for this association.
+    const { data: custom } = await supabaseAdmin.from('association_document_requirements')
+      .select('id').eq('association_code', assoc).eq('item_key', itemKey).eq('active', true).maybeSingle()
+    if (!custom) return NextResponse.json({ error: 'a valid compliance item_key is required' }, { status: 400 })
+  }
   if (scope === 'unit' && !unitRef) return NextResponse.json({ error: 'pick the owner/unit this document belongs to' }, { status: 400 })
 
   const { data: doc, error: docErr } = await supabaseAdmin.from('document_intake').select('storage_path, status').eq('id', id).single()
