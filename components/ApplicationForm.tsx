@@ -2436,11 +2436,24 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                   <span style={{ color: "#f26a1b" }}>${total}</span>
                 </div>
                 <div style={{ marginTop: 8, fontSize: 11, color: "#9ca3af" }}>
-                  {isInternational
-                    ? "Includes international background check across 90+ databases, Interpol, FBI & OFAC (Checkr)"
-                    : "Includes background check, credit & eviction report (Checkr)"}
+                  Includes background check, credit & eviction report (Checkr)
                 </div>
               </div>
+
+              {isInternational && (
+                <div style={{ marginBottom: 20, padding: "14px 16px", background: "#fff7f0", border: "1px solid #f3d9c4", borderRadius: 4, fontSize: 13, lineHeight: 1.6, color: "#0d0d0d" }}>
+                  <div style={{ fontWeight: 700, marginBottom: 8 }}>Additional documentation for international applicants</div>
+                  <div style={{ marginBottom: 8 }}>The applicant may be required to provide:</div>
+                  <ol style={{ margin: "0 0 8px", paddingLeft: 20 }}>
+                    <li>A local U.S. background check - Checkr</li>
+                    <li>An official criminal background report, police clearance certificate, or equivalent criminal record document from the applicant&rsquo;s country of residence or citizenship.</li>
+                    <li>Bank statements for the most recent three (3) to six (6) months.</li>
+                    <li>A bank reference letter confirming the applicant&rsquo;s banking relationship, account status, and financial standing.</li>
+                    <li>Any documents issued in a foreign language must be accompanied by a notarized English translation.</li>
+                  </ol>
+                  <div>All documents must be clear, verifiable, and current.</div>
+                </div>
+              )}
 
               <button
                 onClick={handlePay}

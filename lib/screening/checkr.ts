@@ -27,14 +27,16 @@
 // and genuinely emails the applicant a hosted link, same as a real production
 // order would. Both are legitimate statuses, not a guess vs. a correction.
 //
-// ⚠ Still unconfirmed: the exact package slug for international applicants
-// (public docs only show "starter"/"essential" as named packages, plus
-// individual add-on products like global_watchlist) -- CHECKR_PACKAGE_INTERNATIONAL
-// needs confirming with a real Checkr account rep before go-live. Webhook
-// payload's exact JSON shape for extracting the order id is also a
-// best-effort guess (docs describe event *names* but not a full payload
-// example) -- getOrder() re-fetches authoritative state rather than trusting
-// the webhook body, specifically to route around that gap.
+// ⚠ There is no distinct "international" package. Checkr's own pricing page
+// (checkr.com/pricing/international, confirmed 2026-07-06) shows international
+// checks are à la carte per-country line items (e.g. Germany's criminal check
+// alone takes 25-31 days), not a package slug alongside starter/essential --
+// confirmed by the fact the Orders API's package enum only ever lists those
+// two values. Decision (2026-07-06): international applicants get the same
+// domestic Essential package everyone else gets; the country-specific gap
+// (foreign criminal record, financial standing) is covered by applicant-
+// uploaded documents instead (see ApplicationForm's international disclosure
+// copy), not by a Checkr product.
 // =====================================================================
 
 import { createHmac, timingSafeEqual } from 'node:crypto'
@@ -46,14 +48,11 @@ function authHeader(): string {
   return `Bearer ${process.env.CHECKR_API_KEY ?? ''}`
 }
 
-function packageFor(subject: ScreeningSubject): string {
-  // Commercial-application principals get the same Essential check as an
-  // individual applicant (same package, same price, per principal) — the
-  // "commercial" distinction only affects which applications.* array the
-  // subject came from, not which Checkr package runs.
-  const tier = subject.isInternational ? 'INTERNATIONAL' : 'RESIDENTIAL'
-  const slug = process.env[`CHECKR_PACKAGE_${tier}`]
-  if (!slug) throw new Error(`CHECKR_PACKAGE_${tier} is not configured`)
+function packageFor(): string {
+  // Every subject -- individual, commercial principal, or international
+  // applicant -- runs the same domestic Essential check (see file header).
+  const slug = process.env.CHECKR_PACKAGE_RESIDENTIAL
+  if (!slug) throw new Error('CHECKR_PACKAGE_RESIDENTIAL is not configured')
   return slug
 }
 
@@ -102,7 +101,7 @@ export const checkrProvider: ScreeningProvider = {
     const { first, last } = splitName(subject.name)
     const json = await checkrFetch('/orders', 'POST', {
       order: {
-        package: packageFor(subject),
+        package: packageFor(),
         property: {
           name: property.name ?? undefined,
           street: property.street,

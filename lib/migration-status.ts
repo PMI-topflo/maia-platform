@@ -2853,8 +2853,8 @@ NOTIFY pgrst, 'reload schema';`,
   },
   {
     key:         'screening_international',
-    label:       'Background checks — International Basic package tracking',
-    description: 'Adds screening_subjects.is_international — app_type === \'international\' applicants now route to Checkr\'s International Basic package (Intl criminal/adverse media + global watchlist, from $32/check) instead of the domestic Essential package ($34.99/report), restoring the domestic/international distinction the old ApplyCheck code had via an SSN check',
+    label:       'Background checks — international-applicant tracking',
+    description: 'Adds screening_subjects.is_international — flags which subjects came from an app_type === \'international\' application, for reporting/staff-review only. As of 2026-07-06 there is no distinct Checkr package for international applicants (confirmed no such package slug exists, and Checkr\'s international product is à la carte per-country pricing); every subject runs the same domestic Essential package, and the international-specific gap is covered by applicant-uploaded documents instead',
     filename:    '20260705_screening_international.sql',
     artifact:    { type: 'column', table: 'screening_subjects', column: 'is_international' },
     sql: `ALTER TABLE public.screening_subjects ADD COLUMN IF NOT EXISTS is_international boolean NOT NULL DEFAULT false;
