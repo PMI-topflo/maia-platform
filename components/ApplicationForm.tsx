@@ -2141,7 +2141,8 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                     <details style={{ marginBottom: 16, fontSize: 12, color: "#6b7280" }}>
                       <summary style={{ cursor: "pointer", color: "#f26a1b", fontWeight: 600 }}>{ic.cpaDetailsToggle}</summary>
                       <div style={{ marginTop: 8, lineHeight: 1.6 }}>
-                        <p style={{ margin: "0 0 8px" }}>{ic.cpaIntro}</p>
+                        <p style={{ margin: "0 0 8px", fontWeight: 700, color: "#0d0d0d" }}>{ic.cpaHeading}</p>
+                        {ic.cpaIntroParagraphs.map((p, i) => <p key={i} style={{ margin: "0 0 8px" }}>{p}</p>)}
                         <ul style={{ margin: "0 0 8px", paddingLeft: rtl ? 0 : 20, paddingRight: rtl ? 20 : 0 }}>
                           {ic.cpaBullets.map((b, i) => <li key={i}>{b}</li>)}
                         </ul>

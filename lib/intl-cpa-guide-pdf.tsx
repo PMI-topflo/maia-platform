@@ -45,6 +45,7 @@ function stylesFor(rtl: boolean) {
     header: { borderBottomWidth: 2, borderBottomColor: ORANGE, paddingBottom: 10, marginBottom: 18 },
     brand: { fontSize: 10, color: MUTED, fontFamily, fontWeight: 'bold' as const },
     title: { fontSize: 16, color: NAVY, fontWeight: 'bold' as const, marginTop: 4, textAlign: align },
+    heading: { fontSize: 11, color: NAVY, fontWeight: 'bold' as const, marginBottom: 8, textAlign: align },
     intro: { fontSize: 10, lineHeight: 1.5, marginBottom: 10, textAlign: align },
     bulletRow: { flexDirection: rtl ? 'row-reverse' : 'row', marginTop: 6 },
     dot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: ORANGE, marginTop: 5, marginHorizontal: 7 },
@@ -65,7 +66,10 @@ export function IntlCpaGuidePdf({ lang }: { lang: IntlDocsLang }) {
           <Text style={s.brand}>PMI TOP FLORIDA PROPERTIES</Text>
           <Text style={s.title}>{c.pdfTitle}</Text>
         </View>
-        <Text style={s.intro}>{c.cpaIntro}</Text>
+        <Text style={s.heading}>{c.cpaHeading}</Text>
+        {c.cpaIntroParagraphs.map((p, i) => (
+          <Text key={i} style={s.intro}>{p}</Text>
+        ))}
         {c.cpaBullets.map((b, i) => (
           <View key={i} style={s.bulletRow} wrap={false}>
             <View style={s.dot} />

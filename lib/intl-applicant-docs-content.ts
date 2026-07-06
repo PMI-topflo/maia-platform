@@ -16,7 +16,8 @@ export interface IntlDocsContent {
   policeClearanceLabel: string
   cpaCertLabel: string
   cpaDetailsToggle: string
-  cpaIntro: string
+  cpaHeading: string
+  cpaIntroParagraphs: string[]
   cpaBullets: string[]
   translationLabel: string
   downloadCpaGuide: string
@@ -34,7 +35,11 @@ export const INTL_DOCS_CONTENT: Record<IntlDocsLang, IntlDocsContent> = {
     policeClearanceLabel: 'Foreign police clearance certificate / criminal record',
     cpaCertLabel: 'CPA Financial Certification',
     cpaDetailsToggle: 'What must the CPA Financial Certification include?',
-    cpaIntro: 'If U.S. financial reports, credit reports, or tax returns are unavailable, provide a Financial Certification prepared by a Certified Public Accountant (CPA), Chartered Accountant (CA), or equivalent licensed accounting professional in your country of residence. The report must:',
+    cpaHeading: 'Financial Certification Requirement for International Applicants',
+    cpaIntroParagraphs: [
+      'The mandatory online background check is required for all applicants. However, when a U.S. credit report, financial report, or tax returns are unavailable or incomplete because the applicant resides outside the United States, the applicant must submit a Financial Certification prepared by a Certified Public Accountant (CPA), Chartered Accountant (CA), or other licensed accounting professional authorized to practice in the applicant’s country of residence.',
+      'The Financial Certification must provide a comprehensive summary of the applicant’s financial condition and demonstrate the applicant’s financial capacity to satisfy the obligations associated with the proposed purchase or lease. At a minimum, the report must include the following:',
+    ],
     cpaBullets: [
       'Be prepared on the accountant’s official letterhead.',
       'Include the accountant’s full name, professional license number, issuing authority, business address, phone, email, signature, and official seal (if applicable).',
@@ -60,7 +65,11 @@ export const INTL_DOCS_CONTENT: Record<IntlDocsLang, IntlDocsContent> = {
     policeClearanceLabel: 'Certificado de antecedentes penales / policiales del país de origen',
     cpaCertLabel: 'Certificación Financiera de Contador Público (CPA)',
     cpaDetailsToggle: '¿Qué debe incluir la Certificación Financiera del CPA?',
-    cpaIntro: 'Si no dispone de reportes financieros, reportes de crédito o declaraciones de impuestos de EE. UU., presente una Certificación Financiera preparada por un Contador Público Certificado (CPA), Contador Colegiado (CA) o profesional contable licenciado equivalente en su país de residencia. El informe debe:',
+    cpaHeading: 'Requisito de Certificación Financiera para Solicitantes Internacionales',
+    cpaIntroParagraphs: [
+      'La verificación de antecedentes en línea es obligatoria para todos los solicitantes. Sin embargo, cuando un reporte de crédito, reporte financiero o declaración de impuestos de EE. UU. no esté disponible o esté incompleto porque el solicitante reside fuera de los Estados Unidos, el solicitante deberá presentar una Certificación Financiera preparada por un Contador Público Certificado (CPA), Contador Colegiado (CA), u otro profesional contable autorizado para ejercer en el país de residencia del solicitante.',
+      'La Certificación Financiera debe proporcionar un resumen integral de la condición financiera del solicitante y demostrar su capacidad financiera para cumplir con las obligaciones asociadas a la compra o arrendamiento propuesto. Como mínimo, el informe debe incluir lo siguiente:',
+    ],
     cpaBullets: [
       'Estar preparado en el membrete oficial del contador.',
       'Incluir el nombre completo del contador, número de licencia profesional, autoridad emisora, dirección comercial, teléfono, correo electrónico, firma y sello oficial (si aplica).',
@@ -86,7 +95,11 @@ export const INTL_DOCS_CONTENT: Record<IntlDocsLang, IntlDocsContent> = {
     policeClearanceLabel: 'Certidão de antecedentes criminais / policiais do país de origem',
     cpaCertLabel: 'Certificação Financeira de Contador (CPA)',
     cpaDetailsToggle: 'O que a Certificação Financeira do CPA deve incluir?',
-    cpaIntro: 'Se relatórios financeiros, relatórios de crédito ou declarações de imposto de renda dos EUA não estiverem disponíveis, apresente uma Certificação Financeira preparada por um Contador Público Certificado (CPA), Contador Registrado (CA) ou profissional contábil licenciado equivalente em seu país de residência. O relatório deve:',
+    cpaHeading: 'Requisito de Certificação Financeira para Candidatos Internacionais',
+    cpaIntroParagraphs: [
+      'A verificação de antecedentes on-line é obrigatória para todos os candidatos. No entanto, quando um relatório de crédito, relatório financeiro ou declaração de imposto de renda dos EUA não estiver disponível ou estiver incompleto porque o candidato reside fora dos Estados Unidos, o candidato deverá apresentar uma Certificação Financeira preparada por um Contador Público Certificado (CPA), Contador Registrado (CA), ou outro profissional contábil licenciado autorizado a atuar no país de residência do candidato.',
+      'A Certificação Financeira deve fornecer um resumo abrangente da condição financeira do candidato e demonstrar sua capacidade financeira de cumprir as obrigações associadas à compra ou locação proposta. No mínimo, o relatório deve incluir o seguinte:',
+    ],
     cpaBullets: [
       'Ser preparado em papel timbrado oficial do contador.',
       'Incluir o nome completo do contador, número de licença profissional, órgão emissor, endereço comercial, telefone, e-mail, assinatura e selo oficial (se aplicável).',
@@ -112,7 +125,11 @@ export const INTL_DOCS_CONTENT: Record<IntlDocsLang, IntlDocsContent> = {
     policeClearanceLabel: 'Certificat de casier judiciaire / extrait de police du pays d’origine',
     cpaCertLabel: 'Certification Financière d’un Expert-Comptable (CPA)',
     cpaDetailsToggle: 'Que doit contenir la Certification Financière du CPA ?',
-    cpaIntro: 'Si des relevés financiers, rapports de crédit ou déclarations fiscales américains ne sont pas disponibles, fournissez une Certification Financière préparée par un Certified Public Accountant (CPA), un Chartered Accountant (CA) ou un professionnel comptable agréé équivalent dans votre pays de résidence. Le rapport doit :',
+    cpaHeading: 'Exigence de Certification Financière pour les Candidats Internationaux',
+    cpaIntroParagraphs: [
+      'La vérification des antécédents en ligne est obligatoire pour tous les candidats. Toutefois, lorsqu’un rapport de crédit, un rapport financier ou une déclaration fiscale américaine n’est pas disponible ou est incomplet parce que le candidat réside en dehors des États-Unis, le candidat doit soumettre une Certification Financière préparée par un Certified Public Accountant (CPA), un Chartered Accountant (CA), ou un autre professionnel comptable agréé autorisé à exercer dans le pays de résidence du candidat.',
+      'La Certification Financière doit fournir un résumé complet de la situation financière du candidat et démontrer sa capacité financière à honorer les obligations liées à l’achat ou à la location proposée. Le rapport doit inclure, au minimum, les éléments suivants :',
+    ],
     cpaBullets: [
       'Être rédigé sur le papier à en-tête officiel du comptable.',
       'Inclure le nom complet du comptable, son numéro de licence professionnelle, l’autorité de délivrance, l’adresse professionnelle, le téléphone, l’e-mail, la signature et le sceau officiel (le cas échéant).',
@@ -138,7 +155,11 @@ export const INTL_DOCS_CONTENT: Record<IntlDocsLang, IntlDocsContent> = {
     policeClearanceLabel: 'Sètifika lapolis oswa kazye jidisyè nan peyi orijin ou',
     cpaCertLabel: 'Sètifikasyon Finansye yon Kontab Sètifye (CPA)',
     cpaDetailsToggle: 'Kisa Sètifikasyon Finansye CPA a dwe genyen ladan l?',
-    cpaIntro: 'Si rapò finansye, rapò kredi, oswa deklarasyon taks Ozetazini pa disponib, bay yon Sètifikasyon Finansye yon Kontab Piblik Sètifye (CPA), yon Kontab Agreye (CA), oswa yon pwofesyonèl kontablite lisansye ekivalan nan peyi ou rezide a prepare. Rapò a dwe:',
+    cpaHeading: 'Kondisyon Sètifikasyon Finansye pou Aplikan Entènasyonal',
+    cpaIntroParagraphs: [
+      'Verifikasyon istwa an liy lan obligatwa pou tout aplikan. Sepandan, lè yon rapò kredi, rapò finansye, oswa deklarasyon taks Ozetazini pa disponib oswa enkonplè paske aplikan an rezide andeyò Etazini, aplikan an dwe soumèt yon Sètifikasyon Finansye yon Kontab Piblik Sètifye (CPA), yon Kontab Agreye (CA), oswa yon lòt pwofesyonèl kontablite lisansye ki otorize pratike nan peyi kote aplikan an rezide a prepare.',
+      'Sètifikasyon Finansye a dwe bay yon rezime konplè sou sitiyasyon finansye aplikan an epi demontre kapasite finansye aplikan an pou satisfè obligasyon ki asosye ak acha oswa lokasyon yo pwopoze a. Omwen, rapò a dwe enkli sa ki annapre yo:',
+    ],
     cpaBullets: [
       'Prepare sou papye ofisyèl kontab la.',
       'Enkli non konplè kontab la, nimewo lisans pwofesyonèl li, otorite ki bay lisans lan, adrès biznis li, telefòn, imèl, siyati, ak so ofisyèl (si sa aplikab).',
@@ -164,7 +185,11 @@ export const INTL_DOCS_CONTENT: Record<IntlDocsLang, IntlDocsContent> = {
     policeClearanceLabel: 'תעודת יושר משטרתית / מרשם פלילי ממדינת המוצא',
     cpaCertLabel: 'אישור פיננסי מרואה חשבון (CPA)',
     cpaDetailsToggle: 'מה חייב לכלול האישור הפיננסי מרואה החשבון?',
-    cpaIntro: 'אם אין דוחות פיננסיים, דוחות אשראי או דוחות מס אמריקאים זמינים, יש להגיש אישור פיננסי שהוכן על ידי רואה חשבון מוסמך (CPA), רואה חשבון מורשה (CA), או בעל מקצוע חשבונאי מורשה שווה ערך במדינת המגורים שלך. הדוח חייב:',
+    cpaHeading: 'דרישת אישור פיננסי למגישי בקשה בינלאומיים',
+    cpaIntroParagraphs: [
+      'בדיקת הרקע המקוונת היא חובה עבור כל המבקשים. עם זאת, כאשר דוח אשראי, דוח פיננסי או דוחות מס אמריקאים אינם זמינים או שאינם שלמים משום שהמבקש מתגורר מחוץ לארצות הברית, על המבקש להגיש אישור פיננסי שהוכן על ידי רואה חשבון מוסמך (CPA), רואה חשבון מורשה (CA), או בעל מקצוע חשבונאי מורשה אחר המוסמך לעסוק במקצוע במדינת מגוריו של המבקש.',
+      'האישור הפיננסי חייב לספק סיכום מקיף של מצבו הפיננסי של המבקש ולהוכיח את יכולתו הפיננסית לעמוד בהתחייבויות הקשורות לרכישה או לשכירות המוצעת. לכל הפחות, הדוח חייב לכלול את הפרטים הבאים:',
+    ],
     cpaBullets: [
       'להיות ערוך על נייר מכתבים רשמי של רואה החשבון.',
       'לכלול את שמו המלא של רואה החשבון, מספר רישיון מקצועי, הרשות המנפיקה, כתובת העסק, טלפון, דוא"ל, חתימה וחותמת רשמית (אם רלוונטי).',
@@ -190,7 +215,11 @@ export const INTL_DOCS_CONTENT: Record<IntlDocsLang, IntlDocsContent> = {
     policeClearanceLabel: 'Справка об отсутствии судимости / полицейский сертификат из страны проживания или гражданства',
     cpaCertLabel: 'Финансовое заключение сертифицированного бухгалтера (CPA)',
     cpaDetailsToggle: 'Что должно быть включено в Финансовое заключение CPA?',
-    cpaIntro: 'Если американские финансовые отчёты, кредитные отчёты или налоговые декларации недоступны, предоставьте Финансовое заключение, подготовленное сертифицированным бухгалтером (CPA), присяжным бухгалтером (CA) или аналогичным лицензированным специалистом по бухгалтерскому учёту в стране вашего проживания. Отчёт должен:',
+    cpaHeading: 'Требование о финансовом заключении для иностранных заявителей',
+    cpaIntroParagraphs: [
+      'Онлайн-проверка биографических данных обязательна для всех заявителей. Однако, если американский кредитный отчёт, финансовый отчёт или налоговые декларации недоступны или неполны из-за того, что заявитель проживает за пределами США, заявитель обязан предоставить Финансовое заключение, подготовленное сертифицированным бухгалтером (CPA), присяжным бухгалтером (CA) или другим лицензированным специалистом по бухгалтерскому учёту, имеющим право практиковать в стране проживания заявителя.',
+      'Финансовое заключение должно содержать всесторонний обзор финансового положения заявителя и подтверждать его финансовую способность выполнять обязательства, связанные с предполагаемой покупкой или арендой. Как минимум, отчёт должен включать следующее:',
+    ],
     cpaBullets: [
       'Быть подготовлен на официальном бланке бухгалтера.',
       'Содержать полное имя бухгалтера, номер профессиональной лицензии, выдавший орган, адрес организации, телефон, email, подпись и официальную печать (если применимо).',
