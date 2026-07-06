@@ -3,13 +3,11 @@
 // Inbound Checkr Tenant API order/report events. Resolved by
 // checkr_order_id (the Tenant API's only identifier — no separate
 // candidate/report split). Re-fetches authoritative order status via
-// GET /orders/{id} rather than trusting the webhook payload's own fields,
-// since the exact payload shape isn't confirmed against a real capture yet.
+// GET /orders/{id} rather than trusting the webhook payload's own fields
+// (the real envelope has no status field anywhere -- confirmed 2026-07-06).
 //
 // Signature: `Tenant-Signature: t=<unix_ts>,v1=<hex hmac-sha256("t.rawbody")>`
-// — confirmed against https://checkr-tenant-api-docs.redocly.app/webhooks
-// 2026-07-05 (this replaces an earlier, incorrect guess of a plain
-// X-Checkr-Signature header with no timestamp component).
+// — confirmed live against a real captured payload 2026-07-06.
 // =====================================================================
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -29,6 +27,16 @@ function mapOrderStatus(checkrStatus: string): string {
 export async function POST(req: NextRequest) {
   const rawBody = await req.text()
   const signature = req.headers.get('tenant-signature')
+
+  // Checkr's dashboard "Test" action sends a bare connectivity probe — a POST
+  // with no body and no signature — to confirm the URL is reachable. It's not
+  // a real event and isn't retried, but it DOES require a 2xx response.
+  // Confirmed via Checkr's own Webhooks guide 2026-07-06 (this must be
+  // checked before signature verification, since there's nothing to verify).
+  if (!rawBody && !signature) {
+    return NextResponse.json({ ok: true, probe: true })
+  }
+
   if (!screening.verifyWebhookSignature(rawBody, signature)) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
@@ -38,8 +46,12 @@ export async function POST(req: NextRequest) {
 
   const event = screening.parseWebhookEvent(payload)
   if (!event.orderId) {
-    console.error('[checkr-webhook] no order id in payload', event.type)
-    return NextResponse.json({ error: 'Missing order id' }, { status: 400 })
+    // report.product.completed carries no order_id by design (its data is
+    // only { id, report_id, product }) -- this is an expected event type we
+    // don't act on, NOT an error. A non-2xx here would make Checkr retry it
+    // forever with exponential backoff, per their delivery guarantees.
+    console.log('[checkr-webhook] event with no resolvable order id, ignoring:', event.type)
+    return NextResponse.json({ ok: true, ignored: event.type })
   }
 
   const { data: subject, error: fetchErr } = await supabase.from('screening_subjects')
@@ -51,13 +63,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Subject not found' }, { status: 404 })
   }
 
-  // Re-fetch authoritative status rather than trusting the webhook body.
-  let checkrStatus = event.status ?? 'pending'
+  // The webhook payload never carries a status field -- always re-fetch
+  // authoritative state.
+  let checkrStatus = 'pending'
   try {
     const order = await screening.getOrder(event.orderId)
     checkrStatus = order.status
   } catch (e) {
-    console.error('[checkr-webhook] getOrder failed, falling back to payload status:', e)
+    console.error('[checkr-webhook] getOrder failed, defaulting to pending:', e)
   }
 
   const prior = Array.isArray(subject.result) ? subject.result : subject.result ? [subject.result] : []

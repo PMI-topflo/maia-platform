@@ -42,8 +42,11 @@ export interface CreateOrderResult {
 
 export interface ScreeningWebhookEvent {
   type: string
+  /** Null for report.product.completed events -- the one confirmed event
+   *  type whose `data` object has no order_id (only { id, report_id,
+   *  product }). Callers should treat a null orderId as "safely ignore
+   *  this event", not an error. */
   orderId: string | null
-  status: string | null
   raw: unknown
 }
 

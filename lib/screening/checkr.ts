@@ -81,17 +81,6 @@ async function checkrFetch(path: string, method: 'GET' | 'POST', body?: Record<s
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null)
 
-/** Defensive extraction across a few plausible nesting shapes for the order
- *  id in a webhook payload — the exact envelope isn't confirmed against a
- *  real captured payload yet (see file header). */
-function pick(obj: Record<string, unknown>, keys: string[]): unknown {
-  const nests = [obj, obj.data, (obj.data as Record<string, unknown> | undefined)?.object].filter(
-    (o): o is Record<string, unknown> => !!o && typeof o === 'object',
-  )
-  for (const src of nests) for (const k of keys) if (src[k] != null && src[k] !== '') return src[k]
-  return undefined
-}
-
 export const checkrProvider: ScreeningProvider = {
   name: 'checkr',
 
@@ -148,11 +137,17 @@ export const checkrProvider: ScreeningProvider = {
     return a.length === b.length && timingSafeEqual(a, b)
   },
 
+  // Real envelope (confirmed live 2026-07-06, from Checkr's own Webhooks
+  // guide): { id, object: "event", type, created_at, data: {...} } — the
+  // order id lives at data.order_id, NOT top-level. Every event carries
+  // order_id EXCEPT report.product.completed (data is only { id, report_id,
+  // product } there) -- there's no status field anywhere in this envelope,
+  // by design (see getOrder() re-fetch above).
   parseWebhookEvent(payload: unknown): ScreeningWebhookEvent {
     const obj = (payload ?? {}) as Record<string, unknown>
     const type = str(obj.type) ?? 'unknown'
-    const orderId = str(pick(obj, ['order_id', 'id']))
-    const status = str(pick(obj, ['status']))
-    return { type, orderId, status, raw: payload }
+    const data = (obj.data ?? {}) as Record<string, unknown>
+    const orderId = str(data.order_id)
+    return { type, orderId, raw: payload }
   },
 }
