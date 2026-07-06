@@ -1669,6 +1669,13 @@ export interface BankAccountOption {
   /** Short human label for the restriction reason; only set when
    *  `restricted` is true. Examples: "Insurance Proceeds", "Loan Proceeds". */
   restrictionLabel: string | null
+  /** True when this account is with SouthState Bank — the ONLY bank PMI has
+   *  configured as an ACH-origination partner in CINC (confirmed 2026-07-06
+   *  after an ACH payment failed from ESSI's "Ocean Bank Operating" account —
+   *  CINC's bank-accounts API has no ACH-eligibility field of its own, so this
+   *  is derived from the account description, same as `kind`). ACH invoices
+   *  must only ever pay from an account where this is true. */
+  achPartner: boolean
 }
 
 /** Description patterns for accounts holding restricted debt / escrow funds.
@@ -1717,6 +1724,15 @@ function detectRestriction(account: CincBankAccount): string | null {
   if (/insurance\s*proceeds/i.test(desc)) return 'Insurance Proceeds'
   if (/loan\s*proceeds/i.test(desc))      return 'Loan Proceeds'
   return null
+}
+
+/** SouthState is the only bank PMI has set up as an ACH-origination partner
+ *  in CINC (confirmed 2026-07-06) — every other bank (Ocean Bank, Popular,
+ *  Truist, City National, First Horizon, etc.) can hold association funds
+ *  and pay by Check, but CANNOT process an ACH payment even though CINC's
+ *  own API happily accepts the invoice at push time. */
+export function isAchPartnerBank(description: string | null | undefined): boolean {
+  return /\bssb\b|south\s*state|southstate/i.test(description ?? '')
 }
 
 function last4FromAccountNum(accountNum: string | null | undefined): string | null {
@@ -1773,12 +1789,21 @@ export async function listAssociationBankAccounts(
       cincBalance:      typeof r.CincBalance === 'number' ? r.CincBalance : null,
       restricted:       restrictionLabel != null,
       restrictionLabel,
+      achPartner:       isAchPartnerBank(r.AccountDescription),
     })
   }
 
-  // Sort: operating first, then reserve, then special, then other.
+  // Sort: operating first, then reserve, then special, then other; within a
+  // kind, the ACH-partner (SouthState) account sorts first — otherwise a
+  // purely-alphabetical tiebreak can put a non-ACH bank first (e.g. ESSI's
+  // "Ocean Bank Operating" sorts before "SSB - Cash Operating" alphabetically,
+  // which is exactly how an ACH invoice got auto-defaulted to a bank that
+  // can't actually process ACH — see isAchPartnerBank).
   const order: Record<BankAccountKind, number> = { operating: 0, reserve: 1, special: 2, other: 3 }
-  accounts.sort((a, b) => order[a.kind] - order[b.kind] || a.description.localeCompare(b.description))
+  accounts.sort((a, b) =>
+    order[a.kind] - order[b.kind]
+    || Number(b.achPartner) - Number(a.achPartner)
+    || a.description.localeCompare(b.description))
 
   _bankAccountsCache.set(key, { accounts, expiresAt: Date.now() + BANK_ACCOUNTS_TTL_MS })
   return accounts

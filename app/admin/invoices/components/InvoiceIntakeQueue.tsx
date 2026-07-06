@@ -69,6 +69,7 @@ interface BankAccountOption {
   cincBalance:      number | null
   restricted:       boolean
   restrictionLabel: string | null
+  achPartner:       boolean
 }
 
 interface PayByOption { value: string; label: string }
@@ -801,6 +802,14 @@ function DraftCard(props: {
         else setMsg(data.error)
         return
       }
+      // Non-ACH-partner bank guard: same Karen-only override pattern.
+      if (res.status === 409 && data?.achGuard) {
+        setBusy(false)
+        if (data.karenOnly) { setMsg(data.error); return }
+        if (!pushAnyway && confirm(`⚠ ${data.error}\n\nPush anyway?`)) { void push(true) }
+        else setMsg(data.error)
+        return
+      }
       if (!res.ok && res.status !== 207) throw new Error((data?.error ?? `HTTP ${res.status}`) + (data?.normalizeNote ? ` [compressor: ${data.normalizeNote}]` : ''))
       setMsg(data.warning ?? `Pushed to CINC (id ${data.cincInvoiceId}).`)
       onMutate()
@@ -1021,6 +1030,31 @@ function DraftCard(props: {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auditCtx, bankOptions, bankAutoFilled, bankId, bankSuggestApplied])
+
+  // ACH can only be processed from a SouthState account — CINC has no other
+  // bank set up as an ACH-origination partner (confirmed 2026-07-06, after an
+  // invoice was pushed and later rejected because it auto-defaulted to
+  // ESSI's "Ocean Bank Operating" account). Whenever Karen picks ACH, correct
+  // an already-selected non-ACH-partner account (whether it got there from
+  // the operating-default or the vendor-history suggestion above) to the
+  // association's SouthState account — or clear it entirely if this
+  // association has none, forcing an explicit choice instead of silently
+  // pushing a payment CINC can't actually execute.
+  useEffect(() => {
+    if ((payBy ?? '').toUpperCase() !== 'ACH' || bankOptions.length === 0) return
+    const current = bankOptions.find(b => String(b.id) === bankId)
+    if (current?.achPartner) return
+    const achAccount = bankOptions.find(b => b.achPartner)
+    if (achAccount) {
+      setBankId(String(achAccount.id))
+      setBankAutoFilled(true)
+      persistDraftFields({ pay_from_bank_account_id: achAccount.id })
+    } else if (bankId) {
+      setBankId('')
+      persistDraftFields({ pay_from_bank_account_id: null })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payBy, bankOptions])
 
   const REQUIRED_CHECKS =['association', 'vendor', 'invoice_number', 'short_name', 'amount', 'invoice_date', 'gl_account', 'bank_account', 'due_date', 'filename']
   const requiredOk = REQUIRED_CHECKS.every(k => checked[k])
@@ -1559,9 +1593,21 @@ function DraftCard(props: {
                       - non-operating (Reserve / Special Assessment) → yellow.
                     A CINC audit note is added automatically on push in
                     either case. */}
+                {payBy?.toUpperCase() === 'ACH' && bankOptions.length > 0 && !bankOptions.some(b => b.achPartner) && (
+                  <div style={{ marginTop: 6, padding: '8px 10px', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 4, fontSize: 11, color: '#991b1b' }}>
+                    🛑 <strong>No SouthState account for this association.</strong> SouthState is the only bank CINC has set up for ACH — pushing ACH from any other bank will be accepted by CINC but the payment will actually fail. Switch this invoice to Check, or confirm with CINC that this association has an ACH-partner account set up.
+                  </div>
+                )}
                 {(() => {
                   const sel = bankOptions.find(b => String(b.id) === bankId)
                   if (!sel) return null
+                  if (payBy?.toUpperCase() === 'ACH' && !sel.achPartner) {
+                    return (
+                      <div style={{ marginTop: 6, padding: '8px 10px', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 4, fontSize: 11, color: '#991b1b' }}>
+                        🛑 <strong>Not an ACH-partner account.</strong> This is a real payment (not just an audit note) — SouthState is the only bank CINC can actually run ACH through; other banks will be accepted at push time but the payment itself will fail downstream.
+                      </div>
+                    )
+                  }
                   if (sel.restricted) {
                     return (
                       <div style={{ marginTop: 6, padding: '8px 10px', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 4, fontSize: 11, color: '#991b1b' }}>

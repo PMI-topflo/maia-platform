@@ -231,6 +231,37 @@ export async function POST(
     }
   }
 
+  // ACH-partner bank guard. SouthState is the ONLY bank PMI has set up as an
+  // ACH-origination partner in CINC — every other bank account (Ocean Bank,
+  // Popular, Truist, City National, First Horizon, etc.) is a real CINC bank
+  // account that can pay by Check, but CANNOT actually process ACH, even
+  // though CINC's createInvoice API happily accepts the invoice at push time
+  // and only fails downstream when the payment itself runs. Real incident
+  // 2026-07-06: ESSI has both "Ocean Bank Operating" and "SSB - Cash
+  // Operating" — both alphabetically-sorted "operating" accounts, so the
+  // (pre-fix) auto-default picked Ocean Bank for an ACH invoice, which
+  // CINC's own team caught only after the payment failed. Hard-block here
+  // the same way as the double-pay/COI guards above — only Karen may
+  // override (pushAnyway) — since UI warnings alone didn't stop last time.
+  if ((draft.pay_by_type ?? '').toUpperCase() === 'ACH' && draft.pay_from_bank_account_id != null) {
+    const accounts = await listAssociationBankAccounts(draft.extracted_association_code as string).catch(() => [])
+    const selected = accounts.find(a => a.id === draft.pay_from_bank_account_id)
+    if (selected && !selected.achPartner) {
+      const karenSet = new Set(trustedDomainVariants(KAREN_EMAIL).map(e => e.toLowerCase()))
+      const isKaren  = karenSet.has((pushedBy ?? '').toLowerCase())
+      if (!(body.pushAnyway && isKaren)) {
+        const tail = body.pushAnyway && !isKaren
+          ? 'Only Karen can override this.'
+          : 'Switch the pay-from account to a SouthState account, or Karen can push again with override.'
+        return NextResponse.json({
+          error: `"${selected.description}" is not an ACH-partner account — SouthState is the only bank CINC can actually run ACH through. CINC will accept this push but the ACH payment will fail. ${tail}`,
+          achGuard: true,
+          karenOnly: body.pushAnyway && !isKaren,
+        }, { status: 409 })
+      }
+    }
+  }
+
   // Push to CINC. createInvoice defaults StatusID to PENDING APPROVAL
   // (board approves in WebAxis afterward). Sends Karen's observation as
   // NoteDescription so the CINC team sees processing instructions when
