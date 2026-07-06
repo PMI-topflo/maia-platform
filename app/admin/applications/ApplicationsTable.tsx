@@ -45,8 +45,7 @@ export type Application = {
   docs_proof_income_url: string | null;
   docs_marriage_cert_url: string | null;
   docs_intl_police_clearance_url: string | null;
-  docs_intl_bank_statements_url: string | null;
-  docs_intl_bank_reference_url: string | null;
+  docs_intl_cpa_certification_url: string | null;
   docs_intl_translation_url: string | null;
   is_married_couple: boolean | null;
   occupants: Occupant[] | null;
@@ -185,17 +184,16 @@ function ScreeningBadge({ status }: { status: string | null }) {
   );
 }
 
-/** International applicants only — quick count of the 4 supporting
+/** International applicants only — quick count of the 3 supporting
  *  documents uploaded so far, for the dashboard-level glance (doesn't
  *  block anything, just visibility for staff). */
 function IntlDocsBadge({ app }: { app: Application }) {
   const uploaded = [
     app.docs_intl_police_clearance_url,
-    app.docs_intl_bank_statements_url,
-    app.docs_intl_bank_reference_url,
+    app.docs_intl_cpa_certification_url,
     app.docs_intl_translation_url,
   ].filter(Boolean).length;
-  const cls = uploaded === 4 ? 'bg-emerald-100 text-emerald-800' : 'bg-orange-100 text-orange-800';
+  const cls = uploaded === 3 ? 'bg-emerald-100 text-emerald-800' : 'bg-orange-100 text-orange-800';
   return (
     <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${cls}`}>
       Docs: {uploaded}/4
@@ -395,8 +393,7 @@ function DetailPanel({
     { label: 'Lease Agreement', url: app.docs_lease_url },
     ...(app.app_type === 'international' ? [
       { label: 'Foreign Police Clearance', url: app.docs_intl_police_clearance_url },
-      { label: 'Bank Statements', url: app.docs_intl_bank_statements_url },
-      { label: 'Bank Reference Letter', url: app.docs_intl_bank_reference_url },
+      { label: 'CPA Financial Certification', url: app.docs_intl_cpa_certification_url },
       { label: 'Notarized Translation', url: app.docs_intl_translation_url },
     ] : []),
   ];

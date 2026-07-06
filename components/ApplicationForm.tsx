@@ -5,6 +5,7 @@ import SiteHeader from "@/components/SiteHeader";
 import { loadStripe } from "@stripe/stripe-js";
 import { createClient } from "@supabase/supabase-js";
 import { SignaturePad, WebcamCapture } from "@/components/SignatureEvidence";
+import { INTL_DOCS_CONTENT, type IntlDocsLang } from "@/lib/intl-applicant-docs-content";
 
 // ── Supabase client — used only for Storage uploads (anon key) ────────────────
 const supabase = createClient(
@@ -1039,9 +1040,9 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [sunbizExtracting, setSunbizExtracting] = useState(false);
   const [sunbizError, setSunbizError] = useState("");
   const [sunbizDocName, setSunbizDocName] = useState("");
-  const [docs, setDocs]               = useState({ govId: null, proofIncome: null, marriageCert: null, intlPoliceClearance: null, intlBankStatements: null, intlBankReference: null, intlTranslation: null });
-  const [docUrls, setDocUrls]         = useState({ govId: null, proofIncome: null, marriageCert: null, intlPoliceClearance: null, intlBankStatements: null, intlBankReference: null, intlTranslation: null });
-  const [uploading, setUploading]     = useState({ govId: false, proofIncome: false, marriageCert: false, intlPoliceClearance: false, intlBankStatements: false, intlBankReference: false, intlTranslation: false });
+  const [docs, setDocs]               = useState({ govId: null, proofIncome: null, marriageCert: null, intlPoliceClearance: null, intlCpaCertification: null, intlTranslation: null });
+  const [docUrls, setDocUrls]         = useState({ govId: null, proofIncome: null, marriageCert: null, intlPoliceClearance: null, intlCpaCertification: null, intlTranslation: null });
+  const [uploading, setUploading]     = useState({ govId: false, proofIncome: false, marriageCert: false, intlPoliceClearance: false, intlCpaCertification: false, intlTranslation: false });
   const [agreed, setAgreed]           = useState(false);
   const [error, setError]             = useState("");
   const [paying, setPaying]           = useState(false);
@@ -1127,8 +1128,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
           docs_proof_income_url?: string | null
           docs_marriage_cert_url?: string | null
           docs_intl_police_clearance_url?: string | null
-          docs_intl_bank_statements_url?: string | null
-          docs_intl_bank_reference_url?: string | null
+          docs_intl_cpa_certification_url?: string | null
           docs_intl_translation_url?: string | null
         }
         setApplicationId(d.id ?? null);
@@ -1156,8 +1156,8 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         // would silently null out a doc uploaded in an earlier session.
         const urlToDocKey: Record<string, keyof typeof docUrls> = {
           docs_gov_id_url: 'govId', docs_proof_income_url: 'proofIncome', docs_marriage_cert_url: 'marriageCert',
-          docs_intl_police_clearance_url: 'intlPoliceClearance', docs_intl_bank_statements_url: 'intlBankStatements',
-          docs_intl_bank_reference_url: 'intlBankReference', docs_intl_translation_url: 'intlTranslation',
+          docs_intl_police_clearance_url: 'intlPoliceClearance', docs_intl_cpa_certification_url: 'intlCpaCertification',
+          docs_intl_translation_url: 'intlTranslation',
         };
         for (const [field, key] of Object.entries(urlToDocKey)) {
           const url = (d as Record<string, unknown>)[field];
@@ -1525,8 +1525,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         docs_proof_income_url:  docUrls.proofIncome,
         docs_marriage_cert_url: docUrls.marriageCert,
         docs_intl_police_clearance_url: docUrls.intlPoliceClearance,
-        docs_intl_bank_statements_url:  docUrls.intlBankStatements,
-        docs_intl_bank_reference_url:   docUrls.intlBankReference,
+        docs_intl_cpa_certification_url: docUrls.intlCpaCertification,
         docs_intl_translation_url:      docUrls.intlTranslation,
         docs_lease_url:         leaseData?.storagePath ?? null,
         language:         lang,
@@ -2118,20 +2117,40 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
               {(isCouple && hasCert || isMarriedCouple === true) && (
                 <UploadBox label={t.marriageCert} t={t} uploaded={docs.marriageCert} uploading={uploading.marriageCert} onUpload={(f) => uploadDoc(f, "marriageCert")} />
               )}
-              {isInternational && (
-                <div style={{ marginBottom: 16, padding: "14px 16px", background: "#fff7f0", border: "1px solid #f3d9c4", borderRadius: 4 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: "#0d0d0d" }}>
-                    Additional documents for international applicants
+              {isInternational && (() => {
+                const ic = INTL_DOCS_CONTENT[(lang as IntlDocsLang) in INTL_DOCS_CONTENT ? (lang as IntlDocsLang) : "en"];
+                const rtl = lang === "he";
+                return (
+                  <div dir={rtl ? "rtl" : "ltr"} style={{ marginBottom: 16, padding: "14px 16px", background: "#fff7f0", border: "1px solid #f3d9c4", borderRadius: 4 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: "#0d0d0d" }}>
+                      {ic.sectionTitle}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14, lineHeight: 1.5 }}>
+                      {ic.hint}
+                    </div>
+                    <UploadBox label={ic.policeClearanceLabel} t={t} uploaded={docs.intlPoliceClearance} uploading={uploading.intlPoliceClearance} onUpload={(f) => uploadDoc(f, "intlPoliceClearance")} />
+                    <UploadBox label={ic.cpaCertLabel} t={t} uploaded={docs.intlCpaCertification} uploading={uploading.intlCpaCertification} onUpload={(f) => uploadDoc(f, "intlCpaCertification")} />
+                    <a
+                      href={`/api/apply/intl-cpa-guide?lang=${encodeURIComponent(lang)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ display: "inline-block", marginTop: -8, marginBottom: 12, fontSize: 12, fontWeight: 600, color: "#f26a1b", textDecoration: "none" }}
+                    >
+                      📄 {ic.downloadCpaGuide}
+                    </a>
+                    <details style={{ marginBottom: 16, fontSize: 12, color: "#6b7280" }}>
+                      <summary style={{ cursor: "pointer", color: "#f26a1b", fontWeight: 600 }}>{ic.cpaDetailsToggle}</summary>
+                      <div style={{ marginTop: 8, lineHeight: 1.6 }}>
+                        <p style={{ margin: "0 0 8px" }}>{ic.cpaIntro}</p>
+                        <ul style={{ margin: "0 0 8px", paddingLeft: rtl ? 0 : 20, paddingRight: rtl ? 20 : 0 }}>
+                          {ic.cpaBullets.map((b, i) => <li key={i}>{b}</li>)}
+                        </ul>
+                      </div>
+                    </details>
+                    <UploadBox label={ic.translationLabel} t={t} uploaded={docs.intlTranslation} uploading={uploading.intlTranslation} onUpload={(f) => uploadDoc(f, "intlTranslation")} />
                   </div>
-                  <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14, lineHeight: 1.5 }}>
-                    Upload as they become available — you can continue and finish your application before all of these are ready; PMI may follow up if anything&rsquo;s still missing.
-                  </div>
-                  <UploadBox label="Foreign police clearance certificate / criminal record" t={t} uploaded={docs.intlPoliceClearance} uploading={uploading.intlPoliceClearance} onUpload={(f) => uploadDoc(f, "intlPoliceClearance")} />
-                  <UploadBox label="Bank statements (most recent 3-6 months)" t={t} uploaded={docs.intlBankStatements} uploading={uploading.intlBankStatements} onUpload={(f) => uploadDoc(f, "intlBankStatements")} />
-                  <UploadBox label="Bank reference letter" t={t} uploaded={docs.intlBankReference} uploading={uploading.intlBankReference} onUpload={(f) => uploadDoc(f, "intlBankReference")} />
-                  <UploadBox label="Notarized English translation (if any document above is in a foreign language)" t={t} uploaded={docs.intlTranslation} uploading={uploading.intlTranslation} onUpload={(f) => uploadDoc(f, "intlTranslation")} />
-                </div>
-              )}
+                );
+              })()}
               {/* Rules & Regulations — with e-signature */}
               <div style={{ background: "#fff7f0", borderRadius: 4, padding: 20, border: "2px solid #f26a1b", marginBottom: 12 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#f26a1b", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: "monospace" }}>
@@ -2485,17 +2504,17 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
               </div>
 
               {isInternational && (() => {
-                const intlDocKeys = ["intlPoliceClearance", "intlBankStatements", "intlBankReference", "intlTranslation"] as const;
+                const intlDocKeys = ["intlPoliceClearance", "intlCpaCertification", "intlTranslation"] as const;
                 const uploadedCount = intlDocKeys.filter((k) => docs[k]).length;
+                const ic = INTL_DOCS_CONTENT[(lang as IntlDocsLang) in INTL_DOCS_CONTENT ? (lang as IntlDocsLang) : "en"];
+                const done = uploadedCount === intlDocKeys.length;
                 return (
-                  <div style={{ marginBottom: 20, padding: "14px 16px", background: uploadedCount === intlDocKeys.length ? "#f0fdf4" : "#fff7f0", border: `1px solid ${uploadedCount === intlDocKeys.length ? "#bbf7d0" : "#f3d9c4"}`, borderRadius: 4, fontSize: 13, lineHeight: 1.6, color: "#0d0d0d" }}>
+                  <div dir={lang === "he" ? "rtl" : "ltr"} style={{ marginBottom: 20, padding: "14px 16px", background: done ? "#f0fdf4" : "#fff7f0", border: `1px solid ${done ? "#bbf7d0" : "#f3d9c4"}`, borderRadius: 4, fontSize: 13, lineHeight: 1.6, color: "#0d0d0d" }}>
                     <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                      International documents: {uploadedCount} of {intlDocKeys.length} uploaded
+                      {ic.progressLabel(uploadedCount, intlDocKeys.length)}
                     </div>
                     <div style={{ fontSize: 12, color: "#6b7280" }}>
-                      {uploadedCount === intlDocKeys.length
-                        ? "All set — thank you."
-                        : "Missing any? You can still submit — go back to the Documents step to add them, or PMI may follow up after you submit."}
+                      {done ? ic.progressAllSet : ic.progressMissing}
                     </div>
                   </div>
                 );

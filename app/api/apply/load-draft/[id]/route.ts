@@ -24,7 +24,7 @@ const SAFE_RETURN_FIELDS = `
   is_married_couple, couple_has_cert, language,
   resume_email,
   docs_lease_url, docs_gov_id_url, docs_proof_income_url, docs_marriage_cert_url,
-  docs_intl_police_clearance_url, docs_intl_bank_statements_url, docs_intl_bank_reference_url, docs_intl_translation_url,
+  docs_intl_police_clearance_url, docs_intl_cpa_certification_url, docs_intl_translation_url,
   rules_signature, rules_agreed_at, acknowledged_document_ids,
   rules_signature_image, rules_applicant_photo, rules_signed_geolocation,
   stripe_payment_status
