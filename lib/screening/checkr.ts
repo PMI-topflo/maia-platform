@@ -1,8 +1,7 @@
 // =====================================================================
 // lib/screening/checkr.ts
-// Checkr TENANT Screening API implementation (checkr-tenant-api-docs.redocly.app,
-// confirmed live 2026-07-05) -- NOT Checkr's general employment-background-check
-// API. Key differences from a typical Checkr integration:
+// Checkr TENANT Screening API implementation. Key differences from a
+// typical Checkr integration:
 //   - Bearer token auth (Authorization: Bearer ckr_sk_...), not HTTP Basic.
 //   - A single POST /orders call creates the whole screening (applicant +
 //     property + package) -- no separate Candidate-then-Report step.
@@ -14,6 +13,15 @@
 //   - Webhook signature: `Tenant-Signature: t=<unix_ts>,v1=<hex>` where v1 is
 //     HMAC-SHA256 of "<t>.<raw_body>".
 //   - Order creation requires an Idempotency-Key header.
+//
+// ⚠ API_BASE confirmed LIVE 2026-07-06 with a real ckr_sk_test_ key —
+// `https://tenant.checkr.com/api` is the correct host+path prefix (NOT
+// api.checkr.com/v1, and NOT the /v1 shown in checkr-tenant-api-docs.redocly.app's
+// own placeholder examples, which use api.example.com). A real POST /orders
+// against this host returned 201 with a genuine order (status starts
+// "pending", not "waiting_for_applicant" as earlier guessed) and GET
+// /orders/{id} confirmed the order auto-completed ~1s later in test mode
+// (Checkr's test keys route to canned scenarios per their Testing guide).
 //
 // ⚠ Still unconfirmed: the exact package slug for international applicants
 // (public docs only show "starter"/"essential" as named packages, plus
@@ -28,7 +36,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { ScreeningProvider, ScreeningSubject, ScreeningProperty, CreateOrderResult, ScreeningWebhookEvent } from './types'
 
-const API_BASE = 'https://api.checkr.com/v1'
+const API_BASE = 'https://tenant.checkr.com/api'
 
 function authHeader(): string {
   return `Bearer ${process.env.CHECKR_API_KEY ?? ''}`
@@ -112,7 +120,7 @@ export const checkrProvider: ScreeningProvider = {
     }, { 'Idempotency-Key': idempotencyKey(subject, property) })
     const orderId = str(json.id)
     if (!orderId) throw new Error('Checkr order response had no id')
-    return { orderId, status: str(json.status) ?? 'waiting_for_applicant' }
+    return { orderId, status: str(json.status) ?? 'pending' }
   },
 
   async getOrder(orderId: string): Promise<{ status: string }> {
