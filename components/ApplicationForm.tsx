@@ -810,7 +810,10 @@ type UploadBoxProps = {
   label: string;
   t: typeof translations.en;
   onUpload: (file: File) => void;
-  uploaded: File | null;
+  // `true` (not a File) means "already uploaded in a prior session, rehydrated
+  // from a resumed draft" -- we only have the storage URL then, not a File
+  // object, so there's no filename to show.
+  uploaded: File | true | null;
   uploading: boolean;
 };
 function UploadBox({ label, t, onUpload, uploaded, uploading }: UploadBoxProps) {
@@ -843,7 +846,7 @@ function UploadBox({ label, t, onUpload, uploaded, uploading }: UploadBoxProps) 
           <div style={{ color: "#f26a1b", fontSize: 13 }}>Uploading…</div>
         ) : uploaded ? (
           <div style={{ color: "#1a6b3c", fontWeight: 600, fontSize: 13 }}>
-            ✓ {t.uploaded}: <span style={{ fontWeight: 400 }}>{uploaded.name}</span>
+            ✓ {t.uploaded}{uploaded instanceof File && <>: <span style={{ fontWeight: 400 }}>{uploaded.name}</span></>}
           </div>
         ) : (
           <>
@@ -1036,9 +1039,9 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [sunbizExtracting, setSunbizExtracting] = useState(false);
   const [sunbizError, setSunbizError] = useState("");
   const [sunbizDocName, setSunbizDocName] = useState("");
-  const [docs, setDocs]               = useState({ govId: null, proofIncome: null, marriageCert: null });
-  const [docUrls, setDocUrls]         = useState({ govId: null, proofIncome: null, marriageCert: null });
-  const [uploading, setUploading]     = useState({ govId: false, proofIncome: false, marriageCert: false });
+  const [docs, setDocs]               = useState({ govId: null, proofIncome: null, marriageCert: null, intlPoliceClearance: null, intlBankStatements: null, intlBankReference: null, intlTranslation: null });
+  const [docUrls, setDocUrls]         = useState({ govId: null, proofIncome: null, marriageCert: null, intlPoliceClearance: null, intlBankStatements: null, intlBankReference: null, intlTranslation: null });
+  const [uploading, setUploading]     = useState({ govId: false, proofIncome: false, marriageCert: false, intlPoliceClearance: false, intlBankStatements: false, intlBankReference: false, intlTranslation: false });
   const [agreed, setAgreed]           = useState(false);
   const [error, setError]             = useState("");
   const [paying, setPaying]           = useState(false);
@@ -1120,6 +1123,13 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
           couple_has_cert?: boolean | null
           language?: string | null
           rules_signature?: string | null
+          docs_gov_id_url?: string | null
+          docs_proof_income_url?: string | null
+          docs_marriage_cert_url?: string | null
+          docs_intl_police_clearance_url?: string | null
+          docs_intl_bank_statements_url?: string | null
+          docs_intl_bank_reference_url?: string | null
+          docs_intl_translation_url?: string | null
         }
         setApplicationId(d.id ?? null);
         if (d.association)  setAssociation(d.association);
@@ -1140,6 +1150,22 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
           setLeaseConfirmed(true);
         }
         if (typeof d.draft_step === 'number') setStep(d.draft_step);
+        // Rehydrate already-uploaded docs -- only a URL survives a resume
+        // (no File object), so UploadBox shows a generic "uploaded" state
+        // rather than a filename. Without this, resubmitting after a resume
+        // would silently null out a doc uploaded in an earlier session.
+        const urlToDocKey: Record<string, keyof typeof docUrls> = {
+          docs_gov_id_url: 'govId', docs_proof_income_url: 'proofIncome', docs_marriage_cert_url: 'marriageCert',
+          docs_intl_police_clearance_url: 'intlPoliceClearance', docs_intl_bank_statements_url: 'intlBankStatements',
+          docs_intl_bank_reference_url: 'intlBankReference', docs_intl_translation_url: 'intlTranslation',
+        };
+        for (const [field, key] of Object.entries(urlToDocKey)) {
+          const url = (d as Record<string, unknown>)[field];
+          if (typeof url === 'string' && url) {
+            setDocUrls((u) => ({ ...u, [key]: url }));
+            setDocs((x) => ({ ...x, [key]: true }));
+          }
+        }
       } catch { /* keep form fresh if load fails */ }
     })();
     return () => { cancelled = true };
@@ -1498,6 +1524,10 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         docs_gov_id_url:        docUrls.govId,
         docs_proof_income_url:  docUrls.proofIncome,
         docs_marriage_cert_url: docUrls.marriageCert,
+        docs_intl_police_clearance_url: docUrls.intlPoliceClearance,
+        docs_intl_bank_statements_url:  docUrls.intlBankStatements,
+        docs_intl_bank_reference_url:   docUrls.intlBankReference,
+        docs_intl_translation_url:      docUrls.intlTranslation,
         docs_lease_url:         leaseData?.storagePath ?? null,
         language:         lang,
         stripe_payment_status: "pending",
@@ -2088,6 +2118,20 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
               {(isCouple && hasCert || isMarriedCouple === true) && (
                 <UploadBox label={t.marriageCert} t={t} uploaded={docs.marriageCert} uploading={uploading.marriageCert} onUpload={(f) => uploadDoc(f, "marriageCert")} />
               )}
+              {isInternational && (
+                <div style={{ marginBottom: 16, padding: "14px 16px", background: "#fff7f0", border: "1px solid #f3d9c4", borderRadius: 4 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: "#0d0d0d" }}>
+                    Additional documents for international applicants
+                  </div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14, lineHeight: 1.5 }}>
+                    Upload as they become available — you can continue and finish your application before all of these are ready; PMI may follow up if anything&rsquo;s still missing.
+                  </div>
+                  <UploadBox label="Foreign police clearance certificate / criminal record" t={t} uploaded={docs.intlPoliceClearance} uploading={uploading.intlPoliceClearance} onUpload={(f) => uploadDoc(f, "intlPoliceClearance")} />
+                  <UploadBox label="Bank statements (most recent 3-6 months)" t={t} uploaded={docs.intlBankStatements} uploading={uploading.intlBankStatements} onUpload={(f) => uploadDoc(f, "intlBankStatements")} />
+                  <UploadBox label="Bank reference letter" t={t} uploaded={docs.intlBankReference} uploading={uploading.intlBankReference} onUpload={(f) => uploadDoc(f, "intlBankReference")} />
+                  <UploadBox label="Notarized English translation (if any document above is in a foreign language)" t={t} uploaded={docs.intlTranslation} uploading={uploading.intlTranslation} onUpload={(f) => uploadDoc(f, "intlTranslation")} />
+                </div>
+              )}
               {/* Rules & Regulations — with e-signature */}
               <div style={{ background: "#fff7f0", borderRadius: 4, padding: 20, border: "2px solid #f26a1b", marginBottom: 12 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#f26a1b", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: "monospace" }}>
@@ -2440,20 +2484,22 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                 </div>
               </div>
 
-              {isInternational && (
-                <div style={{ marginBottom: 20, padding: "14px 16px", background: "#fff7f0", border: "1px solid #f3d9c4", borderRadius: 4, fontSize: 13, lineHeight: 1.6, color: "#0d0d0d" }}>
-                  <div style={{ fontWeight: 700, marginBottom: 8 }}>Additional documentation for international applicants</div>
-                  <div style={{ marginBottom: 8 }}>The applicant may be required to provide:</div>
-                  <ol style={{ margin: "0 0 8px", paddingLeft: 20 }}>
-                    <li>A local U.S. background check - Checkr</li>
-                    <li>An official criminal background report, police clearance certificate, or equivalent criminal record document from the applicant&rsquo;s country of residence or citizenship.</li>
-                    <li>Bank statements for the most recent three (3) to six (6) months.</li>
-                    <li>A bank reference letter confirming the applicant&rsquo;s banking relationship, account status, and financial standing.</li>
-                    <li>Any documents issued in a foreign language must be accompanied by a notarized English translation.</li>
-                  </ol>
-                  <div>All documents must be clear, verifiable, and current.</div>
-                </div>
-              )}
+              {isInternational && (() => {
+                const intlDocKeys = ["intlPoliceClearance", "intlBankStatements", "intlBankReference", "intlTranslation"] as const;
+                const uploadedCount = intlDocKeys.filter((k) => docs[k]).length;
+                return (
+                  <div style={{ marginBottom: 20, padding: "14px 16px", background: uploadedCount === intlDocKeys.length ? "#f0fdf4" : "#fff7f0", border: `1px solid ${uploadedCount === intlDocKeys.length ? "#bbf7d0" : "#f3d9c4"}`, borderRadius: 4, fontSize: 13, lineHeight: 1.6, color: "#0d0d0d" }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                      International documents: {uploadedCount} of {intlDocKeys.length} uploaded
+                    </div>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      {uploadedCount === intlDocKeys.length
+                        ? "All set — thank you."
+                        : "Missing any? You can still submit — go back to the Documents step to add them, or PMI may follow up after you submit."}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <button
                 onClick={handlePay}

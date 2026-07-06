@@ -44,6 +44,10 @@ export type Application = {
   docs_gov_id_url: string | null;
   docs_proof_income_url: string | null;
   docs_marriage_cert_url: string | null;
+  docs_intl_police_clearance_url: string | null;
+  docs_intl_bank_statements_url: string | null;
+  docs_intl_bank_reference_url: string | null;
+  docs_intl_translation_url: string | null;
   is_married_couple: boolean | null;
   occupants: Occupant[] | null;
   rules_signature: string | null;
@@ -165,6 +169,36 @@ function DecisionBadge({ decision }: { decision: string | null }) {
   return (
     <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-700">
       Pending
+    </span>
+  );
+}
+
+function ScreeningBadge({ status }: { status: string | null }) {
+  const cls =
+    status === 'complete'   ? 'bg-emerald-100 text-emerald-800' :
+    status === 'error'      ? 'bg-red-100 text-red-800' :
+    'bg-yellow-100 text-yellow-800';
+  return (
+    <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${cls}`}>
+      Checkr: {status ?? 'pending'}
+    </span>
+  );
+}
+
+/** International applicants only — quick count of the 4 supporting
+ *  documents uploaded so far, for the dashboard-level glance (doesn't
+ *  block anything, just visibility for staff). */
+function IntlDocsBadge({ app }: { app: Application }) {
+  const uploaded = [
+    app.docs_intl_police_clearance_url,
+    app.docs_intl_bank_statements_url,
+    app.docs_intl_bank_reference_url,
+    app.docs_intl_translation_url,
+  ].filter(Boolean).length;
+  const cls = uploaded === 4 ? 'bg-emerald-100 text-emerald-800' : 'bg-orange-100 text-orange-800';
+  return (
+    <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${cls}`}>
+      Docs: {uploaded}/4
     </span>
   );
 }
@@ -359,6 +393,12 @@ function DetailPanel({
     { label: 'Proof of Income', url: app.docs_proof_income_url },
     { label: 'Marriage Certificate', url: app.docs_marriage_cert_url },
     { label: 'Lease Agreement', url: app.docs_lease_url },
+    ...(app.app_type === 'international' ? [
+      { label: 'Foreign Police Clearance', url: app.docs_intl_police_clearance_url },
+      { label: 'Bank Statements', url: app.docs_intl_bank_statements_url },
+      { label: 'Bank Reference Letter', url: app.docs_intl_bank_reference_url },
+      { label: 'Notarized Translation', url: app.docs_intl_translation_url },
+    ] : []),
   ];
 
   return (
@@ -819,6 +859,8 @@ export function ApplicationsTable({ applications: initialApps, documentLookup }:
                   <AppTypeBadge type={app.app_type} />
                   <PaymentBadge status={app.stripe_payment_status} />
                   <DecisionBadge decision={app.board_decision} />
+                  <ScreeningBadge status={app.screening_status} />
+                  {app.app_type === 'international' && <IntlDocsBadge app={app} />}
                 </div>
 
                 {/* Date */}

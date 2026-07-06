@@ -2908,6 +2908,18 @@ NOTIFY pgrst, 'reload schema';`,
 CREATE INDEX IF NOT EXISTS screening_subjects_order_idx ON public.screening_subjects (checkr_order_id);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'applications_international_docs',
+    label:       'International applicants — supporting document uploads',
+    description: 'Adds 4 columns to applications for the documents international applicants provide alongside the plain domestic Checkr check: a foreign police clearance/criminal record, 3-6 months of bank statements, a bank reference letter, and a notarized English translation when any of those are in a foreign language. Applicants can upload these from the start of /apply (Documents step), before paying, since some (a foreign police clearance) can take weeks to obtain -- uploads are optional and do not block submission',
+    filename:    '20260706_applications_international_docs.sql',
+    artifact:    { type: 'column', table: 'applications', column: 'docs_intl_police_clearance_url' },
+    sql: `ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS docs_intl_police_clearance_url text;
+ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS docs_intl_bank_statements_url text;
+ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS docs_intl_bank_reference_url text;
+ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS docs_intl_translation_url text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
