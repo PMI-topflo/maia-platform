@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { screening } from '@/lib/screening'
 import { computeAggregateStatus } from '@/lib/screening/aggregate'
+import { storeAndLinkReport } from '@/lib/screening/report-storage'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -84,6 +85,16 @@ export async function POST(req: NextRequest) {
   if (updateErr) {
     console.error('[checkr-webhook] update failed:', updateErr.message)
     return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+  }
+
+  if (event.reportId) {
+    try {
+      await storeAndLinkReport({ id: subject.id, application_id: subject.application_id }, event.reportId)
+    } catch (e) {
+      // Don't fail the webhook over this -- status is already recorded above;
+      // the PDF link can be backfilled separately if this errors.
+      console.error('[checkr-webhook] report PDF store failed:', e)
+    }
   }
 
   const { data: subjectRows } = await supabase.from('screening_subjects').select('status').eq('application_id', subject.application_id)

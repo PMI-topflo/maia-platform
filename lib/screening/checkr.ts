@@ -79,6 +79,15 @@ async function checkrFetch(path: string, method: 'GET' | 'POST', body?: Record<s
   return json as Record<string, unknown>
 }
 
+/** Report PDF endpoint returns application/pdf bytes, not JSON -- can't
+ *  reuse checkrFetch(). Generation is synchronous but can take up to ~60s
+ *  per Checkr's own Reports guide. */
+async function checkrFetchPdf(path: string): Promise<Buffer> {
+  const res = await fetch(`${API_BASE}${path}`, { headers: { Authorization: authHeader() } })
+  if (!res.ok) throw new Error(`Checkr ${path} ${res.status}`)
+  return Buffer.from(await res.arrayBuffer())
+}
+
 const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null)
 
 export const checkrProvider: ScreeningProvider = {
@@ -122,6 +131,11 @@ export const checkrProvider: ScreeningProvider = {
     return { status: str(json.status) ?? 'pending' }
   },
 
+  async getReportPdf(reportId: string): Promise<Buffer> {
+    if (!this.isConfigured()) throw new Error('CHECKR_API_KEY is not configured')
+    return checkrFetchPdf(`/reports/${reportId}/pdf`)
+  },
+
   verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean {
     const secret = process.env.CHECKR_WEBHOOK_SECRET
     if (!secret) return true   // no secret configured — accept unauthenticated, matches the old ApplyCheck fallback behavior
@@ -143,11 +157,18 @@ export const checkrProvider: ScreeningProvider = {
   // order_id EXCEPT report.product.completed (data is only { id, report_id,
   // product } there) -- there's no status field anywhere in this envelope,
   // by design (see getOrder() re-fetch above).
+  //
+  // On report.completed specifically, data.id IS the report id (data also
+  // carries order_id there) -- confirmed from Checkr's concrete per-event
+  // schemas 2026-07-06. Every other event type's data.id means something
+  // else (applicant id, or a report-product-result id), so reportId is only
+  // populated for report.completed.
   parseWebhookEvent(payload: unknown): ScreeningWebhookEvent {
     const obj = (payload ?? {}) as Record<string, unknown>
     const type = str(obj.type) ?? 'unknown'
     const data = (obj.data ?? {}) as Record<string, unknown>
     const orderId = str(data.order_id)
-    return { type, orderId, raw: payload }
+    const reportId = type === 'report.completed' ? str(data.id) : null
+    return { type, orderId, reportId, raw: payload }
   },
 }

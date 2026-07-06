@@ -47,6 +47,10 @@ export interface ScreeningWebhookEvent {
    *  product }). Callers should treat a null orderId as "safely ignore
    *  this event", not an error. */
   orderId: string | null
+  /** Only set on report.completed, where data.id is the report id
+   *  (confirmed live 2026-07-06 from Checkr's Webhooks guide's concrete
+   *  event schemas). Null for every other event type. */
+  reportId: string | null
   raw: unknown
 }
 
@@ -60,6 +64,9 @@ export interface ScreeningProvider {
   /** Re-fetches authoritative order status — used when a webhook fires,
    *  since the webhook payload itself doesn't reliably carry full state. */
   getOrder(orderId: string): Promise<{ status: string }>
+  /** Downloads the finished report as a PDF (synchronous, single call --
+   *  no polling). Can take up to ~60s to generate per Checkr's own docs. */
+  getReportPdf(reportId: string): Promise<Buffer>
   /** True if the raw request body's signature matches the configured
    *  webhook secret. Verify BEFORE parsing/trusting the payload. */
   verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean
