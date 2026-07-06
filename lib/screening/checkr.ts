@@ -17,11 +17,15 @@
 // ⚠ API_BASE confirmed LIVE 2026-07-06 with a real ckr_sk_test_ key —
 // `https://tenant.checkr.com/api` is the correct host+path prefix (NOT
 // api.checkr.com/v1, and NOT the /v1 shown in checkr-tenant-api-docs.redocly.app's
-// own placeholder examples, which use api.example.com). A real POST /orders
-// against this host returned 201 with a genuine order (status starts
-// "pending", not "waiting_for_applicant" as earlier guessed) and GET
-// /orders/{id} confirmed the order auto-completed ~1s later in test mode
-// (Checkr's test keys route to canned scenarios per their Testing guide).
+// own placeholder examples, which use api.example.com). Confirmed BOTH real
+// initial statuses via live test orders: a test-mode order with an applicant
+// that doesn't match one of Checkr's Canned Provider Scenarios auto-completes
+// almost immediately with status "pending" (test mode skips the applicant
+// experience entirely by default -- no email/SMS sent); an order using the
+// documented "Hudson Green" scenario tuple (the one row that deliberately does
+// NOT circumvent the applicant experience) instead returns "waiting_for_applicant"
+// and genuinely emails the applicant a hosted link, same as a real production
+// order would. Both are legitimate statuses, not a guess vs. a correction.
 //
 // ⚠ Still unconfirmed: the exact package slug for international applicants
 // (public docs only show "starter"/"essential" as named packages, plus
