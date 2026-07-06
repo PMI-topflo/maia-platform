@@ -7,15 +7,15 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 
 ---
 
-## 🟡 Built, not yet live-tested — Checkr background-check integration, REBUILT against the real Tenant API (commit 90b5f9e, 2026-07-05)
+## ✅ Live-verified end-to-end (test mode) — Checkr background-check integration (commit 1fe945a, 2026-07-06)
 
-Replaces the dead ApplyCheck integration (no public API). **The first build (commit 1353567) targeted the wrong Checkr product** — written from Checkr's general employment-background-check API conventions. Corrected against the real docs (`checkr-tenant-api-docs.redocly.app`): Bearer token auth (not HTTP Basic), a single `POST /orders` call per subject (applicant+property+package together, not a Candidate-then-Report two-step), and **no embeddable consent widget** — Checkr emails the applicant a link to their own hosted page (`tenant.checkr.com/apply/<code>`) to finish consent/questionnaire, so the applicant does leave PMI's `/apply` flow for that one step. `CheckrConsentEmbed.tsx` and its consent route were deleted (obsolete). Webhook signature corrected to the real `Tenant-Signature: t=<ts>,v1=<hex hmac-sha256("t.rawbody")>` scheme. New `screening_subjects.checkr_order_id` column (old candidate/report columns left in place, unused).
+Replaces the dead ApplyCheck integration (no public API). Real architecture: Bearer token auth, a single `POST /orders` call per subject (applicant+property+package together), and **no embeddable consent widget** — Checkr emails the applicant a link to their own hosted page (`tenant.checkr.com/apply/<code>`) to finish consent/questionnaire, so the applicant does leave PMI's `/apply` flow for that one step. Webhook signature: `Tenant-Signature: t=<ts>,v1=<hex hmac-sha256("t.rawbody")>`.
+
+**Fully verified live 2026-07-06 with a real `ckr_sk_test_...` key** the user pulled from Checkr's dashboard. The real API base is **`tenant.checkr.com/api`**, not `api.checkr.com/v1` (the earlier build had the wrong host entirely, not just missing credentials — every request 401'd until this was found and fixed). Confirmed working end-to-end: real `POST /orders` → `201` with a genuine order; `GET /orders/{id}` → confirmed test-mode orders auto-complete in ~1s; crafted a real signed webhook payload and POSTed it to our own running `/api/checkr-webhook` → confirmed `screening_subjects` + `applications.screening_status` update correctly. Both `essential` and `starter` package slugs confirmed valid.
 
 Also fixed same day: **application fees raised to Florida's statutory max, $150/applicant** (Fla. Stat. §718.112(2)(k)) — was $100 individual/additional-resident/commercial-principal, $200 couple-without-cert; now $150/$150/$150/$300 respectively (couple-with-cert stays $150, already the legal cap for one applicant). Commercial principals confirmed to use the identical Essential package/price as individuals (no separate `CHECKR_PACKAGE_COMMERCIAL`). `additionalResident` was silently billing against `STRIPE_PRICE_INDIVIDUAL` — fixed to use its own dedicated Stripe price. **Pending your action**: new Stripe Price IDs for Individual/Additional/Commercial were created in the Dashboard but still need adding to **Vercel's Production environment variables** (not just locally) for the new $150 rate to actually take effect in production.
 
-**⚠️ No `CHECKR_API_KEY`/`CHECKR_WEBHOOK_SECRET`/`CHECKR_PACKAGE_*` configured anywhere yet** — nothing has been live-tested against a real Checkr account. Still unconfirmed: the exact international package slug (public docs only show `starter`/`essential` as named packages) and the webhook payload's precise JSON envelope (handler re-fetches authoritative state via `GET /orders/{id}` to route around that gap). See `screening_provider_pivot.md` in memory for full history.
-
-**Next**: get Checkr staging credentials (Customer API Authorization Checklist submitted — pick "Checkr Hosted Flow" as the Integration Flow, since that now matches what's built; staging account request still pending), confirm the international package slug + webhook payload shape against real staging traffic.
+**Still needed before production go-live**: a real `CHECKR_API_KEY`/`CHECKR_WEBHOOK_SECRET`/`CHECKR_PACKAGE_*` set in Vercel Production (local `.env.local` only has the test-mode ones for now); the confirmed real `CHECKR_PACKAGE_INTERNATIONAL` slug (currently just a placeholder `"starter"` for local testing — the actual international package name still needs confirming with Checkr); full production account authorization from Checkr (the test key works, but going live needs their team's sign-off per the Customer API Authorization Checklist). See `screening_provider_pivot.md` in memory for full history.
 
 ---
 
@@ -172,14 +172,14 @@ See the full entry under "Development backlog" below (kept there since it starte
 ## Decisions captured (spec for the above)
 1. **Owner ledger** — 1× OTP then request by email/WhatsApp/SMS; CINC per-owner statement → PDF. ✅ built.
 2. **Owner payments** — CINC WebAxis / check / ACH; **no Stripe** for owner assessments. ✅ built.
-3. **Background check** — ApplyCheck rejected (no API), Certn abandoned, **Checkr Tenant API integration built + corrected 2026-07-05** (see section near the top of this doc) — not yet live-tested, no credentials configured.
+3. **Background check** — ApplyCheck rejected (no API), Certn abandoned, **Checkr Tenant API integration live-verified end-to-end 2026-07-06** (see section near the top of this doc) — test mode confirmed working; production credentials + account authorization still pending.
 4. **Per-association rules ack** in `/apply`. ✅ built.
 
 (Detail in memory: `roadmap_reconciliation_2026_06_30.md`, `owner_self_service_decisions.md`, `screening_provider_pivot.md`, `voice_plan.md`.)
 
 ## Suggested priority
 1. 🟡 **In-Maia application process, association by association** — VPCI in progress (mockup + PDF built, pending your sign-off), 22 real associations to go. Ownership-date backfill for the eligibility rules is the current bottleneck (manual, BCPA lookups).
-2. ⏳ **Checkr staging account** — request pending; once you have `ckr_sk_test_...` credentials, hand them over to confirm the international package slug + real webhook payload shape, and finish the Customer API Authorization Checklist (pick "Checkr Hosted Flow").
+2. ✅ **Checkr test integration** — done, live-verified end-to-end 2026-07-06 (see section near the top of this doc). Next: confirm the real international package slug with Checkr, get production credentials + account authorization, add all CHECKR_* vars to Vercel Production.
 3. ⏳ **Vercel Production env vars** for the 3 new Stripe Price IDs (Individual/Additional/Commercial) — code is ready, just needs the Dashboard update to actually charge $150 in production.
 4. ✅ **Pre-registration triage Phase 2 + unit occupancy control** — done (2026-07-04). Pending your action: try `/admin/unit-status`'s survey button for real (it dry-runs by default) and confirm the Send Occupancy & Insurance Survey copy reads right before the first live send to real owners.
 5. Continue the Flows diagrams series — `/apply` Tenant/Buyer Application next.
