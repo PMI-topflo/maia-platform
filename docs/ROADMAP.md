@@ -1,21 +1,35 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-07-05**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-07-07**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
 
 ---
 
-## ✅ Live-verified end-to-end (test mode) — Checkr background-check integration (commit 1fe945a, 2026-07-06)
+## ✅ DEPLOYED TO PRODUCTION — Checkr background-check integration + application pipeline (commits through `307fc65`, 2026-07-06/07)
 
-Replaces the dead ApplyCheck integration (no public API). Real architecture: Bearer token auth, a single `POST /orders` call per subject (applicant+property+package together), and **no embeddable consent widget** — Checkr emails the applicant a link to their own hosted page (`tenant.checkr.com/apply/<code>`) to finish consent/questionnaire, so the applicant does leave PMI's `/apply` flow for that one step. Webhook signature: `Tenant-Signature: t=<ts>,v1=<hex hmac-sha256("t.rawbody")>`.
+Replaces the dead ApplyCheck integration (no public API). Real architecture: Bearer token auth, a single `POST /orders` call per subject (applicant+property+package together), and **no embeddable consent widget** — Checkr emails the applicant a link to their own hosted page to finish consent/questionnaire. Real API base `tenant.checkr.com/api` (not `api.checkr.com/v1`). Webhook signature: `Tenant-Signature: t=<ts>,v1=<hex hmac-sha256("t.rawbody")>`.
 
-**Fully verified live 2026-07-06 with a real `ckr_sk_test_...` key** the user pulled from Checkr's dashboard. The real API base is **`tenant.checkr.com/api`**, not `api.checkr.com/v1` (the earlier build had the wrong host entirely, not just missing credentials — every request 401'd until this was found and fixed). Confirmed working end-to-end: real `POST /orders` → `201` with a genuine order; `GET /orders/{id}` → confirmed test-mode orders auto-complete in ~1s; crafted a real signed webhook payload and POSTed it to our own running `/api/checkr-webhook` → confirmed `screening_subjects` + `applications.screening_status` update correctly. Both `essential` and `starter` package slugs confirmed valid.
+**This is now live on www.pmitop.com, not just test/dev** — pushed to `origin/main` (auto-deploys), Checkr env vars added to Vercel Production (still test-mode key, user explicitly OK'd this for now), verified against the real production deployment. A real applicant genuinely completed the Checkr-hosted consent flow end to end via a test order and it processed correctly.
 
-Also fixed same day: **application fees raised to Florida's statutory max, $150/applicant** (Fla. Stat. §718.112(2)(k)) — was $100 individual/additional-resident/commercial-principal, $200 couple-without-cert; now $150/$150/$150/$300 respectively (couple-with-cert stays $150, already the legal cap for one applicant). Commercial principals confirmed to use the identical Essential package/price as individuals (no separate `CHECKR_PACKAGE_COMMERCIAL`). `additionalResident` was silently billing against `STRIPE_PRICE_INDIVIDUAL` — fixed to use its own dedicated Stripe price. **Pending your action**: new Stripe Price IDs for Individual/Additional/Commercial were created in the Dashboard but still need adding to **Vercel's Production environment variables** (not just locally) for the new $150 rate to actually take effect in production.
+**Shipped this arc:**
+- Report PDF capture — Checkr renders the actual report itself (`GET /reports/{id}/pdf`); we fetch/store/link it, never generate report content ourselves. Stored in a private `screening-reports` Supabase bucket.
+- **No international Checkr package** — confirmed via Checkr's own pricing page that international checks are à la carte per-country (some take 25-31 days for one check), not a package slug. Decision: every applicant, including international, runs the same domestic Essential check; the country-specific gap (foreign criminal record, financial standing) is covered by applicant-uploaded documents instead — disclosed in 7 languages, with a downloadable CPA-requirements guide PDF the applicant can hand to their own accountant (`lib/intl-cpa-guide-pdf.tsx`, bundles Noto Sans + Noto Sans Hebrew locally since react-pdf's default font doesn't cover Hebrew/Cyrillic).
+- **CPA Financial Certification** replaces an earlier bank-statements + bank-reference-letter design — one comprehensive CPA-prepared report (income/assets/liabilities/net worth/USD conversion/capability statement) instead of two overlapping documents.
+- **New "Test Environment" tab** in `/admin/applications` — staff create a real test application (any applicant type, custom name/email, 7 languages) against the real Checkr sandbox, bypassing Stripe. Only two Checkr scenarios offered (quick auto-complete, and the "Hudson Green" tuple for a real consent-email flow) since Checkr's separate Workforce mock-candidate spreadsheet doesn't apply to the Tenant API this integration uses (confirmed directly by Checkr).
+- **Board "Request More Info"** — a third option beside Approve/Reject, free text instead of a signature, emails staff, doesn't lock the reviewer's token the way a final decision does.
+- **"Preview Board View"** button — staff can see exactly what a board member's review page looks like without a real per-member token.
+- **Signed Rules Acknowledgment is now a real PDF** (`lib/rules-acknowledgment-pdf.tsx`) — actual drawn signature image, applicant photo, acknowledged document versions, audit trail (IP/geolocation) — instead of a one-line text summary.
+- **Gov ID / Proof of Income are now per-applicant** (previously ONE shared upload for the whole application, even for a couple) — embedded in each `applicants[]`/`principals[]` entry, no migration needed. Admin + board pages both show a unified per-applicant panel: name, their own documents, their own Checkr status + report link.
 
-**Still needed before production go-live**: a real `CHECKR_API_KEY`/`CHECKR_WEBHOOK_SECRET`/`CHECKR_PACKAGE_*` set in Vercel Production (local `.env.local` only has the test-mode ones for now); the confirmed real `CHECKR_PACKAGE_INTERNATIONAL` slug (currently just a placeholder `"starter"` for local testing — the actual international package name still needs confirming with Checkr); full production account authorization from Checkr (the test key works, but going live needs their team's sign-off per the Customer API Authorization Checklist). See `screening_provider_pivot.md` in memory for full history.
+**Still open:**
+- Confirmed no Stripe price IDs exist for the mode production's Stripe key actually runs in (couldn't verify live vs. test directly — `STRIPE_SECRET_KEY` is a Vercel "sensitive" var, write-only). Needs your confirmation of live-vs-test before real applicants pay.
+- Final combined PDF package (all documents + all Checkr reports + signed rules ack + signed approval letter) delivered to Google Drive — a working Drive-upload pattern already exists in the codebase (`lib/drive-invoice-mirror.ts`) so the mechanism is known, but needs: which Drive folder / organization scheme, and confirming the approval letter should become a real signed PDF (currently just template text on the board page).
+- A "Flows" diagram for the application process (matching the existing click-to-popup style) — requested, not started.
+- Full Checkr production account authorization (test key works; going live needs Checkr's sign-off).
+
+See `screening_provider_pivot.md` in memory for full history.
 
 ---
 
@@ -172,18 +186,19 @@ See the full entry under "Development backlog" below (kept there since it starte
 ## Decisions captured (spec for the above)
 1. **Owner ledger** — 1× OTP then request by email/WhatsApp/SMS; CINC per-owner statement → PDF. ✅ built.
 2. **Owner payments** — CINC WebAxis / check / ACH; **no Stripe** for owner assessments. ✅ built.
-3. **Background check** — ApplyCheck rejected (no API), Certn abandoned, **Checkr Tenant API integration live-verified end-to-end 2026-07-06** (see section near the top of this doc) — test mode confirmed working; production credentials + account authorization still pending.
+3. **Background check** — ApplyCheck rejected (no API), Certn abandoned, **Checkr Tenant API integration deployed to production 2026-07-06/07** (see section near the top of this doc) — live on www.pmitop.com with a test-mode key (user OK'd this for now); full production account authorization from Checkr still pending.
 4. **Per-association rules ack** in `/apply`. ✅ built.
 
 (Detail in memory: `roadmap_reconciliation_2026_06_30.md`, `owner_self_service_decisions.md`, `screening_provider_pivot.md`, `voice_plan.md`.)
 
 ## Suggested priority
 1. 🟡 **In-Maia application process, association by association** — VPCI in progress (mockup + PDF built, pending your sign-off), 22 real associations to go. Ownership-date backfill for the eligibility rules is the current bottleneck (manual, BCPA lookups).
-2. ✅ **Checkr test integration** — done, live-verified end-to-end 2026-07-06 (see section near the top of this doc). Next: confirm the real international package slug with Checkr, get production credentials + account authorization, add all CHECKR_* vars to Vercel Production.
-3. ⏳ **Vercel Production env vars** for the 3 new Stripe Price IDs (Individual/Additional/Commercial) — code is ready, just needs the Dashboard update to actually charge $150 in production.
-4. ✅ **Pre-registration triage Phase 2 + unit occupancy control** — done (2026-07-04). Pending your action: try `/admin/unit-status`'s survey button for real (it dry-runs by default) and confirm the Send Occupancy & Insurance Survey copy reads right before the first live send to real owners.
-5. Continue the Flows diagrams series — `/apply` Tenant/Buyer Application next.
-6. Medium WO/recurring items → 7. Compliance Phase 2 (deadline-rules + document RAG) → 8. smaller comms/invoice follow-ups.
+2. ✅ **Checkr integration** — deployed to production 2026-07-06/07 (see section near the top of this doc). Next: confirm live-vs-test Stripe mode before real applicants pay, get Checkr production account authorization.
+3. 🔴 **Final combined application PDF package → Google Drive** — all documents + Checkr reports + signed rules ack + signed approval letter, one download. Needs: target Drive folder/organization, and whether the approval letter becomes a real signed PDF. Upload mechanism already known (`lib/drive-invoice-mirror.ts` pattern).
+4. 🔴 **Flows diagram for the application process** — requested, matching the existing click-to-popup style, not started.
+5. ✅ **Pre-registration triage Phase 2 + unit occupancy control** — done (2026-07-04). Pending your action: try `/admin/unit-status`'s survey button for real (it dry-runs by default) and confirm the Send Occupancy & Insurance Survey copy reads right before the first live send to real owners.
+6. Continue the Flows diagrams series — `/apply` Tenant/Buyer Application next (see #4 above, same item).
+7. Medium WO/recurring items → 8. Compliance Phase 2 (deadline-rules + document RAG) → 9. smaller comms/invoice follow-ups.
 
 **Verify on next real call:** the renumbered menu (#497) + payments delivery-channel sub-flow (#498) — confirm a real call reaches the "text/WhatsApp/email?" prompt on digit 1 and the message actually arrives via the chosen channel; confirm a real collections-blocked unit now correctly hears the agency message on digit 1 (not just the test account). Also confirm the resident portal's new "Get my account statement" button delivers a real ledger email in production (local testing was code-path-verified via curl/DB only, since local dev has no email provider credentials).
 

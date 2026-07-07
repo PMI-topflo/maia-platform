@@ -1,8 +1,25 @@
-# Session handoff — 2026-06-07
+# Session handoff — 2026-07-07
 
 Snapshot for picking up on another machine. Everything below is **live in production on `main`** unless noted.
 
 > ⚠️ **Repo path:** the canonical clone is now `~/maia-platform` (moved out of iCloud). Stale copies under `~/Documents/GitHub/maia-platform` and `~/Downloads/maia-platform` — ignore them.
+
+## 2026-07-06/07 — Checkr background-check integration, DEPLOYED TO PRODUCTION
+
+Full detail in `docs/ROADMAP.md`'s top section and memory `screening_provider_pivot.md`. Headline: the Checkr Tenant API integration (real host `tenant.checkr.com/api`, Bearer auth, single `POST /orders` call, webhook-driven status) is now genuinely live on **www.pmitop.com**, not just tested locally — pushed to `origin/main`, Checkr env vars added to Vercel Production (test-mode key, user explicitly OK'd for now), and verified against the real deployed site. A real applicant completed the actual Checkr-hosted consent flow end to end and it processed correctly.
+
+**Shipped:** report-PDF capture (Checkr renders it, we fetch/store/link it); retired the never-real "international Checkr package" in favor of every applicant running the domestic Essential check + applicant-uploaded documents for the international-specific gap (CPA Financial Certification replacing an earlier two-document design, disclosed + a downloadable requirements PDF in all 7 `/apply` languages, Hebrew rendered RTL with a bundled font since react-pdf's default doesn't cover it); a "Test Environment" tab in `/admin/applications` letting staff run real test applications through the real Checkr sandbox without touching Stripe; board "Request More Info" (free text, doesn't lock the reviewer's token); a staff "Preview Board View" button; a real signed Rules & Regulations Acknowledgment PDF (actual signature image, audit trail) replacing a one-line text summary; and Gov ID/Proof of Income becoming per-applicant instead of one shared upload for a whole couple/commercial application, surfaced in a unified per-person panel alongside each person's own Checkr status.
+
+**Real bugs found and fixed along the way (not just features):** webhook envelope had the wrong ID-extraction order (would have silently matched every real webhook to the wrong row); a resumed application draft never rehydrated previously-uploaded documents (silent data loss on resubmit); Vercel Production had zero Checkr env vars and the auto-triggered deploy needed a manual redeploy to actually bind new ones; multi-applicant apps had no way to see either person's Checkr report once complete.
+
+**Pending your action:**
+- Confirm whether production's Stripe key is live or test mode (couldn't check directly — it's a Vercel "sensitive" var) before any real applicant pays.
+- Decide the target Google Drive folder/organization for the final combined-PDF-package feature (documents + reports + signed rules ack + signed approval letter, one download) — the upload mechanism is already known (same pattern as `lib/drive-invoice-mirror.ts`), just needs a folder decision.
+- Confirm whether the board's "approval letter" (currently just template text shown on the review page) should become a real signed PDF artifact too, for that same combined package.
+- Still want a "Flows" diagram for the application process, matching the existing click-to-popup style — not started this session.
+- Full Checkr production account authorization (test key works everywhere; going properly live needs their team's sign-off).
+
+---
 
 ## 2026-06-06/07 — MAIA reliability hardening (incident response, all merged #291–#303)
 A multi-day reliability incident, now fully resolved. maia@ is **LIVE**.
