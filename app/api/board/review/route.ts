@@ -36,7 +36,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 404 });
   }
 
-  const alreadyDecided = !!review.decision;
+  // A prior "more_info" request doesn't lock the token -- only a final
+  // approved/rejected decision does.
+  const alreadyDecided = review.decision === 'approved' || review.decision === 'rejected';
 
   // Fetch the application
   const { data: application, error: appError } = await supabaseAdmin
@@ -125,12 +127,22 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { token, decision, signature, notes } = body;
 
-  if (!token || !decision || !signature) {
+  if (!token || !decision) {
     return NextResponse.json({ ok: false, error: 'Missing required fields' }, { status: 400 });
   }
 
-  if (!['approved', 'rejected'].includes(decision)) {
+  if (!['approved', 'rejected', 'more_info'].includes(decision)) {
     return NextResponse.json({ ok: false, error: 'Invalid decision' }, { status: 400 });
+  }
+
+  // "Request more info" is a lightweight comment channel, not a formal
+  // sign-off -- free text instead of a signature.
+  if (decision === 'more_info') {
+    if (!notes?.trim()) {
+      return NextResponse.json({ ok: false, error: 'Please describe what additional information is needed' }, { status: 400 });
+    }
+  } else if (!signature) {
+    return NextResponse.json({ ok: false, error: 'Missing required fields' }, { status: 400 });
   }
 
   // Validate and fetch review
@@ -144,7 +156,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid token' }, { status: 404 });
   }
 
-  if (review.decision) {
+  // A prior "more_info" request is non-final -- the same board member can
+  // still come back and submit a real decision. Only a final approved/
+  // rejected decision locks the token.
+  if (review.decision === 'approved' || review.decision === 'rejected') {
     return NextResponse.json({ ok: false, error: 'Decision already submitted' }, { status: 409 });
   }
 
@@ -153,7 +168,7 @@ export async function POST(req: NextRequest) {
     .from('application_board_reviews')
     .update({
       decision,
-      signature,
+      signature: signature ?? null,
       notes: notes ?? null,
       decided_at: new Date().toISOString(),
     })
@@ -162,6 +177,38 @@ export async function POST(req: NextRequest) {
   if (updateError) {
     console.error('[board/review POST] update error', updateError);
     return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
+  }
+
+  // "Request more info" doesn't count toward the approval threshold -- it's
+  // a side-channel back to staff, not a decision. Flag the application so
+  // it's visible in the admin dashboard, notify staff with the free text,
+  // and stop (no threshold/notification logic below applies to it).
+  if (decision === 'more_info') {
+    await supabaseAdmin
+      .from('applications')
+      .update({ board_decision: 'more_info_requested' })
+      .eq('id', review.application_id)
+      .neq('board_decision', 'approved')
+      .neq('board_decision', 'rejected');
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_BASE_URL ?? '';
+    const refId = `PMI-${review.application_id.slice(0, 8).toUpperCase()}`;
+    try {
+      await fetch(`${appUrl}/api/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: 'support@topfloridaproperties.com',
+          subject: `Board requests more info — Ref ${refId}`,
+          html: `<p><strong>${review.board_member_name}</strong> (${review.association_code}) requested more information on application <strong>${refId}</strong> before deciding:</p>
+<blockquote style="border-left:3px solid #f26a1b;margin:12px 0;padding:8px 16px;color:#374151;">${(notes as string).replace(/\n/g, '<br>')}</blockquote>`,
+        }),
+      });
+    } catch (e) {
+      console.error('[board/review POST] more_info staff notification error', e);
+    }
+
+    return NextResponse.json({ ok: true, moreInfoRequested: true });
   }
 
   // Fetch association config for required_signatures threshold

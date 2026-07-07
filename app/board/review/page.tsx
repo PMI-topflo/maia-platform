@@ -107,7 +107,7 @@ export default function BoardReviewPage() {
   const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
   const [token, setToken] = useState<string | null>(null);
 
-  const [decision, setDecision] = useState<'approved' | 'rejected' | null>(null);
+  const [decision, setDecision] = useState<'approved' | 'rejected' | 'more_info' | null>(null);
   const [signature, setSignature] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -148,14 +148,15 @@ export default function BoardReviewPage() {
   }, []);
 
   async function handleSubmit() {
-    if (!decision || !signature.trim() || !token) return;
+    if (!decision || !token) return;
+    if (decision === 'more_info' ? !notes.trim() : !signature.trim()) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
       const res = await fetch('/api/board/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, decision, signature: signature.trim(), notes: notes.trim() || undefined }),
+        body: JSON.stringify({ token, decision, signature: signature.trim() || undefined, notes: notes.trim() || undefined }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? 'Submission failed');
@@ -252,13 +253,15 @@ export default function BoardReviewPage() {
         <SiteHeader subtitle="BOARD REVIEW" />
         <div style={{ ...cardStyle, textAlign: 'center', padding: '3rem 2rem' }}>
           <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>
-            {decision === 'approved' ? '✅' : '✗'}
+            {decision === 'approved' ? '✅' : decision === 'more_info' ? '💬' : '✗'}
           </div>
           <h2 style={{ margin: '0 0 0.5rem', fontWeight: 700 }}>
-            {decision === 'approved' ? 'Application Approved' : 'Application Rejected'}
+            {decision === 'approved' ? 'Application Approved' : decision === 'more_info' ? 'Request Sent to Staff' : 'Application Rejected'}
           </h2>
           <p style={{ color: '#6b7280', margin: 0 }}>
-            Your decision has been recorded. Thank you, {memberName}.
+            {decision === 'more_info'
+              ? `Staff has been notified. You can come back to this same link once you have what you need to submit a final decision, ${memberName}.`
+              : `Your decision has been recorded. Thank you, ${memberName}.`}
           </p>
         </div>
       </div>
@@ -489,48 +492,67 @@ export default function BoardReviewPage() {
               >
                 ✗ Reject
               </button>
+              <button
+                onClick={() => setDecision('more_info')}
+                style={{
+                  flex: 1,
+                  padding: '0.75rem',
+                  borderRadius: 8,
+                  border: `2px solid ${decision === 'more_info' ? '#f26a1b' : '#d1d5db'}`,
+                  background: decision === 'more_info' ? '#f26a1b' : '#fff',
+                  color: decision === 'more_info' ? '#fff' : '#374151',
+                  fontWeight: 700,
+                  fontSize: '0.95rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                ? Request More Info
+              </button>
             </div>
           </div>
 
-          {/* Signature */}
-          <div style={{ marginBottom: '1.25rem' }}>
-            <label style={labelStyle}>Electronic Signature</label>
-            <p style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: '#6b7280' }}>
-              Type your full legal name to sign this decision
-            </p>
-            <input
-              type="text"
-              value={signature}
-              onChange={(e) => setSignature(e.target.value)}
-              placeholder={memberName || 'Your full legal name'}
-              style={{
-                width: '100%',
-                padding: '0.75rem 1rem',
-                border: `1px solid ${signature.trim() ? '#f26a1b' : '#d1d5db'}`,
-                borderRadius: 8,
-                fontSize: '1.15rem',
-                fontFamily: 'Georgia, "Times New Roman", serif',
-                fontStyle: 'italic',
-                color: '#0d0d0d',
-                outline: 'none',
-                boxSizing: 'border-box',
-                transition: 'border-color 0.15s',
-              }}
-            />
-          </div>
+          {/* Signature -- not needed for a mere info request */}
+          {decision !== 'more_info' && (
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={labelStyle}>Electronic Signature</label>
+              <p style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: '#6b7280' }}>
+                Type your full legal name to sign this decision
+              </p>
+              <input
+                type="text"
+                value={signature}
+                onChange={(e) => setSignature(e.target.value)}
+                placeholder={memberName || 'Your full legal name'}
+                style={{
+                  width: '100%',
+                  padding: '0.75rem 1rem',
+                  border: `1px solid ${signature.trim() ? '#f26a1b' : '#d1d5db'}`,
+                  borderRadius: 8,
+                  fontSize: '1.15rem',
+                  fontFamily: 'Georgia, "Times New Roman", serif',
+                  fontStyle: 'italic',
+                  color: '#0d0d0d',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  transition: 'border-color 0.15s',
+                }}
+              />
+            </div>
+          )}
 
-          {/* Optional notes */}
+          {/* Notes -- required for a "request more info", optional otherwise */}
           <div style={{ marginBottom: '1.5rem' }}>
-            <label style={labelStyle}>Notes (optional)</label>
+            <label style={labelStyle}>{decision === 'more_info' ? 'What additional information do you need?' : 'Notes (optional)'}</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Any comments or conditions for this decision…"
+              placeholder={decision === 'more_info' ? 'e.g. missing proof of income, unclear on the co-applicant’s relationship to the unit…' : 'Any comments or conditions for this decision…'}
               rows={3}
               style={{
                 width: '100%',
                 padding: '0.75rem 1rem',
-                border: '1px solid #d1d5db',
+                border: `1px solid ${decision === 'more_info' && !notes.trim() ? '#fca5a5' : '#d1d5db'}`,
                 borderRadius: 8,
                 fontSize: '0.875rem',
                 color: '#0d0d0d',
@@ -548,24 +570,30 @@ export default function BoardReviewPage() {
               {submitError}
             </div>
           )}
-          <button
-            onClick={handleSubmit}
-            disabled={!decision || !signature.trim() || submitting}
-            style={{
-              width: '100%',
-              padding: '0.9rem',
-              background: !decision || !signature.trim() || submitting ? '#d1d5db' : '#f26a1b',
-              color: !decision || !signature.trim() || submitting ? '#9ca3af' : '#fff',
-              border: 'none',
-              borderRadius: 8,
-              fontSize: '1rem',
-              fontWeight: 700,
-              cursor: !decision || !signature.trim() || submitting ? 'not-allowed' : 'pointer',
-              transition: 'background 0.15s',
-            }}
-          >
-            {submitting ? 'Submitting…' : 'Submit Decision'}
-          </button>
+          {(() => {
+            const ready = !!decision && (decision === 'more_info' ? !!notes.trim() : !!signature.trim());
+            const disabled = !ready || submitting;
+            return (
+              <button
+                onClick={handleSubmit}
+                disabled={disabled}
+                style={{
+                  width: '100%',
+                  padding: '0.9rem',
+                  background: disabled ? '#d1d5db' : '#f26a1b',
+                  color: disabled ? '#9ca3af' : '#fff',
+                  border: 'none',
+                  borderRadius: 8,
+                  fontSize: '1rem',
+                  fontWeight: 700,
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                  transition: 'background 0.15s',
+                }}
+              >
+                {submitting ? 'Submitting…' : decision === 'more_info' ? 'Send Request' : 'Submit Decision'}
+              </button>
+            );
+          })()}
 
           <p style={{ margin: '1rem 0 0', fontSize: '0.75rem', color: '#9ca3af', textAlign: 'center' }}>
             This is a secure, unique link. By submitting you confirm your identity as a board member of {association}.

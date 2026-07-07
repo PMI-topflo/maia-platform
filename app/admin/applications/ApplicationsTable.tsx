@@ -60,7 +60,7 @@ export type Application = {
   resume_email:             string | null;
   resume_link_sent_at:      string | null;
   draft_step:               number | null;
-  board_decision: 'approved' | 'rejected' | 'pending' | 'board_review' | null;
+  board_decision: 'approved' | 'rejected' | 'pending' | 'board_review' | 'more_info_requested' | null;
   board_decided_at: string | null;
   board_notes: string | null;
   screening_status: string | null;
@@ -164,6 +164,12 @@ function DecisionBadge({ decision }: { decision: string | null }) {
     return (
       <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800">
         Board Review
+      </span>
+    );
+  if (decision === 'more_info_requested')
+    return (
+      <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800">
+        Info Requested
       </span>
     );
   return (
@@ -336,7 +342,7 @@ function DetailPanel({
   onDecisionSaved: (updated: Partial<Application>) => void;
 }) {
   const [decision, setDecision] = useState<'approved' | 'rejected' | 'pending'>(
-    (app.board_decision === 'board_review' ? 'pending' : app.board_decision) ?? 'pending'
+    (app.board_decision === 'board_review' || app.board_decision === 'more_info_requested' ? 'pending' : app.board_decision) ?? 'pending'
   );
   const [notes, setNotes] = useState(app.board_notes ?? '');
   const [saving, setSaving] = useState(false);
