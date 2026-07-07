@@ -68,6 +68,8 @@ export type Application = {
   is_test: boolean | null;
 };
 
+type ScreeningSubjectSummary = { name: string | null; status: string | null; report_url: string | null };
+
 interface Props {
   applications: Application[];
   /** Pre-resolved metadata for every acknowledged_document_ids UUID
@@ -76,6 +78,10 @@ interface Props {
    *  deleted after the applicant signed) render as "[deleted document]"
    *  rather than crashing. */
   documentLookup: Record<string, { filename: string; category: string; effective_date: string | null }>;
+  /** Every screening_subjects row per application, keyed by application_id --
+   *  applications.screening_report_url only ever covers the single-subject
+   *  case, so couples/commercial need each applicant's own report link. */
+  subjectsByApplication: Record<string, ScreeningSubjectSummary[]>;
 }
 
 const DOC_CATEGORY_LABELS: Record<string, string> = {
@@ -335,10 +341,12 @@ function ResumeLinkSection({ app }: { app: Application }) {
 function DetailPanel({
   app,
   documentLookup,
+  subjects,
   onDecisionSaved,
 }: {
   app: Application;
   documentLookup: Record<string, { filename: string; category: string; effective_date: string | null }>;
+  subjects: ScreeningSubjectSummary[];
   onDecisionSaved: (updated: Partial<Application>) => void;
 }) {
   const [decision, setDecision] = useState<'approved' | 'rejected' | 'pending'>(
@@ -600,12 +608,33 @@ function DetailPanel({
         </div>
       </section>
 
-      {/* Background check */}
+      {/* Background check -- one row per applicant/principal, since each has
+          their own separate Checkr order + report. Falls back to the
+          aggregate app-level status for legacy rows with no subjects. */}
       <section>
         <h3 className="text-sm font-semibold text-[#0d0d0d] uppercase tracking-wide mb-3">
           Background Check
         </h3>
-        {app.screening_report_url ? (
+        {subjects.length > 0 ? (
+          <div className="space-y-2">
+            {subjects.map((s, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <span className="text-sm text-[#0d0d0d] w-32 truncate">{s.name ?? `Applicant ${i + 1}`}</span>
+                <ScreeningBadge status={s.status} />
+                {s.report_url ? (
+                  <a
+                    href={s.report_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded border border-[#f26a1b] px-3 py-1 text-xs text-[#f26a1b] hover:bg-orange-50 transition-colors"
+                  >
+                    View report ↗
+                  </a>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : app.screening_report_url ? (
           <a
             href={app.screening_report_url}
             target="_blank"
@@ -615,17 +644,7 @@ function DetailPanel({
             View screening report ↗
           </a>
         ) : (
-          <span
-            className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${
-              app.screening_status === 'complete'
-                ? 'bg-emerald-100 text-emerald-800'
-                : app.screening_status === 'error'
-                ? 'bg-red-100 text-red-800'
-                : 'bg-yellow-100 text-yellow-800'
-            }`}
-          >
-            Checkr: {app.screening_status ?? 'pending'}
-          </span>
+          <ScreeningBadge status={app.screening_status} />
         )}
       </section>
 
@@ -740,6 +759,8 @@ function TestEnvironmentPanel() {
   const [appType, setAppType] = useState<'individual' | 'couple' | 'additionalResident' | 'commercial' | 'international'>('individual');
   const [scenario, setScenario] = useState<'auto' | 'hudson_green'>('auto');
   const [lang, setLang] = useState('en');
+  const [customName, setCustomName] = useState('');
+  const [customEmail, setCustomEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
@@ -750,7 +771,7 @@ function TestEnvironmentPanel() {
       const res = await fetch('/api/admin/applications/create-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appType, scenario, lang }),
+        body: JSON.stringify({ appType, scenario, lang, customName: customName.trim() || undefined, customEmail: customEmail.trim() || undefined }),
       });
       const data = await res.json();
       if (!res.ok) { setResult(`Error: ${data.error ?? 'unknown'}`); return; }
@@ -801,6 +822,27 @@ function TestEnvironmentPanel() {
             <option value="ru">Русский</option>
           </select>
         </label>
+        <label className="text-xs text-gray-700">
+          <div className="mb-1 font-medium">Applicant name {scenario === 'hudson_green' && '(fixed)'}</div>
+          <input
+            type="text"
+            value={scenario === 'hudson_green' ? 'Hudson Green' : customName}
+            onChange={(e) => setCustomName(e.target.value)}
+            disabled={scenario === 'hudson_green'}
+            placeholder="Test Applicant"
+            className="rounded border border-gray-300 px-2 py-1.5 text-sm disabled:opacity-50 disabled:bg-gray-100"
+          />
+        </label>
+        <label className="text-xs text-gray-700">
+          <div className="mb-1 font-medium">Applicant email</div>
+          <input
+            type="email"
+            value={customEmail}
+            onChange={(e) => setCustomEmail(e.target.value)}
+            placeholder="PMI@topfloridaproperties.com"
+            className="rounded border border-gray-300 px-2 py-1.5 text-sm"
+          />
+        </label>
         <button
           onClick={createAndTrigger}
           disabled={busy}
@@ -818,7 +860,7 @@ function TestEnvironmentPanel() {
 // Main table component
 // ---------------------------------------------------------------------------
 
-export function ApplicationsTable({ applications: initialApps, documentLookup }: Props) {
+export function ApplicationsTable({ applications: initialApps, documentLookup, subjectsByApplication }: Props) {
   const [apps, setApps] = useState<Application[]>(initialApps);
   const [filter, setFilter] = useState<FilterTab>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -1026,6 +1068,7 @@ export function ApplicationsTable({ applications: initialApps, documentLookup }:
                   <DetailPanel
                     app={app}
                     documentLookup={documentLookup}
+                    subjects={subjectsByApplication[app.id] ?? []}
                     onDecisionSaved={(updated) => handleDecisionSaved(app.id, updated)}
                   />
                 </>

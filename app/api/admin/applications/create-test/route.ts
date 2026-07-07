@@ -48,10 +48,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const body = await req.json().catch(() => ({})) as { appType?: AppType; scenario?: Scenario; lang?: string }
+  const body = await req.json().catch(() => ({})) as { appType?: AppType; scenario?: Scenario; lang?: string; customName?: string; customEmail?: string }
   const appType: AppType = body.appType ?? 'individual'
   const scenario: Scenario = body.scenario === 'hudson_green' && appType !== 'commercial' ? 'hudson_green' : 'auto'
   const lang = body.lang ?? 'en'
+  const customEmail = body.customEmail?.trim() || 'PMI@topfloridaproperties.com'
+  // Hudson Green's first/last name is a fixed tuple Checkr recognizes --
+  // only the email can be customized for that scenario. For 'auto', the
+  // whole name is free to override.
+  const [customFirst, ...customLastParts] = (body.customName?.trim() || '').split(/\s+/)
+  const customLast = customLastParts.join(' ')
 
   const insert: Record<string, unknown> = {
     association: ASSOCIATION_NAME,
@@ -63,18 +69,19 @@ export async function POST(req: Request) {
     is_test: true,
   }
 
+  function firstApplicant() {
+    if (scenario === 'hudson_green') return { ...HUDSON_GREEN, email: customEmail, unitApplying: '101' }
+    if (customFirst) return { firstName: customFirst, lastName: customLast || customFirst, email: customEmail, dob: '1985-06-15', ssn: '333-33-3333', unitApplying: '101' }
+    return { ...genericApplicant(1), email: customEmail }
+  }
+
   if (appType === 'commercial') {
-    insert.principals = [{ name: 'Test Principal', dob: '1980-01-01', unit: '101' }]
+    insert.principals = [{ name: customFirst ? `${customFirst} ${customLast}`.trim() : 'Test Principal', dob: '1980-01-01', unit: '101' }]
   } else if (appType === 'couple') {
-    insert.applicants = [
-      scenario === 'hudson_green' ? { ...HUDSON_GREEN, email: 'PMI@topfloridaproperties.com', unitApplying: '101' } : genericApplicant(1),
-      genericApplicant(2),
-    ]
+    insert.applicants = [firstApplicant(), genericApplicant(2)]
     insert.couple_has_cert = false
   } else {
-    insert.applicants = [
-      scenario === 'hudson_green' ? { ...HUDSON_GREEN, email: 'PMI@topfloridaproperties.com', unitApplying: '101' } : genericApplicant(1),
-    ]
+    insert.applicants = [firstApplicant()]
   }
 
   const { data: app, error } = await supabaseAdmin.from('applications').insert(insert).select('id').single()
