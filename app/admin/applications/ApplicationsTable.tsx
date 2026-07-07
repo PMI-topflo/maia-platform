@@ -65,6 +65,7 @@ export type Application = {
   board_notes: string | null;
   screening_status: string | null;
   screening_report_url: string | null;
+  is_test: boolean | null;
 };
 
 interface Props {
@@ -86,7 +87,7 @@ const DOC_CATEGORY_LABELS: Record<string, string> = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-type FilterTab = 'all' | 'pending' | 'board_review' | 'approved' | 'rejected';
+type FilterTab = 'all' | 'pending' | 'board_review' | 'approved' | 'rejected' | 'test';
 
 function getApplicantName(app: Application): string {
   if (app.app_type === 'commercial' && app.entity_name) return app.entity_name;
@@ -196,7 +197,7 @@ function IntlDocsBadge({ app }: { app: Application }) {
   const cls = uploaded === 3 ? 'bg-emerald-100 text-emerald-800' : 'bg-orange-100 text-orange-800';
   return (
     <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${cls}`}>
-      Docs: {uploaded}/4
+      Docs: {uploaded}/3
     </span>
   );
 }
@@ -723,6 +724,91 @@ function DetailPanel({
 }
 
 // ---------------------------------------------------------------------------
+// Test Environment — creates a real application row against the real
+// Checkr sandbox, bypassing Stripe, so staff can watch the whole
+// pipeline (order -> webhook -> report PDF -> dashboard badges) without
+// a real applicant. Only two Checkr scenarios are real for the Tenant
+// API this integration uses -- see create-test/route.ts's header comment.
+// ---------------------------------------------------------------------------
+function TestEnvironmentPanel() {
+  const [appType, setAppType] = useState<'individual' | 'couple' | 'additionalResident' | 'commercial' | 'international'>('individual');
+  const [scenario, setScenario] = useState<'auto' | 'hudson_green'>('auto');
+  const [lang, setLang] = useState('en');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function createAndTrigger() {
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await fetch('/api/admin/applications/create-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appType, scenario, lang }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setResult(`Error: ${data.error ?? 'unknown'}`); return; }
+      setResult(`Created ${data.applicationId} — scenario: ${data.scenario}. Reloading…`);
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (e) {
+      setResult(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mb-6 rounded-lg border border-dashed border-[#f26a1b] bg-orange-50 p-5">
+      <h3 className="text-sm font-semibold text-[#0d0d0d] mb-1">Create a test application</h3>
+      <p className="text-xs text-gray-600 mb-4">
+        Creates a real application (marked as test, payment bypassed) and runs it through the real Checkr sandbox.
+        &ldquo;Hudson Green&rdquo; is the one documented tuple that emails a real applicant consent link instead of auto-completing —
+        unavailable for Commercial, since principals don&rsquo;t carry an SSN. Runs against Venetian Park Condominium I (VPCI).
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-xs text-gray-700">
+          <div className="mb-1 font-medium">Applicant type</div>
+          <select value={appType} onChange={(e) => setAppType(e.target.value as typeof appType)} className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+            <option value="individual">Individual</option>
+            <option value="couple">Couple</option>
+            <option value="additionalResident">Additional Resident</option>
+            <option value="commercial">Commercial</option>
+            <option value="international">International</option>
+          </select>
+        </label>
+        <label className="text-xs text-gray-700">
+          <div className="mb-1 font-medium">Checkr scenario</div>
+          <select value={scenario} onChange={(e) => setScenario(e.target.value as typeof scenario)} disabled={appType === 'commercial'} className="rounded border border-gray-300 px-2 py-1.5 text-sm disabled:opacity-50">
+            <option value="auto">Quick auto-complete</option>
+            <option value="hudson_green">Hudson Green (real consent link)</option>
+          </select>
+        </label>
+        <label className="text-xs text-gray-700">
+          <div className="mb-1 font-medium">Language</div>
+          <select value={lang} onChange={(e) => setLang(e.target.value)} className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="pt">Português</option>
+            <option value="fr">Français</option>
+            <option value="ht">Kreyòl</option>
+            <option value="he">עברית</option>
+            <option value="ru">Русский</option>
+          </select>
+        </label>
+        <button
+          onClick={createAndTrigger}
+          disabled={busy}
+          className="rounded bg-[#f26a1b] px-4 py-1.5 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50"
+        >
+          {busy ? 'Creating…' : 'Create & Trigger'}
+        </button>
+      </div>
+      {result && <p className="mt-3 text-xs text-gray-700">{result}</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main table component
 // ---------------------------------------------------------------------------
 
@@ -732,10 +818,12 @@ export function ApplicationsTable({ applications: initialApps, documentLookup }:
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
-    if (filter === 'all') return apps;
-    if (filter === 'pending') return apps.filter((a) => !a.board_decision || a.board_decision === 'pending');
-    if (filter === 'board_review') return apps.filter((a) => a.board_decision === 'board_review');
-    return apps.filter((a) => a.board_decision === filter);
+    if (filter === 'test') return apps.filter((a) => a.is_test);
+    const real = apps.filter((a) => !a.is_test);
+    if (filter === 'all') return real;
+    if (filter === 'pending') return real.filter((a) => !a.board_decision || a.board_decision === 'pending');
+    if (filter === 'board_review') return real.filter((a) => a.board_decision === 'board_review');
+    return real.filter((a) => a.board_decision === filter);
   }, [apps, filter]);
 
   function handleDecisionSaved(id: string, updated: Partial<Application>) {
@@ -788,7 +876,9 @@ export function ApplicationsTable({ applications: initialApps, documentLookup }:
     { key: 'board_review', label: 'Board Review' },
     { key: 'approved', label: 'Approved' },
     { key: 'rejected', label: 'Rejected' },
+    { key: 'test', label: 'Test Environment' },
   ];
+  const realApps = apps.filter((a) => !a.is_test);
 
   return (
     <div>
@@ -807,15 +897,19 @@ export function ApplicationsTable({ applications: initialApps, documentLookup }:
             {t.label}
             <span className="ml-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
               {t.key === 'all'
-                ? apps.length
+                ? realApps.length
+                : t.key === 'test'
+                ? apps.filter((a) => a.is_test).length
                 : t.key === 'pending'
-                ? apps.filter((a) => !a.board_decision || a.board_decision === 'pending').length
-                : apps.filter((a) => a.board_decision === t.key).length}
+                ? realApps.filter((a) => !a.board_decision || a.board_decision === 'pending').length
+                : realApps.filter((a) => a.board_decision === t.key).length}
             </span>
 
           </button>
         ))}
       </div>
+
+      {filter === 'test' && <TestEnvironmentPanel />}
 
       {filtered.length === 0 && (
         <p className="text-gray-500 text-sm py-8 text-center">No applications in this category.</p>
@@ -853,6 +947,11 @@ export function ApplicationsTable({ applications: initialApps, documentLookup }:
 
                 {/* Badges */}
                 <div className="flex flex-wrap items-center gap-2">
+                  {app.is_test && (
+                    <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800 border border-dashed border-orange-400">
+                      TEST
+                    </span>
+                  )}
                   <AppTypeBadge type={app.app_type} />
                   <PaymentBadge status={app.stripe_payment_status} />
                   <DecisionBadge decision={app.board_decision} />
@@ -869,10 +968,26 @@ export function ApplicationsTable({ applications: initialApps, documentLookup }:
                 {/* View button */}
                 <button
                   onClick={() => setExpandedId(isOpen ? null : app.id)}
-                  className="ml-auto shrink-0 px-3 py-1.5 rounded border border-gray-300 text-sm text-gray-700 hover:border-[#f26a1b] hover:text-[#f26a1b] transition-colors"
+                  className={`${app.is_test ? '' : 'ml-auto'} shrink-0 px-3 py-1.5 rounded border border-gray-300 text-sm text-gray-700 hover:border-[#f26a1b] hover:text-[#f26a1b] transition-colors`}
                 >
                   {isOpen ? 'Close' : 'View'}
                 </button>
+                {app.is_test && (
+                  <button
+                    onClick={async () => {
+                      if (!confirm('Delete this test application?')) return;
+                      await fetch('/api/admin/applications/create-test', {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: app.id }),
+                      });
+                      setApps((prev) => prev.filter((a) => a.id !== app.id));
+                    }}
+                    className="shrink-0 px-3 py-1.5 rounded border border-red-200 text-sm text-red-600 hover:border-red-400 transition-colors"
+                  >
+                    Delete
+                  </button>
+                )}
               </div>
 
               {/* Inline detail panel — with a prev/next stepper so you can

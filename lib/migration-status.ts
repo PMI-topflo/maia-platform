@@ -2919,6 +2919,15 @@ ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS docs_intl_cpa_certifica
 ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS docs_intl_translation_url text;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'applications_is_test',
+    label:       'Applications — test-environment flag',
+    description: 'Adds applications.is_test, set on rows created via the new admin "Test Environment" tab (staff-triggered, bypasses Stripe, marks stripe_payment_status paid directly) so staff can exercise the real Checkr sandbox end-to-end without a real applicant. Test rows are excluded from the normal All/Pending/Board Review/Approved/Rejected tabs and only show under Test Environment',
+    filename:    '20260707_applications_is_test.sql',
+    artifact:    { type: 'column', table: 'applications', column: 'is_test' },
+    sql: `ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS is_test boolean NOT NULL DEFAULT false;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
