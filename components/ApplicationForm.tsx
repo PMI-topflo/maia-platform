@@ -1031,7 +1031,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [appType, setAppType]         = useState("");
   const [coupleOption, setCoupleOption] = useState("");
   const [applicants, setApplicants]   = useState<Record<string, string>[]>([{}]);
-  const [principals, setPrincipals]   = useState([{ name: "", dob: "" }]);
+  const [principals, setPrincipals]   = useState<{ name: string; dob: string; govIdUrl?: string | null; proofIncomeUrl?: string | null }[]>([{ name: "", dob: "" }]);
   const [sunbizId, setSunbizId]       = useState("");
   const [entityName, setEntityName]   = useState("");
   // A commercial-property buyer applying under their PERSONAL name (no LLC/Corp)
@@ -1040,9 +1040,11 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [sunbizExtracting, setSunbizExtracting] = useState(false);
   const [sunbizError, setSunbizError] = useState("");
   const [sunbizDocName, setSunbizDocName] = useState("");
-  const [docs, setDocs]               = useState({ govId: null, proofIncome: null, marriageCert: null, intlPoliceClearance: null, intlCpaCertification: null, intlTranslation: null });
-  const [docUrls, setDocUrls]         = useState({ govId: null, proofIncome: null, marriageCert: null, intlPoliceClearance: null, intlCpaCertification: null, intlTranslation: null });
-  const [uploading, setUploading]     = useState({ govId: false, proofIncome: false, marriageCert: false, intlPoliceClearance: false, intlCpaCertification: false, intlTranslation: false });
+  // govId/proofIncome are per-applicant (or per-principal) now -- keyed
+  // dynamically as `govId_${idx}` / `proofIncome_${idx}`, not fixed keys.
+  const [docs, setDocs]               = useState<Record<string, File | true | null>>({ marriageCert: null, intlPoliceClearance: null, intlCpaCertification: null, intlTranslation: null });
+  const [docUrls, setDocUrls]         = useState<Record<string, string | null>>({ marriageCert: null, intlPoliceClearance: null, intlCpaCertification: null, intlTranslation: null });
+  const [uploading, setUploading]     = useState<Record<string, boolean>>({ marriageCert: false, intlPoliceClearance: false, intlCpaCertification: false, intlTranslation: false });
   const [agreed, setAgreed]           = useState(false);
   const [error, setError]             = useState("");
   const [paying, setPaying]           = useState(false);
@@ -1118,14 +1120,12 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
           applicants?: Record<string, string>[] | null
           entity_name?: string | null
           sunbiz_id?: string | null
-          principals?: { name: string; dob: string }[] | null
+          principals?: { name: string; dob: string; govIdUrl?: string | null; proofIncomeUrl?: string | null }[] | null
           occupants?: { name: string; age: string; email: string }[] | null
           is_married_couple?: boolean | null
           couple_has_cert?: boolean | null
           language?: string | null
           rules_signature?: string | null
-          docs_gov_id_url?: string | null
-          docs_proof_income_url?: string | null
           docs_marriage_cert_url?: string | null
           docs_intl_police_clearance_url?: string | null
           docs_intl_cpa_certification_url?: string | null
@@ -1154,8 +1154,8 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         // (no File object), so UploadBox shows a generic "uploaded" state
         // rather than a filename. Without this, resubmitting after a resume
         // would silently null out a doc uploaded in an earlier session.
-        const urlToDocKey: Record<string, keyof typeof docUrls> = {
-          docs_gov_id_url: 'govId', docs_proof_income_url: 'proofIncome', docs_marriage_cert_url: 'marriageCert',
+        const urlToDocKey: Record<string, string> = {
+          docs_marriage_cert_url: 'marriageCert',
           docs_intl_police_clearance_url: 'intlPoliceClearance', docs_intl_cpa_certification_url: 'intlCpaCertification',
           docs_intl_translation_url: 'intlTranslation',
         };
@@ -1166,6 +1166,20 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
             setDocs((x) => ({ ...x, [key]: true }));
           }
         }
+        // Per-applicant/principal Gov ID + Proof of Income live inside each
+        // person's own record now -- rehydrate those the same way.
+        const people = (d.app_type === 'commercial' ? d.principals : d.applicants) ?? [];
+        people.forEach((p, idx) => {
+          const rec = p as Record<string, unknown>;
+          if (typeof rec.govIdUrl === 'string' && rec.govIdUrl) {
+            setDocUrls((u) => ({ ...u, [`govId_${idx}`]: rec.govIdUrl as string }));
+            setDocs((x) => ({ ...x, [`govId_${idx}`]: true }));
+          }
+          if (typeof rec.proofIncomeUrl === 'string' && rec.proofIncomeUrl) {
+            setDocUrls((u) => ({ ...u, [`proofIncome_${idx}`]: rec.proofIncomeUrl as string }));
+            setDocs((x) => ({ ...x, [`proofIncome_${idx}`]: true }));
+          }
+        });
       } catch { /* keep form fresh if load fails */ }
     })();
     return () => { cancelled = true };
@@ -1511,18 +1525,30 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     setPaying(true);
     setError("");
     try {
-      // Upsert final application record
+      // Upsert final application record. Gov ID / Proof of Income are
+      // per-applicant (or per-principal) -- embedded directly into each
+      // person's own record rather than a single shared application-level
+      // field, since a couple/commercial application has more than one
+      // person who each need their own documents.
+      const applicantsWithDocs = applicants.map((a, idx) => ({
+        ...a,
+        govIdUrl: docUrls[`govId_${idx}`] ?? null,
+        proofIncomeUrl: docUrls[`proofIncome_${idx}`] ?? null,
+      }));
+      const principalsWithDocs = principals.map((p, idx) => ({
+        ...p,
+        govIdUrl: docUrls[`govId_${idx}`] ?? null,
+        proofIncomeUrl: docUrls[`proofIncome_${idx}`] ?? null,
+      }));
       const payload = {
         association,
         app_type:         appType,
         couple_has_cert:  isCouple ? hasCert : null,
-        applicants:       isCommercial ? null : applicants,
-        principals:       isCommercial ? principals : null,
+        applicants:       isCommercial ? null : applicantsWithDocs,
+        principals:       isCommercial ? principalsWithDocs : null,
         entity_name:      isCommercial && !commercialAsPerson ? entityName : null,
         sunbiz_id:        isCommercial && !commercialAsPerson ? sunbizId : null,
         total_charged:    total,
-        docs_gov_id_url:        docUrls.govId,
-        docs_proof_income_url:  docUrls.proofIncome,
         docs_marriage_cert_url: docUrls.marriageCert,
         docs_intl_police_clearance_url: docUrls.intlPoliceClearance,
         docs_intl_cpa_certification_url: docUrls.intlCpaCertification,
@@ -2112,8 +2138,24 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
           {/* ══ STEP 3: Documents + Consent ════════════════════════════════ */}
           {step === 3 && (
             <div>
-              <UploadBox label={t.govId}       t={t} uploaded={docs.govId}       uploading={uploading.govId}       onUpload={(f) => uploadDoc(f, "govId")} />
-              <UploadBox label={t.proofIncome}  t={t} uploaded={docs.proofIncome} uploading={uploading.proofIncome} onUpload={(f) => uploadDoc(f, "proofIncome")} />
+              {(isCommercial ? principals : applicants).map((person, idx) => {
+                const name = isCommercial
+                  ? (person as { name?: string }).name || `Principal ${idx + 1}`
+                  : [(person as Record<string, string>).firstName, (person as Record<string, string>).lastName].filter(Boolean).join(" ") || `Applicant ${idx + 1}`;
+                const govKey = `govId_${idx}`;
+                const incKey = `proofIncome_${idx}`;
+                return (
+                  <div key={idx} style={{ marginBottom: 18 }}>
+                    {(isCommercial ? principals.length : applicants.length) > 1 && (
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#0d0d0d", marginBottom: 8, fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                        {name}
+                      </div>
+                    )}
+                    <UploadBox label={`${t.govId}${(isCommercial ? principals.length : applicants.length) > 1 ? ` — ${name}` : ""}`} t={t} uploaded={docs[govKey]} uploading={!!uploading[govKey]} onUpload={(f) => uploadDoc(f, govKey)} />
+                    <UploadBox label={`${t.proofIncome}${(isCommercial ? principals.length : applicants.length) > 1 ? ` — ${name}` : ""}`} t={t} uploaded={docs[incKey]} uploading={!!uploading[incKey]} onUpload={(f) => uploadDoc(f, incKey)} />
+                  </div>
+                );
+              })}
               {(isCouple && hasCert || isMarriedCouple === true) && (
                 <UploadBox label={t.marriageCert} t={t} uploaded={docs.marriageCert} uploading={uploading.marriageCert} onUpload={(f) => uploadDoc(f, "marriageCert")} />
               )}

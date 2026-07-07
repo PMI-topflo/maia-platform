@@ -30,6 +30,14 @@ type Occupant = {
   [key: string]: unknown;
 };
 
+type Principal = {
+  name?: string;
+  dob?: string;
+  govIdUrl?: string;
+  proofIncomeUrl?: string;
+  [key: string]: unknown;
+};
+
 export type Application = {
   id: string;
   association: string | null;
@@ -38,6 +46,7 @@ export type Application = {
   total_charged: number | null;
   created_at: string;
   applicants: Applicant[] | null;
+  principals: Principal[] | null;
   entity_name: string | null;
   language: string | null;
   docs_lease_url: string | null;
@@ -401,9 +410,16 @@ function DetailPanel({
     }
   }
 
+  // Gov ID / Proof of Income are per-applicant now -- rendered in the
+  // per-person Applicants panel below, not in this shared-documents list.
+  // Legacy fallback for any pre-existing row that only has the old flat
+  // top-level fields (no per-applicant data).
+  const legacyGovId = !app.applicants?.some(a => a.govIdUrl) && !app.principals?.some(p => p.govIdUrl) ? app.docs_gov_id_url : null;
+  const legacyProofIncome = !app.applicants?.some(a => a.proofIncomeUrl) && !app.principals?.some(p => p.proofIncomeUrl) ? app.docs_proof_income_url : null;
+
   const docLinks: { label: string; url: string | null }[] = [
-    { label: 'Government ID', url: app.docs_gov_id_url },
-    { label: 'Proof of Income', url: app.docs_proof_income_url },
+    ...(legacyGovId ? [{ label: 'Government ID (legacy)', url: legacyGovId }] : []),
+    ...(legacyProofIncome ? [{ label: 'Proof of Income (legacy)', url: legacyProofIncome }] : []),
     { label: 'Marriage Certificate', url: app.docs_marriage_cert_url },
     { label: 'Lease Agreement', url: app.docs_lease_url },
     ...(app.app_type === 'international' ? [
@@ -605,34 +621,71 @@ function DetailPanel({
               </span>
             )
           )}
+          {app.rules_agreed_at ? (
+            <a
+              href={`/api/applications/${app.id}/rules-acknowledgment-pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded border border-[#f26a1b] px-3 py-1.5 text-sm text-[#f26a1b] hover:bg-orange-50 transition-colors"
+            >
+              Signed Rules Acknowledgment ↗
+            </a>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded border border-gray-200 px-3 py-1.5 text-sm text-gray-400">
+              Signed Rules Acknowledgment — not signed
+            </span>
+          )}
         </div>
       </section>
 
-      {/* Background check -- one row per applicant/principal, since each has
-          their own separate Checkr order + report. Falls back to the
-          aggregate app-level status for legacy rows with no subjects. */}
+      {/* Applicants -- one column per applicant/principal: their own Gov ID,
+          Proof of Income, and Checkr status/report. Each person has a
+          separate Checkr order, and (per the doc-upload redesign) their own
+          documents, so this is the one place to see a person's full picture
+          rather than three separate lists staff have to cross-reference by
+          index. Falls back to the aggregate app-level status for legacy
+          rows with no subjects rows at all. */}
       <section>
         <h3 className="text-sm font-semibold text-[#0d0d0d] uppercase tracking-wide mb-3">
-          Background Check
+          Applicants
         </h3>
         {subjects.length > 0 ? (
-          <div className="space-y-2">
-            {subjects.map((s, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <span className="text-sm text-[#0d0d0d] w-32 truncate">{s.name ?? `Applicant ${i + 1}`}</span>
-                <ScreeningBadge status={s.status} />
-                {s.report_url ? (
-                  <a
-                    href={s.report_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded border border-[#f26a1b] px-3 py-1 text-xs text-[#f26a1b] hover:bg-orange-50 transition-colors"
-                  >
-                    View report ↗
-                  </a>
-                ) : null}
-              </div>
-            ))}
+          <div className="flex flex-wrap gap-3">
+            {subjects.map((s, i) => {
+              const person = (app.app_type === 'commercial' ? app.principals : app.applicants)?.[i] as Record<string, unknown> | undefined;
+              const govId = person?.govIdUrl as string | undefined;
+              const proofIncome = person?.proofIncomeUrl as string | undefined;
+              return (
+                <div key={i} className="w-64 rounded border border-gray-200 p-3 space-y-2">
+                  <div className="text-sm font-semibold text-[#0d0d0d] truncate">{s.name ?? `Applicant ${i + 1}`}</div>
+                  <div className="flex flex-col gap-1.5">
+                    {govId ? (
+                      <a href={govId} target="_blank" rel="noopener noreferrer" className="text-xs text-[#f26a1b] hover:underline">Government ID ↗</a>
+                    ) : (
+                      <span className="text-xs text-gray-400">Government ID — not submitted</span>
+                    )}
+                    {proofIncome ? (
+                      <a href={proofIncome} target="_blank" rel="noopener noreferrer" className="text-xs text-[#f26a1b] hover:underline">Proof of Income ↗</a>
+                    ) : (
+                      <span className="text-xs text-gray-400">Proof of Income — not submitted</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
+                    <ScreeningBadge status={s.status} />
+                    {s.report_url && (
+                      <a
+                        href={s.report_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded border border-[#f26a1b] px-2 py-0.5 text-xs text-[#f26a1b] hover:bg-orange-50 transition-colors"
+                      >
+                        Report ↗
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : app.screening_report_url ? (
           <a
@@ -650,9 +703,19 @@ function DetailPanel({
 
       {/* Board decision */}
       <section>
-        <h3 className="text-sm font-semibold text-[#0d0d0d] uppercase tracking-wide mb-3">
-          Board Decision
-        </h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-[#0d0d0d] uppercase tracking-wide">
+            Board Decision
+          </h3>
+          <a
+            href={`/board/review?preview=${app.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:border-[#f26a1b] hover:text-[#f26a1b] transition-colors"
+          >
+            👁 Preview Board View ↗
+          </a>
+        </div>
         <div className="space-y-4">
           {/* Send to Board Review */}
           {(!app.board_decision || app.board_decision === 'pending') && (

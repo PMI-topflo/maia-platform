@@ -48,6 +48,7 @@ interface BoardMember {
 interface Documents { govId: string | null; proofIncome: string | null; marriageCert: string | null; lease: string | null }
 interface AckDoc { id: string; filename: string | null; category: string | null; effective_date: string | null }
 interface Stakeholder { role: string; name: string | null; email: string | null; phone: string | null }
+interface ScreeningSubjectSummary { name: string | null; status: string | null; report_url: string | null }
 
 type LoadState = 'loading' | 'invalid' | 'decided' | 'ready';
 
@@ -105,7 +106,9 @@ export default function BoardReviewPage() {
   const [documents, setDocuments] = useState<Documents | null>(null);
   const [ackDocs, setAckDocs] = useState<AckDoc[]>([]);
   const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
+  const [subjects, setSubjects] = useState<ScreeningSubjectSummary[]>([]);
   const [token, setToken] = useState<string | null>(null);
+  const [isPreview, setIsPreview] = useState(false);
 
   const [decision, setDecision] = useState<'approved' | 'rejected' | 'more_info' | null>(null);
   const [signature, setSignature] = useState('');
@@ -114,18 +117,20 @@ export default function BoardReviewPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
-  // Parse token from URL on mount
+  // Parse token (or a staff preview id) from URL on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const t = params.get('token');
+    const previewId = params.get('preview');
     setToken(t);
 
-    if (!t) {
+    if (!t && !previewId) {
       setLoadState('invalid');
       return;
     }
 
-    fetch(`/api/board/review?token=${encodeURIComponent(t)}`)
+    const qs = previewId ? `preview=${encodeURIComponent(previewId)}` : `token=${encodeURIComponent(t!)}`;
+    fetch(`/api/board/review?${qs}`)
       .then((r) => r.json())
       .then((json) => {
         if (!json.ok) {
@@ -142,6 +147,8 @@ export default function BoardReviewPage() {
         setDocuments(json.documents ?? null);
         setAckDocs(json.acknowledgedDocs ?? []);
         setStakeholders(json.stakeholders ?? []);
+        setSubjects(json.subjects ?? []);
+        setIsPreview(!!json.preview);
         setLoadState('ready');
       })
       .catch(() => setLoadState('invalid'));
@@ -300,13 +307,21 @@ export default function BoardReviewPage() {
       <div style={{ padding: '0 1rem 4rem' }}>
         <div style={cardStyle}>
 
+          {isPreview && (
+            <div style={{ marginBottom: '1.5rem', padding: '0.75rem 1rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, color: '#1e40af', fontSize: '0.85rem', fontWeight: 600 }}>
+              👁 Staff preview — this is exactly what a board member sees. Decisions can&rsquo;t be submitted from here.
+            </div>
+          )}
+
           {/* Header */}
           <div style={{ marginBottom: '1.75rem' }}>
             <h1 style={{ fontFamily: 'Georgia, serif', fontSize: '1.6rem', fontWeight: 700, margin: '0 0 0.25rem', color: '#0d0d0d' }}>
               Board Review Request
             </h1>
             <p style={{ margin: 0, color: '#6b7280', fontSize: '0.9rem' }}>
-              Dear <strong>{memberName}</strong>, please review the application below and sign your decision.
+              {isPreview ? 'This is what the board member sees when they open their review link.' : (
+                <>Dear <strong>{memberName}</strong>, please review the application below and sign your decision.</>
+              )}
             </p>
           </div>
 
@@ -349,7 +364,9 @@ export default function BoardReviewPage() {
           {/* ── Full review package ───────────────────────────────────── */}
           {application && (
             <>
-              {/* Applicants / principals + occupants */}
+              {/* Applicants / principals + occupants -- each with their own
+                  Gov ID, Proof of Income, and Checkr background check,
+                  since every applicant/principal has a separate order. */}
               <div style={{ marginBottom: '1.75rem' }}>
                 <div style={sectionTitle}>{application.app_type === 'commercial' ? 'Entity & Principals' : 'Applicants'}</div>
                 {application.app_type === 'commercial' && application.entity_name && (
@@ -361,10 +378,26 @@ export default function BoardReviewPage() {
                     ? String(a.name ?? `Principal ${i + 1}`)
                     : [a.firstName, a.lastName].filter(Boolean).join(' ') || `Applicant ${i + 1}`;
                   const meta = [a.email, a.phone, a.dob && `DOB ${a.dob}`, a.unitApplying && `Unit ${a.unitApplying}`].filter(Boolean).join('  ·  ');
+                  const govId = a.govIdUrl as string | undefined;
+                  const proofIncome = a.proofIncomeUrl as string | undefined;
+                  const subject = subjects[i];
                   return (
                     <div key={i} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.65rem 0.9rem', marginBottom: '0.5rem' }}>
                       <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{name}</div>
                       {meta && <div style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: '0.15rem' }}>{meta}</div>}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.9rem', marginTop: '0.5rem', fontSize: '0.8rem' }}>
+                        {govId
+                          ? <a href={govId} target="_blank" rel="noreferrer" style={{ color: '#f26a1b', fontWeight: 700 }}>Government ID ↗</a>
+                          : <span style={{ color: '#9ca3af' }}>Government ID — not provided</span>}
+                        {proofIncome
+                          ? <a href={proofIncome} target="_blank" rel="noreferrer" style={{ color: '#f26a1b', fontWeight: 700 }}>Proof of Income ↗</a>
+                          : <span style={{ color: '#9ca3af' }}>Proof of Income — not provided</span>}
+                      </div>
+                      <div style={{ marginTop: '0.4rem', fontSize: '0.8rem' }}>
+                        {subject?.report_url
+                          ? <a href={subject.report_url} target="_blank" rel="noreferrer" style={{ color: '#f26a1b', fontWeight: 700 }}>View background check report ↗</a>
+                          : <span style={{ color: '#92400e' }}>Background check — {subject?.status ?? 'pending'}</span>}
+                      </div>
                     </div>
                   );
                 })}
@@ -376,11 +409,13 @@ export default function BoardReviewPage() {
                 )}
               </div>
 
-              {/* Documents */}
+              {/* Documents shared across the whole application (not tied to
+                  one applicant) -- lease/purchase agreement and, for a
+                  couple, the marriage certificate. */}
               <div style={{ marginBottom: '1.75rem' }}>
                 <div style={sectionTitle}>Documents</div>
                 <div style={{ display: 'grid', gap: '0.5rem' }}>
-                  {([['Government ID', 'govId'], ['Proof of income', 'proofIncome'], ['Lease / purchase agreement', 'lease'], ['Marriage certificate', 'marriageCert']] as const).map(([label, key]) => {
+                  {([['Lease / purchase agreement', 'lease'], ['Marriage certificate', 'marriageCert']] as const).map(([label, key]) => {
                     const url = documents ? documents[key] : null;
                     return (
                       <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.55rem 0.9rem', fontSize: '0.85rem' }}>
@@ -392,7 +427,9 @@ export default function BoardReviewPage() {
                 </div>
               </div>
 
-              {/* Background / credit / eviction */}
+              {/* Background / credit / eviction -- fallback for legacy rows
+                  with no per-applicant subjects at all. */}
+              {subjects.length === 0 && (
               <div style={{ marginBottom: '1.75rem' }}>
                 <div style={sectionTitle}>Background, Credit & Eviction</div>
                 {application.screening_report_url ? (
@@ -403,6 +440,7 @@ export default function BoardReviewPage() {
                   </div>
                 )}
               </div>
+              )}
 
               {/* Rules acknowledgment */}
               <div style={{ marginBottom: '1.75rem' }}>
@@ -416,6 +454,16 @@ export default function BoardReviewPage() {
                   <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem', fontSize: '0.78rem', color: '#6b7280' }}>
                     {ackDocs.map(d => <li key={d.id}>{d.filename ?? d.category}{d.effective_date ? `  ·  ${d.effective_date}` : ''}</li>)}
                   </ul>
+                )}
+                {application.rules_signature && (
+                  <a
+                    href={`/api/applications/${application.id}/rules-acknowledgment-pdf${isPreview ? '' : `?token=${token}`}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ display: 'inline-block', marginTop: '0.6rem', fontSize: '0.8rem', fontWeight: 600, color: '#f26a1b', textDecoration: 'none' }}
+                  >
+                    View signed acknowledgment (PDF) ↗
+                  </a>
                 )}
               </div>
 
@@ -454,6 +502,12 @@ export default function BoardReviewPage() {
             </div>
           </div>
 
+          {isPreview ? (
+            <div style={{ marginBottom: '1rem', padding: '1rem', background: '#f9fafb', border: '1px dashed #d1d5db', borderRadius: 8, color: '#6b7280', fontSize: '0.85rem', textAlign: 'center' }}>
+              Approve / Reject / Request More Info controls appear here for the actual board member.
+            </div>
+          ) : (
+          <>
           {/* Decision */}
           <div style={{ marginBottom: '1.5rem' }}>
             <div style={sectionTitle}>Your Decision</div>
@@ -598,6 +652,8 @@ export default function BoardReviewPage() {
           <p style={{ margin: '1rem 0 0', fontSize: '0.75rem', color: '#9ca3af', textAlign: 'center' }}>
             This is a secure, unique link. By submitting you confirm your identity as a board member of {association}.
           </p>
+          </>
+          )}
         </div>
       </div>
     </div>

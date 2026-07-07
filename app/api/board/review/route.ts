@@ -5,7 +5,9 @@
 // =====================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { verifySession, SESSION_COOKIE } from '@/lib/session';
 
 interface Applicant {
   firstName?: string;
@@ -14,8 +16,124 @@ interface Applicant {
   [key: string]: unknown;
 }
 
+/** Everything both the real token path and the staff preview path need:
+ *  signed document links, resolved governing-doc metadata, and linked
+ *  collaborative stakeholders. Kept in one place so the two never drift. */
+async function assembleBoardPackage(application: Record<string, unknown>, applicationId: string) {
+  // 1. Documents — the stored values are private storage PATHS; sign them so
+  //    the board can open each one (1-hour links).
+  const docPaths: Record<string, string | null> = {
+    govId:        (application.docs_gov_id_url as string | null)        ?? null,
+    proofIncome:  (application.docs_proof_income_url as string | null)  ?? null,
+    marriageCert: (application.docs_marriage_cert_url as string | null) ?? null,
+    lease:        (application.docs_lease_url as string | null)         ?? null,
+  };
+  const documents: Record<string, string | null> = {};
+  for (const [k, path] of Object.entries(docPaths)) {
+    if (!path) { documents[k] = null; continue; }
+    // Already a full URL (legacy rows)? pass through; else sign the path.
+    if (/^https?:\/\//i.test(path)) { documents[k] = path; continue; }
+    const { data: signed } = await supabaseAdmin.storage
+      .from('application-docs')
+      .createSignedUrl(path, 60 * 60);
+    documents[k] = signed?.signedUrl ?? null;
+  }
+
+  // 2. Acknowledged governing documents — resolve the ids to names/dates.
+  let acknowledgedDocs: { id: string; filename: string | null; category: string | null; effective_date: string | null }[] = [];
+  const ackIds = (application.acknowledged_document_ids as string[] | null) ?? [];
+  if (ackIds.length > 0) {
+    const { data: docs } = await supabaseAdmin
+      .from('association_documents')
+      .select('id, filename, category, effective_date')
+      .in('id', ackIds);
+    acknowledgedDocs = docs ?? [];
+  }
+
+  // 3. Collaborative stakeholders — if this detailed application is linked to a
+  //    listing application, surface everyone involved (listing agent, owner,
+  //    applicant's agent, applicants).
+  let stakeholders: { role: string; name: string | null; email: string | null; phone: string | null }[] = [];
+  const { data: la } = await supabaseAdmin
+    .from('listing_applications')
+    .select('id, listing_id')
+    .eq('detailed_application_id', applicationId)
+    .maybeSingle();
+  if (la) {
+    const { data: sh } = await supabaseAdmin
+      .from('application_stakeholders')
+      .select('role, name, email, phone')
+      .or(`application_id.eq.${la.id},listing_id.eq.${la.listing_id}`);
+    stakeholders = sh ?? [];
+  }
+
+  // 4. Per-applicant Checkr status + report -- each applicant/principal has
+  //    their own separate order, aligned by subject_index with the
+  //    applicants/principals array order.
+  const { data: subjectRows } = await supabaseAdmin
+    .from('screening_subjects')
+    .select('subject_index, name, status, report_url')
+    .eq('application_id', applicationId)
+    .order('subject_index', { ascending: true });
+  const subjects = (subjectRows ?? []).map(s => ({ name: s.name as string | null, status: s.status as string | null, report_url: s.report_url as string | null }));
+
+  return { documents, acknowledgedDocs, stakeholders, subjects };
+}
+
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token');
+  const previewId = req.nextUrl.searchParams.get('preview');
+
+  // Staff preview -- lets staff see exactly what a board member sees,
+  // without a real per-member token and without any way to submit a
+  // decision through it.
+  if (previewId) {
+    const cookieStore = await cookies();
+    const sessionToken = cookieStore.get(SESSION_COOKIE)?.value;
+    const session = sessionToken ? await verifySession(sessionToken) : null;
+    if (!session || session.persona !== 'staff') {
+      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { data: application, error: appError } = await supabaseAdmin
+      .from('applications')
+      .select('*')
+      .eq('id', previewId)
+      .single();
+    if (appError || !application) {
+      return NextResponse.json({ ok: false, error: 'Application not found' }, { status: 404 });
+    }
+
+    let associationCode: string | null = (application.association_code as string | null) ?? null;
+    if (!associationCode && application.association) {
+      const { data: assocRow } = await supabaseAdmin
+        .from('associations')
+        .select('association_code')
+        .eq('association_name', application.association)
+        .maybeSingle();
+      associationCode = assocRow?.association_code ?? null;
+    }
+
+    const { data: config } = associationCode
+      ? await supabaseAdmin.from('association_config').select('approval_letter_template').eq('association_code', associationCode).maybeSingle()
+      : { data: null };
+
+    const { documents, acknowledgedDocs, stakeholders, subjects } = await assembleBoardPackage(application, previewId);
+
+    return NextResponse.json({
+      ok: true,
+      application,
+      boardMember: { name: 'Staff Preview', email: '' },
+      letterTemplate: config?.approval_letter_template ?? null,
+      alreadyDecided: false,
+      documents,
+      acknowledgedDocs,
+      stakeholders,
+      subjects,
+      preview: true,
+    });
+  }
+
   if (!token) {
     return NextResponse.json({ ok: false, error: 'Missing token' }, { status: 400 });
   }
@@ -60,53 +178,7 @@ export async function GET(req: NextRequest) {
 
   const letterTemplate = config?.approval_letter_template ?? null;
 
-  // ── Assemble the full board package ──────────────────────────────────
-  // 1. Documents — the stored values are private storage PATHS; sign them so
-  //    the board can open each one (1-hour links).
-  const docPaths: Record<string, string | null> = {
-    govId:        application.docs_gov_id_url        ?? null,
-    proofIncome:  application.docs_proof_income_url  ?? null,
-    marriageCert: application.docs_marriage_cert_url ?? null,
-    lease:        application.docs_lease_url         ?? null,
-  };
-  const documents: Record<string, string | null> = {};
-  for (const [k, path] of Object.entries(docPaths)) {
-    if (!path) { documents[k] = null; continue; }
-    // Already a full URL (legacy rows)? pass through; else sign the path.
-    if (/^https?:\/\//i.test(path)) { documents[k] = path; continue; }
-    const { data: signed } = await supabaseAdmin.storage
-      .from('application-docs')
-      .createSignedUrl(path, 60 * 60);
-    documents[k] = signed?.signedUrl ?? null;
-  }
-
-  // 2. Acknowledged governing documents — resolve the ids to names/dates.
-  let acknowledgedDocs: { id: string; filename: string | null; category: string | null; effective_date: string | null }[] = [];
-  const ackIds = (application.acknowledged_document_ids as string[] | null) ?? [];
-  if (ackIds.length > 0) {
-    const { data: docs } = await supabaseAdmin
-      .from('association_documents')
-      .select('id, filename, category, effective_date')
-      .in('id', ackIds);
-    acknowledgedDocs = docs ?? [];
-  }
-
-  // 3. Collaborative stakeholders — if this detailed application is linked to a
-  //    listing application, surface everyone involved (listing agent, owner,
-  //    applicant's agent, applicants).
-  let stakeholders: { role: string; name: string | null; email: string | null; phone: string | null }[] = [];
-  const { data: la } = await supabaseAdmin
-    .from('listing_applications')
-    .select('id, listing_id')
-    .eq('detailed_application_id', review.application_id)
-    .maybeSingle();
-  if (la) {
-    const { data: sh } = await supabaseAdmin
-      .from('application_stakeholders')
-      .select('role, name, email, phone')
-      .or(`application_id.eq.${la.id},listing_id.eq.${la.listing_id}`);
-    stakeholders = sh ?? [];
-  }
+  const { documents, acknowledgedDocs, stakeholders, subjects } = await assembleBoardPackage(application, review.application_id);
 
   return NextResponse.json({
     ok: true,
@@ -120,6 +192,8 @@ export async function GET(req: NextRequest) {
     documents,
     acknowledgedDocs,
     stakeholders,
+    subjects,
+    preview: false,
   });
 }
 
