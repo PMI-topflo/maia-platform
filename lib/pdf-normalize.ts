@@ -25,8 +25,26 @@
 // PDFs (the common e-invoice case) pass through unchanged.
 // =====================================================================
 
+import path from 'node:path'
 import sharp from 'sharp'
 import { PDFDocument } from 'pdf-lib'
+
+// pdf.js needs its own standard-14 font glyph data (Helvetica etc.) to draw
+// TEXT that a PDF references by name instead of embedding — extremely common
+// on form-generated bills (utility companies, government portals). Without
+// this, pdf.js silently draws NOTHING for that text ("Ensure that the
+// standardFontDataUrl API parameter is provided" warning) while vector/image
+// content (logos, barcodes, table gridlines) still renders fine — so a
+// rasterized page looks structurally right but is missing every word.
+// On a Mac, @napi-rs/canvas quietly falls back to an installed system font
+// and masks this; Vercel's serverless Linux runtime has NO system fonts at
+// all, so every glyph comes out blank there. next.config.ts's
+// outputFileTracingIncludes already ships pdfjs-dist/** (incl. this
+// directory) to the deployed function — pdf.js just was never told where to
+// find it. Real bug, not hypothetical: shipped two blank utility-bill PDFs
+// to CINC + Drive on 2026-07-07 before this fix (VPREC / City of Hallandale
+// Beach invoices #16652, #16653).
+const STANDARD_FONT_DATA_URL = path.join(process.cwd(), 'node_modules/pdfjs-dist/standard_fonts') + '/'
 
 // CINC's real invoice-attachment ceiling is ~1 MB. Aim a little under so
 // base64 expansion (+33%) and PDF container overhead still clear it.
@@ -166,7 +184,7 @@ async function loadPdfjs() {
 async function pdfHasTextLayer(buf: Buffer): Promise<boolean> {
   try {
     const pdfjs = await loadPdfjs()
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), isEvalSupported: false }).promise
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), isEvalSupported: false, standardFontDataUrl: STANDARD_FONT_DATA_URL }).promise
     try {
       const sample = Math.min(doc.numPages, 3)
       let chars = 0
@@ -206,6 +224,10 @@ async function rasterizeToJpegs(
     disableFontFace: true,
     isEvalSupported: false,
     useSystemFonts: false,
+    // Required so pdf.js can draw non-embedded standard-14 font text (see
+    // STANDARD_FONT_DATA_URL comment above) — without it, glyphs for any
+    // text using an unembedded standard font render as nothing.
+    standardFontDataUrl: STANDARD_FONT_DATA_URL,
   }).promise
 
   const pages: Array<{ jpeg: Buffer; width: number; height: number }> = []
