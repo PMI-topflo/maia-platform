@@ -115,6 +115,17 @@ export default async function CincInvoicePage({ params, searchParams }: Props) {
   const totalLines = Math.abs(linesSum)
   const difference = Math.abs(invoice.TotalInvoiceAmount ?? 0) - totalLines
 
+  // attachInvoicePdf() always ADDS a new attachment — CINC has no replace/
+  // delete — so a re-attach (e.g. fixing a bad scan) leaves the ORIGINAL
+  // still sitting in AttachmentInfo[0]. ImageID is CINC's own auto-increment
+  // key (no date field on this VM), so the highest ImageID is the most
+  // recent upload — show that one as primary, not array position.
+  const attachments = invoice.AttachmentInfo ?? []
+  const primaryAttachment = attachments.length > 0
+    ? [...attachments].sort((a, b) => (b.ImageID ?? 0) - (a.ImageID ?? 0))[0]
+    : null
+  const otherAttachments = attachments.filter(a => a.ImageID !== primaryAttachment?.ImageID)
+
   return (
     <>
       {!embed && <SiteHeader subtitle="INVOICE DETAIL"><AdminNav /></SiteHeader>}
@@ -138,16 +149,16 @@ export default async function CincInvoicePage({ params, searchParams }: Props) {
         {/* Invoice document — the actual scan/PDF, shown up top so staff see
             it immediately. CINC stores it behind an ImageID; we stream it via
             /api/admin/cinc/document/[imageId]. */}
-        {invoice.AttachmentInfo && invoice.AttachmentInfo.length > 0 && invoice.AttachmentInfo[0]?.ImageID != null && (
+        {primaryAttachment?.ImageID != null && (
           <div style={{ marginBottom: 14, border: '1px solid #e5e7eb', borderRadius: 6, overflow: 'hidden', background: '#f9fafb' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', borderBottom: '1px solid #e5e7eb' }}>
-              <span style={{ fontWeight: 600, color: '#374151', fontSize: 12 }}>📄 {invoice.AttachmentInfo[0].FileName ?? 'Invoice document'}</span>
-              <a href={`/api/admin/cinc/document/${invoice.AttachmentInfo[0].ImageID}`} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 12 }}>Open in new tab ↗</a>
+              <span style={{ fontWeight: 600, color: '#374151', fontSize: 12 }}>📄 {primaryAttachment.FileName ?? 'Invoice document'} <span style={{ fontWeight: 400, color: '#9ca3af' }}>(most recent)</span></span>
+              <a href={`/api/admin/cinc/document/${primaryAttachment.ImageID}`} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 12 }}>Open in new tab ↗</a>
             </div>
-            <iframe src={`/api/admin/cinc/document/${invoice.AttachmentInfo[0].ImageID}`} title="Invoice document" style={{ width: '100%', height: 520, border: 'none', display: 'block', background: '#fff' }} />
-            {invoice.AttachmentInfo.length > 1 && (
+            <iframe src={`/api/admin/cinc/document/${primaryAttachment.ImageID}`} title="Invoice document" style={{ width: '100%', height: 520, border: 'none', display: 'block', background: '#fff' }} />
+            {otherAttachments.length > 0 && (
               <div style={{ padding: '6px 10px', fontSize: 11, color: '#6b7280', borderTop: '1px solid #e5e7eb' }}>
-                More:{invoice.AttachmentInfo.slice(1).map((a, i) => a.ImageID != null ? (
+                Older attachments:{otherAttachments.map((a, i) => a.ImageID != null ? (
                   <a key={i} href={`/api/admin/cinc/document/${a.ImageID}`} target="_blank" rel="noreferrer" style={{ color: '#2563eb', marginLeft: 8 }}>{a.FileName ?? `#${a.ImageID}`}</a>
                 ) : null)}
               </div>
