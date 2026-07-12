@@ -1,8 +1,34 @@
-# Session handoff — 2026-07-07
+# Session handoff — 2026-07-12/13
 
 Snapshot for picking up on another machine. Everything below is **live in production on `main`** unless noted.
 
 > ⚠️ **Repo path:** the canonical clone is now `~/maia-platform` (moved out of iCloud). Stale copies under `~/Documents/GitHub/maia-platform` and `~/Downloads/maia-platform` — ignore them.
+
+## 2026-07-12/13 — blank-PDF root-cause fix, session-secret security fix, vendor-crew SMS redirect, Tropicana II (TROP) onboarding
+
+**DEPLOYED (pushed + Vercel-verified READY):**
+- **`c0c2c2d`** — root-caused blank invoice PDFs: `lib/pdf-normalize.ts`'s rasterizer never passed pdf.js its `standardFontDataUrl`, so any oversized born-digital PDF that hit the rasterize-fallback path drew every text glyph as nothing (logos/barcodes/gridlines still rendered — only text vanished). Worked fine locally (Mac system-font fallback masked it); broke silently on Vercel's font-less serverless runtime. Re-attached corrected PDFs to CINC for all 18 already-pushed invoices this had silently corrupted (found by scanning `invoice_intake_drafts` for stored PDFs over the 1MB threshold that would have hit the rasterize path). Drive copies for those 18 still need a manual "Re-mirror to Drive" click per invoice in `/admin/invoices` (local dev has no Google creds to do it via API).
+- **`12a2c64`** — `app/admin/invoices/cinc/[invoiceId]/page.tsx` was showing `AttachmentInfo[0]` (CINC's *oldest* attachment) as the primary preview; `attachInvoicePdf()` only ever ADDS, never replaces, so a re-attach left the original stale doc as the default view. Now sorts by highest `ImageID` (no date field on that VM) and shows the most recent.
+- **`10250f5`** — **security fix**: Vercel Production had **no `MAIA_SESSION_SECRET` set at all** — `lib/session.ts` was silently falling back to the hardcoded dev-default string baked into this **public** repo, meaning anyone could forge a valid session for any persona/association and skip OTP. Generated a real secret, set it in Vercel, redeployed. Side effect (expected, already happened): every previously-active session was invalidated — everyone re-verifies via OTP once.
+- **`a723d48`** — recurring-service crew (`vendor_employees`) texting/WhatsApping in now get redirected to their upload-link form instead of free-text handling (SMS/WhatsApp has no reply→ticket correlation the way Gmail `threadId` gives email). A crew member covering >1 active job is asked once which job it's for (numbered menu, `conversation_state`-tracked); one active job skips straight to the link. Also wired up long-dormant `service_visits.links_sent_at`/`links_sent_results` columns (existed from an unapplied-in-code migration) so `/admin/recurring-services` shows persistent send status instead of a one-time `alert()`.
+
+**Built and verified locally, NOT YET COMMITTED — ask before next session assumes it's live:**
+- Flows diagram: new **Application Process** diagram (`/admin/flows/application-process`) covering `/apply` → Stripe → Checkr → board review → applicant notification, same click-to-popup pattern as the other two. Estimate & Board Approval / Vendor Onboarding diagrams reviewed for drift (one real drift item found + documented: #503's reply-to-threading change).
+- Document-preview-not-download: `/admin/applications` and `/board/review` document links (signed Rules Ack, Gov ID, Proof of Income, Checkr report) now pop an inline image modal (`components/DocumentPreviewTrigger.tsx` + `/api/document-preview`) instead of forcing a download.
+- **Tropicana II (TROP) onboarding** — new association, CINC-synced (owners/board/budget) but the core `associations` row was otherwise empty (type/service/statute/address/Sunbiz all null) with **no UI anywhere in the platform** to fill those in — `/api/admin/cinc-sync/onboard` deliberately leaves them null "for staff to fill in afterwards" but that "afterwards" screen never existed. Built:
+  - "Association Details" card + edit modal on `/admin/cinc-sync/[code]` (new `PATCH /api/admin/associations/[code]`).
+  - "Onboarding Checklist" card on the same page — live status + links for Board & Owners, governing docs, board-approval signatures (`/admin/board-setup` — **TROP's still unset**, this gates the `/apply` board-review threshold), application rules, custom doc requirements, recurring vendors, insurance.
+  - **Root-caused why there's no "Create Public Site" button**: the 25 resident-portal pages (`/islandhouse`, `/onebay`, etc.) are each a 4-line wrapper around one shared `<AssociationPortal code="…">` component, routed through a **hardcoded** `ASSOCIATION_PORTAL_PATH` map — a brand-new association's code was never in it, so its portal 404'd with no automated way to add one (Next.js compiles routes at build time; no button click can create a live route without a deploy). Fixed at the root: `app/[slug]/page.tsx` now renders `<AssociationPortal>` directly for any active, unmapped association code — **every future new association's public site now works automatically the moment its `associations` row exists, no deploy needed.** TROP additionally got a real branded URL, `/tropicana2`, registered the normal way for consistency with the other 25. Verified live with a throwaway test association (fully data-driven, zero hardcoding).
+  - (Dropped mid-build, don't resurrect without re-confirming: Sunbiz-document-upload auto-extraction for the address/filing fields — user caught that a Sunbiz printout's "Principal Address" is often the *registered agent's* address, not the real property, which is exactly what Checkr background checks and `/apply` lease-matching need. Manual entry only, by design.)
+
+**Pending your action:**
+- Still unresolved from last session: confirm whether production's Stripe key is live or test mode before any real applicant pays (got sidetracked into the invoice-PDF bug before finishing this).
+- Decide whether to keep the hosted-Checkout-redirect Stripe flow as-is (confirmed) vs. rebuild with Embedded Components — you picked "keep as-is," not yet actioned (just needs the live key swapped in once confirmed).
+- 18 invoices (see above) still need their Drive copy re-mirrored by hand — list is in the PDF-fix commit message / this session's transcript.
+- TROP needs its real address / Sunbiz filing info / board-approval signature count entered (the UI now exists — `/admin/cinc-sync/TROP` → Edit details / `/admin/board-setup`).
+- Decide if other associations besides TROP are missing the same core-identity fields (only TROP and the original 25 were checked this session).
+
+---
 
 ## 2026-07-06/07 — Checkr background-check integration, DEPLOYED TO PRODUCTION
 

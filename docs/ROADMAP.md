@@ -1,9 +1,26 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-07-07**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-07-13**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
+
+---
+
+## ✅ DEPLOYED — blank-PDF root-cause fix, session-secret security fix, vendor-crew SMS redirect (commits through `a723d48`, 2026-07-12/13)
+
+Full detail in `docs/SESSION-HANDOFF.md`'s top section. Headline items: (1) invoice PDFs rasterized for CINC/Drive were silently dropping all text on Vercel (pdf.js missing `standardFontDataUrl` — masked locally by Mac system fonts) — root-caused, fixed, 18 already-pushed invoices' CINC attachments corrected (Drive copies still need a manual re-mirror click each); (2) Production had **no `MAIA_SESSION_SECRET`**, silently using the hardcoded dev-default visible in this public repo — real secret generated + set + redeployed, all prior sessions invalidated as expected; (3) recurring-service crew SMS/WhatsApp replies now redirect to the upload-link form (no phone→ticket correlation existed before) with a one-time "which job?" menu when a crew member covers more than one active service; (4) `service_visits` crew-link send status now persists and shows on `/admin/recurring-services` instead of a one-time alert.
+
+**🟡 Built + verified locally, NOT YET COMMITTED (confirm before assuming live):**
+- New Flows diagram: Application Process (`/admin/flows/application-process`).
+- Document-preview-not-download on `/admin/applications` + `/board/review` (signed docs, Gov ID, Proof of Income, Checkr report pop an inline image instead of downloading).
+- **Tropicana II (TROP) onboarding**: "Association Details" + "Onboarding Checklist" cards on `/admin/cinc-sync/[code]` (new `PATCH /api/admin/associations/[code]`), and a real architecture fix so **every future new association's public resident-portal site works automatically** the moment its `associations` row exists — no hand-built page, no deploy (`app/[slug]/page.tsx` now renders the shared portal component directly for any active unmapped association code). TROP also got a real branded URL, `/tropicana2`.
+
+**Pending:**
+- Confirm Stripe live vs. test mode before any real applicant pays (open since 2026-07-07, still not resolved).
+- 18 invoices from the PDF-fix need their Drive copy re-mirrored by hand (`/admin/invoices` → per-invoice "Re-mirror to Drive").
+- TROP needs its real address / Sunbiz info / board-approval-signature count entered now that the UI exists.
+- Check whether other associations besides TROP are missing the same core-identity fields (only TROP + the original 25 were checked).
 
 ---
 
