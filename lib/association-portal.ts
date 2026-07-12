@@ -28,6 +28,7 @@ export const ASSOCIATION_PORTAL_PATH: Record<string, string> = {
   PVV:    '/parcview',
   SHORE:  '/shoreland',
   SP:     '/serenityiv',
+  TROP:   '/tropicana2',
   VPC5:   '/venetian5',
   VPCI:   '/venetian1',
   VPCII:  '/venetian2',

@@ -44,14 +44,43 @@ export interface AssociationHubData {
   openInvoices:  number
   docCount:      number
   associations:  { code: string; name: string }[]
+  // MAIA-only classification + identity fields — nothing sets these after
+  // /api/admin/cinc-sync/onboard creates the row (it deliberately leaves
+  // them null for staff to fill in), and until now there was no UI to do
+  // that. See the "Association Details" card below.
+  principalAddress:     string | null
+  city:                 string | null
+  state:                string | null
+  zip:                  string | null
+  sunbizDocumentNumber: string | null
+  feiEinNumber:         string | null
+  sunbizStatus:         string | null
+  dateFiled:            string | null
+  publicWebsiteUrl:     string | null
+  // Onboarding-checklist status for the other per-association setup areas —
+  // each already has its own dedicated page; this just surfaces whether
+  // they've been touched yet, with a link to go do it.
+  requiredSignatures:        number | null
+  hasApprovalLetterTemplate: boolean
+  applicationRulesCount:     number
+  documentRequirementsCount: number
+  recurringServicesCount:    number
+  insurancePoliciesCount:    number
 }
 
 // Friendly labels for the association_type stored in the associations table
 // (condo / hoa / coop / commercial). Falls back to the raw value.
 const TYPE_LABEL: Record<string, string> = {
   condo: 'Condominium', hoa: 'HOA', coop: 'Co-op', 'co-op': 'Co-op', commercial: 'Commercial',
+  commercial_condo: 'Commercial Condo', master_hoa: 'Master HOA',
 }
 const typeLabel = (t: string | null) => t ? (TYPE_LABEL[t.toLowerCase()] ?? t) : null
+
+// Fixed option sets — matches the values already in use across the other
+// 25 associations (see the associations table), so a new one stays consistent.
+const ASSOC_TYPES  = ['condo', 'hoa', 'coop', 'commercial_condo', 'master_hoa'] as const
+const SERVICE_TYPES_OPTS = ['full management', 'bookkeeping'] as const
+const STATUTES      = ['Chapter 718', 'Chapter 719', 'Chapter 720'] as const
 
 type Rag = 'ok' | 'warn' | 'bad' | 'none'
 // CINC web app — deep link for staff who set the vendor-association account up
@@ -258,6 +287,8 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
               <Row k="Board members">{data.board.length}</Row>
             </dl>
           </Card>
+          <AssociationDetailsCard data={data} onSaved={() => router.refresh()} />
+          <OnboardingChecklistCard data={data} onOpenTab={selectTab} />
           <Card title="Board officers" action={data.board.length ? undefined : undefined}>
             {data.board.length === 0 ? (
               <p className="text-xs text-gray-400">No board members on file. Import them in the Board &amp; Owners tab.</p>
@@ -580,6 +611,191 @@ function DocLink({ href, icon, label, sub }: { href: string; icon: string; label
       <div className="mt-1 text-sm font-medium text-gray-900">{label}</div>
       <div className="text-[11px] text-gray-500">{sub}</div>
     </Link>
+  )
+}
+
+// Association-level identity fields that /api/admin/cinc-sync/onboard leaves
+// null on purpose ("staff fill in afterwards") — there was previously no
+// screen anywhere in MAIA that actually let staff do that. Shown as a
+// compact status card; editing happens in AssociationDetailsModal.
+const DETAIL_FIELD_COUNT = 9   // type, serviceType, statute, address, city, state, zip, sunbizDocumentNumber, feiEinNumber (dateFiled/sunbizStatus/website are extra credit, not counted toward "missing")
+
+function AssociationDetailsCard({ data, onSaved }: { data: AssociationHubData; onSaved: () => void }) {
+  const [open, setOpen] = useState(false)
+  const filled = [data.type, data.serviceType, data.statute, data.principalAddress, data.city, data.state, data.zip, data.sunbizDocumentNumber, data.feiEinNumber].filter(Boolean).length
+  const missing = DETAIL_FIELD_COUNT - filled
+  return (
+    <>
+      <Card title="Association Details">
+        {missing > 0 && (
+          <div className="mb-2 rounded bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-800">
+            ⚠ {missing} setup field{missing === 1 ? '' : 's'} missing
+          </div>
+        )}
+        <dl className="space-y-1.5 text-sm">
+          <Row k="Type">{typeLabel(data.type) ?? <span className="text-gray-300">—</span>}</Row>
+          <Row k="Service">{data.serviceType ?? <span className="text-gray-300">—</span>}</Row>
+          <Row k="Statute">{data.statute ?? <span className="text-gray-300">—</span>}</Row>
+          <Row k="Address">{data.principalAddress ? `${data.principalAddress}${data.city ? `, ${data.city}` : ''}` : <span className="text-gray-300">—</span>}</Row>
+          <Row k="Sunbiz #">{data.sunbizDocumentNumber ?? <span className="text-gray-300">—</span>}</Row>
+        </dl>
+        <button onClick={() => setOpen(true)} className="mt-3 w-full rounded border border-gray-300 px-2 py-1.5 text-xs font-medium text-gray-700 hover:border-[#f26a1b] hover:text-[#f26a1b]">Edit details</button>
+      </Card>
+      {open && <AssociationDetailsModal data={data} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); onSaved() }} />}
+    </>
+  )
+}
+
+// The rest of a new association's setup, beyond the associations-table
+// fields above — each item already has its own dedicated page; this just
+// surfaces whether it's been touched yet and links straight to it.
+function OnboardingChecklistCard({ data, onOpenTab }: { data: AssociationHubData; onOpenTab: (t: Tab) => void }) {
+  const required: { label: string; done: boolean; onClick: () => void }[] = [
+    { label: 'Board & Owners synced',    done: data.ownersCount > 0 && data.board.length > 0, onClick: () => onOpenTab('Board & Owners') },
+    { label: 'Governing documents',       done: data.docCount > 0,                             onClick: () => onOpenTab('Documents & Compliance') },
+    { label: 'Board approval signatures', done: data.requiredSignatures != null,                onClick: () => window.open('/admin/board-setup', '_blank') },
+  ]
+  const optional: { label: string; done: boolean; note: string; onClick: () => void }[] = [
+    { label: 'Application rules',      done: data.applicationRulesCount > 0,     note: data.applicationRulesCount > 0 ? `${data.applicationRulesCount} set` : 'none — defaults apply', onClick: () => window.open('/admin/association-document-setup', '_blank') },
+    { label: 'Custom doc requirements', done: data.documentRequirementsCount > 0, note: data.documentRequirementsCount > 0 ? `${data.documentRequirementsCount} set` : 'none — defaults apply', onClick: () => window.open('/admin/association-document-setup', '_blank') },
+    { label: 'Recurring vendors',       done: data.recurringServicesCount > 0,    note: data.recurringServicesCount > 0 ? `${data.recurringServicesCount} active` : 'none configured', onClick: () => window.open(`/admin/recurring-services?assoc=${data.code}`, '_blank') },
+    { label: "Association's insurance", done: data.insurancePoliciesCount > 0,    note: data.insurancePoliciesCount > 0 ? `${data.insurancePoliciesCount} on file` : 'none on file', onClick: () => window.open(`/admin/cinc-sync/${data.code}/insurance`, '_blank') },
+    { label: 'Vendors linked',          done: false,                             note: 'see Vendors tab', onClick: () => onOpenTab('Vendors') },
+  ]
+  return (
+    <Card title="Onboarding Checklist">
+      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Required</div>
+      <ul className="mb-3 space-y-1 text-sm">
+        {required.map(r => (
+          <li key={r.label}>
+            <button onClick={r.onClick} className="flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left hover:bg-gray-50">
+              <span className="flex items-center gap-1.5">
+                <span className={r.done ? 'text-emerald-600' : 'text-gray-300'}>{r.done ? '✓' : '○'}</span>
+                <span className={r.done ? 'text-gray-700' : 'text-gray-500'}>{r.label}</span>
+              </span>
+              <span className="text-[10px] text-gray-300">→</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Optional / as needed</div>
+      <ul className="space-y-1 text-sm">
+        {optional.map(o => (
+          <li key={o.label}>
+            <button onClick={o.onClick} className="flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left hover:bg-gray-50">
+              <span className="flex items-center gap-1.5">
+                <span className={o.done ? 'text-emerald-600' : 'text-gray-300'}>{o.done ? '✓' : '—'}</span>
+                <span className="text-gray-600">{o.label}</span>
+              </span>
+              <span className="text-[10px] text-gray-400">{o.note} →</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
+}
+
+function AssociationDetailsModal({ data, onClose, onSaved }: { data: AssociationHubData; onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState({
+    association_type:       data.type ?? '',
+    service_type:            data.serviceType ?? '',
+    florida_statute:         data.statute ?? '',
+    principal_address:       data.principalAddress ?? '',
+    city:                    data.city ?? '',
+    state:                   data.state ?? 'FL',
+    zip:                     data.zip ?? '',
+    sunbiz_document_number:  data.sunbizDocumentNumber ?? '',
+    fei_ein_number:          data.feiEinNumber ?? '',
+    sunbiz_status:           data.sunbizStatus ?? '',
+    date_filed:              data.dateFiled ?? '',
+    public_website_url:      data.publicWebsiteUrl ?? '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function set<K extends keyof typeof form>(k: K, v: string) { setForm(f => ({ ...f, [k]: v })) }
+
+  async function save() {
+    setSaving(true); setError(null)
+    try {
+      const res = await fetch(`/api/admin/associations/${data.code}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form),
+      })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j?.error ?? 'Save failed')
+      onSaved()
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setSaving(false) }
+  }
+
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-6">
+      <div onClick={e => e.stopPropagation()} className="my-8 w-full max-w-lg rounded-lg bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+          <div className="text-sm font-semibold text-gray-900">Association details — {data.name}</div>
+          <button onClick={onClose} className="text-xl leading-none text-gray-400 hover:text-gray-700" aria-label="Close">×</button>
+        </div>
+        <div className="max-h-[70vh] space-y-4 overflow-y-auto p-4">
+          {error && <div className="rounded border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">⚠ {error}</div>}
+
+          <div>
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Classification</div>
+            <div className="grid grid-cols-2 gap-2">
+              <LabeledSelect label="Type" value={form.association_type} onChange={v => set('association_type', v)} options={ASSOC_TYPES.map(t => [t, typeLabel(t) ?? t])} />
+              <LabeledSelect label="Service" value={form.service_type} onChange={v => set('service_type', v)} options={SERVICE_TYPES_OPTS.map(s => [s, s])} />
+              <LabeledSelect label="Statute" value={form.florida_statute} onChange={v => set('florida_statute', v)} options={STATUTES.map(s => [s, s])} />
+              <LabeledInput label="Website" value={form.public_website_url} onChange={v => set('public_website_url', v)} placeholder="https://…" />
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+              Address <span className="normal-case text-gray-400">— the actual property address, NOT a registered agent/mailing address. Used for Checkr background-check property lookup + lease matching on /apply.</span>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              <div className="col-span-4"><LabeledInput label="Street" value={form.principal_address} onChange={v => set('principal_address', v)} /></div>
+              <div className="col-span-2"><LabeledInput label="City" value={form.city} onChange={v => set('city', v)} /></div>
+              <LabeledInput label="State" value={form.state} onChange={v => set('state', v.toUpperCase().slice(0, 2))} />
+              <LabeledInput label="Zip" value={form.zip} onChange={v => set('zip', v)} />
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Sunbiz (Florida Division of Corporations)</div>
+            <div className="grid grid-cols-2 gap-2">
+              <LabeledInput label="Document #" value={form.sunbiz_document_number} onChange={v => set('sunbiz_document_number', v)} />
+              <LabeledInput label="FEI/EIN #" value={form.fei_ein_number} onChange={v => set('fei_ein_number', v)} />
+              <LabeledInput label="Status" value={form.sunbiz_status} onChange={v => set('sunbiz_status', v)} placeholder="ACTIVE" />
+              <LabeledInput label="Date filed" value={form.date_filed} onChange={v => set('date_filed', v)} placeholder="MM/DD/YYYY" />
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-gray-200 px-4 py-3">
+          <button onClick={onClose} className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+          <button onClick={save} disabled={saving} className="rounded bg-[#16a34a] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#15803d] disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LabeledInput({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <label className="block">
+      <div className="mb-0.5 text-[10px] uppercase tracking-wide text-gray-400">{label}</div>
+      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+    </label>
+  )
+}
+function LabeledSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: [string, string][] }) {
+  return (
+    <label className="block">
+      <div className="mb-0.5 text-[10px] uppercase tracking-wide text-gray-400">{label}</div>
+      <select value={value} onChange={e => onChange(e.target.value)} className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
+        <option value="">— select —</option>
+        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+    </label>
   )
 }
 

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import SiteHeader from '@/components/SiteHeader'
+import AssociationPortal from '@/components/AssociationPortal'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { ASSOCIATION_PORTAL_PATH } from '@/lib/association-portal'
 
@@ -26,6 +27,7 @@ const SLUG_MAP: Record<string, string> = {
   'parcview':       '/parcview',
   'serenityiv':     '/serenityiv',
   'shoreland':      '/shoreland',
+  'tropicana2':     '/tropicana2',
   'venetian1':      '/venetian1',
   'venetian2':      '/venetian2',
   'venetian5':      '/venetian5',
@@ -48,6 +50,7 @@ const SLUG_MAP: Record<string, string> = {
   'pvv':         '/parcview',
   'shore':       '/shoreland',
   'sp':          '/serenityiv',
+  'trop':        '/tropicana2',
   'vpc5':        '/venetian5',
   'vpci':        '/venetian1',
   'vpcii':       '/venetian2',
@@ -69,8 +72,10 @@ const CODE_TO_PATH = ASSOCIATION_PORTAL_PATH
 
 export default async function AssocSlugPage(props: {
   params: Promise<{ slug: string }>
+  searchParams: Promise<{ lang?: string }>
 }) {
   const { slug } = await props.params
+  const { lang } = await props.searchParams
   const normalized = slug.toLowerCase()
 
   // 1. Static map lookup (fast path — covers codes + aliases + folder names)
@@ -93,6 +98,13 @@ export default async function AssocSlugPage(props: {
   if (exactMatch?.association_code) {
     const path = CODE_TO_PATH[exactMatch.association_code]
     if (path) redirect(path)
+    // No hand-built page for this one yet (e.g. a newly-onboarded
+    // association) — render the shared portal directly off its code
+    // instead of 404-ing. Every /[slug] static wrapper is just this same
+    // component with a prettier URL (see app/onebay/page.tsx etc.); this
+    // is what makes a brand-new association's portal work immediately,
+    // with no new file and no deploy.
+    return <AssociationPortal code={exactMatch.association_code} lang={lang} />
   }
 
   // 3. Supabase fallback — partial match (e.g. "island" inside "ISLANDHOUSE")
@@ -104,8 +116,10 @@ export default async function AssocSlugPage(props: {
     .limit(1)
 
   if (partialMatches && partialMatches.length > 0) {
-    const path = CODE_TO_PATH[partialMatches[0].association_code]
+    const code = partialMatches[0].association_code
+    const path = CODE_TO_PATH[code]
     if (path) redirect(path)
+    return <AssociationPortal code={code} lang={lang} />
   }
 
   // 4. No match — render friendly 404

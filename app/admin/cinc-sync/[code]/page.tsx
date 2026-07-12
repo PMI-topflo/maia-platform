@@ -25,7 +25,7 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
 
   const { data: assocRow } = await supabaseAdmin
     .from('associations')
-    .select('association_code, association_name, service_type, association_type, florida_statute')
+    .select('association_code, association_name, service_type, association_type, florida_statute, principal_address, city, state, zip, sunbiz_document_number, fei_ein_number, sunbiz_status, date_filed, public_website_url')
     .eq('association_code', upperCode)
     .maybeSingle()
 
@@ -56,6 +56,11 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     { count: invoiceCount },
     { count: ownersCount },
     { data: allAssocs },
+    { data: boardConfig },
+    { count: applicationRulesCount },
+    { count: documentRequirementsCount },
+    { count: recurringServicesCount },
+    { count: insurancePoliciesCount },
   ] = await Promise.all([
     getContactsAndConsentFlag().catch(() => null),
     getAssociationMeta(upperCode).catch(() => null),
@@ -67,6 +72,11 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     supabaseAdmin.from('invoice_intake_drafts').select('id', { count: 'exact', head: true }).eq('extracted_association_code', upperCode).in('status', OPEN_INVOICE_STATUSES),
     supabaseAdmin.from('owners').select('id', { count: 'exact', head: true }).eq('association_code', upperCode).or('status.neq.previous,status.is.null'),
     supabaseAdmin.from('associations').select('association_code, association_name').order('association_name'),
+    supabaseAdmin.from('association_config').select('required_signatures, approval_letter_template').eq('association_code', upperCode).maybeSingle(),
+    supabaseAdmin.from('association_application_rules').select('id', { count: 'exact', head: true }).eq('association_code', upperCode),
+    supabaseAdmin.from('association_document_requirements').select('id', { count: 'exact', head: true }).eq('association_code', upperCode),
+    supabaseAdmin.from('recurring_services').select('id', { count: 'exact', head: true }).eq('association_code', upperCode).eq('active', true),
+    supabaseAdmin.from('association_insurance_policies').select('id', { count: 'exact', head: true }).eq('association_code', upperCode),
   ])
 
   // Payment lifecycle + vendor-docs flag are best-effort so the WO list never
@@ -92,6 +102,15 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     type:           (assocRow as { association_type?: string | null }).association_type ?? null,
     statute:        (assocRow as { florida_statute?: string | null }).florida_statute ?? null,
     serviceType:    (assocRow as { service_type?: string | null }).service_type ?? null,
+    principalAddress:     assocRow.principal_address ?? null,
+    city:                 assocRow.city ?? null,
+    state:                assocRow.state ?? null,
+    zip:                  assocRow.zip ?? null,
+    sunbizDocumentNumber: assocRow.sunbiz_document_number ?? null,
+    feiEinNumber:         assocRow.fei_ein_number ?? null,
+    sunbizStatus:         assocRow.sunbiz_status ?? null,
+    dateFiled:            assocRow.date_filed ?? null,
+    publicWebsiteUrl:     assocRow.public_website_url ?? null,
     ownersCount:    ownersCount ?? 0,
     bankAccounts:   (bankAccounts ?? []).map(a => ({ description: a.description, last4: a.last4, kind: a.kind, bankBalance: a.bankBalance, restricted: a.restricted })),
     board:          (boardRows ?? []) as AssociationHubData['board'],
@@ -101,6 +120,12 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     openInvoices:   invoiceCount ?? 0,
     docCount:       docCount ?? 0,
     associations:   (allAssocs ?? []).map(a => ({ code: String(a.association_code), name: String(a.association_name ?? a.association_code) })),
+    requiredSignatures:        boardConfig?.required_signatures ?? null,
+    hasApprovalLetterTemplate: !!boardConfig?.approval_letter_template,
+    applicationRulesCount:     applicationRulesCount ?? 0,
+    documentRequirementsCount: documentRequirementsCount ?? 0,
+    recurringServicesCount:    recurringServicesCount ?? 0,
+    insurancePoliciesCount:    insurancePoliciesCount ?? 0,
   }
 
   return (
