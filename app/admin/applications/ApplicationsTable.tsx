@@ -7,6 +7,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -603,15 +604,13 @@ function DetailPanel({
         <div className="flex flex-wrap gap-3">
           {docLinks.map(({ label, url }) =>
             url ? (
-              <a
+              <DocumentPreviewTrigger
                 key={label}
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
+                label={`${label} ↗`}
+                previewUrl={`/api/document-preview?url=${encodeURIComponent(url)}`}
+                downloadUrl={url}
                 className="inline-flex items-center gap-1.5 rounded border border-[#f26a1b] px-3 py-1.5 text-sm text-[#f26a1b] hover:bg-orange-50 transition-colors"
-              >
-                {label} ↗
-              </a>
+              />
             ) : (
               <span
                 key={label}
@@ -622,14 +621,12 @@ function DetailPanel({
             )
           )}
           {app.rules_agreed_at ? (
-            <a
-              href={`/api/applications/${app.id}/rules-acknowledgment-pdf`}
-              target="_blank"
-              rel="noopener noreferrer"
+            <DocumentPreviewTrigger
+              label="Signed Rules Acknowledgment ↗"
+              previewUrl={`/api/applications/${app.id}/rules-acknowledgment-pdf?preview=1`}
+              downloadUrl={`/api/applications/${app.id}/rules-acknowledgment-pdf`}
               className="inline-flex items-center gap-1.5 rounded border border-[#f26a1b] px-3 py-1.5 text-sm text-[#f26a1b] hover:bg-orange-50 transition-colors"
-            >
-              Signed Rules Acknowledgment ↗
-            </a>
+            />
           ) : (
             <span className="inline-flex items-center gap-1.5 rounded border border-gray-200 px-3 py-1.5 text-sm text-gray-400">
               Signed Rules Acknowledgment — not signed
@@ -660,12 +657,12 @@ function DetailPanel({
                   <div className="text-sm font-semibold text-[#0d0d0d] truncate">{s.name ?? `Applicant ${i + 1}`}</div>
                   <div className="flex flex-col gap-1.5">
                     {govId ? (
-                      <a href={govId} target="_blank" rel="noopener noreferrer" className="text-xs text-[#f26a1b] hover:underline">Government ID ↗</a>
+                      <DocumentPreviewTrigger label="Government ID ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(govId)}`} downloadUrl={govId} className="text-left text-xs text-[#f26a1b] hover:underline" />
                     ) : (
                       <span className="text-xs text-gray-400">Government ID — not submitted</span>
                     )}
                     {proofIncome ? (
-                      <a href={proofIncome} target="_blank" rel="noopener noreferrer" className="text-xs text-[#f26a1b] hover:underline">Proof of Income ↗</a>
+                      <DocumentPreviewTrigger label="Proof of Income ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(proofIncome)}`} downloadUrl={proofIncome} className="text-left text-xs text-[#f26a1b] hover:underline" />
                     ) : (
                       <span className="text-xs text-gray-400">Proof of Income — not submitted</span>
                     )}
@@ -673,14 +670,12 @@ function DetailPanel({
                   <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
                     <ScreeningBadge status={s.status} />
                     {s.report_url && (
-                      <a
-                        href={s.report_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <DocumentPreviewTrigger
+                        label="Report ↗"
+                        previewUrl={`/api/document-preview?url=${encodeURIComponent(s.report_url)}`}
+                        downloadUrl={s.report_url}
                         className="inline-flex items-center gap-1 rounded border border-[#f26a1b] px-2 py-0.5 text-xs text-[#f26a1b] hover:bg-orange-50 transition-colors"
-                      >
-                        Report ↗
-                      </a>
+                      />
                     )}
                   </div>
                 </div>
@@ -688,14 +683,12 @@ function DetailPanel({
             })}
           </div>
         ) : app.screening_report_url ? (
-          <a
-            href={app.screening_report_url}
-            target="_blank"
-            rel="noopener noreferrer"
+          <DocumentPreviewTrigger
+            label="View screening report ↗"
+            previewUrl={`/api/document-preview?url=${encodeURIComponent(app.screening_report_url)}`}
+            downloadUrl={app.screening_report_url}
             className="inline-flex items-center gap-1.5 rounded border border-[#f26a1b] px-3 py-1.5 text-sm text-[#f26a1b] hover:bg-orange-50 transition-colors"
-          >
-            View screening report ↗
-          </a>
+          />
         ) : (
           <ScreeningBadge status={app.screening_status} />
         )}

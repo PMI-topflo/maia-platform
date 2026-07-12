@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import SiteHeader from '@/components/SiteHeader';
+import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -387,15 +388,15 @@ export default function BoardReviewPage() {
                       {meta && <div style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: '0.15rem' }}>{meta}</div>}
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.9rem', marginTop: '0.5rem', fontSize: '0.8rem' }}>
                         {govId
-                          ? <a href={govId} target="_blank" rel="noreferrer" style={{ color: '#f26a1b', fontWeight: 700 }}>Government ID ↗</a>
+                          ? <DocumentPreviewTrigger label="Government ID ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(govId)}`} downloadUrl={govId} style={{ color: '#f26a1b', fontWeight: 700 }} />
                           : <span style={{ color: '#9ca3af' }}>Government ID — not provided</span>}
                         {proofIncome
-                          ? <a href={proofIncome} target="_blank" rel="noreferrer" style={{ color: '#f26a1b', fontWeight: 700 }}>Proof of Income ↗</a>
+                          ? <DocumentPreviewTrigger label="Proof of Income ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(proofIncome)}`} downloadUrl={proofIncome} style={{ color: '#f26a1b', fontWeight: 700 }} />
                           : <span style={{ color: '#9ca3af' }}>Proof of Income — not provided</span>}
                       </div>
                       <div style={{ marginTop: '0.4rem', fontSize: '0.8rem' }}>
                         {subject?.report_url
-                          ? <a href={subject.report_url} target="_blank" rel="noreferrer" style={{ color: '#f26a1b', fontWeight: 700 }}>View background check report ↗</a>
+                          ? <DocumentPreviewTrigger label="View background check report ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(subject.report_url)}`} downloadUrl={subject.report_url} style={{ color: '#f26a1b', fontWeight: 700 }} />
                           : <span style={{ color: '#92400e' }}>Background check — {subject?.status ?? 'pending'}</span>}
                       </div>
                     </div>
@@ -420,7 +421,7 @@ export default function BoardReviewPage() {
                     return (
                       <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.55rem 0.9rem', fontSize: '0.85rem' }}>
                         <span>📄 {label}</span>
-                        {url ? <a href={url} target="_blank" rel="noreferrer" style={{ color: '#f26a1b', fontWeight: 700 }}>Open ↗</a> : <span style={{ color: '#9ca3af' }}>Not provided</span>}
+                        {url ? <DocumentPreviewTrigger label="Open ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(url)}`} downloadUrl={url} style={{ color: '#f26a1b', fontWeight: 700 }} /> : <span style={{ color: '#9ca3af' }}>Not provided</span>}
                       </div>
                     );
                   })}
@@ -433,7 +434,7 @@ export default function BoardReviewPage() {
               <div style={{ marginBottom: '1.75rem' }}>
                 <div style={sectionTitle}>Background, Credit & Eviction</div>
                 {application.screening_report_url ? (
-                  <a href={application.screening_report_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', color: '#f26a1b', fontWeight: 700, fontSize: '0.9rem' }}>View screening report ↗</a>
+                  <DocumentPreviewTrigger label="View screening report ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(application.screening_report_url)}`} downloadUrl={application.screening_report_url} style={{ display: 'inline-block', color: '#f26a1b', fontWeight: 700, fontSize: '0.9rem' }} />
                 ) : (
                   <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '0.7rem 1rem', fontSize: '0.83rem', color: '#92400e' }}>
                     Screening {application.screening_status ? `— ${application.screening_status}` : 'pending'}. The full report appears here once it completes.
@@ -456,14 +457,12 @@ export default function BoardReviewPage() {
                   </ul>
                 )}
                 {application.rules_signature && (
-                  <a
-                    href={`/api/applications/${application.id}/rules-acknowledgment-pdf${isPreview ? '' : `?token=${token}`}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <DocumentPreviewTrigger
+                    label="View signed acknowledgment ↗"
+                    previewUrl={`/api/applications/${application.id}/rules-acknowledgment-pdf?preview=1${isPreview ? '' : `&token=${token}`}`}
+                    downloadUrl={`/api/applications/${application.id}/rules-acknowledgment-pdf${isPreview ? '' : `?token=${token}`}`}
                     style={{ display: 'inline-block', marginTop: '0.6rem', fontSize: '0.8rem', fontWeight: 600, color: '#f26a1b', textDecoration: 'none' }}
-                  >
-                    View signed acknowledgment (PDF) ↗
-                  </a>
+                  />
                 )}
               </div>
 

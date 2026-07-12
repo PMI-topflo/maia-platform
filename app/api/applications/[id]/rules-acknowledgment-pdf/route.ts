@@ -11,6 +11,10 @@
 // pattern: a real per-member board token (?token=, validated against
 // application_board_reviews and must match this application), or a
 // staff session cookie (no token -- the admin dashboard link).
+//
+// `?preview=1` returns the same PDF rasterised to inline JPEG pages
+// ({ pages: string[] }) instead of the binary -- used by the "pop up an
+// image, don't download" preview modal on the dashboard and board page.
 // =====================================================================
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -18,6 +22,7 @@ import { cookies } from 'next/headers'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
+import { renderPdfToImageDataUrls } from '@/lib/pdf-normalize'
 import { RulesAcknowledgmentPdf, type AckDocEntry } from '@/lib/rules-acknowledgment-pdf'
 
 export const runtime = 'nodejs'
@@ -110,6 +115,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     )
   } catch (err) {
     return NextResponse.json({ error: `PDF generation failed: ${err instanceof Error ? err.message : String(err)}` }, { status: 500 })
+  }
+
+  if (req.nextUrl.searchParams.get('preview') === '1') {
+    return NextResponse.json({ pages: await renderPdfToImageDataUrls(pdf, { maxPages: 12 }) })
   }
 
   return new NextResponse(new Uint8Array(pdf), {
