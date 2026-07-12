@@ -2928,6 +2928,16 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS is_test boolean NOT NULL DEFAULT false;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'service_visits_send_status',
+    label:       'Service visits — crew-link send status',
+    description: 'service_visits.links_sent_at + links_sent_results (jsonb) — persists the result of "Send crew links" (previously a one-time alert() the page forgot on reload) so /admin/recurring-services can show whether/when the vendor\'s crew was actually notified.',
+    filename:    '20260709_service_visits_send_status.sql',
+    artifact:    { type: 'column', table: 'service_visits', column: 'links_sent_at' },
+    sql: `ALTER TABLE public.service_visits ADD COLUMN IF NOT EXISTS links_sent_at timestamptz;
+ALTER TABLE public.service_visits ADD COLUMN IF NOT EXISTS links_sent_results jsonb;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

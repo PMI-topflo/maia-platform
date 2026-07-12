@@ -12,7 +12,8 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 interface Assoc { code: string; name: string }
 interface Service { id: number; association_code: string; cinc_vendor_id: string | null; vendor_name: string; service_type: string; cadence: string; billing_cadence: string; expected_day: number | null; schedule_anchor: string | null; monthly_day: number | null; office_email: string | null; ends_on: string | null; active: boolean }
 interface Employee { id: string; cinc_vendor_id: string | null; vendor_name: string; name: string; phone: string | null; email: string | null; preferred_channel: string; preferred_language: string; active: boolean }
-interface Visit { id: number; service_type: string | null; vendor_name: string | null; week_of: string; status: string; ticket_id: number | null }
+interface SentLinkResult { employee: string; channel: string; ok: boolean; detail?: string }
+interface Visit { id: number; service_type: string | null; vendor_name: string | null; week_of: string; status: string; ticket_id: number | null; links_sent_at: string | null; links_sent_results: SentLinkResult[] | null; has_photos: boolean; has_report: boolean }
 
 export default function Manager({ associations }: { associations: Assoc[] }) {
   const [assoc, setAssoc] = useState(associations[0]?.code ?? '')
@@ -112,8 +113,11 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
       const res = await fetch(`/api/admin/service-visits/${visitId}/send-links`, { method: 'POST' })
       const j = await res.json()
       if (!res.ok) throw new Error(j?.error ?? 'Failed')
-      alert(`Sent ${j.sent} link(s):\n${(j.results ?? []).join('\n')}`)
+      void load()   // pulls links_sent_at/links_sent_results back — shown on the row itself, not just a one-time alert
     } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
+  }
+  function fmtSentAt(iso: string) {
+    return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   }
 
   return (
@@ -193,17 +197,43 @@ export default function Manager({ associations }: { associations: Assoc[] }) {
         <p style={muted}>Each visit is a documentation work order — the crew uploads photos + a brief report via their link.</p>
         {visits.length === 0 && <p style={muted}>No visits yet. Click “Generate this week’s visits”.</p>}
         {visits.map(v => (
-          <div key={v.id} style={row}>
-            <div>
-              <strong>{v.service_type}</strong> <span style={muted}>· {v.vendor_name} · week of {v.week_of}</span>
-              <div style={muted}>
-                status: {v.status}
-                {v.ticket_id ? <> · <a href={`/admin/tickets/${v.ticket_id}`} style={{ color: '#2563eb' }}>work order →</a></> : null}
+          <div key={v.id} style={{ ...row, flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <strong>{v.service_type}</strong> <span style={muted}>· {v.vendor_name} · week of {v.week_of}</span>
+                <div style={muted}>
+                  status: {v.status}
+                  {v.ticket_id ? <> · <a href={`/admin/tickets/${v.ticket_id}`} style={{ color: '#2563eb' }}>work order →</a></> : null}
+                </div>
+              </div>
+              <button onClick={() => sendLinks(v.id)} disabled={busy === `v${v.id}`} style={addBtn}>
+                {busy === `v${v.id}` ? 'Sending…' : v.links_sent_at ? '📤 Re-send crew links' : '📤 Send crew links'}
+              </button>
+            </div>
+
+            {/* Persistent send status — replaces the old one-time alert(), which
+                the page forgot on the next reload. */}
+            <div style={{ fontSize: 12 }}>
+              {!v.links_sent_at ? (
+                <span style={{ color: '#9ca3af' }}>Crew links not sent yet.</span>
+              ) : (
+                <div>
+                  <span style={{ color: '#374151', fontWeight: 600 }}>Sent {fmtSentAt(v.links_sent_at)}:</span>{' '}
+                  {(v.links_sent_results ?? []).map((r, i) => (
+                    <span key={i} style={{ marginRight: 10, color: r.ok ? '#16a34a' : '#991b1b' }}>
+                      {r.ok ? '✓' : '✗'} {r.employee} ({r.channel}){!r.ok && r.detail ? ` — ${r.detail}` : ''}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {/* Vendors don't "accept" a link — there's no such step in the
+                  crew flow. The honest signal is whether they actually
+                  uploaded documentation for this visit. */}
+              <div style={{ marginTop: 4 }}>
+                <span style={{ color: v.has_photos ? '#16a34a' : '#9ca3af' }}>{v.has_photos ? '✓' : '—'} photos uploaded</span>
+                <span style={{ marginLeft: 12, color: v.has_report ? '#16a34a' : '#9ca3af' }}>{v.has_report ? '✓' : '—'} report submitted</span>
               </div>
             </div>
-            <button onClick={() => sendLinks(v.id)} disabled={busy === `v${v.id}`} style={addBtn}>
-              {busy === `v${v.id}` ? 'Sending…' : '📤 Send crew links'}
-            </button>
           </div>
         ))}
       </section>

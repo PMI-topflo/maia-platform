@@ -25,6 +25,13 @@ export function mondayOf(d: Date = new Date()): string {
   return date.toISOString().slice(0, 10)
 }
 
+export interface SentLinkResult {
+  employee: string
+  channel:  string
+  ok:       boolean
+  detail?:  string
+}
+
 export interface ServiceVisit {
   id:                   number
   recurring_service_id: number | null
@@ -35,6 +42,10 @@ export interface ServiceVisit {
   week_of:              string
   status:               string
   ticket_id:            number | null
+  links_sent_at:        string | null
+  links_sent_results:   SentLinkResult[] | null
+  has_photos:           boolean
+  has_report:           boolean
 }
 
 /** Ensure a visit (+ its documentation work order) exists for one service
@@ -152,11 +163,23 @@ export async function notifyEndedRecurringCycles(): Promise<{ ended: number; ema
   return { ended: svcs.length, emailed }
 }
 
+/** Documentation is the closest real signal to "did the vendor actually
+ *  do something" this system has — there's no accept/decline step in the
+ *  crew flow, they just upload photos + a report or they don't. */
 export async function listVisits(assoc: string, weekOf?: string): Promise<ServiceVisit[]> {
   let q = supabaseAdmin.from('service_visits').select('*').eq('association_code', assoc.toUpperCase()).order('week_of', { ascending: false }).order('service_type')
   if (weekOf) q = q.eq('week_of', weekOf)
   const { data } = await q
-  return (data ?? []) as ServiceVisit[]
+  const visits = (data ?? []) as ServiceVisit[]
+
+  const ticketIds = visits.map(v => v.ticket_id).filter((n): n is number => n != null)
+  const [{ photos }, reports] = await Promise.all([ticketPhotoInfo(ticketIds), ticketsWithReport(ticketIds)])
+
+  return visits.map(v => ({
+    ...v,
+    has_photos: v.ticket_id != null && photos.has(v.ticket_id),
+    has_report: v.ticket_id != null && reports.has(v.ticket_id),
+  }))
 }
 
 /** Send each crew member of the visit's vendor their personal upload link
@@ -176,6 +199,7 @@ export async function sendCrewUploadLinks(visitId: number, employeeIds?: string[
   const svc   = v.service_type ?? 'service'
 
   const results: string[] = []
+  const structured: SentLinkResult[] = []
   let sent = 0
   for (const e of crew) {
     const lang = e.preferred_language || 'en'
@@ -183,14 +207,23 @@ export async function sendCrewUploadLinks(visitId: number, employeeIds?: string[
     const link = `${APP_URL}/vendor/upload/${token}?lang=${encodeURIComponent(lang)}&e=${encodeURIComponent(eTok)}`
     const m = crewMessage(lang, svc, v.association_code, v.week_of, link, e.name)
     try {
-      if (e.preferred_channel === 'sms' && e.phone)            { await sendSMSStrict(e.phone, m.short); sent++; results.push(`${e.name}: sms`) }
-      else if (e.preferred_channel === 'whatsapp' && e.phone)  { await sendWhatsAppStrict(e.phone, m.short); sent++; results.push(`${e.name}: whatsapp`) }
-      else if (e.email)                                        { await sendEmail({ to: e.email, bcc: VENDOR_NOTIFY_CC, replyTo: VENDOR_REPLY_TO, subject: m.subject, html: m.html }); sent++; results.push(`${e.name}: email`) }
-      else                                                     { results.push(`${e.name}: skipped (no ${e.preferred_channel} contact)`) }
+      if (e.preferred_channel === 'sms' && e.phone)            { await sendSMSStrict(e.phone, m.short); sent++; results.push(`${e.name}: sms`); structured.push({ employee: e.name, channel: 'sms', ok: true }) }
+      else if (e.preferred_channel === 'whatsapp' && e.phone)  { await sendWhatsAppStrict(e.phone, m.short); sent++; results.push(`${e.name}: whatsapp`); structured.push({ employee: e.name, channel: 'whatsapp', ok: true }) }
+      else if (e.email)                                        { await sendEmail({ to: e.email, bcc: VENDOR_NOTIFY_CC, replyTo: VENDOR_REPLY_TO, subject: m.subject, html: m.html }); sent++; results.push(`${e.name}: email`); structured.push({ employee: e.name, channel: 'email', ok: true }) }
+      else                                                     { results.push(`${e.name}: skipped (no ${e.preferred_channel} contact)`); structured.push({ employee: e.name, channel: e.preferred_channel, ok: false, detail: `no ${e.preferred_channel} contact on file` }) }
     } catch (err) {
-      results.push(`${e.name}: failed (${(err as Error).message})`)
+      const detail = (err as Error).message
+      results.push(`${e.name}: failed (${detail})`)
+      structured.push({ employee: e.name, channel: e.preferred_channel, ok: false, detail })
     }
   }
+
+  // Persist so the Manager page can show this after a reload, not just in
+  // the one-time result the caller sees right now.
+  await supabaseAdmin.from('service_visits')
+    .update({ links_sent_at: new Date().toISOString(), links_sent_results: structured })
+    .eq('id', visitId)
+
   return { ok: true, sent, results }
 }
 

@@ -25,6 +25,8 @@ import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
 import { signAchToken } from '@/lib/owner-portal-token'
 import { sendEmail } from '@/lib/gmail'
+import { signVendorUploadToken } from '@/lib/vendor-upload-token'
+import { signCrewToken } from '@/lib/crew-token'
 
 function getSupabase() {
   const env = process.env;
@@ -1108,6 +1110,11 @@ function speechToDigits(speech: string): string {
 // ============================================================
 
 async function handleTextChannel(phone: string, message: string, channel: Channel): Promise<NextResponse> {
+  // Recurring-service vendor crew (vendor_employees) never get a free-text
+  // conversation here — see handleVendorCrewRedirect for why.
+  const crewRedirect = await handleVendorCrewRedirect(phone, message, channel)
+  if (crewRedirect) return crewRedirect
+
   const ctx   = await buildCallerContext(phone, channel)
   const state = await getConversationState(phone)
 
@@ -1141,6 +1148,155 @@ async function handleTextChannel(phone: string, message: string, channel: Channe
   }
 
   return await routeTextMessage(phone, message, channel, ctx, state)
+}
+
+// ============================================================
+// VENDOR CREW TEXT REDIRECT
+//
+// SMS/WhatsApp has no reply-to-ticket correlation the way Gmail threadIds
+// give email replies (see ingestInboundEmailToTicket) — an inbound text has
+// nothing tying it back to a specific work order. Rather than guessing,
+// any inbound SMS/WhatsApp from a recognized recurring-service crew phone
+// (vendor_employees) is ALWAYS redirected to their upload-link form instead
+// of being parsed as free text. Whatever they actually wanted to say goes
+// in the report/suggestions field there, which DOES land on the ticket the
+// normal way (lib/service-visits.ts's crew-link send uses the same link).
+//
+// A crew member covering more than one active service is asked ONCE which
+// job this is for (short numbered menu, conversation_state-tracked) before
+// getting the link — a crew member with only one active service skips the
+// question entirely and gets the link immediately.
+//
+// Falls through to the normal webhook flow (returns null) when the phone
+// isn't a known active crew member, or when they have no visit with a
+// linked work order yet — vendor_employees phones were never part of
+// buildCallerContext's persona lookups, so they land as 'unknown' and get
+// the existing unknown-caller handoff rather than a one-off message here.
+// ============================================================
+interface VendorCrewCandidate {
+  id:                number
+  ticket_id:         number
+  service_type:      string | null
+  association_code:  string
+  week_of:           string
+  recurring_service_id: number | null
+}
+
+async function handleVendorCrewRedirect(phone: string, message: string, channel: Channel): Promise<NextResponse | null> {
+  if (channel !== 'sms' && channel !== 'whatsapp') return null
+
+  // Same normalization as buildCallerContext: strip everything but digits
+  // FIRST — the raw `phone` param still carries the leading '+' for SMS
+  // (Twilio's From is already +1XXXXXXXXXX; only 'whatsapp:' gets stripped
+  // upstream), so building variants off it directly would double up the '+'.
+  const cleanPhone = phone.replace(/\D/g, '')
+  const plusPhone  = '+' + cleanPhone
+  const shortPhone = cleanPhone.replace(/^1/, '')
+  const { data: emp } = await getSupabase()
+    .from('vendor_employees')
+    .select('id, name, cinc_vendor_id, preferred_language')
+    .eq('active', true)
+    .or(`phone.eq.${cleanPhone},phone.eq.${plusPhone},phone.eq.${shortPhone}`)
+    .limit(1).maybeSingle()
+  if (!emp || !emp.cinc_vendor_id) return null
+
+  const lang = (emp.preferred_language as string) || 'en'
+  const name = (emp.name as string) || 'there'
+
+  // Mid-selection: they're replying to "which job is this for?" with a number.
+  const state = await getConversationState(phone)
+  if (state?.current_flow === 'vendor_crew_select_visit') {
+    const candidates = ((state.temporary_data_json?.candidates ?? []) as VendorCrewCandidate[])
+    const pick   = parseInt(message.trim(), 10)
+    const chosen = Number.isFinite(pick) ? candidates[pick - 1] : undefined
+    if (!chosen) {
+      await sendReply(phone, vendorCrewPickMessage(lang, name, candidates, true), channel)
+      return NextResponse.json({ status: 'ok' })
+    }
+    await clearConversationState(phone)
+    await sendVendorCrewLink(phone, channel, emp.id as string, lang, name, chosen)
+    return NextResponse.json({ status: 'ok' })
+  }
+
+  // Fresh trigger — the vendor's most recent visit per distinct recurring
+  // service (not per row — a weekly service has a new row every week, we
+  // only want "how many different jobs", not "how many weeks of history").
+  const { data: recent } = await getSupabase()
+    .from('service_visits')
+    .select('id, ticket_id, service_type, association_code, week_of, recurring_service_id')
+    .eq('cinc_vendor_id', emp.cinc_vendor_id as string)
+    .not('ticket_id', 'is', null)
+    .order('week_of', { ascending: false })
+    .limit(20)
+
+  const seen = new Set<number>()
+  const candidates: VendorCrewCandidate[] = []
+  for (const v of ((recent ?? []) as VendorCrewCandidate[])) {
+    if (v.recurring_service_id != null) {
+      if (seen.has(v.recurring_service_id)) continue
+      seen.add(v.recurring_service_id)
+    }
+    candidates.push(v)
+    if (candidates.length >= 5) break   // cap the menu length
+  }
+  if (candidates.length === 0) return null   // no visit yet — fall through to normal/unknown handling
+
+  if (candidates.length === 1) {
+    await sendVendorCrewLink(phone, channel, emp.id as string, lang, name, candidates[0])
+    return NextResponse.json({ status: 'ok' })
+  }
+
+  await saveConversationState(phone, 'vendor_crew_select_visit', 'await_pick', { candidates })
+  await sendReply(phone, vendorCrewPickMessage(lang, name, candidates, false), channel)
+  return NextResponse.json({ status: 'ok' })
+}
+
+// Persists to service_visits.links_sent_at/links_sent_results the same way
+// lib/service-visits.ts's sendCrewUploadLinks() does, so the Manager page
+// shows accurate send status regardless of which of the two paths (staff
+// clicking "Send crew links", or the crew self-triggering via text) fired.
+async function sendVendorCrewLink(phone: string, channel: Channel, employeeId: string, lang: string, name: string, visit: VendorCrewCandidate) {
+  const token = await signVendorUploadToken(visit.ticket_id)
+  const eTok  = await signCrewToken(employeeId)
+  const link  = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'}/vendor/upload/${token}?lang=${encodeURIComponent(lang)}&e=${encodeURIComponent(eTok)}`
+
+  let result: { employee: string; channel: string; ok: boolean; detail?: string }
+  try {
+    await sendReply(phone, vendorCrewRedirectMessage(lang, name, visit.service_type, visit.association_code, link), channel)
+    result = { employee: name, channel, ok: true }
+  } catch (err) {
+    result = { employee: name, channel, ok: false, detail: (err as Error).message }
+    await getSupabase().from('service_visits')
+      .update({ links_sent_at: new Date().toISOString(), links_sent_results: [result] })
+      .eq('id', visit.id)
+    throw err   // let the caller's existing fallback-message handling still run
+  }
+
+  await getSupabase().from('service_visits')
+    .update({ links_sent_at: new Date().toISOString(), links_sent_results: [result] })
+    .eq('id', visit.id)
+}
+
+function vendorCrewRedirectMessage(lang: string, name: string, svc: string | null, assoc: string, link: string): string {
+  const service = svc ?? 'your service'
+  // Spanish is the priority second language for vendor crews (matches
+  // lib/service-visits.ts's crewMessage); everything else falls back to English.
+  if (lang === 'es') {
+    return `Hola ${name}, para enviarnos fotos, un informe o cualquier actualización de ${service} en ${assoc}, use este enlace: ${link}`
+  }
+  return `Hi ${name}, to send us photos, a report, or any update for ${service} at ${assoc}, please use this link: ${link}`
+}
+
+function vendorCrewPickMessage(lang: string, name: string, candidates: VendorCrewCandidate[], reask: boolean): string {
+  const list = candidates.map((c, i) => `${i + 1}) ${c.service_type ?? 'Service'} — ${c.association_code}`).join('\n')
+  if (lang === 'es') {
+    return reask
+      ? `No entendí. Por favor responda solo con el número:\n${list}`
+      : `Hola ${name}, ¿para cuál trabajo es esto? Responda con el número:\n${list}`
+  }
+  return reask
+    ? `Sorry, I didn't catch that. Please reply with just the number:\n${list}`
+    : `Hi ${name}, which job is this for? Reply with the number:\n${list}`
 }
 
 async function routeTextMessage(
