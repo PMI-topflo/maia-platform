@@ -12,6 +12,11 @@
 // This is a maintained snapshot, not auto-generated — update it alongside
 // the code when the flow changes (see the Voice Flow diagram's history:
 // it drifted twice already after menu changes).
+//
+// Reviewed 2026-07-07: caught one real drift — #503 (same day as this
+// diagram, landed just after) moved vendor/board Reply-To to maia@ (+
+// Paola BCC'd) so replies auto-thread onto the work order; noted on the
+// vendorInvite/staffSend steps. No structural changes since.
 
 import { useState } from 'react'
 import { COLOR, Box, Diamond, Arrow, ArrowheadDefs, NodeModal, Legend, type NodeDoc } from './FlowDiagramKit'
@@ -28,7 +33,7 @@ const DOC: Record<string, NodeDoc> = {
   },
   vendorInvite: {
     title: '🔧 Vendor — Tokenized Invite',
-    note: 'EXTERNAL step. The vendor never sees MAIA\'s admin — just a public, token-scoped page for this one RFQ. Sent from app/api/admin/work-orders/[id]/estimate-request/route.ts the moment staff kick off the request.',
+    note: 'EXTERNAL step. The vendor never sees MAIA\'s admin — just a public, token-scoped page for this one RFQ. Sent from app/api/admin/work-orders/[id]/estimate-request/route.ts the moment staff kick off the request. Reply-To is maia@ (+ Paola BCC\'d) — a vendor\'s reply auto-threads onto this work order instead of going nowhere (fixed #503, 2026-07-03).',
     source: 'app/api/admin/work-orders/[id]/estimate-request/route.ts',
     preview: {
       type: 'email', to: 'vendor@example.com',
@@ -74,7 +79,7 @@ const DOC: Record<string, NodeDoc> = {
   },
   staffSend: {
     title: '🧰 Staff — Send Comparison to Board',
-    note: 'Creates ONE estimate_approvals row for the whole comparison (vendor_request_id stays NULL — nobody\'s picked yet) + one estimate_approval_reviews row per chosen signer, each with its own unique token. Emails each signer a review link.',
+    note: 'Creates ONE estimate_approvals row for the whole comparison (vendor_request_id stays NULL — nobody\'s picked yet) + one estimate_approval_reviews row per chosen signer, each with its own unique token. Emails each signer a review link. Reply-To is maia@ (+ Paola BCC\'d) so a board member\'s reply auto-threads onto the work order (#503, 2026-07-03).',
     source: 'app/api/admin/work-orders/[id]/send-estimate-to-board/route.ts',
     preview: {
       type: 'email', to: 'board.president@example.com',

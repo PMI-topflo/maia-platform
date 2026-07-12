@@ -9,6 +9,9 @@
 // This is a maintained snapshot, not auto-generated — update it alongside
 // the code when the flow changes (see the Voice Flow diagram's history:
 // it drifted twice already after menu changes).
+//
+// Reviewed 2026-07-07: no drift found — nothing has touched the vendor
+// onboarding routes/pages since this diagram was built (2026-07-03).
 
 import { useState } from 'react'
 import { COLOR, Box, Arrow, ArrowheadDefs, NodeModal, Legend, type NodeDoc } from './FlowDiagramKit'
