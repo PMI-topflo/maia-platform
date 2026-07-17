@@ -21,12 +21,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const { data: reqRow } = await supabaseAdmin.from('estimate_requests')
     .select('id, scope, status, created_at, association_code').eq('ticket_id', ticketId).order('created_at', { ascending: false }).limit(1).maybeSingle()
-  if (!reqRow) return NextResponse.json({ request: null, vendors: [], boardMembers: [] })
+  if (!reqRow) return NextResponse.json({ request: null, vendors: [] })
 
-  // Board members for the signer picker (the President is pre-selected by default).
-  const { data: boardRows } = await supabaseAdmin.from('association_board_members')
-    .select('id, name, role').eq('association_code', reqRow.association_code).eq('active', true).order('sort_order', { ascending: true })
-  const boardMembers = (boardRows ?? []).map(m => ({ id: m.id as string, name: m.name as string, role: (m.role as string | null) ?? null }))
+  // Committee members for the signer picker are fetched independently by
+  // the shared BoardMemberPicker component (purpose='estimate').
 
   const { data: vrows } = await supabaseAdmin.from('estimate_request_vendors')
     .select('id, vendor_name, status, respond_by, submitted_at, extracted_amount, estimate_summary, estimate_path')
@@ -56,9 +54,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     .select('id, vendor_name, amount, status, required, created_at').eq('ticket_id', ticketId).order('created_at', { ascending: false }).limit(1).maybeSingle()
   let approval = null as null | { vendor_name: string | null; amount: number | null; status: string; required: number; approvals: number }
   if (appr) {
-    const { count } = await supabaseAdmin.from('estimate_approval_reviews').select('id', { count: 'exact', head: true }).eq('approval_id', appr.id).eq('decision', 'approve')
+    const { count } = await supabaseAdmin.from('estimate_approval_reviews').select('id', { count: 'exact', head: true }).eq('approval_id', appr.id).eq('decision', 'approve').eq('member_type', 'decider')
     approval = { vendor_name: appr.vendor_name, amount: appr.amount != null ? Number(appr.amount) : null, status: appr.status, required: appr.required, approvals: count ?? 0 }
   }
 
-  return NextResponse.json({ request: { id: reqRow.id, scope: reqRow.scope, status: reqRow.status }, vendors, approval, boardMembers })
+  return NextResponse.json({ request: { id: reqRow.id, scope: reqRow.scope, status: reqRow.status, association_code: reqRow.association_code }, vendors, approval })
 }

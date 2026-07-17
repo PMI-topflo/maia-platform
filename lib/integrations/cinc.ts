@@ -794,6 +794,230 @@ export function invalidateContactsFlagCache(): void {
   _contactsFlagCache = null
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Contacts and Consent v2 — readiness scaffolding (2026-07-15).
+//
+// Shapes below are pulled directly from CINC's live public Swagger
+// (https://integration.cincsys.io/api/swagger/docs/1.40.0 — no auth
+// required), NOT the static QRG PDF, which undersells what v2 actually
+// returns. Confirmed live-probed 2026-07-15: PMITFP prod tenant still
+// has IsContactsFlagOn=false, so NONE of this is wired into the active
+// v1 code path (listAssociationProperties above is untouched and still
+// v1-only). This is preparatory only.
+//
+// ⚠ UNRESOLVED GAP — do not route to v2 until this is settled:
+// PropertyInformationV2Vm (the v2 associationWithProperty per-property
+// row) has NO `isCurrentOwner` or `OwnerNumber` fields — both exist on
+// every v1 shape (PropertyInformationVm, HomeownerLookupVm) but are
+// absent from every v2 shape we could find in Swagger. lib/cinc-sync.ts
+// buildSyncPreview() filters `cincProperties.filter(p => p.isCurrentOwner)`
+// and uses OwnerNumber-style dual-slot rows to represent joint owners —
+// this is the load-bearing CINC↔MAIA owner-reconciliation feature.
+//
+// Working hypothesis (UNVERIFIED — no sandbox credentials yet to test
+// live): v2 restructured the model rather than just relocating fields.
+// v1 represented joint owners as TWO separate PropertyInfo rows (one
+// per OwnerNumber slot) and mixed in historical-owner rows filtered by
+// isCurrentOwner. v2's PropertyInformationV2Vm instead embeds BOTH
+// contacts directly on one row (PropertyContact1FirstName/LastName +
+// PropertyContact2FirstName/LastName), which would make OwnerNumber
+// unnecessary — and may mean this endpoint only ever returns the
+// CURRENT owner per property now (no historical rows to filter out),
+// which would make isCurrentOwner unnecessary too. listAssociationPropertiesV2
+// below assumes this and treats every returned property as current
+// (isCurrentOwner: true) — VERIFY against the CINC sandbox
+// (https://ccintegration.cincsys.io, credentials pending) or ask CINC
+// support directly before enabling this path in listAssociationProperties().
+// ─────────────────────────────────────────────────────────────────────
+
+/** GET /management/1/homeowners/propertyContacts response shape
+ *  (HomeownerPropertyContactVm in CINC's Swagger). One row per contact
+ *  on a homeowner's Contacts tab — richer than what associationWithProperty
+ *  v2 exposes (secondary email, consent preference, tenant/board flags),
+ *  but NOT required for MAIA's current field usage (see
+ *  listAssociationPropertiesV2 below, which reconstructs everything
+ *  MAIA actually reads from the v2 associationWithProperty call alone). */
+export interface CincPropertyContact {
+  AssocId?:               number
+  AssocCode?:             string | null
+  HoId?:                  string | null
+  PropertyId?:            number
+  PropertyContactId?:     number
+  ContactFirstName?:      string | null
+  ContactLastName?:       string | null
+  BusinessName?:          string | null
+  UseBusinessName?:       boolean | null
+  PropertyContactTypeId?: number
+  PropertyContactType?:   string | null
+  ContactHomePhone?:      string | null
+  ContactWorkPhone?:      string | null
+  ContactMobilePhone?:    string | null
+  ContactEmail?:          string | null
+  ContactSecondaryEmail?: string | null
+  ContactPreference?:     number   // 0=Email, 1=Mail, 2=Both
+  IsOwner?:               boolean
+  IsBoardCommitteeMember?: boolean
+  IsTenant?:              boolean
+  IsPreviousTenant?:      boolean
+}
+
+/** GET /management/1/homeowners/propertyContacts — returns every
+ *  contact on a homeowner's Contacts tab. Swagger declares a single
+ *  HomeownerPropertyContactVm as the response schema, but (like several
+ *  other CINC list endpoints — see postApprovedInvoice above) it very
+ *  likely returns an array in practice for a property with multiple
+ *  contacts; handled defensively either way. Not yet called by any
+ *  MAIA code path — exists so it's ready if the isCurrentOwner gap
+ *  above turns out to require a per-contact ownership check. */
+export async function listPropertyContacts(propertyId: number): Promise<CincPropertyContact[]> {
+  const data = await call<CincPropertyContact[] | CincPropertyContact>(
+    '/management/1/homeowners/propertyContacts',
+    { method: 'GET', query: { propertyId } },
+  ).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) return []
+    throw err
+  })
+  if (!data) return []
+  return Array.isArray(data) ? data : [data]
+}
+
+/** v2 per-address row (PropertyContactShortenedMailingAddressVm) — note
+ *  there is NO OwnerAddress boolean in v2 (unlike v1's CincPropertyAddress);
+ *  "is this the offsite/billing address" must be derived from
+ *  AddressTypeDescription text instead. */
+export interface CincPropertyContactAddressV2 {
+  PropertyAddressId?:       number
+  AddressTypeId?:           number
+  AddressTypeDescription?:  string | null
+  StreetNumber?:            number | string | null
+  AddressLine1?:            string | null
+  AddressLine2?:            string | null
+  Unit?:                    string | null
+  City?:                    string | null
+  State?:                   string | null
+  Zip?:                     string | null
+  Country?:                 string | null
+}
+
+/** v2 per-property row (PropertyInformationV2Vm). Contact names/phone/
+ *  email now live directly here (once per property) instead of per
+ *  address — see the module comment above for the isCurrentOwner /
+ *  OwnerNumber gap. */
+export interface CincPropertyInfoV2 {
+  AssocId?:                     number
+  AssocCode?:                   string | null
+  AssociationName?:             string | null
+  PropertyId:                   number
+  HoId?:                        string | null
+  PropertyContact1FirstName?:   string | null
+  PropertyContact1LastName?:    string | null
+  PropertyContact2FirstName?:   string | null
+  PropertyContact2LastName?:    string | null
+  HomePhone?:                   string | null
+  WorkPhone?:                   string | null
+  MobilePhone?:                 string | null
+  PropertyContact1Email?:       string | null
+  BillingTypeId?:                number
+  BillingType?:                  string | null
+  UnitNo?:                      string | null
+  PostedDate?:                  string | null
+  SettledDate?:                 string | null
+  Addresses?:                   CincPropertyContactAddressV2[]
+}
+
+interface CincPropertyInfoByAssociationV2 {
+  Properties: CincPropertyInfoV2[]
+}
+
+/** NOT YET WIRED IN — see the ⚠ UNRESOLVED GAP comment above. Calls
+ *  GET /management/2/homeowners/associationWithProperty and reconstructs
+ *  the v1 CincPropertyInfo[] shape (two synthetic Address rows per
+ *  property — a "Property Address" row carrying names/phone/email, and
+ *  the real offsite/billing row from v2's Addresses[]) so existing
+ *  consumers (lib/cinc-sync.ts snapshotsFromCincProperty, the owner ACH
+ *  routes) can keep reading CincPropertyAddress.FirstName / .LastName /
+ *  .FirstName1 / .LastName1 / .Email / phones / .OwnerAddress exactly
+ *  as they do today. isCurrentOwner is hardcoded true (see gap comment);
+ *  OwnerNumber is omitted (undefined) since v2 has no equivalent
+ *  concept — joint owners are both embedded in one row now. */
+export async function listAssociationPropertiesV2(assocCode: string): Promise<CincPropertyInfo[]> {
+  console.warn(
+    '[CINC] listAssociationPropertiesV2 called — this path assumes every ' +
+    'v2 associationWithProperty row is the current owner (isCurrentOwner ' +
+    'gap, see lib/integrations/cinc.ts). Confirm against the CINC sandbox ' +
+    'or with CINC support before trusting this in a live sync.',
+  )
+  const wrap = await call<CincPropertyInfoByAssociationV2>('/management/2/homeowners/associationWithProperty', {
+    method: 'GET',
+    query:  { assocCode: assocCode.toUpperCase() },
+  }).catch(err => {
+    if (err instanceof CincApiError && err.status && err.status >= 400 && err.status < 500) return null
+    throw err
+  })
+  const properties = wrap?.Properties ?? []
+
+  return properties.map((p): CincPropertyInfo => {
+    const addresses = p.Addresses ?? []
+    const offsite    = addresses.find(a => /offsite/i.test(a.AddressTypeDescription ?? '')) ?? null
+    const propertyLoc = addresses.find(a => !/offsite/i.test(a.AddressTypeDescription ?? '')) ?? addresses[0] ?? null
+
+    // Synthetic "Property Address" row — carries the dual-contact names
+    // + phone + email that v1 stored per-address and v2 now stores
+    // once per property. Mirrors v1's OwnerAddress=false row.
+    const propertyAddressRow: CincPropertyAddress = {
+      PropertyAddressId:       propertyLoc?.PropertyAddressId ?? 0,
+      FirstName:               p.PropertyContact1FirstName ?? null,
+      LastName:                p.PropertyContact1LastName ?? null,
+      FirstName1:              p.PropertyContact2FirstName ?? null,
+      LastName1:               p.PropertyContact2LastName ?? null,
+      StreetNumber:            propertyLoc?.StreetNumber ?? null,
+      Address:                 propertyLoc?.AddressLine1 ?? null,
+      City:                    propertyLoc?.City ?? null,
+      State:                   propertyLoc?.State ?? null,
+      Zip:                     propertyLoc?.Zip ?? null,
+      Email:                   p.PropertyContact1Email ?? null,
+      HomePhone:               p.HomePhone ?? null,
+      WorkPhone:               p.WorkPhone ?? null,
+      MobilePhone:             p.MobilePhone ?? null,
+      Address2:                propertyLoc?.AddressLine2 ?? null,
+      AddressTypeId:           propertyLoc?.AddressTypeId,
+      AddressTypeDescription:  propertyLoc?.AddressTypeDescription ?? 'Property Address',
+      OwnerAddress:            false,
+    }
+
+    const rows: CincPropertyAddress[] = [propertyAddressRow]
+    if (offsite) {
+      rows.push({
+        PropertyAddressId:       offsite.PropertyAddressId ?? 0,
+        StreetNumber:            offsite.StreetNumber ?? null,
+        Address:                 offsite.AddressLine1 ?? null,
+        City:                    offsite.City ?? null,
+        State:                   offsite.State ?? null,
+        Zip:                     offsite.Zip ?? null,
+        Address2:                offsite.AddressLine2 ?? null,
+        AddressTypeId:           offsite.AddressTypeId,
+        AddressTypeDescription:  offsite.AddressTypeDescription ?? 'Owner’s Offsite Address',
+        OwnerAddress:            true,
+      })
+    }
+
+    return {
+      AssocID:        p.AssocId ?? 0,
+      AssocCode:       p.AssocCode ?? assocCode,
+      PropertyID:      p.PropertyId,
+      // ⚠ ASSUMPTION — see module comment. v2 has no isCurrentOwner field;
+      // treating every returned row as current until verified otherwise.
+      isCurrentOwner:  true,
+      OwnerNumber:     undefined,
+      PropertyHOID:    p.HoId ?? null,
+      UnitNo:          p.UnitNo ?? null,
+      PostedDate:      p.PostedDate ?? null,
+      SettledDate:     p.SettledDate ?? null,
+      Address:         rows,
+    }
+  })
+}
+
 export interface CincBoardMember {
   AssocCode:                 string
   AssocId:                   number
@@ -2545,6 +2769,32 @@ export async function createInvoiceNote(opts: {
       NoteDate:    new Date().toISOString(),
       NoteContent: opts.content.slice(0, 2000),
       DeletedFlag: false,
+    },
+  })
+}
+
+/** PUT /accounting/approveInvoice — moves an EXISTING invoice from
+ *  PENDING APPROVAL to CINC's approved/Ready for Payment status, so
+ *  board members no longer need to separately approve it in WebAxis.
+ *
+ *  ⚠ UNVERIFIED: CINC_API.md lists this endpoint but no request/response
+ *  shape was ever documented or exercised in this codebase — postApprovedInvoice
+ *  (a different endpoint, for creating a NEW invoice directly in Ready for
+ *  Payment) was previously "the furthest forward MAIA can move an invoice
+ *  via the API." Body shape below follows CINC's InvoiceID + ApprovalDate
+ *  convention used by the sibling approvedInvoices/invoiceNotes endpoints,
+ *  but has NOT been confirmed against a real invoice. Smoke-test on one
+ *  real invoice before relying on this broadly. Best-effort: callers
+ *  should treat failure as "still needs WebAxis approval," not fatal. */
+export async function approveInvoice(opts: {
+  invoiceId:     number
+  approvalDate?: string | null
+}): Promise<void> {
+  await call<unknown>('/management/1/accounting/approveInvoice', {
+    method: 'PUT',
+    json:   {
+      InvoiceID:    opts.invoiceId,
+      ApprovalDate: opts.approvalDate ?? new Date().toISOString().slice(0, 10),
     },
   })
 }

@@ -22,9 +22,8 @@ Snapshot for picking up on another machine. Everything below is **live in produc
   - (Dropped mid-build, don't resurrect without re-confirming: Sunbiz-document-upload auto-extraction for the address/filing fields — user caught that a Sunbiz printout's "Principal Address" is often the *registered agent's* address, not the real property, which is exactly what Checkr background checks and `/apply` lease-matching need. Manual entry only, by design.)
 
 **Pending your action:**
-- Still unresolved from last session: confirm whether production's Stripe key is live or test mode before any real applicant pays (got sidetracked into the invoice-PDF bug before finishing this).
-- Decide whether to keep the hosted-Checkout-redirect Stripe flow as-is (confirmed) vs. rebuild with Embedded Components — you picked "keep as-is," not yet actioned (just needs the live key swapped in once confirmed).
-- 18 invoices (see above) still need their Drive copy re-mirrored by hand — list is in the PDF-fix commit message / this session's transcript.
+- ✅ **RESOLVED 2026-07-13: Stripe is confirmed LIVE (production mode).** Next step is not a config check anymore — **run one real end-to-end test application** through `/apply` (real card, real Checkr order) to confirm the live-mode path works exactly like test-mode did.
+- ✅ **RESOLVED 2026-07-13: no Drive re-mirror needed** — user confirmed the 18 invoices' Drive copies are already fine, nothing further to do there.
 - TROP needs its real address / Sunbiz filing info / board-approval signature count entered (the UI now exists — `/admin/cinc-sync/TROP` → Edit details / `/admin/board-setup`).
 - Decide if other associations besides TROP are missing the same core-identity fields (only TROP and the original 25 were checked this session).
 
@@ -39,7 +38,7 @@ Full detail in `docs/ROADMAP.md`'s top section and memory `screening_provider_pi
 **Real bugs found and fixed along the way (not just features):** webhook envelope had the wrong ID-extraction order (would have silently matched every real webhook to the wrong row); a resumed application draft never rehydrated previously-uploaded documents (silent data loss on resubmit); Vercel Production had zero Checkr env vars and the auto-triggered deploy needed a manual redeploy to actually bind new ones; multi-applicant apps had no way to see either person's Checkr report once complete.
 
 **Pending your action:**
-- Confirm whether production's Stripe key is live or test mode (couldn't check directly — it's a Vercel "sensitive" var) before any real applicant pays.
+- ✅ **RESOLVED 2026-07-13: Stripe confirmed live** (see the 2026-07-12/13 section above) — remaining step is a real end-to-end test application, not a mode check.
 - Decide the target Google Drive folder/organization for the final combined-PDF-package feature (documents + reports + signed rules ack + signed approval letter, one download) — the upload mechanism is already known (same pattern as `lib/drive-invoice-mirror.ts`), just needs a folder decision.
 - Confirm whether the board's "approval letter" (currently just template text shown on the review page) should become a real signed PDF artifact too, for that same combined package.
 - Still want a "Flows" diagram for the application process, matching the existing click-to-popup style — not started this session.

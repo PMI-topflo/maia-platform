@@ -32,6 +32,16 @@ interface BoardMember {
 interface BoardConfig {
   required_signatures: number;
   approval_letter_template: string | null;
+  reminder_cadence: string;
+}
+
+interface CommitteeEntry {
+  id: string;
+  name: string;
+  email: string;
+  role: string | null;
+  active: boolean;
+  member_type: 'decider' | 'voter' | null;
 }
 
 interface Props {
@@ -39,6 +49,20 @@ interface Props {
 }
 
 const ROLES = ['President', 'Vice President', 'Secretary', 'Treasurer', 'Member'];
+
+type Purpose = 'application' | 'invoice' | 'estimate';
+const PURPOSES: { key: Purpose; label: string }[] = [
+  { key: 'application', label: 'Application Approval' },
+  { key: 'invoice', label: 'Invoice Approval' },
+  { key: 'estimate', label: 'Estimate Approval' },
+];
+
+const CADENCES: { value: string; label: string }[] = [
+  { value: 'off', label: 'No reminders' },
+  { value: 'every_2_days', label: 'Every 2 days' },
+  { value: 'every_3_days', label: 'Every 3 days' },
+  { value: 'weekly', label: 'Weekly' },
+];
 
 // ---------------------------------------------------------------------------
 // EditRow — inline editing for a board member
@@ -239,43 +263,61 @@ function EditRow({
 
 export default function BoardSetupClient({ associations }: Props) {
   const [selectedCode, setSelectedCode] = useState<string>('');
+  const [purpose, setPurpose] = useState<Purpose>('application');
   const [members, setMembers] = useState<BoardMember[]>([]);
-  const [config, setConfig] = useState<BoardConfig>({ required_signatures: 1, approval_letter_template: null });
+  const [config, setConfig] = useState<BoardConfig>({ required_signatures: 1, approval_letter_template: null, reminder_cadence: 'off' });
+  const [committee, setCommittee] = useState<CommitteeEntry[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
+  const [loadingCommittee, setLoadingCommittee] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
   const [configSaved, setConfigSaved] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [committeeSaving, setCommitteeSaving] = useState(false);
+  const [committeeSaved, setCommitteeSaved] = useState(false);
+  const [committeeError, setCommitteeError] = useState<string | null>(null);
 
   // Add member form
   const [addForm, setAddForm] = useState({ name: '', email: '', role: '', sort_order: 0 });
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
-  const fetchData = useCallback(async (code: string) => {
+  const fetchMembers = useCallback(async (code: string) => {
     setLoadingMembers(true);
-    setLoadingConfig(true);
+    const membersRes = await fetch(`/api/admin/board-members?code=${encodeURIComponent(code)}`).then((r) => r.json());
+    if (membersRes.ok) setMembers(membersRes.members ?? []);
+    setLoadingMembers(false);
+  }, []);
 
-    const [membersRes, configRes] = await Promise.all([
-      fetch(`/api/admin/board-members?code=${encodeURIComponent(code)}`).then((r) => r.json()),
-      fetch(`/api/admin/board-config?code=${encodeURIComponent(code)}`).then((r) => r.json()),
+  const fetchPurposeScoped = useCallback(async (code: string, p: Purpose) => {
+    setLoadingConfig(true);
+    setLoadingCommittee(true);
+
+    const [configRes, committeeRes] = await Promise.all([
+      fetch(`/api/admin/board-config?code=${encodeURIComponent(code)}&purpose=${p}`).then((r) => r.json()),
+      fetch(`/api/admin/board-approval-members?code=${encodeURIComponent(code)}&purpose=${p}`).then((r) => r.json()),
     ]);
 
-    if (membersRes.ok) setMembers(membersRes.members ?? []);
     if (configRes.ok) {
       setConfig({
         required_signatures: configRes.required_signatures ?? 1,
         approval_letter_template: configRes.approval_letter_template ?? null,
+        reminder_cadence: configRes.reminder_cadence ?? 'off',
       });
     }
+    if (committeeRes.ok) setCommittee(committeeRes.members ?? []);
 
-    setLoadingMembers(false);
     setLoadingConfig(false);
+    setLoadingCommittee(false);
   }, []);
 
   useEffect(() => {
-    if (selectedCode) fetchData(selectedCode);
-  }, [selectedCode, fetchData]);
+    if (selectedCode) fetchMembers(selectedCode);
+  }, [selectedCode, fetchMembers]);
+
+  useEffect(() => {
+    if (selectedCode) fetchPurposeScoped(selectedCode, purpose);
+  }, [selectedCode, purpose, fetchPurposeScoped]);
 
   async function saveConfig() {
     if (!selectedCode) return;
@@ -288,8 +330,10 @@ export default function BoardSetupClient({ associations }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           association_code: selectedCode,
+          purpose,
           required_signatures: config.required_signatures,
           approval_letter_template: config.approval_letter_template || null,
+          reminder_cadence: config.reminder_cadence,
         }),
       });
       const json = await res.json();
@@ -303,6 +347,38 @@ export default function BoardSetupClient({ associations }: Props) {
     }
   }
 
+  function setCommitteeType(memberId: string, memberType: 'decider' | 'voter' | null) {
+    setCommittee((prev) => prev.map((m) => (m.id === memberId ? { ...m, member_type: memberType } : m)));
+  }
+
+  async function saveCommittee() {
+    if (!selectedCode) return;
+    setCommitteeSaving(true);
+    setCommitteeError(null);
+    setCommitteeSaved(false);
+    try {
+      const res = await fetch('/api/admin/board-approval-members', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          association_code: selectedCode,
+          purpose,
+          members: committee
+            .filter((m) => m.member_type)
+            .map((m) => ({ board_member_id: m.id, member_type: m.member_type })),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? 'Save failed');
+      setCommitteeSaved(true);
+      setTimeout(() => setCommitteeSaved(false), 3000);
+    } catch (err) {
+      setCommitteeError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setCommitteeSaving(false);
+    }
+  }
+
   async function handleSaveMember(id: string, patch: Partial<BoardMember>) {
     const res = await fetch(`/api/admin/board-members/${id}`, {
       method: 'PATCH',
@@ -312,6 +388,7 @@ export default function BoardSetupClient({ associations }: Props) {
     const json = await res.json();
     if (json.ok && json.member) {
       setMembers((prev) => prev.map((m) => (m.id === id ? json.member : m)));
+      if (selectedCode) fetchPurposeScoped(selectedCode, purpose);
     }
   }
 
@@ -320,6 +397,7 @@ export default function BoardSetupClient({ associations }: Props) {
     const json = await res.json();
     if (json.ok) {
       setMembers((prev) => prev.filter((m) => m.id !== id));
+      if (selectedCode) fetchPurposeScoped(selectedCode, purpose);
     }
   }
 
@@ -344,6 +422,7 @@ export default function BoardSetupClient({ associations }: Props) {
       if (!res.ok || !json.ok) throw new Error(json.error ?? 'Add failed');
       setMembers((prev) => [...prev, json.member]);
       setAddForm({ name: '', email: '', role: '', sort_order: 0 });
+      fetchPurposeScoped(selectedCode, purpose);
     } catch (err) {
       setAddError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -379,6 +458,23 @@ export default function BoardSetupClient({ associations }: Props) {
       {selectedCode && (
         <div className="space-y-10">
 
+          {/* ── Purpose selector ── */}
+          <div className="flex gap-1 border-b border-gray-200">
+            {PURPOSES.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => setPurpose(p.key)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  purpose === p.key
+                    ? 'border-[#f26a1b] text-[#f26a1b]'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
           {/* ── Board Config ── */}
           <section>
             <h2 className="text-lg font-bold text-[#0d0d0d] border-l-4 border-[#f26a1b] pl-3 mb-5">
@@ -409,6 +505,25 @@ export default function BoardSetupClient({ associations }: Props) {
                       </label>
                     ))}
                   </div>
+                </div>
+
+                {/* Reminder cadence */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Reminder Cadence
+                  </label>
+                  <select
+                    value={config.reminder_cadence}
+                    onChange={(e) => setConfig((c) => ({ ...c, reminder_cadence: e.target.value }))}
+                    className="w-full max-w-xs rounded border border-gray-300 px-3 py-2 text-sm bg-white focus:border-[#f26a1b] focus:outline-none"
+                  >
+                    {CADENCES.map((c) => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    How often to nudge board members who haven&apos;t decided yet. Stops automatically once decided.
+                  </p>
                 </div>
 
                 {/* Approval letter template */}
@@ -552,6 +667,64 @@ export default function BoardSetupClient({ associations }: Props) {
                   </form>
                 </div>
               </>
+            )}
+          </section>
+
+          {/* ── Committee (Deciders / Voters) for the selected purpose ── */}
+          <section>
+            <h2 className="text-lg font-bold text-[#0d0d0d] border-l-4 border-[#f26a1b] pl-3 mb-2">
+              Committee — {PURPOSES.find((p) => p.key === purpose)?.label}
+            </h2>
+            <p className="text-xs text-gray-500 mb-4">
+              Who gets sent {purpose} approval links. A <strong>Decider&apos;s</strong> approval counts toward the required signatures above and can close the approval; a <strong>Voter&apos;s</strong> approval is recorded but advisory only.
+            </p>
+
+            {loadingCommittee ? (
+              <p className="text-sm text-gray-400">Loading committee…</p>
+            ) : committee.filter((m) => m.active).length === 0 ? (
+              <p className="text-sm text-gray-400">No active board members to configure.</p>
+            ) : (
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden max-w-2xl">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 uppercase tracking-wide">Name</th>
+                      <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 uppercase tracking-wide">Role</th>
+                      <th className="px-4 py-2.5 text-xs font-semibold text-gray-600 uppercase tracking-wide text-center">Committee Role</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {committee.filter((m) => m.active).map((m) => (
+                      <tr key={m.id} className="border-b border-gray-100 last:border-0">
+                        <td className="px-4 py-3 text-sm font-medium text-[#0d0d0d]">{m.name}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{m.role ?? '—'}</td>
+                        <td className="px-4 py-3 text-center">
+                          <select
+                            value={m.member_type ?? ''}
+                            onChange={(e) => setCommitteeType(m.id, (e.target.value || null) as 'decider' | 'voter' | null)}
+                            className="rounded border border-gray-300 px-2 py-1 text-sm bg-white focus:border-[#f26a1b] focus:outline-none"
+                          >
+                            <option value="">Not on committee</option>
+                            <option value="voter">Voter</option>
+                            <option value="decider">Decider</option>
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="flex items-center gap-3 px-4 py-3 border-t border-gray-100 bg-gray-50">
+                  <button
+                    onClick={saveCommittee}
+                    disabled={committeeSaving}
+                    className="px-5 py-2 rounded bg-[#f26a1b] text-white text-sm font-medium hover:bg-orange-600 disabled:opacity-50 transition-colors"
+                  >
+                    {committeeSaving ? 'Saving…' : 'Save Committee'}
+                  </button>
+                  {committeeSaved && <span className="text-sm text-green-600 font-medium">Saved!</span>}
+                  {committeeError && <span className="text-sm text-red-600">{committeeError}</span>}
+                </div>
+              </div>
             )}
           </section>
         </div>

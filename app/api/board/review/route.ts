@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
     }
 
     const { data: config } = associationCode
-      ? await supabaseAdmin.from('association_config').select('approval_letter_template').eq('association_code', associationCode).maybeSingle()
+      ? await supabaseAdmin.from('board_approval_config').select('approval_letter_template').eq('association_code', associationCode).eq('purpose', 'application').maybeSingle()
       : { data: null };
 
     const { documents, acknowledgedDocs, stakeholders, subjects } = await assembleBoardPackage(application, previewId);
@@ -169,11 +169,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Application not found' }, { status: 404 });
   }
 
-  // Fetch approval letter template from association_config
+  // Fetch approval letter template from the per-purpose board config
   const { data: config } = await supabaseAdmin
-    .from('association_config')
+    .from('board_approval_config')
     .select('approval_letter_template')
     .eq('association_code', review.association_code)
+    .eq('purpose', 'application')
     .maybeSingle();
 
   const letterTemplate = config?.approval_letter_template ?? null;
@@ -285,21 +286,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, moreInfoRequested: true });
   }
 
-  // Fetch association config for required_signatures threshold
+  // Fetch per-purpose board config for the required_signatures threshold
   const { data: config } = await supabaseAdmin
-    .from('association_config')
+    .from('board_approval_config')
     .select('required_signatures')
     .eq('association_code', review.association_code)
+    .eq('purpose', 'application')
     .maybeSingle();
 
   const requiredSignatures: number = config?.required_signatures ?? 1;
 
-  // Count approved decisions for this application
+  // Count approved decisions from DECIDERS only -- voter approvals are
+  // recorded above but never count toward the threshold (see member_type
+  // on application_board_reviews, snapshotted at send-time).
   const { count: approvedCount } = await supabaseAdmin
     .from('application_board_reviews')
     .select('id', { count: 'exact', head: true })
     .eq('application_id', review.application_id)
-    .eq('decision', 'approved');
+    .eq('decision', 'approved')
+    .eq('member_type', 'decider');
 
   const totalApproved = approvedCount ?? 0;
   const thresholdMet = totalApproved >= requiredSignatures;

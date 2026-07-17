@@ -115,10 +115,12 @@ export async function POST(req: Request) {
     await supabaseAdmin.from('association_board_members').update({ signature_image: signature }).eq('association_code', approval.association_code).eq('email', review.board_member_email).then(() => null, () => null)
   }
 
-  // Count approvals for the SAME vendor; the first vendor to reach `required`
-  // wins. (Signers who pick different vendors simply don't reach the threshold.)
+  // Count DECIDER approvals for the SAME vendor; the first vendor to reach
+  // `required` wins. Voter approvals are recorded above but never count
+  // toward the threshold. (Signers who pick different vendors simply don't
+  // reach the threshold.)
   const { count } = await supabaseAdmin.from('estimate_approval_reviews')
-    .select('id', { count: 'exact', head: true }).eq('approval_id', approval.id).eq('decision', 'approve').eq('selected_vendor_request_id', selectedId)
+    .select('id', { count: 'exact', head: true }).eq('approval_id', approval.id).eq('decision', 'approve').eq('selected_vendor_request_id', selectedId).eq('member_type', 'decider')
   const approvals = count ?? 0
   const vendorName = picked.vendor_name as string | null
   const finalized = approvals >= approval.required

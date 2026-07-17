@@ -54,27 +54,31 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const { data: ticket } = await supabaseAdmin.from('tickets').select('ticket_number').eq('id', ticketId).single()
 
-  // Paola chooses which board members must sign. Default = President only;
-  // fall back to required_signatures members if there's no President.
+  // Paola chooses which board members get the link; default = the whole
+  // configured committee for this purpose (deciders + voters).
   const signerIds: string[] = Array.isArray(body.signer_ids) ? body.signer_ids.map(String).filter(Boolean) : []
-  const { data: config } = await supabaseAdmin.from('association_config').select('required_signatures').eq('association_code', assoc).maybeSingle()
-  const { data: members } = await supabaseAdmin.from('association_board_members')
-    .select('id, name, role, email, substitute_active, substitute_name, substitute_email').eq('association_code', assoc).eq('active', true).order('sort_order', { ascending: true })
-  let chosen = members ?? []
-  if (signerIds.length) {
-    chosen = chosen.filter(m => signerIds.includes(m.id as string))
-  } else {
-    const pres = chosen.filter(m => /president/i.test((m.role as string) ?? ''))
-    chosen = pres.length ? pres : chosen.slice(0, config?.required_signatures ?? 1)
+  const { data: config } = await supabaseAdmin.from('board_approval_config').select('required_signatures').eq('association_code', assoc).eq('purpose', 'estimate').maybeSingle()
+  const { data: committee } = await supabaseAdmin.from('board_approval_members')
+    .select('board_member_id, member_type, association_board_members(id, name, email, active, substitute_active, substitute_name, substitute_email)')
+    .eq('association_code', assoc).eq('purpose', 'estimate')
+  type CommitteeRow = {
+    board_member_id: string
+    member_type: 'decider' | 'voter'
+    association_board_members: { id: string; name: string; email: string; active: boolean; substitute_active: boolean; substitute_name: string | null; substitute_email: string | null } | null
   }
+  let chosen = ((committee ?? []) as unknown as CommitteeRow[]).filter(c => c.association_board_members?.active)
+  if (signerIds.length) chosen = chosen.filter(c => signerIds.includes(c.board_member_id))
   const targets = chosen
-    .map(m => ({ name: m.substitute_active && m.substitute_name ? m.substitute_name : m.name, email: m.substitute_active && m.substitute_email ? m.substitute_email : m.email }))
+    .map(c => {
+      const m = c.association_board_members!
+      return { name: m.substitute_active && m.substitute_name ? m.substitute_name : m.name, email: m.substitute_active && m.substitute_email ? m.substitute_email : m.email, memberType: c.member_type }
+    })
     .filter(t => t.email && t.email.includes('@'))
-  const required = targets.length || 1
-  if (targets.length === 0) return NextResponse.json({ error: 'No active board members with email for this association' }, { status: 400 })
+  if (targets.length === 0) return NextResponse.json({ error: 'No committee configured for estimate approval on this association — set it up in Board Setup first' }, { status: 400 })
+  const required = config?.required_signatures ?? 1
 
   // The approval row holds the COMPARISON; the winning vendor/amount get
-  // stamped on once `required` signers pick the same vendor.
+  // stamped on once `required` DECIDERS pick the same vendor.
   const { data: approval } = await supabaseAdmin.from('estimate_approvals').insert({
     request_id: reqRow.id, ticket_id: ticketId, association_code: assoc,
     scope: reqRow.scope ?? null, required, created_by: actor,
@@ -102,7 +106,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const sentTo: string[] = []
   for (const t of targets) {
     const tk = crypto.randomUUID()
-    const { error: insErr } = await supabaseAdmin.from('estimate_approval_reviews').insert({ approval_id: approval.id, board_member_name: t.name, board_member_email: t.email, token: tk })
+    const { error: insErr } = await supabaseAdmin.from('estimate_approval_reviews').insert({ approval_id: approval.id, board_member_name: t.name, board_member_email: t.email, member_type: t.memberType, token: tk })
     if (insErr) continue
     const link = `${APP}/board/estimate?token=${tk}`
     await sendEmail({

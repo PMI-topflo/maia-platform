@@ -74,7 +74,31 @@ async function getData() {
     }
   }
 
-  return { applications: applications ?? [], documentLookup, subjectsByApplication };
+  // Resolve each application's association_code from its display name --
+  // applications has no association_code column of its own (send-to-board
+  // does the same associations-table lookup at send time); doing it once
+  // here lets the client show the right committee in the send-to-board
+  // member picker without an extra round trip per row.
+  const associationNames = new Set<string>();
+  for (const a of (applications ?? []) as ApplicationRow[]) {
+    if (typeof a.association === 'string' && a.association) associationNames.add(a.association);
+  }
+  const codeByName: Record<string, string> = {};
+  if (associationNames.size > 0) {
+    const { data: assocRows } = await supabase
+      .from('associations')
+      .select('association_code, association_name')
+      .in('association_name', [...associationNames]);
+    for (const r of (assocRows ?? [])) {
+      if (r.association_name) codeByName[r.association_name as string] = r.association_code as string;
+    }
+  }
+  const applicationsWithCode = (applications ?? []).map((a) => ({
+    ...a,
+    association_code: typeof a.association === 'string' ? (codeByName[a.association] ?? null) : null,
+  }));
+
+  return { applications: applicationsWithCode, documentLookup, subjectsByApplication };
 }
 
 export default async function ApplicationsPage() {
