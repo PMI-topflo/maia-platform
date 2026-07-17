@@ -197,6 +197,19 @@ export async function sendCrewUploadLinks(visitId: number, employeeIds?: string[
 
   const token = await signVendorUploadToken(v.ticket_id)
   const svc   = v.service_type ?? 'service'
+  // Vendors recognize a property by its NAME, not our internal code — the
+  // Ansin crew got "WBPA" and didn't realize it was their site (there's
+  // also a sibling "WBP" for Wedgewood 57th Terrace, so the code is
+  // genuinely ambiguous). Show the association name; fall back to the code.
+  const { data: assocRow } = await supabaseAdmin
+    .from('associations').select('association_name, principal_address, city, state, zip').eq('association_code', v.association_code).maybeSingle()
+  const assocLabel = ((assocRow?.association_name as string | null) ?? '').trim() || v.association_code
+  // Property street address — extra confirmation for crews covering several
+  // sites. principal_address here is the manually-entered PROPERTY address
+  // (per the Association Details form), not the Sunbiz/agent address.
+  const a = (assocRow ?? {}) as { principal_address?: string | null; city?: string | null; state?: string | null; zip?: string | null }
+  const cityStateZip = [a.city?.trim(), [a.state?.trim(), a.zip?.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+  const assocAddr    = [a.principal_address?.trim(), cityStateZip].filter(Boolean).join(', ')
 
   const results: string[] = []
   const structured: SentLinkResult[] = []
@@ -205,7 +218,14 @@ export async function sendCrewUploadLinks(visitId: number, employeeIds?: string[
     const lang = e.preferred_language || 'en'
     const eTok = await signCrewToken(e.id)   // identifies this crew member so they can save a default language
     const link = `${APP_URL}/vendor/upload/${token}?lang=${encodeURIComponent(lang)}&e=${encodeURIComponent(eTok)}`
-    const m = crewMessage(lang, svc, v.association_code, v.week_of, link, e.name)
+    const m = crewMessage(lang, svc, assocLabel, v.week_of, link, e.name)
+    // Append the property address (universal across languages) so a crew
+    // servicing multiple buildings knows exactly which site — kept out of
+    // the subject to keep it short.
+    if (assocAddr) {
+      m.html  = `${m.html}<p style="color:#374151;font-size:14px;margin-top:4px">📍 ${assocAddr}</p>`
+      m.short = `${m.short} 📍 ${assocAddr}`
+    }
     try {
       if (e.preferred_channel === 'sms' && e.phone)            { await sendSMSStrict(e.phone, m.short); sent++; results.push(`${e.name}: sms`); structured.push({ employee: e.name, channel: 'sms', ok: true }) }
       else if (e.preferred_channel === 'whatsapp' && e.phone)  { await sendWhatsAppStrict(e.phone, m.short); sent++; results.push(`${e.name}: whatsapp`); structured.push({ employee: e.name, channel: 'whatsapp', ok: true }) }
@@ -216,6 +236,24 @@ export async function sendCrewUploadLinks(visitId: number, employeeIds?: string[
       results.push(`${e.name}: failed (${detail})`)
       structured.push({ employee: e.name, channel: e.preferred_channel, ok: false, detail })
     }
+  }
+
+  // Office copy for text-channel sends. The per-crew EMAIL path already
+  // bcc's the office (VENDOR_NOTIFY_CC), but SMS / WhatsApp can't be
+  // bcc'd — so an all-text crew (like Dimas's WhatsApp-only crew) left
+  // Paola/Fabio with no record, while an email crew (Christian's) got a
+  // copy. Send one office notification covering the text sends so there's
+  // always a copy no matter the channel. Best-effort.
+  const textSends = structured.filter(s => s.ok && (s.channel === 'sms' || s.channel === 'whatsapp'))
+  if (textSends.length) {
+    const rows     = textSends.map(s => `<li>${s.employee} — ${s.channel.toUpperCase()}</li>`).join('')
+    const baseLink = `${APP_URL}/vendor/upload/${token}`
+    await sendEmail({
+      to:      VENDOR_NOTIFY_CC,
+      replyTo: VENDOR_REPLY_TO,
+      subject: `Crew upload links sent — ${assocLabel} · ${svc} · week of ${v.week_of}`,
+      html:    `<p>This week's <strong>${svc}</strong> upload links for <strong>${assocLabel}</strong>${assocAddr ? ` (${assocAddr})` : ''} (week of ${v.week_of}) were sent by SMS/WhatsApp to:</p><ul>${rows}</ul><p>Upload page (same link the crew received): <a href="${baseLink}">${baseLink}</a></p>`,
+    }).catch(() => null)
   }
 
   // Persist so the Manager page can show this after a reload, not just in
