@@ -9,7 +9,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "eval:intent": "npx tsx evals/run-intent-eval.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",

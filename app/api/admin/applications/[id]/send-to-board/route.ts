@@ -15,10 +15,14 @@ interface Applicant {
 }
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const body = await req.json().catch(() => ({}));
+  const memberIdOverride: string[] | null = Array.isArray(body?.member_ids)
+    ? body.member_ids.map(String).filter(Boolean)
+    : null;
 
   // 1. Fetch the application
   const { data: app, error: appError } = await supabaseAdmin
@@ -49,39 +53,49 @@ export async function POST(
     return NextResponse.json({ ok: false, error: 'Cannot determine association code' }, { status: 400 });
   }
 
-  // 3. Fetch board config
-  const { data: config } = await supabaseAdmin
-    .from('association_config')
-    .select('required_signatures')
+  // 3. Fetch the configured committee (deciders + voters) for this purpose.
+  // required_signatures (how many deciders must approve) is read by the
+  // decision route (app/api/board/review/route.ts) at decision time, not
+  // needed here — this route just sends to whoever is on the committee.
+  const { data: committee, error: committeeError } = await supabaseAdmin
+    .from('board_approval_members')
+    .select('board_member_id, member_type, association_board_members(id, name, email, active, substitute_name, substitute_email, substitute_active)')
     .eq('association_code', associationCode)
-    .maybeSingle();
+    .eq('purpose', 'application');
 
-  const requiredSignatures: number = config?.required_signatures ?? 1;
-
-  // 4. Fetch active board members ordered by sort_order
-  const { data: allMembers, error: membersError } = await supabaseAdmin
-    .from('association_board_members')
-    .select('*')
-    .eq('association_code', associationCode)
-    .eq('active', true)
-    .order('sort_order', { ascending: true });
-
-  if (membersError) {
-    console.error('[send-to-board] members fetch error', membersError);
-    return NextResponse.json({ ok: false, error: membersError.message }, { status: 500 });
+  if (committeeError) {
+    console.error('[send-to-board] committee fetch error', committeeError);
+    return NextResponse.json({ ok: false, error: committeeError.message }, { status: 500 });
   }
 
-  if (!allMembers || allMembers.length === 0) {
-    return NextResponse.json({ ok: false, error: 'No active board members configured for this association' }, { status: 400 });
+  type CommitteeRow = {
+    board_member_id: string;
+    member_type: 'decider' | 'voter';
+    association_board_members: {
+      id: string; name: string; email: string; active: boolean;
+      substitute_name: string | null; substitute_email: string | null; substitute_active: boolean;
+    } | null;
+  };
+
+  let active = ((committee ?? []) as unknown as CommitteeRow[]).filter(c => c.association_board_members?.active);
+
+  if (memberIdOverride && memberIdOverride.length > 0) {
+    active = active.filter(c => memberIdOverride.includes(c.board_member_id));
   }
 
-  // 5. Resolve substitutes and cap to required_signatures
-  const resolved = allMembers.map((m) => ({
-    name: m.substitute_active && m.substitute_name ? m.substitute_name : m.name,
-    email: m.substitute_active && m.substitute_email ? m.substitute_email : m.email,
-  }));
+  if (active.length === 0) {
+    return NextResponse.json({ ok: false, error: 'No committee configured for application approval on this association — set it up in Board Setup first' }, { status: 400 });
+  }
 
-  const targets = resolved.slice(0, requiredSignatures);
+  // 5. Resolve substitutes; keep the decider/voter type alongside each target
+  const targets = active.map((c) => {
+    const m = c.association_board_members!;
+    return {
+      name: m.substitute_active && m.substitute_name ? m.substitute_name : m.name,
+      email: m.substitute_active && m.substitute_email ? m.substitute_email : m.email,
+      memberType: c.member_type,
+    };
+  });
 
   // 6. Build applicant name for the email
   const applicants: Applicant[] = (app.applicants as Applicant[]) ?? [];
@@ -110,6 +124,7 @@ export async function POST(
         association_code: associationCode,
         board_member_name: target.name,
         board_member_email: target.email,
+        member_type: target.memberType,
         token,
       });
 

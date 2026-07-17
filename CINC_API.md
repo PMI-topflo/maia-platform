@@ -698,18 +698,46 @@ address array).
 
 ### Migration action list (when CINC flips the flag)
 
-1. ☐ Add `CincPropertyContact` and `CincPropertyContactType` types from
-   the live v2 Swagger (the doc dated 12/19/2025 says "Refer to Swagger
-   documentation for the latest" — v2 shapes aren't in the static
-   doc).
-2. ☐ Implement `listPropertyContacts(propertyId)` calling
-   `GET /management/1/homeowners/propertyContacts`.
-3. ☐ Implement `listAssociationPropertiesV2(assocCode)` calling
-   `GET /management/2/homeowners/associationWithProperty`, then
-   joining with `listPropertyContacts()` per property to reconstruct
-   the old shape (`CincPropertyAddress` with name/email/phone).
-4. ☐ Route `listAssociationProperties()` to v1 or v2 based on
-   `getContactsAndConsentFlag()`.
+CINC sent a follow-up push on this migration 2026-07-09 ("Immediate
+Action Required") with a dedicated sandbox
+(`https://ccintegration.cincsys.io`, Contacts & Consent already
+enabled there) and asked customers to validate their integration
+against it. Re-probed production 2026-07-15: **still
+`IsContactsFlagOn=false` on PMITFP — no live urgency.**
+
+1. ✅ Added `CincPropertyContact` (`HomeownerPropertyContactVm`),
+   `CincPropertyContactAddressV2` (`PropertyContactShortenedMailingAddressVm`),
+   and `CincPropertyInfoV2` (`PropertyInformationV2Vm`) types —
+   pulled 2026-07-15 directly from CINC's live public Swagger
+   (`https://integration.cincsys.io/api/swagger/docs/1.40.0`, no auth
+   required), which is more precise than this static doc for exact
+   field names/shapes.
+2. ✅ Implemented `listPropertyContacts(propertyId)` calling
+   `GET /management/1/homeowners/propertyContacts`. Not yet called by
+   any MAIA code path — turned out not to be needed for #3 (see next).
+3. ✅ Implemented `listAssociationPropertiesV2(assocCode)` calling
+   `GET /management/2/homeowners/associationWithProperty`. Turns out
+   v2's per-property row (`PropertyInformationV2Vm`) already carries
+   Contact1/Contact2 name + phone + email directly — **no second
+   `propertyContacts` call needed** to reconstruct what MAIA reads
+   today (contrary to what this doc's endpoint-migration table implies).
+4. ⚠️ **BLOCKED — not wired into `listAssociationProperties()` yet.**
+   `PropertyInformationV2Vm` has **no `isCurrentOwner` or `OwnerNumber`
+   field** — both exist on every v1 shape but are absent from every v2
+   shape in Swagger. `lib/cinc-sync.ts` `buildSyncPreview()` (the
+   CINC↔MAIA owner-reconciliation feature) filters on
+   `isCurrentOwner` and uses owner-slot rows for joint owners — this is
+   the one place a wrong guess here has real data-integrity
+   consequences. Working hypothesis, unverified: v2 restructured the
+   model (both contacts embedded in one row instead of two
+   `OwnerNumber`-tagged rows; this endpoint may only ever return the
+   current owner now, with no historical rows to filter). `listAssociationPropertiesV2`
+   currently hardcodes `isCurrentOwner: true` with a loud runtime
+   warning and comment block — **do not route
+   `listAssociationProperties()` to it until this is confirmed** via
+   the sandbox (credentials not yet in hand — CINC said they'd send
+   them in a separate encrypted email) or a direct question to CINC
+   support.
 5. ☐ Remove the warning banner on the CINC sync page once the v2 path
    is shipping.
 6. ☐ Decide whether to expose CINC's `propertyContactTypes` in MAIA

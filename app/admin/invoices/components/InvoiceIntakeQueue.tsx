@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import CashFlowStrip from './CashFlowStrip'
 import BoardApprovalModal from './BoardApprovalModal'
+import SendInvoiceToBoardModal from './SendInvoiceToBoardModal'
 
 interface Vendor      { id: number;  name: string; shortName: string | null; dba?: string | null }
 interface Association { code: string; name: string }
@@ -484,6 +485,7 @@ function DraftCard(props: {
   const [woNumber, setWoNumber]   = useState<string>(draft.work_order_number != null ? String(draft.work_order_number) : '')
   const [woPartial, setWoPartial] = useState<boolean>(!!draft.wo_partial_payment)
   const [showApproval, setShowApproval] = useState(false)
+  const [showSendToBoard, setShowSendToBoard] = useState(false)
   const [bankId, setBankId]       = useState<string>(draft.pay_from_bank_account_id != null ? String(draft.pay_from_bank_account_id) : '')
   // True while bankId holds an auto-picked default (operating) — lets the
   // vendor's last-used-bank suggestion replace it when it arrives, but never
@@ -1246,6 +1248,9 @@ function DraftCard(props: {
               {draft.status === 'ready_to_push' && (
                 <button onClick={() => push(false)} disabled={busy} style={btnPrimary()}>Push to CINC</button>
               )}
+              {draft.extracted_association_code && draft.status !== 'rejected' && (
+                <button onClick={() => setShowSendToBoard(true)} disabled={busy} style={btnSecondary()}>🏛️ Send for board approval</button>
+              )}
               <button onClick={() => setHoldOpen(true)} disabled={busy} style={btnSecondary()}>⏸ Put on hold</button>
               <button onClick={reject} disabled={busy} style={btnDanger()}>Reject</button>
             </>
@@ -1751,6 +1756,16 @@ function DraftCard(props: {
         </div>
       </div>
       {showApproval && <BoardApprovalModal draftId={draft.id} onClose={() => setShowApproval(false)} />}
+      {showSendToBoard && draft.extracted_association_code && (
+        <SendInvoiceToBoardModal
+          draftId={draft.id}
+          associationCode={draft.extracted_association_code}
+          vendorName={draft.matched_vendor_name}
+          amount={draft.extracted_amount}
+          onClose={() => setShowSendToBoard(false)}
+          onSent={() => {}}
+        />
+      )}
       </div>{/* end right column */}
       </div>{/* end PDF + form side-by-side */}
 

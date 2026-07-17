@@ -6,11 +6,11 @@
 // the board picks the winner and e-signs.
 
 import { useEffect, useState } from 'react'
+import BoardMemberPicker from '@/app/admin/components/BoardMemberPicker'
 
 interface VRow { id: string; vendor_name: string | null; status: string; respond_by: string | null; submitted_at: string | null; amount: number | null; summary: string | null; estimate_url: string | null }
 interface Approval { vendor_name: string | null; amount: number | null; status: string; required: number; approvals: number }
-interface BoardMember { id: string; name: string; role: string | null }
-interface Data { request: { id: string; scope: string; status: string } | null; vendors: VRow[]; approval: Approval | null; boardMembers: BoardMember[] }
+interface Data { request: { id: string; scope: string; status: string; association_code?: string } | null; vendors: VRow[]; approval: Approval | null }
 
 const money = (n: number | null) => n == null ? '—' : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const STATUS: Record<string, { label: string; cls: string }> = {
@@ -39,8 +39,6 @@ export default function EstimatesComparison({ ticketId }: { ticketId: number }) 
       .then((d: Data) => {
         if (!live) return
         setData(d)
-        const pres = (d.boardMembers ?? []).filter(m => /president/i.test(m.role ?? ''))
-        setSignerIds((pres.length ? pres : (d.boardMembers ?? []).slice(0, 1)).map(m => m.id))
       }).catch(() => {}).finally(() => { if (live) setLoading(false) })
     return () => { live = false }
   }, [ticketId])
@@ -140,15 +138,15 @@ export default function EstimatesComparison({ ticketId }: { ticketId: number }) 
             </select>
             <button onClick={sendToBoard} disabled={sending} className="rounded bg-[#16a34a] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#15803d] disabled:opacity-50">{sending ? 'Sending…' : '🏛️ Send for approval'}</button>
           </div>
-          {data.boardMembers.length > 0 && (
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="text-[10px] uppercase tracking-wide text-gray-400">Signers</span>
-              {data.boardMembers.map(m => (
-                <label key={m.id} className="flex items-center gap-1 text-xs text-gray-700">
-                  <input type="checkbox" checked={signerIds.includes(m.id)} onChange={e => setSignerIds(ids => e.target.checked ? [...ids, m.id] : ids.filter(x => x !== m.id))} />
-                  {m.name}{m.role ? <span className="text-gray-400"> ({m.role})</span> : null}
-                </label>
-              ))}
+          {data.request.association_code && (
+            <div className="mt-2">
+              <BoardMemberPicker
+                associationCode={data.request.association_code}
+                purpose="estimate"
+                value={signerIds}
+                onChange={setSignerIds}
+                label="Signers"
+              />
             </div>
           )}
           {msg && <div className="mt-1 text-[11px] text-gray-500">{msg}</div>}

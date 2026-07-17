@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger';
+import BoardMemberPicker from '@/app/admin/components/BoardMemberPicker';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +43,7 @@ type Principal = {
 export type Application = {
   id: string;
   association: string | null;
+  association_code: string | null;
   app_type: string | null;
   stripe_payment_status: string | null;
   total_charged: number | null;
@@ -370,6 +372,7 @@ function DetailPanel({
   const [sendingToBoard, setSendingToBoard] = useState(false);
   const [sendToBoardResult, setSendToBoardResult] = useState<string | null>(null);
   const [sendToBoardError, setSendToBoardError] = useState<string | null>(null);
+  const [boardMemberIds, setBoardMemberIds] = useState<string[]>([]);
 
   async function handleSendToBoard() {
     setSendingToBoard(true);
@@ -378,6 +381,8 @@ function DetailPanel({
     try {
       const res = await fetch(`/api/admin/applications/${app.id}/send-to-board`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_ids: boardMemberIds }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? 'Failed to send to board');
@@ -712,23 +717,34 @@ function DetailPanel({
         <div className="space-y-4">
           {/* Send to Board Review */}
           {(!app.board_decision || app.board_decision === 'pending') && (
-            <div className="flex items-center gap-3 p-3 bg-blue-50 rounded border border-blue-100">
-              <button
-                onClick={handleSendToBoard}
-                disabled={sendingToBoard}
-                className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                {sendingToBoard ? 'Sending…' : 'Send to Board Review'}
-              </button>
-              <span className="text-xs text-blue-600">
-                Emails board members a secure review link
-              </span>
-              {sendToBoardResult && (
-                <span className="text-sm text-green-600 font-medium">✓ {sendToBoardResult}</span>
+            <div className="p-3 bg-blue-50 rounded border border-blue-100 space-y-2">
+              {app.association_code && (
+                <BoardMemberPicker
+                  associationCode={app.association_code}
+                  purpose="application"
+                  value={boardMemberIds}
+                  onChange={setBoardMemberIds}
+                  label="Recipients"
+                />
               )}
-              {sendToBoardError && (
-                <span className="text-sm text-red-600">{sendToBoardError}</span>
-              )}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleSendToBoard}
+                  disabled={sendingToBoard}
+                  className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  {sendingToBoard ? 'Sending…' : 'Send to Board Review'}
+                </button>
+                <span className="text-xs text-blue-600">
+                  Emails board members a secure review link
+                </span>
+                {sendToBoardResult && (
+                  <span className="text-sm text-green-600 font-medium">✓ {sendToBoardResult}</span>
+                )}
+                {sendToBoardError && (
+                  <span className="text-sm text-red-600">{sendToBoardError}</span>
+                )}
+              </div>
             </div>
           )}
           {app.board_decision === 'board_review' && (

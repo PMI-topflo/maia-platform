@@ -44,6 +44,223 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'invoice_push_progress',
+    label:       'Invoice push crash-resume',
+    description: 'invoice_intake_drafts.push_progress jsonb — records which post-createInvoice sub-steps completed so a half-finished CINC push can resume instead of double-creating a GL line / PDF / note. Resume is detected by a non-terminal draft already carrying a cinc_invoice_id (no new status value).',
+    filename:    '20260716_invoice_push_progress.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'push_progress' },
+    sql: `ALTER TABLE public.invoice_intake_drafts
+  ADD COLUMN IF NOT EXISTS push_progress jsonb;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'invoice_approvals',
+    label:       'Invoice board approval (new feature)',
+    description: 'invoice_approvals + invoice_approval_reviews tables — optional, staff-triggered board approval for AP invoices (mirrors estimate_approvals). Does not block pushing to CINC; on decider approval the approver identity is written back via createInvoiceNote().',
+    filename:    '20260713_invoice_approvals.sql',
+    artifact:    { type: 'table', table: 'invoice_approvals' },
+    sql: `CREATE TABLE IF NOT EXISTS public.invoice_approvals (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  invoice_intake_id  bigint NOT NULL REFERENCES public.invoice_intake_drafts(id) ON DELETE CASCADE,
+  cinc_invoice_id    text,
+  association_code   text NOT NULL,
+  vendor_name        text,
+  amount             numeric,
+  status             text NOT NULL DEFAULT 'pending',
+  required           integer NOT NULL DEFAULT 1,
+  created_by         text,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  decided_at         timestamptz
+);
+
+ALTER TABLE public.invoice_approvals
+  DROP CONSTRAINT IF EXISTS chk_ia_status;
+ALTER TABLE public.invoice_approvals
+  ADD CONSTRAINT chk_ia_status CHECK (status IN ('pending','approved','revision_requested'));
+
+CREATE INDEX IF NOT EXISTS invoice_approvals_intake_idx
+  ON public.invoice_approvals (invoice_intake_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.invoice_approval_reviews (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  approval_id            uuid NOT NULL REFERENCES public.invoice_approvals(id) ON DELETE CASCADE,
+  board_member_name      text,
+  board_member_email     text,
+  member_type            text NOT NULL DEFAULT 'voter',
+  token                  text NOT NULL UNIQUE,
+  decision               text,
+  signature_image        text,
+  comments               text,
+  sent_at                timestamptz NOT NULL DEFAULT now(),
+  decided_at             timestamptz,
+  last_reminder_sent_at  timestamptz,
+  reminder_count         integer NOT NULL DEFAULT 0
+);
+
+ALTER TABLE public.invoice_approval_reviews
+  DROP CONSTRAINT IF EXISTS chk_iar_decision;
+ALTER TABLE public.invoice_approval_reviews
+  ADD CONSTRAINT chk_iar_decision CHECK (decision IS NULL OR decision IN ('approve','revision'));
+
+ALTER TABLE public.invoice_approval_reviews
+  DROP CONSTRAINT IF EXISTS chk_iar_member_type;
+ALTER TABLE public.invoice_approval_reviews
+  ADD CONSTRAINT chk_iar_member_type CHECK (member_type IN ('decider','voter'));
+
+CREATE INDEX IF NOT EXISTS invoice_approval_reviews_approval_idx
+  ON public.invoice_approval_reviews (approval_id);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.invoice_approvals        TO anon, authenticated, service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.invoice_approval_reviews TO anon, authenticated, service_role;
+
+ALTER TABLE public.invoice_approvals        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invoice_approval_reviews ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_invoice_approvals"        ON public.invoice_approvals;
+DROP POLICY IF EXISTS "service_role_all_invoice_approval_reviews" ON public.invoice_approval_reviews;
+CREATE POLICY "service_role_all_invoice_approvals"        ON public.invoice_approvals        FOR ALL TO service_role USING (true);
+CREATE POLICY "service_role_all_invoice_approval_reviews" ON public.invoice_approval_reviews FOR ALL TO service_role USING (true);
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'board_reminder_columns',
+    label:       'Board-review reminder + decider/voter columns',
+    description: 'application_board_reviews + estimate_approval_reviews gain member_type (decider/voter snapshot) + last_reminder_sent_at/reminder_count for the new board-approval-reminders cron. Existing rows default to decider so in-flight approvals keep counting exactly as before.',
+    filename:    '20260713_board_reminder_columns.sql',
+    artifact:    { type: 'column', table: 'application_board_reviews', column: 'member_type' },
+    sql: `ALTER TABLE public.application_board_reviews
+  ADD COLUMN IF NOT EXISTS member_type text NOT NULL DEFAULT 'decider',
+  ADD COLUMN IF NOT EXISTS last_reminder_sent_at timestamptz,
+  ADD COLUMN IF NOT EXISTS reminder_count integer NOT NULL DEFAULT 0;
+
+ALTER TABLE public.application_board_reviews
+  DROP CONSTRAINT IF EXISTS chk_abr_member_type;
+ALTER TABLE public.application_board_reviews
+  ADD CONSTRAINT chk_abr_member_type CHECK (member_type IN ('decider','voter'));
+
+ALTER TABLE public.estimate_approval_reviews
+  ADD COLUMN IF NOT EXISTS member_type text NOT NULL DEFAULT 'decider',
+  ADD COLUMN IF NOT EXISTS last_reminder_sent_at timestamptz,
+  ADD COLUMN IF NOT EXISTS reminder_count integer NOT NULL DEFAULT 0;
+
+ALTER TABLE public.estimate_approval_reviews
+  DROP CONSTRAINT IF EXISTS chk_eapr_member_type;
+ALTER TABLE public.estimate_approval_reviews
+  ADD CONSTRAINT chk_eapr_member_type CHECK (member_type IN ('decider','voter'));
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'board_approval_members',
+    label:       'Board-approval committee (Deciders/Voters)',
+    description: 'board_approval_members table — which association_board_members sit on the committee per approval purpose (application/invoice/estimate), and whether their decision is binding (decider) or advisory (voter). Backfills application/estimate from today\'s active board members (first by sort_order = decider, rest = voter); invoice starts empty.',
+    filename:    '20260713_board_approval_members.sql',
+    artifact:    { type: 'table', table: 'board_approval_members' },
+    sql: `CREATE TABLE IF NOT EXISTS public.board_approval_members (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code text NOT NULL,
+  purpose          text NOT NULL,
+  board_member_id  uuid NOT NULL REFERENCES public.association_board_members(id) ON DELETE CASCADE,
+  member_type      text NOT NULL DEFAULT 'voter',
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_bam_assoc_purpose_member UNIQUE (association_code, purpose, board_member_id)
+);
+
+ALTER TABLE public.board_approval_members
+  DROP CONSTRAINT IF EXISTS chk_bam_purpose_values;
+ALTER TABLE public.board_approval_members
+  ADD CONSTRAINT chk_bam_purpose_values CHECK (purpose IN ('application','invoice','estimate'));
+
+ALTER TABLE public.board_approval_members
+  DROP CONSTRAINT IF EXISTS chk_bam_type;
+ALTER TABLE public.board_approval_members
+  ADD CONSTRAINT chk_bam_type CHECK (member_type IN ('decider','voter'));
+
+CREATE INDEX IF NOT EXISTS board_approval_members_lookup_idx
+  ON public.board_approval_members (association_code, purpose);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.board_approval_members TO anon, authenticated, service_role;
+
+ALTER TABLE public.board_approval_members ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_board_approval_members" ON public.board_approval_members;
+CREATE POLICY "service_role_all_board_approval_members"
+  ON public.board_approval_members FOR ALL TO service_role USING (true);
+
+INSERT INTO public.board_approval_members (association_code, purpose, board_member_id, member_type)
+SELECT DISTINCT ON (m.association_code, p.purpose)
+  m.association_code, p.purpose, m.id, 'decider'
+FROM public.association_board_members m
+CROSS JOIN (VALUES ('application'), ('estimate')) AS p(purpose)
+WHERE m.active
+ORDER BY m.association_code, p.purpose, m.sort_order, m.created_at
+ON CONFLICT (association_code, purpose, board_member_id) DO NOTHING;
+
+INSERT INTO public.board_approval_members (association_code, purpose, board_member_id, member_type)
+SELECT m.association_code, p.purpose, m.id, 'voter'
+FROM public.association_board_members m
+CROSS JOIN (VALUES ('application'), ('estimate')) AS p(purpose)
+WHERE m.active
+ON CONFLICT (association_code, purpose, board_member_id) DO NOTHING;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'board_approval_config',
+    label:       'Per-purpose board-approval config',
+    description: 'board_approval_config table — required_signatures/approval_letter_template/reminder_cadence per (association, purpose) instead of one shared association_config row for both applications and estimates. Backfills application/estimate from the old shared columns; invoice starts at defaults.',
+    filename:    '20260713_board_approval_config.sql',
+    artifact:    { type: 'table', table: 'board_approval_config' },
+    sql: `CREATE TABLE IF NOT EXISTS public.board_approval_config (
+  id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code          text NOT NULL,
+  purpose                   text NOT NULL,
+  required_signatures       integer NOT NULL DEFAULT 1,
+  approval_letter_template  text,
+  reminder_cadence          text NOT NULL DEFAULT 'off',
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  updated_at                timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_bac_assoc_purpose UNIQUE (association_code, purpose)
+);
+
+ALTER TABLE public.board_approval_config
+  DROP CONSTRAINT IF EXISTS chk_bac_purpose_values;
+ALTER TABLE public.board_approval_config
+  ADD CONSTRAINT chk_bac_purpose_values CHECK (purpose IN ('application','invoice','estimate'));
+
+ALTER TABLE public.board_approval_config
+  DROP CONSTRAINT IF EXISTS chk_bac_cadence;
+ALTER TABLE public.board_approval_config
+  ADD CONSTRAINT chk_bac_cadence CHECK (reminder_cadence IN ('off','every_2_days','every_3_days','weekly'));
+
+CREATE INDEX IF NOT EXISTS board_approval_config_assoc_idx
+  ON public.board_approval_config (association_code);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.board_approval_config TO anon, authenticated, service_role;
+
+ALTER TABLE public.board_approval_config ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_board_approval_config" ON public.board_approval_config;
+CREATE POLICY "service_role_all_board_approval_config"
+  ON public.board_approval_config FOR ALL TO service_role USING (true);
+
+INSERT INTO public.board_approval_config (association_code, purpose, required_signatures, approval_letter_template)
+SELECT association_code, 'application', COALESCE(required_signatures, 1), approval_letter_template
+FROM public.association_config
+ON CONFLICT (association_code, purpose) DO NOTHING;
+
+INSERT INTO public.board_approval_config (association_code, purpose, required_signatures, approval_letter_template)
+SELECT association_code, 'estimate', COALESCE(required_signatures, 1), approval_letter_template
+FROM public.association_config
+ON CONFLICT (association_code, purpose) DO NOTHING;
+
+INSERT INTO public.board_approval_config (association_code, purpose, required_signatures)
+SELECT association_code, 'invoice', 1
+FROM public.association_config
+ON CONFLICT (association_code, purpose) DO NOTHING;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'estimate_board_compare',
     label:       'Estimate board-picks comparison',
     description: 'estimate_approval_reviews.selected_vendor_request_id + estimate_approvals.recommended_vendor_request_id — staff send the whole vendor comparison to the board, each signer picks which one they approve, instead of staff pre-selecting a single vendor',

@@ -20,6 +20,7 @@ import {
   createInvoice,
   attachInvoicePdf,
   createInvoiceNote,
+  approveInvoice,
   createInvoiceExpenseItems,
   deleteInvoiceExpenseItems,
   getCincInvoice,
@@ -87,7 +88,7 @@ export async function POST(
 
   const { data: draft, error: loadErr } = await supabaseAdmin
     .from('invoice_intake_drafts')
-    .select('id, status, pdf_storage_key, drive_file_id, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, extracted_account_number, due_date, scheduled_pay_date, pay_by_type, observation_note, work_order_number, ticket_id, wo_partial_payment, pay_from_bank_account_id, gl_account_id, gl_account_name, extraction_confidence, gmail_message_id')
+    .select('id, status, cinc_invoice_id, push_progress, pdf_storage_key, drive_file_id, matched_cinc_vendor_id, matched_vendor_name, matched_vendor_short_name, extracted_invoice_number, extracted_amount, extracted_association_code, extracted_invoice_date, extracted_account_number, due_date, scheduled_pay_date, pay_by_type, observation_note, work_order_number, ticket_id, wo_partial_payment, pay_from_bank_account_id, gl_account_id, gl_account_name, extraction_confidence, gmail_message_id')
     .eq('id', id)
     .single()
   if (loadErr || !draft) return NextResponse.json({ error: loadErr?.message ?? 'not found' }, { status: 404 })
@@ -99,16 +100,47 @@ export async function POST(
   if (draft.status === 'rejected') {
     return NextResponse.json({ error: 'cannot push a rejected draft' }, { status: 400 })
   }
-  if (draft.status === 'needs_vendor' || !draft.matched_cinc_vendor_id) {
+
+  // ── Crash-resume detection ────────────────────────────────────────
+  // A non-terminal draft that ALREADY has a cinc_invoice_id is a
+  // half-finished push: createInvoice succeeded (that id is only ever set
+  // once it does) but the function died before marking the draft
+  // pushed_to_cinc. The pushed_to_cinc + rejected terminal states already
+  // returned above, so a set id here means "resume". Re-entering must SKIP
+  // the pre-flight guards + createInvoice (they already ran / the invoice
+  // already exists) and resume the post-create steps from push_progress,
+  // which tracks what's done so a resume never re-creates a duplicate GL
+  // line / PDF / note.
+  //
+  // Deliberately NO new status value: the draft stays in its existing tab
+  // (Ready to push) so Karen can see it and just re-click Push to finish —
+  // a brand-new 'pushing' status would match no intake-queue tab and make
+  // the stuck draft invisible, defeating the recovery.
+  const isResume = !!draft.cinc_invoice_id
+  const progress: Record<string, boolean> = (draft.push_progress as Record<string, boolean> | null) ?? {}
+  // Mark one post-create step done and persist push_progress. Best-effort:
+  // a failed checkpoint write just means that step may re-run on a later
+  // resume (safe for the steps we gate — they're all either idempotent or
+  // cosmetic-on-repeat).
+  async function checkpoint(step: string): Promise<void> {
+    progress[step] = true
+    await supabaseAdmin
+      .from('invoice_intake_drafts')
+      .update({ push_progress: progress, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .then(() => null, () => null)
+  }
+
+  if (!isResume && (draft.status === 'needs_vendor' || !draft.matched_cinc_vendor_id)) {
     return NextResponse.json({ error: 'no CINC vendor matched — assign one before pushing' }, { status: 400 })
   }
-  if (draft.status === 'duplicate_in_cinc' && !body.pushAnyway) {
+  if (!isResume && draft.status === 'duplicate_in_cinc' && !body.pushAnyway) {
     return NextResponse.json({ error: 'duplicate flagged — set pushAnyway=true to override' }, { status: 409 })
   }
   // Audit gate: the AP team must complete the checklist and mark the draft
   // 'ready_to_push' before it can post to CINC (prevents un-reviewed /
   // duplicate pushes). duplicate_in_cinc with pushAnyway is the only bypass.
-  if (draft.status !== 'ready_to_push' && !(draft.status === 'duplicate_in_cinc' && body.pushAnyway)) {
+  if (!isResume && draft.status !== 'ready_to_push' && !(draft.status === 'duplicate_in_cinc' && body.pushAnyway)) {
     return NextResponse.json({ error: 'not ready — complete the audit checklist and mark “ready to push” first' }, { status: 409 })
   }
   // Required-field gate.
@@ -118,7 +150,7 @@ export async function POST(
   if (!draft.extracted_association_code) missing.push('association_code')
   if (!draft.extracted_invoice_date)     missing.push('invoice_date')
   if (!draft.pdf_storage_key)            missing.push('pdf_storage_key')
-  if (missing.length > 0) {
+  if (!isResume && missing.length > 0) {
     return NextResponse.json({ error: `missing required fields: ${missing.join(', ')}` }, { status: 400 })
   }
 
@@ -149,7 +181,7 @@ export async function POST(
     if (raster && raster.buffer.length < buf.length) { norm = raster; buf = raster.buffer }
   }
   const pdfBase64 = buf.toString('base64')
-  if (buf.length > CINC_ATTACH_MAX_BYTES) {
+  if (!isResume && buf.length > CINC_ATTACH_MAX_BYTES) {
     return NextResponse.json({
       error: `Invoice PDF is ${(buf.length / 1024 / 1024).toFixed(2)} MB even after compression — over CINC's ~1 MB attachment limit. Replace it with a smaller / single-page scan and try again. Nothing was pushed to CINC.`,
       pdfTooLarge: true,
@@ -162,7 +194,9 @@ export async function POST(
   // amount + association already pushed/queued under a DIFFERENT number
   // (e.g. "May" vs "May Compensation"). Hard-block, and only Karen may
   // override (pushAnyway) — staff can't push past a suspected double-pay.
-  {
+  // Skipped on resume — the invoice already exists; re-checking would
+  // false-positive against the very draft we're finishing.
+  if (!isResume) {
     const sinceIso = new Date(Date.now() - DUP_GUARD_DAYS * 86_400_000).toISOString()
     const { data: dupes } = await supabaseAdmin
       .from('invoice_intake_drafts')
@@ -203,7 +237,7 @@ export async function POST(
   // payment. A vendor staff has explicitly marked exempt (isVendorCoiExempt
   // — e.g. an attorney or appraiser that never carries general liability)
   // skips this guard entirely.
-  if (draft.matched_cinc_vendor_id) {
+  if (!isResume && draft.matched_cinc_vendor_id) {
     const vendorId = Number(draft.matched_cinc_vendor_id)
     const exempt = await isVendorCoiExempt(vendorId)
     const { data: vendorTickets } = exempt
@@ -243,7 +277,7 @@ export async function POST(
   // CINC's own team caught only after the payment failed. Hard-block here
   // the same way as the double-pay/COI guards above — only Karen may
   // override (pushAnyway) — since UI warnings alone didn't stop last time.
-  if ((draft.pay_by_type ?? '').toUpperCase() === 'ACH' && draft.pay_from_bank_account_id != null) {
+  if (!isResume && (draft.pay_by_type ?? '').toUpperCase() === 'ACH' && draft.pay_from_bank_account_id != null) {
     const accounts = await listAssociationBankAccounts(draft.extracted_association_code as string).catch(() => [])
     const selected = accounts.find(a => a.id === draft.pay_from_bank_account_id)
     if (selected && !selected.achPartner) {
@@ -295,7 +329,11 @@ export async function POST(
   let cincInvoiceId: number
   // Surfaced to Karen when we had to fall back from ACH to Check.
   let payByWarning: string | null = null
-  try {
+  if (isResume) {
+    // Invoice already created on the original attempt — reuse its id and
+    // jump straight to the (progress-gated) post-create steps below.
+    cincInvoiceId = Number(draft.cinc_invoice_id)
+  } else try {
     const created = await createInvoice({ ...baseInvoice, payByType })
     cincInvoiceId = created.invoiceId
   } catch (err) {
@@ -322,6 +360,24 @@ export async function POST(
     }
   }
 
+  // ── CRITICAL CHECKPOINT (fresh push only) ─────────────────────────
+  // Persist the CINC invoice id the instant the invoice exists — BEFORE
+  // any of the (individually best-effort) post-create steps. This shrinks
+  // the "invoice exists in CINC but the draft still looks unpushed" window
+  // from ~10 downstream calls to one DB write: once cinc_invoice_id is set,
+  // a retry is detected as a resume (see isResume above) and continues the
+  // remaining steps instead of creating a SECOND invoice or stranding this
+  // one with a doubled total / missing PDF. Status is intentionally left as
+  // ready_to_push so the draft stays visible/retryable. On resume this is
+  // skipped so we never wipe the push_progress accumulated so far.
+  if (!isResume) {
+    await supabaseAdmin
+      .from('invoice_intake_drafts')
+      .update({ cinc_invoice_id: String(cincInvoiceId), push_progress: {}, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .then(() => null, () => null)
+  }
+
   // Push the GL expense item Karen selected. Without this, the invoice
   // header lands in CINC but has no GL line — someone has to enter it
   // manually in CINC, defeating the point of having a GL dropdown in
@@ -338,34 +394,41 @@ export async function POST(
   // PDF-attach failure path below.
   let expenseItemWarning: string | null = null
   let expenseItemCreated = false
-  if (draft.gl_account_id) {
-    try {
-      const budget = await getAssociationBudget(draft.extracted_association_code as string)
-      const glLine = budget.find(l => l.id === draft.gl_account_id)
-      if (!glLine) {
-        expenseItemWarning = `GL line ChartID ${draft.gl_account_id} not found in current budget for ${draft.extracted_association_code} — expense item not created. Add manually in CINC.`
+  // Progress-gated: creating the GL line twice would DOUBLE the invoice, so
+  // a resume must skip this once it's checkpointed.
+  if (!progress.expense_item) {
+    if (draft.gl_account_id) {
+      try {
+        const budget = await getAssociationBudget(draft.extracted_association_code as string)
+        const glLine = budget.find(l => l.id === draft.gl_account_id)
+        if (!glLine) {
+          expenseItemWarning = `GL line ChartID ${draft.gl_account_id} not found in current budget for ${draft.extracted_association_code} — expense item not created. Add manually in CINC.`
+          console.warn(`[invoice-push] ${expenseItemWarning}`)
+        } else if (!glLine.number) {
+          expenseItemWarning = `GL line "${glLine.name}" (ChartID ${glLine.id}) has no GLAccountNumber — CINC expense item creation requires it. Add manually in CINC.`
+          console.warn(`[invoice-push] ${expenseItemWarning}`)
+        } else {
+          await createInvoiceExpenseItems({
+            invoiceId: cincInvoiceId,
+            items: [{
+              glNumber:    glLine.number,
+              description: (draft.gl_account_name as string) || glLine.name,
+              amount:      draft.extracted_amount as number,
+            }],
+          })
+          expenseItemCreated = true
+        }
+      } catch (err) {
+        expenseItemWarning = `Expense item push failed: ${(err as Error).message}. Add the GL line manually in CINC.`
         console.warn(`[invoice-push] ${expenseItemWarning}`)
-      } else if (!glLine.number) {
-        expenseItemWarning = `GL line "${glLine.name}" (ChartID ${glLine.id}) has no GLAccountNumber — CINC expense item creation requires it. Add manually in CINC.`
-        console.warn(`[invoice-push] ${expenseItemWarning}`)
-      } else {
-        await createInvoiceExpenseItems({
-          invoiceId: cincInvoiceId,
-          items: [{
-            glNumber:    glLine.number,
-            description: (draft.gl_account_name as string) || glLine.name,
-            amount:      draft.extracted_amount as number,
-          }],
-        })
-        expenseItemCreated = true
       }
-    } catch (err) {
-      expenseItemWarning = `Expense item push failed: ${(err as Error).message}. Add the GL line manually in CINC.`
+      // Only checkpoint on a real create — a transient failure must be
+      // retryable on the next resume, not marked done.
+      if (expenseItemCreated) await checkpoint('expense_item')
+    } else {
+      expenseItemWarning = `No GL line selected on the draft — expense item not created. Add manually in CINC if needed.`
       console.warn(`[invoice-push] ${expenseItemWarning}`)
     }
-  } else {
-    expenseItemWarning = `No GL line selected on the draft — expense item not created. Add manually in CINC if needed.`
-    console.warn(`[invoice-push] ${expenseItemWarning}`)
   }
 
   // Remove CINC's auto-created blank-GL placeholder line. createInvoice
@@ -376,7 +439,11 @@ export async function POST(
   // and removing it would leave the invoice with none. Identify blanks by
   // an empty GLAccount and delete by their ID (CINC's DELETE model is
   // `{ InvoiceId, ExpenseItems: [<id>] }`). Best-effort.
-  if (expenseItemCreated) {
+  // Gate on push_progress, not the in-memory expenseItemCreated flag, so a
+  // resume that already created the GL line (but died before pruning the
+  // placeholder) still runs this. getCincInvoice → delete is idempotent
+  // (re-running finds no blanks once removed).
+  if ((expenseItemCreated || progress.expense_item) && !progress.blank_line) {
     try {
       const inv = await getCincInvoice(cincInvoiceId)
       const blankIds = (inv?.ExpenseItems ?? [])
@@ -385,6 +452,7 @@ export async function POST(
       if (blankIds.length > 0) {
         await deleteInvoiceExpenseItems({ invoiceId: cincInvoiceId, expenseItemIds: blankIds })
       }
+      await checkpoint('blank_line')
     } catch (err) {
       const msg = err instanceof CincApiError ? err.message : (err as Error).message
       expenseItemWarning = [expenseItemWarning, `Could not remove CINC's blank placeholder GL line: ${msg}. Delete the $0/blank line manually in CINC so the invoice total matches.`].filter(Boolean).join(' ')
@@ -404,27 +472,78 @@ export async function POST(
   // (network/CINC). Surface it loudly: the invoice exists but has no PDF,
   // so Karen must re-attach via "Re-attach PDF to CINC" on the pushed card.
   let attachWarning: string | null = null
-  try {
-    await attachInvoicePdf({ invoiceId: cincInvoiceId, pdfBase64, filename })
-  } catch (err) {
-    const message = err instanceof CincApiError ? err.message : (err as Error).message
-    attachWarning = `⚠ PDF was NOT attached in CINC: ${message}. The invoice exists in CINC — use "Re-attach PDF to CINC" on the pushed card to add it.`
-    console.warn(`[invoice-push] ${attachWarning}`)
+  if (!progress.pdf_attach) {
+    try {
+      await attachInvoicePdf({ invoiceId: cincInvoiceId, pdfBase64, filename })
+      await checkpoint('pdf_attach')
+    } catch (err) {
+      const message = err instanceof CincApiError ? err.message : (err as Error).message
+      attachWarning = `⚠ PDF was NOT attached in CINC: ${message}. The invoice exists in CINC — use "Re-attach PDF to CINC" on the pushed card to add it.`
+      console.warn(`[invoice-push] ${attachWarning}`)
+    }
   }
 
   // Provenance note — gives anyone viewing the invoice in CINC the
   // origin story (MAIA pulled it from <sender> with X% confidence).
   // Best-effort: failure logged but doesn't fail the push.
-  try {
-    const conf = draft.extraction_confidence != null
-      ? `${Math.round((draft.extraction_confidence as number) * 100)}% extraction confidence`
-      : 'extraction confidence unavailable'
-    await createInvoiceNote({
-      invoiceId: cincInvoiceId,
-      content:   `Auto-ingested by MAIA on ${new Date().toISOString().slice(0, 10)} (${conf}). Pushed by ${pushedBy}. Filename: ${filename}.`,
-    })
-  } catch (err) {
-    console.warn(`[invoice-push] provenance note failed: ${(err as Error).message}`)
+  if (!progress.provenance_note) {
+    try {
+      const conf = draft.extraction_confidence != null
+        ? `${Math.round((draft.extraction_confidence as number) * 100)}% extraction confidence`
+        : 'extraction confidence unavailable'
+      await createInvoiceNote({
+        invoiceId: cincInvoiceId,
+        content:   `Auto-ingested by MAIA on ${new Date().toISOString().slice(0, 10)} (${conf}). Pushed by ${pushedBy}. Filename: ${filename}.`,
+      })
+      await checkpoint('provenance_note')
+    } catch (err) {
+      console.warn(`[invoice-push] provenance note failed: ${(err as Error).message}`)
+    }
+  }
+
+  // Board-approval writeback: if this invoice was already approved by the
+  // board before being pushed (invoice_approvals.cinc_invoice_id was still
+  // null at decision time, so app/api/board/invoice-review/route.ts
+  // couldn't act on it yet), now that a cinc_invoice_id finally exists:
+  // flip CINC out of Pending Approval via approveInvoice, stamp the
+  // approver identity via createInvoiceNote, and backfill cinc_invoice_id
+  // onto the approval row. Best-effort: failure logged but doesn't fail
+  // the push (worst case the invoice sits in Pending Approval until
+  // someone approves it in WebAxis).
+  if (!progress.board_approval) {
+    try {
+      const { data: approvalRow } = await supabaseAdmin
+        .from('invoice_approvals')
+        .select('id, cinc_invoice_id')
+        .eq('invoice_intake_id', id)
+        .eq('status', 'approved')
+        .order('decided_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (approvalRow && !approvalRow.cinc_invoice_id) {
+        await supabaseAdmin.from('invoice_approvals').update({ cinc_invoice_id: String(cincInvoiceId) }).eq('id', approvalRow.id)
+        const { data: deciders } = await supabaseAdmin
+          .from('invoice_approval_reviews')
+          .select('board_member_name')
+          .eq('approval_id', approvalRow.id)
+          .eq('member_type', 'decider')
+          .eq('decision', 'approve')
+        const names = (deciders ?? []).map(d => d.board_member_name).filter(Boolean).join(', ')
+        await approveInvoice({ invoiceId: cincInvoiceId }).catch(err => {
+          console.warn(`[invoice-push] approveInvoice failed (invoice pushed as Pending Approval, needs WebAxis): ${(err as Error).message}`)
+        })
+        await createInvoiceNote({
+          invoiceId: cincInvoiceId,
+          content:   `Invoice approved by board: ${names || 'board decider'} on ${new Date().toISOString().slice(0, 10)} via MAIA.`,
+        })
+      }
+    } catch (err) {
+      console.warn(`[invoice-push] board-approval note failed: ${(err as Error).message}`)
+    }
+    // Mark handled either way — a no-op (no approval row) or a completed
+    // writeback both mean "don't re-run this on resume" (re-running would
+    // duplicate the approval note).
+    await checkpoint('board_approval')
   }
 
   // Audit note when Karen pays from anything other than the Operating
@@ -437,7 +556,7 @@ export async function POST(
   // We resolve the picked account from the live CINC list (unfiltered
   // helper, so restricted accounts still resolve even though they're
   // not in Karen's dropdown). Best-effort: failure logged but non-fatal.
-  if (payFromBankAccountId != null && payFromBankAccountId !== 0) {
+  if (!progress.nonop_audit_note && payFromBankAccountId != null && payFromBankAccountId !== 0) {
     try {
       const accounts = await listAssociationBankAccounts(draft.extracted_association_code as string)
       const picked   = accounts.find(a => a.id === payFromBankAccountId)
@@ -454,6 +573,7 @@ export async function POST(
         }
         await createInvoiceNote({ invoiceId: cincInvoiceId, content })
       }
+      await checkpoint('nonop_audit_note')
     } catch (err) {
       console.warn(`[invoice-push] non-operating audit note failed: ${(err as Error).message}`)
     }
@@ -466,11 +586,12 @@ export async function POST(
   // every push will warn but CINC stays correct.
   let driveFileId: string | null = (draft.drive_file_id ?? null) as string | null
   let driveWarning: string | null = null
-  if (!driveFileId) {
+  if (!progress.drive_mirror && !driveFileId) {
     // Not already mirrored at the Transfer-to-Push step — do it now.
     try {
       const mirror = await uploadInvoiceToDrive({ filename, pdfBuffer: buf })
       driveFileId = mirror.driveFileId
+      await checkpoint('drive_mirror')
     } catch (err) {
       driveWarning = `Drive mirror failed: ${(err as Error).message}`
       console.warn(`[invoice-push] ${driveWarning}`)

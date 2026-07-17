@@ -17,8 +17,8 @@ Full detail in `docs/SESSION-HANDOFF.md`'s top section. Headline items: (1) invo
 - **Tropicana II (TROP) onboarding**: "Association Details" + "Onboarding Checklist" cards on `/admin/cinc-sync/[code]` (new `PATCH /api/admin/associations/[code]`), and a real architecture fix so **every future new association's public resident-portal site works automatically** the moment its `associations` row exists — no hand-built page, no deploy (`app/[slug]/page.tsx` now renders the shared portal component directly for any active unmapped association code). TROP also got a real branded URL, `/tropicana2`.
 
 **Pending:**
-- Confirm Stripe live vs. test mode before any real applicant pays (open since 2026-07-07, still not resolved).
-- 18 invoices from the PDF-fix need their Drive copy re-mirrored by hand (`/admin/invoices` → per-invoice "Re-mirror to Drive").
+- ✅ Stripe confirmed **LIVE (production mode)**, resolved 2026-07-13. Next step: run one real end-to-end test application through `/apply` to confirm the live-mode path works.
+- ✅ Drive re-mirror for the 18 PDF-fix invoices — confirmed not needed, all good (2026-07-13).
 - TROP needs its real address / Sunbiz info / board-approval-signature count entered now that the UI exists.
 - Check whether other associations besides TROP are missing the same core-identity fields (only TROP + the original 25 were checked).
 
@@ -41,7 +41,7 @@ Replaces the dead ApplyCheck integration (no public API). Real architecture: Bea
 - **Gov ID / Proof of Income are now per-applicant** (previously ONE shared upload for the whole application, even for a couple) — embedded in each `applicants[]`/`principals[]` entry, no migration needed. Admin + board pages both show a unified per-applicant panel: name, their own documents, their own Checkr status + report link.
 
 **Still open:**
-- Confirmed no Stripe price IDs exist for the mode production's Stripe key actually runs in (couldn't verify live vs. test directly — `STRIPE_SECRET_KEY` is a Vercel "sensitive" var, write-only). Needs your confirmation of live-vs-test before real applicants pay.
+- ✅ Stripe confirmed **LIVE (production mode)**, resolved 2026-07-13 — needs one real end-to-end test application to confirm the live-mode path works, not a config check.
 - Final combined PDF package (all documents + all Checkr reports + signed rules ack + signed approval letter) delivered to Google Drive — a working Drive-upload pattern already exists in the codebase (`lib/drive-invoice-mirror.ts`) so the mechanism is known, but needs: which Drive folder / organization scheme, and confirming the approval letter should become a real signed PDF (currently just template text on the board page).
 - A "Flows" diagram for the application process (matching the existing click-to-popup style) — requested, not started.
 - Full Checkr production account authorization (test key works; going live needs Checkr's sign-off).
@@ -210,7 +210,7 @@ See the full entry under "Development backlog" below (kept there since it starte
 
 ## Suggested priority
 1. 🟡 **In-Maia application process, association by association** — VPCI in progress (mockup + PDF built, pending your sign-off), 22 real associations to go. Ownership-date backfill for the eligibility rules is the current bottleneck (manual, BCPA lookups).
-2. ✅ **Checkr integration** — deployed to production 2026-07-06/07 (see section near the top of this doc). Next: confirm live-vs-test Stripe mode before real applicants pay, get Checkr production account authorization.
+2. ✅ **Checkr integration** — deployed to production 2026-07-06/07 (see section near the top of this doc). Stripe confirmed LIVE 2026-07-13. Next: run one real end-to-end test application to confirm the live-mode path, get Checkr production account authorization.
 3. 🔴 **Final combined application PDF package → Google Drive** — all documents + Checkr reports + signed rules ack + signed approval letter, one download. Needs: target Drive folder/organization, and whether the approval letter becomes a real signed PDF. Upload mechanism already known (`lib/drive-invoice-mirror.ts` pattern).
 4. 🔴 **Flows diagram for the application process** — requested, matching the existing click-to-popup style, not started.
 5. ✅ **Pre-registration triage Phase 2 + unit occupancy control** — done (2026-07-04). Pending your action: try `/admin/unit-status`'s survey button for real (it dry-runs by default) and confirm the Send Occupancy & Insurance Survey copy reads right before the first live send to real owners.
