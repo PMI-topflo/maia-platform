@@ -76,11 +76,32 @@ export default async function VendorUploadPage({ params, searchParams }: Props) 
 
   const where = [wod?.work_location_name, wod?.address_line1, [wod?.city, wod?.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ')
 
+  // Association name + property address — the crew needs to know WHICH site
+  // this work order is for. work_order_details location (`where` above) is
+  // often empty for recurring visits, and the code alone ("WBPA") means
+  // nothing to a vendor, so surface the real name + address (principal_address
+  // is the manually-entered PROPERTY address, not the Sunbiz/agent one).
+  const { data: assocRow } = ticket.association_code
+    ? await supabaseAdmin
+        .from('associations')
+        .select('association_name, principal_address, city, state, zip')
+        .eq('association_code', ticket.association_code)
+        .maybeSingle()
+    : { data: null }
+  const assocName = ((assocRow?.association_name as string | null) ?? '').trim() || (ticket.association_code as string | null) || ''
+  const aa = (assocRow ?? {}) as { principal_address?: string | null; city?: string | null; state?: string | null; zip?: string | null }
+  const assocAddr = [
+    aa.principal_address?.trim(),
+    [aa.city?.trim(), [aa.state?.trim(), aa.zip?.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+  ].filter(Boolean).join(', ')
+
   return (
     <Shell dir={dir}>
       {langBar}
       <div style={{ fontSize: 12, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.wo} {ticket.ticket_number}</div>
       <h1 style={{ fontSize: 20, fontWeight: 700, margin: '6px 0 2px' }}>{ticket.subject || t.fallbackTitle}</h1>
+      {assocName && <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginTop: 2 }}>{assocName}</div>}
+      {assocAddr && <div style={{ fontSize: 13, color: '#4b5563', marginTop: 1 }}>📍 {assocAddr}</div>}
       {where && <div style={{ fontSize: 13, color: '#4b5563' }}>{where}</div>}
       {wod?.vendor_name && <div style={{ fontSize: 13, color: '#4b5563', marginTop: 2 }}>{t.vendor}: {wod.vendor_name}</div>}
       <p style={{ fontSize: 13, color: '#4b5563', margin: '14px 0 18px', lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: t.intro }} />
