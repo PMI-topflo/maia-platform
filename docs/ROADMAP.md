@@ -7,6 +7,33 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 
 ---
 
+## 🟡 IN PR #506 (branch `feat/board-approval-reliability-2026-07-17`, migrations applied to prod, NOT yet merged/deployed) — 2026-07-17
+
+Four bundles of work. **Migrations already applied to prod** (safe to deploy), but the code is only live once #506 merges.
+
+**1. Board-approval overhaul.** Per-purpose config + committee, replacing the single shared `association_config` row.
+- New tables `board_approval_config` + `board_approval_members`: signature count / approval-letter template / reminder cadence / committee are set **per purpose** (application / invoice / estimate). Backfilled from existing active board members.
+- **Deciders vs Voters** — Decider's decision is binding toward the threshold, Voter's is advisory. Shared `BoardMemberPicker`.
+- **New invoice board-approval** (optional, staff-triggered): send link → picked board members, per-association reminder cron (`board-approval-reminders`), and on decider approval flip the CINC invoice out of Pending Approval via `approveInvoice` + stamp approver via `createInvoiceNote`. Does NOT block the normal CINC push.
+
+**2. Invoice→CINC push crash-resume ("Path B").** `invoice_intake_drafts.push_progress` jsonb. CINC id persisted the instant `createInvoice` succeeds; each post-create step checkpointed + skipped on retry, so a mid-push crash resumes instead of double-creating a GL line / PDF / note. Resume detected by a non-terminal draft already carrying a `cinc_invoice_id` (no new status — draft stays in Ready-to-push tab). *(Chose in-house checkpoint over Vercel Workflow SDK — reserve the SDK for a genuinely long-running flow like application→Checkr→board.)*
+
+**3. Intent-classifier eval harness.** `lib/intent-classifier.ts` (extracted from the webhook route, behavior-identical) + `evals/` with 33 fixtures. `npm run eval:intent` → accuracy report, exits non-zero <85% (CI-gate-ready). First automated test over an AI path.
+
+**4. Recurring crew emails + upload page.** Office copy now sent on SMS/WhatsApp channels (was email-only); crew message AND `/vendor/upload/[token]` page now show the association **name + property address** instead of the cryptic code. Verified live.
+
+**Also in #506:** CINC Contacts & Consent v2 scaffolding (`listPropertyContacts`, `listAssociationPropertiesV2`) — **unwired**, prod flag still off; blocked on the `isCurrentOwner`/`OwnerNumber` gap (see its own section below).
+
+**Pending TEST (post-merge):**
+- Configure the **invoice committee** per association in Board Setup (starts empty — only application/estimate were backfilled).
+- **CINC `approveInvoice` smoke test** — that endpoint was never exercised before; push one real invoice through board approval and confirm it actually leaves Pending Approval (best-effort, won't break the push if it fails).
+- **Invoice-push resume** — push one real low-stakes invoice, confirm normal completion (resume only triggers on a real mid-push crash).
+- **Board approval Decider/Voter** — confirm a Voter's approve does NOT close, a Decider's does.
+- **Reminder cron** — manually hit `/api/cron/board-approval-reminders` with `CRON_SECRET` against a stale review; confirm it sends + dedups.
+- **Recurring** — Paola re-sends links for Dimas's visit; confirm office copy + name/address land.
+
+---
+
 ## ✅ DEPLOYED — blank-PDF root-cause fix, session-secret security fix, vendor-crew SMS redirect (commits through `a723d48`, 2026-07-12/13)
 
 Full detail in `docs/SESSION-HANDOFF.md`'s top section. Headline items: (1) invoice PDFs rasterized for CINC/Drive were silently dropping all text on Vercel (pdf.js missing `standardFontDataUrl` — masked locally by Mac system fonts) — root-caused, fixed, 18 already-pushed invoices' CINC attachments corrected (Drive copies still need a manual re-mirror click each); (2) Production had **no `MAIA_SESSION_SECRET`**, silently using the hardcoded dev-default visible in this public repo — real secret generated + set + redeployed, all prior sessions invalidated as expected; (3) recurring-service crew SMS/WhatsApp replies now redirect to the upload-link form (no phone→ticket correlation existed before) with a one-time "which job?" menu when a crew member covers more than one active service; (4) `service_visits` crew-link send status now persists and shows on `/admin/recurring-services` instead of a one-time alert.
