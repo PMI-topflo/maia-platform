@@ -2773,29 +2773,28 @@ export async function createInvoiceNote(opts: {
   })
 }
 
-/** PUT /accounting/approveInvoice — moves an EXISTING invoice from
- *  PENDING APPROVAL to CINC's approved/Ready for Payment status, so
- *  board members no longer need to separately approve it in WebAxis.
+/** PUT /accounting/approveInvoice?invoiceID=<n> — moves an EXISTING
+ *  invoice from PENDING APPROVAL toward CINC's READY FOR PAYMENT status,
+ *  so board members no longer need to separately approve it in WebAxis.
  *
- *  ⚠ UNVERIFIED: CINC_API.md lists this endpoint but no request/response
- *  shape was ever documented or exercised in this codebase — postApprovedInvoice
- *  (a different endpoint, for creating a NEW invoice directly in Ready for
- *  Payment) was previously "the furthest forward MAIA can move an invoice
- *  via the API." Body shape below follows CINC's InvoiceID + ApprovalDate
- *  convention used by the sibling approvedInvoices/invoiceNotes endpoints,
- *  but has NOT been confirmed against a real invoice. Smoke-test on one
- *  real invoice before relying on this broadly. Best-effort: callers
- *  should treat failure as "still needs WebAxis approval," not fatal. */
+ *  Per CINC's live Swagger (verified 2026-07-18) this endpoint takes the
+ *  invoice id as a REQUIRED QUERY PARAMETER (`invoiceID`, in=query) — NOT
+ *  a JSON body. (An earlier version sent it in the body and would have
+ *  been rejected for a missing required param — never caught because the
+ *  endpoint had never actually been called.)
+ *
+ *  ⚠ STILL UNVERIFIED end-to-end: whether this single call lands the
+ *  invoice in READY FOR PAYMENT (vs. an intermediate state, or CINC's own
+ *  WebAxis-side workflow wanting more) has not been confirmed against a
+ *  real invoice. Smoke-test one real invoice before relying on it. The
+ *  approve action itself carries no signer/level — it's a blunt flip.
+ *  Best-effort: callers treat failure as "still needs WebAxis approval." */
 export async function approveInvoice(opts: {
-  invoiceId:     number
-  approvalDate?: string | null
+  invoiceId: number
 }): Promise<void> {
   await call<unknown>('/management/1/accounting/approveInvoice', {
     method: 'PUT',
-    json:   {
-      InvoiceID:    opts.invoiceId,
-      ApprovalDate: opts.approvalDate ?? new Date().toISOString().slice(0, 10),
-    },
+    query:  { invoiceID: opts.invoiceId },
   })
 }
 

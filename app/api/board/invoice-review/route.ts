@@ -16,7 +16,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { createInvoiceNote, approveInvoice } from '@/lib/integrations/cinc'
-import { PAOLA_EMAIL } from '@/lib/notify-recipients'
+import { PAOLA_EMAIL, KAREN_EMAIL } from '@/lib/notify-recipients'
 
 export const dynamic = 'force-dynamic'
 const money = (n: number | null) => n == null ? '—' : `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -104,7 +104,9 @@ export async function POST(req: Request) {
 
     // Writeback: only possible if the invoice is already in CINC. If not
     // yet pushed, push/route.ts writes this note once cinc_invoice_id
-    // exists (it checks for a decided invoice_approvals row at push time).
+    // exists (it checks for a decided invoice_approvals row at push time)
+    // AND sends Karen the ready-for-payment hand-off there instead.
+    let cincReady = false      // did approveInvoice succeed (→ Ready for Payment)?
     if (approval.cinc_invoice_id) {
       const { data: deciders } = await supabaseAdmin
         .from('invoice_approval_reviews')
@@ -114,9 +116,12 @@ export async function POST(req: Request) {
         .eq('decision', 'approve')
       const names = (deciders ?? []).map(d => d.board_member_name).filter(Boolean).join(', ')
       const cincId = Number(approval.cinc_invoice_id)
-      await approveInvoice({ invoiceId: cincId }).catch(err => {
+      try {
+        await approveInvoice({ invoiceId: cincId })
+        cincReady = true
+      } catch (err) {
         console.warn(`[board/invoice-review] approveInvoice failed (invoice still Pending Approval in CINC, needs WebAxis): ${(err as Error).message}`)
-      })
+      }
       await createInvoiceNote({
         invoiceId: cincId,
         content:   `Invoice approved by board: ${names || review.board_member_name} on ${new Date().toISOString().slice(0, 10)} via MAIA.`,
@@ -124,6 +129,22 @@ export async function POST(req: Request) {
     }
 
     await sendEmail({ to: PAOLA_EMAIL, subject: `Board APPROVED — ${invLabel}`, html: `<p>The board approved the invoice <strong>${invLabel}</strong> (${approvals}/${approval.required} decider signature(s)).</p>` }).catch(() => null)
+
+    // Payment hand-off to Karen (billing). Only meaningful once the invoice
+    // is actually in CINC — if it hasn't been pushed yet, the push route
+    // sends this same hand-off after it flips the status at push time.
+    if (approval.cinc_invoice_id) {
+      const cincId = approval.cinc_invoice_id
+      await sendEmail({
+        to:      KAREN_EMAIL,
+        subject: cincReady
+          ? `Ready for payment — ${invLabel}`
+          : `Board approved · needs approval in CINC — ${invLabel}`,
+        html: cincReady
+          ? `<p>The board approved <strong>${invLabel}</strong> (CINC invoice ${cincId}) and MAIA moved it to <strong>READY FOR PAYMENT</strong> in CINC. Please process the payment.</p>`
+          : `<p>The board approved <strong>${invLabel}</strong> (CINC invoice ${cincId}), but MAIA could not move it to Ready for Payment in CINC automatically. Please approve it in CINC WebAxis, then process the payment.</p>`,
+      }).catch(() => null)
+    }
   }
 
   return NextResponse.json({ ok: true, status: finalized ? 'approved' : 'pending', approvals, required: approval.required })
