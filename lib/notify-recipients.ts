@@ -17,6 +17,10 @@
 export const PAOLA_EMAIL    = process.env.MAIA_VENDOR_REQUEST_CC ?? 'service@topfloridaproperties.com'
 export const FABIO_EMAIL    = process.env.MAIA_OWNER_NOTIFY_EMAIL ?? 'fabio@pmitop.com'
 export const JONATHAN_EMAIL = process.env.MAIA_AR_EMAIL ?? 'ar@topfloridaproperties.com'
+/** Billing / AP (Karen) — who processes invoice payments in CINC. Gets
+ *  the "invoice approved, ready for payment" hand-off. Same value the
+ *  invoice-push double-pay guard uses for the Karen-only override. */
+export const KAREN_EMAIL    = process.env.MAIA_BILLING_ALERT_TO ?? 'billing@topfloridaproperties.com'
 /** The main MAIA inbox — Gmail-watched, so replies land somewhere that
  *  actually threads back onto the work order automatically. */
 export const MAIA_EMAIL = 'maia@pmitop.com'

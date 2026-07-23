@@ -34,6 +34,8 @@ import { uploadInvoiceToDrive } from '@/lib/drive-invoice-mirror'
 import { normalizePdf } from '@/lib/pdf-normalize'
 import { trustedDomainVariants } from '@/lib/staff-lookup'
 import { loadCoiVerdict, isVendorCoiExempt } from '@/lib/coi-verdict'
+import { sendEmail } from '@/lib/gmail'
+import { KAREN_EMAIL } from '@/lib/notify-recipients'
 
 // CINC rejects invoice attachments over ~1 MB. The bug wasn't the limit —
 // it was WHAT we measured: the old gate compared the BASE64-encoded length
@@ -50,9 +52,9 @@ const CINC_ATTACH_MAX_BYTES    = 1_000_000    // hard refusal — CINC's ~1 MB F
 // the push unless Karen explicitly overrides (pushAnyway).
 const DUP_GUARD_DAYS = 60
 
-// Karen's inbox — the assignee + author for every auto-resolved
-// "invoice processed" ticket. Same env as the needs-vendor alert.
-const KAREN_EMAIL = process.env.MAIA_BILLING_ALERT_TO ?? 'billing@topfloridaproperties.com'
+// Karen's inbox (billing/AP) is imported from lib/notify-recipients — the
+// assignee + author for every auto-resolved "invoice processed" ticket, the
+// double-pay/COI/ACH override identity, and the ready-for-payment hand-off.
 
 export const dynamic = 'force-dynamic'
 
@@ -529,13 +531,29 @@ export async function POST(
           .eq('member_type', 'decider')
           .eq('decision', 'approve')
         const names = (deciders ?? []).map(d => d.board_member_name).filter(Boolean).join(', ')
-        await approveInvoice({ invoiceId: cincInvoiceId }).catch(err => {
+        let cincReady = false
+        try {
+          await approveInvoice({ invoiceId: cincInvoiceId })
+          cincReady = true
+        } catch (err) {
           console.warn(`[invoice-push] approveInvoice failed (invoice pushed as Pending Approval, needs WebAxis): ${(err as Error).message}`)
-        })
+        }
         await createInvoiceNote({
           invoiceId: cincInvoiceId,
           content:   `Invoice approved by board: ${names || 'board decider'} on ${new Date().toISOString().slice(0, 10)} via MAIA.`,
         })
+        // Payment hand-off to Karen — this invoice was board-approved BEFORE
+        // it was pushed, so the board-review route couldn't notify billing
+        // (no CINC invoice existed yet). Now that it's in CINC and flipped,
+        // tell Karen it's ready to pay.
+        const invLabel = `${draft.matched_vendor_name ?? draft.matched_vendor_short_name ?? 'Vendor'} · ${draft.extracted_association_code ?? ''} · $${Number(draft.extracted_amount ?? 0).toFixed(2)}`
+        await sendEmail({
+          to:      KAREN_EMAIL,
+          subject: cincReady ? `Ready for payment — ${invLabel}` : `Board approved · needs approval in CINC — ${invLabel}`,
+          html: cincReady
+            ? `<p>The board approved <strong>${invLabel}</strong> (CINC invoice ${cincInvoiceId}) and MAIA moved it to <strong>READY FOR PAYMENT</strong> in CINC. Please process the payment.</p>`
+            : `<p>The board approved <strong>${invLabel}</strong> (CINC invoice ${cincInvoiceId}), but MAIA could not move it to Ready for Payment automatically. Please approve it in CINC WebAxis, then process the payment.</p>`,
+        }).catch(() => null)
       }
     } catch (err) {
       console.warn(`[invoice-push] board-approval note failed: ${(err as Error).message}`)
