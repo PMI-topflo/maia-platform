@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 
-// Login paths per persona — staff uses its own login page, others use the homepage
-const PROTECTED: Record<string, { persona: 'owner' | 'board' | 'staff' | 'tenant' | 'unit_manager' | 'building_manager'; loginPath: string }> = {
+type Persona = 'owner' | 'board' | 'staff' | 'tenant' | 'unit_manager' | 'building_manager'
+
+// Login paths per persona — staff uses its own login page, others use the homepage.
+// `persona` may be a single persona or a set (any of them may enter; staff can
+// always enter any protected route).
+const PROTECTED: Record<string, { persona: Persona | Persona[]; loginPath: string }> = {
   '/my-account':       { persona: 'owner',            loginPath: '/' },
   '/tenant':           { persona: 'tenant',           loginPath: '/' },
   '/board':            { persona: 'board',            loginPath: '/' },
   '/admin':            { persona: 'staff',            loginPath: '/admin/login' },
   '/unit-manager':     { persona: 'unit_manager',     loginPath: '/' },
   '/building-manager': { persona: 'building_manager', loginPath: '/' },
+  // Shared association unit-audit portal — board, both manager types, + staff.
+  '/units':            { persona: ['board', 'building_manager', 'unit_manager'], loginPath: '/' },
 }
 
 export async function middleware(req: NextRequest) {
@@ -42,8 +48,10 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(dest)
   }
 
-  // Staff can access any protected route; other personas must match exactly
-  if (session.persona !== 'staff' && session.persona !== route.persona) {
+  // Staff can access any protected route; other personas must be in the
+  // route's allowed set.
+  const allowed = Array.isArray(route.persona) ? route.persona : [route.persona]
+  if (session.persona !== 'staff' && !allowed.includes(session.persona)) {
     const dest = req.nextUrl.clone()
     dest.pathname = '/'
     dest.search   = ''
