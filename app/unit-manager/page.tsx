@@ -190,6 +190,21 @@ export default async function UnitManagerPage() {
         </>
       )}
 
+      {/* Unit audit */}
+      <div className="section" style={{ paddingTop: '1.5rem' }}>
+        <h2 className="section-title">Quick Actions</h2>
+      </div>
+      <div className="prow-grid" style={{ marginTop: 0 }}>
+        <a href="/units" className="prow">
+          <div className="prow-orb">🏢</div>
+          <div className="prow-info">
+            <div className="prow-t">Unit Audit</div>
+            <div className="prow-d">Your units — occupancy, documents &amp; uploads</div>
+          </div>
+          <div className="prow-btn">Open</div>
+        </a>
+      </div>
+
       {/* Contact PMI */}
       <div className="section" style={{ paddingTop: '1.5rem' }}>
         <h2 className="section-title">Contact Management</h2>
