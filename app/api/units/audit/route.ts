@@ -16,6 +16,8 @@ import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { buildAssociationAudit } from '@/lib/association-audit'
+import { listCurrentBalances } from '@/lib/integrations/cinc'
+import { collectionsAccountsFor } from '@/lib/owner-ledger-flow'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,10 +54,23 @@ export async function GET(req: Request) {
   const { data: assocRow } = await supabaseAdmin
     .from('associations').select('association_name').eq('association_code', assoc).maybeSingle()
 
+  // Financials — two BULK CINC calls for the whole association (both cached),
+  // not per-unit: current balance per homeowner + the collections-workflow
+  // account set. The board's recurring "is this unit in collections?" comes
+  // straight off the collections list.
+  const [balances, collSet] = await Promise.all([
+    listCurrentBalances(assoc).catch(() => new Map<string, number>()),
+    collectionsAccountsFor(assoc).catch(() => new Set<string>()),
+  ])
+  const enriched = units.map(u => {
+    const acct = u.accountNumber.toUpperCase()
+    return { ...u, balance: balances.get(acct) ?? null, inCollections: collSet.has(acct) }
+  })
+
   return NextResponse.json({
     associationCode: assoc,
     associationName: assocRow?.association_name ?? assoc,
     persona:         session.persona,
-    units,
+    units:           enriched,
   })
 }
