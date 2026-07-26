@@ -21,7 +21,11 @@ const OCC = [
   { key: 'vacant',         label: 'Vacant' },
 ] as const
 
-const money = (n: number | null) => n == null ? '—' : (n < 0 ? `-$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
+// CINC display: positive = owed, negative = credit in parentheses.
+const money = (n: number | null) => n == null ? '—'
+  : n < 0 ? `($${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
+  : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const balanceColor = (n: number | null, coll: boolean) => coll ? '#dc2626' : (n != null && n > 0.005) ? '#dc2626' : (n != null && n < -0.005) ? '#2563eb' : '#111827'
 
 export default function UnitDetailClient({ account, assoc }: { account: string; assoc: string }) {
   const [data, setData] = useState<Data | null>(null)
@@ -65,13 +69,13 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
           <h1 style={{ font: '700 24px system-ui', margin: 0 }}>Unit {u.unit}</h1>
           <div style={{ color: '#6b7280', font: '500 13px system-ui' }}>{data.associationName} · {u.accountNumber}{u.floor != null ? ` · Floor ${u.floor}, line ${String(u.line).padStart(2, '0')}` : ''}</div>
         </div>
-        <a href="/units" style={{ font: '500 13px system-ui', color: '#2563eb', textDecoration: 'none' }}>← Back to building</a>
+        <a href={`/units?assoc=${encodeURIComponent(assoc)}`} style={{ font: '500 13px system-ui', color: '#2563eb', textDecoration: 'none' }}>← Back to building</a>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 18 }}>
         <Card title="Owner">{u.ownerName || '—'}</Card>
         <Card title="Balance">
-          <span style={{ color: (u.balance ?? 0) > 0 || u.inCollections ? '#dc2626' : '#111827', fontWeight: 700 }}>{money(u.balance)}</span>
+          <span style={{ color: balanceColor(u.balance, u.inCollections), fontWeight: 700 }}>{money(u.balance)}</span>
           {u.inCollections && <span style={{ marginLeft: 8, font: '700 11px system-ui', color: '#fff', background: '#dc2626', borderRadius: 6, padding: '2px 6px' }}>IN COLLECTIONS</span>}
         </Card>
         {u.occupancy === 'leased' && <Card title="Tenant">{u.tenantName || '—'}{u.leaseEndDate ? ` · lease ends ${u.leaseEndDate}` : ''}</Card>}

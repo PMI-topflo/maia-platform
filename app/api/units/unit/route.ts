@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { buildAssociationAudit } from '@/lib/association-audit'
 import { listCurrentBalances } from '@/lib/integrations/cinc'
-import { collectionsAccountsFor } from '@/lib/owner-ledger-flow'
+import { isAccountInCollections } from '@/lib/owner-ledger-flow'
 import { resolveUnitsAuth } from '@/lib/units-portal-auth'
 
 export const runtime = 'nodejs'
@@ -28,9 +28,9 @@ export async function GET(req: Request) {
   const unit = audit.find(u => u.accountNumber.toUpperCase() === account.toUpperCase())
   if (!unit) return NextResponse.json({ error: 'unit not found' }, { status: 404 })
 
-  const [balances, collSet, subs, assocRow] = await Promise.all([
+  const [balances, inCollections, subs, assocRow] = await Promise.all([
     listCurrentBalances(auth.assoc).catch(() => new Map<string, number>()),
-    collectionsAccountsFor(auth.assoc).catch(() => new Set<string>()),
+    isAccountInCollections(auth.assoc, account).catch(() => false),   // ORs collections-list + Block-Payments toggle
     supabaseAdmin.from('unit_document_submissions')
       .select('id, item_key, scope, filename, storage_key, submitted_by_persona, submitted_by_name, ai_verdict, ai_identified_as, ai_expiration_date, ai_summary, status, reviewed_by, reviewed_at, review_note, created_at')
       .eq('association_code', auth.assoc).eq('unit_ref', account).order('created_at', { ascending: false }),
@@ -46,7 +46,7 @@ export async function GET(req: Request) {
     unit: {
       ...unit,
       balance:       balances.get(account.toUpperCase()) ?? null,
-      inCollections: collSet.has(account.toUpperCase()),
+      inCollections,
     },
     submissions: subs.data ?? [],
   })
