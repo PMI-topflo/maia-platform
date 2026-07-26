@@ -217,6 +217,23 @@ export default function AssociationPortalGate({ assocCode, assocName, children, 
             )}
           </div>
         </div>
+        {(authPreview === 'board' || authPreview === 'onsite_manager' || session.persona === 'board' || session.persona === 'building_manager' || session.persona === 'unit_manager') && (
+          <div className="section" style={{ paddingTop: 0 }}>
+            <a
+              href={`/units?assoc=${encodeURIComponent(assocCode)}`}
+              className="block bg-[#0f1729] text-white rounded-xl px-5 py-4 mb-6 flex items-center justify-between gap-4 no-underline hover:opacity-95 transition-opacity"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-xl shrink-0">🏢</div>
+                <div>
+                  <div className="font-semibold">Board View — Unit Audit</div>
+                  <div className="text-xs text-white/70 mt-0.5">Every unit&rsquo;s occupancy, documents, balance &amp; collections — on the building floor plan</div>
+                </div>
+              </div>
+              <span className="bg-[#f26a1b] text-white px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap">Open →</span>
+            </a>
+          </div>
+        )}
         {children}
       </div>
     )
