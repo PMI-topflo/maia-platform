@@ -44,6 +44,42 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'unit_audit_foundation',
+    label:       'Unit-audit portal foundation',
+    description: 'Ensures unit_managers/building_managers exist (20260505 was never applied) + grants, adds can_upload, and creates unit_document_submissions (the manager-upload → staff/board approval queue for the association unit-audit portal).',
+    filename:    '20260719_unit_audit_foundation.sql',
+    artifact:    { type: 'table', table: 'unit_document_submissions' },
+    sql: `CREATE TABLE IF NOT EXISTS public.unit_managers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), first_name text NOT NULL, last_name text NOT NULL,
+  email text, phone text, association_code text NOT NULL, managed_units text[] NOT NULL DEFAULT '{}',
+  company_name text, notes text, active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS unit_managers_assoc_idx ON public.unit_managers (association_code);
+CREATE TABLE IF NOT EXISTS public.building_managers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), first_name text NOT NULL, last_name text NOT NULL,
+  email text, phone text, association_code text NOT NULL, company_name text, notes text,
+  active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS building_managers_assoc_idx ON public.building_managers (association_code);
+ALTER TABLE public.unit_managers     ADD COLUMN IF NOT EXISTS can_upload boolean NOT NULL DEFAULT true;
+ALTER TABLE public.building_managers ADD COLUMN IF NOT EXISTS can_upload boolean NOT NULL DEFAULT true;
+CREATE TABLE IF NOT EXISTS public.unit_document_submissions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), association_code text NOT NULL, unit_ref text NOT NULL,
+  item_key text NOT NULL, scope text NOT NULL DEFAULT 'unit', storage_key text NOT NULL, filename text,
+  submitted_by_persona text NOT NULL, submitted_by_id text, submitted_by_name text, submitted_by_email text,
+  ai_verdict text, ai_identified_as text, ai_expiration_date date, ai_summary text,
+  status text NOT NULL DEFAULT 'pending', reviewed_by text, reviewed_at timestamptz, review_note text,
+  compliance_record_id uuid, created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS uds_assoc_status_idx ON public.unit_document_submissions (association_code, status);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.unit_managers TO anon, authenticated, service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.building_managers TO anon, authenticated, service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.unit_document_submissions TO anon, authenticated, service_role;
+ALTER TABLE public.unit_managers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.building_managers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.unit_document_submissions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_unit_document_submissions" ON public.unit_document_submissions;
+CREATE POLICY "service_role_all_unit_document_submissions" ON public.unit_document_submissions FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'invoice_push_progress',
     label:       'Invoice push crash-resume',
     description: 'invoice_intake_drafts.push_progress jsonb — records which post-createInvoice sub-steps completed so a half-finished CINC push can resume instead of double-creating a GL line / PDF / note. Resume is detected by a non-terminal draft already carrying a cinc_invoice_id (no new status value).',

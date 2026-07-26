@@ -252,6 +252,15 @@ export default async function BoardPage(props: {
 
       <div className="prow-grid" style={{ marginTop: 0 }}>
 
+        <a href="/units" className="prow">
+          <div className="prow-orb">🏢</div>
+          <div className="prow-info">
+            <div className="prow-t">Unit Audit</div>
+            <div className="prow-d">Floor-plan view — occupancy, documents, balances &amp; collections for every unit</div>
+          </div>
+          <div className="prow-btn">Open</div>
+        </a>
+
         <a
           href="https://pmitfp.cincwebaxis.com/"
           target="_blank"

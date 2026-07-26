@@ -2524,6 +2524,28 @@ export async function getHomeownerPaymentBlockStatus(hoId: string): Promise<{ bl
   }
 }
 
+/** GET /accounting/allCurrentBalances?associationCode= — BULK current
+ *  balance for every current homeowner in an association, in one call
+ *  (CurrentBalanceInfoVm: HoID / PropertyID / AssociationCode /
+ *  CurrentBalance). Used by the unit-audit portal grid so it can show a
+ *  balance per unit without N per-unit calls. Returns a Map keyed by
+ *  upper-cased HoID (= owners.account_number). Fail-soft → empty map. */
+export async function listCurrentBalances(associationCode: string): Promise<Map<string, number>> {
+  const rows = await call<Array<{ HoID?: string | null; CurrentBalance?: number | null }>>(
+    '/management/1/accounting/allCurrentBalances',
+    { method: 'GET', query: { associationCode: associationCode.toUpperCase(), excludePreviousOwners: 'true' } },
+  ).catch(err => {
+    if (err instanceof CincApiError) return []
+    throw err
+  })
+  const out = new Map<string, number>()
+  for (const r of rows ?? []) {
+    const ho = String(r.HoID ?? '').trim().toUpperCase()
+    if (ho && typeof r.CurrentBalance === 'number') out.set(ho, r.CurrentBalance)
+  }
+  return out
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Invoice CRUD — used by the intake-queue push flow
 //

@@ -91,7 +91,7 @@ const _collCache  = new Map<string, { at: number; accounts: Set<string> }>()
 const _blockCache = new Map<string, { at: number; blocked: boolean }>()
 const CACHE_MS = 5 * 60 * 1000
 
-async function collectionsAccountsFor(assoc: string): Promise<Set<string>> {
+export async function collectionsAccountsFor(assoc: string): Promise<Set<string>> {
   const key = assoc.toUpperCase()
   const hit = _collCache.get(key)
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.accounts

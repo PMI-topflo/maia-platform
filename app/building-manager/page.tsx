@@ -115,6 +115,15 @@ export default async function BuildingManagerPage() {
       </div>
 
       <div className="prow-grid" style={{ marginTop: 0 }}>
+        <a href="/units" className="prow">
+          <div className="prow-orb">🏢</div>
+          <div className="prow-info">
+            <div className="prow-t">Unit Audit</div>
+            <div className="prow-d">Floor-plan view — occupancy, documents, balances &amp; uploads for every unit</div>
+          </div>
+          <div className="prow-btn">Open</div>
+        </a>
+
         <a href={`/${assocCode}`} target="_blank" rel="noreferrer" className="prow">
           <div className="prow-orb">🌐</div>
           <div className="prow-info">
