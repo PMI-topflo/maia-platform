@@ -72,6 +72,15 @@ export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] })
 
   return (
     <div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 14, font: '500 12px system-ui', color: '#374151', alignItems: 'center' }}>
+        <Legend sw="#dcfce7" label="Docs complete" />
+        <Legend sw="#fef9c3" label="1–2 missing" />
+        <Legend sw="#fee2e2" label="3+ missing" />
+        <span style={{ color: '#9ca3af' }}>·</span>
+        <span><b>O</b> Owner · <b>L</b> Leased · <b>V</b> Vacant</span>
+        <span style={{ color: '#dc2626' }}>⛔ / red border = in collections</span>
+      </div>
+
       <div style={{ overflowX: 'auto', paddingBottom: 8 }}>
         <table style={{ borderSpacing: 6, borderCollapse: 'separate' }}>
           <thead>
@@ -99,15 +108,6 @@ export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] })
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{other.map(u => <Cell key={u.accountNumber} u={u} />)}</div>
         </div>
       )}
-
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 14, font: '500 12px system-ui', color: '#374151', alignItems: 'center' }}>
-        <Legend sw="#dcfce7" label="Docs complete" />
-        <Legend sw="#fef9c3" label="1–2 missing" />
-        <Legend sw="#fee2e2" label="3+ missing" />
-        <span style={{ color: '#9ca3af' }}>·</span>
-        <span><b>O</b> Owner · <b>L</b> Leased · <b>V</b> Vacant</span>
-        <span style={{ color: '#dc2626' }}>⛔ / red border = in collections</span>
-      </div>
     </div>
   )
 }

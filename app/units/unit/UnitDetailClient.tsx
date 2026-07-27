@@ -13,6 +13,7 @@ interface Submission {
 interface Data {
   associationName: string; persona: string; canUpload: boolean; canReview: boolean
   unit: Unit; submissions: Submission[]
+  contacts: { name: string; phones: string[]; emails: string[] }[]
 }
 
 const OCC = [
@@ -72,8 +73,28 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
         <a href={`/units?assoc=${encodeURIComponent(assoc)}`} style={{ font: '500 13px system-ui', color: '#2563eb', textDecoration: 'none' }}>← Back to building</a>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 18 }}>
-        <Card title="Owner">{u.ownerName || '—'}</Card>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, marginTop: 18 }}>
+        <Card title={data.contacts.length > 1 ? 'Owners' : 'Owner'}>
+          {data.contacts.length === 0 ? (u.ownerName || '—') : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {data.contacts.map((c, i) => (
+                <div key={i} style={{ paddingTop: i ? 8 : 0, borderTop: i ? '1px solid #f3f4f6' : 'none' }}>
+                  <div style={{ fontWeight: 600 }}>{c.name}</div>
+                  {c.phones.map(p => (
+                    <div key={p} style={{ font: '500 13px system-ui', color: '#374151' }}>
+                      📞 <a href={`tel:${p}`} style={{ color: '#2563eb', textDecoration: 'none' }}>{p}</a>
+                    </div>
+                  ))}
+                  {c.emails.map(e => (
+                    <div key={e} style={{ font: '500 13px system-ui', color: '#374151' }}>
+                      ✉ <a href={`mailto:${e}`} style={{ color: '#2563eb', textDecoration: 'none' }}>{e}</a>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
         <Card title="Balance">
           <span style={{ color: balanceColor(u.balance, u.inCollections), fontWeight: 700 }}>{money(u.balance)}</span>
           {u.inCollections && <span style={{ marginLeft: 8, font: '700 11px system-ui', color: '#fff', background: '#dc2626', borderRadius: 6, padding: '2px 6px' }}>IN COLLECTIONS</span>}
