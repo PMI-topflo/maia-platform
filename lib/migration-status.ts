@@ -44,6 +44,19 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'owner_compliance_enhancements',
+    label:       'Owner compliance page — occupants + contact confirm',
+    description: 'unit_tenant_contacts.occupants jsonb (additional occupants) + owner_compliance_requests.contact_confirmed_at / contact_change_request / emergency_contact jsonb (owner confirms/updates their contact + provides emergency contact as fields, not a file).',
+    filename:    '20260727_owner_compliance_enhancements.sql',
+    artifact:    { type: 'column', table: 'owner_compliance_requests', column: 'contact_confirmed_at' },
+    sql: `ALTER TABLE public.unit_tenant_contacts ADD COLUMN IF NOT EXISTS occupants jsonb;
+ALTER TABLE public.owner_compliance_requests
+  ADD COLUMN IF NOT EXISTS contact_confirmed_at timestamptz,
+  ADD COLUMN IF NOT EXISTS contact_change_request text,
+  ADD COLUMN IF NOT EXISTS emergency_contact jsonb;
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'unit_audit_foundation',
     label:       'Unit-audit portal foundation',
     description: 'Ensures unit_managers/building_managers exist (20260505 was never applied) + grants, adds can_upload, and creates unit_document_submissions (the manager-upload → staff/board approval queue for the association unit-audit portal).',
