@@ -86,7 +86,7 @@ export interface OwnerComparison {
   changes?:           Record<string, { current: string | null; proposed: string | null }>
 }
 
-export type BoardStatus = 'insert' | 'match' | 'only_in_maia'
+export type BoardStatus = 'insert' | 'update' | 'match' | 'only_in_maia'
 
 export interface BoardComparison {
   status:                 BoardStatus
@@ -94,6 +94,10 @@ export interface BoardComparison {
   abm_id:                 string | null
   maia:                   BoardSnapshot | null
   cinc:                   BoardSnapshot | null
+  /** Only set on status='update'. Keyed by field (role / email), values
+   *  are the before / after we'd write into MAIA. Lets the UI show
+   *  exactly what changed (e.g. a position change made in CINC). */
+  changes?:               Record<string, { current: string | null; proposed: string | null }>
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -581,12 +585,28 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
         role:  existing.role,
         phone: null,
       }
+      // Detect drift on fields MAIA pulls from CINC (position/role and
+      // email). CINC is the source of truth, but we only ever propose
+      // pulling a value CINC actually HAS — we never blank-out a MAIA
+      // field just because CINC's is empty. So a position change made in
+      // CINC surfaces as an UPDATE the staff can push; an empty CINC
+      // field is ignored.
+      const norm = (s: string | null | undefined) => (s ?? '').trim()
+      const changes: Record<string, { current: string | null; proposed: string | null }> = {}
+      if (norm(cincSnap.role) && norm(cincSnap.role).toLowerCase() !== norm(existing.role).toLowerCase()) {
+        changes.role = { current: existing.role ?? null, proposed: cincSnap.role ?? null }
+      }
+      if (norm(cincSnap.email) && norm(cincSnap.email).toLowerCase() !== norm(existing.email).toLowerCase()) {
+        changes.email = { current: existing.email ?? null, proposed: cincSnap.email ?? null }
+      }
+      const hasChanges = Object.keys(changes).length > 0
       board.push({
-        status:               'match',
+        status:               hasChanges ? 'update' : 'match',
         cinc_board_member_id: bm.BoardMemberId,
         abm_id:               existing.id,
         maia:                 maiaSnap,
         cinc:                 cincSnap,
+        ...(hasChanges ? { changes } : {}),
       })
     }
   }
@@ -604,8 +624,8 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
     })
   }
 
-  // Sort: insert → only_in_maia → match
-  const boardStatusOrder: Record<BoardStatus, number> = { insert: 0, only_in_maia: 1, match: 2 }
+  // Sort: insert → update → only_in_maia → match
+  const boardStatusOrder: Record<BoardStatus, number> = { insert: 0, update: 1, only_in_maia: 2, match: 3 }
   board.sort((a, b) => boardStatusOrder[a.status] - boardStatusOrder[b.status])
 
   return {
@@ -635,6 +655,9 @@ export interface ApplySelection {
    *  pair can be inserted as two distinct owner rows. */
   ownerKeys:           string[]
   insertBoardCincIds:  number[]
+  /** abm_id (association_board_members.id) of status='update' rows whose
+   *  drifted fields (role / email) should be pulled from CINC into MAIA. */
+  updateBoardIds:      string[]
   deactivateBoardIds:  string[]
 }
 
@@ -642,6 +665,7 @@ export interface ApplyResult {
   ownersInserted:   number
   ownersUpdated:    number
   boardInserted:    number
+  boardUpdated:     number
   boardDeactivated: number
   errors:           string[]
 }
@@ -658,6 +682,7 @@ export async function applySync(
   let ownersInserted   = 0
   let ownersUpdated    = 0
   let boardInserted    = 0
+  let boardUpdated     = 0
   let boardDeactivated = 0
 
   const { data: assocRow } = await supabaseAdmin
@@ -743,6 +768,20 @@ export async function applySync(
     else      boardInserted++
   }
 
+  // ── Board updates (pull CINC's role / email into MAIA) ────────────
+  const boardUpdateSet = new Set(selection.updateBoardIds)
+  for (const cmp of preview.board) {
+    if (cmp.status !== 'update' || cmp.abm_id == null) continue
+    if (!boardUpdateSet.has(cmp.abm_id)) continue
+    const patch: Record<string, unknown> = {}
+    if (cmp.changes?.role)  patch.role  = cmp.changes.role.proposed
+    if (cmp.changes?.email) patch.email = cmp.changes.email.proposed
+    if (Object.keys(patch).length === 0) continue
+    const { error } = await supabaseAdmin.from('association_board_members').update(patch).eq('id', cmp.abm_id)
+    if (error) errors.push(`board update (id=${cmp.abm_id}): ${error.message}`)
+    else      boardUpdated++
+  }
+
   // ── Board deactivations ───────────────────────────────────────────
   const boardDeactSet = new Set(selection.deactivateBoardIds)
   for (const cmp of preview.board) {
@@ -753,5 +792,5 @@ export async function applySync(
     else      boardDeactivated++
   }
 
-  return { ownersInserted, ownersUpdated, boardInserted, boardDeactivated, errors }
+  return { ownersInserted, ownersUpdated, boardInserted, boardUpdated, boardDeactivated, errors }
 }
