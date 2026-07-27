@@ -55,11 +55,12 @@ interface OwnerCmp {
   changes?:         Record<string, { current: string | null; proposed: string | null }>
 }
 interface BoardCmp {
-  status:               'insert' | 'match' | 'only_in_maia'
+  status:               'insert' | 'update' | 'match' | 'only_in_maia'
   cinc_board_member_id: number | null
   abm_id:               string | null
   maia:                 BoardSnap | null
   cinc:                 BoardSnap | null
+  changes?:             Record<string, { current: string | null; proposed: string | null }>
 }
 interface SyncPreview {
   assocCode:                 string
@@ -77,6 +78,7 @@ interface ApplyResult {
   ownersInserted:   number
   ownersUpdated:    number
   boardInserted:    number
+  boardUpdated:     number
   boardDeactivated: number
   errors:           string[]
 }
@@ -87,6 +89,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
   const [error,    setError]    = useState<string | null>(null)
   const [selOwnerKeys, setSelOwnerKeys] = useState<Set<string>>(new Set())
   const [selBoardIns,  setSelBoardIns]  = useState<Set<number>>(new Set())
+  const [selBoardUpd,  setSelBoardUpd]  = useState<Set<string>>(new Set())
   const [selBoardDe,   setSelBoardDe]   = useState<Set<string>>(new Set())
   // Default ON — staff prefer seeing the full roster (synced + drifted)
   // when they open the page. Toggling off filters down to just the
@@ -162,9 +165,11 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
         // Pre-select every actionable row (staff unticks what they don't want).
         const ownerKeys = data.owners.filter(o => o.status === 'insert' || o.status === 'update').map(o => o.selection_key)
         const insBoard  = data.board.filter(b => b.status === 'insert' && b.cinc_board_member_id != null).map(b => b.cinc_board_member_id as number)
+        const updBoard  = data.board.filter(b => b.status === 'update' && b.abm_id != null).map(b => b.abm_id as string)
         const deBoard   = data.board.filter(b => b.status === 'only_in_maia' && b.abm_id != null).map(b => b.abm_id as string)
         setSelOwnerKeys(new Set(ownerKeys))
         setSelBoardIns(new Set(insBoard))
+        setSelBoardUpd(new Set(updBoard))
         setSelBoardDe(new Set(deBoard))
       })
       .catch(e => !cancelled && setError(e instanceof Error ? e.message : String(e)))
@@ -182,6 +187,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
         body:    JSON.stringify({
           ownerKeys:          [...selOwnerKeys],
           insertBoardCincIds: [...selBoardIns],
+          updateBoardIds:     [...selBoardUpd],
           deactivateBoardIds: [...selBoardDe],
         }),
       })
@@ -216,7 +222,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
   if (error)   return <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</div>
   if (!preview) return null
 
-  const totalToApply = selOwnerKeys.size + selBoardIns.size + selBoardDe.size
+  const totalToApply = selOwnerKeys.size + selBoardIns.size + selBoardUpd.size + selBoardDe.size
 
   return (
     <div className="space-y-4">
@@ -245,6 +251,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
             <li>Owners inserted: {result.ownersInserted}</li>
             <li>Owners updated: {result.ownersUpdated}</li>
             <li>Board members inserted: {result.boardInserted}</li>
+            <li>Board members updated (position / email): {result.boardUpdated}</li>
             <li>Board members deactivated: {result.boardDeactivated}</li>
           </ul>
           {result.errors.length > 0 && (
@@ -347,44 +354,66 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
           const id = cmp.cinc_board_member_id ?? cmp.abm_id ?? idx
           const sel = (() => {
             if (cmp.status === 'insert' && cmp.cinc_board_member_id != null) return selBoardIns.has(cmp.cinc_board_member_id)
+            if (cmp.status === 'update' && cmp.abm_id != null)               return selBoardUpd.has(cmp.abm_id)
             if (cmp.status === 'only_in_maia' && cmp.abm_id != null)         return selBoardDe.has(cmp.abm_id)
             return false
           })()
-          const canPick = cmp.status === 'insert' || cmp.status === 'only_in_maia'
+          const canPick = cmp.status === 'insert' || cmp.status === 'update' || cmp.status === 'only_in_maia'
           const onToggle = () => {
             if (cmp.status === 'insert' && cmp.cinc_board_member_id != null) {
               setSelBoardIns(prev => toggleNum(prev, cmp.cinc_board_member_id as number))
+            } else if (cmp.status === 'update' && cmp.abm_id != null) {
+              setSelBoardUpd(prev => toggleStr(prev, cmp.abm_id as string))
             } else if (cmp.status === 'only_in_maia' && cmp.abm_id != null) {
               setSelBoardDe(prev => toggleStr(prev, cmp.abm_id as string))
             }
           }
           return (
-            <tr key={`b-${id}`} className={cmp.status === 'match' ? 'bg-green-50/40' : ''}>
-              <td className="px-3 py-2 align-top w-8">
-                {canPick && <input type="checkbox" checked={sel} onChange={onToggle} className="accent-[#f26a1b]" />}
-              </td>
-              <td className="px-3 py-2 align-top">
-                <div className="text-[11px] font-mono text-gray-400">
-                  {cmp.cinc_board_member_id != null && <>CINC #{cmp.cinc_board_member_id}</>}
-                </div>
-              </td>
-              <td className="px-3 py-2 align-top">
-                <BoardSide
-                  snap={cmp.maia}
-                  hidden={!cmp.maia}
-                  // Emulation only makes sense for rows that already
-                  // exist in MAIA (abm_id present) — CINC-only inserts
-                  // need Apply first to create the row.
-                  emulateHref={cmp.abm_id != null ? `/board?id=${cmp.abm_id}&assoc=${assocCode}` : null}
-                />
-              </td>
-              <td className="px-3 py-2 align-top">
-                <BoardSide snap={cmp.cinc} hidden={!cmp.cinc} />
-              </td>
-              <td className="px-3 py-2 align-top text-right">
-                <StatusBadge status={cmp.status} />
-              </td>
-            </tr>
+            <Fragment key={`b-${id}`}>
+              <tr className={cmp.status === 'match' ? 'bg-green-50/40' : ''}>
+                <td className="px-3 py-2 align-top w-8">
+                  {canPick && <input type="checkbox" checked={sel} onChange={onToggle} className="accent-[#f26a1b]" />}
+                </td>
+                <td className="px-3 py-2 align-top">
+                  <div className="text-[11px] font-mono text-gray-400">
+                    {cmp.cinc_board_member_id != null && <>CINC #{cmp.cinc_board_member_id}</>}
+                  </div>
+                </td>
+                <td className="px-3 py-2 align-top">
+                  <BoardSide
+                    snap={cmp.maia}
+                    hidden={!cmp.maia}
+                    // Emulation only makes sense for rows that already
+                    // exist in MAIA (abm_id present) — CINC-only inserts
+                    // need Apply first to create the row.
+                    emulateHref={cmp.abm_id != null ? `/board?id=${cmp.abm_id}&assoc=${assocCode}` : null}
+                  />
+                </td>
+                <td className="px-3 py-2 align-top">
+                  <BoardSide snap={cmp.cinc} hidden={!cmp.cinc} />
+                </td>
+                <td className="px-3 py-2 align-top text-right">
+                  <StatusBadge status={cmp.status} />
+                </td>
+              </tr>
+              {cmp.changes && (
+                <tr>
+                  <td colSpan={5} className="px-3 pb-3 pt-0 align-top">
+                    <div className="ml-12 text-[11px] text-gray-500">
+                      Will change:{' '}
+                      {Object.entries(cmp.changes).map(([f, d], i) => (
+                        <span key={f} className="mr-3">
+                          {i > 0 && '· '}
+                          <span className="font-mono text-gray-600">{f}</span>{' '}
+                          <s className="text-red-500">{d.current ?? '∅'}</s>{' → '}
+                          <strong className="text-green-700">{d.proposed ?? '∅'}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </Fragment>
           )
         })}
       </SectionTable>

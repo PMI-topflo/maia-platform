@@ -28,6 +28,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
   const selection: ApplySelection = {
     ownerKeys:           Array.isArray(body.ownerKeys)           ? body.ownerKeys          .filter((s): s is string => typeof s === 'string') : [],
     insertBoardCincIds:  Array.isArray(body.insertBoardCincIds)  ? body.insertBoardCincIds .filter((n): n is number => typeof n === 'number') : [],
+    updateBoardIds:      Array.isArray(body.updateBoardIds)      ? body.updateBoardIds     .filter((s): s is string => typeof s === 'string') : [],
     deactivateBoardIds:  Array.isArray(body.deactivateBoardIds)  ? body.deactivateBoardIds .filter((s): s is string => typeof s === 'string') : [],
   }
 
