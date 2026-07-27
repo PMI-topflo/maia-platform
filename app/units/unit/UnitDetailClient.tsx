@@ -102,6 +102,25 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
         {u.occupancy === 'leased' && <Card title="Tenant">{u.tenantName || '—'}{u.leaseEndDate ? ` · lease ends ${u.leaseEndDate}` : ''}</Card>}
       </div>
 
+      {/* Ledger / collections. In collections → send board/managers/staff to
+          the Axela collections platform (their login) instead of the statement.
+          Link to the platform root — it starts a fresh OIDC login; the full
+          authorize URL carries one-time PKCE/nonce/state that would expire. */}
+      <div style={{ marginTop: 16 }}>
+        {u.inCollections ? (
+          <a href="https://platform.axela.tech" target="_blank" rel="noopener noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 10, background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: 10, padding: '12px 16px', textDecoration: 'none', font: '600 14px system-ui' }}>
+            ⛔ In collections — open in Axela
+            <span style={{ font: '500 12px system-ui', color: '#b91c1c' }}>platform.axela.tech · (800) 875-9221 →</span>
+          </a>
+        ) : (
+          <a href={`/api/units/ledger?account=${encodeURIComponent(account)}&assoc=${encodeURIComponent(assoc)}`} target="_blank" rel="noopener noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0f1729', color: '#fff', borderRadius: 10, padding: '12px 16px', textDecoration: 'none', font: '600 14px system-ui' }}>
+            📄 View full ledger (PDF) →
+          </a>
+        )}
+      </div>
+
       {/* Occupancy editor */}
       <Section title="Occupancy">
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
