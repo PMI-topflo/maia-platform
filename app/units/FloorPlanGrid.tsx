@@ -9,7 +9,7 @@ import type { AuditUnit } from '@/lib/association-audit'
 
 export type AuditUnitEnriched = AuditUnit & { balance: number | null; inCollections: boolean }
 
-const OCC_LETTER: Record<string, string> = { owner_occupied: 'O', leased: 'L', vacant: 'V' }
+const OCC_TEXT: Record<string, string> = { owner_occupied: 'Owner', leased: 'Leased', vacant: 'Vacant' }
 
 function cellColor(missing: number): { bg: string; fg: string } {
   if (missing === 0) return { bg: '#dcfce7', fg: '#166534' } // green — complete
@@ -26,9 +26,9 @@ function money(n: number | null): string {
 }
 function balanceColor(n: number | null, inCollections: boolean, neutral: string): string {
   if (inCollections) return '#dc2626'
-  if (n != null && n > 0.005)  return '#dc2626'   // owes → red
-  if (n != null && n < -0.005) return '#2563eb'   // credit → blue
-  return neutral
+  if (n == null) return neutral          // no balance ("—")
+  if (n > 0.005) return '#dc2626'        // owes → red
+  return '#2563eb'                       // zero or credit → blue
 }
 
 export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] }) {
@@ -43,7 +43,7 @@ export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] })
   const Cell = ({ u }: { u: AuditUnitEnriched | undefined }) => {
     if (!u) return <div style={{ width: 74, height: 56 }} />
     const { bg, fg } = cellColor(u.missingCount)
-    const occ = u.occupancy ? OCC_LETTER[u.occupancy] : ''
+    const occ = u.occupancy ? OCC_TEXT[u.occupancy] : ''
     return (
       <a
         href={`/units/unit?account=${encodeURIComponent(u.accountNumber)}&assoc=${encodeURIComponent(u.associationCode)}`}
@@ -57,7 +57,7 @@ export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] })
         }}
       >
         {occ && (
-          <span style={{ position: 'absolute', top: 3, left: 5, font: '700 9px system-ui', color: fg, opacity: 0.8 }}>{occ}</span>
+          <span style={{ position: 'absolute', top: 3, left: 4, font: '700 8px system-ui', color: fg, background: 'rgba(255,255,255,0.65)', borderRadius: 4, padding: '1px 3px', letterSpacing: '0.01em' }}>{occ}</span>
         )}
         {u.inCollections && (
           <span title="In collections" style={{ position: 'absolute', top: 3, right: 5, font: '700 9px system-ui', color: '#dc2626' }}>⛔</span>
@@ -77,7 +77,7 @@ export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] })
         <Legend sw="#fef9c3" label="1–2 missing" />
         <Legend sw="#fee2e2" label="3+ missing" />
         <span style={{ color: '#9ca3af' }}>·</span>
-        <span><b>O</b> Owner · <b>L</b> Leased · <b>V</b> Vacant</span>
+        <span>Occupancy shown as <b>Owner</b> · <b>Leased</b> · <b>Vacant</b></span>
         <span style={{ color: '#dc2626' }}>⛔ / red border = in collections</span>
       </div>
 

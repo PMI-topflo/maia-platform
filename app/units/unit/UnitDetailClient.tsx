@@ -14,6 +14,9 @@ interface Data {
   associationName: string; persona: string; canUpload: boolean; canReview: boolean
   unit: Unit; submissions: Submission[]
   contacts: { name: string; phones: string[]; emails: string[] }[]
+  ownerEmail: string | null
+  ownerPreviewPath: string
+  tenantMissing: { key: string; label: string }[]
 }
 
 const OCC = [
@@ -57,6 +60,16 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
       if (!r.ok) throw new Error((await r.json()).error || 'failed')
       load()
     } catch (e) { alert(`Could not ${decision}: ${(e as Error).message}`) } finally { setBusy(null) }
+  }
+
+  const emailOwner = async () => {
+    if (!confirm(`Email the owner (${data?.ownerEmail}) a link to confirm occupancy, tenant info, and upload their documents?`)) return
+    setBusy('email')
+    try {
+      const r = await fetch('/api/units/owner-outreach', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account, assoc }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      alert(`Sent to ${j.sentTo}. They'll be asked how the unit is used, then to upload what's missing.`)
+    } catch (e) { alert(`Could not email owner: ${(e as Error).message}`) } finally { setBusy(null) }
   }
 
   if (err)   return <Shell><div style={{ color: '#991b1b' }}>Could not load unit: {err}</div></Shell>
@@ -121,6 +134,26 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
         )}
       </div>
 
+      {/* Owner outreach — email the owner the self-service page (asks
+          occupancy first, then tenant info if leased, then uploads). */}
+      <Section title="Owner records">
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button onClick={emailOwner} disabled={busy === 'email' || !data.ownerEmail}
+            style={{ padding: '10px 16px', borderRadius: 8, border: 'none', cursor: data.ownerEmail ? 'pointer' : 'not-allowed', background: data.ownerEmail ? '#f26a1b' : '#e5e7eb', color: data.ownerEmail ? '#fff' : '#9ca3af', font: '600 13px system-ui' }}>
+            {busy === 'email' ? 'Sending…' : '📧 Email owner to confirm / update records'}
+          </button>
+          <a href={data.ownerPreviewPath} target="_blank" rel="noopener noreferrer" style={{ font: '600 13px system-ui', color: '#2563eb', textDecoration: 'none' }}>
+            👁 Preview the page they&rsquo;ll get →
+          </a>
+          <span style={{ font: '500 12px system-ui', color: '#6b7280' }}>
+            {data.ownerEmail ? `Goes to ${data.ownerEmail}` : 'No owner email on file'}
+          </span>
+        </div>
+        <p style={{ font: '500 12px system-ui', color: '#9ca3af', margin: '8px 0 0' }}>
+          The owner is asked how the unit is used (owner-occupied / leased / vacant); if leased, they enter tenant contact info — then upload anything missing.
+        </p>
+      </Section>
+
       {/* Occupancy editor */}
       <Section title="Occupancy">
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -153,12 +186,21 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
         </ul>
       </Section>
 
-      {/* Upload */}
+      {/* Upload — unit docs, plus TENANT docs when the unit is leased so the
+          manager can upload tenant files too. */}
       {data.canUpload && (
         <Section title="Upload a document">
           <UploadForm account={account} assoc={assoc}
-            items={u.requiredKeys.map(k => ({ key: k, label: u.missing.find(m => m.key === k)?.label ?? k }))}
+            items={[
+              ...u.requiredKeys.map(k => ({ key: k, scope: 'unit' as const, label: u.missing.find(m => m.key === k)?.label ?? k })),
+              ...data.tenantMissing.map(t => ({ key: t.key, scope: 'tenant' as const, label: `Tenant — ${t.label}` })),
+            ]}
             onDone={load} />
+          {u.occupancy === 'leased' && (
+            <p style={{ font: '500 12px system-ui', color: '#9ca3af', margin: '8px 0 0' }}>
+              Leased unit — &ldquo;Tenant —&hellip;&rdquo; items file against the tenant&rsquo;s record.
+            </p>
+          )}
         </Section>
       )}
 
@@ -199,21 +241,23 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
   )
 }
 
-function UploadForm({ account, assoc, items, onDone }: { account: string; assoc: string; items: { key: string; label: string }[]; onDone: () => void }) {
-  const [itemKey, setItemKey] = useState(items[0]?.key ?? '')
-  const [file, setFile]       = useState<File | null>(null)
-  const [busy, setBusy]       = useState(false)
-  const [msg, setMsg]         = useState<string | null>(null)
+function UploadForm({ account, assoc, items, onDone }: { account: string; assoc: string; items: { key: string; scope: 'unit' | 'tenant'; label: string }[]; onDone: () => void }) {
+  // Composite value (scope:key) so a unit + tenant item sharing a key stay distinct.
+  const [sel, setSel]   = useState(items[0] ? `${items[0].scope}:${items[0].key}` : '')
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg]   = useState<string | null>(null)
 
   const submit = async () => {
-    if (!file || !itemKey) return
+    if (!file || !sel) return
+    const [scope, ...rest] = sel.split(':'); const itemKey = rest.join(':')
     setBusy(true); setMsg(null)
     try {
       const u = await fetch('/api/units/documents/upload-url', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account, assoc, filename: file.name }) })
       const uj = await u.json(); if (!u.ok) throw new Error(uj.error || 'upload-url failed')
       const put = await fetch(uj.signedUrl, { method: 'PUT', body: file, headers: { 'content-type': file.type || 'application/octet-stream' } })
       if (!put.ok) throw new Error(`storage upload failed (${put.status})`)
-      const s = await fetch('/api/units/documents/submit', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account, assoc, item_key: itemKey, storage_path: uj.path, filename: file.name, mime_type: file.type }) })
+      const s = await fetch('/api/units/documents/submit', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account, assoc, item_key: itemKey, scope, storage_path: uj.path, filename: file.name, mime_type: file.type }) })
       const sj = await s.json(); if (!s.ok) throw new Error(sj.error || 'submit failed')
       setMsg(`Uploaded — MAIA read it as "${sj.submission?.ai_verdict ?? 'analyzed'}". Sent for approval.`)
       setFile(null); onDone()
@@ -222,8 +266,8 @@ function UploadForm({ account, assoc, items, onDone }: { account: string; assoc:
 
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-      <select value={itemKey} onChange={e => setItemKey(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', font: '500 13px system-ui' }}>
-        {items.map(i => <option key={i.key} value={i.key}>{i.label}</option>)}
+      <select value={sel} onChange={e => setSel(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', font: '500 13px system-ui' }}>
+        {items.map(i => <option key={`${i.scope}:${i.key}`} value={`${i.scope}:${i.key}`}>{i.label}</option>)}
       </select>
       <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => setFile(e.target.files?.[0] ?? null)} style={{ font: '13px system-ui' }} />
       <button onClick={submit} disabled={!file || busy} style={btn('#f26a1b')}>{busy ? 'Uploading…' : 'Upload for approval'}</button>
