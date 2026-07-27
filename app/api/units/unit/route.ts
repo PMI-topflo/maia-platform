@@ -9,6 +9,8 @@ import { buildAssociationAudit } from '@/lib/association-audit'
 import { listCurrentBalances } from '@/lib/integrations/cinc'
 import { isAccountInCollections } from '@/lib/owner-ledger-flow'
 import { resolveUnitsAuth } from '@/lib/units-portal-auth'
+import { signOwnerComplianceToken } from '@/lib/owner-portal-token'
+import { getTenantComplianceState } from '@/lib/unit-required-docs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,6 +54,18 @@ export async function GET(req: Request) {
     const emails = String(r.emails ?? '').split(',').map(s => s.trim()).filter(Boolean)
     contacts.push({ name: name || '—', phones, emails })
   }
+  const ownerEmail = contacts.flatMap(c => c.emails)[0] ?? null
+
+  // Owner self-service page (confirm occupancy → owner-occupied/leased/vacant,
+  // enter tenant info if leased, upload docs). Preview link for staff/board +
+  // the address the "email owner" button would send to.
+  const ownerPreviewPath = `/owner/compliance/${await signOwnerComplianceToken(auth.assoc, account)}`
+
+  // Tenant documents (only meaningful when leased) — lets the manager upload
+  // tenant files too. Reuses the tenant-compliance required set.
+  const tenantMissing = unit.occupancy === 'leased'
+    ? (await getTenantComplianceState(auth.assoc, account).catch(() => ({ missing: [] }))).missing.map(m => ({ key: m.key, label: m.label }))
+    : []
 
   return NextResponse.json({
     associationCode: auth.assoc,
@@ -65,6 +79,9 @@ export async function GET(req: Request) {
       inCollections,
     },
     contacts,
+    ownerEmail,
+    ownerPreviewPath,
+    tenantMissing,
     submissions: subs.data ?? [],
   })
 }
