@@ -1,8 +1,21 @@
-# Session handoff — 2026-07-12/13
+# Session handoff — 2026-07-27 (latest)
 
 Snapshot for picking up on another machine. Everything below is **live in production on `main`** unless noted.
 
 > ⚠️ **Repo path:** the canonical clone is now `~/maia-platform` (moved out of iCloud). Stale copies under `~/Documents/GitHub/maia-platform` and `~/Downloads/maia-platform` — ignore them.
+
+---
+
+## 2026-07-27 — Manors XI unit-audit portal, owner self-service compliance page, CINC board position-sync
+
+**MERGED to `main` (squash, main content-verified after each):**
+- **#511–#513** — MANXI (Manors XI) **unit-audit portal**: floor-plan grid (10×15, floors descending), per-unit compliance/occupancy/balance+collections, manager document uploads → staff/board approval queue, "email owner to confirm/update records" with page preview, owner-email occupancy-first (owner-occupied / vacant / leased) + manager tenant uploads, zero balances shown blue, collections via `isAccountInCollections` (ORs collections-list AND Block-Payments toggle — MANXI's 27 in-collections units only caught by the toggle).
+- **#514** — **owner self-service compliance page** (`/owner/compliance/<token>`): contact-info-on-file card (confirm / request-a-change, staff-reviewed, never auto-overwrites CINC owners record); emergency contact as **fields** not a file, one-tap "Use my unit manager" (from `unit_managers` scoped to the unit — NOT the building on-site manager, user emphasized the distinction); tenant section **multiple occupants** (+ Add); Ownership Verification explained with county Property Appraiser link (`lib/property-appraiser.ts`, defaults Broward). Migration `20260727_owner_compliance_enhancements.sql` (idempotent, registered, applied): `unit_tenant_contacts.occupants`, `owner_compliance_requests.{contact_confirmed_at,contact_change_request,emergency_contact}`.
+- **#515** — **CINC board position-sync**: board members that drifted in position (e.g. Member At Large → Secretary in CINC) used to hide behind a green `✓ SYNCED` badge — the board diff never compared role, and Apply only inserted/deactivated. Now the diff compares role+email and emits an `UPDATE` row (amber badge, "Will change: role X → Y", pre-ticked) that Apply pushes into `association_board_members.role`. Guard: only pulls a value CINC actually has. No migration. Verified live: DELA's Sean Bari (#1206) surfaced as an actionable UPDATE.
+
+**Pending your action:**
+- **DELA — Sean Bari's position**: apply the pending `UPDATE` on `/admin/cinc-sync/DELA` → Board & Owners (or edit directly at `/admin/board-setup`). His CINC position is Secretary; MAIA still had Member At Large at session end (nothing was auto-applied).
+- Owner-compliance page not yet exercised by a real owner end-to-end; the manager-uploads approval queue from #511-513 likewise wants one real round-trip.
 
 ## 2026-07-12/13 — blank-PDF root-cause fix, session-secret security fix, vendor-crew SMS redirect, Tropicana II (TROP) onboarding
 
