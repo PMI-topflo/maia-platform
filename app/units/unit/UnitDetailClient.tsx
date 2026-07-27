@@ -13,6 +13,7 @@ interface Submission {
 interface Data {
   associationName: string; persona: string; canUpload: boolean; canReview: boolean
   unit: Unit; submissions: Submission[]
+  contacts: { name: string; phones: string[]; emails: string[] }[]
 }
 
 const OCC = [
@@ -21,7 +22,11 @@ const OCC = [
   { key: 'vacant',         label: 'Vacant' },
 ] as const
 
-const money = (n: number | null) => n == null ? '—' : (n < 0 ? `-$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
+// CINC display: positive = owed, negative = credit in parentheses.
+const money = (n: number | null) => n == null ? '—'
+  : n < 0 ? `($${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
+  : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const balanceColor = (n: number | null, coll: boolean) => coll ? '#dc2626' : (n != null && n > 0.005) ? '#dc2626' : (n != null && n < -0.005) ? '#2563eb' : '#111827'
 
 export default function UnitDetailClient({ account, assoc }: { account: string; assoc: string }) {
   const [data, setData] = useState<Data | null>(null)
@@ -65,16 +70,55 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
           <h1 style={{ font: '700 24px system-ui', margin: 0 }}>Unit {u.unit}</h1>
           <div style={{ color: '#6b7280', font: '500 13px system-ui' }}>{data.associationName} · {u.accountNumber}{u.floor != null ? ` · Floor ${u.floor}, line ${String(u.line).padStart(2, '0')}` : ''}</div>
         </div>
-        <a href="/units" style={{ font: '500 13px system-ui', color: '#2563eb', textDecoration: 'none' }}>← Back to building</a>
+        <a href={`/units?assoc=${encodeURIComponent(assoc)}`} style={{ font: '500 13px system-ui', color: '#2563eb', textDecoration: 'none' }}>← Back to building</a>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 18 }}>
-        <Card title="Owner">{u.ownerName || '—'}</Card>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, marginTop: 18 }}>
+        <Card title={data.contacts.length > 1 ? 'Owners' : 'Owner'}>
+          {data.contacts.length === 0 ? (u.ownerName || '—') : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {data.contacts.map((c, i) => (
+                <div key={i} style={{ paddingTop: i ? 8 : 0, borderTop: i ? '1px solid #f3f4f6' : 'none' }}>
+                  <div style={{ fontWeight: 600 }}>{c.name}</div>
+                  {c.phones.map(p => (
+                    <div key={p} style={{ font: '500 13px system-ui', color: '#374151' }}>
+                      📞 <a href={`tel:${p}`} style={{ color: '#2563eb', textDecoration: 'none' }}>{p}</a>
+                    </div>
+                  ))}
+                  {c.emails.map(e => (
+                    <div key={e} style={{ font: '500 13px system-ui', color: '#374151' }}>
+                      ✉ <a href={`mailto:${e}`} style={{ color: '#2563eb', textDecoration: 'none' }}>{e}</a>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
         <Card title="Balance">
-          <span style={{ color: (u.balance ?? 0) > 0 || u.inCollections ? '#dc2626' : '#111827', fontWeight: 700 }}>{money(u.balance)}</span>
+          <span style={{ color: balanceColor(u.balance, u.inCollections), fontWeight: 700 }}>{money(u.balance)}</span>
           {u.inCollections && <span style={{ marginLeft: 8, font: '700 11px system-ui', color: '#fff', background: '#dc2626', borderRadius: 6, padding: '2px 6px' }}>IN COLLECTIONS</span>}
         </Card>
         {u.occupancy === 'leased' && <Card title="Tenant">{u.tenantName || '—'}{u.leaseEndDate ? ` · lease ends ${u.leaseEndDate}` : ''}</Card>}
+      </div>
+
+      {/* Ledger / collections. In collections → send board/managers/staff to
+          the Axela collections platform (their login) instead of the statement.
+          Link to the platform root — it starts a fresh OIDC login; the full
+          authorize URL carries one-time PKCE/nonce/state that would expire. */}
+      <div style={{ marginTop: 16 }}>
+        {u.inCollections ? (
+          <a href="https://platform.axela.tech" target="_blank" rel="noopener noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 10, background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: 10, padding: '12px 16px', textDecoration: 'none', font: '600 14px system-ui' }}>
+            ⛔ In collections — open in Axela
+            <span style={{ font: '500 12px system-ui', color: '#b91c1c' }}>platform.axela.tech · (800) 875-9221 →</span>
+          </a>
+        ) : (
+          <a href={`/api/units/ledger?account=${encodeURIComponent(account)}&assoc=${encodeURIComponent(assoc)}`} target="_blank" rel="noopener noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0f1729', color: '#fff', borderRadius: 10, padding: '12px 16px', textDecoration: 'none', font: '600 14px system-ui' }}>
+            📄 View full ledger (PDF) →
+          </a>
+        )}
       </div>
 
       {/* Occupancy editor */}

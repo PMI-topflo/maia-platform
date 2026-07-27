@@ -17,7 +17,7 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { buildAssociationAudit } from '@/lib/association-audit'
 import { listCurrentBalances } from '@/lib/integrations/cinc'
-import { collectionsAccountsFor } from '@/lib/owner-ledger-flow'
+import { isAccountInCollections } from '@/lib/owner-ledger-flow'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -54,18 +54,30 @@ export async function GET(req: Request) {
   const { data: assocRow } = await supabaseAdmin
     .from('associations').select('association_name').eq('association_code', assoc).maybeSingle()
 
-  // Financials — two BULK CINC calls for the whole association (both cached),
-  // not per-unit: current balance per homeowner + the collections-workflow
-  // account set. The board's recurring "is this unit in collections?" comes
-  // straight off the collections list.
-  const [balances, collSet] = await Promise.all([
-    listCurrentBalances(assoc).catch(() => new Map<string, number>()),
-    collectionsAccountsFor(assoc).catch(() => new Set<string>()),
-  ])
-  const enriched = units.map(u => {
-    const acct = u.accountNumber.toUpperCase()
-    return { ...u, balance: balances.get(acct) ?? null, inCollections: collSet.has(acct) }
-  })
+  // Balance — one bulk CINC call (cached).
+  const balances = await listCurrentBalances(assoc).catch(() => new Map<string, number>())
+
+  // Collections — MUST OR both CINC signals per unit: the collections-workflow
+  // list AND the per-homeowner "Block Payments" toggle (many units, e.g.
+  // MANXI413, are blocked ONLY via the toggle and are absent from the list —
+  // see cinc_collections_detection_fix). isAccountInCollections() ORs both and
+  // caches each; run with bounded concurrency so the first grid load isn't a
+  // long serial chain of per-unit calls.
+  const CONC = 12
+  const flags = new Array<boolean>(units.length)
+  let cursor = 0
+  await Promise.all(Array.from({ length: Math.min(CONC, units.length) }, async () => {
+    for (;;) {
+      const i = cursor++
+      if (i >= units.length) break
+      flags[i] = await isAccountInCollections(assoc, units[i].accountNumber).catch(() => false)
+    }
+  }))
+  const enriched = units.map((u, i) => ({
+    ...u,
+    balance:       balances.get(u.accountNumber.toUpperCase()) ?? null,
+    inCollections: flags[i],
+  }))
 
   return NextResponse.json({
     associationCode: assoc,

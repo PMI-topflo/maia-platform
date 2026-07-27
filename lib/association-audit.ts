@@ -128,6 +128,9 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
   const unitsByKey = new Map<string, { associationCode: string; associationName: string | null; accountNumber: string; unitNumber: string | null; ownerNames: string[] }>()
   for (const o of owners) {
     if (!o.account_number) continue
+    // Skip non-unit CINC accounts (e.g. an association's "Manager" account
+    // with a blank unit number) — they're not apartments to audit.
+    if (!String(o.unit_number ?? '').trim()) continue
     const k = key(o.association_code, o.account_number)
     const name = o.entity_name || [o.first_name, o.last_name].filter(Boolean).join(' ')
     const existing = unitsByKey.get(k)

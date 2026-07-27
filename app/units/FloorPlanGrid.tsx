@@ -17,10 +17,18 @@ function cellColor(missing: number): { bg: string; fg: string } {
   return { bg: '#fee2e2', fg: '#991b1b' }                    // pink/red — many missing
 }
 
+// CINC display: positive = owed (red), negative = credit shown in
+// parentheses (blue), zero = neutral.
 function money(n: number | null): string {
   if (n == null) return '—'
   const r = Math.round(n)
-  return r < 0 ? `-$${Math.abs(r).toLocaleString('en-US')}` : `$${r.toLocaleString('en-US')}`
+  return r < 0 ? `($${Math.abs(r).toLocaleString('en-US')})` : `$${r.toLocaleString('en-US')}`
+}
+function balanceColor(n: number | null, inCollections: boolean, neutral: string): string {
+  if (inCollections) return '#dc2626'
+  if (n != null && n > 0.005)  return '#dc2626'   // owes → red
+  if (n != null && n < -0.005) return '#2563eb'   // credit → blue
+  return neutral
 }
 
 export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] }) {
@@ -36,7 +44,6 @@ export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] })
     if (!u) return <div style={{ width: 74, height: 56 }} />
     const { bg, fg } = cellColor(u.missingCount)
     const occ = u.occupancy ? OCC_LETTER[u.occupancy] : ''
-    const balOwed = (u.balance ?? 0) > 0.005
     return (
       <a
         href={`/units/unit?account=${encodeURIComponent(u.accountNumber)}&assoc=${encodeURIComponent(u.associationCode)}`}
@@ -56,7 +63,7 @@ export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] })
           <span title="In collections" style={{ position: 'absolute', top: 3, right: 5, font: '700 9px system-ui', color: '#dc2626' }}>⛔</span>
         )}
         <span style={{ lineHeight: 1.1 }}>{u.unit}</span>
-        <span style={{ font: `600 10px system-ui`, color: (balOwed || u.inCollections) ? '#dc2626' : fg, opacity: balOwed || u.inCollections ? 1 : 0.75, marginTop: 1 }}>
+        <span style={{ font: `600 10px system-ui`, color: balanceColor(u.balance, u.inCollections, fg), marginTop: 1 }}>
           {money(u.balance)}
         </span>
       </a>
@@ -65,6 +72,15 @@ export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] })
 
   return (
     <div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 14, font: '500 12px system-ui', color: '#374151', alignItems: 'center' }}>
+        <Legend sw="#dcfce7" label="Docs complete" />
+        <Legend sw="#fef9c3" label="1–2 missing" />
+        <Legend sw="#fee2e2" label="3+ missing" />
+        <span style={{ color: '#9ca3af' }}>·</span>
+        <span><b>O</b> Owner · <b>L</b> Leased · <b>V</b> Vacant</span>
+        <span style={{ color: '#dc2626' }}>⛔ / red border = in collections</span>
+      </div>
+
       <div style={{ overflowX: 'auto', paddingBottom: 8 }}>
         <table style={{ borderSpacing: 6, borderCollapse: 'separate' }}>
           <thead>
@@ -92,15 +108,6 @@ export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] })
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{other.map(u => <Cell key={u.accountNumber} u={u} />)}</div>
         </div>
       )}
-
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 14, font: '500 12px system-ui', color: '#374151', alignItems: 'center' }}>
-        <Legend sw="#dcfce7" label="Docs complete" />
-        <Legend sw="#fef9c3" label="1–2 missing" />
-        <Legend sw="#fee2e2" label="3+ missing" />
-        <span style={{ color: '#9ca3af' }}>·</span>
-        <span><b>O</b> Owner · <b>L</b> Leased · <b>V</b> Vacant</span>
-        <span style={{ color: '#dc2626' }}>⛔ / red border = in collections</span>
-      </div>
     </div>
   )
 }
