@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveUnitsAuth } from '@/lib/units-portal-auth'
 import { validateDocument } from '@/lib/document-validation'
+import { normalizeUpload, isHeicBuffer } from '@/lib/pdf-normalize'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -39,14 +40,30 @@ export async function POST(req: Request) {
   if (auth.managedUnits && !auth.managedUnits.includes(account)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   if (!path.startsWith(`unit-submissions/${auth.assoc}/${account}/`)) return NextResponse.json({ error: 'path mismatch' }, { status: 400 })
 
-  // Read the uploaded file back + let MAIA validate it.
+  // Read the uploaded file back.
   const { data: blob, error: dlErr } = await supabaseAdmin.storage.from(BUCKET).download(path)
   if (dlErr || !blob) return NextResponse.json({ error: `could not read uploaded file: ${dlErr?.message ?? 'missing'}` }, { status: 400 })
-  const buf = Buffer.from(await blob.arrayBuffer())
+  const rawBuf = Buffer.from(await blob.arrayBuffer())
+
+  // Normalize BEFORE MAIA reads it — same as the owner/tenant intake path
+  // (which normalizes via ingestStagedDocument). This shrinks oversized PDFs
+  // (a born-digital text PDF is preserved; a giant scan is rasterized to a
+  // readable size), converts iPhone HEIC photos to JPEG, and resizes large
+  // images. Without it, a big PDF or a HEIC photo silently fails the vision
+  // read → no expiry date captured. The normalized bytes replace the stored
+  // file so the reviewer + the filed record point at the readable copy.
+  const wasHeic = isHeicBuffer(rawBuf) || /heic|heif/.test((body.mime_type ?? '').toLowerCase()) || /\.(heic|heif)$/i.test(body.filename ?? '')
+  const norm = await normalizeUpload(rawBuf, { contentType: body.mime_type ?? null, filename: body.filename ?? null }).catch(() => null)
+  const buf = norm?.buffer ?? rawBuf
+  const isPdf = buf.subarray(0, 5).toString('latin1') === '%PDF-' || (body.mime_type ?? '').includes('pdf')
+  const effContentType = isPdf ? 'application/pdf' : (wasHeic ? 'image/jpeg' : (body.mime_type ?? null))
+  if (norm?.changed) {
+    await supabaseAdmin.storage.from(BUCKET).update(path, buf, { contentType: effContentType ?? 'application/octet-stream', upsert: true }).then(() => null, () => null)
+  }
 
   let ai: { verdict: string; identified_as: string | null; expiration_date: string | null; reason: string } | null = null
   try {
-    const r = await validateDocument(buf, body.mime_type ?? null, specForItem(itemKey))
+    const r = await validateDocument(buf, effContentType, specForItem(itemKey))
     ai = { verdict: r.verdict, identified_as: r.identified_as, expiration_date: r.expiration_date, reason: r.reason }
   } catch (err) {
     console.warn(`[units/submit] validateDocument failed: ${(err as Error).message}`)

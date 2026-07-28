@@ -9,10 +9,15 @@ import { resolveUnitsAuth } from '@/lib/units-portal-auth'
 
 export const dynamic = 'force-dynamic'
 
+// NOTE: compliance_records.status is constrained to
+// current|expiring|pending|missing|non_compliant|na — 'expired' is NOT a
+// valid value (writing it errored the upsert). An already-expired or
+// soon-expiring doc is stored as 'expiring'; the true expired-vs-expiring
+// distinction is derived from expiry_date at read time (lib/association-audit).
 function statusFromExpiry(exp: string | null): string {
   if (!exp) return 'current'
   const d = new Date(exp), now = new Date()
-  if (d < now) return 'expired'
+  if (d < now) return 'expiring'
   return (d.getTime() - now.getTime()) / 86_400_000 <= 45 ? 'expiring' : 'current'
 }
 
