@@ -52,6 +52,23 @@ export interface AuditUnit {
   onFileKeys:      string[]
   missing:         { key: string; label: string }[]
   missingCount:    number
+  /** On-file documents that carry an expiration date (incl. the lease),
+   *  each tagged expired / expiring (≤30 days) / current. Sorted soonest
+   *  first. Drives the Expired / Expiring blocks + the expiry drawer. */
+  dated:           DatedDoc[]
+  expiredCount:    number
+  expiringCount:   number
+}
+
+export type ExpiryState = 'expired' | 'expiring' | 'current'
+export interface DatedDoc { key: string; label: string; expiryDate: string; state: ExpiryState }
+
+/** Expired if the date is in the past, expiring if within 30 days, else
+ *  current. ISO YYYY-MM-DD compares correctly as a string. */
+export function expiryState(date: string, today: string): ExpiryState {
+  if (date < today) return 'expired'
+  const days = (Date.parse(date) - Date.parse(today)) / 86_400_000
+  return days <= 30 ? 'expiring' : 'current'
 }
 
 const PAGE_SIZE = 1000
@@ -94,17 +111,22 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
     fetchAll<{ association_code: string; unit_number: string; first_name: string | null; last_name: string | null; lease_end_date: string | null }>((from, to) =>
       scoped(supabaseAdmin.from('association_tenants')
         .select('association_code, unit_number, first_name, last_name, lease_end_date').eq('status', 'active')).range(from, to)),
-    fetchAll<{ association_code: string; unit_ref: string; item_key: string; status: string }>((from, to) =>
-      scoped(supabaseAdmin.from('compliance_records').select('association_code, unit_ref, item_key, status').eq('scope', 'unit')).range(from, to)),
-    fetchAll<{ association_code: string; item_key: string; occupancy_filter: string | null }>((from, to) =>
-      scoped(supabaseAdmin.from('association_document_requirements').select('association_code, item_key, occupancy_filter').eq('active', true)).range(from, to)),
+    fetchAll<{ association_code: string; unit_ref: string; item_key: string; status: string; expiry_date: string | null }>((from, to) =>
+      scoped(supabaseAdmin.from('compliance_records').select('association_code, unit_ref, item_key, status, expiry_date').eq('scope', 'unit')).range(from, to)),
+    fetchAll<{ association_code: string; item_key: string; label: string | null; occupancy_filter: string | null }>((from, to) =>
+      scoped(supabaseAdmin.from('association_document_requirements').select('association_code, item_key, label, occupancy_filter').eq('active', true)).range(from, to)),
   ])
 
   const kindByAssoc = new Map<string, AssocKind>(assocs.map(a => [String(a.association_code), kindFromType(a.association_type)]))
   const customReqsByAssoc = new Map<string, { itemKey: string; occupancyFilter: Occupancy | null }[]>()
+  const customLabelByAssoc = new Map<string, Map<string, string>>()
   for (const c of customReqs) {
     if (!customReqsByAssoc.has(c.association_code)) customReqsByAssoc.set(c.association_code, [])
     customReqsByAssoc.get(c.association_code)!.push({ itemKey: c.item_key, occupancyFilter: (c.occupancy_filter as Occupancy | null) ?? null })
+    if (c.label) {
+      if (!customLabelByAssoc.has(c.association_code)) customLabelByAssoc.set(c.association_code, new Map())
+      customLabelByAssoc.get(c.association_code)!.set(c.item_key, c.label)
+    }
   }
   const key = (assoc: string | null, ref: string | null) => `${assoc ?? ''}::${ref ?? ''}`
 
@@ -118,12 +140,19 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
   }
 
   const onFileByUnit = new Map<string, Set<string>>()
+  // itemKey → expiry date (ISO) for on-file, dated records, per unit.
+  const expiryByUnit = new Map<string, Map<string, string>>()
   for (const r of recs) {
     if (r.status === 'missing' || r.status === 'na') continue
     const k = key(r.association_code, r.unit_ref)
     if (!onFileByUnit.has(k)) onFileByUnit.set(k, new Set())
     onFileByUnit.get(k)!.add(r.item_key)
+    if (r.expiry_date) {
+      if (!expiryByUnit.has(k)) expiryByUnit.set(k, new Map())
+      expiryByUnit.get(k)!.set(r.item_key, r.expiry_date)
+    }
   }
+  const today = new Date().toISOString().slice(0, 10)
 
   const unitsByKey = new Map<string, { associationCode: string; associationName: string | null; accountNumber: string; unitNumber: string | null; ownerNames: string[] }>()
   for (const o of owners) {
@@ -149,6 +178,24 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
     const missing = requiredKeys.filter(rk => !onFile.has(rk)).map(rk => ({ key: rk, label: itemLabel(rk) }))
     const tenant = occupancy === 'leased' ? tenantByUnit.get(key(u.associationCode, u.unitNumber)) : undefined
     const { floor, line } = floorLine(u.unitNumber)
+
+    // Dated documents: every on-file record that carries an expiry, plus the
+    // lease (dated by lease_end_date, which lives on the tenant record — it
+    // takes precedence over any expiry stored on the unit.leasing record).
+    const customLabels = customLabelByAssoc.get(u.associationCode)
+    const labelOf = (ik: string) => customLabels?.get(ik) ?? itemLabel(ik)
+    const expMap = expiryByUnit.get(k)
+    const dated: DatedDoc[] = []
+    if (expMap) {
+      for (const [ik, d] of expMap) {
+        if (ik === 'unit.leasing' && tenant?.leaseEndDate) continue   // lease handled below
+        dated.push({ key: ik, label: labelOf(ik), expiryDate: d, state: expiryState(d, today) })
+      }
+    }
+    if (tenant?.leaseEndDate) {
+      dated.push({ key: 'unit.leasing', label: 'Lease', expiryDate: tenant.leaseEndDate, state: expiryState(tenant.leaseEndDate, today) })
+    }
+    dated.sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))
     return {
       associationCode: u.associationCode,
       associationName: u.associationName,
@@ -164,6 +211,9 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
       onFileKeys:      [...onFile],
       missing,
       missingCount:    missing.length,
+      dated,
+      expiredCount:    dated.filter(d => d.state === 'expired').length,
+      expiringCount:   dated.filter(d => d.state === 'expiring').length,
     }
   })
 }

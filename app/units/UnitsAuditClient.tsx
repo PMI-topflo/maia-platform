@@ -3,9 +3,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import FloorPlanGrid, { type AuditUnitEnriched } from './FloorPlanGrid'
 
+type Filter = 'complete' | 'partial' | 'missing' | 'leased' | 'vacant' | 'collections' | 'expired' | 'expiring'
+
+const matches: Record<Filter, (u: AuditUnitEnriched) => boolean> = {
+  complete:    u => u.missingCount === 0,
+  partial:     u => u.missingCount > 0 && u.missingCount <= 2,
+  missing:     u => u.missingCount > 2,
+  leased:      u => u.occupancy === 'leased',
+  vacant:      u => u.occupancy === 'vacant',
+  collections: u => u.inCollections,
+  expired:     u => u.expiredCount > 0,
+  expiring:    u => u.expiringCount > 0,
+}
+
 export default function UnitsAuditClient({ assoc }: { assoc?: string }) {
   const [data, setData] = useState<{ associationName: string; persona: string; units: AuditUnitEnriched[] } | null>(null)
   const [err, setErr]   = useState<string | null>(null)
+  const [filter, setFilter] = useState<Filter | null>(null)
 
   useEffect(() => {
     const q = assoc ? `?assoc=${encodeURIComponent(assoc)}` : ''
@@ -19,14 +33,21 @@ export default function UnitsAuditClient({ assoc }: { assoc?: string }) {
     const u = data?.units ?? []
     return {
       total:       u.length,
-      complete:    u.filter(x => x.missingCount === 0).length,
-      partial:     u.filter(x => x.missingCount > 0 && x.missingCount <= 2).length,
-      missing:     u.filter(x => x.missingCount > 2).length,
-      leased:      u.filter(x => x.occupancy === 'leased').length,
-      vacant:      u.filter(x => x.occupancy === 'vacant').length,
-      collections: u.filter(x => x.inCollections).length,
+      complete:    u.filter(matches.complete).length,
+      partial:     u.filter(matches.partial).length,
+      missing:     u.filter(matches.missing).length,
+      leased:      u.filter(matches.leased).length,
+      vacant:      u.filter(matches.vacant).length,
+      collections: u.filter(matches.collections).length,
+      expired:     u.filter(matches.expired).length,
+      expiring:    u.filter(matches.expiring).length,
     }
   }, [data])
+
+  const filtered = useMemo(
+    () => (filter && data ? data.units.filter(matches[filter]) : []),
+    [filter, data],
+  )
 
   if (err)   return <div style={{ padding: 24, color: '#991b1b', font: '500 14px system-ui' }}>Could not load units: {err}</div>
   if (!data) return <div style={{ padding: 24, color: '#6b7280', font: '500 14px system-ui' }}>Loading units…</div>
@@ -34,27 +55,155 @@ export default function UnitsAuditClient({ assoc }: { assoc?: string }) {
   return (
     <div style={{ maxWidth: 1280, margin: '0 auto', padding: '24px 16px', font: '400 14px system-ui' }}>
       <h1 style={{ font: '700 22px system-ui', margin: '0 0 2px' }}>{data.associationName}</h1>
-      <div style={{ color: '#6b7280', marginBottom: 16 }}>Unit audit — {stats.total} units · click any unit to open its full record in a new tab</div>
+      <div style={{ color: '#6b7280', marginBottom: 16 }}>Unit audit — {stats.total} units · click a block to list those units · click any unit to open its full record in a new tab</div>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
-        <Stat label="Docs complete"  value={stats.complete}    color="#166534" bg="#dcfce7" />
-        <Stat label="1–2 missing"    value={stats.partial}     color="#854d0e" bg="#fef9c3" />
-        <Stat label="3+ missing"     value={stats.missing}     color="#991b1b" bg="#fee2e2" />
-        <Stat label="Leased"         value={stats.leased}      color="#5b21b6" bg="#ede9fe" />
-        <Stat label="Vacant"         value={stats.vacant}      color="#374151" bg="#f3f4f6" />
-        <Stat label="In collections" value={stats.collections} color="#991b1b" bg="#fee2e2" />
+        <Stat f="complete"    active={filter} set={setFilter} label="Docs complete"  value={stats.complete}    color="#166534" bg="#dcfce7" />
+        <Stat f="partial"     active={filter} set={setFilter} label="1–2 missing"    value={stats.partial}     color="#854d0e" bg="#fef9c3" />
+        <Stat f="missing"     active={filter} set={setFilter} label="3+ missing"     value={stats.missing}     color="#991b1b" bg="#fee2e2" />
+        <Stat f="expired"     active={filter} set={setFilter} label="Expired"        value={stats.expired}     color="#991b1b" bg="#fee2e2" />
+        <Stat f="expiring"    active={filter} set={setFilter} label="Expiring ≤30d"  value={stats.expiring}    color="#9a3412" bg="#ffedd5" />
+        <Stat f="leased"      active={filter} set={setFilter} label="Leased"         value={stats.leased}      color="#5b21b6" bg="#ede9fe" />
+        <Stat f="vacant"      active={filter} set={setFilter} label="Vacant"         value={stats.vacant}      color="#374151" bg="#f3f4f6" />
+        <Stat f="collections" active={filter} set={setFilter} label="In collections" value={stats.collections} color="#991b1b" bg="#fee2e2" />
       </div>
 
-      <FloorPlanGrid units={data.units} />
+      {filter
+        ? <FilterPanel filter={filter} units={filtered} onClose={() => setFilter(null)} />
+        : <FloorPlanGrid units={data.units} />}
     </div>
   )
 }
 
-function Stat({ label, value, color, bg }: { label: string; value: number; color: string; bg: string }) {
+function Stat({ f, active, set, label, value, color, bg }: {
+  f: Filter; active: Filter | null; set: (v: Filter | null) => void
+  label: string; value: number; color: string; bg: string
+}) {
+  const on = active === f
   return (
-    <div style={{ background: bg, color, borderRadius: 10, padding: '8px 14px', minWidth: 92 }}>
+    <button
+      onClick={() => set(on ? null : f)}
+      style={{
+        background: bg, color, borderRadius: 10, padding: '8px 14px', minWidth: 92, textAlign: 'left',
+        border: on ? `2px solid ${color}` : '2px solid transparent', cursor: 'pointer', font: 'inherit',
+      }}
+    >
       <div style={{ font: '700 20px system-ui' }}>{value}</div>
       <div style={{ font: '500 11px system-ui', opacity: 0.85 }}>{label}</div>
+    </button>
+  )
+}
+
+const TITLES: Record<Filter, string> = {
+  complete: 'Units with all documents on file', partial: 'Units missing 1–2 documents',
+  missing: 'Units missing 3+ documents', leased: 'Leased units', vacant: 'Vacant units',
+  collections: 'Units in collections', expired: 'Units with expired documents',
+  expiring: 'Units with documents expiring in the next 30 days',
+}
+
+function FilterPanel({ filter, units, onClose }: { filter: Filter; units: AuditUnitEnriched[]; onClose: () => void }) {
+  // Which owners we can email (units with a request action shown).
+  const showRequest = filter === 'expired' || filter === 'expiring' || filter === 'missing' || filter === 'partial'
+  return (
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+        <div style={{ font: '600 14px system-ui' }}>{TITLES[filter]} <span style={{ color: '#6b7280', fontWeight: 400 }}>· {units.length}</span></div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {showRequest && units.length > 0 && <BulkRequest units={units} />}
+          <button onClick={onClose} style={{ font: '500 13px system-ui', color: '#374151', background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, padding: '5px 12px', cursor: 'pointer' }}>← Back to grid</button>
+        </div>
+      </div>
+      {units.length === 0
+        ? <div style={{ padding: 24, color: '#6b7280', textAlign: 'center' }}>No units in this category.</div>
+        : <div>{units.map(u => <UnitRow key={u.accountNumber} u={u} filter={filter} showRequest={showRequest} />)}</div>}
     </div>
+  )
+}
+
+function UnitRow({ u, filter, showRequest }: { u: AuditUnitEnriched; filter: Filter; showRequest: boolean }) {
+  const dated = (filter === 'expired' || filter === 'expiring')
+    ? u.dated.filter(d => d.state === (filter === 'expired' ? 'expired' : 'expiring'))
+    : []
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '10px 16px', borderBottom: '1px solid #f3f4f6' }}>
+      <div style={{ minWidth: 0 }}>
+        <a href={`/units/unit?account=${encodeURIComponent(u.accountNumber)}&assoc=${encodeURIComponent(u.associationCode)}`}
+           target="_blank" rel="noopener noreferrer"
+           style={{ font: '600 14px system-ui', color: '#1d4ed8', textDecoration: 'none' }}>
+          Unit {u.unit ?? u.accountNumber} ↗
+        </a>
+        <span style={{ color: '#6b7280', marginLeft: 8, font: '400 13px system-ui' }}>{u.ownerName || '—'}</span>
+        <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {dated.length > 0
+            ? dated.map(d => <DocChip key={d.key} label={d.label} date={d.expiryDate} state={d.state} />)
+            : (filter === 'missing' || filter === 'partial')
+              ? u.missing.map(m => <span key={m.key} style={{ font: '500 11px system-ui', color: '#6b7280', background: '#f3f4f6', borderRadius: 6, padding: '2px 7px' }}>{m.label}</span>)
+              : <span style={{ font: '400 12px system-ui', color: '#9ca3af' }}>{u.occupancy ?? '—'}{u.inCollections ? ' · in collections' : ''}</span>}
+        </div>
+      </div>
+      {showRequest && <RequestButton account={u.accountNumber} assoc={u.associationCode} />}
+    </div>
+  )
+}
+
+function DocChip({ label, date, state }: { label: string; date: string; state: string }) {
+  const c = state === 'expired' ? { bg: '#fee2e2', fg: '#991b1b' } : { bg: '#ffedd5', fg: '#9a3412' }
+  return (
+    <span style={{ font: '600 11px system-ui', color: c.fg, background: c.bg, borderRadius: 6, padding: '2px 7px' }}>
+      {label} · {state === 'expired' ? 'expired' : 'expires'} {date}
+    </span>
+  )
+}
+
+function RequestButton({ account, assoc }: { account: string; assoc: string }) {
+  const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [msg, setMsg] = useState<string | null>(null)
+  const send = async () => {
+    setState('sending'); setMsg(null)
+    try {
+      const r = await fetch('/api/units/owner-outreach', {
+        method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ account, assoc }),
+      })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`)
+      setState('sent'); setMsg(j.sentTo ? `Sent to ${j.sentTo}` : 'Sent')
+    } catch (e) { setState('error'); setMsg(String((e as Error).message)) }
+  }
+  return (
+    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+      <button onClick={send} disabled={state === 'sending' || state === 'sent'}
+        style={{ font: '600 12px system-ui', color: state === 'sent' ? '#166534' : '#fff', background: state === 'sent' ? '#dcfce7' : '#1d4ed8', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: state === 'sent' ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
+        {state === 'sending' ? 'Sending…' : state === 'sent' ? '✓ Emailed owner' : 'Request update'}
+      </button>
+      {msg && <div style={{ font: '400 10px system-ui', color: state === 'error' ? '#991b1b' : '#6b7280', marginTop: 3, maxWidth: 160 }}>{msg}</div>}
+    </div>
+  )
+}
+
+function BulkRequest({ units }: { units: AuditUnitEnriched[] }) {
+  const [state, setState] = useState<'idle' | 'sending' | 'done'>('idle')
+  const [result, setResult] = useState<{ sent: number; failed: number } | null>(null)
+  const run = async () => {
+    if (!confirm(`Email all ${units.length} owners a request to update their records?`)) return
+    setState('sending')
+    let sent = 0, failed = 0
+    for (const u of units) {
+      try {
+        const r = await fetch('/api/units/owner-outreach', {
+          method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ account: u.accountNumber, assoc: u.associationCode }),
+        })
+        if (r.ok) sent++; else failed++
+      } catch { failed++ }
+    }
+    setState('done'); setResult({ sent, failed })
+  }
+  if (state === 'done' && result) return <span style={{ font: '500 12px system-ui', color: '#166534' }}>✓ Emailed {result.sent}{result.failed ? ` · ${result.failed} failed` : ''}</span>
+  return (
+    <button onClick={run} disabled={state === 'sending'}
+      style={{ font: '600 12px system-ui', color: '#fff', background: '#1d4ed8', border: 'none', borderRadius: 8, padding: '5px 12px', cursor: 'pointer' }}>
+      {state === 'sending' ? 'Emailing…' : `Request from all ${units.length}`}
+    </button>
   )
 }

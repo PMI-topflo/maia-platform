@@ -9,12 +9,17 @@ import { NextResponse } from 'next/server'
 import { verifyTenantComplianceToken } from '@/lib/owner-portal-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { ingestStagedDocument } from '@/lib/document-intake-ingest'
+import { sendEmail } from '@/lib/gmail'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
 const BUCKET = 'association-documents'
+const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
+// Same approver list as the units queue (PMI + Jonathan/AR by default).
+const APPROVAL_NOTIFY = (process.env.UNIT_UPLOAD_NOTIFY_EMAILS ?? 'PMI@topfloridaproperties.com,ar@topfloridaproperties.com')
+  .split(',').map(s => s.trim()).filter(Boolean)
 const MAX_FILES = 12
 const MAX_BYTES = 25 * 1024 * 1024
 const ALLOWED = /\.(pdf|jpe?g|png|heic|webp)$/i
@@ -45,5 +50,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     if (res.ok) saved++; else failed.push(`${f.name} (${res.error})`)
   }
   if (saved === 0) return NextResponse.json({ error: `nothing uploaded. ${failed.join('; ')}` }, { status: 400 })
+
+  // Notify the approvers — tenant self-service uploads previously reached the
+  // Compliance Hub intake queue with no email, so nobody knew to review them.
+  // Best-effort (never fails the upload). Same recipients as the units queue.
+  if (APPROVAL_NOTIFY.length) {
+    void sendEmail({
+      to: APPROVAL_NOTIFY,
+      subject: `Tenant uploaded documents — ${t.assoc} unit ${t.account}`,
+      html: `<p>A <strong>tenant</strong> uploaded <strong>${saved}</strong> document(s) for <strong>${t.assoc}</strong> unit <strong>${t.account}</strong> via the tenant portal.</p>
+             <p>Review and file them in the Compliance Hub:</p>
+             <p><a href="${APP}/admin/audit">Open the Compliance Hub →</a></p>`,
+    }).catch(() => null)
+  }
+
   return NextResponse.json({ ok: true, saved, failed: failed.length })
 }

@@ -8,10 +8,18 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveUnitsAuth } from '@/lib/units-portal-auth'
 import { validateDocument } from '@/lib/document-validation'
+import { normalizeUpload, isHeicBuffer } from '@/lib/pdf-normalize'
+import { itemLabel } from '@/lib/unit-required-docs'
+import { sendEmail } from '@/lib/gmail'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 const BUCKET = 'association-documents'
+const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
+// Who gets emailed when a document lands in the units approval queue. Comma-
+// separated; defaults to PMI (owner) + Jonathan (AR). Override in the env.
+const APPROVAL_NOTIFY = (process.env.UNIT_UPLOAD_NOTIFY_EMAILS ?? 'PMI@topfloridaproperties.com,ar@topfloridaproperties.com')
+  .split(',').map(s => s.trim()).filter(Boolean)
 
 // Map a compliance item key to a document-validation spec (expiry-aware
 // for the ones that carry a date). Unknown keys fall back to 'generic'
@@ -39,14 +47,30 @@ export async function POST(req: Request) {
   if (auth.managedUnits && !auth.managedUnits.includes(account)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   if (!path.startsWith(`unit-submissions/${auth.assoc}/${account}/`)) return NextResponse.json({ error: 'path mismatch' }, { status: 400 })
 
-  // Read the uploaded file back + let MAIA validate it.
+  // Read the uploaded file back.
   const { data: blob, error: dlErr } = await supabaseAdmin.storage.from(BUCKET).download(path)
   if (dlErr || !blob) return NextResponse.json({ error: `could not read uploaded file: ${dlErr?.message ?? 'missing'}` }, { status: 400 })
-  const buf = Buffer.from(await blob.arrayBuffer())
+  const rawBuf = Buffer.from(await blob.arrayBuffer())
+
+  // Normalize BEFORE MAIA reads it — same as the owner/tenant intake path
+  // (which normalizes via ingestStagedDocument). This shrinks oversized PDFs
+  // (a born-digital text PDF is preserved; a giant scan is rasterized to a
+  // readable size), converts iPhone HEIC photos to JPEG, and resizes large
+  // images. Without it, a big PDF or a HEIC photo silently fails the vision
+  // read → no expiry date captured. The normalized bytes replace the stored
+  // file so the reviewer + the filed record point at the readable copy.
+  const wasHeic = isHeicBuffer(rawBuf) || /heic|heif/.test((body.mime_type ?? '').toLowerCase()) || /\.(heic|heif)$/i.test(body.filename ?? '')
+  const norm = await normalizeUpload(rawBuf, { contentType: body.mime_type ?? null, filename: body.filename ?? null }).catch(() => null)
+  const buf = norm?.buffer ?? rawBuf
+  const isPdf = buf.subarray(0, 5).toString('latin1') === '%PDF-' || (body.mime_type ?? '').includes('pdf')
+  const effContentType = isPdf ? 'application/pdf' : (wasHeic ? 'image/jpeg' : (body.mime_type ?? null))
+  if (norm?.changed) {
+    await supabaseAdmin.storage.from(BUCKET).update(path, buf, { contentType: effContentType ?? 'application/octet-stream', upsert: true }).then(() => null, () => null)
+  }
 
   let ai: { verdict: string; identified_as: string | null; expiration_date: string | null; reason: string } | null = null
   try {
-    const r = await validateDocument(buf, body.mime_type ?? null, specForItem(itemKey))
+    const r = await validateDocument(buf, effContentType, specForItem(itemKey))
     ai = { verdict: r.verdict, identified_as: r.identified_as, expiration_date: r.expiration_date, reason: r.reason }
   } catch (err) {
     console.warn(`[units/submit] validateDocument failed: ${(err as Error).message}`)
@@ -69,6 +93,26 @@ export async function POST(req: Request) {
     status:               'pending',
   }).select('id, ai_verdict, ai_identified_as, ai_expiration_date, ai_summary, status').single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Notify the approvers that something's waiting in the queue. Previously
+  // NOTHING was sent for units-portal uploads — the pending row just sat
+  // there until someone happened to open /units. Best-effort (never fails
+  // the upload); recipients configurable via UNIT_UPLOAD_NOTIFY_EMAILS.
+  if (APPROVAL_NOTIFY.length) {
+    const label = itemLabel(itemKey)
+    const uploader = `${auth.name} (${auth.persona.replace('_', ' ')})`
+    const read = ai
+      ? `MAIA read it as: <strong>${ai.identified_as ?? ai.verdict}</strong>${ai.expiration_date ? ` · expires <strong>${ai.expiration_date}</strong>` : ''}${ai.reason ? `<br><span style="color:#6b7280">${ai.reason}</span>` : ''}`
+      : `MAIA could not read this file automatically — review it manually.`
+    void sendEmail({
+      to: APPROVAL_NOTIFY,
+      subject: `Document to approve — ${auth.assoc} unit ${account} (${label})`,
+      html: `<p><strong>${uploader}</strong> uploaded a document for <strong>${auth.assoc}</strong> unit <strong>${account}</strong>.</p>
+             <p>Item: <strong>${label}</strong>${scope === 'tenant' ? ' (tenant)' : ''}<br>File: ${body.filename ?? '(unnamed)'}</p>
+             <p>${read}</p>
+             <p><a href="${APP}/units?assoc=${encodeURIComponent(auth.assoc)}">Open the unit audit to approve →</a></p>`,
+    }).catch(() => null)
+  }
 
   return NextResponse.json({ ok: true, submission: row })
 }
