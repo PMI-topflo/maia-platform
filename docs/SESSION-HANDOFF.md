@@ -1,8 +1,18 @@
-# Session handoff — 2026-07-27 (latest)
+# Session handoff — 2026-07-29 (latest)
 
 Snapshot for picking up on another machine. Everything below is **live in production on `main`** unless noted.
 
 > ⚠️ **Repo path:** the canonical clone is now `~/maia-platform` (moved out of iCloud). Stale copies under `~/Documents/GitHub/maia-platform` and `~/Downloads/maia-platform` — ignore them.
+
+---
+
+## 2026-07-29 — unit-audit expiry tracking, tenant Approval Letter, upload notifications; NEXT: Drive approval-letter bulk import
+
+**MERGED to `main`:**
+- **#517** — added **"Approval Letter"** to the leased-tenant document set (`lib/compliance-taxonomy.ts` `unit.approval_letter` + `getTenantComplianceState`).
+- **#518** — **unit-audit expiry tracking**: `/units` now has **Expired** + **Expiring ≤30d** blocks; every block is **clickable** → drawer listing units with the expiring/expired docs + dates + a **Request update** button per owner and **Request from all N** (reuses `/api/units/owner-outreach`). Audit (`lib/association-audit.ts`) reads `compliance_records.expiry_date`, folds in the lease (via `lease_end_date`) and custom items (Lauderhill Certificate of Use). PLUS ingestion hardening: manager/board/staff uploads (`/api/units/documents/submit`) now run `normalizeUpload()` before MAIA reads them (PDF shrink + HEIC→JPEG + image resize) so expiry is actually captured; fixed a latent `status='expired'` CHECK-constraint bug in the review route. PLUS **approver notifications**: uploads to the units queue now email **PMI@ + ar@topfloridaproperties.com** (Jonathan/AR), configurable via `UNIT_UPLOAD_NOTIFY_EMAILS` (was: nobody was notified). Tenant self-service uploads still notify no one — user said route those to PMI+Jonathan too, NOT yet built.
+
+**NEXT SESSION (planned, scope locked, NOT built) — Drive approval-letter bulk import.** Full detail + folder IDs in memory `drive_approval_letter_import.md`. Headline: bulk-import MANXI board approval letters + compliance docs from Google Drive into MAIA using the **existing** `/admin/documents/inbox` → "Import from Google Drive" tool (scan → classify → review queue). Scope: **Folder 2 (canonical `MANXI###`) + Folder 1 (recent)**, docs = **approvals + Certificate of Use + insurance + leases only** (skip PII). Two enhancements to build first: (1) the importer skips native **Google Docs** — many approval letters are Docs — so add export-Doc→PDF; (2) a doc-type whitelist filter to skip IDs/credit/criminal/tax. Then dry-run report → import → staff approve → feeds #518's expiry blocks. Prereq (user): share **Folder 1** with the Drive SA (Folder 2 already shared).
 
 ---
 
