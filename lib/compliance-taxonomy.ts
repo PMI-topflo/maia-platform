@@ -138,7 +138,8 @@ export const COMPLIANCE_TAXONOMY: ComplianceCategory[] = [
     ['entity_docs', 'LLC / Trust Documents'], ['usage_type', 'Unit Usage Type (commercial)'],
     ['access', 'Access Control'], ['architectural', 'Architectural (ARC) Requests/Approvals'],
     ['contractor', 'Contractor Records'], ['move', 'Move-In/Out Records'],
-    ['rules_ack', 'Governing Documents Acknowledgement'], ['leasing', 'Lease Agreement', true], ['violations', 'Violation History'],
+    ['rules_ack', 'Governing Documents Acknowledgement'], ['leasing', 'Lease Agreement', true],
+    ['approval_letter', 'Approval Letter'], ['violations', 'Violation History'],
   ]) },
 ]
 
