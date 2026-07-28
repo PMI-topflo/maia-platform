@@ -103,7 +103,7 @@ export async function getTenantComplianceState(assoc: string, unitRef: string): 
   const commercial = kind === 'commercial'
   // Access Control is an internal/office-issued item (not owner/tenant-provided).
   // Usage Type is commercial-only; Pet Registration is residential-only.
-  const required = ['unit.tenant', 'unit.vehicle', 'unit.rules_ack', 'unit.leasing', commercial ? 'unit.cgl' : 'unit.ho4']
+  const required = ['unit.tenant', 'unit.vehicle', 'unit.rules_ack', 'unit.leasing', 'unit.approval_letter', commercial ? 'unit.cgl' : 'unit.ho4']
   required.push(commercial ? 'unit.usage_type' : 'unit.pet')
   const onFile = onFileSet(recs)
   const declaredByKey = new Map((recs ?? []).map(r => [r.item_key as string, r.declared_type as string | null]))
