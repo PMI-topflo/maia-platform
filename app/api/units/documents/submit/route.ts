@@ -9,10 +9,17 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveUnitsAuth } from '@/lib/units-portal-auth'
 import { validateDocument } from '@/lib/document-validation'
 import { normalizeUpload, isHeicBuffer } from '@/lib/pdf-normalize'
+import { itemLabel } from '@/lib/unit-required-docs'
+import { sendEmail } from '@/lib/gmail'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 const BUCKET = 'association-documents'
+const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
+// Who gets emailed when a document lands in the units approval queue. Comma-
+// separated; defaults to PMI (owner) + Jonathan (AR). Override in the env.
+const APPROVAL_NOTIFY = (process.env.UNIT_UPLOAD_NOTIFY_EMAILS ?? 'PMI@topfloridaproperties.com,ar@topfloridaproperties.com')
+  .split(',').map(s => s.trim()).filter(Boolean)
 
 // Map a compliance item key to a document-validation spec (expiry-aware
 // for the ones that carry a date). Unknown keys fall back to 'generic'
@@ -86,6 +93,26 @@ export async function POST(req: Request) {
     status:               'pending',
   }).select('id, ai_verdict, ai_identified_as, ai_expiration_date, ai_summary, status').single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Notify the approvers that something's waiting in the queue. Previously
+  // NOTHING was sent for units-portal uploads — the pending row just sat
+  // there until someone happened to open /units. Best-effort (never fails
+  // the upload); recipients configurable via UNIT_UPLOAD_NOTIFY_EMAILS.
+  if (APPROVAL_NOTIFY.length) {
+    const label = itemLabel(itemKey)
+    const uploader = `${auth.name} (${auth.persona.replace('_', ' ')})`
+    const read = ai
+      ? `MAIA read it as: <strong>${ai.identified_as ?? ai.verdict}</strong>${ai.expiration_date ? ` · expires <strong>${ai.expiration_date}</strong>` : ''}${ai.reason ? `<br><span style="color:#6b7280">${ai.reason}</span>` : ''}`
+      : `MAIA could not read this file automatically — review it manually.`
+    void sendEmail({
+      to: APPROVAL_NOTIFY,
+      subject: `Document to approve — ${auth.assoc} unit ${account} (${label})`,
+      html: `<p><strong>${uploader}</strong> uploaded a document for <strong>${auth.assoc}</strong> unit <strong>${account}</strong>.</p>
+             <p>Item: <strong>${label}</strong>${scope === 'tenant' ? ' (tenant)' : ''}<br>File: ${body.filename ?? '(unnamed)'}</p>
+             <p>${read}</p>
+             <p><a href="${APP}/units?assoc=${encodeURIComponent(auth.assoc)}">Open the unit audit to approve →</a></p>`,
+    }).catch(() => null)
+  }
 
   return NextResponse.json({ ok: true, submission: row })
 }
