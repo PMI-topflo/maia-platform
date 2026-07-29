@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { AuditUnit } from '@/lib/association-audit'
+import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger'
 
 type Unit = AuditUnit & { balance: number | null; inCollections: boolean }
 interface Submission {
@@ -211,7 +212,12 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
             {data.submissions.map(s => (
               <div key={s.id} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-                  <div style={{ font: '600 14px system-ui' }}>{s.filename ?? s.item_key}</div>
+                  <DocumentPreviewTrigger
+                    label={`👁 ${s.filename ?? s.item_key}`}
+                    previewUrl={`/api/units/documents/${s.id}/preview?assoc=${encodeURIComponent(assoc)}`}
+                    className="unit-doc-preview-link"
+                    style={{ font: '600 14px system-ui', color: '#2563eb', background: 'none', border: 'none', padding: 0, textAlign: 'left' }}
+                  />
                   <StatusPill status={s.status} />
                 </div>
                 <div style={{ font: '500 12px system-ui', color: '#6b7280', marginTop: 4 }}>
