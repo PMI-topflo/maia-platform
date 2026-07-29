@@ -68,9 +68,64 @@ export default function UnitsAuditClient({ assoc }: { assoc?: string }) {
         <Stat f="collections" active={filter} set={setFilter} label="In collections" value={stats.collections} color="#991b1b" bg="#fee2e2" />
       </div>
 
+      <BoardCertBanner assoc={assoc} />
+
       {filter
         ? <FilterPanel filter={filter} units={filtered} onClose={() => setFilter(null)} />
         : <FloorPlanGrid units={data.units} />}
+    </div>
+  )
+}
+
+interface BoardCertMember { name: string | null; role: string | null; state: 'on_file' | 'expiring' | 'expired' | 'missing'; initialCertExpiration: string | null; continuingEdDue: string | null }
+interface BoardCertData { kind: 'condo' | 'hoa'; expiredCount: number; expiringCount: number; missingCount: number; members: BoardCertMember[] }
+const CERT_STATE: Record<BoardCertMember['state'], { label: string; color: string }> = {
+  on_file:  { label: 'On file',  color: '#166534' },
+  expiring: { label: 'Expiring', color: '#92400e' },
+  expired:  { label: 'Expired',  color: '#991b1b' },
+  missing:  { label: 'Missing',  color: '#6b7280' },
+}
+
+// Read-only board-education standing on the audit page. Managing certificates
+// (upload / email requests) lives on the admin Association Hub.
+function BoardCertBanner({ assoc }: { assoc?: string }) {
+  const [data, setData] = useState<BoardCertData | null>(null)
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const q = assoc ? `?assoc=${encodeURIComponent(assoc)}` : ''
+    fetch(`/api/units/board-certifications${q}`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null).then(setData).catch(() => setData(null))
+  }, [assoc])
+  if (!data || data.members.length === 0) return null
+  const needAttention = data.expiredCount + data.missingCount
+  const allGood = needAttention === 0 && data.expiringCount === 0
+
+  return (
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 14px', marginBottom: 16, background: allGood ? '#f0fdf4' : '#fffbeb' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+        <span style={{ font: '600 13px system-ui', color: '#374151' }}>
+          🎓 Board education certificates{' '}
+          {allGood
+            ? <span style={{ color: '#166534' }}>· all {data.members.length} on file</span>
+            : <span style={{ color: '#991b1b' }}>· {needAttention} need attention{data.expiringCount ? `, ${data.expiringCount} expiring` : ''}</span>}
+        </span>
+        <span style={{ font: '11px system-ui', color: '#6b7280' }}>{open ? 'hide' : 'show'}</span>
+      </button>
+      {open && (
+        <ul style={{ listStyle: 'none', padding: 0, margin: '10px 0 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {data.members.map((m, i) => {
+            const s = CERT_STATE[m.state]
+            return (
+              <li key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, font: '12px system-ui', color: '#374151' }}>
+                <span>{m.name ?? '—'}{m.role ? ` · ${m.role}` : ''}</span>
+                <span style={{ color: s.color, fontWeight: 600 }}>
+                  {s.label}{m.state !== 'missing' && m.initialCertExpiration ? ` · exp ${m.initialCertExpiration}` : ''}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </div>
   )
 }
