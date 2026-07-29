@@ -45,7 +45,15 @@ export default function DriveImport({ onImported }: { onImported: (rows: unknown
     setScanning(true); setError(null); setDone(null); setFiles(null)
     try {
       const res = await fetch('/api/admin/documents/drive/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderUrl: url }) })
-      const j = await res.json()
+      const text = await res.text()
+      let j: { serviceAccountEmail?: string; error?: string; files?: DFile[]; foldersScanned?: number }
+      try { j = JSON.parse(text) } catch {
+        // A very large folder can exceed the serverless time limit; Vercel then
+        // returns a plain-text error page (not JSON) → show a useful message.
+        throw new Error(res.status === 504 || /timed?.?out|error occurred/i.test(text)
+          ? 'The scan timed out — the folder is very large. Try a subfolder, or retry (results cache warm).'
+          : `Scan failed (HTTP ${res.status}).`)
+      }
       if (j.serviceAccountEmail) setSa(j.serviceAccountEmail)
       if (!res.ok) throw new Error(j?.error ?? 'scan failed')
       const fs = (j.files ?? []) as DFile[]
