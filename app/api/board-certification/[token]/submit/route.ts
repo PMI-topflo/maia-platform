@@ -7,6 +7,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { verifyBoardCertToken } from '@/lib/board-cert-token'
+import { extractCertificateDate } from '@/lib/board-cert-extract'
 import { sendEmail } from '@/lib/gmail'
 
 export const runtime = 'nodejs'
@@ -29,10 +30,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!path.startsWith(`board-certifications/${data.assoc}/${data.memberId}/`)) {
     return NextResponse.json({ error: 'path mismatch' }, { status: 400 })
   }
-  const docType = DOC_TYPES.has(String(body.doc_type)) ? String(body.doc_type) : 'education_certificate'
+  let docType = DOC_TYPES.has(String(body.doc_type)) ? String(body.doc_type) : 'education_certificate'
 
   const { data: member } = await supabaseAdmin.from('association_board_members')
     .select('id, name, email').eq('id', data.memberId).maybeSingle()
+
+  // MAIA reads the completion date + confirms the document type, so it's
+  // pre-filled when staff review this self-upload. Best-effort.
+  let certDate: string | null = null
+  let aiSummary: string | null = null
+  const { data: blob } = await supabaseAdmin.storage.from('association-documents').download(path)
+  if (blob) {
+    const ex = await extractCertificateDate(Buffer.from(await blob.arrayBuffer()), body.mime_type ?? null)
+    certDate = ex.completionDate
+    if (ex.docType) docType = ex.docType
+    if (ex.completionDate) aiSummary = `MAIA read completion date ${ex.completionDate}`
+  }
 
   const { error } = await supabaseAdmin.from('board_member_certifications').insert({
     association_code:   data.assoc.toUpperCase(),
@@ -40,9 +53,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     board_member_name:  member?.name ?? null,
     board_member_email: member?.email ?? null,
     doc_type:           docType,
+    certificate_date:   certDate,
     storage_key:        path,
     filename:           body.filename ?? null,
     mime_type:          body.mime_type ?? null,
+    ai_summary:         aiSummary,
     status:             'pending',
     uploaded_via:       'self',
     uploaded_by:        `board:${member?.name ?? data.memberId}`,

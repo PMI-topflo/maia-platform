@@ -204,10 +204,11 @@ function UploadRow({ code, memberId, onDone }: { code: string; memberId: string;
       <select value={docType} onChange={e => setDocType(e.target.value)} style={miniInput}>
         {DOC_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
       </select>
-      <input type="date" value={date} onChange={e => setDate(e.target.value)} style={miniInput} title="Certificate date" />
       <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => setFile(e.target.files?.[0] ?? null)} style={{ font: '11px system-ui' }} />
+      <label style={{ font: '10px system-ui', color: '#6b7280' }}>Completion date — leave blank and MAIA reads it from the certificate</label>
+      <input type="date" value={date} onChange={e => setDate(e.target.value)} style={miniInput} title="Certificate completion date (optional — MAIA reads it)" />
       <button onClick={submit} disabled={!file || busy} style={{ font: '600 12px system-ui', background: file && !busy ? '#f26a1b' : '#d1d5db', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: file && !busy ? 'pointer' : 'default', alignSelf: 'flex-start' }}>
-        {busy ? 'Uploading…' : 'Save'}
+        {busy ? 'Reading…' : 'Save'}
       </button>
       {msg && <p style={{ font: '11px system-ui', color: '#991b1b', margin: 0 }}>{msg}</p>}
     </div>
