@@ -14,7 +14,9 @@ import { filterDriveFile } from '@/lib/drive-import-filter'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-export const maxDuration = 120
+// A large tree (e.g. MANXI Folder 2 = 147 unit folders → hundreds of Drive
+// listings) needs headroom even with the concurrent scan; 120s wasn't enough.
+export const maxDuration = 300
 
 export async function POST(req: Request) {
   const token = (await cookies()).get(SESSION_COOKIE)?.value

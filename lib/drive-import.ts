@@ -51,65 +51,88 @@ export function extractFolderId(input: string): string | null {
 
 export interface ScanResult { files: DriveFile[]; foldersScanned: number }
 
+/** List one folder's direct children: the importable files (with breadcrumb)
+ *  plus the subfolders to descend into next. Follows folder shortcuts. */
+async function listOneFolder(
+  drive: ReturnType<typeof getDrive>, id: string, path: string,
+): Promise<{ files: DriveFile[]; subfolders: { id: string; path: string }[] }> {
+  const files: DriveFile[] = []
+  const subfolders: { id: string; path: string }[] = []
+  let pageToken: string | undefined
+  do {
+    const res = await drive.files.list({
+      q: `'${id}' in parents and trashed = false`,
+      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, size, shortcutDetails(targetId, targetMimeType))',
+      pageSize: 1000,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageToken,
+    })
+    for (const f of res.data.files ?? []) {
+      // Resolve shortcuts to their real target (folders are often linked,
+      // not nested — that's why a recursive scan can miss whole branches).
+      let mime = f.mimeType ?? ''
+      let realId = f.id ?? ''
+      if (mime === SHORTCUT_MIME && f.shortcutDetails) {
+        mime = f.shortcutDetails.targetMimeType ?? mime
+        realId = f.shortcutDetails.targetId ?? realId
+      }
+      if (!realId) continue
+      if (mime === FOLDER_MIME) {
+        subfolders.push({ id: realId, path: path ? `${path} / ${f.name}` : (f.name ?? '') })
+      } else if (isGoogleNative(mime)) {
+        // Google-native editor file (often a board approval letter): import it
+        // by exporting to PDF. Present it downstream as a PDF with a .pdf name.
+        const base = f.name ?? 'document'
+        files.push({
+          id: realId, name: /\.pdf$/i.test(base) ? base : `${base}.pdf`,
+          mimeType: 'application/pdf', sourceMimeType: mime, path,
+          modifiedTime: f.modifiedTime ?? null, size: f.size ? Number(f.size) : null,
+        })
+      } else if (IMPORTABLE.test(mime)) {
+        files.push({
+          id: realId, name: f.name ?? 'file', mimeType: mime, path,
+          modifiedTime: f.modifiedTime ?? null, size: f.size ? Number(f.size) : null,
+        })
+      }
+    }
+    pageToken = res.data.nextPageToken ?? undefined
+  } while (pageToken)
+  return { files, subfolders }
+}
+
 /** Recursively list importable files under a folder, following folder
- *  shortcuts. BFS over subfolders, carrying the breadcrumb. Bounded. */
-export async function listFolderFilesRecursive(folderId: string, maxFiles = 2000): Promise<ScanResult> {
+ *  shortcuts. BFS over subfolders, carrying the breadcrumb. Each BFS level is
+ *  fetched with bounded CONCURRENCY — a 147-unit folder tree is hundreds of
+ *  Drive listings, and doing them one at a time blows the serverless time
+ *  limit (the scan would 504). Bounded so we never exhaust Drive's rate quota
+ *  or the function's memory. */
+export async function listFolderFilesRecursive(folderId: string, maxFiles = 2000, concurrency = 12): Promise<ScanResult> {
   const drive = getDrive()
   const out: DriveFile[] = []
   const seen = new Set<string>()           // guard against shortcut cycles / dupes
-  const queue: { id: string; path: string }[] = [{ id: folderId, path: '' }]
+  let frontier: { id: string; path: string }[] = [{ id: folderId, path: '' }]
   let foldersScanned = 0
   let guard = 0
-  while (queue.length && out.length < maxFiles && guard < 20000) {
-    guard++
-    const { id, path } = queue.shift()!
-    if (seen.has(id)) continue
-    seen.add(id)
-    foldersScanned++
-    let pageToken: string | undefined
-    do {
-      const res = await drive.files.list({
-        q: `'${id}' in parents and trashed = false`,
-        fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, size, shortcutDetails(targetId, targetMimeType))',
-        pageSize: 1000,
-        supportsAllDrives: true,
-        includeItemsFromAllDrives: true,
-        pageToken,
-      })
-      for (const f of res.data.files ?? []) {
-        // Resolve shortcuts to their real target (folders are often linked,
-        // not nested — that's why a recursive scan can miss whole branches).
-        let mime = f.mimeType ?? ''
-        let realId = f.id ?? ''
-        if (mime === SHORTCUT_MIME && f.shortcutDetails) {
-          mime = f.shortcutDetails.targetMimeType ?? mime
-          realId = f.shortcutDetails.targetId ?? realId
-        }
-        if (!realId) continue
-        if (mime === FOLDER_MIME) {
-          queue.push({ id: realId, path: path ? `${path} / ${f.name}` : (f.name ?? '') })
-        } else if (isGoogleNative(mime)) {
-          // Google-native editor file (often a board approval letter): import it
-          // by exporting to PDF. Present it downstream as a PDF with a .pdf name.
-          const base = f.name ?? 'document'
-          out.push({
-            id: realId, name: /\.pdf$/i.test(base) ? base : `${base}.pdf`,
-            mimeType: 'application/pdf', sourceMimeType: mime, path,
-            modifiedTime: f.modifiedTime ?? null, size: f.size ? Number(f.size) : null,
-          })
-          if (out.length >= maxFiles) break
-        } else if (IMPORTABLE.test(mime)) {
-          out.push({
-            id: realId, name: f.name ?? 'file', mimeType: mime, path,
-            modifiedTime: f.modifiedTime ?? null, size: f.size ? Number(f.size) : null,
-          })
-          if (out.length >= maxFiles) break
-        }
+
+  while (frontier.length && out.length < maxFiles && guard < 20000) {
+    const batch = frontier.filter(x => !seen.has(x.id))
+    for (const x of batch) seen.add(x.id)
+    const next: { id: string; path: string }[] = []
+
+    for (let i = 0; i < batch.length && out.length < maxFiles && guard < 20000; i += concurrency) {
+      const slice = batch.slice(i, i + concurrency)
+      guard += slice.length
+      foldersScanned += slice.length
+      const results = await Promise.all(slice.map(({ id, path }) => listOneFolder(drive, id, path)))
+      for (const r of results) {
+        for (const f of r.files) { if (out.length < maxFiles) out.push(f) }
+        next.push(...r.subfolders)
       }
-      pageToken = res.data.nextPageToken ?? undefined
-    } while (pageToken && out.length < maxFiles)
+    }
+    frontier = next
   }
-  return { files: out, foldersScanned }
+  return { files: out.slice(0, maxFiles), foldersScanned }
 }
 
 /** Download a Drive file's bytes. Google-native editor files (Docs/Sheets/
