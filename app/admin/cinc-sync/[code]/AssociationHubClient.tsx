@@ -21,6 +21,7 @@ import InspectionsTab from './InspectionsTab'
 import ComplianceMatrix from './ComplianceMatrix'
 import AssociationUnitDocs from '../../audit/AssociationUnitDocs'
 import VendorTradeCell from './VendorTradeCell'
+import BoardCertBox from './BoardCertBox'
 import { associationPortalPath } from '@/lib/association-portal'
 
 export interface HubBankAccount { description: string; last4: string | null; kind: string; bankBalance: number | null; restricted: boolean }
@@ -289,20 +290,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
           </Card>
           <AssociationDetailsCard data={data} onSaved={() => router.refresh()} />
           <OnboardingChecklistCard data={data} onOpenTab={selectTab} />
-          <Card title="Board officers" action={data.board.length ? undefined : undefined}>
-            {data.board.length === 0 ? (
-              <p className="text-xs text-gray-400">No board members on file. Import them in the Board &amp; Owners tab.</p>
-            ) : (
-              <ul className="space-y-2 text-sm">
-                {data.board.slice(0, 6).map(b => (
-                  <li key={b.id}>
-                    <div className="font-medium text-gray-900">{b.name ?? '—'}</div>
-                    <div className="text-[11px] text-gray-500">{[b.role, b.email].filter(Boolean).join(' · ') || '—'}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+          <BoardCertBox code={data.code} />
         </aside>
 
         {/* Tab content */}

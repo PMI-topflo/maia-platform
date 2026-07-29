@@ -44,6 +44,42 @@ export interface MigrationCheckResult extends MigrationEntry {
 
 export const MIGRATIONS: MigrationEntry[] = [
   {
+    key:         'board_member_certifications',
+    label:       'Board education / certification tracking',
+    description: 'board_member_certifications table (one row per uploaded board-education certificate / signed certification form / annual continuing-ed cert, staff- or self-uploaded, with a review queue) + association_board_members.service_start_date / service_interrupted. Initial-cert validity (condo 7y / HOA 4y) is derived at read time from the association type, not stored.',
+    filename:    '20260729_board_member_certifications.sql',
+    artifact:    { type: 'table', table: 'board_member_certifications' },
+    sql: `CREATE TABLE IF NOT EXISTS public.board_member_certifications (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code text NOT NULL,
+  board_member_id uuid,
+  board_member_name text,
+  board_member_email text,
+  doc_type text NOT NULL DEFAULT 'education_certificate'
+    CHECK (doc_type IN ('education_certificate','certification_form','continuing_education')),
+  certificate_date date,
+  storage_key text,
+  filename text,
+  mime_type text,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  uploaded_via text NOT NULL DEFAULT 'staff' CHECK (uploaded_via IN ('staff','self')),
+  uploaded_by text,
+  ai_summary text,
+  reviewed_by text,
+  reviewed_at timestamptz,
+  review_note text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS board_member_certifications_assoc_idx ON public.board_member_certifications (association_code);
+CREATE INDEX IF NOT EXISTS board_member_certifications_member_idx ON public.board_member_certifications (board_member_id);
+ALTER TABLE public.association_board_members
+  ADD COLUMN IF NOT EXISTS service_start_date date,
+  ADD COLUMN IF NOT EXISTS service_interrupted boolean NOT NULL DEFAULT false;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.board_member_certifications TO anon, authenticated, service_role;
+ALTER TABLE public.board_member_certifications ENABLE ROW LEVEL SECURITY;
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'owner_compliance_enhancements',
     label:       'Owner compliance page — occupants + contact confirm',
     description: 'unit_tenant_contacts.occupants jsonb (additional occupants) + owner_compliance_requests.contact_confirmed_at / contact_change_request / emergency_contact jsonb (owner confirms/updates their contact + provides emergency contact as fields, not a file).',
