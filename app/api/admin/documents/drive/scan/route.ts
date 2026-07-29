@@ -10,6 +10,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { extractFolderId, listFolderFilesRecursive, shareTargetEmail } from '@/lib/drive-import'
+import { filterDriveFile } from '@/lib/drive-import-filter'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -28,7 +29,16 @@ export async function POST(req: Request) {
 
   try {
     const { files, foldersScanned } = await listFolderFilesRecursive(folderId)
-    return NextResponse.json({ serviceAccountEmail: sa, folderId, count: files.length, foldersScanned, files })
+    // Annotate each file with the doc-type whitelist decision (approvals /
+    // Certificate of Use / insurance / leases in; PII + unrecognized out;
+    // approval Google Docs are drafts → skipped). The UI defaults selection
+    // to the "include" files and lets staff override.
+    const annotated = files.map(f => {
+      const d = filterDriveFile(f.name, f.path, true, !!f.sourceMimeType)
+      return { ...f, include: d.include, category: d.category, reason: d.reason }
+    })
+    const includeCount = annotated.filter(f => f.include).length
+    return NextResponse.json({ serviceAccountEmail: sa, folderId, count: files.length, includeCount, foldersScanned, files: annotated })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     const hint = /not found|404|permission|insufficient/i.test(msg) && sa

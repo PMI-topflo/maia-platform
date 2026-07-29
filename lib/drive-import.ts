@@ -21,15 +21,23 @@ export function shareTargetEmail(): string | null {
 export interface DriveFile {
   id: string
   name: string
-  mimeType: string
+  mimeType: string      // the mime we HAND DOWNSTREAM (a Google Doc becomes application/pdf)
   path: string          // breadcrumb of subfolders below the root, e.g. "Lakeview / Insurance"
   modifiedTime: string | null
   size: number | null
+  sourceMimeType?: string   // the real Drive mime, when it differs (Google-native → exported to PDF)
 }
 
 const IMPORTABLE = /^(application\/pdf|image\/(jpeg|png|webp|heic|tiff))$/i
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut'
+// Google-native editor files (Docs/Sheets/Slides) can't be downloaded with
+// alt=media — they must be EXPORTED. Many board approval letters are native
+// Google Docs, so without this they were silently skipped by the scan.
+const GOOGLE_NATIVE = /^application\/vnd\.google-apps\.(document|spreadsheet|presentation)$/i
+
+/** True for a Google-native editor file that we import by exporting to PDF. */
+export function isGoogleNative(mime: string): boolean { return GOOGLE_NATIVE.test(mime) }
 
 /** Extract the folder id from a pasted Drive URL (or accept a raw id). */
 export function extractFolderId(input: string): string | null {
@@ -80,6 +88,16 @@ export async function listFolderFilesRecursive(folderId: string, maxFiles = 2000
         if (!realId) continue
         if (mime === FOLDER_MIME) {
           queue.push({ id: realId, path: path ? `${path} / ${f.name}` : (f.name ?? '') })
+        } else if (isGoogleNative(mime)) {
+          // Google-native editor file (often a board approval letter): import it
+          // by exporting to PDF. Present it downstream as a PDF with a .pdf name.
+          const base = f.name ?? 'document'
+          out.push({
+            id: realId, name: /\.pdf$/i.test(base) ? base : `${base}.pdf`,
+            mimeType: 'application/pdf', sourceMimeType: mime, path,
+            modifiedTime: f.modifiedTime ?? null, size: f.size ? Number(f.size) : null,
+          })
+          if (out.length >= maxFiles) break
         } else if (IMPORTABLE.test(mime)) {
           out.push({
             id: realId, name: f.name ?? 'file', mimeType: mime, path,
@@ -94,9 +112,16 @@ export async function listFolderFilesRecursive(folderId: string, maxFiles = 2000
   return { files: out, foldersScanned }
 }
 
-/** Download a Drive file's bytes. */
+/** Download a Drive file's bytes. Google-native editor files (Docs/Sheets/
+ *  Slides) can't be fetched with alt=media — they're EXPORTED to PDF. We
+ *  detect the real mime first so the import route doesn't have to thread it. */
 export async function downloadDriveFile(fileId: string): Promise<Buffer> {
   const drive = getDrive()
+  const meta = await drive.files.get({ fileId, fields: 'mimeType', supportsAllDrives: true })
+  if (isGoogleNative(meta.data.mimeType ?? '')) {
+    const res = await drive.files.export({ fileId, mimeType: 'application/pdf' }, { responseType: 'arraybuffer' })
+    return Buffer.from(res.data as ArrayBuffer)
+  }
   const res = await drive.files.get(
     { fileId, alt: 'media', supportsAllDrives: true },
     { responseType: 'arraybuffer' },
