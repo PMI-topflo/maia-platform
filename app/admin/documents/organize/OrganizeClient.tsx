@@ -19,15 +19,19 @@ function unitFromName(name: string | null): string | null {
   return m ? `MANXI${m[1]}` : null
 }
 
-// Map what MAIA detected (compliance item_key / category) to a rename Type token.
-function typeFromDetected(itemKey: string | null, category: string | null): string | null {
-  const k = (itemKey ?? '').toLowerCase(); const c = (category ?? '').toLowerCase()
-  if (k.includes('approval')) return 'Approval'
-  if (k === 'unit.leasing' || k.includes('lease') || c.includes('lease')) return 'Lease'
-  if (k === 'unit.ho6' || k === 'unit.ho3') return 'HO6'
-  if (k === 'unit.ho4') return 'HO4'
-  if (k.includes('certificate_of_use') || k.includes('use') || /lauderhill|cert.*use/.test(c)) return 'LauderhillCert'
-  if (c === 'insurance' || k.startsWith('insurance')) return 'HO6'
+// Map what MAIA detected to a rename Type token. Checks the item_key, the
+// category, AND the human-readable doc label — the Lauderhill Certificate of
+// Use isn't a standard compliance item, so it's only recognizable from the
+// label ("City of Lauderhill … Certificate of Use"). Approval is checked first
+// so "Lease Approval Letter" maps to Approval, not Lease.
+function typeFromDetected(itemKey: string | null, category: string | null, docType?: string | null): string | null {
+  const hay = `${itemKey ?? ''} ${category ?? ''} ${docType ?? ''}`.toLowerCase()
+  if (/approval/.test(hay)) return 'Approval'
+  if (/certificate of use|lauderhill|cert.*use|business tax|\bbtr\b|rental license|use permit/.test(hay)) return 'LauderhillCert'
+  if (/\bho-?4\b|renter/.test(hay)) return 'HO4'
+  if (/\bho-?6\b|\bho-?3\b/.test(hay)) return 'HO6'
+  if (/lease|rental agreement|tenanc/.test(hay)) return 'Lease'
+  if (/insurance|binder|policy|homeowner/.test(hay)) return 'HO6'
   return null
 }
 
@@ -111,7 +115,7 @@ export default function OrganizeClient() {
       const f = list[i]
       setPromoteMsg(`${i + 1}/${list.length}…`)
       const rr = readRes[f.id]
-      const readType = rr?.detected ? typeFromDetected(rr.detected.itemKey, rr.detected.category) : null
+      const readType = rr?.detected ? typeFromDetected(rr.detected.itemKey, rr.detected.category, rr.detected.docType) : null
       const isKeeper = (renamable(f) || !!readType) && !!(names[f.id] ?? '').trim()
       if (isKeeper && await doCopy(f)) copies++
       if (await doArchive(f)) moved++
@@ -139,7 +143,7 @@ export default function OrganizeClient() {
       setReadRes(rr => ({ ...rr, [f.id]: j }))
       // If MAIA recognized a keeper type, offer a corrected name (works even
       // for files the filename-based filter marked "unrecognized").
-      const t = j.detected ? typeFromDetected(j.detected.itemKey, j.detected.category) : null
+      const t = j.detected ? typeFromDetected(j.detected.itemKey, j.detected.category, j.detected.docType) : null
       if (t) {
         const ym = f.createdTime ? new Date(f.createdTime).toISOString().slice(0, 7).replace('-', '_') : null
         const e = f.name.match(/\.([a-z0-9]{1,5})$/i)?.[0] ?? ''
@@ -308,7 +312,7 @@ export default function OrganizeClient() {
                 <div className="space-y-1.5">
                   {fs.map(f => {
                     const rr = readRes[f.id]
-                    const readType = rr?.detected ? typeFromDetected(rr.detected.itemKey, rr.detected.category) : null
+                    const readType = rr?.detected ? typeFromDetected(rr.detected.itemKey, rr.detected.category, rr.detected.docType) : null
                     const canRename = renamable(f) || !!readType
                     const st = status[f.id] ?? 'idle'
                     return (
