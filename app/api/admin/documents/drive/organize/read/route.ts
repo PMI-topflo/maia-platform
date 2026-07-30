@@ -1,0 +1,77 @@
+// POST /api/admin/documents/drive/organize/read  { fileId, folderName? }
+// Have MAIA READ a Drive file's contents (not just its filename) and report
+// what it is + the key dates. Recognizes files whose names give nothing away
+// (e.g. a Lauderhill Certificate of Use saved as "20260511_174741.jpg") and
+// pulls the expiration date. Backs the "Read with MAIA" button on the organize
+// screen. Read-only — files nothing; the client decides whether to save.
+// Staff-only.
+
+import { NextResponse } from 'next/server'
+import { requireStaffSession } from '@/lib/staff-auth'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { downloadDriveFile } from '@/lib/drive-import'
+import { classifyDocument, type AssociationRef, type DetectedItem } from '@/lib/document-classifier'
+
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
+function sniffMime(buf: Buffer): string | null {
+  if (buf.subarray(0, 5).toString('latin1') === '%PDF-') return 'application/pdf'
+  if (buf[0] === 0xff && buf[1] === 0xd8) return 'image/jpeg'
+  if (buf[0] === 0x89 && buf[1] === 0x50) return 'image/png'
+  if (buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp'
+  return null
+}
+
+// "Unit 910" / "MANXI910 - 4174 Inverrary Drive" → MANXI910. This cleanup is
+// Manors XI, so a bare "Unit ###" folder maps to the MANXI account.
+function unitFromFolder(name: string | null): string | null {
+  const m = String(name ?? '').match(/MANXI\s*0*(\d+)/i) || String(name ?? '').match(/\bunit\s*0*(\d+)/i)
+  return m ? `MANXI${m[1]}` : null
+}
+
+export async function POST(req: Request) {
+  if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  let body: { fileId?: string; folderName?: string }
+  try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
+  const fileId = String(body.fileId ?? '').trim()
+  if (!fileId) return NextResponse.json({ error: 'fileId required' }, { status: 400 })
+
+  const { data: assocRows } = await supabaseAdmin.from('associations')
+    .select('association_code, association_name, principal_address, city, state, zip, match_aliases').order('association_name')
+  const assocs: AssociationRef[] = (assocRows ?? []).map(a => ({
+    code: String(a.association_code), name: String(a.association_name ?? a.association_code),
+    address: a.principal_address as string | null, city: a.city as string | null, state: a.state as string | null, zip: a.zip as string | null,
+    aliases: (a.match_aliases as string[] | null) ?? undefined,
+  }))
+
+  try {
+    const buf = await downloadDriveFile(fileId)   // Google-native → exported PDF
+    const mime = sniffMime(buf)
+    const cls = await classifyDocument(buf, mime, assocs, 1, body.folderName ?? null)
+
+    // Prefer a unit-scope item with a date; fall back to the most confident.
+    const items = cls.items ?? []
+    const best: DetectedItem | null =
+      items.filter(i => i.scope === 'unit').sort((a, b) => b.confidence - a.confidence)[0]
+      ?? items.sort((a, b) => b.confidence - a.confidence)[0]
+      ?? null
+
+    return NextResponse.json({
+      ok: true,
+      associationCode: cls.association_code ?? 'MANXI',
+      unitRef: unitFromFolder(body.folderName ?? null) ?? (best?.unit_seen ?? null),
+      summary: cls.summary,
+      detected: best ? {
+        scope: best.scope, category: best.category, itemKey: best.item_key,
+        docType: best.doc_type, effectiveDate: best.effective_date, expirationDate: best.expiration_date,
+        confidence: best.confidence,
+      } : null,
+      allItems: items.map(i => ({ itemKey: i.item_key, docType: i.doc_type, scope: i.scope, expirationDate: i.expiration_date })),
+    })
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: `MAIA could not read this file: ${e instanceof Error ? e.message : String(e)}` }, { status: 200 })
+  }
+}
