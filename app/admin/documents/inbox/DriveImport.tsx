@@ -28,9 +28,21 @@ export default function DriveImport({ onImported }: { onImported: (rows: unknown
   const [imp, setImp] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  const [testMsg, setTestMsg] = useState<string | null>(null)
+  const [testing, setTesting] = useState(false)
   // Whitelist ON = import only the compliance docs (approvals / Cert of Use /
   // insurance / leases), skip PII. OFF = show everything, pick manually.
   const [whitelist, setWhitelist] = useState(true)
+
+  async function testAccess() {
+    setTesting(true); setTestMsg(null)
+    try {
+      const res = await fetch('/api/admin/documents/drive/test-write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderUrl: url }) })
+      const j = await res.json()
+      if (j.ok) setTestMsg(`✅ ${j.message}`)
+      else setTestMsg(`❌ ${j.error}${j.shareTarget ? ` · (acting as ${j.actingAs ?? '?'}; share target ${j.shareTarget})` : ''}`)
+    } catch (e) { setTestMsg(`❌ ${(e as Error).message}`) } finally { setTesting(false) }
+  }
 
   const shown = useMemo(() => (whitelist ? (files ?? []).filter(f => f.include) : (files ?? [])), [files, whitelist])
   const skippedCount = useMemo(() => (files ?? []).filter(f => !f.include).length, [files])
@@ -104,7 +116,9 @@ export default function DriveImport({ onImported }: { onImported: (rows: unknown
             <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://drive.google.com/drive/folders/…"
               className="min-w-0 flex-1 rounded border border-gray-300 px-2.5 py-1.5 text-sm" />
             <button onClick={scan} disabled={scanning || !url.trim()} className="rounded bg-gray-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">{scanning ? 'Scanning…' : 'Scan'}</button>
+            <button onClick={testAccess} disabled={testing || !url.trim()} className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 disabled:opacity-50" title="Verify MAIA can create/rename/delete in this folder">{testing ? 'Testing…' : 'Test access'}</button>
           </div>
+          {testMsg && <div className={`mt-2 rounded px-3 py-2 text-xs ${testMsg.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{testMsg}</div>}
 
           {error && <div className="mt-2 rounded bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
           {done && <div className="mt-2 rounded bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{done}</div>}
