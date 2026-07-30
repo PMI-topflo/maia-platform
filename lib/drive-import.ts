@@ -24,6 +24,7 @@ export interface DriveFile {
   mimeType: string      // the mime we HAND DOWNSTREAM (a Google Doc becomes application/pdf)
   path: string          // breadcrumb of subfolders below the root, e.g. "Lakeview / Insurance"
   modifiedTime: string | null
+  createdTime: string | null   // drives the YYYY_MM in the organize/rename convention
   size: number | null
   sourceMimeType?: string   // the real Drive mime, when it differs (Google-native → exported to PDF)
 }
@@ -62,7 +63,7 @@ async function listOneFolder(
   do {
     const res = await drive.files.list({
       q: `'${id}' in parents and trashed = false`,
-      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, size, shortcutDetails(targetId, targetMimeType))',
+      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, createdTime, size, shortcutDetails(targetId, targetMimeType))',
       pageSize: 1000,
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
@@ -87,12 +88,12 @@ async function listOneFolder(
         files.push({
           id: realId, name: /\.pdf$/i.test(base) ? base : `${base}.pdf`,
           mimeType: 'application/pdf', sourceMimeType: mime, path,
-          modifiedTime: f.modifiedTime ?? null, size: f.size ? Number(f.size) : null,
+          modifiedTime: f.modifiedTime ?? null, createdTime: f.createdTime ?? null, size: f.size ? Number(f.size) : null,
         })
       } else if (IMPORTABLE.test(mime)) {
         files.push({
           id: realId, name: f.name ?? 'file', mimeType: mime, path,
-          modifiedTime: f.modifiedTime ?? null, size: f.size ? Number(f.size) : null,
+          modifiedTime: f.modifiedTime ?? null, createdTime: f.createdTime ?? null, size: f.size ? Number(f.size) : null,
         })
       }
     }
