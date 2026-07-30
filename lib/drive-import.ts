@@ -26,6 +26,7 @@ export interface DriveFile {
   modifiedTime: string | null
   createdTime: string | null   // drives the YYYY_MM in the organize/rename convention
   size: number | null
+  webViewLink: string | null   // open-in-Drive URL (for files too heavy to preview)
   sourceMimeType?: string   // the real Drive mime, when it differs (Google-native → exported to PDF)
 }
 
@@ -63,7 +64,7 @@ async function listOneFolder(
   do {
     const res = await drive.files.list({
       q: `'${id}' in parents and trashed = false`,
-      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, createdTime, size, shortcutDetails(targetId, targetMimeType))',
+      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, createdTime, size, webViewLink, shortcutDetails(targetId, targetMimeType))',
       pageSize: 1000,
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
@@ -89,11 +90,13 @@ async function listOneFolder(
           id: realId, name: /\.pdf$/i.test(base) ? base : `${base}.pdf`,
           mimeType: 'application/pdf', sourceMimeType: mime, path,
           modifiedTime: f.modifiedTime ?? null, createdTime: f.createdTime ?? null, size: f.size ? Number(f.size) : null,
+          webViewLink: f.webViewLink ?? null,
         })
       } else if (IMPORTABLE.test(mime)) {
         files.push({
           id: realId, name: f.name ?? 'file', mimeType: mime, path,
           modifiedTime: f.modifiedTime ?? null, createdTime: f.createdTime ?? null, size: f.size ? Number(f.size) : null,
+          webViewLink: f.webViewLink ?? null,
         })
       }
     }
