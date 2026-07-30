@@ -76,6 +76,43 @@ export default function OrganizeClient() {
   const [plan, setPlan] = useState<{ emptyCount: number; foldersScanned: number; sample: string[]; deleteIds: string[]; tagPlan: { id: string; newName: string }[] } | null>(null)
   const [progress, setProgress] = useState<{ label: string; done: number; total: number } | null>(null)
   const [cleanupDone, setCleanupDone] = useState<string | null>(null)
+  // OLD-archive reorg
+  const [reorgPlan, setReorgPlan] = useState<{ folderRenames: { id: string; newName: string }[]; fileMoves: { id: string; parentId: string; year: string }[]; counts: { renames: number; moves: number; undated: number }; sampleRenames: string[] } | null>(null)
+  const [reorgDone, setReorgDone] = useState<string | null>(null)
+
+  async function planReorg() {
+    if (!url.trim()) { alert('Paste the OLD archive folder link first.'); return }
+    setCleanupBusy(true); setReorgPlan(null); setReorgDone(null)
+    try {
+      const res = await fetch('/api/admin/documents/drive/organize/reorg-archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderUrl: url }) })
+      const j = await res.json(); if (j.error || !j.ok) throw new Error(j.error ?? 'plan failed')
+      setReorgPlan({ folderRenames: j.folderRenames ?? [], fileMoves: j.fileMoves ?? [], counts: j.counts, sampleRenames: j.sampleRenames ?? [] })
+    } catch (e) { alert(`Archive plan failed: ${(e as Error).message}`) } finally { setCleanupBusy(false) }
+  }
+
+  async function applyReorg() {
+    if (!reorgPlan) return
+    const total = reorgPlan.folderRenames.length + reorgPlan.fileMoves.length
+    if (!confirm(`Reorganize the archive?\n\n• Rename ${reorgPlan.folderRenames.length} folder(s) → MANXI### <year> <note>\n• Move ${reorgPlan.fileMoves.length} file(s) into year subfolders`)) return
+    setCleanupBusy(true); setReorgDone(null)
+    let done = 0, renamed = 0, moved = 0
+    try {
+      for (const r of reorgPlan.folderRenames) {
+        setProgress({ label: 'Renaming folders', done, total })
+        const res = await fetch('/api/admin/documents/drive/organize/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: r.id, newName: r.newName }) })
+        if ((await res.json().catch(() => ({}))).ok) renamed++
+        done++; setProgress({ label: 'Renaming folders', done, total })
+      }
+      for (const m of reorgPlan.fileMoves) {
+        setProgress({ label: 'Moving files into year subfolders', done, total })
+        const res = await fetch('/api/admin/documents/drive/organize/move-to-year', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: m.id, parentId: m.parentId, year: m.year }) })
+        if ((await res.json().catch(() => ({}))).ok) moved++
+        done++; setProgress({ label: 'Moving files into year subfolders', done, total })
+      }
+      setReorgDone(`Renamed ${renamed} folder(s), moved ${moved} file(s) into year subfolders.`)
+      setReorgPlan(null)
+    } catch (e) { alert(`Reorg failed: ${(e as Error).message}`) } finally { setProgress(null); setCleanupBusy(false) }
+  }
 
   async function findCleanup() {
     if (!url.trim()) { alert('Paste a Drive folder link first.'); return }
@@ -337,6 +374,16 @@ export default function OrganizeClient() {
             <div className="h-2 w-full overflow-hidden rounded bg-gray-100"><div className="h-full bg-red-500 transition-all" style={{ width: `${Math.round((progress.done / Math.max(1, progress.total)) * 100)}%` }} /></div>
           </div>
         )}
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-dashed border-gray-200 px-3 py-2">
+        <span className="text-xs font-medium text-gray-600" title='Rename "Unit ###" folders → "MANXI### <year> <note>" and move files into year subfolders. Point at the OLD Approved Application Files folder.'>🗂 Reorganize OLD archive</span>
+        <button onClick={planReorg} disabled={cleanupBusy || !url.trim()} className="rounded border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 disabled:opacity-50">Plan reorg</button>
+        {reorgPlan && !progress && (reorgPlan.counts.renames > 0 || reorgPlan.counts.moves > 0) && (
+          <button onClick={applyReorg} disabled={cleanupBusy} className="rounded bg-[#0d9488] px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50">Rename {reorgPlan.counts.renames} + move {reorgPlan.counts.moves}</button>
+        )}
+        {reorgPlan && !progress && <span className="text-[11px] text-gray-500">{reorgPlan.counts.renames} folder(s), {reorgPlan.counts.moves} file(s){reorgPlan.counts.undated ? `, ${reorgPlan.counts.undated} no-year (left in place)` : ''}{reorgPlan.sampleRenames.length ? ` — e.g. ${reorgPlan.sampleRenames.slice(0, 2).join('; ')}` : ''}</span>}
+        {reorgDone && <span className="text-[11px] font-medium text-emerald-700">{reorgDone}</span>}
       </div>
 
       {browseOpen && (
