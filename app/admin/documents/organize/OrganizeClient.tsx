@@ -9,6 +9,21 @@ interface ScanFile {
   id: string; name: string; path: string; createdTime: string | null; webViewLink: string | null
   category: FilterCategory; include: boolean; reason: string; sourceMimeType?: string
 }
+interface Detected { scope: string; category: string | null; itemKey: string | null; docType: string | null; effectiveDate: string | null; expirationDate: string | null; confidence: number }
+interface ReadResult { ok?: boolean; error?: string; associationCode?: string; unitRef?: string | null; summary?: string | null; detected?: Detected | null }
+
+// Map what MAIA detected (compliance item_key / category) to a rename Type token.
+function typeFromDetected(itemKey: string | null, category: string | null): string | null {
+  const k = (itemKey ?? '').toLowerCase(); const c = (category ?? '').toLowerCase()
+  if (k.includes('approval')) return 'Approval'
+  if (k === 'unit.leasing' || k.includes('lease') || c.includes('lease')) return 'Lease'
+  if (k === 'unit.ho6' || k === 'unit.ho3') return 'HO6'
+  if (k === 'unit.ho4') return 'HO4'
+  if (k.includes('certificate_of_use') || k.includes('use') || /lauderhill|cert.*use/.test(c)) return 'LauderhillCert'
+  if (c === 'insurance' || k.startsWith('insurance')) return 'HO6'
+  return null
+}
+
 interface BrowseFolder { id: string; name: string }
 interface BrowseData { parentId: string; current: { id: string; name: string; parentId: string | null } | null; folders: BrowseFolder[] }
 type Status = 'idle' | 'saving' | 'done' | 'error'
@@ -34,6 +49,42 @@ export default function OrganizeClient() {
   const [browseOpen, setBrowseOpen] = useState(false)
   const [browse, setBrowse] = useState<BrowseData | null>(null)
   const [browsing, setBrowsing] = useState(false)
+  // MAIA content-read results, keyed by fileId.
+  const [reading, setReading] = useState<Record<string, boolean>>({})
+  const [readRes, setReadRes] = useState<Record<string, ReadResult>>({})
+  const [filed, setFiled] = useState<Record<string, boolean>>({})
+
+  async function readWithMaia(f: ScanFile) {
+    setReading(r => ({ ...r, [f.id]: true }))
+    try {
+      const res = await fetch('/api/admin/documents/drive/organize/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: f.id, folderName }) })
+      const j = (await res.json()) as ReadResult
+      setReadRes(rr => ({ ...rr, [f.id]: j }))
+      // If MAIA recognized a keeper type, offer a corrected name (works even
+      // for files the filename-based filter marked "unrecognized").
+      const t = j.detected ? typeFromDetected(j.detected.itemKey, j.detected.category) : null
+      if (t) {
+        const ym = f.createdTime ? new Date(f.createdTime).toISOString().slice(0, 7).replace('-', '_') : null
+        const e = f.name.match(/\.([a-z0-9]{1,5})$/i)?.[0] ?? ''
+        if (ym && !names[f.id]) setNames(n => ({ ...n, [f.id]: `${ym}_${t}${e}` }))
+      }
+    } catch (e) { setReadRes(rr => ({ ...rr, [f.id]: { ok: false, error: (e as Error).message } })) }
+    finally { setReading(r => ({ ...r, [f.id]: false })) }
+  }
+
+  async function fileToMaia(f: ScanFile) {
+    const r = readRes[f.id]
+    if (!r?.detected) return
+    try {
+      const res = await fetch('/api/admin/documents/drive/organize/file', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ associationCode: r.associationCode, unitRef: r.unitRef, itemKey: r.detected.itemKey, scope: r.detected.scope, expiry: r.detected.expirationDate, docType: r.detected.docType }),
+      })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.error ?? 'file failed')
+      setFiled(fl => ({ ...fl, [f.id]: true }))
+    } catch (e) { alert(`Could not file: ${(e as Error).message}`) }
+  }
 
   async function openBrowse(parentId = 'root') {
     setBrowseOpen(true); setBrowsing(true)
@@ -172,7 +223,9 @@ export default function OrganizeClient() {
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{path}</div>
                 <div className="space-y-1.5">
                   {fs.map(f => {
-                    const canRename = renamable(f)
+                    const rr = readRes[f.id]
+                    const readType = rr?.detected ? typeFromDetected(rr.detected.itemKey, rr.detected.category) : null
+                    const canRename = renamable(f) || !!readType
                     const st = status[f.id] ?? 'idle'
                     return (
                       <div key={f.id} className={`flex flex-wrap items-center gap-2 rounded border px-2 py-1.5 text-xs ${st === 'done' ? 'border-emerald-200 bg-emerald-50' : 'border-gray-100'}`}>
@@ -180,6 +233,7 @@ export default function OrganizeClient() {
                         {f.webViewLink && <a href={f.webViewLink} target="_blank" rel="noopener noreferrer" className="shrink-0 text-xs text-blue-600 hover:underline" title="Open in Drive (for files too large to preview)">↗</a>}
                         <span className={`min-w-0 flex-1 truncate ${canRename ? 'text-gray-700' : 'text-gray-400'}`} title={f.name}>{f.name}</span>
                         {f.sourceMimeType && <span className="shrink-0 rounded bg-blue-50 px-1 text-[10px] text-blue-600">Doc→PDF</span>}
+                        <button onClick={() => readWithMaia(f)} disabled={reading[f.id]} className="shrink-0 rounded border border-[#f26a1b]/40 px-1.5 py-0.5 text-[10px] font-medium text-[#c2410c] disabled:opacity-50" title="Have MAIA read the file contents (recognizes it + reads dates)">{reading[f.id] ? 'Reading…' : '✦ Read'}</button>
                         {canRename ? (
                           <>
                             <span className="shrink-0 text-gray-300">→</span>
@@ -195,6 +249,20 @@ export default function OrganizeClient() {
                           </span>
                         )}
                         {st === 'error' && <span className="w-full text-[10px] text-red-600">{rowErr[f.id]}</span>}
+                        {rr && (
+                          <div className="w-full rounded bg-[#fff7ed] px-2 py-1 text-[11px] text-gray-700">
+                            {rr.error && <span className="text-red-600">{rr.error}</span>}
+                            {rr.detected && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span>MAIA read: <b>{rr.detected.docType ?? rr.detected.itemKey ?? 'document'}</b>{rr.detected.expirationDate ? <> · expires <b>{rr.detected.expirationDate}</b></> : ' · no expiry date'}{rr.unitRef ? ` · ${rr.unitRef}` : ''}</span>
+                                {filed[f.id]
+                                  ? <span className="text-emerald-600">✓ filed to MAIA</span>
+                                  : <button onClick={() => fileToMaia(f)} className="rounded bg-[#c2410c] px-2 py-0.5 text-[10px] font-medium text-white">File to MAIA{rr.detected.expirationDate ? ' (save expiry)' : ''}</button>}
+                              </div>
+                            )}
+                            {!rr.detected && !rr.error && <span className="text-gray-500">MAIA couldn’t identify a compliance item in this file.</span>}
+                          </div>
+                        )}
                       </div>
                     )
                   })}
