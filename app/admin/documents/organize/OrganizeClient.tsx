@@ -72,18 +72,48 @@ export default function OrganizeClient() {
   // Empty-subfolder cleanup
   const [cleanupBusy, setCleanupBusy] = useState(false)
   const [markUnits, setMarkUnits] = useState(true)
-  const [cleanup, setCleanup] = useState<{ emptyCount: number; foldersScanned: number; sample: string[]; applied: boolean; deleted: number; markedEmptyUnits?: number; unmarkedUnits?: number } | null>(null)
+  const [plan, setPlan] = useState<{ emptyCount: number; foldersScanned: number; sample: string[]; deleteIds: string[]; tagPlan: { id: string; newName: string }[] } | null>(null)
+  const [progress, setProgress] = useState<{ label: string; done: number; total: number } | null>(null)
+  const [cleanupDone, setCleanupDone] = useState<string | null>(null)
 
-  async function runCleanup(apply: boolean) {
+  async function findCleanup() {
     if (!url.trim()) { alert('Paste a Drive folder link first.'); return }
-    if (apply && !confirm(`Delete ${cleanup?.emptyCount ?? ''} empty subfolder(s)${markUnits ? ' and tag empty unit folders "NO FILES YET"' : ''}? Unit folders and anything containing files are kept.`)) return
-    setCleanupBusy(true)
+    setCleanupBusy(true); setPlan(null); setCleanupDone(null)
     try {
-      const res = await fetch('/api/admin/documents/drive/organize/cleanup-empty', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderUrl: url, apply, markUnits: apply && markUnits }) })
+      const res = await fetch('/api/admin/documents/drive/organize/cleanup-empty', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderUrl: url, markUnits }) })
       const j = await res.json()
-      if (j.error || !j.ok) throw new Error(j.error ?? 'cleanup failed')
-      setCleanup({ emptyCount: j.emptyCount, foldersScanned: j.foldersScanned, sample: j.sample ?? [], applied: j.applied, deleted: j.deleted ?? 0, markedEmptyUnits: j.markedEmptyUnits, unmarkedUnits: j.unmarkedUnits })
-    } catch (e) { alert(`Cleanup failed: ${(e as Error).message}`) } finally { setCleanupBusy(false) }
+      if (j.error || !j.ok) throw new Error(j.error ?? 'scan failed')
+      setPlan({ emptyCount: j.emptyCount, foldersScanned: j.foldersScanned, sample: j.sample ?? [], deleteIds: j.deleteIds ?? [], tagPlan: j.tagPlan ?? [] })
+    } catch (e) { alert(`Scan failed: ${(e as Error).message}`) } finally { setCleanupBusy(false) }
+  }
+
+  async function applyCleanup() {
+    if (!plan) return
+    const total = plan.deleteIds.length + plan.tagPlan.length
+    if (!confirm(`Delete ${plan.deleteIds.length} empty subfolder(s)${plan.tagPlan.length ? ` and tag ${plan.tagPlan.length} unit folder(s)` : ''}? Unit folders and anything with files are kept.`)) return
+    setCleanupBusy(true); setCleanupDone(null)
+    let deleted = 0, tagged = 0, done = 0
+    try {
+      // Delete empty folders in chunks (each deleted as its owner, SA or PMI).
+      const CHUNK = 40
+      for (let i = 0; i < plan.deleteIds.length; i += CHUNK) {
+        const ids = plan.deleteIds.slice(i, i + CHUNK)
+        setProgress({ label: 'Deleting empty subfolders', done, total })
+        const res = await fetch('/api/admin/documents/drive/organize/delete-folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) })
+        const j = await res.json().catch(() => ({ deleted: 0 }))
+        deleted += j.deleted ?? 0; done += ids.length
+        setProgress({ label: 'Deleting empty subfolders', done, total })
+      }
+      // Apply the NO-FILES-YET tags (rename, one per call).
+      for (const t of plan.tagPlan) {
+        setProgress({ label: 'Tagging unit folders', done, total })
+        const res = await fetch('/api/admin/documents/drive/organize/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: t.id, newName: t.newName }) })
+        const j = await res.json().catch(() => ({})); if (j.ok) tagged++
+        done++; setProgress({ label: 'Tagging unit folders', done, total })
+      }
+      setCleanupDone(`Deleted ${deleted} empty subfolder(s), tagged ${tagged} unit folder(s).`)
+      setPlan(null)
+    } catch (e) { alert(`Cleanup failed: ${(e as Error).message}`) } finally { setProgress(null); setCleanupBusy(false) }
   }
 
   const unitRef = useMemo(() => unitFromName(folderName), [folderName])
@@ -273,22 +303,24 @@ export default function OrganizeClient() {
       </div>
       {error && <div className="mt-2 rounded bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
 
-      <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-dashed border-gray-200 px-3 py-2">
-        <span className="text-xs font-medium text-gray-600">🧹 Empty subfolders</span>
-        <button onClick={() => runCleanup(false)} disabled={cleanupBusy || !url.trim()} className="rounded border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 disabled:opacity-50">{cleanupBusy ? 'Scanning…' : 'Find empty'}</button>
-        <label className="flex items-center gap-1 text-[11px] text-gray-600" title='Rename totally-empty unit folders to append "NO FILES YET" (auto-removed when a file is copied in)'>
-          <input type="checkbox" checked={markUnits} onChange={e => setMarkUnits(e.target.checked)} /> tag empty units
-        </label>
-        {cleanup && !cleanup.applied && (cleanup.emptyCount > 0 || markUnits) && (
-          <button onClick={() => runCleanup(true)} disabled={cleanupBusy} className="rounded bg-red-600 px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50">Delete {cleanup.emptyCount} empty{markUnits ? ' + tag units' : ''}</button>
-        )}
-        {cleanup && (
-          <span className="text-[11px] text-gray-500">
-            {cleanup.applied
-              ? `Deleted ${cleanup.deleted} empty subfolder(s)${cleanup.markedEmptyUnits ? `, tagged ${cleanup.markedEmptyUnits} empty unit(s)` : ''}${cleanup.unmarkedUnits ? `, un-tagged ${cleanup.unmarkedUnits}` : ''}.`
-              : `${cleanup.emptyCount} empty of ${cleanup.foldersScanned} scanned${cleanup.emptyCount ? ` — e.g. ${cleanup.sample.slice(0, 4).join(', ')}${cleanup.emptyCount > 4 ? '…' : ''}` : ''}`}
-            {' '}<span className="text-gray-400">(unit folders + anything with files are kept)</span>
-          </span>
+      <div className="mt-2 rounded border border-dashed border-gray-200 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-gray-600">🧹 Empty subfolders</span>
+          <button onClick={findCleanup} disabled={cleanupBusy || !url.trim()} className="rounded border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 disabled:opacity-50">{cleanupBusy && !progress ? 'Scanning…' : 'Find empty'}</button>
+          <label className="flex items-center gap-1 text-[11px] text-gray-600" title='Rename totally-empty unit folders to append "NO FILES YET" (auto-removed when a file is copied in)'>
+            <input type="checkbox" checked={markUnits} onChange={e => setMarkUnits(e.target.checked)} /> tag empty units
+          </label>
+          {plan && !progress && (plan.deleteIds.length > 0 || plan.tagPlan.length > 0) && (
+            <button onClick={applyCleanup} disabled={cleanupBusy} className="rounded bg-red-600 px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50">Delete {plan.deleteIds.length} empty{plan.tagPlan.length ? ` + tag ${plan.tagPlan.length}` : ''}</button>
+          )}
+          {plan && !progress && <span className="text-[11px] text-gray-500">{plan.emptyCount} empty of {plan.foldersScanned} scanned{plan.emptyCount ? ` — e.g. ${plan.sample.slice(0, 4).join(', ')}${plan.emptyCount > 4 ? '…' : ''}` : ''} <span className="text-gray-400">(unit folders + anything with files are kept)</span></span>}
+          {cleanupDone && <span className="text-[11px] font-medium text-emerald-700">{cleanupDone}</span>}
+        </div>
+        {progress && (
+          <div className="mt-2">
+            <div className="mb-1 flex justify-between text-[11px] text-gray-600"><span>{progress.label}…</span><span>{progress.done}/{progress.total} ({Math.round((progress.done / Math.max(1, progress.total)) * 100)}%)</span></div>
+            <div className="h-2 w-full overflow-hidden rounded bg-gray-100"><div className="h-full bg-red-500 transition-all" style={{ width: `${Math.round((progress.done / Math.max(1, progress.total)) * 100)}%` }} /></div>
+          </div>
         )}
       </div>
 
