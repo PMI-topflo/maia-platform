@@ -54,6 +54,7 @@ export default function OrganizeClient() {
   const [rowErr, setRowErr] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [applyingAll, setApplyingAll] = useState(false)
+  const [batch, setBatch] = useState<{ label: string; done: number; total: number } | null>(null)
   const [folderName, setFolderName] = useState<string | null>(null)
   const [folderLink, setFolderLink] = useState<string | null>(null)
   // Drive folder browser
@@ -278,19 +279,33 @@ export default function OrganizeClient() {
     } catch (e) { setStatus(s => ({ ...s, [f.id]: 'error' })); setRowErr(er => ({ ...er, [f.id]: (e as Error).message })); return false }
   }
 
+  // Rename every file that has a proposed name (filename keepers + anything
+  // MAIA read + recognized), with a progress bar.
   async function applyAll() {
+    const targets = (files ?? []).filter(f => (names[f.id] ?? '').trim() && status[f.id] !== 'done')
+    if (targets.length === 0) return
     setApplyingAll(true)
-    for (const f of files ?? []) {
-      if (renamable(f) && status[f.id] !== 'done') await rename(f)
-    }
-    setApplyingAll(false)
+    for (let i = 0; i < targets.length; i++) { setBatch({ label: 'Renaming', done: i, total: targets.length }); await rename(targets[i]) }
+    setBatch(null); setApplyingAll(false)
+  }
+
+  // Batch ✦ Read every file the filename didn't recognize, so the old
+  // arbitrarily-named files in Official get identified + named for renaming.
+  async function readAllUnrecognized() {
+    const targets = (files ?? []).filter(f => !renamable(f) && !readRes[f.id])
+    if (targets.length === 0) { alert('Nothing left to read.'); return }
+    if (!confirm(`Have MAIA read ${targets.length} unrecognized file(s)? That's one AI call each.`)) return
+    setApplyingAll(true)
+    for (let i = 0; i < targets.length; i++) { setBatch({ label: 'Reading with MAIA', done: i, total: targets.length }); await readWithMaia(targets[i]) }
+    setBatch(null); setApplyingAll(false)
   }
 
   function renamable(f: ScanFile): boolean {
     return f.include && !!TYPE_FOR_CATEGORY[f.category]
   }
 
-  const renamableCount = (files ?? []).filter(renamable).length
+  const renamableCount = (files ?? []).filter(f => (names[f.id] ?? '').trim()).length
+  const unreadCount = (files ?? []).filter(f => !renamable(f) && !readRes[f.id]).length
   const doneCount = Object.values(status).filter(s => s === 'done').length
 
   return (
@@ -364,12 +379,19 @@ export default function OrganizeClient() {
             </div>
           )}
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-gray-500">{files.length} file(s) across {foldersScanned} folder(s) · {renamableCount} renamable · {doneCount} renamed</span>
+            <span className="text-xs text-gray-500">{files.length} file(s) across {foldersScanned} folder(s) · {renamableCount} named · {unreadCount} unrecognized · {doneCount} renamed</span>
             <div className="flex items-center gap-2">
-              <button onClick={applyAll} disabled={applyingAll || renamableCount === 0} className="rounded bg-[#f26a1b] px-3 py-1 text-xs font-medium text-white hover:bg-[#d85a14] disabled:opacity-50">{applyingAll ? 'Applying…' : `Rename all (${renamableCount})`}</button>
+              {unreadCount > 0 && <button onClick={readAllUnrecognized} disabled={applyingAll} className="rounded border border-[#f26a1b]/40 px-3 py-1 text-xs font-medium text-[#c2410c] disabled:opacity-50" title="MAIA reads every file the filename didn't recognize (one AI call each)">{applyingAll && batch?.label.startsWith('Reading') ? 'Reading…' : `✦ Read all (${unreadCount})`}</button>}
+              <button onClick={applyAll} disabled={applyingAll || renamableCount === 0} className="rounded bg-[#f26a1b] px-3 py-1 text-xs font-medium text-white hover:bg-[#d85a14] disabled:opacity-50">{applyingAll && batch?.label === 'Renaming' ? 'Renaming…' : `Rename all (${renamableCount})`}</button>
               <button onClick={promoteApplication} disabled={promoting || !unitRef || files.length === 0} title={unitRef ? 'Copy keepers to Official + move the packet to OLD archive' : 'No unit # in the folder name'} className="rounded bg-[#0d9488] px-3 py-1 text-xs font-medium text-white hover:bg-[#0f766e] disabled:opacity-50">{promoting ? 'Promoting…' : 'Promote application →'}</button>
             </div>
           </div>
+          {batch && (
+            <div className="mb-2">
+              <div className="mb-1 flex justify-between text-[11px] text-gray-600"><span>{batch.label}…</span><span>{batch.done}/{batch.total} ({Math.round((batch.done / Math.max(1, batch.total)) * 100)}%)</span></div>
+              <div className="h-2 w-full overflow-hidden rounded bg-gray-100"><div className="h-full bg-[#f26a1b] transition-all" style={{ width: `${Math.round((batch.done / Math.max(1, batch.total)) * 100)}%` }} /></div>
+            </div>
+          )}
           {promoteMsg && <div className="mb-2 rounded bg-teal-50 px-3 py-2 text-xs text-teal-800">{promoteMsg}</div>}
 
           <div className="space-y-4">
