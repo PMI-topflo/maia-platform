@@ -63,29 +63,61 @@ export default function OrganizeClient() {
   const [copied, setCopied] = useState<Record<string, boolean>>({})
   const [savedTenant, setSavedTenant] = useState<Record<string, boolean>>({})
   const [rowBusy, setRowBusy] = useState<Record<string, string>>({})
+  const [promoting, setPromoting] = useState(false)
+  const [promoteMsg, setPromoteMsg] = useState<string | null>(null)
 
   const unitRef = useMemo(() => unitFromName(folderName), [folderName])
 
-  async function copyToOfficial(f: ScanFile) {
-    const newName = (names[f.id] ?? '').trim()
-    if (!unitRef || !newName) { alert('Need a resolved unit + a name first.'); return }
-    setRowBusy(b => ({ ...b, [f.id]: 'copy' }))
-    try {
-      const res = await fetch('/api/admin/documents/drive/organize/copy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: f.id, unitRef, newName }) })
-      const j = await res.json(); if (!j.ok) throw new Error(j.error ?? 'copy failed')
-      setCopied(c => ({ ...c, [f.id]: true }))
-    } catch (e) { alert(`Copy failed: ${(e as Error).message}`) } finally { setRowBusy(b => ({ ...b, [f.id]: '' })) }
+  // Core ops return success (no alerts) so Promote can batch them.
+  async function doCopy(f: ScanFile, nameOverride?: string): Promise<boolean> {
+    const newName = (nameOverride ?? names[f.id] ?? '').trim()
+    if (!unitRef || !newName) return false
+    const res = await fetch('/api/admin/documents/drive/organize/copy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: f.id, unitRef, newName }) })
+    const j = await res.json().catch(() => ({})); if (!j.ok) return false
+    setCopied(c => ({ ...c, [f.id]: true })); return true
+  }
+  async function doArchive(f: ScanFile): Promise<boolean> {
+    if (!unitRef) return false
+    const dateLabel = f.createdTime ? new Date(f.createdTime).toISOString().slice(0, 7) : undefined
+    const res = await fetch('/api/admin/documents/drive/organize/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: f.id, unitRef, dateLabel }) })
+    const j = await res.json().catch(() => ({})); if (!j.ok) return false
+    setFiles(prev => (prev ?? []).filter(x => x.id !== f.id)); return true
   }
 
+  async function copyToOfficial(f: ScanFile) {
+    if (!unitRef || !(names[f.id] ?? '').trim()) { alert('Need a resolved unit + a name first.'); return }
+    setRowBusy(b => ({ ...b, [f.id]: 'copy' }))
+    if (!await doCopy(f)) alert('Copy to Official failed.')
+    setRowBusy(b => ({ ...b, [f.id]: '' }))
+  }
   async function archive(f: ScanFile) {
     if (!unitRef) { alert('No unit resolved for this folder.'); return }
-    const dateLabel = f.createdTime ? new Date(f.createdTime).toISOString().slice(0, 7) : undefined
     setRowBusy(b => ({ ...b, [f.id]: 'archive' }))
-    try {
-      const res = await fetch('/api/admin/documents/drive/organize/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: f.id, unitRef, dateLabel }) })
-      const j = await res.json(); if (!j.ok) throw new Error(j.error ?? 'archive failed')
-      setFiles(prev => (prev ?? []).filter(x => x.id !== f.id))   // moved out of this folder
-    } catch (e) { alert(`Archive failed: ${(e as Error).message}`) } finally { setRowBusy(b => ({ ...b, [f.id]: '' })) }
+    if (!await doArchive(f)) alert('Archive failed.')
+    setRowBusy(b => ({ ...b, [f.id]: '' }))
+  }
+
+  // One-click: copy every keeper (renamed) into Official, then move the whole
+  // packet into the OLD archive — clearing On Going. Read-recognized keepers
+  // (e.g. a Lauderhill cert) count too; ✦ Read those first.
+  async function promoteApplication() {
+    if (!unitRef) { alert('No unit # in the folder name — Promote needs it.'); return }
+    const list = (files ?? []).slice()
+    if (list.length === 0) return
+    if (!confirm(`Promote ${unitRef}?\n\n• Keepers → copied to Official (renamed)\n• Whole packet → moved to OLD archive\n• On Going cleared`)) return
+    setPromoting(true); setPromoteMsg(null)
+    let copies = 0, moved = 0
+    for (let i = 0; i < list.length; i++) {
+      const f = list[i]
+      setPromoteMsg(`${i + 1}/${list.length}…`)
+      const rr = readRes[f.id]
+      const readType = rr?.detected ? typeFromDetected(rr.detected.itemKey, rr.detected.category) : null
+      const isKeeper = (renamable(f) || !!readType) && !!(names[f.id] ?? '').trim()
+      if (isKeeper && await doCopy(f)) copies++
+      if (await doArchive(f)) moved++
+    }
+    setPromoting(false)
+    setPromoteMsg(`Done — ${copies} keeper(s) copied to Official, ${moved} file(s) moved to OLD archive.`)
   }
 
   async function saveTenant(f: ScanFile) {
@@ -262,8 +294,12 @@ export default function OrganizeClient() {
           )}
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs text-gray-500">{files.length} file(s) across {foldersScanned} folder(s) · {renamableCount} renamable · {doneCount} renamed</span>
-            <button onClick={applyAll} disabled={applyingAll || renamableCount === 0} className="rounded bg-[#f26a1b] px-3 py-1 text-xs font-medium text-white hover:bg-[#d85a14] disabled:opacity-50">{applyingAll ? 'Applying…' : `Apply all (${renamableCount})`}</button>
+            <div className="flex items-center gap-2">
+              <button onClick={applyAll} disabled={applyingAll || renamableCount === 0} className="rounded bg-[#f26a1b] px-3 py-1 text-xs font-medium text-white hover:bg-[#d85a14] disabled:opacity-50">{applyingAll ? 'Applying…' : `Rename all (${renamableCount})`}</button>
+              <button onClick={promoteApplication} disabled={promoting || !unitRef || files.length === 0} title={unitRef ? 'Copy keepers to Official + move the packet to OLD archive' : 'No unit # in the folder name'} className="rounded bg-[#0d9488] px-3 py-1 text-xs font-medium text-white hover:bg-[#0f766e] disabled:opacity-50">{promoting ? 'Promoting…' : 'Promote application →'}</button>
+            </div>
           </div>
+          {promoteMsg && <div className="mb-2 rounded bg-teal-50 px-3 py-2 text-xs text-teal-800">{promoteMsg}</div>}
 
           <div className="space-y-4">
             {groups.map(([path, fs]) => (
