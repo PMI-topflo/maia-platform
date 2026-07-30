@@ -31,6 +31,7 @@ const NAV: Node[] = [
   { type: 'group', label: 'Associations', icon: '🏢', items: [
     { label: 'Associations', href: '/admin/cinc-sync' },
     { label: 'Document Inbox', href: '/admin/documents/inbox' },
+    { label: 'Organize Drive Files', href: '/admin/documents/organize' },
     { label: 'Compliance Outreach', href: '/admin/compliance-outreach' },
     { label: 'Vendor Onboarding', href: '/admin/vendor-onboarding' },
     { label: 'Owners', href: '/admin/owners' },
