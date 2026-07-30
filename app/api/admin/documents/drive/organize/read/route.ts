@@ -11,6 +11,7 @@ import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { downloadDriveFile } from '@/lib/drive-import'
 import { classifyDocument, type AssociationRef, type DetectedItem } from '@/lib/document-classifier'
+import { extractLeaseDetails } from '@/lib/lease-extract'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -59,6 +60,11 @@ export async function POST(req: Request) {
       ?? items.sort((a, b) => b.confidence - a.confidence)[0]
       ?? null
 
+    // When it's a lease, also pull the tenant/lease details (for the unit's
+    // tenant record). Best-effort.
+    const isLease = (best?.item_key ?? '').toLowerCase().includes('leasing') || (best?.category ?? '').toLowerCase().includes('lease')
+    const lease = isLease ? await extractLeaseDetails(buf, mime).catch(() => null) : null
+
     return NextResponse.json({
       ok: true,
       associationCode: cls.association_code ?? 'MANXI',
@@ -69,6 +75,7 @@ export async function POST(req: Request) {
         docType: best.doc_type, effectiveDate: best.effective_date, expirationDate: best.expiration_date,
         confidence: best.confidence,
       } : null,
+      lease: lease && (lease.tenantNames.length || lease.leaseStart || lease.leaseEnd) ? lease : null,
       allItems: items.map(i => ({ itemKey: i.item_key, docType: i.doc_type, scope: i.scope, expirationDate: i.expiration_date })),
     })
   } catch (e) {
