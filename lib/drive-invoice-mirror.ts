@@ -71,6 +71,21 @@ function drive() {
 /** Shared Drive v3 client (same auth as the invoice mirror) for other features. */
 export function getDrive() { return drive() }
 
+// A Drive client acting as the RAW service account (no impersonation), for the
+// rare op that must run as the SA itself — e.g. permanently deleting folders
+// the SA OWNS (impersonated-PMI can't delete files it doesn't own). Cached.
+let _saDriveClient: ReturnType<typeof google.drive> | null = null
+export function getDriveAsServiceAccount() {
+  if (!_saDriveClient) {
+    const json = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+    if (!json) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON not set')
+    const creds = JSON.parse(json)
+    const auth = new google.auth.GoogleAuth({ credentials: creds, scopes: ['https://www.googleapis.com/auth/drive'] })
+    _saDriveClient = google.drive({ version: 'v3', auth })
+  }
+  return _saDriveClient
+}
+
 export interface MirrorResult {
   driveFileId: string
   webViewLink: string | null
