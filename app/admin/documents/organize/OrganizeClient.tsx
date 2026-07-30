@@ -69,6 +69,22 @@ export default function OrganizeClient() {
   const [rowBusy, setRowBusy] = useState<Record<string, string>>({})
   const [promoting, setPromoting] = useState(false)
   const [promoteMsg, setPromoteMsg] = useState<string | null>(null)
+  // Empty-subfolder cleanup
+  const [cleanupBusy, setCleanupBusy] = useState(false)
+  const [markUnits, setMarkUnits] = useState(true)
+  const [cleanup, setCleanup] = useState<{ emptyCount: number; foldersScanned: number; sample: string[]; applied: boolean; deleted: number; markedEmptyUnits?: number; unmarkedUnits?: number } | null>(null)
+
+  async function runCleanup(apply: boolean) {
+    if (!url.trim()) { alert('Paste a Drive folder link first.'); return }
+    if (apply && !confirm(`Delete ${cleanup?.emptyCount ?? ''} empty subfolder(s)${markUnits ? ' and tag empty unit folders "NO FILES YET"' : ''}? Unit folders and anything containing files are kept.`)) return
+    setCleanupBusy(true)
+    try {
+      const res = await fetch('/api/admin/documents/drive/organize/cleanup-empty', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderUrl: url, apply, markUnits: apply && markUnits }) })
+      const j = await res.json()
+      if (j.error || !j.ok) throw new Error(j.error ?? 'cleanup failed')
+      setCleanup({ emptyCount: j.emptyCount, foldersScanned: j.foldersScanned, sample: j.sample ?? [], applied: j.applied, deleted: j.deleted ?? 0, markedEmptyUnits: j.markedEmptyUnits, unmarkedUnits: j.unmarkedUnits })
+    } catch (e) { alert(`Cleanup failed: ${(e as Error).message}`) } finally { setCleanupBusy(false) }
+  }
 
   const unitRef = useMemo(() => unitFromName(folderName), [folderName])
 
@@ -256,6 +272,25 @@ export default function OrganizeClient() {
         <button onClick={() => scan()} disabled={scanning || !url.trim()} className="rounded bg-gray-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">{scanning ? 'Scanning…' : 'Scan'}</button>
       </div>
       {error && <div className="mt-2 rounded bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
+
+      <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-dashed border-gray-200 px-3 py-2">
+        <span className="text-xs font-medium text-gray-600">🧹 Empty subfolders</span>
+        <button onClick={() => runCleanup(false)} disabled={cleanupBusy || !url.trim()} className="rounded border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 disabled:opacity-50">{cleanupBusy ? 'Scanning…' : 'Find empty'}</button>
+        <label className="flex items-center gap-1 text-[11px] text-gray-600" title='Rename totally-empty unit folders to append "NO FILES YET" (auto-removed when a file is copied in)'>
+          <input type="checkbox" checked={markUnits} onChange={e => setMarkUnits(e.target.checked)} /> tag empty units
+        </label>
+        {cleanup && !cleanup.applied && (cleanup.emptyCount > 0 || markUnits) && (
+          <button onClick={() => runCleanup(true)} disabled={cleanupBusy} className="rounded bg-red-600 px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50">Delete {cleanup.emptyCount} empty{markUnits ? ' + tag units' : ''}</button>
+        )}
+        {cleanup && (
+          <span className="text-[11px] text-gray-500">
+            {cleanup.applied
+              ? `Deleted ${cleanup.deleted} empty subfolder(s)${cleanup.markedEmptyUnits ? `, tagged ${cleanup.markedEmptyUnits} empty unit(s)` : ''}${cleanup.unmarkedUnits ? `, un-tagged ${cleanup.unmarkedUnits}` : ''}.`
+              : `${cleanup.emptyCount} empty of ${cleanup.foldersScanned} scanned${cleanup.emptyCount ? ` — e.g. ${cleanup.sample.slice(0, 4).join(', ')}${cleanup.emptyCount > 4 ? '…' : ''}` : ''}`}
+            {' '}<span className="text-gray-400">(unit folders + anything with files are kept)</span>
+          </span>
+        )}
+      </div>
 
       {browseOpen && (
         <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-3">

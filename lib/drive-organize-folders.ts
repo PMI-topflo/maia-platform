@@ -20,6 +20,13 @@ export const DRIVE_FOLDERS = {
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
+// Suffix put on a unit folder in Official that has no documents yet, so empty
+// units are visible at a glance. Stripped automatically when a file lands.
+export const NO_FILES_TAG = ' - NO FILES YET'
+export function stripNoFilesTag(name: string): string {
+  return name.replace(/\s*-\s*NO FILES YET\s*$/i, '').trimEnd()
+}
+
 /** Canonical per-unit folder name in the Official tree, e.g.
  *  "MANXI811 - 4174 Inverrary Drive". */
 export function unitFolderName(unitRef: string): string {

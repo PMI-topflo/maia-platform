@@ -7,7 +7,7 @@
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { getDrive } from '@/lib/drive-invoice-mirror'
-import { DRIVE_FOLDERS, resolveUnitFolder } from '@/lib/drive-organize-folders'
+import { DRIVE_FOLDERS, resolveUnitFolder, stripNoFilesTag } from '@/lib/drive-organize-folders'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -32,6 +32,15 @@ export async function POST(req: Request) {
       fileId, requestBody: { name: newName, parents: [unitFolderId] },
       fields: 'id, webViewLink', supportsAllDrives: true,
     })
+
+    // The folder now has a file — drop any "NO FILES YET" tag on its name.
+    try {
+      const fm = await drive.files.get({ fileId: unitFolderId, fields: 'name', supportsAllDrives: true })
+      const cur = fm.data.name ?? ''
+      const stripped = stripNoFilesTag(cur)
+      if (stripped !== cur) await drive.files.update({ fileId: unitFolderId, requestBody: { name: stripped }, supportsAllDrives: true })
+    } catch { /* non-fatal */ }
+
     return NextResponse.json({ ok: true, id: copied.data.id, link: copied.data.webViewLink, unitRef })
   } catch (e) {
     return NextResponse.json({ error: `Copy to Official failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 200 })
