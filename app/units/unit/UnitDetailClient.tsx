@@ -18,6 +18,7 @@ interface Data {
   ownerEmail: string | null
   ownerPreviewPath: string
   tenantMissing: { key: string; label: string }[]
+  tenantRecord: { tenant_name: string | null; tenant_phone: string | null; tenant_email: string | null; lease_start: string | null; lease_end: string | null; updated_by: string | null; updated_at: string | null } | null
 }
 
 const OCC = [
@@ -114,6 +115,17 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
           {u.inCollections && <span style={{ marginLeft: 8, font: '700 11px system-ui', color: '#fff', background: '#dc2626', borderRadius: 6, padding: '2px 6px' }}>IN COLLECTIONS</span>}
         </Card>
         {u.occupancy === 'leased' && <Card title="Tenant">{u.tenantName || '—'}{u.leaseEndDate ? ` · lease ends ${u.leaseEndDate}` : ''}</Card>}
+        {data.tenantRecord && (data.tenantRecord.tenant_name || data.tenantRecord.lease_end) && (
+          <Card title="Tenant on file (confirm)">
+            <div style={{ fontWeight: 600 }}>{data.tenantRecord.tenant_name || '—'}</div>
+            {(data.tenantRecord.lease_start || data.tenantRecord.lease_end) && (
+              <div style={{ font: '500 13px system-ui', color: '#374151' }}>Lease {data.tenantRecord.lease_start || '?'} → {data.tenantRecord.lease_end || '?'}</div>
+            )}
+            {data.tenantRecord.tenant_phone && <div style={{ font: '500 13px system-ui', color: '#374151' }}>📞 {data.tenantRecord.tenant_phone}</div>}
+            {data.tenantRecord.tenant_email && <div style={{ font: '500 13px system-ui', color: '#374151' }}>✉ {data.tenantRecord.tenant_email}</div>}
+            {data.tenantRecord.updated_by && <div style={{ font: '400 11px system-ui', color: '#9ca3af', marginTop: 4 }}>source: {data.tenantRecord.updated_by}</div>}
+          </Card>
+        )}
       </div>
 
       {/* Ledger / collections. In collections → send board/managers/staff to

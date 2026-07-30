@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   const unit = audit.find(u => u.accountNumber.toUpperCase() === account.toUpperCase())
   if (!unit) return NextResponse.json({ error: 'unit not found' }, { status: 404 })
 
-  const [balances, inCollections, subs, assocRow, ownerRows] = await Promise.all([
+  const [balances, inCollections, subs, assocRow, ownerRows, tenantRow] = await Promise.all([
     listCurrentBalances(auth.assoc).catch(() => new Map<string, number>()),
     isAccountInCollections(auth.assoc, account).catch(() => false),   // ORs collections-list + Block-Payments toggle
     supabaseAdmin.from('unit_document_submissions')
@@ -42,6 +42,11 @@ export async function GET(req: Request) {
       .select('first_name, last_name, entity_name, emails, phone, phone_2')
       .eq('association_code', auth.assoc).eq('account_number', account)
       .or('status.neq.previous,status.is.null'),
+    // Staff/owner-editable tenant record (also populated from a read lease) —
+    // shown for staff to confirm.
+    supabaseAdmin.from('unit_tenant_contacts')
+      .select('tenant_name, tenant_phone, tenant_email, lease_start, lease_end, updated_by, updated_at')
+      .eq('association_code', auth.assoc).eq('unit_ref', account).maybeSingle(),
   ])
 
   // Build a de-duplicated contact block: each co-owner (name + their phones/
@@ -82,6 +87,7 @@ export async function GET(req: Request) {
     ownerEmail,
     ownerPreviewPath,
     tenantMissing,
+    tenantRecord: tenantRow.data ?? null,
     submissions: subs.data ?? [],
   })
 }

@@ -10,7 +10,14 @@ interface ScanFile {
   category: FilterCategory; include: boolean; reason: string; sourceMimeType?: string
 }
 interface Detected { scope: string; category: string | null; itemKey: string | null; docType: string | null; effectiveDate: string | null; expirationDate: string | null; confidence: number }
-interface ReadResult { ok?: boolean; error?: string; associationCode?: string; unitRef?: string | null; summary?: string | null; detected?: Detected | null }
+interface LeaseInfo { tenantNames: string[]; ownerNames: string[]; leaseStart: string | null; leaseEnd: string | null; monthlyRent: string | null }
+interface ReadResult { ok?: boolean; error?: string; associationCode?: string; unitRef?: string | null; summary?: string | null; detected?: Detected | null; lease?: LeaseInfo | null }
+
+// "Unit 910" / "MANXI910 - 4174 Inverrary Drive" → MANXI910
+function unitFromName(name: string | null): string | null {
+  const m = String(name ?? '').match(/MANXI\s*0*(\d+)/i) || String(name ?? '').match(/\bunit\s*0*(\d+)/i)
+  return m ? `MANXI${m[1]}` : null
+}
 
 // Map what MAIA detected (compliance item_key / category) to a rename Type token.
 function typeFromDetected(itemKey: string | null, category: string | null): string | null {
@@ -53,6 +60,44 @@ export default function OrganizeClient() {
   const [reading, setReading] = useState<Record<string, boolean>>({})
   const [readRes, setReadRes] = useState<Record<string, ReadResult>>({})
   const [filed, setFiled] = useState<Record<string, boolean>>({})
+  const [copied, setCopied] = useState<Record<string, boolean>>({})
+  const [savedTenant, setSavedTenant] = useState<Record<string, boolean>>({})
+  const [rowBusy, setRowBusy] = useState<Record<string, string>>({})
+
+  const unitRef = useMemo(() => unitFromName(folderName), [folderName])
+
+  async function copyToOfficial(f: ScanFile) {
+    const newName = (names[f.id] ?? '').trim()
+    if (!unitRef || !newName) { alert('Need a resolved unit + a name first.'); return }
+    setRowBusy(b => ({ ...b, [f.id]: 'copy' }))
+    try {
+      const res = await fetch('/api/admin/documents/drive/organize/copy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: f.id, unitRef, newName }) })
+      const j = await res.json(); if (!j.ok) throw new Error(j.error ?? 'copy failed')
+      setCopied(c => ({ ...c, [f.id]: true }))
+    } catch (e) { alert(`Copy failed: ${(e as Error).message}`) } finally { setRowBusy(b => ({ ...b, [f.id]: '' })) }
+  }
+
+  async function archive(f: ScanFile) {
+    if (!unitRef) { alert('No unit resolved for this folder.'); return }
+    const dateLabel = f.createdTime ? new Date(f.createdTime).toISOString().slice(0, 7) : undefined
+    setRowBusy(b => ({ ...b, [f.id]: 'archive' }))
+    try {
+      const res = await fetch('/api/admin/documents/drive/organize/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: f.id, unitRef, dateLabel }) })
+      const j = await res.json(); if (!j.ok) throw new Error(j.error ?? 'archive failed')
+      setFiles(prev => (prev ?? []).filter(x => x.id !== f.id))   // moved out of this folder
+    } catch (e) { alert(`Archive failed: ${(e as Error).message}`) } finally { setRowBusy(b => ({ ...b, [f.id]: '' })) }
+  }
+
+  async function saveTenant(f: ScanFile) {
+    const lease = readRes[f.id]?.lease
+    if (!lease || !unitRef) return
+    setRowBusy(b => ({ ...b, [f.id]: 'tenant' }))
+    try {
+      const res = await fetch('/api/admin/documents/drive/organize/save-tenant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ associationCode: readRes[f.id]?.associationCode ?? 'MANXI', unitRef, tenantName: lease.tenantNames.join(', '), leaseStart: lease.leaseStart, leaseEnd: lease.leaseEnd }) })
+      const j = await res.json(); if (!j.ok) throw new Error(j.error ?? 'save failed')
+      setSavedTenant(s => ({ ...s, [f.id]: true }))
+    } catch (e) { alert(`Save tenant failed: ${(e as Error).message}`) } finally { setRowBusy(b => ({ ...b, [f.id]: '' })) }
+  }
 
   async function readWithMaia(f: ScanFile) {
     setReading(r => ({ ...r, [f.id]: true }))
@@ -210,6 +255,9 @@ export default function OrganizeClient() {
             <div className="mb-2 rounded bg-gray-50 px-3 py-1.5 text-xs text-gray-700">
               Scanning <span className="font-semibold">📁 {folderName}</span>
               {folderLink && <a href={folderLink} target="_blank" rel="noopener noreferrer" className="ml-2 text-blue-600 hover:underline">open in Drive ↗</a>}
+              {unitRef
+                ? <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-700">unit {unitRef} → Official / Archive</span>
+                : <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700">no unit # in folder name — Copy/Archive need it</span>}
             </div>
           )}
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -242,11 +290,17 @@ export default function OrganizeClient() {
                             {st === 'done'
                               ? <span className="shrink-0 text-emerald-600">✓ renamed</span>
                               : <button onClick={() => rename(f)} disabled={st === 'saving'} className="shrink-0 rounded bg-gray-800 px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50">{st === 'saving' ? '…' : 'Apply'}</button>}
+                            {copied[f.id]
+                              ? <span className="shrink-0 text-emerald-600">✓ in Official</span>
+                              : <button onClick={() => copyToOfficial(f)} disabled={!unitRef || rowBusy[f.id] === 'copy'} title={unitRef ? `Copy renamed into ${unitRef} (Official)` : 'No unit # resolved'} className="shrink-0 rounded bg-[#c2410c] px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50">{rowBusy[f.id] === 'copy' ? '…' : 'Copy → Official'}</button>}
                           </>
                         ) : (
-                          <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500" title={f.reason}>
-                            {f.category === 'approval' && f.sourceMimeType ? 'skip: unsigned draft' : `skip: ${CAT_LABEL[f.category] ?? f.category}`}
-                          </span>
+                          <>
+                            <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500" title={f.reason}>
+                              {f.category === 'approval' && f.sourceMimeType ? 'skip: unsigned draft' : `skip: ${CAT_LABEL[f.category] ?? f.category}`}
+                            </span>
+                            <button onClick={() => archive(f)} disabled={!unitRef || rowBusy[f.id] === 'archive'} title={unitRef ? `Move into OLD archive under ${unitRef}` : 'No unit # resolved'} className="shrink-0 rounded border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-600 disabled:opacity-50">{rowBusy[f.id] === 'archive' ? '…' : 'Archive → OLD'}</button>
+                          </>
                         )}
                         {st === 'error' && <span className="w-full text-[10px] text-red-600">{rowErr[f.id]}</span>}
                         {rr && (
@@ -258,6 +312,14 @@ export default function OrganizeClient() {
                                 {filed[f.id]
                                   ? <span className="text-emerald-600">✓ filed to MAIA</span>
                                   : <button onClick={() => fileToMaia(f)} className="rounded bg-[#c2410c] px-2 py-0.5 text-[10px] font-medium text-white">File to MAIA{rr.detected.expirationDate ? ' (save expiry)' : ''}</button>}
+                              </div>
+                            )}
+                            {rr.lease && (
+                              <div className="mt-1 flex flex-wrap items-center gap-2 border-t border-orange-100 pt-1">
+                                <span>Tenant: <b>{rr.lease.tenantNames.join(', ') || '—'}</b>{rr.lease.leaseStart || rr.lease.leaseEnd ? ` · lease ${rr.lease.leaseStart ?? '?'} → ${rr.lease.leaseEnd ?? '?'}` : ''}{rr.lease.monthlyRent ? ` · ${rr.lease.monthlyRent}` : ''}</span>
+                                {savedTenant[f.id]
+                                  ? <span className="text-emerald-600">✓ saved to tenant record</span>
+                                  : <button onClick={() => saveTenant(f)} disabled={!unitRef || rowBusy[f.id] === 'tenant'} className="rounded bg-[#c2410c] px-2 py-0.5 text-[10px] font-medium text-white disabled:opacity-50">{rowBusy[f.id] === 'tenant' ? '…' : 'Save tenant info'}</button>}
                               </div>
                             )}
                             {!rr.detected && !rr.error && <span className="text-gray-500">MAIA couldn’t identify a compliance item in this file.</span>}
