@@ -11,6 +11,7 @@ import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { extractFolderId, listFolderFilesRecursive, shareTargetEmail } from '@/lib/drive-import'
 import { filterDriveFile } from '@/lib/drive-import-filter'
+import { getDrive } from '@/lib/drive-invoice-mirror'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -30,6 +31,16 @@ export async function POST(req: Request) {
   if (!folderId) return NextResponse.json({ error: 'Could not read a Drive folder link. Paste the folder URL.', serviceAccountEmail: sa }, { status: 400 })
 
   try {
+    // The scanned folder's own name + link, so the UI can show which folder
+    // you're working in (confirm you've got the right one).
+    let folderName: string | null = null
+    let folderLink: string | null = null
+    try {
+      const meta = await getDrive().files.get({ fileId: folderId, fields: 'name, webViewLink', supportsAllDrives: true })
+      folderName = meta.data.name ?? null
+      folderLink = meta.data.webViewLink ?? null
+    } catch { /* non-fatal — the listing below still runs */ }
+
     const { files, foldersScanned } = await listFolderFilesRecursive(folderId)
     // Annotate each file with the doc-type whitelist decision (approvals /
     // Certificate of Use / insurance / leases in; PII + unrecognized out;
@@ -40,7 +51,7 @@ export async function POST(req: Request) {
       return { ...f, include: d.include, category: d.category, reason: d.reason }
     })
     const includeCount = annotated.filter(f => f.include).length
-    return NextResponse.json({ serviceAccountEmail: sa, folderId, count: files.length, includeCount, foldersScanned, files: annotated })
+    return NextResponse.json({ serviceAccountEmail: sa, folderId, folderName, folderLink, count: files.length, includeCount, foldersScanned, files: annotated })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     const hint = /not found|404|permission|insufficient/i.test(msg) && sa
