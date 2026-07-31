@@ -26,7 +26,7 @@ export const TYPE_FOR_CATEGORY: Partial<Record<FilterCategory, string>> = {
 
 // The types a user may pick from on the screen (unit-folder + archive).
 export const RENAME_TYPES = [
-  'Approval', 'Lease', 'HO6', 'HO4', 'LauderhillCert',
+  'Approval', 'Lease', 'HO6', 'HO4', 'Liability', 'LauderhillCert',
   'DriversLicense', 'ID', 'Credit', 'Background', 'Income', 'Application',
 ] as const
 

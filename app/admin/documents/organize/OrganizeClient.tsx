@@ -11,7 +11,16 @@ interface ScanFile {
 }
 interface Detected { scope: string; category: string | null; itemKey: string | null; docType: string | null; effectiveDate: string | null; expirationDate: string | null; confidence: number }
 interface LeaseInfo { tenantNames: string[]; ownerNames: string[]; leaseStart: string | null; leaseEnd: string | null; monthlyRent: string | null }
-interface ReadResult { ok?: boolean; error?: string; associationCode?: string; unitRef?: string | null; summary?: string | null; detected?: Detected | null; lease?: LeaseInfo | null }
+interface InsuranceInfo { policyType: 'ho6' | 'ho4' | 'liability_only' | 'other'; namedInsured: string | null; insuredIsEntity: boolean; hasDwellingCoverage: boolean; hasPersonalProperty: boolean; hasLossAssessment: boolean; hasLiability: boolean; adequateForUnit: boolean; recommendation: string | null; expirationDate: string | null }
+interface ReadResult { ok?: boolean; error?: string; associationCode?: string; unitRef?: string | null; summary?: string | null; detected?: Detected | null; lease?: LeaseInfo | null; insurance?: InsuranceInfo | null }
+
+// The rename Type token MAIA's read implies — insurance verdict (by coverages)
+// wins over the item/label mapping so a liability-only binder isn't "HO6".
+function readTypeToken(rr: ReadResult): string | null {
+  const ins = rr.insurance
+  if (ins && ins.policyType !== 'other') return ins.policyType === 'ho4' ? 'HO4' : ins.policyType === 'liability_only' ? 'Liability' : 'HO6'
+  return rr.detected ? typeFromDetected(rr.detected.itemKey, rr.detected.category, rr.detected.docType) : null
+}
 
 // "Unit 910" / "MANXI910 - 4174 Inverrary Drive" → MANXI910
 function unitFromName(name: string | null): string | null {
@@ -199,7 +208,7 @@ export default function OrganizeClient() {
       const f = list[i]
       setPromoteMsg(`${i + 1}/${list.length}…`)
       const rr = readRes[f.id]
-      const readType = rr?.detected ? typeFromDetected(rr.detected.itemKey, rr.detected.category, rr.detected.docType) : null
+      const readType = rr ? readTypeToken(rr) : null
       const isKeeper = (renamable(f) || !!readType) && !!(names[f.id] ?? '').trim()
       if (isKeeper && await doCopy(f)) copies++
       if (await doArchive(f)) moved++
@@ -227,7 +236,7 @@ export default function OrganizeClient() {
       setReadRes(rr => ({ ...rr, [f.id]: j }))
       // If MAIA recognized a keeper type, offer a corrected name (works even
       // for files the filename-based filter marked "unrecognized").
-      const t = j.detected ? typeFromDetected(j.detected.itemKey, j.detected.category, j.detected.docType) : null
+      const t = readTypeToken(j)
       if (t) {
         const ym = f.createdTime ? new Date(f.createdTime).toISOString().slice(0, 7).replace('-', '_') : null
         const e = f.name.match(/\.([a-z0-9]{1,5})$/i)?.[0] ?? ''
@@ -448,7 +457,7 @@ export default function OrganizeClient() {
                 <div className="space-y-1.5">
                   {fs.map(f => {
                     const rr = readRes[f.id]
-                    const readType = rr?.detected ? typeFromDetected(rr.detected.itemKey, rr.detected.category, rr.detected.docType) : null
+                    const readType = rr ? readTypeToken(rr) : null
                     const canRename = renamable(f) || !!readType
                     const st = status[f.id] ?? 'idle'
                     return (
@@ -498,7 +507,19 @@ export default function OrganizeClient() {
                                   : <button onClick={() => saveTenant(f)} disabled={!unitRef || rowBusy[f.id] === 'tenant'} className="rounded bg-[#c2410c] px-2 py-0.5 text-[10px] font-medium text-white disabled:opacity-50">{rowBusy[f.id] === 'tenant' ? '…' : 'Save tenant info'}</button>}
                               </div>
                             )}
-                            {!rr.detected && !rr.error && <span className="text-gray-500">MAIA couldn’t identify a compliance item in this file.</span>}
+                            {rr.insurance && (
+                              <div className={`mt-1 border-t pt-1 ${rr.insurance.adequateForUnit ? 'border-orange-100' : 'border-red-200'}`}>
+                                <div className={rr.insurance.adequateForUnit ? '' : 'font-medium text-red-700'}>
+                                  Insurance: <b>{rr.insurance.policyType === 'ho6' ? 'HO-6 (unit owner)' : rr.insurance.policyType === 'ho4' ? 'HO-4 (renter)' : rr.insurance.policyType === 'liability_only' ? 'Liability-only — NOT a valid HO-6' : 'other'}</b>
+                                  {rr.insurance.namedInsured ? ` · ${rr.insurance.namedInsured}${rr.insurance.insuredIsEntity ? ' (entity)' : ''}` : ''}
+                                </div>
+                                <div className="text-[10px] text-gray-500">
+                                  coverage: {[rr.insurance.hasDwellingCoverage && 'dwelling', rr.insurance.hasPersonalProperty && 'contents', rr.insurance.hasLossAssessment && 'loss-assessment', rr.insurance.hasLiability && 'liability'].filter(Boolean).join(' · ') || 'none read'}
+                                </div>
+                                {!rr.insurance.adequateForUnit && rr.insurance.recommendation && <div className="text-[10px] text-red-600">→ {rr.insurance.recommendation}</div>}
+                              </div>
+                            )}
+                            {!rr.detected && !rr.insurance && !rr.error && <span className="text-gray-500">MAIA couldn’t identify a compliance item in this file.</span>}
                           </div>
                         )}
                       </div>
