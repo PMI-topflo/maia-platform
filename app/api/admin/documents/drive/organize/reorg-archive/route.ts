@@ -64,9 +64,11 @@ export async function POST(req: Request) {
     const fileMoves: { id: string; name: string; parentId: string; year: string }[] = []
     const folderYear = new Map<string, string>()
     let undated = 0
+    const yearOf = (iso: string) => String(new Date(iso).getUTCFullYear())
     await Promise.all(unitFolders.map(async uf => {
-      const meaningful: string[] = []   // filename + subfolder years (preferred)
+      const meaningful: string[] = []   // years from filenames / subfolder names (preferred)
       const created: string[] = []      // file created-date years (fallback)
+      const childFolderIds: string[] = []
       let pt: string | undefined
       do {
         const res = await drive.files.list({
@@ -76,16 +78,34 @@ export async function POST(req: Request) {
         for (const f of res.data.files ?? []) {
           if (!f.id) continue
           if (f.mimeType === FOLDER_MIME) {
-            if (/^(?:19|20)\d{2}$/.test((f.name ?? '').trim())) meaningful.push((f.name ?? '').trim())
+            const y = yearFrom(f.name ?? '')   // "2023 Purchase" / "BROTHER ADDED 2023-2024" → 2023
+            if (y) meaningful.push(y)
+            childFolderIds.push(f.id)
             continue
           }
           const fy = yearFrom(f.name ?? '')
           if (fy) { meaningful.push(fy); fileMoves.push({ id: f.id, name: f.name ?? '', parentId: uf.id, year: fy }) }
           else undated++
-          if (f.createdTime) created.push(String(new Date(f.createdTime).getUTCFullYear()))
+          if (f.createdTime) created.push(yearOf(f.createdTime))
         }
         pt = res.data.nextPageToken ?? undefined
       } while (pt)
+      // Deeper fallback: if nothing found at the top level, peek one level into
+      // the subfolders (many packets keep files in a nested folder).
+      if (!meaningful.length && !created.length && childFolderIds.length) {
+        await Promise.all(childFolderIds.slice(0, 25).map(async cid => {
+          try {
+            const r = await drive.files.list({
+              q: `'${cid}' in parents and trashed = false and mimeType != '${FOLDER_MIME}'`,
+              fields: 'files(name, createdTime)', pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true,
+            })
+            for (const f of r.data.files ?? []) {
+              const fy = yearFrom(f.name ?? ''); if (fy) meaningful.push(fy)
+              if (f.createdTime) created.push(yearOf(f.createdTime))
+            }
+          } catch { /* skip */ }
+        }))
+      }
       const yr = meaningful.length ? meaningful.sort().at(-1)! : (created.length ? created.sort().at(-1)! : null)
       if (yr) folderYear.set(uf.id, yr)
     }))
