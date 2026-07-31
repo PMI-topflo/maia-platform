@@ -76,6 +76,7 @@ export default function OrganizeClient() {
   const [filed, setFiled] = useState<Record<string, boolean>>({})
   const [copied, setCopied] = useState<Record<string, boolean>>({})
   const [savedTenant, setSavedTenant] = useState<Record<string, boolean>>({})
+  const [requestedIns, setRequestedIns] = useState<Record<string, string>>({})
   const [rowBusy, setRowBusy] = useState<Record<string, string>>({})
   const [promoting, setPromoting] = useState(false)
   const [promoteMsg, setPromoteMsg] = useState<string | null>(null)
@@ -235,15 +236,33 @@ export default function OrganizeClient() {
       const j = (await res.json()) as ReadResult
       setReadRes(rr => ({ ...rr, [f.id]: j }))
       // If MAIA recognized a keeper type, offer a corrected name (works even
-      // for files the filename-based filter marked "unrecognized").
+      // for files the filename-based filter marked "unrecognized"). An
+      // insurance verdict is authoritative — it OVERRIDES a filename-based name
+      // (so a liability-only binder named "HO6" becomes "Liability").
       const t = readTypeToken(j)
       if (t) {
         const ym = f.createdTime ? new Date(f.createdTime).toISOString().slice(0, 7).replace('-', '_') : null
         const e = f.name.match(/\.([a-z0-9]{1,5})$/i)?.[0] ?? ''
-        if (ym && !names[f.id]) setNames(n => ({ ...n, [f.id]: `${ym}_${t}${e}` }))
+        const override = !!j.insurance   // insurance read wins over the filename type
+        if (ym && (override || !names[f.id])) setNames(n => ({ ...n, [f.id]: `${ym}_${t}${e}` }))
       }
     } catch (e) { setReadRes(rr => ({ ...rr, [f.id]: { ok: false, error: (e as Error).message } })) }
     finally { setReading(r => ({ ...r, [f.id]: false })) }
+  }
+
+  async function requestHO6(f: ScanFile) {
+    const r = readRes[f.id]
+    if (!r?.insurance || !unitRef) return
+    setRowBusy(b => ({ ...b, [f.id]: 'reqins' }))
+    try {
+      const res = await fetch('/api/admin/documents/drive/organize/request-insurance', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ associationCode: r.associationCode ?? 'MANXI', unitRef, recommendation: r.insurance.recommendation, namedInsured: r.insurance.namedInsured }),
+      })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.error ?? 'send failed')
+      setRequestedIns(s => ({ ...s, [f.id]: `sent to ${j.sentTo}` }))
+    } catch (e) { alert(`Could not email owner: ${(e as Error).message}`) } finally { setRowBusy(b => ({ ...b, [f.id]: '' })) }
   }
 
   async function fileToMaia(f: ScanFile) {
@@ -517,6 +536,13 @@ export default function OrganizeClient() {
                                   coverage: {[rr.insurance.hasDwellingCoverage && 'dwelling', rr.insurance.hasPersonalProperty && 'contents', rr.insurance.hasLossAssessment && 'loss-assessment', rr.insurance.hasLiability && 'liability'].filter(Boolean).join(' · ') || 'none read'}
                                 </div>
                                 {!rr.insurance.adequateForUnit && rr.insurance.recommendation && <div className="text-[10px] text-red-600">→ {rr.insurance.recommendation}</div>}
+                                {!rr.insurance.adequateForUnit && (
+                                  <div className="mt-1">
+                                    {requestedIns[f.id]
+                                      ? <span className="text-[10px] text-emerald-600">✓ emailed owner ({requestedIns[f.id]}) · cc Jonathan + PMI</span>
+                                      : <button onClick={() => requestHO6(f)} disabled={!unitRef || rowBusy[f.id] === 'reqins'} className="rounded bg-red-600 px-2 py-0.5 text-[10px] font-medium text-white disabled:opacity-50">{rowBusy[f.id] === 'reqins' ? 'Sending…' : '✉ Email owner: request HO-6 (cc Jonathan + PMI)'}</button>}
+                                  </div>
+                                )}
                               </div>
                             )}
                             {!rr.detected && !rr.insurance && !rr.error && <span className="text-gray-500">MAIA couldn’t identify a compliance item in this file.</span>}
