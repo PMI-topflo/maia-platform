@@ -18,18 +18,20 @@ export const maxDuration = 300
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
 // Parse a folder name (either "Unit ###[ note]" or an already-renamed
-// "MANXI###[ year][ note]") into its parts, pulling out any year already there.
-function parseFolder(name: string): { num: string; note: string; existingYear: string } | null {
+// "MANXI###[ Last File year][ note]") into its account number + note, stripping
+// any "Last File"/year we previously added so re-runs stay stable.
+function parseFolder(name: string): { num: string; note: string } | null {
   const m = name.match(/^\s*(?:unit|manxi)\s*0*(\d+)\s*(.*)$/i)
   if (!m) return null
-  let rest = m[2].trim()
-  let existingYear = ''
-  const ym = rest.match(/^((?:19|20)\d{2})\b\s*(.*)$/)
-  if (ym) { existingYear = ym[1]; rest = ym[2].trim() }
-  return { num: m[1], note: rest, existingYear }
+  const note = m[2]
+    .replace(/\blast\s*file\b/ig, ' ')
+    .replace(/\b(?:19|20)\d{2}\b/g, ' ')
+    .replace(/\s+/g, ' ').trim()
+  return { num: m[1], note }
 }
+// "MANXI203 Last File 2023"; with a note "MANXI301 Last File 2023 Estoppel".
 function buildName(num: string, year: string, note: string): string {
-  return ['MANXI' + num, year || '', note].filter(Boolean).join(' ')
+  return ['MANXI' + num, year ? `Last File ${year}` : '', note].filter(Boolean).join(' ')
 }
 // First 4-digit year (19xx/20xx) in a filename.
 function yearFrom(name: string): string | null {
@@ -116,8 +118,7 @@ export async function POST(req: Request) {
     for (const uf of unitFolders) {
       const p = parseFolder(uf.name)
       if (!p) continue
-      const useYear = p.existingYear || (folderYear.get(uf.id) ?? '')
-      const newName = buildName(p.num, useYear, p.note)
+      const newName = buildName(p.num, folderYear.get(uf.id) ?? '', p.note)
       if (newName && newName !== uf.name) folderRenames.push({ id: uf.id, oldName: uf.name, newName })
     }
 
