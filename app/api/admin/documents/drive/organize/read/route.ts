@@ -12,6 +12,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { downloadDriveFile } from '@/lib/drive-import'
 import { classifyDocument, type AssociationRef, type DetectedItem } from '@/lib/document-classifier'
 import { extractLeaseDetails } from '@/lib/lease-extract'
+import { analyzeInsurance } from '@/lib/insurance-analysis'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -65,6 +66,12 @@ export async function POST(req: Request) {
     const isLease = (best?.item_key ?? '').toLowerCase().includes('leasing') || (best?.category ?? '').toLowerCase().includes('lease')
     const lease = isLease ? await extractLeaseDetails(buf, mime).catch(() => null) : null
 
+    // When it looks like a UNIT insurance policy, read it by its actual
+    // coverages — so a liability-only binder isn't accepted as an HO-6.
+    const hay = `${best?.item_key ?? ''} ${best?.category ?? ''} ${best?.doc_type ?? ''}`.toLowerCase()
+    const isInsurance = /insurance|\bho-?6\b|\bho-?4\b|\bho-?3\b|policy|binder|liability|coverage/.test(hay)
+    const insurance = isInsurance ? await analyzeInsurance(buf, mime).catch(() => null) : null
+
     return NextResponse.json({
       ok: true,
       associationCode: cls.association_code ?? 'MANXI',
@@ -76,6 +83,7 @@ export async function POST(req: Request) {
         confidence: best.confidence,
       } : null,
       lease: lease && (lease.tenantNames.length || lease.leaseStart || lease.leaseEnd) ? lease : null,
+      insurance,
       allItems: items.map(i => ({ itemKey: i.item_key, docType: i.doc_type, scope: i.scope, expirationDate: i.expiration_date })),
     })
   } catch (e) {
