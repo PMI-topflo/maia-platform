@@ -17,13 +17,19 @@ export const maxDuration = 300
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
-// "Unit 301 Estoppel" (+ year 2023) → "MANXI301 2023 Estoppel";
-// "Unit1008" (+ 2024) → "MANXI1008 2024"; no year → "MANXI1008".
-function toManxiName(name: string, year: string | null): string | null {
-  const m = name.match(/^\s*unit\s*0*(\d+)\s*(.*)$/i)
+// Parse a folder name (either "Unit ###[ note]" or an already-renamed
+// "MANXI###[ year][ note]") into its parts, pulling out any year already there.
+function parseFolder(name: string): { num: string; note: string; existingYear: string } | null {
+  const m = name.match(/^\s*(?:unit|manxi)\s*0*(\d+)\s*(.*)$/i)
   if (!m) return null
-  const rest = m[2].trim()
-  return ['MANXI' + m[1], year || '', rest].filter(Boolean).join(' ')
+  let rest = m[2].trim()
+  let existingYear = ''
+  const ym = rest.match(/^((?:19|20)\d{2})\b\s*(.*)$/)
+  if (ym) { existingYear = ym[1]; rest = ym[2].trim() }
+  return { num: m[1], note: rest, existingYear }
+}
+function buildName(num: string, year: string, note: string): string {
+  return ['MANXI' + num, year || '', note].filter(Boolean).join(' ')
 }
 // First 4-digit year (19xx/20xx) in a filename.
 function yearFrom(name: string): string | null {
@@ -52,35 +58,46 @@ export async function POST(req: Request) {
       pageToken = res.data.nextPageToken ?? undefined
     } while (pageToken)
 
-    // Direct files in each unit folder → year move plan (skip nested
-    // subfolders), and the folder's representative year = the LATEST year seen.
+    // Per folder: gather the direct files (year-move plan) and every year
+    // signal — a year in a filename, an existing YEAR subfolder, or the file's
+    // created-date year (fallback) — so EVERY folder gets a year.
     const fileMoves: { id: string; name: string; parentId: string; year: string }[] = []
     const folderYear = new Map<string, string>()
     let undated = 0
     await Promise.all(unitFolders.map(async uf => {
+      const meaningful: string[] = []   // filename + subfolder years (preferred)
+      const created: string[] = []      // file created-date years (fallback)
       let pt: string | undefined
       do {
         const res = await drive.files.list({
-          q: `'${uf.id}' in parents and trashed = false and mimeType != '${FOLDER_MIME}'`,
-          fields: 'nextPageToken, files(id, name)', pageSize: 1000, supportsAllDrives: true, includeItemsFromAllDrives: true, pageToken: pt,
+          q: `'${uf.id}' in parents and trashed = false`,
+          fields: 'nextPageToken, files(id, name, mimeType, createdTime)', pageSize: 1000, supportsAllDrives: true, includeItemsFromAllDrives: true, pageToken: pt,
         })
         for (const f of res.data.files ?? []) {
           if (!f.id) continue
-          const year = yearFrom(f.name ?? '')
-          if (year) {
-            fileMoves.push({ id: f.id, name: f.name ?? '', parentId: uf.id, year })
-            const prev = folderYear.get(uf.id)
-            if (!prev || year > prev) folderYear.set(uf.id, year)   // latest year wins
-          } else undated++
+          if (f.mimeType === FOLDER_MIME) {
+            if (/^(?:19|20)\d{2}$/.test((f.name ?? '').trim())) meaningful.push((f.name ?? '').trim())
+            continue
+          }
+          const fy = yearFrom(f.name ?? '')
+          if (fy) { meaningful.push(fy); fileMoves.push({ id: f.id, name: f.name ?? '', parentId: uf.id, year: fy }) }
+          else undated++
+          if (f.createdTime) created.push(String(new Date(f.createdTime).getUTCFullYear()))
         }
         pt = res.data.nextPageToken ?? undefined
       } while (pt)
+      const yr = meaningful.length ? meaningful.sort().at(-1)! : (created.length ? created.sort().at(-1)! : null)
+      if (yr) folderYear.set(uf.id, yr)
     }))
 
-    // Rename each unit folder → MANXI### <year> <note>.
+    // Rename each folder → MANXI### <year> <note>. Keeps a year that's already
+    // there; otherwise adds the derived one. Re-runnable on MANXI### folders.
     const folderRenames: { id: string; oldName: string; newName: string }[] = []
     for (const uf of unitFolders) {
-      const newName = toManxiName(uf.name, folderYear.get(uf.id) ?? null)
+      const p = parseFolder(uf.name)
+      if (!p) continue
+      const useYear = p.existingYear || (folderYear.get(uf.id) ?? '')
+      const newName = buildName(p.num, useYear, p.note)
       if (newName && newName !== uf.name) folderRenames.push({ id: uf.id, oldName: uf.name, newName })
     }
 
