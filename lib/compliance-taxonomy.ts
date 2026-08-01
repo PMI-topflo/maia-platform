@@ -139,7 +139,7 @@ export const COMPLIANCE_TAXONOMY: ComplianceCategory[] = [
     ['access', 'Access Control'], ['architectural', 'Architectural (ARC) Requests/Approvals'],
     ['contractor', 'Contractor Records'], ['move', 'Move-In/Out Records'],
     ['rules_ack', 'Governing Documents Acknowledgement'], ['leasing', 'Lease Agreement', true],
-    ['approval_letter', 'Approval Letter'], ['violations', 'Violation History'],
+    ['approval_letter', 'Approval Letter', true], ['violations', 'Violation History'],
   ]) },
 ]
 

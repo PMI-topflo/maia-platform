@@ -515,7 +515,7 @@ export default function OrganizeClient() {
                             {rr.error && <span className="text-red-600">{rr.error}</span>}
                             {rr.detected && (
                               <div className="flex flex-wrap items-center gap-2">
-                                <span>MAIA read: <b>{rr.detected.docType ?? rr.detected.itemKey ?? 'document'}</b>{rr.detected.expirationDate ? <> · expires <b>{rr.detected.expirationDate}</b></> : ' · no expiry date'}{rr.unitRef ? ` · ${rr.unitRef}` : ''}</span>
+                                <span>MAIA read: <b>{rr.detected.docType ?? rr.detected.itemKey ?? 'document'}</b>{rr.detected.expirationDate ? <> · expires <b>{rr.detected.expirationDate}</b></> : (rr.detected.itemKey === 'unit.approval_letter' ? ' · expiry tracks the lease end' : ' · no expiry date')}{rr.unitRef ? ` · ${rr.unitRef}` : ''}</span>
                                 {filed[f.id]
                                   ? <span className="text-emerald-600">✓ filed to MAIA</span>
                                   : <button onClick={() => fileToMaia(f)} className="rounded bg-[#c2410c] px-2 py-0.5 text-[10px] font-medium text-white">File to MAIA{rr.detected.expirationDate ? ' (save expiry)' : ''}</button>}

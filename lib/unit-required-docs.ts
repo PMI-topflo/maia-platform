@@ -22,6 +22,17 @@ const labelFor = (key: string) => UNIT_ITEMS.find(i => i.key === key)?.label ?? 
 /** Human label for a compliance item key (e.g. 'unit.ho6' → 'Unit HO-6 insurance'). */
 export const itemLabel = labelFor
 
+/** The unit's current lease expiration date, if one is on file. The board
+ *  Approval Letter has no expiry of its own — it's valid for the tenancy it
+ *  approved — so it tracks this date. Reads the tenant record the drive-organize
+ *  save-tenant flow writes (unit_tenant_contacts.lease_end). Returns ISO or null. */
+export async function unitLeaseEnd(assoc: string, unitRef: string): Promise<string | null> {
+  const { data } = await supabaseAdmin.from('unit_tenant_contacts')
+    .select('lease_end').eq('association_code', assoc).eq('unit_ref', unitRef).maybeSingle()
+  const v = (data?.lease_end as string | null) ?? null
+  return v && v.trim() ? v.trim() : null
+}
+
 export async function associationKind(assoc: string): Promise<AssocKind> {
   const { data } = await supabaseAdmin.from('associations').select('association_type').eq('association_code', assoc).maybeSingle()
   const t = String(data?.association_type ?? '').toLowerCase()
