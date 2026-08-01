@@ -97,13 +97,20 @@ export async function POST(req: Request) {
     const isInsurance = /insurance|\bho-?6\b|\bho-?4\b|\bho-?3\b|policy|binder|liability|coverage/.test(hay)
     const insurance = isInsurance ? await analyzeInsurance(buf, mime).catch(() => null) : null
 
+    // Lauderhill Certificate of Use isn't a taxonomy item — the classifier used
+    // to shoehorn it into unit.occupancy. File it under its own unit item so it
+    // satisfies the MANXI custom requirement + tracks its own expiry.
+    const isLauderhillCert = /certificate of use|lauderhill|cert.*use|\bcou\b/.test(hay)
+    const itemKey = isLauderhillCert ? 'unit.lauderhill_cou' : (best?.item_key ?? null)
+    const scope = isLauderhillCert ? 'unit' : (best?.scope ?? 'unit')
+
     return NextResponse.json({
       ok: true,
       associationCode: cls.association_code ?? 'MANXI',
       unitRef: resolvedUnit,
       summary: cls.summary,
       detected: best ? {
-        scope: best.scope, category: best.category, itemKey: best.item_key,
+        scope, category: best.category, itemKey,
         docType: best.doc_type, effectiveDate: best.effective_date, expirationDate: best.expiration_date,
         confidence: best.confidence,
       } : null,
