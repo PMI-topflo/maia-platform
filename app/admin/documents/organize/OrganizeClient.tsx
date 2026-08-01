@@ -39,6 +39,7 @@ function typeFromDetected(itemKey: string | null, category: string | null, docTy
   if (/certificate of use|lauderhill|cert.*use|business tax|\bbtr\b|rental license|use permit/.test(hay)) return 'LauderhillCert'
   if (/\bho-?4\b|renter/.test(hay)) return 'HO4'
   if (/\bho-?6\b|\bho-?3\b/.test(hay)) return 'HO6'
+  if (/affidavit/.test(hay)) return 'Affidavit'
   if (/lease|rental agreement|tenanc/.test(hay)) return 'Lease'
   if (/insurance|binder|policy|homeowner/.test(hay)) return 'HO6'
   return null
@@ -49,7 +50,7 @@ interface BrowseData { parentId: string; current: { id: string; name: string; pa
 type Status = 'idle' | 'saving' | 'done' | 'error'
 
 const CAT_LABEL: Record<string, string> = {
-  approval: 'Approval', certificate_of_use: 'Cert of Use', insurance: 'Insurance', lease: 'Lease',
+  approval: 'Approval', certificate_of_use: 'Cert of Use', insurance: 'Insurance', lease: 'Lease', affidavit: 'Affidavit',
   id: 'ID', credit: 'Credit', criminal: 'Background', tax: 'Tax/income', unknown: 'Unrecognized',
 }
 
