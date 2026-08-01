@@ -36,12 +36,17 @@ async function ownerContext(token: string) {
   }
 }
 
-/** Mark a compliance item satisfied/current for this unit. */
-async function markItem(assoc: string, account: string, itemKey: string) {
+/** Mark a compliance item satisfied/current for this unit (optional expiry). */
+async function markItem(assoc: string, account: string, itemKey: string, expiryDate?: string | null) {
   await supabaseAdmin.from('compliance_records').upsert(
-    { scope: 'unit', association_code: assoc, unit_ref: account, item_key: itemKey, applicable: true, status: 'current', updated_by: 'owner', updated_at: new Date().toISOString() },
+    { scope: 'unit', association_code: assoc, unit_ref: account, item_key: itemKey, applicable: true, status: 'current', expiry_date: expiryDate ?? null, updated_by: 'owner', updated_at: new Date().toISOString() },
     { onConflict: 'scope,association_code,unit_ref,item_key' },
   ).then(() => null, () => null)
+}
+
+/** One year from today, ISO date. */
+function inOneYear(): string {
+  const d = new Date(); d.setFullYear(d.getFullYear() + 1); return d.toISOString().slice(0, 10)
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {
@@ -134,7 +139,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       { association_code: cx.assoc, unit_ref: cx.account, emergency_contact: { name, phone: String(ec.phone ?? '').trim() || null, email: String(ec.email ?? '').trim() || null } },
       { onConflict: 'association_code,unit_ref' },
     ).then(() => null, () => null)
-    await markItem(cx.assoc, cx.account, 'unit.emergency')
+    await markItem(cx.assoc, cx.account, 'unit.emergency', inOneYear())   // re-confirm yearly
     const { missing } = await getUnitComplianceState(cx.assoc, cx.account)
     return NextResponse.json({ ok: true, emergencySaved: true, missing })
   }

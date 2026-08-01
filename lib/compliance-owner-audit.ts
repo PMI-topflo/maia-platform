@@ -45,6 +45,87 @@ function complianceEmailHtml(opts: { name: string; associationName: string; miss
   return { subject, html }
 }
 
+// ---------------------------------------------------------------------
+// Emergency-contact annual renewal.
+// The emergency contact is re-confirmed once a year (owner-compliance save
+// stamps unit.emergency with expiry = +1yr). This scan finds units whose
+// emergency contact is expiring soon or already expired and emails the owner
+// their self-service link asking them to confirm or update it. Paced via the
+// shared owner_compliance_requests.last_sent_at so it never stacks with the
+// missing-docs audit. Gated behind OWNER_AUDIT_ENABLED for live sends.
+// ---------------------------------------------------------------------
+const RENEW_WINDOW_DAYS = 45   // start nudging this far before expiry
+const RENEW_COOLDOWN_DAYS = 21 // don't re-email the same unit within this window
+
+function emergencyRenewalHtml(opts: { name: string; associationName: string; link: string; expired: boolean }): { subject: string; html: string } {
+  const subject = `Please confirm your emergency contact — ${opts.associationName}`
+  const lead = opts.expired
+    ? `the emergency contact we have on file for your unit is now out of date`
+    : `the emergency contact we have on file for your unit is due for its yearly review`
+  const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
+    <p>Hello${opts.name ? ` ${esc(opts.name)}` : ''},</p>
+    <p>PMI Top Florida Properties manages <strong>${esc(opts.associationName)}</strong>. Our records show ${lead}. Please take a moment to confirm it's still correct — or update it if anything has changed:</p>
+    <p style="margin:22px 0"><a href="${opts.link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Confirm emergency contact →</a></p>
+    <p style="color:#6b7280;font-size:12px">No account needed. This link is specific to your unit and expires in 30 days.</p>
+    <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p>
+  </div>`
+  return { subject, html }
+}
+
+export interface RenewalResult {
+  scanned: number; eligible: number; sent: number
+  samples: { account: string; email: string | null; expired: boolean }[]
+}
+
+export async function runEmergencyContactRenewal(opts: { assoc?: string | null; dryRun?: boolean; limit?: number } = {}): Promise<RenewalResult> {
+  const res: RenewalResult = { scanned: 0, eligible: 0, sent: 0, samples: [] }
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() + RENEW_WINDOW_DAYS)
+  const cutoffISO = cutoff.toISOString().slice(0, 10)
+  const todayISO = new Date().toISOString().slice(0, 10)
+
+  let q = supabaseAdmin.from('compliance_records')
+    .select('association_code, unit_ref, expiry_date')
+    .eq('scope', 'unit').eq('item_key', 'unit.emergency').eq('applicable', true)
+    .not('expiry_date', 'is', null).lte('expiry_date', cutoffISO)
+    .order('expiry_date', { ascending: true }).limit(opts.limit ?? 200)
+  if (opts.assoc) q = q.eq('association_code', opts.assoc)
+  const { data: rows } = await q
+  res.scanned = (rows ?? []).length
+
+  const cool = new Date(); cool.setDate(cool.getDate() - RENEW_COOLDOWN_DAYS)
+  const coolISO = cool.toISOString()
+
+  for (const r of rows ?? []) {
+    const assoc = String(r.association_code); const account = String(r.unit_ref)
+    const { data: o } = await supabaseAdmin.from('owners')
+      .select('emails, first_name, last_name, association_name')
+      .eq('association_code', assoc).eq('account_number', account).maybeSingle()
+    const email = firstEmail((o?.emails as string | null) ?? null)
+    if (!o || !email) continue
+
+    // Pace: skip if this unit was emailed within the cooldown window.
+    const { data: req } = await supabaseAdmin.from('owner_compliance_requests')
+      .select('last_sent_at, send_count').eq('association_code', assoc).eq('unit_ref', account).maybeSingle()
+    if (req?.last_sent_at && String(req.last_sent_at) > coolISO) continue
+
+    res.eligible++
+    const expired = String(r.expiry_date) < todayISO
+    if (opts.dryRun) { if (res.samples.length < 25) res.samples.push({ account, email, expired }); res.sent++; continue }
+
+    const name = [o.first_name, o.last_name].filter(Boolean).join(' ').trim()
+    const link = `${APP}/owner/compliance/${await signOwnerComplianceToken(assoc, account)}`
+    const { subject, html } = emergencyRenewalHtml({ name, associationName: (o.association_name as string | null) ?? assoc, link, expired })
+    try { await sendEmail({ to: email, subject, html }) } catch { continue }
+    await supabaseAdmin.from('owner_compliance_requests').upsert(
+      { association_code: assoc, unit_ref: account, last_sent_at: new Date().toISOString(), send_count: (req?.send_count ?? 0) + 1 },
+      { onConflict: 'association_code,unit_ref' },
+    ).then(() => null, () => null)
+    if (res.samples.length < 25) res.samples.push({ account, email, expired })
+    res.sent++
+  }
+  return res
+}
+
 /** Explicit staff-triggered single-unit resend — from the /admin/unit-status
  *  detail modal's "Resend request" button. Bypasses the cadence/cap gate
  *  that governs the automated audit, since a staffer clicking this wants it
