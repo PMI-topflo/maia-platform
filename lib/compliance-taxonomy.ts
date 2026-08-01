@@ -140,6 +140,7 @@ export const COMPLIANCE_TAXONOMY: ComplianceCategory[] = [
     ['contractor', 'Contractor Records'], ['move', 'Move-In/Out Records'],
     ['rules_ack', 'Governing Documents Acknowledgement'], ['leasing', 'Lease Agreement', true],
     ['approval_letter', 'Approval Letter', true], ['violations', 'Violation History'],
+    ['landlord_tenant_agreement', 'Landlord–Tenant Agreement (e-signed)', true], ['rent_demand', 'Direct Rent Demand Notice'],
   ]) },
 ]
 
