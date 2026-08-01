@@ -40,11 +40,11 @@ function mediaTypeFor(contentType?: string | null): 'image/jpeg' | 'image/png' |
   return 'image/jpeg'
 }
 
-const PROMPT = `You are reading a residential lease / rental agreement. Extract ONLY minified JSON:
+const PROMPT = `You are reading a residential lease / rental agreement, or a tenant-and-landlord affidavit. Extract ONLY minified JSON:
 {"tenant_names": string[], "owner_names": string[], "lease_start": "YYYY-MM-DD"|null, "lease_end": "YYYY-MM-DD"|null, "monthly_rent": string|null}
-- tenant_names: all tenants / lessees signing.
-- owner_names: the landlord / lessor / owner (or their management company).
-- lease_start / lease_end: the term dates. If it's a renewal, use the renewal term.
+- tenant_names: all TENANTS / lessees / occupants (NOT the landlord).
+- owner_names: the LANDLORD / lessor / owner (or their management company) — keep separate from tenants.
+- lease_start / lease_end: the lease term dates if present (a renewal uses the renewal term); null on an affidavit that has no term.
 - monthly_rent: the rent amount as written (e.g. "$1,850"), or null.
 Use null / [] when a field isn't clearly present.`
 

@@ -36,7 +36,7 @@ function unitFromFolder(name: string | null): string | null {
 export async function POST(req: Request) {
   if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  let body: { fileId?: string; folderName?: string }
+  let body: { fileId?: string; folderName?: string; fileName?: string }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
   const fileId = String(body.fileId ?? '').trim()
   if (!fileId) return NextResponse.json({ error: 'fileId required' }, { status: 400 })
@@ -61,10 +61,11 @@ export async function POST(req: Request) {
       ?? items.sort((a, b) => b.confidence - a.confidence)[0]
       ?? null
 
-    // When it's a lease, also pull the tenant/lease details (for the unit's
-    // tenant record). Best-effort.
-    const isLease = (best?.item_key ?? '').toLowerCase().includes('leasing') || (best?.category ?? '').toLowerCase().includes('lease')
-    const lease = isLease ? await extractLeaseDetails(buf, mime).catch(() => null) : null
+    // When it's a lease OR a tenant/landlord affidavit, pull the tenant + lease
+    // details (for the unit's tenant record — tenant side only). Best-effort.
+    const idHay = `${best?.item_key ?? ''} ${best?.category ?? ''} ${best?.doc_type ?? ''} ${body.fileName ?? ''}`.toLowerCase()
+    const isTenantDoc = /leasing|lease|rental agreement|tenanc|affidavit/.test(idHay)
+    const lease = isTenantDoc ? await extractLeaseDetails(buf, mime).catch(() => null) : null
 
     // When it looks like a UNIT insurance policy, read it by its actual
     // coverages — so a liability-only binder isn't accepted as an HO-6.
