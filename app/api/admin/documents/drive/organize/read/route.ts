@@ -26,6 +26,14 @@ function sniffMime(buf: Buffer): string | null {
   return null
 }
 
+// Two person names share 2+ meaningful tokens → likely the same person
+// (catches "John Bassie" ↔ "Bassie, John A"). Entities compared the same way.
+function namesOverlap(a: string, b: string): boolean {
+  const toks = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(w => w.length > 1)
+  const ta = new Set(toks(a)); const common = toks(b).filter(w => ta.has(w))
+  return common.length >= 2
+}
+
 // "Unit 910" / "MANXI910 - 4174 Inverrary Drive" → MANXI910. This cleanup is
 // Manors XI, so a bare "Unit ###" folder maps to the MANXI account.
 function unitFromFolder(name: string | null): string | null {
@@ -67,6 +75,22 @@ export async function POST(req: Request) {
     const isTenantDoc = /leasing|lease|rental agreement|tenanc|affidavit/.test(idHay)
     const lease = isTenantDoc ? await extractLeaseDetails(buf, mime).catch(() => null) : null
 
+    // Swap guard: if an extracted "tenant" name actually matches the unit's
+    // CINC OWNER, warn before it's saved as a tenant (a common data-entry mix-up).
+    const resolvedUnit = unitFromFolder(body.folderName ?? null) ?? (best?.unit_seen ?? null)
+    let tenantOwnerMatch: string | null = null
+    if (lease?.tenantNames.length && resolvedUnit) {
+      const { data: owners } = await supabaseAdmin.from('owners')
+        .select('first_name, last_name, entity_name')
+        .eq('association_code', cls.association_code ?? 'MANXI').eq('account_number', resolvedUnit)
+        .or('status.neq.previous,status.is.null')
+      const ownerNames = (owners ?? []).map(o => o.entity_name || [o.first_name, o.last_name].filter(Boolean).join(' ')).filter(Boolean) as string[]
+      for (const tn of lease.tenantNames) {
+        const hit = ownerNames.find(on => namesOverlap(tn, on))
+        if (hit) { tenantOwnerMatch = hit; break }
+      }
+    }
+
     // When it looks like a UNIT insurance policy, read it by its actual
     // coverages — so a liability-only binder isn't accepted as an HO-6.
     const hay = `${best?.item_key ?? ''} ${best?.category ?? ''} ${best?.doc_type ?? ''}`.toLowerCase()
@@ -76,7 +100,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       associationCode: cls.association_code ?? 'MANXI',
-      unitRef: unitFromFolder(body.folderName ?? null) ?? (best?.unit_seen ?? null),
+      unitRef: resolvedUnit,
       summary: cls.summary,
       detected: best ? {
         scope: best.scope, category: best.category, itemKey: best.item_key,
@@ -84,6 +108,7 @@ export async function POST(req: Request) {
         confidence: best.confidence,
       } : null,
       lease: lease && (lease.tenantNames.length || lease.leaseStart || lease.leaseEnd) ? lease : null,
+      tenantOwnerMatch,
       insurance,
       allItems: items.map(i => ({ itemKey: i.item_key, docType: i.doc_type, scope: i.scope, expirationDate: i.expiration_date })),
     })
