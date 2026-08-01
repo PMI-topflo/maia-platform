@@ -13,6 +13,10 @@
       "schedule": "0 13 * * 1"
     },
     {
+      "path": "/api/cron/emergency-contact-renewal",
+      "schedule": "0 14 1 * *"
+    },
+    {
       "path": "/api/cron/compliance-alerts",
       "schedule": "0 10 * * *"
     },

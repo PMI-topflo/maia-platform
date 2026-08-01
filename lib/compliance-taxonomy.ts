@@ -127,7 +127,7 @@ export const COMPLIANCE_TAXONOMY: ComplianceCategory[] = [
 
   // ── Unit / owner scope (the "Gold Standard" 15 registrations) ─────
   { key: 'unit', label: 'Owner Compliance', scope: 'unit', items: it('unit', [
-    ['ownership', 'Ownership Verification'], ['contact', 'Contact Information'], ['emergency', 'Emergency Contact'],
+    ['ownership', 'Ownership Verification'], ['contact', 'Contact Information'], ['emergency', 'Emergency Contact', true],
     ['unit_manager', 'Unit Manager Info'], ['occupancy', 'Occupancy Registration'],
     ['tenant', 'Tenant Registration & Contact', true], ['vehicle', 'Vehicle Registration'], ['pet', 'Pet Registration'],
     ['ho6', 'HO-6 Owners Insurance (condo)', true], ['ho3', 'HO-3 Homeowners Insurance (HOA)', true],
