@@ -3240,6 +3240,51 @@ NOTIFY pgrst, 'reload schema';`,
 ALTER TABLE public.service_visits ADD COLUMN IF NOT EXISTS links_sent_results jsonb;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'lease_packets',
+    label:       'Lease Packet e-signature (owner + tenant)',
+    description: 'lease_packets table — the per-unit Landlord & Tenant Acknowledgment/Certification/E-Sign Consent Agreement flow. One row per packet tracks the owner and tenant signatures + evidence (typed name, drawn PNG, IP, timestamp); when both sign, the signed PDF is generated on demand and filed against unit.landlord_tenant_agreement. association_legal_name is snapshotted so the same flow works for every association by swapping the name. Also adds associations.legal_name (the full legal entity name the statutory docs embed), seeded for MANXI.',
+    filename:    '20260801_lease_packets.sql',
+    artifact:    { type: 'table', table: 'lease_packets' },
+    sql: `ALTER TABLE public.associations ADD COLUMN IF NOT EXISTS legal_name text;
+UPDATE public.associations
+   SET legal_name = 'The Manors of Inverrary XI Condominium Association, Inc.'
+ WHERE association_code = 'MANXI' AND (legal_name IS NULL OR legal_name = '');
+CREATE TABLE IF NOT EXISTS public.lease_packets (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code       text        NOT NULL,
+  unit_ref               text        NOT NULL,
+  unit_number            text,
+  association_legal_name text,
+  owner_name             text,
+  owner_email            text,
+  tenant_name            text,
+  tenant_email           text,
+  lease_start            date,
+  lease_end              date,
+  effective_date         date,
+  status                 text        NOT NULL DEFAULT 'sent',
+  owner_signed_at        timestamptz,
+  owner_sig_name         text,
+  owner_sig_image        text,
+  owner_sig_ip           text,
+  tenant_signed_at       timestamptz,
+  tenant_sig_name        text,
+  tenant_sig_image       text,
+  tenant_sig_ip          text,
+  created_by             text,
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_lease_packet_status CHECK (status IN ('sent','partially_signed','completed','void'))
+);
+CREATE INDEX IF NOT EXISTS lease_packets_unit_idx
+  ON public.lease_packets (association_code, unit_ref, created_at DESC);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.lease_packets TO anon, authenticated, service_role;
+ALTER TABLE public.lease_packets ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_lease_packets" ON public.lease_packets;
+CREATE POLICY "service_role_all_lease_packets" ON public.lease_packets FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
