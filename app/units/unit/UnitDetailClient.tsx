@@ -74,6 +74,17 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
     } catch (e) { alert(`Could not email owner: ${(e as Error).message}`) } finally { setBusy(null) }
   }
 
+  const sendLeasePacket = async () => {
+    if (!confirm('Email the owner and the tenant their links to e-sign the Landlord–Tenant Agreement?')) return
+    setBusy('packet')
+    try {
+      const r = await fetch('/api/units/lease-packet/send', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account, assoc }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      const parts = [j.sent.length ? `Sent: ${j.sent.join(', ')}` : '', j.skipped.length ? `Skipped: ${j.skipped.join(', ')}` : ''].filter(Boolean)
+      alert(parts.join('\n') || 'Packet created.')
+    } catch (e) { alert(`Could not send lease packet: ${(e as Error).message}`) } finally { setBusy(null) }
+  }
+
   if (err)   return <Shell><div style={{ color: '#991b1b' }}>Could not load unit: {err}</div></Shell>
   if (!data) return <Shell><div style={{ color: '#6b7280' }}>Loading…</div></Shell>
   const u = data.unit
@@ -127,6 +138,31 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
           </Card>
         )}
       </div>
+
+      {/* Lease-packet e-signature — leased units only. Emails the owner AND
+          the tenant their links to e-sign the Landlord–Tenant Agreement; the
+          Rent Demand is generated on demand (owner delinquency). */}
+      {u.occupancy === 'leased' && (
+        <div style={{ marginTop: 18, padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }}>
+          <div style={{ font: '700 15px system-ui', color: '#1f2a44' }}>Landlord–Tenant Agreement (e-signature)</div>
+          <div style={{ font: '400 13px system-ui', color: '#6b7280', margin: '4px 0 12px' }}>
+            Sends the owner and the tenant each a link to review and electronically sign the Agreement. When both sign, it&apos;s filed against this unit (expiry tracks the lease end).
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button onClick={sendLeasePacket} disabled={busy === 'packet'}
+              style={{ padding: '10px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#f26a1b', color: '#fff', font: '600 13px system-ui' }}>
+              {busy === 'packet' ? 'Sending…' : 'Send lease packet to owner & tenant'}
+            </button>
+            <a href={`/api/units/lease-packet/rent-demand?account=${encodeURIComponent(account)}&assoc=${encodeURIComponent(assoc)}`} target="_blank" rel="noreferrer"
+              style={{ font: '600 13px system-ui', color: '#b91c1c', textDecoration: 'none' }}>
+              Generate Rent Demand Notice (PDF) →
+            </a>
+          </div>
+          {!data.tenantRecord?.tenant_email && (
+            <div style={{ font: '500 12px system-ui', color: '#b45309', marginTop: 10 }}>⚠ No tenant email on file — only the owner will receive a link until a tenant email is added.</div>
+          )}
+        </div>
+      )}
 
       {/* Ledger / collections. In collections → send board/managers/staff to
           the Axela collections platform (their login) instead of the statement.

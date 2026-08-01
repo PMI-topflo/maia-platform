@@ -144,7 +144,9 @@ function fmtDate(iso: string | null | undefined): string {
   if (!iso) return ''
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return String(iso)
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/New_York' })
+  // Date-only values (lease/effective dates) parse as UTC midnight — format
+  // in UTC so the calendar date is preserved (ET would shift it back a day).
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })
 }
 function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return ''
@@ -160,6 +162,7 @@ function SigBlock({ role, sig }: { role: string; sig: SignerEvidence | null | un
       {sig && sig.signedAt ? (
         <>
           {sig.image
+            // eslint-disable-next-line jsx-a11y/alt-text -- react-pdf <Image>, not an HTML <img>
             ? <Image style={s.sigImage} src={sig.image} />
             : <Text style={s.sigTyped}>{sig.name}</Text>}
           <View style={s.sigRule} />

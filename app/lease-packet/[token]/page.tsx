@@ -26,7 +26,9 @@ interface Info {
 const fmt = (iso: string | null) => {
   if (!iso) return '—'
   const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/New_York' })
+  // Date-only lease values parse as UTC midnight — format in UTC so a
+  // June 1 stays June 1 (ET conversion would shift it back a day).
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })
 }
 
 export default function LeasePacketSignPage({ params }: { params: Promise<{ token: string }> }) {
