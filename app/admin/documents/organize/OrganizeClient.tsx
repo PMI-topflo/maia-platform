@@ -233,7 +233,7 @@ export default function OrganizeClient() {
   async function readWithMaia(f: ScanFile) {
     setReading(r => ({ ...r, [f.id]: true }))
     try {
-      const res = await fetch('/api/admin/documents/drive/organize/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: f.id, folderName }) })
+      const res = await fetch('/api/admin/documents/drive/organize/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: f.id, folderName, fileName: f.name }) })
       const j = (await res.json()) as ReadResult
       setReadRes(rr => ({ ...rr, [f.id]: j }))
       // If MAIA recognized a keeper type, offer a corrected name (works even
