@@ -22,11 +22,12 @@ export const TYPE_FOR_CATEGORY: Partial<Record<FilterCategory, string>> = {
   certificate_of_use: 'LauderhillCert',
   insurance:          'HO6',
   lease:              'Lease',
+  affidavit:          'Affidavit',
 }
 
 // The types a user may pick from on the screen (unit-folder + archive).
 export const RENAME_TYPES = [
-  'Approval', 'Lease', 'HO6', 'HO4', 'Liability', 'LauderhillCert',
+  'Approval', 'Lease', 'HO6', 'HO4', 'Liability', 'LauderhillCert', 'Affidavit',
   'DriversLicense', 'ID', 'Credit', 'Background', 'Income', 'Application',
 ] as const
 

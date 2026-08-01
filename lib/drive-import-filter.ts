@@ -13,7 +13,7 @@
 // =====================================================================
 
 export type FilterCategory =
-  | 'approval' | 'certificate_of_use' | 'insurance' | 'lease'   // include
+  | 'approval' | 'certificate_of_use' | 'insurance' | 'lease' | 'affidavit'   // include
   | 'id' | 'credit' | 'criminal' | 'tax'                        // skip (PII)
   | 'unknown'
 
@@ -42,6 +42,7 @@ const INCLUDE: { category: FilterCategory; re: RegExp; reason: string }[] = [
   { category: 'certificate_of_use', re: /(\b(certificate\s*of\s*use|cert\.?\s*of\s*use|use\s*permit|lauderhill|business\s*tax\s*receipt|\bbtr\b)\b|\bcou[_\s\-]?\d|\bcou\b|\blaud\b.*\b(bus|lic)|bus\.?\s*lic\b)/i, reason: 'Certificate of Use / Lauderhill rental license' },
   { category: 'insurance',          re: /(\b(insurance|insur|\bho-?6\b|\bho-?4\b|policy|declaration\s*page|dec\s*page|\bcoi\b|acord|certificate\s*of\s*insurance|homeowners?|binder|citizens)\b)/i, reason: 'insurance document' },
   { category: 'lease',              re: /\b(lease|rental\s*agreement|tenancy|residential\s*agreement)\b/i, reason: 'lease' },
+  { category: 'affidavit',          re: /\baffidavit\b/i, reason: 'affidavit' },
 ]
 
 /** Decide whether a Drive file should be imported, from its name + folder path.
@@ -70,4 +71,4 @@ export function filterDriveFile(name: string, path: string | null | undefined, w
   return { include: false, category: 'unknown', reason: 'unrecognized document type' }
 }
 
-export const INCLUDE_CATEGORIES: FilterCategory[] = ['approval', 'certificate_of_use', 'insurance', 'lease']
+export const INCLUDE_CATEGORIES: FilterCategory[] = ['approval', 'certificate_of_use', 'insurance', 'lease', 'affidavit']
