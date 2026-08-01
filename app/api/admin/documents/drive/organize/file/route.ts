@@ -7,6 +7,7 @@
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { unitLeaseEnd } from '@/lib/unit-required-docs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -32,9 +33,16 @@ export async function POST(req: Request) {
   const unitRef = String(body.unitRef ?? '').trim()
   const itemKey = String(body.itemKey ?? '').trim()
   const scope = body.scope === 'association' ? 'association' : 'unit'
-  const expiry = body.expiry ? String(body.expiry).trim() : null
+  let expiry = body.expiry ? String(body.expiry).trim() : null
   if (!association || !itemKey) return NextResponse.json({ error: 'associationCode and itemKey required' }, { status: 400 })
   if (scope === 'unit' && !unitRef) return NextResponse.json({ error: 'unitRef required for a unit document' }, { status: 400 })
+
+  // The board Approval Letter carries no expiry of its own — it's valid for the
+  // tenancy it approved, so its expiry tracks the unit's lease end date.
+  if (itemKey === 'unit.approval_letter') {
+    const leaseEnd = await unitLeaseEnd(association, unitRef)
+    if (leaseEnd) expiry = leaseEnd
+  }
 
   const { error } = await supabaseAdmin.from('compliance_records').upsert({
     scope, association_code: association, unit_ref: scope === 'unit' ? unitRef : null,
