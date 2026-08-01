@@ -12,7 +12,7 @@ interface ScanFile {
 interface Detected { scope: string; category: string | null; itemKey: string | null; docType: string | null; effectiveDate: string | null; expirationDate: string | null; confidence: number }
 interface LeaseInfo { tenantNames: string[]; ownerNames: string[]; leaseStart: string | null; leaseEnd: string | null; monthlyRent: string | null }
 interface InsuranceInfo { policyType: 'ho6' | 'ho4' | 'liability_only' | 'other'; namedInsured: string | null; insuredIsEntity: boolean; hasDwellingCoverage: boolean; hasPersonalProperty: boolean; hasLossAssessment: boolean; hasLiability: boolean; adequateForUnit: boolean; recommendation: string | null; expirationDate: string | null }
-interface ReadResult { ok?: boolean; error?: string; associationCode?: string; unitRef?: string | null; summary?: string | null; detected?: Detected | null; lease?: LeaseInfo | null; insurance?: InsuranceInfo | null }
+interface ReadResult { ok?: boolean; error?: string; associationCode?: string; unitRef?: string | null; summary?: string | null; detected?: Detected | null; lease?: LeaseInfo | null; insurance?: InsuranceInfo | null; tenantOwnerMatch?: string | null }
 
 // The rename Type token MAIA's read implies — insurance verdict (by coverages)
 // wins over the item/label mapping so a liability-only binder isn't "HO6".
@@ -220,8 +220,10 @@ export default function OrganizeClient() {
   }
 
   async function saveTenant(f: ScanFile) {
-    const lease = readRes[f.id]?.lease
+    const rr = readRes[f.id]
+    const lease = rr?.lease
     if (!lease || !unitRef) return
+    if (rr?.tenantOwnerMatch && !confirm(`⚠ "${lease.tenantNames.join(', ')}" matches the OWNER on file ("${rr.tenantOwnerMatch}"). Save this as the TENANT anyway?`)) return
     setRowBusy(b => ({ ...b, [f.id]: 'tenant' }))
     try {
       const res = await fetch('/api/admin/documents/drive/organize/save-tenant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ associationCode: readRes[f.id]?.associationCode ?? 'MANXI', unitRef, tenantName: lease.tenantNames.join(', '), leaseStart: lease.leaseStart, leaseEnd: lease.leaseEnd }) })
@@ -522,6 +524,7 @@ export default function OrganizeClient() {
                             {rr.lease && (
                               <div className="mt-1 flex flex-wrap items-center gap-2 border-t border-orange-100 pt-1">
                                 <span>Tenant: <b>{rr.lease.tenantNames.join(', ') || '—'}</b>{rr.lease.leaseStart || rr.lease.leaseEnd ? ` · lease ${rr.lease.leaseStart ?? '?'} → ${rr.lease.leaseEnd ?? '?'}` : ''}{rr.lease.monthlyRent ? ` · ${rr.lease.monthlyRent}` : ''}</span>
+                                {rr.tenantOwnerMatch && <span className="w-full font-medium text-red-700">⚠ This name matches the OWNER on file (&ldquo;{rr.tenantOwnerMatch}&rdquo;) — confirm it&rsquo;s really the tenant before saving.</span>}
                                 {savedTenant[f.id]
                                   ? <span className="text-emerald-600">✓ saved to tenant record</span>
                                   : <button onClick={() => saveTenant(f)} disabled={!unitRef || rowBusy[f.id] === 'tenant'} className="rounded bg-[#c2410c] px-2 py-0.5 text-[10px] font-medium text-white disabled:opacity-50">{rowBusy[f.id] === 'tenant' ? '…' : 'Save tenant info'}</button>}
