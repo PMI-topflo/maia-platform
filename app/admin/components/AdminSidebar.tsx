@@ -57,6 +57,7 @@ const NAV: Node[] = [
     { label: 'Estimate & Board Approval', href: '/admin/flows/estimate-approval' },
     { label: 'Vendor Onboarding (flow)', href: '/admin/flows/vendor-onboarding' },
     { label: 'Application Process', href: '/admin/flows/application-process' },
+    { label: 'Pre-Application Compliance', href: '/admin/flows/pre-application-compliance' },
   ] },
   { type: 'group', label: 'Tools', icon: '⚙', items: [
     { label: 'Staff Performance', href: '/admin/staff-performance' },
