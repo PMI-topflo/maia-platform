@@ -48,6 +48,11 @@ function typeFromDetected(itemKey: string | null, category: string | null, docTy
 interface BrowseFolder { id: string; name: string }
 interface BrowseData { parentId: string; current: { id: string; name: string; parentId: string | null } | null; folders: BrowseFolder[] }
 type Status = 'idle' | 'saving' | 'done' | 'error'
+interface OngoingUnit {
+  folderId: string; currentName: string; unitRef: string | null; newFolderName: string | null
+  subfolderName: string | null; firstApplicant: string | null; leaseStart: string | null
+  files: { fileId: string; currentName: string; newName: string; kind: string }[]; warnings: string[]
+}
 
 const CAT_LABEL: Record<string, string> = {
   approval: 'Approval', certificate_of_use: 'Cert of Use', insurance: 'Insurance', lease: 'Lease', affidavit: 'Affidavit',
@@ -90,6 +95,11 @@ export default function OrganizeClient() {
   // OLD-archive reorg
   const [reorgPlan, setReorgPlan] = useState<{ folderRenames: { id: string; newName: string }[]; fileMoves: { id: string; parentId: string; year: string }[]; counts: { renames: number; moves: number; undated: number }; sampleRenames: string[] } | null>(null)
   const [reorgDone, setReorgDone] = useState<string | null>(null)
+  // On Going reorg (Unit ### → MANXI###/YYYY_MM_First)
+  const [ongoingPlan, setOngoingPlan] = useState<OngoingUnit[] | null>(null)
+  const [ongoingBusy, setOngoingBusy] = useState(false)
+  const [ongoingDone, setOngoingDone] = useState<string | null>(null)
+  const [ongoingEdit, setOngoingEdit] = useState<Record<string, string>>({})   // folderId → edited subfolder name
 
   async function planReorg() {
     if (!url.trim()) { alert('Paste the OLD archive folder link first.'); return }
@@ -123,6 +133,38 @@ export default function OrganizeClient() {
       setReorgDone(`Renamed ${renamed} folder(s), moved ${moved} file(s) into year subfolders.`)
       setReorgPlan(null)
     } catch (e) { alert(`Reorg failed: ${(e as Error).message}`) } finally { setProgress(null); setCleanupBusy(false) }
+  }
+
+  async function planOngoing() {
+    setOngoingBusy(true); setOngoingPlan(null); setOngoingDone(null); setOngoingEdit({})
+    try {
+      const res = await fetch('/api/admin/documents/drive/organize/ongoing-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
+      const j = await res.json(); if (j.error || !j.ok) throw new Error(j.error ?? 'plan failed')
+      setOngoingPlan(j.units ?? [])
+    } catch (e) { alert(`On Going plan failed: ${(e as Error).message}`) } finally { setOngoingBusy(false) }
+  }
+
+  async function applyOngoing() {
+    if (!ongoingPlan) return
+    const subOf = (u: OngoingUnit) => (ongoingEdit[u.folderId] ?? u.subfolderName ?? '').trim()
+    const doable = ongoingPlan.filter(u => u.newFolderName && subOf(u))
+    if (doable.length === 0) { alert('Nothing ready to apply — set a subfolder name for the flagged rows first.'); return }
+    if (!confirm(`Organize ${doable.length} On Going folder(s)?\n\nEach → rename to MANXI###, create its dated subfolder, move + rename its files in.`)) return
+    setOngoingBusy(true); setOngoingDone(null)
+    let done = 0, ok = 0; const total = doable.length
+    setProgress({ label: 'Organizing On Going', done, total })
+    try {
+      for (const u of doable) {
+        const res = await fetch('/api/admin/documents/drive/organize/ongoing-apply', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folderId: u.folderId, newFolderName: u.newFolderName, subfolderName: subOf(u), files: u.files.map(f => ({ fileId: f.fileId, newName: f.newName })) }),
+        })
+        if ((await res.json().catch(() => ({}))).ok) ok++
+        done++; setProgress({ label: 'Organizing On Going', done, total })
+      }
+      setOngoingDone(`Organized ${ok} of ${total} unit folder(s) into MANXI###/dated subfolders.`)
+      setOngoingPlan(null)
+    } catch (e) { alert(`Organize failed: ${(e as Error).message}`) } finally { setProgress(null); setOngoingBusy(false) }
   }
 
   async function findCleanup() {
@@ -415,6 +457,35 @@ export default function OrganizeClient() {
         )}
         {reorgPlan && !progress && <span className="text-[11px] text-gray-500">{reorgPlan.counts.renames} folder(s), {reorgPlan.counts.moves} file(s){reorgPlan.counts.undated ? `, ${reorgPlan.counts.undated} no-year (left in place)` : ''}{reorgPlan.sampleRenames.length ? ` — e.g. ${reorgPlan.sampleRenames.slice(0, 2).join('; ')}` : ''}</span>}
         {reorgDone && <span className="text-[11px] font-medium text-emerald-700">{reorgDone}</span>}
+      </div>
+
+      <div className="mt-2 rounded border border-dashed border-gray-200 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-gray-600" title="Rename each On Going 'Unit ###' folder → MANXI###, create a YYYY_MM_<first applicant> subfolder (from the lease/approval), and move + rename its files in.">📥 Organize On Going</span>
+          <button onClick={planOngoing} disabled={ongoingBusy} className="rounded border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 disabled:opacity-50">{ongoingBusy && !ongoingPlan && !progress ? 'Reading…' : 'Plan On Going'}</button>
+          {ongoingPlan && !progress && (
+            <button onClick={applyOngoing} disabled={ongoingBusy} className="rounded bg-[#c2410c] px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50">Apply all ({ongoingPlan.filter(u => u.newFolderName && (ongoingEdit[u.folderId] ?? u.subfolderName)).length})</button>
+          )}
+          {ongoingDone && <span className="text-[11px] font-medium text-emerald-700">{ongoingDone}</span>}
+        </div>
+        {ongoingPlan && !progress && (
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead><tr className="text-left text-gray-500"><th className="py-1 pr-3">Folder</th><th className="pr-3">Subfolder (YYYY_MM_First)</th><th className="pr-3">Files</th><th>Notes</th></tr></thead>
+              <tbody>
+                {ongoingPlan.map(u => (
+                  <tr key={u.folderId} className="border-t border-gray-100 align-top">
+                    <td className="whitespace-nowrap py-1 pr-3"><span className="text-gray-400">{u.currentName}</span> → <b>{u.newFolderName ?? '—'}</b></td>
+                    <td className="pr-3"><input value={ongoingEdit[u.folderId] ?? u.subfolderName ?? ''} onChange={e => setOngoingEdit(s => ({ ...s, [u.folderId]: e.target.value }))} placeholder="set manually" className="w-40 rounded border border-gray-300 px-1 py-0.5 text-[11px]" /></td>
+                    <td className="pr-3 text-gray-600">{u.files.length} file(s){u.files.filter(f => f.newName !== f.currentName).length ? `, ${u.files.filter(f => f.newName !== f.currentName).length} renamed` : ''}</td>
+                    <td className="text-amber-700">{u.warnings.join(' ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mt-1 text-[10px] text-gray-400">Files move into the dated subfolder; keeper types get YYYY_MM_Type names (insurance stays generic — verify HO-6 vs liability separately). Nothing moves to OLD/Archive here — that happens on the board&apos;s final approval.</p>
+          </div>
+        )}
       </div>
 
       {browseOpen && (
