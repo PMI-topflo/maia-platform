@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger'
 import { proposeName, dedupeNames, RENAME_TYPES, TYPE_FOR_CATEGORY } from '@/lib/drive-organize'
 import type { FilterCategory } from '@/lib/drive-import-filter'
@@ -51,7 +51,7 @@ type Status = 'idle' | 'saving' | 'done' | 'error'
 interface OngoingUnit {
   folderId: string; currentName: string; unitRef: string | null; newFolderName: string | null
   subfolderName: string | null; firstApplicant: string | null; leaseStart: string | null
-  files: { fileId: string; currentName: string; newName: string; kind: string }[]; warnings: string[]
+  files: { fileId: string; currentName: string; newName: string; kind: string; createdTime: string | null }[]; warnings: string[]
 }
 
 const CAT_LABEL: Record<string, string> = {
@@ -100,6 +100,7 @@ export default function OrganizeClient() {
   const [ongoingBusy, setOngoingBusy] = useState(false)
   const [ongoingDone, setOngoingDone] = useState<string | null>(null)
   const [ongoingEdit, setOngoingEdit] = useState<Record<string, string>>({})   // folderId → edited subfolder name
+  const [ongoingOpen, setOngoingOpen] = useState<Record<string, boolean>>({})  // folderId → files expanded
 
   async function planReorg() {
     if (!url.trim()) { alert('Paste the OLD archive folder link first.'); return }
@@ -165,6 +166,28 @@ export default function OrganizeClient() {
       setOngoingDone(`Organized ${ok} of ${total} unit folder(s) into MANXI###/dated subfolders.`)
       setOngoingPlan(null)
     } catch (e) { alert(`Organize failed: ${(e as Error).message}`) } finally { setProgress(null); setOngoingBusy(false) }
+  }
+
+  function setOngoingFileName(folderId: string, fileId: string, newName: string) {
+    setOngoingPlan(plan => plan?.map(u => u.folderId === folderId ? { ...u, files: u.files.map(f => f.fileId === fileId ? { ...f, newName } : f) } : u) ?? null)
+  }
+
+  // ✦ Read a single On Going file, and if MAIA recognizes a keeper type, set its
+  // proposed name to YYYY_MM_Type (date = the file's created date) so "Apply
+  // all" renames it — this is how the generic "processed-xxxx.jpeg" files get
+  // typed. Insurance reads win (a liability binder won't be called HO-6).
+  async function readOngoingFile(folderId: string, file: { fileId: string; currentName: string; createdTime: string | null }) {
+    setReading(r => ({ ...r, [file.fileId]: true }))
+    try {
+      const res = await fetch('/api/admin/documents/drive/organize/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: file.fileId, fileName: file.currentName }) })
+      const j = (await res.json()) as ReadResult
+      const t = readTypeToken(j)
+      if (!t) { alert(`MAIA couldn't confidently type "${file.currentName}". Rename it by hand if needed.`); return }
+      const ym = file.createdTime ? new Date(file.createdTime).toISOString().slice(0, 7).replace('-', '_') : null
+      const e = file.currentName.match(/\.([a-z0-9]{1,5})$/i)?.[0] ?? ''
+      if (!ym) { alert(`Read as ${t}, but the file has no date — set the name by hand.`); return }
+      setOngoingFileName(folderId, file.fileId, `${ym}_${t}${e}`)
+    } catch (e) { alert(`Read failed: ${(e as Error).message}`) } finally { setReading(r => ({ ...r, [file.fileId]: false })) }
   }
 
   async function findCleanup() {
@@ -474,12 +497,35 @@ export default function OrganizeClient() {
               <thead><tr className="text-left text-gray-500"><th className="py-1 pr-3">Folder</th><th className="pr-3">Subfolder (YYYY_MM_First)</th><th className="pr-3">Files</th><th>Notes</th></tr></thead>
               <tbody>
                 {ongoingPlan.map(u => (
-                  <tr key={u.folderId} className="border-t border-gray-100 align-top">
-                    <td className="whitespace-nowrap py-1 pr-3"><span className="text-gray-400">{u.currentName}</span> → <b>{u.newFolderName ?? '—'}</b></td>
-                    <td className="pr-3"><input value={ongoingEdit[u.folderId] ?? u.subfolderName ?? ''} onChange={e => setOngoingEdit(s => ({ ...s, [u.folderId]: e.target.value }))} placeholder="set manually" className="w-40 rounded border border-gray-300 px-1 py-0.5 text-[11px]" /></td>
-                    <td className="pr-3 text-gray-600">{u.files.length} file(s){u.files.filter(f => f.newName !== f.currentName).length ? `, ${u.files.filter(f => f.newName !== f.currentName).length} renamed` : ''}</td>
-                    <td className="text-amber-700">{u.warnings.join(' ')}</td>
-                  </tr>
+                  <Fragment key={u.folderId}>
+                    <tr className="border-t border-gray-100 align-top">
+                      <td className="whitespace-nowrap py-1 pr-3"><span className="text-gray-400">{u.currentName}</span> → <b>{u.newFolderName ?? '—'}</b></td>
+                      <td className="pr-3"><input value={ongoingEdit[u.folderId] ?? u.subfolderName ?? ''} onChange={e => setOngoingEdit(s => ({ ...s, [u.folderId]: e.target.value }))} placeholder="set manually" className="w-40 rounded border border-gray-300 px-1 py-0.5 text-[11px]" /></td>
+                      <td className="pr-3 text-gray-600">
+                        <button onClick={() => setOngoingOpen(o => ({ ...o, [u.folderId]: !o[u.folderId] }))} disabled={!u.files.length} className="underline decoration-dotted underline-offset-2 disabled:no-underline disabled:opacity-60">
+                          {ongoingOpen[u.folderId] ? '▾ ' : '▸ '}{u.files.length} file(s){u.files.filter(f => f.newName !== f.currentName).length ? `, ${u.files.filter(f => f.newName !== f.currentName).length} renamed` : ''}
+                        </button>
+                      </td>
+                      <td className="text-amber-700">{u.warnings.join(' ')}</td>
+                    </tr>
+                    {ongoingOpen[u.folderId] && u.files.length > 0 && (
+                      <tr className="bg-gray-50/70">
+                        <td colSpan={4} className="px-3 py-2">
+                          <div className="flex flex-col gap-1">
+                            {u.files.map(f => (
+                              <div key={f.fileId} className="flex flex-wrap items-center gap-2">
+                                <span className="w-48 shrink-0 truncate text-gray-500" title={f.currentName}>{f.currentName}</span>
+                                <span className="text-gray-400">→</span>
+                                <input value={f.newName} onChange={e => setOngoingFileName(u.folderId, f.fileId, e.target.value)} className="w-52 rounded border border-gray-300 px-1 py-0.5 text-[11px]" />
+                                <button onClick={() => readOngoingFile(u.folderId, f)} disabled={reading[f.fileId]} className="shrink-0 rounded border border-[#f26a1b]/40 px-1.5 py-0.5 text-[10px] font-medium text-[#c2410c] disabled:opacity-50" title="Have MAIA read this file and rename it by what it is">{reading[f.fileId] ? 'Reading…' : '✦ Read & name'}</button>
+                                {f.newName !== f.currentName && <span className="text-[10px] text-emerald-600">✓</span>}
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
