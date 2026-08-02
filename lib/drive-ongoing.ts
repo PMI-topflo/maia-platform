@@ -24,7 +24,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 const MAX_READS = 3   // how many candidate docs to read per unit for the applicant/date
 
-export interface OngoingFilePlan { fileId: string; currentName: string; newName: string; kind: string }
+export interface OngoingFilePlan { fileId: string; currentName: string; newName: string; kind: string; createdTime: string | null }
 export interface OngoingUnitPlan {
   folderId: string
   currentName: string
@@ -171,7 +171,7 @@ export async function planOngoingUnit(folder: { id: string; name: string }, know
   const proposed = files.map(f => proposeFileName(f.name, f.createdTime))
   const deduped = dedupeNames(proposed.map(p => p.newName))
   const filePlans: OngoingFilePlan[] = files.map((f, i) => ({
-    fileId: f.id, currentName: f.name, newName: deduped[i] ?? f.name, kind: proposed[i].kind,
+    fileId: f.id, currentName: f.name, newName: deduped[i] ?? f.name, kind: proposed[i].kind, createdTime: f.createdTime,
   }))
 
   return { folderId: folder.id, currentName: folder.name, unitRef, newFolderName: unitRef, subfolderName, firstApplicant, leaseStart, files: filePlans, warnings }
