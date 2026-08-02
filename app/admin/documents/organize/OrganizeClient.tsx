@@ -51,7 +51,7 @@ type Status = 'idle' | 'saving' | 'done' | 'error'
 interface OngoingUnit {
   folderId: string; currentName: string; unitRef: string | null; newFolderName: string | null
   subfolderName: string | null; firstApplicant: string | null; leaseStart: string | null
-  files: { fileId: string; currentName: string; newName: string; kind: string; createdTime: string | null }[]; warnings: string[]
+  files: { fileId: string; currentName: string; newName: string; kind: string; createdTime: string | null; webViewLink: string | null }[]; warnings: string[]
 }
 
 const CAT_LABEL: Record<string, string> = {
@@ -514,9 +514,12 @@ export default function OrganizeClient() {
                           <div className="flex flex-col gap-1">
                             {u.files.map(f => (
                               <div key={f.fileId} className="flex flex-wrap items-center gap-2">
-                                <span className="w-48 shrink-0 truncate text-gray-500" title={f.currentName}>{f.currentName}</span>
+                                {f.webViewLink
+                                  ? <a href={f.webViewLink} target="_blank" rel="noreferrer" className="w-48 shrink-0 truncate text-blue-600 underline decoration-dotted underline-offset-2 hover:text-blue-700" title={`Open "${f.currentName}" in Drive`}>{f.currentName}</a>
+                                  : <span className="w-48 shrink-0 truncate text-gray-500" title={f.currentName}>{f.currentName}</span>}
                                 <span className="text-gray-400">→</span>
                                 <input value={f.newName} onChange={e => setOngoingFileName(u.folderId, f.fileId, e.target.value)} className="w-52 rounded border border-gray-300 px-1 py-0.5 text-[11px]" />
+                                {f.webViewLink && <a href={f.webViewLink} target="_blank" rel="noreferrer" className="shrink-0 rounded border border-blue-300 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50" title="Open the file in Drive to see what it is">↗ View</a>}
                                 <button onClick={() => readOngoingFile(u.folderId, f)} disabled={reading[f.fileId]} className="shrink-0 rounded border border-[#f26a1b]/40 px-1.5 py-0.5 text-[10px] font-medium text-[#c2410c] disabled:opacity-50" title="Have MAIA read this file and rename it by what it is">{reading[f.fileId] ? 'Reading…' : '✦ Read & name'}</button>
                                 {f.newName !== f.currentName && <span className="text-[10px] text-emerald-600">✓</span>}
                               </div>
