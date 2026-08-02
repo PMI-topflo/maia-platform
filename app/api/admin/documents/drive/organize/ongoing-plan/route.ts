@@ -8,7 +8,7 @@
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { extractFolderId } from '@/lib/drive-import'
-import { scanOngoingUnits, planOngoingUnit } from '@/lib/drive-ongoing'
+import { scanOngoingUnits, planOngoingUnit, loadKnownUnitRefs } from '@/lib/drive-ongoing'
 import { DRIVE_FOLDERS } from '@/lib/drive-organize-folders'
 
 export const runtime = 'nodejs'
@@ -22,9 +22,9 @@ export async function POST(req: Request) {
   const rootId = body.folderUrl ? (extractFolderId(body.folderUrl) ?? DRIVE_FOLDERS.ongoing) : DRIVE_FOLDERS.ongoing
 
   try {
-    const units = await scanOngoingUnits(rootId)
+    const [units, knownRefs] = await Promise.all([scanOngoingUnits(rootId), loadKnownUnitRefs('MANXI')])
     const plans = []
-    for (const u of units) plans.push(await planOngoingUnit(u))
+    for (const u of units) plans.push(await planOngoingUnit(u, knownRefs))
     return NextResponse.json({ ok: true, count: plans.length, units: plans })
   } catch (e) {
     return NextResponse.json({ error: `Plan failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 200 })
