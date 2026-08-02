@@ -24,7 +24,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 const MAX_READS = 3   // how many candidate docs to read per unit for the applicant/date
 
-export interface OngoingFilePlan { fileId: string; currentName: string; newName: string; kind: string; createdTime: string | null }
+export interface OngoingFilePlan { fileId: string; currentName: string; newName: string; kind: string; createdTime: string | null; webViewLink: string | null }
 export interface OngoingUnitPlan {
   folderId: string
   currentName: string
@@ -100,9 +100,9 @@ export async function scanOngoingUnits(rootId: string = DRIVE_FOLDERS.ongoing): 
 
 /** Every file under a unit folder AT ANY DEPTH (application docs are often in a
  *  "2026_2027" / lease-term subfolder, not loose at the top). Follows folders. */
-async function listUnitFilesDeep(rootId: string): Promise<{ id: string; name: string; createdTime: string | null }[]> {
+async function listUnitFilesDeep(rootId: string): Promise<{ id: string; name: string; createdTime: string | null; webViewLink: string | null }[]> {
   const drive = getDrive()
-  const out: { id: string; name: string; createdTime: string | null }[] = []
+  const out: { id: string; name: string; createdTime: string | null; webViewLink: string | null }[] = []
   let frontier = [rootId]
   const seen = new Set<string>()
   let guard = 0
@@ -113,12 +113,12 @@ async function listUnitFilesDeep(rootId: string): Promise<{ id: string; name: st
       seen.add(fid); guard++
       const res = await drive.files.list({
         q: `'${fid}' in parents and trashed = false`,
-        fields: 'files(id, name, mimeType, createdTime)', pageSize: 200,
+        fields: 'files(id, name, mimeType, createdTime, webViewLink)', pageSize: 200,
         supportsAllDrives: true, includeItemsFromAllDrives: true,
       })
       for (const f of res.data.files ?? []) {
         if (f.mimeType === FOLDER_MIME) { if (f.id) next.push(f.id) }
-        else out.push({ id: f.id as string, name: f.name ?? 'file', createdTime: f.createdTime ?? null })
+        else out.push({ id: f.id as string, name: f.name ?? 'file', createdTime: f.createdTime ?? null, webViewLink: f.webViewLink ?? null })
       }
     }
     frontier = next
@@ -171,7 +171,7 @@ export async function planOngoingUnit(folder: { id: string; name: string }, know
   const proposed = files.map(f => proposeFileName(f.name, f.createdTime))
   const deduped = dedupeNames(proposed.map(p => p.newName))
   const filePlans: OngoingFilePlan[] = files.map((f, i) => ({
-    fileId: f.id, currentName: f.name, newName: deduped[i] ?? f.name, kind: proposed[i].kind, createdTime: f.createdTime,
+    fileId: f.id, currentName: f.name, newName: deduped[i] ?? f.name, kind: proposed[i].kind, createdTime: f.createdTime, webViewLink: f.webViewLink,
   }))
 
   return { folderId: folder.id, currentName: folder.name, unitRef, newFolderName: unitRef, subfolderName, firstApplicant, leaseStart, files: filePlans, warnings }
