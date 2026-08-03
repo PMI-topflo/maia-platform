@@ -6,6 +6,23 @@ Snapshot for picking up on another machine. Everything below is **live in produc
 
 ---
 
+## 2026-08-03/04 — MANXI signed-approval report + filing engine, lease alerts, board-cert fix; NEXT: Official reset run + owner tenant-contact email
+
+**MERGED to `main` (all deployed):**
+- **Lease-expiry alerts + on-site manager upload (#558):** daily cron `/api/cron/lease-renewal-alerts` (12:00 UTC) — exact-day **30d + 7d** before `unit_tenant_contacts.lease_end`: internal FYI (PMI+AR+building_managers+board) + resident reminder (owner+tenant). `/api/admin/building-managers` GET/POST(bulk paste)/PATCH + `OnsiteManagersBox` on `/admin/cinc-sync/[code]` (name/email/phone). Kaye Brunson / wilsonpealpm@gmail.com / 954-953-1236 was the first on-site mgr. Styled the file-input as an orange block (`::file-selector-button`).
+- **Weekly expired-leases digest (#567):** cron `/api/cron/expired-leases-digest` (Mon 13:00 UTC) — units past `lease_end`, grouped by assoc, internal digest to PMI+AR+managers+board (NOT residents). Staff dry-run; `?send=1`.
+- **Approvals report (#566, #568):** `/api/admin/documents/drive/approvals-report` on `/admin/documents/organize` → **125 signed · 76 current · 50 superseded.** No orderBy (Drive rejects orderBy+fullText). No-unit rows resolved from the PDF **address** ("from PDF" tag). Per-unit newest = **current** (filed), older = **superseded** (archived).
+- **Reset-Official + approval-move engine (#569, #570):** Step 1 `reset-official` archives all Official subfolders → OLD `Pre-2026-cleanup <date>` (move, recoverable). Step 2 `approval-move` per current row → extract tenant/email/phone/dates (owner≠tenant swap-guard) → upsert `unit_tenant_contacts` + `unit_occupancy='leased'` → file `unit.approval_letter` (drive_url=source pdf, expiry=lease end or approval+1yr; purchase=null) → copy renamed into Official/MANXI###/Lease|Purchase Applications. Dry-run previews; batched 5/call.
+- **Board-cert "still Missing" fix (#571):** certification FORM now counts as the initial cert (user decision); purple Leased chip.
+
+**STATE / NEXT SESSION:**
+- **USER RAN dry-run + File (skipped reset).** 53 leased units filed + backfilled `unit_occupancy='leased'`. Official **NOT yet reset** → mixed old+new. **TODO: run Step 1 Archive Official→OLD, then File again** (reset FIRST — File's Drive copy is not idempotent; DB writes are). Swap-guard flagged MANXI511, MANXI608 — eyeball.
+- **Tenant email/phone blank** (approval letters lack them). **NEXT (offered, not built): targeted owner email for the 53 leased units** → owner self-service (`/owner/compliance/[token]` leased section already captures tenant name/email/phone) — preview-first send. Tenant reached via `/api/admin/compliance/request-tenant`.
+- Empty-folder cleanup already exists (`/admin/documents/organize` → 🧹 Empty subfolders).
+- Older backlog below (verified-signature layer, Decision/Pet e-sign, Pre-App Compliance intake, lease-packet field wiring) still open.
+
+---
+
 ## 2026-08-01 — 4 compliance enhancements, emergency-contact + CINC-account backfills, Lease-Packet e-signature; NEXT: verified-signature layer + more e-sign forms + Pre-Application Compliance intake
 
 **MERGED to `main` (all deployed, verified):**
