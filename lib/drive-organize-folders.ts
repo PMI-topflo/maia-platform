@@ -55,8 +55,14 @@ export async function resolveUnitFolder(parentId: string, unitRef: string, creat
   return created.data.id ?? null
 }
 
+/** The Official category subfolder an approval belongs in, by approval kind. */
+export function approvalCategoryFolder(kind: string): string {
+  return kind === 'purchase' ? 'Purchase Applications' : 'Lease Applications'
+}
+
 /** Find (or create) a dated subfolder under a unit's archive folder, e.g.
- *  ".../MANXI811 - …/2026-06". */
+ *  ".../MANXI811 - …/2026-06". Also used to resolve named category subfolders
+ *  (e.g. "Lease Applications") under a unit's Official folder. */
 export async function resolveDatedSubfolder(unitFolderId: string, dateLabel: string, create: boolean): Promise<string | null> {
   const drive = getDrive()
   const res = await drive.files.list({
