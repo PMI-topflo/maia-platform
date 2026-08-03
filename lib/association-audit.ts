@@ -56,12 +56,16 @@ export interface AuditUnit {
    *  each tagged expired / expiring (≤30 days) / current. Sorted soonest
    *  first. Drives the Expired / Expiring blocks + the expiry drawer. */
   dated:           DatedDoc[]
+  /** Every on-file document with its Drive link (if filed with one) + expiry
+   *  (if dated). Powers the unit page's "Documents on file" board view. */
+  docs:            OnFileDoc[]
   expiredCount:    number
   expiringCount:   number
 }
 
 export type ExpiryState = 'expired' | 'expiring' | 'current'
 export interface DatedDoc { key: string; label: string; expiryDate: string; state: ExpiryState }
+export interface OnFileDoc { key: string; label: string; expiryDate: string | null; driveUrl: string | null; state: ExpiryState | null }
 
 /** Expired if the date is in the past, expiring if within 30 days, else
  *  current. ISO YYYY-MM-DD compares correctly as a string. */
@@ -111,8 +115,8 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
     fetchAll<{ association_code: string; unit_number: string; first_name: string | null; last_name: string | null; lease_end_date: string | null }>((from, to) =>
       scoped(supabaseAdmin.from('association_tenants')
         .select('association_code, unit_number, first_name, last_name, lease_end_date').eq('status', 'active')).range(from, to)),
-    fetchAll<{ association_code: string; unit_ref: string; item_key: string; status: string; expiry_date: string | null }>((from, to) =>
-      scoped(supabaseAdmin.from('compliance_records').select('association_code, unit_ref, item_key, status, expiry_date').eq('scope', 'unit')).range(from, to)),
+    fetchAll<{ association_code: string; unit_ref: string; item_key: string; status: string; expiry_date: string | null; drive_url: string | null }>((from, to) =>
+      scoped(supabaseAdmin.from('compliance_records').select('association_code, unit_ref, item_key, status, expiry_date, drive_url').eq('scope', 'unit')).range(from, to)),
     fetchAll<{ association_code: string; item_key: string; label: string | null; occupancy_filter: string | null }>((from, to) =>
       scoped(supabaseAdmin.from('association_document_requirements').select('association_code, item_key, label, occupancy_filter').eq('active', true)).range(from, to)),
   ])
@@ -142,6 +146,8 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
   const onFileByUnit = new Map<string, Set<string>>()
   // itemKey → expiry date (ISO) for on-file, dated records, per unit.
   const expiryByUnit = new Map<string, Map<string, string>>()
+  // itemKey → the filed document's Drive link, per unit (for the unit page).
+  const driveUrlByUnit = new Map<string, Map<string, string>>()
   for (const r of recs) {
     if (r.status === 'missing' || r.status === 'na') continue
     const k = key(r.association_code, r.unit_ref)
@@ -150,6 +156,10 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
     if (r.expiry_date) {
       if (!expiryByUnit.has(k)) expiryByUnit.set(k, new Map())
       expiryByUnit.get(k)!.set(r.item_key, r.expiry_date)
+    }
+    if (r.drive_url) {
+      if (!driveUrlByUnit.has(k)) driveUrlByUnit.set(k, new Map())
+      driveUrlByUnit.get(k)!.set(r.item_key, r.drive_url as string)
     }
   }
   const today = new Date().toISOString().slice(0, 10)
@@ -196,6 +206,15 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
       dated.push({ key: 'unit.leasing', label: 'Lease', expiryDate: tenant.leaseEndDate, state: expiryState(tenant.leaseEndDate, today) })
     }
     dated.sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))
+
+    // Every on-file document (with its link + expiry, if any) — for the unit
+    // page's "Documents on file" section that the board reviews.
+    const driveMap = driveUrlByUnit.get(k)
+    const docs: OnFileDoc[] = [...onFile].map(ik => {
+      const exp = (ik === 'unit.leasing' && tenant?.leaseEndDate) ? tenant.leaseEndDate : (expMap?.get(ik) ?? null)
+      return { key: ik, label: labelOf(ik), expiryDate: exp, driveUrl: driveMap?.get(ik) ?? null, state: exp ? expiryState(exp, today) : null }
+    }).sort((a, b) => a.label.localeCompare(b.label))
+
     return {
       associationCode: u.associationCode,
       associationName: u.associationName,
@@ -212,6 +231,7 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
       missing,
       missingCount:    missing.length,
       dated,
+      docs,
       expiredCount:    dated.filter(d => d.state === 'expired').length,
       expiringCount:   dated.filter(d => d.state === 'expiring').length,
     }

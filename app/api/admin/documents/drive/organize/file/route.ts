@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   const session = await requireStaffSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  let body: { associationCode?: string; unitRef?: string; itemKey?: string; scope?: string; expiry?: string; docType?: string }
+  let body: { associationCode?: string; unitRef?: string; itemKey?: string; scope?: string; expiry?: string; docType?: string; driveUrl?: string }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
 
   const association = String(body.associationCode ?? '').trim().toUpperCase()
@@ -34,6 +34,7 @@ export async function POST(req: Request) {
   const itemKey = String(body.itemKey ?? '').trim()
   const scope = body.scope === 'association' ? 'association' : 'unit'
   let expiry = body.expiry ? String(body.expiry).trim() : null
+  const driveUrl = body.driveUrl ? String(body.driveUrl).trim() : null   // link to the file, shown on the unit page
   if (!association || !itemKey) return NextResponse.json({ error: 'associationCode and itemKey required' }, { status: 400 })
   if (scope === 'unit' && !unitRef) return NextResponse.json({ error: 'unitRef required for a unit document' }, { status: 400 })
 
@@ -48,6 +49,7 @@ export async function POST(req: Request) {
     scope, association_code: association, unit_ref: scope === 'unit' ? unitRef : null,
     item_key: itemKey, applicable: true,
     status: statusFromExpiry(expiry), expiry_date: expiry,
+    ...(driveUrl ? { drive_url: driveUrl } : {}),
     updated_by: `staff:${session.displayName} (drive-organize)`,
   }, { onConflict: 'scope,association_code,unit_ref,item_key' })
   if (error) return NextResponse.json({ error: `Could not file: ${error.message}` }, { status: 200 })

@@ -235,6 +235,33 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
         </ul>
       </Section>
 
+      {/* Documents on file — the actual filed files with their expiration, so
+          the board can preview them here (no Google account needed). */}
+      {u.docs.filter(d => d.driveUrl || d.expiryDate).length > 0 && (
+        <Section title="Documents on file">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {u.docs.filter(d => d.driveUrl || d.expiryDate).map(d => {
+              const col = d.state === 'expired' ? '#dc2626' : d.state === 'expiring' ? '#d97706' : '#16a34a'
+              return (
+                <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0', borderTop: '1px solid #f3f4f6' }}>
+                  <span style={{ font: '600 14px system-ui', minWidth: 190 }}>{d.label}</span>
+                  {d.expiryDate
+                    ? <span style={{ font: '600 12px system-ui', color: col }}>{d.state === 'expired' ? 'Expired' : d.state === 'expiring' ? 'Expiring' : 'Expires'} {d.expiryDate}</span>
+                    : <span style={{ font: '500 12px system-ui', color: '#9ca3af' }}>no expiry</span>}
+                  {d.driveUrl && (
+                    <span style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <DocumentPreviewTrigger label="👁 Preview" className="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                        previewUrl={`/api/units/document-preview?account=${encodeURIComponent(account)}&assoc=${encodeURIComponent(assoc)}&key=${encodeURIComponent(d.key)}`} />
+                      <a href={d.driveUrl} target="_blank" rel="noreferrer" style={{ font: '600 12px system-ui', color: '#2563eb', textDecoration: 'none' }}>↗ Open</a>
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+      )}
+
       {/* Upload — unit docs, plus TENANT docs when the unit is leased so the
           manager can upload tenant files too. */}
       {data.canUpload && (

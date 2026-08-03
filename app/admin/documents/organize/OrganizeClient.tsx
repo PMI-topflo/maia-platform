@@ -274,7 +274,7 @@ export default function OrganizeClient() {
     if (list.length === 0) return
     if (!confirm(`Promote ${unitRef}?\n\n• Keepers → copied to Official (renamed)\n• Whole packet → moved to OLD archive\n• On Going cleared`)) return
     setPromoting(true); setPromoteMsg(null)
-    let copies = 0, moved = 0
+    let copies = 0, moved = 0, filed = 0
     for (let i = 0; i < list.length; i++) {
       const f = list[i]
       setPromoteMsg(`${i + 1}/${list.length}…`)
@@ -282,10 +282,19 @@ export default function OrganizeClient() {
       const readType = rr ? readTypeToken(rr) : null
       const isKeeper = (renamable(f) || !!readType) && !!(names[f.id] ?? '').trim()
       if (isKeeper && await doCopy(f)) copies++
+      // File a read keeper as a compliance record (item_key + expiry + link) so
+      // it lands on the unit page with its expiration for the board to review.
+      if (rr?.detected?.itemKey) {
+        const ok = await fetch('/api/admin/documents/drive/organize/file', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ associationCode: rr.associationCode, unitRef: rr.unitRef ?? unitRef, itemKey: rr.detected.itemKey, scope: rr.detected.scope, expiry: rr.detected.expirationDate, docType: rr.detected.docType, driveUrl: f.webViewLink }),
+        }).then(r => r.json()).then(j => j.ok).catch(() => false)
+        if (ok) filed++
+      }
       if (await doArchive(f)) moved++
     }
     setPromoting(false)
-    setPromoteMsg(`Done — ${copies} keeper(s) copied to Official, ${moved} file(s) moved to OLD archive.`)
+    setPromoteMsg(`Done — ${copies} copied to Official, ${filed} filed to MAIA (tracked on the unit page), ${moved} moved to OLD archive.`)
   }
 
   async function saveTenant(f: ScanFile) {
@@ -343,7 +352,7 @@ export default function OrganizeClient() {
     try {
       const res = await fetch('/api/admin/documents/drive/organize/file', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ associationCode: r.associationCode, unitRef: r.unitRef, itemKey: r.detected.itemKey, scope: r.detected.scope, expiry: r.detected.expirationDate, docType: r.detected.docType }),
+        body: JSON.stringify({ associationCode: r.associationCode, unitRef: r.unitRef, itemKey: r.detected.itemKey, scope: r.detected.scope, expiry: r.detected.expirationDate, docType: r.detected.docType, driveUrl: f.webViewLink }),
       })
       const j = await res.json()
       if (!j.ok) throw new Error(j.error ?? 'file failed')
