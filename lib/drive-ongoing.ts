@@ -163,9 +163,18 @@ export async function planOngoingUnit(folder: { id: string; name: string }, know
   }
 
   const fn = firstApplicant ? firstNameOf(firstApplicant) : null
-  const ym = yyyymm(leaseStart)
+  let ym = yyyymm(leaseStart)
+  let ymFallback = false
+  if (!ym) {
+    // No lease date on the docs — fall back to the OLDEST file's month (≈ when
+    // the application came in) so the subfolder still gets a YYYY_MM prefix.
+    const oldest = files.map(f => f.createdTime).filter((d): d is string => !!d).sort()[0]
+    const fb = yyyymm(oldest ?? null)
+    if (fb) { ym = fb; ymFallback = true }
+  }
   if (!fn) warnings.push('No applicant name detected — set the subfolder name manually.')
-  if (!ym) warnings.push('No lease start date detected — set the month manually.')
+  if (ymFallback && fn) warnings.push(`No lease date on the docs — used the application month (${ym}); adjust if needed.`)
+  else if (!ym) warnings.push('No date detected — set the month manually.')
   const subfolderName = (ym && fn) ? `${ym}_${fn}` : ([ym, fn].filter(Boolean).join('_') || null)
 
   const proposed = files.map(f => proposeFileName(f.name, f.createdTime))
@@ -196,7 +205,19 @@ export async function applyOngoingUnit(p: {
 
   // 2. subfolder + file moves only when we have a name for the subfolder.
   if (!sub) return { folderRenamed: true, subfolder: false, renamed: 0, moved: 0 }
-  const subId = await resolveDatedSubfolder(p.folderId, sub, true)
+  // Migrate a bare-name subfolder from an earlier run (e.g. "Donald") to the
+  // dated name ("2026_07_Donald") in place, instead of creating a duplicate.
+  let subId: string | null = null
+  const namePart = sub.replace(/^\d{4}_\d{2}_/, '')
+  if (namePart && namePart !== sub) {
+    const existing = await drive.files.list({
+      q: `'${p.folderId}' in parents and mimeType = '${FOLDER_MIME}' and trashed = false and name = '${namePart.replace(/'/g, "\\'")}'`,
+      fields: 'files(id)', pageSize: 5, supportsAllDrives: true, includeItemsFromAllDrives: true,
+    })
+    const hit = existing.data.files?.[0]?.id
+    if (hit) { await drive.files.update({ fileId: hit, requestBody: { name: sub }, supportsAllDrives: true }); subId = hit }
+  }
+  if (!subId) subId = await resolveDatedSubfolder(p.folderId, sub, true)
   if (!subId) throw new Error('could not create the subfolder')
 
   let renamed = 0, moved = 0
