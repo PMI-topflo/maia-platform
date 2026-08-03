@@ -11,6 +11,8 @@
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { getDrive } from '@/lib/drive-invoice-mirror'
+import { downloadDriveFile } from '@/lib/drive-import'
+import { extractPdfText } from '@/lib/extract-pdf'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const runtime = 'nodejs'
@@ -37,6 +39,25 @@ function plusOneYear(iso: string | null): string | null {
   if (!iso) return null
   const d = new Date(iso); if (Number.isNaN(d.getTime())) return null
   d.setFullYear(d.getFullYear() + 1); return d.toISOString().slice(0, 10)
+}
+// Fallback for rows with no unit in the filename: the unit lives in the property
+// ADDRESS inside the PDF body (e.g. "4174 Inverrary Drive #811", "Apt 811",
+// "Unit 1002"). Open the PDF and pull the unit from that address. Only called
+// for the handful of no-unit rows so the report stays fast.
+async function unitFromBody(fileId: string): Promise<string | null> {
+  try {
+    const buf = await downloadDriveFile(fileId)
+    const { text } = await extractPdfText(buf, 'application/pdf')
+    if (!text) return null
+    const t = text.replace(/\s+/g, ' ')
+    // Prefer a unit tied to the Inverrary address; else "Unit/Apt/#NNN".
+    const near = t.match(/inverrary\s+dr(?:ive)?[^0-9]{0,20}#?\s*0*(\d{3,4})\b/i)
+      || t.match(/\b(?:unit|apt|apartment|suite|ste)\s*#?\s*0*(\d{3,4})\b/i)
+      || t.match(/#\s*0*(\d{3,4})\b/)
+    const n = near?.[1]
+    if (n && +n >= 101 && +n <= 1099) return `MANXI${n}`
+    return null
+  } catch { return null }
 }
 
 export async function GET(req: Request) {
@@ -70,7 +91,8 @@ export async function GET(req: Request) {
     } while (pageToken && files.length < limit)
 
     const skip = /estoppel|audit only|client representation|engagement letter/i
-    const rows = files.filter(f => !skip.test(f.name)).slice(0, limit).map(f => {
+    const kept = files.filter(f => !skip.test(f.name)).slice(0, limit)
+    const rows = kept.map(f => {
       const kind = classify(f.name)
       const unit = unitFromName(f.name)
       // Term year in the name (e.g. "2025_2026") → end-year for a rough expiry.
@@ -82,10 +104,38 @@ export async function GET(req: Request) {
         fileId: f.id, fileName: f.name, driveUrl: f.webViewLink, unit, kind, approvalDate,
         maiaOwner: unit ? (ownerByUnit.get(unit.replace(/^MANXI/i, '')) ?? null) : null,
         termInName: term ? `${term[1]}–${term[2]}` : null, expiry,
+        unitFromBody: false, current: true, supersededBy: null as string | null,
       }
-    }).sort((a, b) => (a.unit ?? 'zzz').localeCompare(b.unit ?? 'zzz'))
+    })
 
-    return NextResponse.json({ ok: true, association: assoc, scanned: files.length, reported: rows.length, rows })
+    // Fallback: resolve the unit from the PDF body (address) for name-less rows.
+    for (const r of rows) {
+      if (r.unit) continue
+      const u = await unitFromBody(r.fileId)
+      if (u) { r.unit = u; r.unitFromBody = true; r.maiaOwner = ownerByUnit.get(u.replace(/^MANXI/i, '')) ?? null }
+    }
+
+    // Only the MOST RECENT approval per unit is the live one to FILE; older
+    // approvals of the same unit (prior-year renewals of the same tenant) are
+    // history → they get archived, not put on the unit page. Flag them so the
+    // reviewer sees which single row per unit becomes unit.approval_letter.
+    const latestByUnit = new Map<string, { date: string; file: string }>()
+    for (const r of rows) {
+      if (!r.unit || !r.approvalDate) continue
+      const cur = latestByUnit.get(r.unit)
+      if (!cur || r.approvalDate > cur.date) latestByUnit.set(r.unit, { date: r.approvalDate, file: r.fileName })
+    }
+    for (const r of rows) {
+      if (!r.unit) continue
+      const latest = latestByUnit.get(r.unit)
+      if (latest && r.approvalDate && r.approvalDate < latest.date) { r.current = false; r.supersededBy = latest.file }
+    }
+
+    rows.sort((a, b) => (a.unit ?? 'zzz').localeCompare(b.unit ?? 'zzz')
+      || (b.approvalDate ?? '').localeCompare(a.approvalDate ?? ''))
+
+    const currentCount = rows.filter(r => r.current && r.unit).length
+    return NextResponse.json({ ok: true, association: assoc, scanned: files.length, reported: rows.length, currentCount, rows })
   } catch (e) {
     return NextResponse.json({ error: `Report error: ${e instanceof Error ? e.message : String(e)}` }, { status: 200 })
   }

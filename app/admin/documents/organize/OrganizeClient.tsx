@@ -51,6 +51,7 @@ type Status = 'idle' | 'saving' | 'done' | 'error'
 interface ApprovalRow {
   fileId: string; fileName: string; driveUrl: string | null; unit: string | null; kind: string
   approvalDate: string | null; maiaOwner: string | null; termInName: string | null; expiry: string | null
+  unitFromBody?: boolean; current?: boolean; supersededBy?: string | null
 }
 interface OngoingUnit {
   folderId: string; currentName: string; unitRef: string | null; newFolderName: string | null
@@ -571,27 +572,34 @@ export default function OrganizeClient() {
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-gray-600" title="Read-only. Finds every signed board-approval PDF across all folders, reads each, and lists unit · type · owner · tenant · expiry, cross-checked with MAIA. Nothing is moved.">📋 Approvals report (MANXI)</span>
           <button onClick={runApprovalsReport} disabled={reportBusy} className="rounded border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 disabled:opacity-50">{reportBusy ? 'Reading approvals…' : 'Run report'}</button>
-          {report && <span className="text-[11px] text-gray-500">{report.length} signed approval(s){report.filter(r => !r.unit).length ? ` · ${report.filter(r => !r.unit).length} with no unit in the name` : ''}</span>}
+          {report && (() => { const noUnit = report.filter(r => !r.unit).length; const cur = report.filter(r => r.current !== false && r.unit).length; const sup = report.filter(r => r.current === false).length
+            return <span className="text-[11px] text-gray-500">{report.length} signed approval(s) · <b>{cur} current</b> to file{sup ? ` · ${sup} superseded (older)` : ''}{noUnit ? ` · ${noUnit} with no unit` : ''}</span> })()}
         </div>
         {report && report.length > 0 && (
           <div className="mt-2 overflow-x-auto">
             <table className="w-full text-[11px]">
-              <thead><tr className="text-left text-gray-500"><th className="py-1 pr-3">Unit</th><th className="pr-3">Type</th><th className="pr-3">Owner (MAIA)</th><th className="pr-3">Term</th><th className="pr-3">Approved</th><th className="pr-3">Expiry</th><th>File</th></tr></thead>
+              <thead><tr className="text-left text-gray-500"><th className="py-1 pr-3">Unit</th><th className="pr-3">Status</th><th className="pr-3">Type</th><th className="pr-3">Owner (MAIA)</th><th className="pr-3">Term</th><th className="pr-3">Approved</th><th className="pr-3">Expiry</th><th>File</th></tr></thead>
               <tbody>
                 {report.map(r => (
-                  <tr key={r.fileId} className="border-t border-gray-100 align-top">
-                    <td className="whitespace-nowrap py-1 pr-3 font-medium">{r.unit ?? <span className="text-amber-700">⚠ no unit</span>}</td>
-                    <td className="pr-3 capitalize text-gray-600">{r.kind}</td>
+                  <tr key={r.fileId} className={`border-t border-gray-100 align-top ${r.current === false ? 'text-gray-400' : ''}`}>
+                    <td className="whitespace-nowrap py-1 pr-3 font-medium">
+                      {r.unit ?? <span className="text-amber-700">⚠ no unit</span>}
+                      {r.unitFromBody && <span className="ml-1 rounded bg-blue-50 px-1 text-[9px] text-blue-600" title="Unit read from the address inside the PDF (not in the filename)">from PDF</span>}
+                    </td>
+                    <td className="whitespace-nowrap pr-3">{r.current === false
+                      ? <span className="rounded bg-gray-100 px-1 text-[9px] text-gray-500" title={`Older approval — superseded by ${r.supersededBy ?? 'a newer one'}. Will be archived, not filed on the unit page.`}>superseded</span>
+                      : r.unit ? <span className="rounded bg-green-50 px-1 text-[9px] font-medium text-green-700" title="Most recent approval for this unit — this is the one MAIA files as unit.approval_letter.">current</span> : '—'}</td>
+                    <td className="pr-3 capitalize">{r.kind}</td>
                     <td className="pr-3">{r.maiaOwner ?? '—'}</td>
-                    <td className="pr-3 text-gray-500">{r.termInName ?? '—'}</td>
-                    <td className="whitespace-nowrap pr-3 text-gray-500">{r.approvalDate ?? '—'}</td>
-                    <td className="whitespace-nowrap pr-3 text-gray-600">{r.expiry ?? (r.kind === 'purchase' ? 'n/a' : '—')}</td>
+                    <td className="pr-3">{r.termInName ?? '—'}</td>
+                    <td className="whitespace-nowrap pr-3">{r.approvalDate ?? '—'}</td>
+                    <td className="whitespace-nowrap pr-3">{r.expiry ?? (r.kind === 'purchase' ? 'n/a' : '—')}</td>
                     <td>{r.driveUrl ? <a href={r.driveUrl} target="_blank" rel="noreferrer" className="text-blue-600" title={r.fileName}>↗ open</a> : '—'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <p className="mt-1 text-[10px] text-gray-400">Read-only — nothing moved. Owner = MAIA record; tenant, exact lease dates, and email/phone come from each unit&rsquo;s folder during the move. Expiry = term end, or approval date + 1 year (purchases: n/a).</p>
+            <p className="mt-1 text-[10px] text-gray-400">Read-only — nothing moved. <b>Current</b> = the newest approval per unit (what MAIA files as the live document). <b>Superseded</b> = an older approval of the same unit (prior-year renewal) → archived, not shown on the unit page. Owner = MAIA record; tenant, exact lease dates, and email/phone come from each unit&rsquo;s folder during the move. Expiry = term end, or approval date + 1 year (purchases: n/a).</p>
           </div>
         )}
       </div>
