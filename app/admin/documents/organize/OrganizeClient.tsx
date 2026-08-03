@@ -49,9 +49,8 @@ interface BrowseFolder { id: string; name: string }
 interface BrowseData { parentId: string; current: { id: string; name: string; parentId: string | null } | null; folders: BrowseFolder[] }
 type Status = 'idle' | 'saving' | 'done' | 'error'
 interface ApprovalRow {
-  fileId: string; fileName: string; unit: string | null; kind: string; approvalDate: string | null
-  owner: string | null; tenant: string | null; tenantEmail: string | null; tenantPhone: string | null
-  leaseStart: string | null; leaseEnd: string | null; expiry: string | null; maiaOwner: string | null; ownerMatches: boolean
+  fileId: string; fileName: string; driveUrl: string | null; unit: string | null; kind: string
+  approvalDate: string | null; maiaOwner: string | null; termInName: string | null; expiry: string | null
 }
 interface OngoingUnit {
   folderId: string; currentName: string; unitRef: string | null; newFolderName: string | null
@@ -572,27 +571,27 @@ export default function OrganizeClient() {
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-gray-600" title="Read-only. Finds every signed board-approval PDF across all folders, reads each, and lists unit · type · owner · tenant · expiry, cross-checked with MAIA. Nothing is moved.">📋 Approvals report (MANXI)</span>
           <button onClick={runApprovalsReport} disabled={reportBusy} className="rounded border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 disabled:opacity-50">{reportBusy ? 'Reading approvals…' : 'Run report'}</button>
-          {report && <span className="text-[11px] text-gray-500">{report.length} approval(s) · {report.filter(r => r.owner && !r.ownerMatches).length} owner-mismatch to check</span>}
+          {report && <span className="text-[11px] text-gray-500">{report.length} signed approval(s){report.filter(r => !r.unit).length ? ` · ${report.filter(r => !r.unit).length} with no unit in the name` : ''}</span>}
         </div>
         {report && report.length > 0 && (
           <div className="mt-2 overflow-x-auto">
             <table className="w-full text-[11px]">
-              <thead><tr className="text-left text-gray-500"><th className="py-1 pr-3">Unit</th><th className="pr-3">Type</th><th className="pr-3">Owner (granted-to)</th><th className="pr-3">Tenant</th><th className="pr-3">Contact</th><th className="pr-3">Expiry</th><th>Notes</th></tr></thead>
+              <thead><tr className="text-left text-gray-500"><th className="py-1 pr-3">Unit</th><th className="pr-3">Type</th><th className="pr-3">Owner (MAIA)</th><th className="pr-3">Term</th><th className="pr-3">Approved</th><th className="pr-3">Expiry</th><th>File</th></tr></thead>
               <tbody>
                 {report.map(r => (
                   <tr key={r.fileId} className="border-t border-gray-100 align-top">
-                    <td className="whitespace-nowrap py-1 pr-3 font-medium">{r.unit ?? '—'}</td>
+                    <td className="whitespace-nowrap py-1 pr-3 font-medium">{r.unit ?? <span className="text-amber-700">⚠ no unit</span>}</td>
                     <td className="pr-3 capitalize text-gray-600">{r.kind}</td>
-                    <td className="pr-3">{r.owner ?? '—'}</td>
-                    <td className="pr-3">{r.tenant ?? '—'}</td>
-                    <td className="pr-3 text-gray-500">{[r.tenantEmail, r.tenantPhone].filter(Boolean).join(' · ') || '—'}</td>
+                    <td className="pr-3">{r.maiaOwner ?? '—'}</td>
+                    <td className="pr-3 text-gray-500">{r.termInName ?? '—'}</td>
+                    <td className="whitespace-nowrap pr-3 text-gray-500">{r.approvalDate ?? '—'}</td>
                     <td className="whitespace-nowrap pr-3 text-gray-600">{r.expiry ?? (r.kind === 'purchase' ? 'n/a' : '—')}</td>
-                    <td className="text-amber-700">{r.owner && !r.ownerMatches ? `⚠ MAIA owner: ${r.maiaOwner ?? '—'}` : ''}{!r.unit ? ' ⚠ no unit' : ''}</td>
+                    <td>{r.driveUrl ? <a href={r.driveUrl} target="_blank" rel="noreferrer" className="text-blue-600" title={r.fileName}>↗ open</a> : '—'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <p className="mt-1 text-[10px] text-gray-400">Read-only — nothing moved. ⚠ owner-mismatch = the &ldquo;granted-to&rdquo; name doesn&rsquo;t match MAIA&rsquo;s owner (possible tenant/landlord swap or a purchase changing owner). Expiry = lease end, or approval date + 1 year.</p>
+            <p className="mt-1 text-[10px] text-gray-400">Read-only — nothing moved. Owner = MAIA record; tenant, exact lease dates, and email/phone come from each unit&rsquo;s folder during the move. Expiry = term end, or approval date + 1 year (purchases: n/a).</p>
           </div>
         )}
       </div>
