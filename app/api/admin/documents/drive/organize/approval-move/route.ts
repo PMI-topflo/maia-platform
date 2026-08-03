@@ -90,13 +90,21 @@ export async function POST(req: Request) {
 
       if (dryRun) { res.dryRun = true; results.push(res); continue }
 
-      // 2. tenant record (leases/renewals/additional — not purchases)
-      if (kind !== 'purchase' && (tenantName || leaseStart || leaseEnd || details.tenantEmail || details.tenantPhone)) {
-        await supabaseAdmin.from('unit_tenant_contacts').upsert({
-          association_code: 'MANXI', unit_ref: unit,
-          tenant_name: tenantName, lease_start: leaseStart, lease_end: leaseEnd,
-          ...(details.tenantEmail ? { tenant_email: details.tenantEmail } : {}),
-          ...(details.tenantPhone ? { tenant_phone: details.tenantPhone } : {}),
+      // 2. tenant record + mark the unit LEASED (leases/renewals/additional —
+      //    not purchases). The occupancy flag is what the audit counts as
+      //    "Leased" and what makes the unit page show its tenancy section.
+      if (kind !== 'purchase') {
+        if (tenantName || leaseStart || leaseEnd || details.tenantEmail || details.tenantPhone) {
+          await supabaseAdmin.from('unit_tenant_contacts').upsert({
+            association_code: 'MANXI', unit_ref: unit,
+            tenant_name: tenantName, lease_start: leaseStart, lease_end: leaseEnd,
+            ...(details.tenantEmail ? { tenant_email: details.tenantEmail } : {}),
+            ...(details.tenantPhone ? { tenant_phone: details.tenantPhone } : {}),
+            updated_by: `staff:${session.displayName} (approval move)`, updated_at: new Date().toISOString(),
+          }, { onConflict: 'association_code,unit_ref' })
+        }
+        await supabaseAdmin.from('unit_occupancy').upsert({
+          association_code: 'MANXI', unit_ref: unit, status: 'leased',
           updated_by: `staff:${session.displayName} (approval move)`, updated_at: new Date().toISOString(),
         }, { onConflict: 'association_code,unit_ref' })
       }
