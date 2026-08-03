@@ -10,7 +10,7 @@ interface ScanFile {
   category: FilterCategory; include: boolean; reason: string; sourceMimeType?: string
 }
 interface Detected { scope: string; category: string | null; itemKey: string | null; docType: string | null; effectiveDate: string | null; expirationDate: string | null; confidence: number }
-interface LeaseInfo { tenantNames: string[]; ownerNames: string[]; leaseStart: string | null; leaseEnd: string | null; monthlyRent: string | null }
+interface LeaseInfo { tenantNames: string[]; ownerNames: string[]; leaseStart: string | null; leaseEnd: string | null; monthlyRent: string | null; tenantEmail: string | null; tenantPhone: string | null }
 interface InsuranceInfo { policyType: 'ho6' | 'ho4' | 'liability_only' | 'other'; namedInsured: string | null; insuredIsEntity: boolean; hasDwellingCoverage: boolean; hasPersonalProperty: boolean; hasLossAssessment: boolean; hasLiability: boolean; adequateForUnit: boolean; recommendation: string | null; expirationDate: string | null }
 interface ReadResult { ok?: boolean; error?: string; associationCode?: string; unitRef?: string | null; summary?: string | null; detected?: Detected | null; lease?: LeaseInfo | null; insurance?: InsuranceInfo | null; tenantOwnerMatch?: string | null }
 
@@ -304,7 +304,7 @@ export default function OrganizeClient() {
     if (rr?.tenantOwnerMatch && !confirm(`⚠ "${lease.tenantNames.join(', ')}" matches the OWNER on file ("${rr.tenantOwnerMatch}"). Save this as the TENANT anyway?`)) return
     setRowBusy(b => ({ ...b, [f.id]: 'tenant' }))
     try {
-      const res = await fetch('/api/admin/documents/drive/organize/save-tenant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ associationCode: readRes[f.id]?.associationCode ?? 'MANXI', unitRef, tenantName: lease.tenantNames.join(', '), leaseStart: lease.leaseStart, leaseEnd: lease.leaseEnd }) })
+      const res = await fetch('/api/admin/documents/drive/organize/save-tenant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ associationCode: readRes[f.id]?.associationCode ?? 'MANXI', unitRef, tenantName: lease.tenantNames.join(', '), leaseStart: lease.leaseStart, leaseEnd: lease.leaseEnd, tenantEmail: lease.tenantEmail, tenantPhone: lease.tenantPhone }) })
       const j = await res.json(); if (!j.ok) throw new Error(j.error ?? 'save failed')
       setSavedTenant(s => ({ ...s, [f.id]: true }))
     } catch (e) { alert(`Save tenant failed: ${(e as Error).message}`) } finally { setRowBusy(b => ({ ...b, [f.id]: '' })) }
