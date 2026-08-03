@@ -1,0 +1,84 @@
+'use client'
+
+// On-site managers box on the Association Hub — the building-wide on-site
+// staff (building_managers), distinct from an owner's per-unit unit_managers.
+// Lists them + lets staff paste a whole list of emails at once (one per line,
+// optional name). They become recipients of the lease-expiry alerts.
+
+import { useEffect, useState } from 'react'
+
+interface Manager { id: string; first_name: string; last_name: string; email: string | null; phone: string | null; company_name: string | null; active: boolean }
+
+// Pull an email out of a pasted line; the rest of the line is the name.
+function parseLine(line: string): { name: string; email: string } | null {
+  const m = line.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)
+  if (!m) return null
+  const email = m[0]
+  const name = line.replace(email, '').replace(/[<>(),;|]/g, ' ').replace(/\s+/g, ' ').trim()
+  return { name, email }
+}
+
+export default function OnsiteManagersBox({ code }: { code: string }) {
+  const [managers, setManagers] = useState<Manager[] | null>(null)
+  const [paste, setPaste] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const load = () => fetch(`/api/admin/building-managers?assoc=${encodeURIComponent(code)}`)
+    .then(r => r.json()).then(d => setManagers(d.managers ?? [])).catch(() => setManagers([]))
+  useEffect(() => { load() }, [code])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function addPasted() {
+    const entries = paste.split(/[\n,]+/).map(parseLine).filter((e): e is { name: string; email: string } => !!e)
+    if (entries.length === 0) { setMsg('Paste at least one email address.'); return }
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch('/api/admin/building-managers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ association_code: code, entries }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setMsg(`Added ${j.added}${j.skipped ? `, skipped ${j.skipped} already on file` : ''}.`)
+      setPaste(''); load()
+    } catch (e) { setMsg(`Could not add: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
+  async function toggle(id: string, active: boolean) {
+    await fetch('/api/admin/building-managers', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, active }) })
+    load()
+  }
+
+  const box: React.CSSProperties = { border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }
+  return (
+    <div style={box}>
+      <h3 style={{ font: '700 15px system-ui', margin: '0 0 2px' }}>On-site managers</h3>
+      <p style={{ font: '12px system-ui', color: '#6b7280', margin: '0 0 12px' }}>Building-wide on-site staff. They receive lease-expiry alerts. (Not an owner&rsquo;s per-unit manager.)</p>
+
+      {managers === null ? <p style={{ font: '12px system-ui', color: '#9ca3af' }}>Loading…</p>
+        : managers.length === 0 ? <p style={{ font: '12px system-ui', color: '#9ca3af' }}>None yet — paste the on-site managers&rsquo; emails below.</p>
+        : (
+          <ul style={{ listStyle: 'none', margin: '0 0 12px', padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {managers.map(m => (
+              <li key={m.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline', opacity: m.active ? 1 : 0.5 }}>
+                <span style={{ font: '13px system-ui' }}>
+                  <span style={{ fontWeight: 600 }}>{[m.first_name, m.last_name].filter(Boolean).join(' ') || '—'}</span>
+                  {m.email ? <span style={{ color: '#6b7280' }}> · {m.email}</span> : null}
+                  {m.company_name ? <span style={{ color: '#9ca3af' }}> · {m.company_name}</span> : null}
+                </span>
+                <button onClick={() => toggle(m.id, !m.active)} style={{ font: '11px system-ui', color: m.active ? '#b91c1c' : '#2563eb', background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  {m.active ? 'Deactivate' : 'Reactivate'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+      <textarea value={paste} onChange={e => setPaste(e.target.value)} rows={3}
+        placeholder={'Paste emails — one per line\ne.g.  Jane Doe <jane@onsite.com>\nmanager2@onsite.com'}
+        style={{ width: '100%', font: '12px ui-monospace, monospace', border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px', boxSizing: 'border-box', resize: 'vertical' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+        <button onClick={addPasted} disabled={busy || !paste.trim()} style={{ font: '600 13px system-ui', background: '#f26a1b', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer', opacity: busy || !paste.trim() ? 0.6 : 1 }}>
+          {busy ? 'Adding…' : 'Add on-site managers'}
+        </button>
+        {msg && <span style={{ font: '12px system-ui', color: '#374151' }}>{msg}</span>}
+      </div>
+    </div>
+  )
+}

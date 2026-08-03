@@ -29,6 +29,10 @@
       "schedule": "0 8 * * *"
     },
     {
+      "path": "/api/cron/lease-renewal-alerts",
+      "schedule": "0 12 * * *"
+    },
+    {
       "path": "/api/cron/drain-integration-outbox",
       "schedule": "* * * * *"
     },
