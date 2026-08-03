@@ -22,6 +22,7 @@ import ComplianceMatrix from './ComplianceMatrix'
 import AssociationUnitDocs from '../../audit/AssociationUnitDocs'
 import VendorTradeCell from './VendorTradeCell'
 import BoardCertBox from './BoardCertBox'
+import OnsiteManagersBox from './OnsiteManagersBox'
 import { associationPortalPath } from '@/lib/association-portal'
 
 export interface HubBankAccount { description: string; last4: string | null; kind: string; bankBalance: number | null; restricted: boolean }
@@ -291,6 +292,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
           <AssociationDetailsCard data={data} onSaved={() => router.refresh()} />
           <OnboardingChecklistCard data={data} onOpenTab={selectTab} />
           <BoardCertBox code={data.code} />
+          <OnsiteManagersBox code={data.code} />
         </aside>
 
         {/* Tab content */}
