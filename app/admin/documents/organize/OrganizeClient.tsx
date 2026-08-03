@@ -48,6 +48,11 @@ function typeFromDetected(itemKey: string | null, category: string | null, docTy
 interface BrowseFolder { id: string; name: string }
 interface BrowseData { parentId: string; current: { id: string; name: string; parentId: string | null } | null; folders: BrowseFolder[] }
 type Status = 'idle' | 'saving' | 'done' | 'error'
+interface ApprovalRow {
+  fileId: string; fileName: string; unit: string | null; kind: string; approvalDate: string | null
+  owner: string | null; tenant: string | null; tenantEmail: string | null; tenantPhone: string | null
+  leaseStart: string | null; leaseEnd: string | null; expiry: string | null; maiaOwner: string | null; ownerMatches: boolean
+}
 interface OngoingUnit {
   folderId: string; currentName: string; unitRef: string | null; newFolderName: string | null
   subfolderName: string | null; firstApplicant: string | null; leaseStart: string | null
@@ -101,6 +106,9 @@ export default function OrganizeClient() {
   const [ongoingDone, setOngoingDone] = useState<string | null>(null)
   const [ongoingEdit, setOngoingEdit] = useState<Record<string, string>>({})   // folderId → edited subfolder name
   const [ongoingOpen, setOngoingOpen] = useState<Record<string, boolean>>({})  // folderId → files expanded
+  // Signed board-approvals report (dry run)
+  const [report, setReport] = useState<ApprovalRow[] | null>(null)
+  const [reportBusy, setReportBusy] = useState(false)
 
   async function planReorg() {
     if (!url.trim()) { alert('Paste the OLD archive folder link first.'); return }
@@ -192,6 +200,15 @@ export default function OrganizeClient() {
       if (!ym) { alert(`Read as ${t}, but the file has no date — set the name by hand.`); return }
       setOngoingFileName(folderId, file.fileId, `${ym}_${t}${e}`)
     } catch (e) { alert(`Read failed: ${(e as Error).message}`) } finally { setReading(r => ({ ...r, [file.fileId]: false })) }
+  }
+
+  async function runApprovalsReport() {
+    setReportBusy(true); setReport(null)
+    try {
+      const res = await fetch('/api/admin/documents/drive/approvals-report?assoc=MANXI')
+      const j = await res.json(); if (!res.ok || j.error) throw new Error(j.error || 'failed')
+      setReport(j.rows ?? [])
+    } catch (e) { alert(`Approvals report failed: ${(e as Error).message}`) } finally { setReportBusy(false) }
   }
 
   async function findCleanup() {
@@ -547,6 +564,35 @@ export default function OrganizeClient() {
               </tbody>
             </table>
             <p className="mt-1 text-[10px] text-gray-400">Files move into the dated subfolder; keeper types get YYYY_MM_Type names (insurance stays generic — verify HO-6 vs liability separately). Nothing moves to OLD/Archive here — that happens on the board&apos;s final approval.</p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-2 rounded border border-dashed border-gray-200 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-gray-600" title="Read-only. Finds every signed board-approval PDF across all folders, reads each, and lists unit · type · owner · tenant · expiry, cross-checked with MAIA. Nothing is moved.">📋 Approvals report (MANXI)</span>
+          <button onClick={runApprovalsReport} disabled={reportBusy} className="rounded border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 disabled:opacity-50">{reportBusy ? 'Reading approvals…' : 'Run report'}</button>
+          {report && <span className="text-[11px] text-gray-500">{report.length} approval(s) · {report.filter(r => r.owner && !r.ownerMatches).length} owner-mismatch to check</span>}
+        </div>
+        {report && report.length > 0 && (
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead><tr className="text-left text-gray-500"><th className="py-1 pr-3">Unit</th><th className="pr-3">Type</th><th className="pr-3">Owner (granted-to)</th><th className="pr-3">Tenant</th><th className="pr-3">Contact</th><th className="pr-3">Expiry</th><th>Notes</th></tr></thead>
+              <tbody>
+                {report.map(r => (
+                  <tr key={r.fileId} className="border-t border-gray-100 align-top">
+                    <td className="whitespace-nowrap py-1 pr-3 font-medium">{r.unit ?? '—'}</td>
+                    <td className="pr-3 capitalize text-gray-600">{r.kind}</td>
+                    <td className="pr-3">{r.owner ?? '—'}</td>
+                    <td className="pr-3">{r.tenant ?? '—'}</td>
+                    <td className="pr-3 text-gray-500">{[r.tenantEmail, r.tenantPhone].filter(Boolean).join(' · ') || '—'}</td>
+                    <td className="whitespace-nowrap pr-3 text-gray-600">{r.expiry ?? (r.kind === 'purchase' ? 'n/a' : '—')}</td>
+                    <td className="text-amber-700">{r.owner && !r.ownerMatches ? `⚠ MAIA owner: ${r.maiaOwner ?? '—'}` : ''}{!r.unit ? ' ⚠ no unit' : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mt-1 text-[10px] text-gray-400">Read-only — nothing moved. ⚠ owner-mismatch = the &ldquo;granted-to&rdquo; name doesn&rsquo;t match MAIA&rsquo;s owner (possible tenant/landlord swap or a purchase changing owner). Expiry = lease end, or approval date + 1 year.</p>
           </div>
         )}
       </div>
