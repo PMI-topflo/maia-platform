@@ -172,9 +172,15 @@ export async function planOngoingUnit(folder: { id: string; name: string }, know
     const fb = yyyymm(oldest ?? null)
     if (fb) { ym = fb; ymFallback = true }
   }
-  if (!fn) warnings.push('No applicant name detected — set the subfolder name manually.')
-  if (ymFallback && fn) warnings.push(`No lease date on the docs — used the application month (${ym}); adjust if needed.`)
-  else if (!ym) warnings.push('No date detected — set the month manually.')
+  if (fn && ym) {
+    if (ymFallback) warnings.push(`No lease date on the docs — used the application month (${ym}); adjust if needed.`)
+  } else if (fn && !ym) {
+    warnings.push('No date detected — set the month manually.')
+  } else if (!fn && ym) {
+    warnings.push(`No applicant name detected — subfolder is the month only (${ym}); add the name if you can.`)
+  } else {
+    warnings.push('No applicant name or date detected — set the subfolder name manually.')
+  }
   const subfolderName = (ym && fn) ? `${ym}_${fn}` : ([ym, fn].filter(Boolean).join('_') || null)
 
   const proposed = files.map(f => proposeFileName(f.name, f.createdTime))
