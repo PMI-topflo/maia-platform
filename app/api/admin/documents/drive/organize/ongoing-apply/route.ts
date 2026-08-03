@@ -20,9 +20,9 @@ export async function POST(req: Request) {
 
   const folderId = String(body.folderId ?? '').trim()
   const newFolderName = String(body.newFolderName ?? '').trim()
-  const subfolderName = String(body.subfolderName ?? '').trim()
-  if (!folderId || !newFolderName || !subfolderName) {
-    return NextResponse.json({ error: 'folderId, newFolderName and subfolderName are required' }, { status: 400 })
+  const subfolderName = String(body.subfolderName ?? '').trim()   // optional — folder is renamed even without it
+  if (!folderId || !newFolderName) {
+    return NextResponse.json({ error: 'folderId and newFolderName are required' }, { status: 400 })
   }
   const files = (body.files ?? [])
     .map(f => ({ fileId: String(f.fileId ?? '').trim(), newName: String(f.newName ?? '').trim() }))
