@@ -109,6 +109,11 @@ export default function OrganizeClient() {
   // Signed board-approvals report (dry run)
   const [report, setReport] = useState<ApprovalRow[] | null>(null)
   const [reportBusy, setReportBusy] = useState(false)
+  // Official reset + per-unit approval move
+  const [resetInfo, setResetInfo] = useState<string | null>(null)
+  const [moveBusy, setMoveBusy] = useState(false)
+  const [moveResults, setMoveResults] = useState<Record<string, unknown>[] | null>(null)
+  const [moveProgress, setMoveProgress] = useState<{ done: number; total: number } | null>(null)
 
   async function planReorg() {
     if (!url.trim()) { alert('Paste the OLD archive folder link first.'); return }
@@ -209,6 +214,34 @@ export default function OrganizeClient() {
       const j = await res.json(); if (!res.ok || j.error) throw new Error(j.error || 'failed')
       setReport(j.rows ?? [])
     } catch (e) { alert(`Approvals report failed: ${(e as Error).message}`) } finally { setReportBusy(false) }
+  }
+
+  async function resetOfficial(apply: boolean) {
+    if (apply && !confirm('Archive ALL current Official subfolders into OLD → "Pre-2026-cleanup <date>"?\n\nNothing is deleted — folders move to OLD and can be restored. Official is then rebuilt from the current approvals below.')) return
+    setMoveBusy(true); setResetInfo(null)
+    try {
+      const res = await fetch('/api/admin/documents/drive/organize/reset-official', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apply }) })
+      const j = await res.json(); if (j.error || !j.ok) throw new Error(j.error ?? 'reset failed')
+      setResetInfo(apply ? `Moved ${j.moved}/${j.total ?? j.moved} subfolder(s) → OLD/${j.bucket}` : `${j.count} Official subfolder(s) would move to OLD${j.sample?.length ? ` — e.g. ${j.sample.slice(0, 3).join(', ')}…` : ''}`)
+    } catch (e) { alert(`Reset failed: ${(e as Error).message}`) } finally { setMoveBusy(false) }
+  }
+
+  // File the CURRENT approvals: extract → update records → file → copy into Official. Batched.
+  async function runMoves(dryRun: boolean) {
+    const current = (report ?? []).filter(r => r.current !== false && r.unit)
+    if (current.length === 0) { alert('Run the report first — no current approvals to file.'); return }
+    if (!dryRun && !confirm(`File ${current.length} current approval(s)?\n\nFor each unit MAIA will: read the PDF, update the tenant record, file the Approval Letter with its expiry, and copy the renamed file into Official.`)) return
+    setMoveBusy(true); setMoveResults(null); setMoveProgress({ done: 0, total: current.length })
+    const all: Record<string, unknown>[] = []
+    try {
+      for (let i = 0; i < current.length; i += 5) {
+        const batch = current.slice(i, i + 5).map(r => ({ fileId: r.fileId, unit: r.unit, kind: r.kind, driveUrl: r.driveUrl, approvalDate: r.approvalDate, expiry: r.expiry }))
+        const res = await fetch('/api/admin/documents/drive/organize/approval-move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: batch, dryRun }) })
+        const j = await res.json(); if (j.error) throw new Error(j.error)
+        all.push(...(j.results ?? []))
+        setMoveResults([...all]); setMoveProgress({ done: Math.min(i + 5, current.length), total: current.length })
+      }
+    } catch (e) { alert(`Move failed: ${(e as Error).message}`) } finally { setMoveBusy(false); setMoveProgress(null) }
   }
 
   async function findCleanup() {
@@ -600,6 +633,44 @@ export default function OrganizeClient() {
               </tbody>
             </table>
             <p className="mt-1 text-[10px] text-gray-400">Read-only — nothing moved. <b>Current</b> = the newest approval per unit (what MAIA files as the live document). <b>Superseded</b> = an older approval of the same unit (prior-year renewal) → archived, not shown on the unit page. Owner = MAIA record; tenant, exact lease dates, and email/phone come from each unit&rsquo;s folder during the move. Expiry = term end, or approval date + 1 year (purchases: n/a).</p>
+
+            {/* Reset Official + file the current approvals */}
+            <div className="mt-3 rounded border border-gray-200 bg-gray-50 px-3 py-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-semibold text-gray-700">Step 1 · Reset Official</span>
+                <button onClick={() => resetOfficial(false)} disabled={moveBusy} className="rounded border border-gray-300 px-2 py-1 text-[11px] text-gray-700 disabled:opacity-50">Preview</button>
+                <button onClick={() => resetOfficial(true)} disabled={moveBusy} className="rounded bg-amber-600 px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50">Archive Official → OLD</button>
+                {resetInfo && <span className="text-[11px] text-gray-600">{resetInfo}</span>}
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-semibold text-gray-700">Step 2 · File the current approvals</span>
+                <button onClick={() => runMoves(true)} disabled={moveBusy} className="rounded border border-gray-300 px-2 py-1 text-[11px] text-gray-700 disabled:opacity-50">{moveBusy && moveProgress ? 'Reading…' : 'Dry-run (read only)'}</button>
+                <button onClick={() => runMoves(false)} disabled={moveBusy} className="rounded bg-[#0d9488] px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50">File {report.filter(r => r.current !== false && r.unit).length} current →</button>
+                {moveProgress && <span className="text-[11px] text-gray-600">{moveProgress.done}/{moveProgress.total}</span>}
+              </div>
+              <p className="mt-1 text-[10px] text-gray-400">Dry-run reads each PDF and shows the tenant, email/phone, lease dates, expiry, and target file — writes nothing. &ldquo;File&rdquo; then updates the tenant record, files the Approval Letter (link + expiry), and copies the renamed file into Official / MANXI### / Lease&nbsp;or&nbsp;Purchase Applications.</p>
+              {moveResults && moveResults.length > 0 && (
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full text-[11px]">
+                    <thead><tr className="text-left text-gray-500"><th className="py-1 pr-3">Unit</th><th className="pr-3">Tenant</th><th className="pr-3">Email</th><th className="pr-3">Phone</th><th className="pr-3">Lease end</th><th className="pr-3">Expiry</th><th className="pr-3">→ Official</th><th>Notes</th></tr></thead>
+                    <tbody>
+                      {moveResults.map((r, i) => (
+                        <tr key={String(r.fileId ?? i)} className="border-t border-gray-100 align-top">
+                          <td className="whitespace-nowrap py-1 pr-3 font-medium">{String(r.unit ?? '—')}</td>
+                          <td className="pr-3">{String(r.tenant ?? '—')}</td>
+                          <td className="pr-3 text-gray-500">{String(r.tenantEmail ?? '—')}</td>
+                          <td className="pr-3 text-gray-500">{String(r.tenantPhone ?? '—')}</td>
+                          <td className="whitespace-nowrap pr-3 text-gray-500">{String(r.leaseEnd ?? '—')}</td>
+                          <td className="whitespace-nowrap pr-3 text-gray-600">{String(r.expiry ?? (r.kind === 'purchase' ? 'n/a' : '—'))}</td>
+                          <td className="pr-3">{r.copiedTo ? <a href={String(r.copiedTo)} target="_blank" rel="noreferrer" className="text-blue-600">↗ copied</a> : r.wrote ? 'filed' : String(r.targetFolder ?? '—')}</td>
+                          <td className="text-amber-700">{String(r.warning ?? r.error ?? '')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
