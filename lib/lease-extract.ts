@@ -19,6 +19,8 @@ export interface LeaseDetails {
   leaseStart: string | null   // ISO
   leaseEnd: string | null      // ISO
   monthlyRent: string | null
+  tenantEmail: string | null
+  tenantPhone: string | null
 }
 
 function isoDate(v: unknown): string | null {
@@ -41,15 +43,16 @@ function mediaTypeFor(contentType?: string | null): 'image/jpeg' | 'image/png' |
 }
 
 const PROMPT = `You are reading a residential lease / rental agreement, or a tenant-and-landlord affidavit. Extract ONLY minified JSON:
-{"tenant_names": string[], "owner_names": string[], "lease_start": "YYYY-MM-DD"|null, "lease_end": "YYYY-MM-DD"|null, "monthly_rent": string|null}
+{"tenant_names": string[], "owner_names": string[], "lease_start": "YYYY-MM-DD"|null, "lease_end": "YYYY-MM-DD"|null, "monthly_rent": string|null, "tenant_email": string|null, "tenant_phone": string|null}
 - tenant_names: all TENANTS / lessees / occupants (NOT the landlord).
 - owner_names: the LANDLORD / lessor / owner (or their management company) — keep separate from tenants.
 - lease_start / lease_end: the lease term dates if present (a renewal uses the renewal term); null on an affidavit that has no term.
 - monthly_rent: the rent amount as written (e.g. "$1,850"), or null.
+- tenant_email / tenant_phone: the TENANT's email and phone if shown (NOT the landlord's or agent's); null if absent.
 Use null / [] when a field isn't clearly present.`
 
 export async function extractLeaseDetails(buf: Buffer, contentType: string | null): Promise<LeaseDetails> {
-  const empty: LeaseDetails = { tenantNames: [], ownerNames: [], leaseStart: null, leaseEnd: null, monthlyRent: null }
+  const empty: LeaseDetails = { tenantNames: [], ownerNames: [], leaseStart: null, leaseEnd: null, monthlyRent: null, tenantEmail: null, tenantPhone: null }
   if (!process.env.ANTHROPIC_API_KEY) return empty
   try {
     const isPdf = buf.subarray(0, 5).toString('latin1') === '%PDF-' || (contentType ?? '').includes('pdf')
@@ -69,10 +72,12 @@ export async function extractLeaseDetails(buf: Buffer, contentType: string | nul
     const m = text.match(/\{[\s\S]*\}/)
     if (!m) return empty
     const o = JSON.parse(m[0]) as Record<string, unknown>
+    const str = (v: unknown) => typeof v === 'string' && v.trim() ? v.trim() : null
     return {
       tenantNames: names(o.tenant_names), ownerNames: names(o.owner_names),
       leaseStart: isoDate(o.lease_start), leaseEnd: isoDate(o.lease_end),
-      monthlyRent: typeof o.monthly_rent === 'string' && o.monthly_rent.trim() ? o.monthly_rent.trim() : null,
+      monthlyRent: str(o.monthly_rent),
+      tenantEmail: str(o.tenant_email), tenantPhone: str(o.tenant_phone),
     }
   } catch { return empty }
 }
