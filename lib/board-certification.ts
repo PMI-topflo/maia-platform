@@ -100,15 +100,18 @@ export function summarizeBoardMemberCert(
     .filter(d => (d.doc_type === 'education_certificate' || d.doc_type === 'continuing_education') && d.certificate_date)
     .sort((a, b) => (a.certificate_date! < b.certificate_date! ? -1 : 1))
 
+  // Initial certification is satisfied by ANY approved, dated cert doc — the
+  // DBPR education-course certificate, the signed board-member certification
+  // form, or a continuing-education certificate (which presupposes it). The
+  // earliest such date starts the validity window.
   const initialEdu = approved
-    .filter(d => d.doc_type === 'education_certificate' && d.certificate_date)
+    .filter(d => (d.doc_type === 'education_certificate' || d.doc_type === 'certification_form' || d.doc_type === 'continuing_education') && d.certificate_date)
     .sort((a, b) => (a.certificate_date! < b.certificate_date! ? -1 : 1))[0]
 
   const initialCertDate = initialEdu?.certificate_date ?? null
   const interrupted = !!member.service_interrupted
 
-  // No education certificate → missing (the certification form alone does not
-  // satisfy the education requirement, though we surface that it's on file).
+  // Nothing on file at all → missing.
   if (!initialCertDate) {
     return {
       state: 'missing', validityYears: years, initialCertDate: null,
@@ -120,16 +123,16 @@ export function summarizeBoardMemberCert(
   const initialCertExpiration = addYears(initialCertDate, years)
 
   // Continuing ed: due one year after the most recent education/continuing-ed
-  // certificate, annually thereafter.
-  const latestEduDate = eduDocs[eduDocs.length - 1]!.certificate_date!
-  const continuingEdDue = addYears(latestEduDate, 1)
+  // certificate, annually thereafter. The certification form alone carries no
+  // annual continuing-ed requirement, so it doesn't trigger a CE due date.
+  const continuingEdDue = eduDocs.length ? addYears(eduDocs[eduDocs.length - 1]!.certificate_date!, 1) : null
 
   let state: BoardCertState
   if (interrupted || initialCertExpiration < today) {
     state = 'expired'
   } else {
     const daysToExp = Math.round((Date.parse(initialCertExpiration) - Date.parse(today)) / 86_400_000)
-    const ceOverdue = continuingEdDue < today
+    const ceOverdue = continuingEdDue ? continuingEdDue < today : false
     state = (daysToExp <= expiringWindowDays || ceOverdue) ? 'expiring' : 'on_file'
   }
 

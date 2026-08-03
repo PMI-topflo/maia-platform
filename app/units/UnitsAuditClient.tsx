@@ -140,11 +140,11 @@ function Stat({ f, active, set, label, value, color, bg }: {
       onClick={() => set(on ? null : f)}
       style={{
         background: bg, color, borderRadius: 10, padding: '8px 14px', minWidth: 92, textAlign: 'left',
-        border: on ? `2px solid ${color}` : '2px solid transparent', cursor: 'pointer', font: 'inherit',
+        border: on ? `2px solid ${color}` : `2px solid ${color}55`, cursor: 'pointer', font: 'inherit',
       }}
     >
       <div style={{ font: '700 20px system-ui' }}>{value}</div>
-      <div style={{ font: '500 11px system-ui', opacity: 0.85 }}>{label}</div>
+      <div style={{ font: '600 11px system-ui' }}>{label}</div>
     </button>
   )
 }
