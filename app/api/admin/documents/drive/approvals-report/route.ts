@@ -61,8 +61,9 @@ export async function GET(req: Request) {
     do {
       const res = await drive.files.list({
         q: `fullText contains '${nameToken}' and mimeType = 'application/pdf' and name contains 'Approval' and trashed = false`,
-        fields: 'nextPageToken, files(id, name, createdTime, webViewLink)', pageSize: 100, orderBy: 'createdTime desc',
-        supportsAllDrives: true, includeItemsFromAllDrives: true,
+        // NB: Drive rejects orderBy when the query has a fullText term — we sort the rows ourselves below.
+        fields: 'nextPageToken, files(id, name, createdTime, webViewLink)', pageSize: 100,
+        supportsAllDrives: true, includeItemsFromAllDrives: true, pageToken,
       })
       for (const f of res.data.files ?? []) if (f.id) files.push({ id: f.id, name: f.name ?? '', createdTime: f.createdTime ?? '', webViewLink: f.webViewLink ?? null })
       pageToken = res.data.nextPageToken ?? undefined
