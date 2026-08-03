@@ -148,11 +148,15 @@ export default function OrganizeClient() {
   async function applyOngoing() {
     if (!ongoingPlan) return
     const subOf = (u: OngoingUnit) => (ongoingEdit[u.folderId] ?? u.subfolderName ?? '').trim()
-    const doable = ongoingPlan.filter(u => u.newFolderName && subOf(u))
-    if (doable.length === 0) { alert('Nothing ready to apply — set a subfolder name for the flagged rows first.'); return }
-    if (!confirm(`Organize ${doable.length} On Going folder(s)?\n\nEach → rename to MANXI###, create its dated subfolder, move + rename its files in.`)) return
+    // Any unit with a valid unit number gets renamed → MANXI###. Those that also
+    // have a subfolder name get their files moved in; the rest are renamed only
+    // (files stay put until a name is set + re-applied).
+    const doable = ongoingPlan.filter(u => u.newFolderName)
+    const withSub = doable.filter(u => subOf(u)).length
+    if (doable.length === 0) { alert('Nothing to apply — no folders have a recognizable unit number.'); return }
+    if (!confirm(`Organize ${doable.length} folder(s)?\n\n• All ${doable.length} renamed to MANXI###\n• ${withSub} with a subfolder → files moved + renamed in\n• ${doable.length - withSub} renamed only (no name detected — set it and re-apply to move files)`)) return
     setOngoingBusy(true); setOngoingDone(null)
-    let done = 0, ok = 0; const total = doable.length
+    let done = 0, ok = 0, moved = 0; const total = doable.length
     setProgress({ label: 'Organizing On Going', done, total })
     try {
       for (const u of doable) {
@@ -160,10 +164,10 @@ export default function OrganizeClient() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ folderId: u.folderId, newFolderName: u.newFolderName, subfolderName: subOf(u), files: u.files.map(f => ({ fileId: f.fileId, newName: f.newName })) }),
         })
-        if ((await res.json().catch(() => ({}))).ok) ok++
+        const j = await res.json().catch(() => ({})); if (j.ok) { ok++; if (j.subfolder) moved++ }
         done++; setProgress({ label: 'Organizing On Going', done, total })
       }
-      setOngoingDone(`Organized ${ok} of ${total} unit folder(s) into MANXI###/dated subfolders.`)
+      setOngoingDone(`Renamed ${ok} folder(s) to MANXI###; ${moved} also had their files organized into a dated subfolder.`)
       setOngoingPlan(null)
     } catch (e) { alert(`Organize failed: ${(e as Error).message}`) } finally { setProgress(null); setOngoingBusy(false) }
   }
@@ -487,7 +491,7 @@ export default function OrganizeClient() {
           <span className="text-xs font-medium text-gray-600" title="Rename each On Going 'Unit ###' folder → MANXI###, create a YYYY_MM_<first applicant> subfolder (from the lease/approval), and move + rename its files in.">📥 Organize On Going</span>
           <button onClick={planOngoing} disabled={ongoingBusy} className="rounded border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 disabled:opacity-50">{ongoingBusy && !ongoingPlan && !progress ? 'Reading…' : 'Plan On Going'}</button>
           {ongoingPlan && !progress && (
-            <button onClick={applyOngoing} disabled={ongoingBusy} className="rounded bg-[#c2410c] px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50">Apply all ({ongoingPlan.filter(u => u.newFolderName && (ongoingEdit[u.folderId] ?? u.subfolderName)).length})</button>
+            <button onClick={applyOngoing} disabled={ongoingBusy} className="rounded bg-[#c2410c] px-2 py-1 text-[11px] font-medium text-white disabled:opacity-50">Apply all ({ongoingPlan.filter(u => u.newFolderName).length})</button>
           )}
           {ongoingDone && <span className="text-[11px] font-medium text-emerald-700">{ongoingDone}</span>}
         </div>

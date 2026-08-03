@@ -177,19 +177,25 @@ export async function planOngoingUnit(folder: { id: string; name: string }, know
   return { folderId: folder.id, currentName: folder.name, unitRef, newFolderName: unitRef, subfolderName, firstApplicant, leaseStart, files: filePlans, warnings }
 }
 
-/** Execute one unit's plan: rename the folder → MANXI###, create the
- *  YYYY_MM_Name subfolder, move + rename every file into it (from wherever it
- *  currently sits, including nested subfolders). */
+/** Execute one unit's plan. ALWAYS renames the folder → MANXI### (that only
+ *  needs the unit number). Only when a subfolder name is given does it also
+ *  create the YYYY_MM_Name subfolder and move + rename the files into it —
+ *  units with no detected applicant/date still get standardized (files stay
+ *  put until a name is set + re-applied). Re-runnable. */
 export async function applyOngoingUnit(p: {
-  folderId: string; newFolderName: string; subfolderName: string
+  folderId: string; newFolderName: string; subfolderName?: string
   files: { fileId: string; newName: string }[]
-}): Promise<{ renamed: number; moved: number }> {
-  const sub = p.subfolderName.replace(/[\/\\\x00-\x1f]/g, ' ').trim()
+}): Promise<{ folderRenamed: boolean; subfolder: boolean; renamed: number; moved: number }> {
+  const sub = (p.subfolderName ?? '').replace(/[\/\\\x00-\x1f]/g, ' ').trim()
   const folderName = p.newFolderName.replace(/[\/\\\x00-\x1f]/g, ' ').trim()
-  if (!folderName || !sub) throw new Error('folder name and subfolder name required')
+  if (!folderName) throw new Error('folder name required')
 
   const drive = getDrive()
+  // 1. rename the unit folder → MANXI### (always).
   await drive.files.update({ fileId: p.folderId, requestBody: { name: folderName }, supportsAllDrives: true })
+
+  // 2. subfolder + file moves only when we have a name for the subfolder.
+  if (!sub) return { folderRenamed: true, subfolder: false, renamed: 0, moved: 0 }
   const subId = await resolveDatedSubfolder(p.folderId, sub, true)
   if (!subId) throw new Error('could not create the subfolder')
 
@@ -209,5 +215,5 @@ export async function applyOngoingUnit(p: {
     if (rename) renamed++
     moved++
   }
-  return { renamed, moved }
+  return { folderRenamed: true, subfolder: true, renamed, moved }
 }
