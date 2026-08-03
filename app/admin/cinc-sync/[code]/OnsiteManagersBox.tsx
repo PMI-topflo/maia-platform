@@ -21,6 +21,7 @@ function parseLine(line: string): { name: string; email: string } | null {
 export default function OnsiteManagersBox({ code }: { code: string }) {
   const [managers, setManagers] = useState<Manager[] | null>(null)
   const [paste, setPaste] = useState('')
+  const [one, setOne] = useState({ name: '', email: '', phone: '' })
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
@@ -37,6 +38,17 @@ export default function OnsiteManagersBox({ code }: { code: string }) {
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
       setMsg(`Added ${j.added}${j.skipped ? `, skipped ${j.skipped} already on file` : ''}.`)
       setPaste(''); load()
+    } catch (e) { setMsg(`Could not add: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
+  async function addOne() {
+    if (!one.email.trim().includes('@')) { setMsg('Enter a valid email.'); return }
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch('/api/admin/building-managers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ association_code: code, entries: [one] }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setMsg(j.added ? 'Added.' : 'Already on file.')
+      setOne({ name: '', email: '', phone: '' }); load()
     } catch (e) { setMsg(`Could not add: ${(e as Error).message}`) } finally { setBusy(false) }
   }
 
@@ -70,15 +82,31 @@ export default function OnsiteManagersBox({ code }: { code: string }) {
           </ul>
         )}
 
-      <textarea value={paste} onChange={e => setPaste(e.target.value)} rows={3}
-        placeholder={'Paste emails — one per line\ne.g.  Jane Doe <jane@onsite.com>\nmanager2@onsite.com'}
-        style={{ width: '100%', font: '12px ui-monospace, monospace', border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px', boxSizing: 'border-box', resize: 'vertical' }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
-        <button onClick={addPasted} disabled={busy || !paste.trim()} style={{ font: '600 13px system-ui', background: '#f26a1b', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer', opacity: busy || !paste.trim() ? 0.6 : 1 }}>
-          {busy ? 'Adding…' : 'Add on-site managers'}
-        </button>
-        {msg && <span style={{ font: '12px system-ui', color: '#374151' }}>{msg}</span>}
-      </div>
+      {(() => {
+        const inp: React.CSSProperties = { font: '13px system-ui', border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px', boxSizing: 'border-box', width: '100%' }
+        const btn = (on: boolean): React.CSSProperties => ({ font: '600 13px system-ui', background: '#f26a1b', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 14px', cursor: on ? 'pointer' : 'default', opacity: on ? 1 : 0.55 })
+        return (<>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
+            <input style={inp} placeholder="Name" value={one.name} onChange={e => setOne(o => ({ ...o, name: e.target.value }))} />
+            <input style={inp} placeholder="Phone" value={one.phone} onChange={e => setOne(o => ({ ...o, phone: e.target.value }))} />
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            <input style={{ ...inp, flex: 1 }} placeholder="Email" value={one.email} onChange={e => setOne(o => ({ ...o, email: e.target.value }))} />
+            <button onClick={addOne} disabled={busy || !one.email.trim()} style={btn(!busy && !!one.email.trim())}>Add</button>
+          </div>
+
+          <div style={{ font: '11px system-ui', color: '#9ca3af', margin: '0 0 4px' }}>Or paste a list —</div>
+          <textarea value={paste} onChange={e => setPaste(e.target.value)} rows={3}
+            placeholder={'one per line — Jane Doe <jane@onsite.com> or manager2@onsite.com'}
+            style={{ width: '100%', font: '12px ui-monospace, monospace', border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px', boxSizing: 'border-box', resize: 'vertical' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+            <button onClick={addPasted} disabled={busy || !paste.trim()} style={btn(!busy && !!paste.trim())}>
+              {busy ? 'Adding…' : 'Add pasted list'}
+            </button>
+            {msg && <span style={{ font: '12px system-ui', color: '#374151' }}>{msg}</span>}
+          </div>
+        </>)
+      })()}
     </div>
   )
 }

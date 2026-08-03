@@ -352,3 +352,18 @@ body {
   text-decoration: none;
 }
 .contact-phone:hover { color: var(--navy); }
+
+/* Native file inputs: style the browser-default "Choose File" button as a
+   solid colored block so upload areas read as clickable (was transparent). */
+input[type="file"] { color: var(--muted); font-size: 0.8rem; }
+input[type="file"]::file-selector-button {
+  font: 600 0.8rem system-ui, sans-serif;
+  background: var(--gold);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 0.9rem;
+  margin-right: 0.7rem;
+  cursor: pointer;
+}
+input[type="file"]::file-selector-button:hover { background: var(--gold2); }
