@@ -274,13 +274,20 @@ const petRegistration: EsignFormDef = {
 // ── Board Decision Page ──────────────────────────────────────────────
 export interface BoardDecisionPayload {
   associationLegalName?: string
+  propertyAddress?: string
   applicant?: string
+  occupants?: string[]
   unit?: string
   applicationType?: string
   decision?: string        // Approved | Approved with conditions | Declined
   conditions?: string
+  leaseStart?: string
+  leaseEnd?: string
   reason?: string
 }
+
+const APP_TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
+const fmtDate = (iso: string | null | undefined) => { if (!iso) return null; const d = new Date(iso + 'T00:00:00Z'); return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }) }
 
 const boardDecision: EsignFormDef = {
   kind: 'board_decision',
@@ -289,19 +296,37 @@ const boardDecision: EsignFormDef = {
   roleLabel: () => 'Board / Authorized Approver',
   renderPdf: (doc) => {
     const p = doc.payload as BoardDecisionPayload
+    const declined = /declin/i.test(p.decision ?? '')
+    const isLease = p.applicationType === 'lease' || p.applicationType === 'lease_renewal'
+    const verb = p.applicationType === 'purchase' ? 'purchase' : p.applicationType === 'additional_occupant' ? 'add the occupant(s) to' : 'lease'
+    const start = fmtDate(p.leaseStart), end = fmtDate(p.leaseEnd)
     return (
       <Document>
         <Page size="LETTER" style={s.page}>
           <Text style={s.assoc}>{p.associationLegalName ?? doc.association_code}</Text>
           <Text style={s.title}>Board Decision</Text>
           <View style={s.rule} />
-          <View style={s.row}><Text style={s.rowKey}>Application type</Text><Text style={s.rowVal}>{({ lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' } as Record<string, string>)[p.applicationType ?? ''] ?? p.applicationType ?? '—'}</Text></View>
-          <View style={s.row}><Text style={s.rowKey}>Unit</Text><Text style={s.rowVal}>{p.unit ?? doc.unit_ref ?? '—'}</Text></View>
+          <View style={s.row}><Text style={s.rowKey}>Property</Text><Text style={s.rowVal}>{p.propertyAddress ?? (p.unit ? `Unit ${p.unit}` : doc.unit_ref ?? '—')}</Text></View>
+          <View style={s.row}><Text style={s.rowKey}>Application type</Text><Text style={s.rowVal}>{APP_TYPE_LABEL[p.applicationType ?? ''] ?? p.applicationType ?? '—'}</Text></View>
           <View style={s.row}><Text style={s.rowKey}>Applicant</Text><Text style={s.rowVal}>{p.applicant ?? '—'}</Text></View>
-          <View style={s.row}><Text style={s.rowKey}>Decision</Text><Text style={{ ...s.rowVal, color: /declin/i.test(p.decision ?? '') ? '#991b1b' : '#166534' }}>{p.decision ?? 'Approved'}</Text></View>
+          {isLease && (
+            <View style={s.row}><Text style={s.rowKey}>Term</Text><Text style={s.rowVal}>{start && end ? `${start} — ${end}` : '—'}</Text></View>
+          )}
+          {isLease && end && (
+            <View style={s.row}><Text style={s.rowKey}>Expires</Text><Text style={{ ...s.rowVal, color: '#b45309' }}>{end}</Text></View>
+          )}
+          <View style={s.row}><Text style={s.rowKey}>Decision</Text><Text style={{ ...s.rowVal, color: declined ? '#991b1b' : '#166534' }}>{p.decision ?? 'Approved'}</Text></View>
+
+          <Text style={s.sectionTitle}>Approved occupants</Text>
+          {(p.occupants ?? []).length > 0
+            ? (p.occupants ?? []).map((o, i) => <Text key={i} style={{ ...s.rowVal, fontSize: 10.5, marginTop: 1 }}>• {o}</Text>)
+            : <Text style={{ ...s.para, marginTop: 2 }}>{p.applicant ?? '—'}</Text>}
+
+          <Text style={s.para}>
+            The Association&apos;s Board of Directors (or authorized approver) hereby {declined ? 'DECLINES' : 'APPROVES'} the {APP_TYPE_LABEL[p.applicationType ?? '']?.toLowerCase() ?? ''} application of {p.applicant ?? 'the applicant'} to {verb} the property identified above{isLease && start && end ? `, for the term ${start} through ${end}` : ''}, for the occupant(s) listed.
+          </Text>
           {p.conditions ? <Text style={s.para}>Conditions: {p.conditions}</Text> : null}
           {p.reason ? <Text style={s.para}>{p.reason}</Text> : null}
-          <Text style={s.para}>The undersigned, on behalf of the Association&apos;s Board of Directors (or as an authorized approver), certifies this is the Association&apos;s decision on the above application.</Text>
           <SignatureRow doc={doc} def={boardDecision} />
         </Page>
       </Document>

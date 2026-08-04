@@ -46,6 +46,7 @@ const NAV: Node[] = [
     { label: 'Monthly Report', href: '/admin/reports/monthly' },
   ] },
   { type: 'group', label: 'Leasing', icon: '📝', items: [
+    { label: 'Pre-Application Intake', href: '/admin/pre-apply' },
     { label: 'Applications', href: '/admin/applications' },
     { label: 'Pre-Registrations', href: '/admin/pre-registrations' },
     { label: 'Registrations', href: '/admin/registrations' },
@@ -60,6 +61,7 @@ const NAV: Node[] = [
     { label: 'Pre-Application Compliance', href: '/admin/flows/pre-application-compliance' },
   ] },
   { type: 'group', label: 'Tools', icon: '⚙', items: [
+    { label: 'Gmail Add-on Token', href: '/admin/addon' },
     { label: 'Staff Performance', href: '/admin/staff-performance' },
     { label: 'Audit', href: '/admin/audit' },
     { label: 'Login History', href: '/admin/login-history' },
