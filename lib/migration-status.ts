@@ -3296,6 +3296,29 @@ ALTER TABLE public.lease_packets ADD COLUMN IF NOT EXISTS tenant_mobile    text;
 ALTER TABLE public.lease_packets ADD COLUMN IF NOT EXISTS property_address text;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'board_cert_uploaded_via_units',
+    label:       'Board cert — allow uploaded_via = units',
+    description: 'Widens the board_member_certifications.uploaded_via CHECK to include \'units\', so on-site managers / board members can upload board-education certificates from the /units audit (in addition to \'staff\' on the admin hub and \'self\' via the emailed link). Idempotent DO block that drops the existing check by discovered name and re-adds the widened one.',
+    filename:    '20260805_board_cert_uploaded_via_units.sql',
+    artifact:    { type: 'column', table: 'board_member_certifications', column: 'uploaded_via' },
+    sql: `DO $$
+DECLARE cn text;
+BEGIN
+  FOR cn IN
+    SELECT conname FROM pg_constraint
+    WHERE conrelid = 'public.board_member_certifications'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%uploaded_via%'
+  LOOP
+    EXECUTE format('ALTER TABLE public.board_member_certifications DROP CONSTRAINT %I', cn);
+  END LOOP;
+  ALTER TABLE public.board_member_certifications
+    ADD CONSTRAINT board_member_certifications_uploaded_via_check
+    CHECK (uploaded_via IN ('staff','self','units'));
+END $$;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
