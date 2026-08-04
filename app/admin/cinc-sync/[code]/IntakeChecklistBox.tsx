@@ -43,7 +43,8 @@ export default function IntakeChecklistBox({ code }: { code: string }) {
   return (
     <div style={box}>
       <h3 style={h3}>Application document checklist</h3>
-      <p style={{ font: '11px system-ui', color: '#6b7280', margin: '4px 0 12px' }}>What each applicant must provide per application type — drives the Pre-Application intake, staff audit, and MAIA/Checkr.</p>
+      <p style={{ font: '11px system-ui', color: '#6b7280', margin: '4px 0 10px' }}>What each applicant must provide per application type — drives the Pre-Application intake, staff audit, and MAIA/Checkr.</p>
+      <ScreeningProviderToggle code={code} />
       {!data ? <p style={{ font: '12px system-ui', color: '#9ca3af' }}>Loading…</p> : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {data.types.map(t => {
@@ -72,6 +73,30 @@ export default function IntakeChecklistBox({ code }: { code: string }) {
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+// Where an approved intake hands off for the background check. MANXI stays on
+// Tenant Evaluation until Checkr is production-authorized; flip when ready.
+function ScreeningProviderToggle({ code }: { code: string }) {
+  const [provider, setProvider] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { fetch(`/api/admin/screening-provider?code=${encodeURIComponent(code)}`, { credentials: 'include' }).then(r => r.json()).then(d => setProvider(d.provider)).catch(() => {}) }, [code])
+  const set = async (p: string) => {
+    setBusy(true)
+    try { const r = await fetch('/api/admin/screening-provider', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, provider: p }) }); if (!r.ok) throw new Error((await r.json()).error); setProvider(p) }
+    catch (e) { alert(`Could not change: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+  if (provider === null) return null
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 10px', marginBottom: 12 }}>
+      <span style={{ font: '600 11px system-ui', color: '#6b7280' }}>On approval, screen via:</span>
+      {[{ k: 'tenant_evaluation', l: 'Tenant Evaluation (current)' }, { k: 'maia_checkr', l: 'MAIA + Checkr' }].map(o => (
+        <button key={o.k} onClick={() => set(o.k)} disabled={busy || provider === o.k}
+          style={{ font: '600 11px system-ui', padding: '4px 10px', borderRadius: 6, cursor: provider === o.k ? 'default' : 'pointer', border: `1px solid ${provider === o.k ? '#2563eb' : '#d1d5db'}`, background: provider === o.k ? '#eff6ff' : '#fff', color: provider === o.k ? '#1d4ed8' : '#374151' }}>{o.l}</button>
+      ))}
+      {provider === 'maia_checkr' && <span style={{ font: '10px system-ui', color: '#b45309' }}>⚠ Checkr must be production-authorized</span>}
     </div>
   )
 }

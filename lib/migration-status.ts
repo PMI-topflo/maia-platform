@@ -3439,6 +3439,17 @@ ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS review_note    
 ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS approved_by_role text;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'screening_provider_switch',
+    label:       'Per-association screening provider',
+    description: 'Adds associations.screening_provider (tenant_evaluation | maia_checkr, default tenant_evaluation) — where an approved Pre-Application intake hands off for the background check. MANXI stays on tenant_evaluation until Checkr is production-authorized; flip this value to switch to MAIA+Checkr. Hybrid rollout (B4 slice 3b).',
+    filename:    '20260805_screening_provider_switch.sql',
+    artifact:    { type: 'column', table: 'associations', column: 'screening_provider' },
+    sql: `ALTER TABLE public.associations ADD COLUMN IF NOT EXISTS screening_provider text NOT NULL DEFAULT 'tenant_evaluation';
+ALTER TABLE public.associations DROP CONSTRAINT IF EXISTS chk_screening_provider;
+ALTER TABLE public.associations ADD CONSTRAINT chk_screening_provider CHECK (screening_provider IN ('tenant_evaluation','maia_checkr'));
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
