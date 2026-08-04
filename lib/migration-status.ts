@@ -3367,6 +3367,38 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `ALTER TABLE public.associations ADD COLUMN IF NOT EXISTS pet_limit integer NOT NULL DEFAULT 2;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'association_intake_documents',
+    label:       'Pre-App intake — per-type document checklist',
+    description: 'association_intake_documents table — the per-application-type document checklist for the Pre-Application Compliance intake (B4), keyed by application_type (lease/purchase/additional_occupant/lease_renewal) + provided_by (applicant/landlord/agent). Text keys so a new association/document is just a row. Seeded for MANXI from the reconciled requirement slides. Public read (active).',
+    filename:    '20260805_association_intake_documents.sql',
+    artifact:    { type: 'table', table: 'association_intake_documents' },
+    sql: `CREATE TABLE IF NOT EXISTS public.association_intake_documents (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code text NOT NULL,
+  application_type text NOT NULL,
+  doc_key text NOT NULL,
+  label text NOT NULL,
+  provided_by text NOT NULL DEFAULT 'applicant',
+  required boolean NOT NULL DEFAULT true,
+  note text,
+  sort_order integer NOT NULL DEFAULT 0,
+  active boolean NOT NULL DEFAULT true,
+  created_by text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_intake_type CHECK (application_type IN ('lease','purchase','additional_occupant','lease_renewal')),
+  CONSTRAINT chk_intake_provider CHECK (provided_by IN ('applicant','landlord','agent'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS association_intake_documents_uniq ON public.association_intake_documents (association_code, application_type, doc_key);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.association_intake_documents TO anon, authenticated, service_role;
+ALTER TABLE public.association_intake_documents ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_association_intake_documents" ON public.association_intake_documents;
+CREATE POLICY "service_role_all_association_intake_documents" ON public.association_intake_documents FOR ALL TO service_role USING (true);
+DROP POLICY IF EXISTS "public_read_association_intake_documents" ON public.association_intake_documents;
+CREATE POLICY "public_read_association_intake_documents" ON public.association_intake_documents FOR SELECT TO anon, authenticated USING (active = true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
