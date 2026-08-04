@@ -147,7 +147,9 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   )
 }
 
-interface DecPrefill { applicationType: string; propertyAddress: string | null; applicant: string | null; president: { name: string | null; email: string | null; hasSignature: boolean } | null; leaseStart: string | null; leaseEnd: string | null; occupants: string[]; applicantAsOccupant: string | null }
+interface DecSigner { name: string | null; email: string | null; role?: string | null; hasSignature: boolean }
+interface DecPrefill { applicationType: string; propertyAddress: string | null; applicant: string | null; requiredSignatures: number; defaultSigners: DecSigner[]; leaseStart: string | null; leaseEnd: string | null; occupants: string[]; applicantAsOccupant: string | null }
+interface DecResult { allSigned: boolean; pdfUrl: string; signers: { name: string | null; email: string | null; signed: boolean; link: string | null }[] }
 
 // Generates the Board Decision Page (the approval letter). Defaults the signer
 // to the President; if they have an on-file signature it's signed instantly,
@@ -155,22 +157,17 @@ interface DecPrefill { applicationType: string; propertyAddress: string | null; 
 // prefill from the association + unit records.
 function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
   const [pf, setPf] = useState<DecPrefill | null>(null)
-  const [email, setEmail] = useState('')
-  const [name, setName] = useState('')
   const [decision, setDecision] = useState('Approved')
   const [conditions, setConditions] = useState('')
   const [leaseStart, setLeaseStart] = useState('')
   const [leaseEnd, setLeaseEnd] = useState('')
   const [occupants, setOccupants] = useState('')
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<{ signed: boolean; link?: string; pdfUrl?: string; signedBy?: string } | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [result, setResult] = useState<DecResult | null>(null)
 
   useEffect(() => {
     fetch(`/api/admin/pre-apply/${id}/decision-page`, { credentials: 'include' }).then(r => r.json()).then((d: DecPrefill) => {
-      setPf(d)
-      if (d.president?.email) { setEmail(d.president.email); setName(d.president.name ?? '') }
-      setLeaseStart(d.leaseStart ?? ''); setLeaseEnd(d.leaseEnd ?? '')
+      setPf(d); setLeaseStart(d.leaseStart ?? ''); setLeaseEnd(d.leaseEnd ?? '')
       const occ = d.occupants.length ? d.occupants : (d.applicantAsOccupant ? [d.applicantAsOccupant] : [])
       setOccupants(occ.join('\n'))
     }).catch(() => {})
@@ -178,31 +175,28 @@ function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
 
   const isLease = pf?.applicationType === 'lease' || pf?.applicationType === 'lease_renewal'
   const create = async () => {
-    if (!email.includes('@')) { alert('No signer email — set the President in Board setup or enter one.'); return }
     setBusy(true)
     try {
       const r = await fetch(`/api/admin/pre-apply/${id}/decision-page`, {
         method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, name, decision, conditions, leaseStart: isLease ? leaseStart : undefined, leaseEnd: isLease ? leaseEnd : undefined, occupants: occupants.split('\n').map(s => s.trim()).filter(Boolean) }),
+        body: JSON.stringify({ decision, conditions, leaseStart: isLease ? leaseStart : undefined, leaseEnd: isLease ? leaseEnd : undefined, occupants: occupants.split('\n').map(s => s.trim()).filter(Boolean), signers: pf?.defaultSigners.map(s => ({ name: s.name, email: s.email })) }),
       })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); setResult(j)
     } catch (e) { alert(`Could not create: ${(e as Error).message}`) } finally { setBusy(false) }
   }
 
-  const presLabel = pf?.president ? `${pf.president.name} (President)${pf.president.hasSignature ? ' · signature on file' : ' · will e-sign'}` : 'no President set in Board setup'
-
   return (
     <div style={{ marginTop: 18, padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }}>
       <div style={{ fontWeight: 700, fontSize: 15, color: '#1f2a44' }}>Board Decision Page (approval letter)</div>
-      <div style={{ fontSize: 12.5, color: '#6b7280', margin: '4px 0 4px' }}>{pf?.propertyAddress ?? `Unit ${unit ?? '—'}`}</div>
-      <div style={{ fontSize: 12, color: pf?.president?.hasSignature ? '#166534' : '#b45309', marginBottom: 10 }}>Signer: {presLabel}</div>
+      <div style={{ fontSize: 12.5, color: '#6b7280', margin: '4px 0 6px' }}>{pf?.propertyAddress ?? `Unit ${unit ?? '—'}`}</div>
+      {pf && (
+        <div style={{ fontSize: 12, color: '#374151', marginBottom: 10 }}>
+          Requires <strong>{pf.requiredSignatures}</strong> signature{pf.requiredSignatures === 1 ? '' : 's'} — {pf.defaultSigners.map(s => `${s.name}${s.hasSignature ? ' ✍' : ''}`).join(', ') || 'set board officers in Board Setup'}
+        </div>
+      )}
       {!result ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 520 }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <select value={decision} onChange={e => setDecision(e.target.value)} style={inp}><option>Approved</option><option>Approved with conditions</option><option>Declined</option></select>
-            <input placeholder="Approver name" value={name} onChange={e => setName(e.target.value)} style={{ ...inp, flex: 1, minWidth: 130 }} />
-            <input placeholder="Approver email" value={email} onChange={e => setEmail(e.target.value)} style={{ ...inp, flex: 1, minWidth: 160 }} />
-          </div>
+          <select value={decision} onChange={e => setDecision(e.target.value)} style={{ ...inp, alignSelf: 'flex-start' }}><option>Approved</option><option>Approved with conditions</option><option>Declined</option></select>
           {isLease && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: '#6b7280' }}>Lease term:</span>
@@ -214,17 +208,33 @@ function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
           <label style={{ fontSize: 12, color: '#6b7280' }}>Approved occupants (one per line)</label>
           <textarea value={occupants} onChange={e => setOccupants(e.target.value)} style={{ ...inp, minHeight: 60, fontFamily: 'inherit' }} />
           {decision.includes('conditions') && <input placeholder="Conditions" value={conditions} onChange={e => setConditions(e.target.value)} style={inp} />}
-          <button onClick={create} disabled={busy} style={{ ...btn('#059669'), alignSelf: 'flex-start' }}>{busy ? 'Creating…' : pf?.president?.hasSignature ? 'Create & sign (President on file)' : 'Create & get signing link'}</button>
-        </div>
-      ) : result.signed ? (
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 13, color: '#166534' }}>
-          ✓ Signed by {result.signedBy}. {result.pdfUrl && <a href={result.pdfUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>View approval letter (PDF) →</a>}
+          <button onClick={create} disabled={busy} style={{ ...btn('#059669'), alignSelf: 'flex-start' }}>{busy ? 'Creating…' : 'Create Board Decision Page'}</button>
         </div>
       ) : (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input readOnly value={result.link} onFocus={e => e.currentTarget.select()} style={{ ...inp, flex: 1, minWidth: 240, fontFamily: 'ui-monospace, monospace', fontSize: 12 }} />
-          <button onClick={async () => { await navigator.clipboard.writeText(result.link!); setCopied(true); setTimeout(() => setCopied(false), 1800) }} style={btn(copied ? '#059669' : '#f26a1b')}>{copied ? '✓ Copied' : 'Copy link'}</button>
+        <div>
+          <div style={{ fontSize: 13, color: result.allSigned ? '#166534' : '#374151', marginBottom: 8 }}>
+            {result.allSigned ? '✓ Fully signed. ' : `${result.signers.filter(s => s.signed).length}/${result.signers.length} signed. Send each remaining signer their link: `}
+            <a href={result.pdfUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>View letter (PDF) →</a>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {result.signers.map((sg, i) => <SignerRow key={i} sg={sg} />)}
+          </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
+      <span style={{ fontWeight: 600, minWidth: 150 }}>{sg.name || sg.email}</span>
+      {sg.signed ? <span style={{ color: '#166534' }}>✓ signed (on file)</span> : (
+        <>
+          <input readOnly value={sg.link ?? ''} onFocus={e => e.currentTarget.select()} style={{ ...inp, flex: 1, minWidth: 220, fontFamily: 'ui-monospace, monospace', fontSize: 11.5 }} />
+          <button onClick={async () => { await navigator.clipboard.writeText(sg.link ?? ''); setCopied(true); setTimeout(() => setCopied(false), 1800) }} style={{ ...btn(copied ? '#059669' : '#f26a1b'), padding: '6px 12px' }}>{copied ? '✓' : 'Copy'}</button>
+        </>
       )}
     </div>
   )
