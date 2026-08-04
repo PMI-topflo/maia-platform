@@ -83,28 +83,38 @@ export default function TenantVerifyClient({ token }: { token: string }) {
           {(!s.hasLease || !s.hasBoardLetter) && (
             <>
               <div style={label}>Upload whatever&apos;s still missing</div>
-              {!s.hasLease && (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>Lease agreement</div>
-                  <input type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" disabled={uploadingDoc === 'lease'}
-                    onChange={e => { const f = e.target.files?.[0]; if (f) upload('lease', f) }} style={{ display: 'block', width: '100%', fontSize: 13 }} />
-                  {uploadingDoc === 'lease' && <div style={{ fontSize: 12, color: '#9ca3af' }}>Uploading…</div>}
-                </div>
-              )}
-              {!s.hasBoardLetter && (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>Board approval letter</div>
-                  <input type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" disabled={uploadingDoc === 'board_letter'}
-                    onChange={e => { const f = e.target.files?.[0]; if (f) upload('board_letter', f) }} style={{ display: 'block', width: '100%', fontSize: 13 }} />
-                  {uploadingDoc === 'board_letter' && <div style={{ fontSize: 12, color: '#9ca3af' }}>Uploading…</div>}
-                </div>
-              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {!s.hasLease && (
+                  <TenantDocBox label="Lease agreement" uploading={uploadingDoc === 'lease'} onUpload={f => upload('lease', f)} />
+                )}
+                {!s.hasBoardLetter && (
+                  <TenantDocBox label="Board approval letter" uploading={uploadingDoc === 'board_letter'} onUpload={f => upload('board_letter', f)} />
+                )}
+              </div>
             </>
           )}
           {s.hasLease && s.hasBoardLetter && <div style={{ fontSize: 13, color: '#065f46' }}>All documents on file — thank you!</div>}
         </>
       )}
       {error && <div style={{ fontSize: 13, color: '#991b1b', marginTop: 10 }}>⚠ {error}</div>}
+    </div>
+  )
+}
+
+/** One labeled upload box for a single document — pick a file, then Upload. */
+function TenantDocBox({ label, uploading, onUpload }: { label: string; uploading: boolean; onUpload: (f: File) => void }) {
+  const [file, setFile] = useState<File | null>(null)
+  return (
+    <div style={{ border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 10, padding: 12 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: '#374151', marginBottom: 8 }}>{label}</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" disabled={uploading}
+          onChange={e => setFile(e.target.files?.[0] ?? null)} style={{ fontSize: 13 }} />
+        <button onClick={() => file && onUpload(file)} disabled={uploading || !file}
+          style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: uploading || !file ? 'default' : 'pointer', background: uploading || !file ? '#d1d5db' : '#f26a1b', color: '#fff', fontSize: 13, fontWeight: 700 }}>
+          {uploading ? 'Uploading…' : 'Upload'}
+        </button>
+      </div>
     </div>
   )
 }
