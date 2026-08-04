@@ -6,6 +6,18 @@ Snapshot for picking up on another machine. Everything below is **live in produc
 
 ---
 
+## 2026-08-05 — board-cert "CE overdue" label + Lease-Packet field wiring (B1). NEXT: verified-signature layer (B2)
+
+**MERGED to `main` (deployed):**
+- **#574 — board-cert "CE overdue" label:** on the Association Hub Board officers box, a member whose multi-year DBPR certificate is still valid but whose **annual continuing-ed has lapsed** was flagged `⚠ Expiring` (reads as "coming up soon"). Now relabels to **`⚠ CE overdue`** when the overdue CE (not the cert) is the trigger; a genuinely near-window cert still shows `Expiring`. `BoardCertSummary.continuingEdOverdue` added. Mirrors the `/units` block's "Cont. ed due" relabel (#572). **Karen Fisher (MANXI):** cert valid to 2031-09-19, CE was due 2025-09-19 → correctly overdue. ⚠️ She then uploaded a doc that landed as **Certification form (2024-06-11)**, NOT a continuing-ed cert — that does NOT clear CE-overdue. To clear it she needs a **Continuing-ed** doc dated ≥ last 12 months.
+- **#575 — Lease-Packet field wiring (B1 done):** Property Address, Owner Mobile, Primary Tenant Mobile on the Landlord–Tenant Agreement PDF showed "—"; now snapshotted at send time — `owner_mobile`←`owners.phone`(fallback `phone_e164`), `tenant_mobile`←`unit_tenant_contacts.tenant_phone`, `property_address`←assoc `principal_address`+unit#+city/state/zip. Migration `20260805_lease_packet_contact_fields.sql` (applied to prod, idempotent, registered). Verified by rendering the real PDF. **Deferred still "—":** Emergency Contact + Board Approval Date. ⚠️ MANXI tenant phones mostly blank (approval-move filed them without phone) → tenant mobile "—" until the owner-outreach campaign fills them.
+
+**NEXT (leasing platform, in order):** **B2 verified-signature layer** (email OTP always + phone OTP SMS/WhatsApp when a number's on file — now supplied by B1 — + geo/device; generalize e-sign into shared "association e-sign forms"; board asked for this), then **B3** Decision-Page + Pet-Registration forms, then **B4** Pre-Application Compliance intake. See the 2026-08-01 section below for full B2–B4 spec.
+
+**Still owed (A — MANXI):** run **Reset-Official → re-File** on `/admin/documents/organize` (Official folder still mixed old+new; File's Drive copy is not idempotent). Then targeted owner email for the 53 leased units to capture tenant email/phone. Eyeball MANXI511/MANXI608 swap-guard flags.
+
+---
+
 ## 2026-08-03/04 — MANXI signed-approval report + filing engine, lease alerts, board-cert fix; NEXT: Official reset run + owner tenant-contact email
 
 **MERGED to `main` (all deployed):**
