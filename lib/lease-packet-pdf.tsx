@@ -60,6 +60,7 @@ const s = StyleSheet.create({
   sigTyped: { fontSize: 18, fontFamily: 'Helvetica-Oblique', color: INK },
   sigRule: { borderBottomWidth: 1, borderBottomColor: '#9ca3af', width: '100%', marginTop: 4, marginBottom: 3 },
   sigMeta: { fontSize: 8, color: MUTED, marginTop: 2 },
+  sigVerifyTitle: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: NAVY, marginTop: 2, marginBottom: 1 },
   sigPending: { fontSize: 8.5, color: MUTED, fontFamily: 'Helvetica-Oblique', marginTop: 18 },
 
   fillLabel: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: MUTED, marginTop: 8 },
@@ -107,6 +108,16 @@ export interface SignerEvidence {
   signedAt: string | null   // ISO
   email: string | null
   ip: string | null
+  verification?: {
+    email?: string | null
+    emailVerifiedAt?: string | null
+    phone?: string | null
+    phoneChannel?: 'sms' | 'whatsapp' | null
+    phoneVerifiedAt?: string | null
+    geo?: { lat: number; lon: number; accuracy_meters: number; timestamp_ms: number } | { denied: true } | null
+    ip?: string | null
+    ua?: string | null
+  } | null
 }
 
 export interface LeasePacketAgreementProps {
@@ -170,11 +181,31 @@ function SigBlock({ role, sig }: { role: string; sig: SignerEvidence | null | un
           <Text style={s.sigMeta}>Date signed: {fmtDateTime(sig.signedAt)}</Text>
           {sig.email ? <Text style={s.sigMeta}>Email: {sig.email}</Text> : null}
           {sig.ip ? <Text style={s.sigMeta}>Signed from IP {sig.ip}</Text> : null}
+          <VerificationLines v={sig.verification} />
         </>
       ) : (
         <Text style={s.sigPending}>Awaiting electronic signature.</Text>
       )}
     </View>
+  )
+}
+
+/** The identity-verification certificate for a signer — printed under the
+ *  signature so the factors that authenticated them are part of the record. */
+function VerificationLines({ v }: { v: SignerEvidence['verification'] }) {
+  if (!v) return null
+  const geo = v.geo && 'lat' in v.geo
+    ? `${v.geo.lat.toFixed(4)}, ${v.geo.lon.toFixed(4)} (±${Math.round(v.geo.accuracy_meters)}m)`
+    : (v.geo && 'denied' in v.geo ? 'declined — IP location on file' : null)
+  return (
+    <>
+      <View style={s.sigRule} />
+      <Text style={s.sigVerifyTitle}>Identity verification</Text>
+      {v.emailVerifiedAt ? <Text style={s.sigMeta}>✓ Email verified {fmtDateTime(v.emailVerifiedAt)}</Text> : null}
+      {v.phoneVerifiedAt ? <Text style={s.sigMeta}>✓ Phone verified via {v.phoneChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'} {fmtDateTime(v.phoneVerifiedAt)}</Text> : null}
+      {geo ? <Text style={s.sigMeta}>Location: {geo}</Text> : null}
+      {v.ua ? <Text style={s.sigMeta}>Device: {v.ua.slice(0, 90)}</Text> : null}
+    </>
   )
 }
 

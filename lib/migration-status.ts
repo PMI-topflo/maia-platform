@@ -3319,6 +3319,16 @@ BEGIN
 END $$;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'lease_packet_verification',
+    label:       'Lease Packet — verified-signature evidence',
+    description: 'Adds owner_verification + tenant_verification (jsonb) to lease_packets. Each holds the per-role identity-verification certificate captured before signing: email OTP (always), phone OTP via SMS/WhatsApp (when a mobile is on file), geolocation + device (browser consent, IP fallback). Rendered on the signed PDF and retained as the audit trail.',
+    filename:    '20260805_lease_packet_verification.sql',
+    artifact:    { type: 'column', table: 'lease_packets', column: 'owner_verification' },
+    sql: `ALTER TABLE public.lease_packets ADD COLUMN IF NOT EXISTS owner_verification  jsonb;
+ALTER TABLE public.lease_packets ADD COLUMN IF NOT EXISTS tenant_verification jsonb;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
