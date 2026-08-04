@@ -83,6 +83,16 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
     } catch (e) { alert(`Could not send lease packet: ${(e as Error).message}`) } finally { setBusy(null) }
   }
 
+  const sendPetRegistration = async () => {
+    if (!confirm('Email the tenant (or owner) a link to fill in and e-sign a Pet Registration?')) return
+    setBusy('pet')
+    try {
+      const r = await fetch('/api/units/pet-registration/send', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account, assoc }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      alert(`Sent to ${j.sentTo}.`)
+    } catch (e) { alert(`Could not send pet registration: ${(e as Error).message}`) } finally { setBusy(null) }
+  }
+
   if (err)   return <Shell><div style={{ color: '#991b1b' }}>Could not load unit: {err}</div></Shell>
   if (!data) return <Shell><div style={{ color: '#6b7280' }}>Loading…</div></Shell>
   const u = data.unit
@@ -162,6 +172,18 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
           )}
         </div>
       )}
+
+      {/* Pet Registration — fill-and-e-sign form sent to the tenant (or owner). */}
+      <div style={{ marginTop: 18, padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }}>
+        <div style={{ font: '700 15px system-ui', color: '#1f2a44' }}>Pet Registration (e-signature)</div>
+        <div style={{ font: '400 13px system-ui', color: '#6b7280', margin: '4px 0 12px' }}>
+          Emails the tenant (or owner) a link to register their pet(s) — vaccination upload + veterinarian + verified e-signature. When signed, it files against this unit&apos;s Pet Registration item.
+        </div>
+        <button onClick={sendPetRegistration} disabled={busy === 'pet'}
+          style={{ padding: '10px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#f26a1b', color: '#fff', font: '600 13px system-ui' }}>
+          {busy === 'pet' ? 'Sending…' : 'Send pet registration link'}
+        </button>
+      </div>
 
       {/* Ledger / collections. In collections → send board/managers/staff to
           the Axela collections platform (their login) instead of the statement.

@@ -10,7 +10,7 @@ import {
   roleEmail, rolePhone, rolePhoneRequired, roleVerification, setEsignVerification,
 } from '@/lib/esign'
 import { maskEmail, maskPhone, signatureBlockReason, type SignGeo } from '@/lib/esign-verify'
-import { getFormDef, requiredRoles } from '@/lib/esign-forms'
+import { getFormDef, requiredRoles, isFillable } from '@/lib/esign-forms'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -32,7 +32,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     role: t.role,
     roleLabel: def?.roleLabel(t.role) ?? t.role,
     associationCode: doc.association_code,
+    unitRef: doc.unit_ref,
     payload: doc.payload,
+    fillable: isFillable(doc.kind),
+    // A fillable form still needs the applicant's data before signing.
+    needsFill: isFillable(doc.kind) && !(Array.isArray((doc.payload as { pets?: unknown[] }).pets) && (doc.payload as { pets?: unknown[] }).pets!.length > 0),
     signerName: me?.name ?? null,
     signerEmailMasked: maskEmail(roleEmail(doc, t.role)),
     signerPhoneMasked: rolePhone(doc, t.role) ? maskPhone(rolePhone(doc, t.role)) : null,

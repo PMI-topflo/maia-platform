@@ -23,6 +23,10 @@ export interface EsignFormDef {
   roles: string[]                         // required signer roles, in signing order
   roleLabel: (role: string) => string
   renderPdf: (doc: EsignDoc) => PdfElement
+  /** Fillable forms (e.g. pet registration): the applicant enters data before
+   *  signing. `renderBlank` produces a printable empty copy. */
+  fillable?: boolean
+  renderBlank?: (doc: EsignDoc) => PdfElement
 }
 
 // ── Shared PDF pieces ────────────────────────────────────────────────
@@ -143,11 +147,123 @@ const associationAcknowledgment: EsignFormDef = {
   },
 }
 
+// ── Pet Registration ─────────────────────────────────────────────────
+export interface Pet {
+  type?: string; name?: string; breed?: string; color?: string; weight?: string
+  age?: string; sex?: string; altered?: boolean; license?: string; rabiesDate?: string
+  vaccinationDoc?: { path: string; filename: string } | null
+  photo?: { path: string; filename: string } | null
+  serviceAnimal?: boolean
+}
+export interface PetPayload {
+  associationLegalName?: string
+  petLimit?: number
+  pets?: Pet[]
+  vetName?: string
+  vetPhone?: string
+  rulesAck?: string
+}
+
+const PET_ACK_DEFAULT =
+  'I certify the information above is true and complete. I have read and agree to comply with the Association’s pet rules and restrictions, I will keep each pet’s vaccinations current, and I understand registration may be revoked for violations.'
+
+const petStyles = StyleSheet.create({
+  petCard: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6, padding: 10, marginTop: 8 },
+  petTitle: { fontSize: 10, fontFamily: 'Helvetica-Bold', color: NAVY, marginBottom: 4 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap' },
+  cell: { width: '50%', paddingVertical: 2, flexDirection: 'row' },
+  cellK: { color: MUTED, width: 90 }, cellV: { fontFamily: 'Helvetica-Bold', flex: 1 },
+  blankLine: { borderBottomWidth: 1, borderBottomColor: '#9ca3af', flex: 1, marginLeft: 4, height: 9 },
+})
+
+function petCell(k: string, v: string | undefined, blank: boolean) {
+  return (
+    <View style={petStyles.cell}>
+      <Text style={petStyles.cellK}>{k}</Text>
+      {blank ? <View style={petStyles.blankLine} /> : <Text style={petStyles.cellV}>{v && v.trim() ? v : '—'}</Text>}
+    </View>
+  )
+}
+
+function PetCard({ pet, index, blank }: { pet: Pet | null; index: number; blank: boolean }) {
+  const p = pet ?? {}
+  return (
+    <View style={petStyles.petCard} wrap={false}>
+      <Text style={petStyles.petTitle}>Pet {index + 1}</Text>
+      <View style={petStyles.grid}>
+        {petCell('Type', p.type, blank)}
+        {petCell('Name', p.name, blank)}
+        {petCell('Breed', p.breed, blank)}
+        {petCell('Color', p.color, blank)}
+        {petCell('Weight (lb)', p.weight, blank)}
+        {petCell('Age', p.age, blank)}
+        {petCell('Sex', p.sex, blank)}
+        {petCell('Spayed/Neutered', blank ? undefined : (p.altered ? 'Yes' : 'No'), blank)}
+        {petCell('License / Tag #', p.license, blank)}
+        {petCell('Rabies vax date', p.rabiesDate, blank)}
+        {petCell('Service/ESA', blank ? undefined : (p.serviceAnimal ? 'Yes' : 'No'), blank)}
+        {petCell('Vax record', blank ? undefined : (p.vaccinationDoc?.filename ? 'on file' : 'not provided'), blank)}
+      </View>
+    </View>
+  )
+}
+
+function renderPetPdf(doc: EsignDoc, blank: boolean): PdfElement {
+  const p = (doc.payload ?? {}) as PetPayload
+  const limit = Math.max(1, p.petLimit ?? 2)
+  const pets: (Pet | null)[] = blank
+    ? Array.from({ length: limit }, () => null)
+    : (p.pets && p.pets.length ? p.pets : [null])
+  return (
+    <Document>
+      <Page size="LETTER" style={s.page}>
+        <Text style={s.assoc}>{p.associationLegalName ?? doc.association_code}</Text>
+        <Text style={s.title}>Pet Registration</Text>
+        <View style={s.rule} />
+        <View style={s.row}><Text style={s.rowKey}>Unit</Text><Text style={s.rowVal}>{doc.unit_ref ?? '—'}</Text></View>
+        <View style={s.row}><Text style={s.rowKey}>Pets registered</Text><Text style={s.rowVal}>{blank ? `up to ${limit}` : String((p.pets ?? []).length)}</Text></View>
+
+        <Text style={s.sectionTitle}>Pets</Text>
+        {pets.map((pet, i) => <PetCard key={i} pet={pet} index={i} blank={blank} />)}
+
+        <Text style={s.sectionTitle}>Veterinarian</Text>
+        <View style={s.row}><Text style={s.rowKey}>Name</Text>{blank ? <View style={petStyles.blankLine} /> : <Text style={s.rowVal}>{p.vetName || '—'}</Text>}</View>
+        <View style={s.row}><Text style={s.rowKey}>Phone</Text>{blank ? <View style={petStyles.blankLine} /> : <Text style={s.rowVal}>{p.vetPhone || '—'}</Text>}</View>
+
+        <Text style={s.para}>{p.rulesAck || PET_ACK_DEFAULT}</Text>
+        {!blank && <SignatureRow doc={doc} def={petRegistration} />}
+        {blank && (
+          <>
+            <Text style={s.sectionTitle}>Signature</Text>
+            <View style={s.row}><Text style={s.rowKey}>Applicant</Text><View style={petStyles.blankLine} /></View>
+            <View style={s.row}><Text style={s.rowKey}>Date</Text><View style={petStyles.blankLine} /></View>
+          </>
+        )}
+      </Page>
+    </Document>
+  )
+}
+
+const petRegistration: EsignFormDef = {
+  kind: 'pet_registration',
+  label: 'Pet Registration',
+  roles: ['applicant'],
+  roleLabel: () => 'Applicant',
+  renderPdf: (doc) => renderPetPdf(doc, false),
+  renderBlank: (doc) => renderPetPdf(doc, true),
+  fillable: true,
+}
+
 const REGISTRY: Record<string, EsignFormDef> = {
   [associationAcknowledgment.kind]: associationAcknowledgment,
+  [petRegistration.kind]: petRegistration,
 }
+
+export const PET_ACK = PET_ACK_DEFAULT
 
 export function getFormDef(kind: string): EsignFormDef | null { return REGISTRY[kind] ?? null }
 export function requiredRoles(kind: string): string[] { return REGISTRY[kind]?.roles ?? [] }
 export function roleLabel(kind: string, role: string): string { return REGISTRY[kind]?.roleLabel(role) ?? role }
 export function renderFormPdf(doc: EsignDoc): PdfElement | null { return REGISTRY[doc.kind]?.renderPdf(doc) ?? null }
+export function renderFormBlank(doc: EsignDoc): PdfElement | null { return REGISTRY[doc.kind]?.renderBlank?.(doc) ?? null }
+export function isFillable(kind: string): boolean { return !!REGISTRY[kind]?.fillable }
