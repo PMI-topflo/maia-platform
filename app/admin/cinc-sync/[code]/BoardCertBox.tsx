@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger'
 import BoardCertWhyExpired from '@/components/BoardCertWhyExpired'
+import SignatureSetter from '@/components/SignatureSetter'
 import type { CertKind } from '@/lib/board-certification'
 
 interface CertDoc { id: string; doc_type: string; certificate_date: string | null; status: string; filename: string | null; created_at: string }
@@ -63,6 +64,15 @@ export default function BoardCertBox({ code }: { code: string }) {
   const [data, setData] = useState<Overview | null>(null)
   const [err, setErr]   = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [sigByEmail, setSigByEmail] = useState<Record<string, boolean>>({})
+
+  const loadSignatures = useCallback(() => {
+    fetch(`/api/admin/board-members/signature?code=${encodeURIComponent(code)}`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { members: [] })
+      .then(j => setSigByEmail(Object.fromEntries((j.members ?? []).map((m: { email: string; hasSignature: boolean }) => [String(m.email).toLowerCase(), m.hasSignature]))))
+      .catch(() => {})
+  }, [code])
+  useEffect(loadSignatures, [loadSignatures])
 
   const load = useCallback(() => {
     fetch(`/api/admin/board-members/certification?code=${encodeURIComponent(code)}`, { credentials: 'include' })
@@ -155,7 +165,10 @@ export default function BoardCertBox({ code }: { code: string }) {
                     ))}
                   </div>
 
-                  {m.email && <div style={{ marginTop: 8 }}><button onClick={() => requestOne(m)} disabled={busy === m.id} style={linkBtn}>{busy === m.id ? 'Sending…' : '✉ Email member their upload link →'}</button></div>}
+                  <div style={{ marginTop: 8, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {m.email && <button onClick={() => requestOne(m)} disabled={busy === m.id} style={linkBtn}>{busy === m.id ? 'Sending…' : '✉ Email member their upload link →'}</button>}
+                    {m.email && <SignatureSetter code={code} email={m.email} name={m.name} hasSignature={!!sigByEmail[m.email.toLowerCase()]} onSaved={loadSignatures} />}
+                  </div>
                 </li>
               )
             })}
