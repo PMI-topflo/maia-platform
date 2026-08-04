@@ -6,6 +6,18 @@ Snapshot for picking up on another machine. Everything below is **live in produc
 
 ---
 
+## 2026-08-05 — LEASING PLATFORM B1–B4 + Pet Registration + Pre-App intake (huge session, ~23 PRs)
+
+**Shipped (all live on `main`):**
+- **Leasing platform B1–B3:** B1 lease-packet field wiring (#575); B2 verified-signature layer — email+phone OTP (SMS/WhatsApp)+geo/device on the signed PDF (#584); B3 **shared e-sign engine** `esign_documents` + registry + verified-signing page (#585) → **Pet Registration** form (fill + vaccination uploads + verified e-sign, per-assoc pet_limit) (#586) + 30/7/expired pet-renewal alerts + PDF fix (#587). See [[lease_packet_esign]].
+- **B4 Pre-Application Compliance intake — CORE COMPLETE:** slice 1 per-type doc checklist config `association_intake_documents` (MANXI seeded) (#588); slice 2 public `/pre-apply/[code]` flow (#589); unit-scoped email link + **Drive routing** (MAIA auto-creates `On Going Applications/Unit N - Applicant` subfolder, mirrors docs) (#590); slice 3a audit view + dual approval (#592); slice 3b **hybrid screening switch** (`associations.screening_provider`, MANXI=tenant_evaluation) + approval handoff + **tax-vs-W2 check** (#593). See [[pre_application_compliance]].
+- **UX polish:** CINC balance colors (#577), board-cert "Why expired?" 7 langs + per-doc boxes (#578), Axela ledger flag (#579), onsite-manager board-cert uploads (#580), owner-compliance (#581)+tenant-verify (#583) per-doc boxes.
+- **Fix:** Gmail sidebar "unauthorized" (Paola) root-caused to the 2026-07-12 session-secret rotation invalidating add-on tokens → dedicated `ADDON_TOKEN_SECRET` (#591). See [[gmail-addon]]. **ACTION: set `ADDON_TOKEN_SECRET` in Vercel + Paola re-mints at /admin/addon.**
+
+**NEXT:** Board Decision Page e-sign (B4 nicety); to go full MAIA+Checkr for MANXI — Checkr production auth + real E2E test + intake→`public.applications` bridge, then flip the switch. [[board_onboarding_questionnaire]] (growing per-assoc config spec).
+
+---
+
 ## 2026-08-05 (cont.) — balances CINC-style, board-cert "Why expired?" (7 langs) + per-doc boxes, Axela flag, onsite uploads, owner-compliance boxes
 
 **MERGED (all deployed):**
