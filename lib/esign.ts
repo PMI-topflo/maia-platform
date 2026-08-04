@@ -11,7 +11,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import type { RoleVerification } from '@/lib/esign-verify'
-import { requiredRoles } from '@/lib/esign-forms'
+import { requiredRoles, computeFormExpiry } from '@/lib/esign-forms'
 
 export type EsignStatus = 'draft' | 'sent' | 'partially_signed' | 'completed' | 'void'
 
@@ -123,9 +123,15 @@ export async function recordEsignSignature(
   await supabaseAdmin.from('esign_documents').update({ status, updated_at: now }).eq('id', id)
 
   if (complete && doc.compliance_item && doc.unit_ref) {
+    const expiry = computeFormExpiry(after)
+    let statusVal = 'current'
+    if (expiry) {
+      const d = new Date(expiry), n = new Date()
+      statusVal = d < n || (d.getTime() - n.getTime()) / 86_400_000 <= 45 ? 'expiring' : 'current'
+    }
     await supabaseAdmin.from('compliance_records').upsert({
       scope: 'unit', association_code: doc.association_code, unit_ref: doc.unit_ref,
-      item_key: doc.compliance_item, applicable: true, status: 'current', expiry_date: null,
+      item_key: doc.compliance_item, applicable: true, status: statusVal, expiry_date: expiry,
       updated_by: `system:esign:${doc.kind}`, updated_at: now,
     }, { onConflict: 'scope,association_code,unit_ref,item_key' }).then(() => null, () => null)
   }

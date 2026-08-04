@@ -27,21 +27,24 @@ export interface EsignFormDef {
    *  signing. `renderBlank` produces a printable empty copy. */
   fillable?: boolean
   renderBlank?: (doc: EsignDoc) => PdfElement
+  /** Optional expiry (ISO date) filed on the compliance record when the doc
+   *  completes and used by the renewal-alert cron. */
+  computeExpiry?: (doc: EsignDoc) => string | null
 }
 
 // ── Shared PDF pieces ────────────────────────────────────────────────
 const NAVY = '#1f2a44', MUTED = '#6b7280'
 const s = StyleSheet.create({
-  page: { padding: 44, fontSize: 11, fontFamily: 'Helvetica', color: '#1a1a1a', lineHeight: 1.5 },
+  page: { padding: 34, fontSize: 10.5, fontFamily: 'Helvetica', color: '#1a1a1a', lineHeight: 1.45 },
   assoc: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: MUTED, textTransform: 'uppercase', letterSpacing: 1 },
-  title: { fontSize: 18, fontFamily: 'Helvetica-Bold', color: NAVY, marginTop: 4, marginBottom: 2 },
-  rule: { borderBottomWidth: 2, borderBottomColor: '#f26a1b', width: 60, marginTop: 6, marginBottom: 16 },
-  sectionTitle: { fontSize: 12, fontFamily: 'Helvetica-Bold', color: NAVY, marginTop: 14, marginBottom: 6 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#f0f0f0', paddingVertical: 5 },
+  title: { fontSize: 17, fontFamily: 'Helvetica-Bold', color: NAVY, marginTop: 4, marginBottom: 2 },
+  rule: { borderBottomWidth: 2, borderBottomColor: '#f26a1b', width: 60, marginTop: 5, marginBottom: 10 },
+  sectionTitle: { fontSize: 11, fontFamily: 'Helvetica-Bold', color: NAVY, marginTop: 9, marginBottom: 4 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#f0f0f0', paddingVertical: 3.5 },
   rowKey: { color: MUTED }, rowVal: { fontFamily: 'Helvetica-Bold' },
-  para: { marginTop: 8, color: '#333' },
-  sigWrap: { flexDirection: 'row', gap: 16, marginTop: 14 },
-  sigBox: { flex: 1, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6, padding: 12, minHeight: 120 },
+  para: { marginTop: 7, fontSize: 9.5, color: '#333' },
+  sigWrap: { flexDirection: 'row', gap: 16, marginTop: 8 },
+  sigBox: { flex: 1, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6, padding: 10, minHeight: 78 },
   sigRole: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: NAVY, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
   sigImage: { height: 40, marginBottom: 2, objectFit: 'contain' },
   sigTyped: { fontSize: 18, fontFamily: 'Helvetica-Oblique', marginBottom: 2 },
@@ -104,13 +107,14 @@ export function EsignSigBlock({ label, signer }: { label: string; signer: EsignS
 
 /** Render the signature row for a document's registered roles. */
 function SignatureRow({ doc, def }: { doc: EsignDoc; def: EsignFormDef }) {
+  // Keep the whole signature area together so it never splits across a page.
   return (
-    <>
+    <View wrap={false}>
       <Text style={s.sectionTitle}>Electronic Signatures</Text>
       <View style={s.sigWrap}>
         {def.roles.map(role => <EsignSigBlock key={role} label={def.roleLabel(role)} signer={doc.signers.find(x => x.role === role) ?? null} />)}
       </View>
-    </>
+    </View>
   )
 }
 
@@ -168,12 +172,12 @@ const PET_ACK_DEFAULT =
   'I certify the information above is true and complete. I have read and agree to comply with the Association’s pet rules and restrictions, I will keep each pet’s vaccinations current, and I understand registration may be revoked for violations.'
 
 const petStyles = StyleSheet.create({
-  petCard: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6, padding: 10, marginTop: 8 },
-  petTitle: { fontSize: 10, fontFamily: 'Helvetica-Bold', color: NAVY, marginBottom: 4 },
+  petCard: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6, padding: 7, marginTop: 6, fontSize: 9 },
+  petTitle: { fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: NAVY, marginBottom: 3 },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  cell: { width: '50%', paddingVertical: 2, flexDirection: 'row' },
-  cellK: { color: MUTED, width: 90 }, cellV: { fontFamily: 'Helvetica-Bold', flex: 1 },
-  blankLine: { borderBottomWidth: 1, borderBottomColor: '#9ca3af', flex: 1, marginLeft: 4, height: 9 },
+  cell: { width: '50%', paddingVertical: 1.5, flexDirection: 'row' },
+  cellK: { color: MUTED, width: 82, fontSize: 9 }, cellV: { fontFamily: 'Helvetica-Bold', flex: 1, fontSize: 9 },
+  blankLine: { borderBottomWidth: 1, borderBottomColor: '#9ca3af', flex: 1, marginLeft: 4, height: 8 },
 })
 
 function petCell(k: string, v: string | undefined, blank: boolean) {
@@ -244,6 +248,18 @@ function renderPetPdf(doc: EsignDoc, blank: boolean): PdfElement {
   )
 }
 
+/** Pet registration expiry = one year after the EARLIEST rabies vaccination
+ *  date across the pets (the soonest-to-lapse), so renewal is prompted before
+ *  any pet's vaccination is out of date. Falls back to the applicant's signing
+ *  date + 1yr when no rabies date is on file. */
+export function petRegistrationExpiry(payload: PetPayload, signedAtIso?: string | null): string | null {
+  const dates = (payload.pets ?? []).map(p => p.rabiesDate).filter((d): d is string => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d)).sort()
+  const base = dates[0] ?? (signedAtIso ? signedAtIso.slice(0, 10) : null)
+  if (!base) return null
+  const d = new Date(base + 'T00:00:00Z'); d.setUTCFullYear(d.getUTCFullYear() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
 const petRegistration: EsignFormDef = {
   kind: 'pet_registration',
   label: 'Pet Registration',
@@ -252,6 +268,7 @@ const petRegistration: EsignFormDef = {
   renderPdf: (doc) => renderPetPdf(doc, false),
   renderBlank: (doc) => renderPetPdf(doc, true),
   fillable: true,
+  computeExpiry: (doc) => petRegistrationExpiry(doc.payload as PetPayload, doc.signers.find(sg => sg.role === 'applicant')?.signed_at ?? null),
 }
 
 const REGISTRY: Record<string, EsignFormDef> = {
@@ -267,3 +284,4 @@ export function roleLabel(kind: string, role: string): string { return REGISTRY[
 export function renderFormPdf(doc: EsignDoc): PdfElement | null { return REGISTRY[doc.kind]?.renderPdf(doc) ?? null }
 export function renderFormBlank(doc: EsignDoc): PdfElement | null { return REGISTRY[doc.kind]?.renderBlank?.(doc) ?? null }
 export function isFillable(kind: string): boolean { return !!REGISTRY[kind]?.fillable }
+export function computeFormExpiry(doc: EsignDoc): string | null { return REGISTRY[doc.kind]?.computeExpiry?.(doc) ?? null }
