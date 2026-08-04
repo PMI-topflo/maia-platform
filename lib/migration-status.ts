@@ -3399,6 +3399,22 @@ DROP POLICY IF EXISTS "public_read_association_intake_documents" ON public.assoc
 CREATE POLICY "public_read_association_intake_documents" ON public.association_intake_documents FOR SELECT TO anon, authenticated USING (active = true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'preapply_intake_columns',
+    label:       'Pre-App intake — listing_applications columns',
+    description: 'Adds application_type / applicant_role / association_code / unit_label / rules_ack / submitted_at to listing_applications, and doc_key / doc_label to application_documents, for the public Pre-Application intake (B4 slice 2). Reuses the existing collaborative-leasing foundation rather than a new table.',
+    filename:    '20260805_preapply_intake_columns.sql',
+    artifact:    { type: 'column', table: 'listing_applications', column: 'application_type' },
+    sql: `ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS application_type text;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS applicant_role   text;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS association_code text;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS unit_label       text;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS rules_ack        jsonb;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS submitted_at     timestamptz;
+ALTER TABLE public.application_documents ADD COLUMN IF NOT EXISTS doc_key   text;
+ALTER TABLE public.application_documents ADD COLUMN IF NOT EXISTS doc_label text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
