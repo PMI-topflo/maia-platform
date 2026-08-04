@@ -6,6 +6,7 @@
 // Clicking a cell opens the full unit page in a NEW TAB.
 
 import type { AuditUnit } from '@/lib/association-audit'
+import { formatBalance, balanceColor } from '@/lib/format-currency'
 
 export type AuditUnitEnriched = AuditUnit & { balance: number | null; inCollections: boolean }
 
@@ -17,19 +18,8 @@ function cellColor(missing: number): { bg: string; fg: string } {
   return { bg: '#fee2e2', fg: '#991b1b' }                    // pink/red — many missing
 }
 
-// CINC display: positive = owed (red), negative = credit shown in
-// parentheses (blue), zero = neutral.
-function money(n: number | null): string {
-  if (n == null) return '—'
-  const r = Math.round(n)
-  return r < 0 ? `($${Math.abs(r).toLocaleString('en-US')})` : `$${r.toLocaleString('en-US')}`
-}
-function balanceColor(n: number | null, inCollections: boolean, neutral: string): string {
-  if (inCollections) return '#dc2626'
-  if (n == null) return neutral          // no balance ("—")
-  if (n > 0.005) return '#dc2626'        // owes → red
-  return '#2563eb'                       // zero or credit → blue
-}
+// Compact whole-dollar CINC formatting for the tight grid tiles.
+const money = (n: number | null): string => formatBalance(n, 0)
 
 export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] }) {
   const placed = units.filter(u => u.floor != null && u.line != null)
@@ -63,7 +53,7 @@ export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] })
           <span title="In collections" style={{ position: 'absolute', top: 3, right: 5, font: '700 9px system-ui', color: '#dc2626' }}>⛔</span>
         )}
         <span style={{ lineHeight: 1.1 }}>{u.unit}</span>
-        <span style={{ font: `600 10px system-ui`, color: balanceColor(u.balance, u.inCollections, fg), marginTop: 1 }}>
+        <span style={{ font: `600 10px system-ui`, color: balanceColor(u.balance), marginTop: 1 }}>
           {money(u.balance)}
         </span>
       </a>

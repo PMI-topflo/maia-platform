@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AuditUnit } from '@/lib/association-audit'
 import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger'
+import { formatBalance, balanceColor } from '@/lib/format-currency'
 
 type Unit = AuditUnit & { balance: number | null; inCollections: boolean }
 interface Submission {
@@ -27,11 +28,8 @@ const OCC = [
   { key: 'vacant',         label: 'Vacant' },
 ] as const
 
-// CINC display: positive = owed, negative = credit in parentheses.
-const money = (n: number | null) => n == null ? '—'
-  : n < 0 ? `($${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
-  : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-const balanceColor = (n: number | null, coll: boolean) => coll ? '#dc2626' : (n != null && n > 0.005) ? '#dc2626' : (n != null && n < -0.005) ? '#2563eb' : '#111827'
+// CINC display: positive = owed (blue), negative = credit (red, parentheses).
+const money = (n: number | null) => formatBalance(n, 2)
 
 export default function UnitDetailClient({ account, assoc }: { account: string; assoc: string }) {
   const [data, setData] = useState<Data | null>(null)
@@ -122,7 +120,7 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
           )}
         </Card>
         <Card title="Balance">
-          <span style={{ color: balanceColor(u.balance, u.inCollections), fontWeight: 700 }}>{money(u.balance)}</span>
+          <span style={{ color: balanceColor(u.balance), fontWeight: 700 }}>{money(u.balance)}</span>
           {u.inCollections && <span style={{ marginLeft: 8, font: '700 11px system-ui', color: '#fff', background: '#dc2626', borderRadius: 6, padding: '2px 6px' }}>IN COLLECTIONS</span>}
         </Card>
         {u.occupancy === 'leased' && <Card title="Tenant">{u.tenantName || '—'}{u.leaseEndDate ? ` · lease ends ${u.leaseEndDate}` : ''}</Card>}
