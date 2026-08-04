@@ -17,6 +17,7 @@ interface CertSummary {
   initialCertExpiration: string | null
   continuingEdDue: string | null
   hasCertificationForm: boolean
+  continuingEdOverdue: boolean
 }
 interface Member { id: string; name: string | null; email: string | null; role: string | null; docs: CertDoc[]; summary: CertSummary }
 interface Overview { members: Member[]; kind: 'condo' | 'hoa'; expiredCount: number; expiringCount: number; missingCount: number }
@@ -31,6 +32,20 @@ const STATE_STYLE: Record<CertSummary['state'], { label: string; color: string; 
   expiring: { label: '⚠ Expiring', color: '#92400e', bg: '#ffedd5' },
   expired:  { label: '⛔ Expired',  color: '#991b1b', bg: '#fee2e2' },
   missing:  { label: '— Missing',  color: '#6b7280', bg: '#f3f4f6' },
+}
+
+// When a member is flagged `expiring` only because their annual continuing-ed
+// has lapsed (the multi-year certificate itself is still years out), say so
+// plainly — "Expiring" reads as "coming up soon" and misleads for an overdue
+// CE. Mirrors the /units audit block's "Cont. ed due" relabel (#572). If the
+// certificate itself is genuinely near its window, "Expiring" still wins.
+function badgeFor(s: CertSummary): { label: string; color: string; bg: string } {
+  const cutoff60 = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10)
+  const certFarOff = !!(s.initialCertExpiration && s.initialCertExpiration > cutoff60)
+  if (s.state === 'expiring' && s.continuingEdOverdue && certFarOff) {
+    return { label: '⚠ CE overdue', color: '#92400e', bg: '#ffedd5' }
+  }
+  return STATE_STYLE[s.state]
 }
 
 export default function BoardCertBox({ code }: { code: string }) {
@@ -112,7 +127,7 @@ export default function BoardCertBox({ code }: { code: string }) {
           </p>
           <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
             {data.members.map(m => {
-              const st = STATE_STYLE[m.summary.state]
+              const st = badgeFor(m.summary)
               return (
                 <li key={m.id} style={{ borderTop: '1px solid #f3f4f6', paddingTop: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' }}>

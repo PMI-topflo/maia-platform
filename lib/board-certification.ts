@@ -53,6 +53,11 @@ export interface BoardCertSummary {
   hasCertificationForm: boolean
   /** Annual continuing-education hours required for this association type. */
   continuingEdHoursPerYear: number
+  /** True when the annual continuing-ed is past its due date. This is what
+   *  drives an `expiring` state when the underlying certificate itself is
+   *  still well within its multi-year window — surface it distinctly so the
+   *  UI can say "CE overdue" instead of the misleading "Expiring". */
+  continuingEdOverdue: boolean
   /** True when past due and the member should be nudged. */
   actionNeeded: boolean
 }
@@ -116,7 +121,7 @@ export function summarizeBoardMemberCert(
     return {
       state: 'missing', validityYears: years, initialCertDate: null,
       initialCertExpiration: null, continuingEdDue: null, hasCertificationForm,
-      continuingEdHoursPerYear: hours, actionNeeded: true,
+      continuingEdHoursPerYear: hours, continuingEdOverdue: false, actionNeeded: true,
     }
   }
 
@@ -127,18 +132,20 @@ export function summarizeBoardMemberCert(
   // annual continuing-ed requirement, so it doesn't trigger a CE due date.
   const continuingEdDue = eduDocs.length ? addYears(eduDocs[eduDocs.length - 1]!.certificate_date!, 1) : null
 
+  const ceOverdue = continuingEdDue ? continuingEdDue < today : false
+
   let state: BoardCertState
   if (interrupted || initialCertExpiration < today) {
     state = 'expired'
   } else {
     const daysToExp = Math.round((Date.parse(initialCertExpiration) - Date.parse(today)) / 86_400_000)
-    const ceOverdue = continuingEdDue ? continuingEdDue < today : false
     state = (daysToExp <= expiringWindowDays || ceOverdue) ? 'expiring' : 'on_file'
   }
 
   return {
     state, validityYears: years, initialCertDate, initialCertExpiration,
     continuingEdDue, hasCertificationForm, continuingEdHoursPerYear: hours,
+    continuingEdOverdue: ceOverdue,
     actionNeeded: state === 'expired',   // 'missing' already returned above
   }
 }
