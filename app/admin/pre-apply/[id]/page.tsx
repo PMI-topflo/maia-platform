@@ -112,6 +112,9 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <h2 style={h2}>Rules acknowledgment</h2>
       <p style={{ fontSize: 13, color: '#374151' }}>{d.rulesAck?.name ? <>Signed by <strong>{d.rulesAck.name}</strong> · {fmt(d.rulesAck.at)}</> : <span style={{ color: '#b45309' }}>Not signed</span>}</p>
 
+      {/* Board Decision Page e-sign (formal signed decision record) */}
+      {d.status === 'approved' && <DecisionPageSender id={id} unit={d.unit} />}
+
       {/* Audit trail */}
       {(d.audit.auditedAt || d.audit.reviewedAt) && (
         <div style={{ fontSize: 12.5, color: '#6b7280', marginTop: 6 }}>
@@ -144,6 +147,51 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   )
 }
 
+// Creates a Board Decision Page e-sign document and returns the signing link to
+// send to the board member / authorized approver. When they e-sign (verified),
+// it's the formal decision record.
+function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
+  const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [decision, setDecision] = useState('Approved')
+  const [conditions, setConditions] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [link, setLink] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const create = async () => {
+    if (!email.includes('@')) { alert('Enter the approver’s email.'); return }
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/decision-page`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, name, decision, conditions }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); setLink(j.link)
+    } catch (e) { alert(`Could not create: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ marginTop: 18, padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }}>
+      <div style={{ fontWeight: 700, fontSize: 15, color: '#1f2a44' }}>Board Decision Page (e-signature)</div>
+      <div style={{ fontSize: 12.5, color: '#6b7280', margin: '4px 0 10px' }}>Generate the formal decision for Unit {unit ?? '—'} and send it to the board member / authorized approver to e-sign (verified — email/phone OTP + audit trail).</div>
+      {!link ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 460 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <select value={decision} onChange={e => setDecision(e.target.value)} style={inp}><option>Approved</option><option>Approved with conditions</option><option>Declined</option></select>
+            <input placeholder="Approver name" value={name} onChange={e => setName(e.target.value)} style={{ ...inp, flex: 1, minWidth: 140 }} />
+          </div>
+          <input placeholder="Approver email" value={email} onChange={e => setEmail(e.target.value)} style={inp} />
+          {decision.includes('conditions') && <input placeholder="Conditions" value={conditions} onChange={e => setConditions(e.target.value)} style={inp} />}
+          <button onClick={create} disabled={busy} style={{ ...btn('#059669'), alignSelf: 'flex-start' }}>{busy ? 'Creating…' : 'Create & get signing link'}</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input readOnly value={link} onFocus={e => e.currentTarget.select()} style={{ ...inp, flex: 1, minWidth: 240, fontFamily: 'ui-monospace, monospace', fontSize: 12 }} />
+          <button onClick={async () => { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800) }} style={btn(copied ? '#059669' : '#f26a1b')}>{copied ? '✓ Copied' : 'Copy link'}</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function StatusPill({ status }: { status: string }) {
   const map: Record<string, { c: string; b: string }> = { submitted: { c: '#92400e', b: '#ffedd5' }, under_review: { c: '#1d4ed8', b: '#dbeafe' }, approved: { c: '#166534', b: '#dcfce7' }, declined: { c: '#991b1b', b: '#fee2e2' } }
   const s = map[status] ?? { c: '#374151', b: '#f3f4f6' }
@@ -153,3 +201,4 @@ function StatusPill({ status }: { status: string }) {
 const wrap: React.CSSProperties = { maxWidth: 780, margin: '0 auto', padding: 24, fontFamily: 'system-ui' }
 const h2: React.CSSProperties = { fontSize: 15, fontWeight: 700, color: '#1f2a44', margin: '22px 0 6px' }
 const btn = (bg: string): React.CSSProperties => ({ padding: '9px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', background: bg, color: '#fff', font: '600 13px system-ui' })
+const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 8, boxSizing: 'border-box' }

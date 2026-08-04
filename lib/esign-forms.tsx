@@ -271,9 +271,48 @@ const petRegistration: EsignFormDef = {
   computeExpiry: (doc) => petRegistrationExpiry(doc.payload as PetPayload, doc.signers.find(sg => sg.role === 'applicant')?.signed_at ?? null),
 }
 
+// ── Board Decision Page ──────────────────────────────────────────────
+export interface BoardDecisionPayload {
+  associationLegalName?: string
+  applicant?: string
+  unit?: string
+  applicationType?: string
+  decision?: string        // Approved | Approved with conditions | Declined
+  conditions?: string
+  reason?: string
+}
+
+const boardDecision: EsignFormDef = {
+  kind: 'board_decision',
+  label: 'Board Decision',
+  roles: ['approver'],
+  roleLabel: () => 'Board / Authorized Approver',
+  renderPdf: (doc) => {
+    const p = doc.payload as BoardDecisionPayload
+    return (
+      <Document>
+        <Page size="LETTER" style={s.page}>
+          <Text style={s.assoc}>{p.associationLegalName ?? doc.association_code}</Text>
+          <Text style={s.title}>Board Decision</Text>
+          <View style={s.rule} />
+          <View style={s.row}><Text style={s.rowKey}>Application type</Text><Text style={s.rowVal}>{({ lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' } as Record<string, string>)[p.applicationType ?? ''] ?? p.applicationType ?? '—'}</Text></View>
+          <View style={s.row}><Text style={s.rowKey}>Unit</Text><Text style={s.rowVal}>{p.unit ?? doc.unit_ref ?? '—'}</Text></View>
+          <View style={s.row}><Text style={s.rowKey}>Applicant</Text><Text style={s.rowVal}>{p.applicant ?? '—'}</Text></View>
+          <View style={s.row}><Text style={s.rowKey}>Decision</Text><Text style={{ ...s.rowVal, color: /declin/i.test(p.decision ?? '') ? '#991b1b' : '#166534' }}>{p.decision ?? 'Approved'}</Text></View>
+          {p.conditions ? <Text style={s.para}>Conditions: {p.conditions}</Text> : null}
+          {p.reason ? <Text style={s.para}>{p.reason}</Text> : null}
+          <Text style={s.para}>The undersigned, on behalf of the Association&apos;s Board of Directors (or as an authorized approver), certifies this is the Association&apos;s decision on the above application.</Text>
+          <SignatureRow doc={doc} def={boardDecision} />
+        </Page>
+      </Document>
+    )
+  },
+}
+
 const REGISTRY: Record<string, EsignFormDef> = {
   [associationAcknowledgment.kind]: associationAcknowledgment,
   [petRegistration.kind]: petRegistration,
+  [boardDecision.kind]: boardDecision,
 }
 
 export const PET_ACK = PET_ACK_DEFAULT
