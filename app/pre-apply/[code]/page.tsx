@@ -19,6 +19,7 @@ const TYPES = [
 interface ChecklistItem { id: string; doc_key: string; label: string; provided_by: 'applicant' | 'landlord' | 'agent'; required: boolean; note: string | null; uploaded: boolean }
 interface Info {
   associationName: string; type: string; unitLabel: string | null; applicantName: string | null
+  applicantEmailMasked: string | null; emailVerified: boolean
   submitted: boolean; providerLabels: Record<string, string>
   checklist: ChecklistItem[]; rules: { rule_key: string; label: string }[]
 }
@@ -140,6 +141,16 @@ function DocsStep({ code, token }: { code: string; token: string }) {
   const otherDocs = info.checklist.filter(d => d.provided_by !== 'applicant')
   const requiredDone = info.checklist.every(d => !d.required || d.uploaded)
 
+  // Applicants must verify their email before they can upload anything.
+  if (!info.emailVerified) return (
+    <div style={wrap}>
+      <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6b7280', margin: 0 }}>{info.associationName}</p>
+      <h1 style={{ fontSize: 22, color: '#1f2a44', margin: '4px 0 2px' }}>Verify your email</h1>
+      <p style={{ color: '#6b7280', fontSize: 14, marginTop: 0 }}>We&apos;ll send a code to {info.applicantEmailMasked ?? 'your email'} to confirm it&apos;s you before you upload documents.</p>
+      <VerifyEmail token={token} onVerified={load} />
+    </div>
+  )
+
   return (
     <div style={wrap}>
       <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6b7280', margin: 0 }}>{info.associationName}</p>
@@ -182,6 +193,41 @@ function DocsStep({ code, token }: { code: string; token: string }) {
       {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
       <button onClick={submit} disabled={busy || !requiredDone} style={primary(!busy && requiredDone)}>{busy ? 'Submitting…' : 'Submit application'}</button>
       <p style={{ color: '#9ca3af', fontSize: 12, marginTop: 12, textAlign: 'center' }}>PMI Top Florida Properties · {code}</p>
+    </div>
+  )
+}
+
+function VerifyEmail({ token, onVerified }: { token: string; onVerified: () => void }) {
+  const [sent, setSent] = useState(false)
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  async function send() {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch(`/api/pre-apply/${token}/send-otp`, { method: 'POST' })
+      const d = await r.json(); if (!r.ok) throw new Error(d.error ?? 'Could not send')
+      setSent(true); setMsg(`Code sent to ${d.sentTo}.`)
+    } catch (e) { setMsg((e as Error).message) } finally { setBusy(false) }
+  }
+  async function verify() {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch(`/api/pre-apply/${token}/verify-otp`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })
+      const d = await r.json(); if (!r.ok) throw new Error(d.error ?? 'Could not verify')
+      onVerified()
+    } catch (e) { setMsg((e as Error).message) } finally { setBusy(false) }
+  }
+  const btn: React.CSSProperties = { padding: '10px 16px', fontSize: 14, fontWeight: 700, border: 'none', borderRadius: 8, cursor: busy ? 'default' : 'pointer', color: '#fff', background: busy ? '#9ca3af' : '#f26a1b' }
+  return (
+    <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+      <button onClick={send} disabled={busy} style={btn}>{sent ? 'Resend code' : 'Send me a code'}</button>
+      {sent && <>
+        <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6-digit code" inputMode="numeric" style={{ width: 130, padding: '10px 12px', fontSize: 16, border: '1px solid #d1d5db', borderRadius: 8, letterSpacing: 3 }} />
+        <button onClick={verify} disabled={busy || code.length < 4} style={{ ...btn, background: busy || code.length < 4 ? '#9ca3af' : '#059669' }}>Verify</button>
+      </>}
+      {msg && <p style={{ width: '100%', fontSize: 13, color: msg.startsWith('Code sent') ? '#166534' : '#b91c1c', margin: '4px 0 0' }}>{msg}</p>}
     </div>
   )
 }

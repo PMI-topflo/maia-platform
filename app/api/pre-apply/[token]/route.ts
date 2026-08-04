@@ -7,6 +7,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { verifyPreApplyToken } from '@/lib/preapply-token'
 import { getIntake } from '@/lib/preapply'
 import { getIntakeChecklist, PROVIDED_BY_LABEL } from '@/lib/intake-documents'
+import { maskEmail } from '@/lib/esign-verify'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -30,6 +31,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     type: intake.type,
     unitLabel: intake.unitLabel,
     applicantName: intake.applicant?.name ?? null,
+    applicantEmailMasked: maskEmail(intake.applicant?.email ?? null),
+    emailVerified: !!intake.emailVerifiedAt,
     status: intake.status,
     submitted: !!intake.submittedAt,
     providerLabels: PROVIDED_BY_LABEL,

@@ -16,6 +16,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const intake = await getIntake(t.applicationId)
   if (!intake) return NextResponse.json({ error: 'Not found.' }, { status: 404 })
   if (intake.submittedAt) return NextResponse.json({ error: 'This application has already been submitted.' }, { status: 400 })
+  if (!intake.emailVerifiedAt) return NextResponse.json({ error: 'Please verify your email before uploading.' }, { status: 403 })
 
   let b: { doc_key?: string; filename?: string }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
