@@ -3329,6 +3329,35 @@ NOTIFY pgrst, 'reload schema';`,
 ALTER TABLE public.lease_packets ADD COLUMN IF NOT EXISTS tenant_verification jsonb;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'esign_documents',
+    label:       'Shared e-sign forms engine',
+    description: 'esign_documents table — the generic "association e-sign forms" engine backing every signable form (pet registration, board decision page, future) with ONE verified-signature flow, token scheme, signing page, and PDF verification certificate. kind = the form-registry key; payload = per-kind field values; signers = array of per-role name/email/phone/signature/verification. The existing lease_packets flow is left as-is; new forms use this engine.',
+    filename:    '20260805_esign_documents.sql',
+    artifact:    { type: 'table', table: 'esign_documents' },
+    sql: `CREATE TABLE IF NOT EXISTS public.esign_documents (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind              text        NOT NULL,
+  association_code  text        NOT NULL,
+  unit_ref          text,
+  title             text,
+  payload           jsonb       NOT NULL DEFAULT '{}'::jsonb,
+  signers           jsonb       NOT NULL DEFAULT '[]'::jsonb,
+  status            text        NOT NULL DEFAULT 'sent',
+  compliance_item   text,
+  created_by        text,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_esign_status CHECK (status IN ('draft','sent','partially_signed','completed','void'))
+);
+CREATE INDEX IF NOT EXISTS esign_documents_assoc_idx ON public.esign_documents (association_code, kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS esign_documents_unit_idx ON public.esign_documents (association_code, unit_ref);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.esign_documents TO anon, authenticated, service_role;
+ALTER TABLE public.esign_documents ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_esign_documents" ON public.esign_documents;
+CREATE POLICY "service_role_all_esign_documents" ON public.esign_documents FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
