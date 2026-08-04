@@ -48,8 +48,6 @@ export default function OwnerComplianceClient({ token }: { token: string }) {
   // Commercial use type
   const [useType, setUseType] = useState(''); const [savingUseType, setSavingUseType] = useState(false); const [useTypeSaved, setUseTypeSaved] = useState(false)
   const [savingDeclared, setSavingDeclared] = useState<string | null>(null)
-  // Upload
-  const [files, setFiles] = useState<File[]>([]); const [busy, setBusy] = useState(false); const [done, setDone] = useState<string | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -112,17 +110,6 @@ export default function OwnerComplianceClient({ token }: { token: string }) {
       const j = await res.json(); if (!res.ok) throw new Error(j?.error ?? 'failed'); patch({ missing: j.missing })
     } catch (e) { setError((e as Error).message) } finally { setSavingDeclared(null) }
   }
-  async function upload() {
-    if (files.length === 0) { setError('Choose at least one file.'); return }
-    setBusy(true); setError(null); setDone(null)
-    try {
-      const fd = new FormData(); files.forEach(f => fd.append('files', f))
-      const res = await fetch(`/api/owner/compliance/${token}/upload`, { method: 'POST', body: fd })
-      const j = await res.json(); if (!res.ok) throw new Error(j?.error ?? 'upload failed')
-      setDone(`Thank you — ${j.saved} file(s) received. PMI will review and file them.`); setFiles([])
-    } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
-  }
-
   if (loading) return <p style={{ fontSize: 13, color: '#6b7280' }}>Loading…</p>
   if (!s) return <p style={{ fontSize: 14, color: '#991b1b' }}>{error ?? 'Could not load your unit.'}</p>
 
@@ -222,53 +209,78 @@ export default function OwnerComplianceClient({ token }: { token: string }) {
         </div>
       )}
 
-      {/* Missing docs (contact + emergency handled above) */}
+      {/* Missing docs — one labeled upload box per document (contact + emergency
+          handled above). No shared pile: each box uploads its own document so
+          it's clear which is which and MAIA files it against the right item. */}
       <div style={sectionLabel}>Documents we still need {s.occupancy ? '' : '(answer above to tailor this list)'}</div>
       {uploadMissing.length === 0 ? (
         <div style={{ padding: 14, background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, fontSize: 14, color: '#065f46', marginBottom: 18 }}>✓ Nothing else to upload — thank you!</div>
       ) : (
-        <ul style={{ margin: '0 0 18px', padding: 0, listStyle: 'none' }}>
-          {uploadMissing.map(m => {
-            const options = INSURANCE_TYPE_OPTIONS[m.key]
-            return (
-              <li key={m.key} style={{ fontSize: 14, color: '#374151', padding: '7px 0', borderTop: '1px solid #f1f5f9' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ color: '#dc2626' }}>•</span>{m.label}
-                  {options && (
-                    <select value={m.declaredType ?? ''} disabled={savingDeclared === m.key} onChange={e => reallyDeclareType(m.key, e.target.value)} style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: 6 }}>
-                      <option value="" disabled>What type do you carry?</option>
-                      {options.map(o => <option key={o} value={o}>{o}</option>)}
-                    </select>
-                  )}
-                </div>
-                {m.key === 'unit.ownership' && (
-                  <div style={{ fontSize: 12, color: '#6b7280', margin: '3px 0 0 16px' }}>
-                    Upload your recorded <strong>Deed</strong>, or your property record from the{' '}
-                    <a href={s.appraiser.url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb' }}>{s.appraiser.name}</a>.
-                  </div>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      )}
-
-      {/* Upload */}
-      <div style={sectionLabel}>Upload your documents</div>
-      {done ? (
-        <div style={{ padding: 14, background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, fontSize: 14, color: '#065f46' }}>✓ {done}
-          <div style={{ marginTop: 10 }}><button onClick={() => setDone(null)} style={{ background: 'none', border: 'none', color: '#065f46', textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0 }}>Upload more</button></div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
+          {uploadMissing.map(m => (
+            <DocUploadBox
+              key={m.key} token={token} item={m}
+              options={INSURANCE_TYPE_OPTIONS[m.key]}
+              savingType={savingDeclared === m.key}
+              onDeclareType={reallyDeclareType}
+              extraHint={m.key === 'unit.ownership'
+                ? <>Upload your recorded <strong>Deed</strong>, or your property record from the{' '}<a href={s.appraiser.url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb' }}>{s.appraiser.name}</a>.</>
+                : null}
+            />
+          ))}
+          <p style={{ fontSize: 11, color: '#9ca3af', margin: 0 }}>PDF, JPG, PNG accepted. PMI reviews each before filing.</p>
         </div>
-      ) : (
-        <>
-          <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.webp,application/pdf,image/*" onChange={e => setFiles(Array.from(e.target.files ?? []))} style={{ display: 'block', width: '100%', fontSize: 13, marginBottom: 12 }} />
-          {files.length > 0 && <ul style={{ margin: '0 0 12px', padding: 0, listStyle: 'none', fontSize: 12, color: '#4b5563' }}>{files.map((f, i) => <li key={i}>• {f.name} ({(f.size / 1024 / 1024).toFixed(1)} MB)</li>)}</ul>}
-          {error && <div style={{ fontSize: 13, color: '#991b1b', marginBottom: 10 }}>⚠ {error}</div>}
-          <button onClick={upload} disabled={busy} style={{ width: '100%', padding: 11, borderRadius: 8, border: 'none', cursor: busy ? 'default' : 'pointer', background: busy ? '#9ca3af' : '#f26a1b', color: '#fff', fontSize: 14, fontWeight: 700 }}>{busy ? 'Uploading…' : 'Upload'}</button>
-          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 10 }}>PDF, JPG, PNG accepted. PMI reviews each before filing.</p>
-        </>
       )}
-      {error && !busy && <div style={{ fontSize: 13, color: '#991b1b', marginTop: 10 }}>⚠ {error}</div>}
+    </div>
+  )
+}
+
+/** One labeled upload box for a single required document — no shared pile, no
+ *  dropdown to pick which document this is. Insurance items keep a "what type
+ *  do you carry?" select (that's the policy type, not the document identity). */
+function DocUploadBox({ token, item, options, savingType, onDeclareType, extraHint }: {
+  token: string; item: MissingItem; options?: string[]; savingType: boolean
+  onDeclareType: (itemKey: string, declaredType: string) => void; extraHint: React.ReactNode
+}) {
+  const [declared, setDeclared] = useState(item.declaredType ?? '')
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg]   = useState<{ ok: boolean; text: string } | null>(null)
+
+  const submit = async () => {
+    if (!file) { setMsg({ ok: false, text: 'Choose a file first.' }); return }
+    if (options && !declared) { setMsg({ ok: false, text: 'Choose the type first.' }); return }
+    setBusy(true); setMsg(null)
+    try {
+      const fd = new FormData()
+      fd.append('files', file)
+      fd.append('item_key', item.key)
+      if (declared) fd.append('declared_type', declared)
+      const res = await fetch(`/api/owner/compliance/${token}/upload`, { method: 'POST', body: fd })
+      const j = await res.json(); if (!res.ok) throw new Error(j?.error ?? 'upload failed')
+      setMsg({ ok: true, text: 'Received — PMI will review and file it. Thank you!' }); setFile(null)
+    } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 10, padding: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>{item.label}</span>
+        {options && (
+          <select value={declared} disabled={savingType}
+            onChange={e => { setDeclared(e.target.value); onDeclareType(item.key, e.target.value) }}
+            style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: 6 }}>
+            <option value="" disabled>What type do you carry?</option>
+            {options.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        )}
+      </div>
+      {extraHint && <div style={{ fontSize: 12, color: '#6b7280', margin: '4px 0 0' }}>{extraHint}</div>}
+      <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp,application/pdf,image/*" onChange={e => setFile(e.target.files?.[0] ?? null)} style={{ fontSize: 13 }} />
+        <button onClick={submit} disabled={busy || !file} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: busy || !file ? 'default' : 'pointer', background: busy || !file ? '#d1d5db' : '#f26a1b', color: '#fff', fontSize: 13, fontWeight: 700 }}>{busy ? 'Uploading…' : 'Upload'}</button>
+      </div>
+      {msg && <div style={{ fontSize: 12, color: msg.ok ? '#065f46' : '#991b1b', marginTop: 8 }}>{msg.ok ? '✓ ' : '⚠ '}{msg.text}</div>}
     </div>
   )
 }
