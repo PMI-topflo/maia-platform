@@ -57,7 +57,7 @@ export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] })
         }}
       >
         {occ && (
-          <span style={{ position: 'absolute', top: 3, left: 4, font: '700 8px system-ui', color: fg, background: 'rgba(255,255,255,0.65)', borderRadius: 4, padding: '1px 3px', letterSpacing: '0.01em' }}>{occ}</span>
+          <span style={{ position: 'absolute', top: 3, left: 4, font: '700 8px system-ui', color: u.occupancy === 'leased' ? '#5b21b6' : fg, background: 'rgba(255,255,255,0.75)', borderRadius: 4, padding: '1px 3px', letterSpacing: '0.01em' }}>{occ}</span>
         )}
         {u.inCollections && (
           <span title="In collections" style={{ position: 'absolute', top: 3, right: 5, font: '700 9px system-ui', color: '#dc2626' }}>⛔</span>
@@ -77,7 +77,7 @@ export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] })
         <Legend sw="#fef9c3" label="1–2 missing" />
         <Legend sw="#fee2e2" label="3+ missing" />
         <span style={{ color: '#9ca3af' }}>·</span>
-        <span>Occupancy shown as <b>Owner</b> · <b>Leased</b> · <b>Vacant</b></span>
+        <span>Occupancy shown as <b>Owner</b> · <b style={{ color: '#5b21b6' }}>Leased</b> · <b>Vacant</b></span>
         <span style={{ color: '#dc2626' }}>⛔ / red border = in collections</span>
       </div>
 
