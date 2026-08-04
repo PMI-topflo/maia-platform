@@ -6,6 +6,19 @@ Snapshot for picking up on another machine. Everything below is **live in produc
 
 ---
 
+## 2026-08-05 (cont.) — balances CINC-style, board-cert "Why expired?" (7 langs) + per-doc boxes, Axela flag, onsite uploads, owner-compliance boxes
+
+**MERGED (all deployed):**
+- **#577 balances = CINC:** `lib/format-currency.ts` (`formatBalance`+`balanceColor`) — **positive BLUE, negative RED in parentheses**, zero gray. Applied to `/units` grid + drill-down tables + unit-detail Balance card. Collections shown by its own chip/badge, not by re-coloring the number.
+- **#578 board-cert "Why is it expired?" (7 langs) + per-document upload boxes:** `lib/board-cert-rules-i18n.ts` (DBPR rules condo Ch.718 vs HOA Ch.720, all 7 portal langs, Hebrew RTL) + `components/BoardCertWhyExpired.tsx` (ⓘ modal w/ own lang switcher, picks kind). Wired: staff hub, board self-upload page, `/units` banner. Replaced the doc-type `<select>` with a **separate labeled upload box per document** (kind-aware). Self-upload API returns `kind`+summary+per-doc dates.
+- **#579 Axela flag:** collections balances flagged "CINC may not match the Axela collections-agency ledger" (`COLLECTIONS_BALANCE_NOTE`). Banner + per-balance ⚠ tooltip + unit-detail caution + grid tooltip. Collections-scoped (only they have an Axela ledger). **User is pursuing an Axela API connection** — this is the interim caution.
+- **#580 onsite-manager uploads on `/units`:** new units-auth'd routes `/api/units/board-certifications/{upload-url,submit}` (PENDING row, MAIA date read, approver email; gated by `resolveUnitsAuth`+`canUpload`). `/units` banner now shows per-document upload boxes when `canUpload`. Migration `20260805_board_cert_uploaded_via_units.sql` widened `uploaded_via` CHECK to add `'units'` (applied+verified). All 3 personas (staff hub / board self-link / onsite+board on units) can now upload.
+- **#581 owner-compliance per-document boxes:** replaced the shared "dump all files" uploader on `/owner/compliance/[token]` with one labeled `DocUploadBox` per required doc; each sends its `item_key`(+declared insurance type) so MAIA files it against the exact item. Applicant `/apply` was already per-box. **Tenant-verify NOT yet converted** (offered).
+
+**Karen Fisher (MANXI) — RESOLVED:** opened her uploaded PDF → it's a genuine **Board Member Certification Form** (signed 2024-06-11), NOT a CE cert. Correctly filed; she legitimately stays **CE overdue** until an actual continuing-ed certificate (dated ≤ last 12 mo) is filed. No change.
+
+---
+
 ## 2026-08-05 — board-cert "CE overdue" label + Lease-Packet field wiring (B1). NEXT: verified-signature layer (B2)
 
 **MERGED to `main` (deployed):**
