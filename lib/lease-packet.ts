@@ -11,6 +11,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import type { LeasePacketAgreementProps } from '@/lib/lease-packet-pdf'
 import type { LeasePacketRole } from '@/lib/lease-packet-token'
+import type { RoleVerification } from '@/lib/lease-packet-verify'
 
 export interface LeasePacketRow {
   id: string
@@ -37,6 +38,8 @@ export interface LeasePacketRow {
   tenant_sig_name: string | null
   tenant_sig_image: string | null
   tenant_sig_ip: string | null
+  owner_verification: RoleVerification | null
+  tenant_verification: RoleVerification | null
   created_at: string
 }
 
@@ -44,7 +47,7 @@ const COLS =
   'id, association_code, unit_ref, unit_number, association_legal_name, owner_name, owner_email, owner_mobile, ' +
   'tenant_name, tenant_email, tenant_mobile, property_address, ' +
   'lease_start, lease_end, effective_date, status, owner_signed_at, owner_sig_name, owner_sig_image, owner_sig_ip, ' +
-  'tenant_signed_at, tenant_sig_name, tenant_sig_image, tenant_sig_ip, created_at'
+  'tenant_signed_at, tenant_sig_name, tenant_sig_image, tenant_sig_ip, owner_verification, tenant_verification, created_at'
 
 export async function getLeasePacket(id: string): Promise<LeasePacketRow | null> {
   const { data } = await supabaseAdmin.from('lease_packets').select(COLS).eq('id', id).maybeSingle()
@@ -68,10 +71,10 @@ export function agreementPropsFromPacket(p: LeasePacketRow): LeasePacketAgreemen
     ownerEmail: p.owner_email,
     tenantEmail: p.tenant_email,
     ownerSig: p.owner_signed_at
-      ? { name: p.owner_sig_name ?? p.owner_name ?? '', image: p.owner_sig_image, signedAt: p.owner_signed_at, email: p.owner_email, ip: p.owner_sig_ip }
+      ? { name: p.owner_sig_name ?? p.owner_name ?? '', image: p.owner_sig_image, signedAt: p.owner_signed_at, email: p.owner_email, ip: p.owner_sig_ip, verification: p.owner_verification ?? null }
       : null,
     tenantSig: p.tenant_signed_at
-      ? { name: p.tenant_sig_name ?? p.tenant_name ?? '', image: p.tenant_sig_image, signedAt: p.tenant_signed_at, email: p.tenant_email, ip: p.tenant_sig_ip }
+      ? { name: p.tenant_sig_name ?? p.tenant_name ?? '', image: p.tenant_sig_image, signedAt: p.tenant_signed_at, email: p.tenant_email, ip: p.tenant_sig_ip, verification: p.tenant_verification ?? null }
       : null,
     documentId: p.id,
   }
@@ -80,6 +83,31 @@ export function agreementPropsFromPacket(p: LeasePacketRow): LeasePacketAgreemen
 /** Has the given role already signed this packet? */
 export function roleSigned(p: LeasePacketRow, role: LeasePacketRole): boolean {
   return role === 'owner' ? !!p.owner_signed_at : !!p.tenant_signed_at
+}
+
+/** The role's email / mobile snapshotted on the packet. */
+export function roleEmail(p: LeasePacketRow, role: LeasePacketRole): string | null {
+  return role === 'owner' ? p.owner_email : p.tenant_email
+}
+export function rolePhone(p: LeasePacketRow, role: LeasePacketRole): string | null {
+  return role === 'owner' ? p.owner_mobile : p.tenant_mobile
+}
+/** Phone OTP is required for a role only when a mobile is on file. */
+export function rolePhoneRequired(p: LeasePacketRow, role: LeasePacketRole): boolean {
+  return !!(rolePhone(p, role) ?? '').trim()
+}
+export function roleVerification(p: LeasePacketRow, role: LeasePacketRole): RoleVerification | null {
+  return role === 'owner' ? p.owner_verification : p.tenant_verification
+}
+
+/** Merge a patch into the role's verification certificate (idempotent-safe). */
+export async function setRoleVerification(id: string, role: LeasePacketRole, patch: RoleVerification): Promise<RoleVerification> {
+  const p = await getLeasePacket(id)
+  const current = (p ? roleVerification(p, role) : null) ?? {}
+  const next: RoleVerification = { ...current, ...patch }
+  const col = role === 'owner' ? 'owner_verification' : 'tenant_verification'
+  await supabaseAdmin.from('lease_packets').update({ [col]: next, updated_at: new Date().toISOString() }).eq('id', id)
+  return next
 }
 
 export interface SignInput { name: string; image: string | null; ip: string | null }
