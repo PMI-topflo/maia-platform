@@ -37,8 +37,8 @@ export default function PreApplyQueue() {
             </tr></thead>
             <tbody>
               {apps.map(a => (
-                <tr key={a.id}>
-                  <td style={td}><div style={{ fontWeight: 600 }}>{a.applicant?.name || '—'}</div><div style={{ color: '#9ca3af', fontSize: 12 }}>{a.applicant?.email}</div></td>
+                <tr key={a.id} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }} style={{ cursor: 'pointer' }}>
+                  <td style={td}><div style={{ fontWeight: 600, color: '#1d4ed8' }}>{a.applicant?.name || '—'}</div><div style={{ color: '#9ca3af', fontSize: 12 }}>{a.applicant?.email}</div></td>
                   <td style={td}>{a.associationCode}</td>
                   <td style={td}>{a.unit || '—'}</td>
                   <td style={td}>{TYPE_LABEL[a.type] ?? a.type}</td>
