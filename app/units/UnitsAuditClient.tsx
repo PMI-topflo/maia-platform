@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import FloorPlanGrid, { type AuditUnitEnriched } from './FloorPlanGrid'
 import { formatBalance, balanceColor, COLLECTIONS_BALANCE_NOTE } from '@/lib/format-currency'
 import BoardCertWhyExpired from '@/components/BoardCertWhyExpired'
@@ -79,8 +79,16 @@ export default function UnitsAuditClient({ assoc }: { assoc?: string }) {
   )
 }
 
-interface BoardCertMember { name: string | null; role: string | null; state: 'on_file' | 'expiring' | 'expired' | 'missing'; initialCertExpiration: string | null; continuingEdDue: string | null }
-interface BoardCertData { kind: 'condo' | 'hoa'; expiredCount: number; expiringCount: number; missingCount: number; members: BoardCertMember[] }
+interface BoardCertDoc { doc_type: string; status: string; certificate_date: string | null }
+interface BoardCertMember { id: string; name: string | null; role: string | null; state: 'on_file' | 'expiring' | 'expired' | 'missing'; initialCertExpiration: string | null; continuingEdDue: string | null; continuingEdOverdue: boolean; docs: BoardCertDoc[] }
+interface BoardCertData { kind: 'condo' | 'hoa'; canUpload: boolean; expiredCount: number; expiringCount: number; missingCount: number; members: BoardCertMember[] }
+
+// Documents the DBPR rules describe — the certification form is condo-only.
+const CERT_DOC_TYPES: { key: string; label: string; kinds: ('condo' | 'hoa')[] }[] = [
+  { key: 'education_certificate', label: 'Education certificate', kinds: ['condo', 'hoa'] },
+  { key: 'certification_form',    label: 'Certification form',    kinds: ['condo'] },
+  { key: 'continuing_education',  label: 'Continuing education',   kinds: ['condo', 'hoa'] },
+]
 const CERT_STATE: Record<BoardCertMember['state'], { label: string; color: string }> = {
   on_file:  { label: 'On file',  color: '#166534' },
   expiring: { label: 'Expiring', color: '#92400e' },
@@ -88,16 +96,19 @@ const CERT_STATE: Record<BoardCertMember['state'], { label: string; color: strin
   missing:  { label: 'Missing',  color: '#6b7280' },
 }
 
-// Read-only board-education standing on the audit page. Managing certificates
-// (upload / email requests) lives on the admin Association Hub.
+// Board-education standing on the audit page. Read-only for viewers; on-site
+// managers / board members with upload permission also get a separate labeled
+// upload box per required document (kind-aware). Type confirmation + approval
+// stay on the admin Association Hub.
 function BoardCertBanner({ assoc }: { assoc?: string }) {
   const [data, setData] = useState<BoardCertData | null>(null)
   const [open, setOpen] = useState(false)
-  useEffect(() => {
+  const load = useCallback(() => {
     const q = assoc ? `?assoc=${encodeURIComponent(assoc)}` : ''
     fetch(`/api/units/board-certifications${q}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : null).then(setData).catch(() => setData(null))
   }, [assoc])
+  useEffect(load, [load])
   if (!data || data.members.length === 0) return null
   const needAttention = data.expiredCount + data.missingCount
   const allGood = needAttention === 0 && data.expiringCount === 0
@@ -135,15 +146,79 @@ function BoardCertBanner({ assoc }: { assoc?: string }) {
               : ceDriven ? ` · due ${m.continuingEdDue}`
               : m.initialCertExpiration ? ` · exp ${m.initialCertExpiration}` : ''
             return (
-              <li key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, font: '12px system-ui', color: '#374151' }}>
-                <span>{m.name ?? '—'}{m.role ? ` · ${m.role}` : ''}</span>
-                <span style={{ color: s.color, fontWeight: 600 }}>{label}{detail}</span>
+              <li key={i} style={{ borderTop: i === 0 ? 'none' : '1px solid #f3f4f6', paddingTop: i === 0 ? 0 : 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, font: '12px system-ui', color: '#374151' }}>
+                  <span>{m.name ?? '—'}{m.role ? ` · ${m.role}` : ''}</span>
+                  <span style={{ color: s.color, fontWeight: 600 }}>{label}{detail}</span>
+                </div>
+                {data.canUpload && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                    {CERT_DOC_TYPES.filter(dt => dt.kinds.includes(data.kind)).map(dt => {
+                      const doc = m.docs.filter(d => d.doc_type === dt.key).sort((a, b) => ((a.certificate_date ?? '') < (b.certificate_date ?? '') ? 1 : -1))[0] ?? null
+                      const exp = dt.key === 'continuing_education'
+                        ? (m.continuingEdDue ? { label: m.continuingEdOverdue ? 'CE overdue since' : 'Next CE due', value: m.continuingEdDue, warn: m.continuingEdOverdue } : null)
+                        : (m.initialCertExpiration ? { label: 'Valid through', value: m.initialCertExpiration, warn: m.initialCertExpiration < today } : null)
+                      return <CertDocUpload key={dt.key} assoc={assoc} memberId={m.id} docType={dt.key} label={dt.label} doc={doc} exp={exp} onDone={load} />
+                    })}
+                  </div>
+                )}
               </li>
             )
           })}
         </ul>
         )
       })()}
+    </div>
+  )
+}
+
+/** One labeled, fixed-type board-cert upload box for the /units audit (on-site
+ *  manager / board). No dropdown — the document type is the box. Files a PENDING
+ *  cert for staff review via the units-auth'd routes. */
+function CertDocUpload({ assoc, memberId, docType, label, doc, exp, onDone }: {
+  assoc?: string; memberId: string; docType: string; label: string
+  doc: BoardCertDoc | null; exp: { label: string; value: string; warn: boolean } | null; onDone: () => void
+}) {
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg]   = useState<string | null>(null)
+
+  const submit = async () => {
+    if (!file) return
+    setBusy(true); setMsg(null)
+    try {
+      const u = await fetch('/api/units/board-certifications/upload-url', {
+        method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ assoc, memberId, filename: file.name }),
+      })
+      const uj = await u.json(); if (!u.ok) throw new Error(uj.error || 'upload-url failed')
+      const put = await fetch(uj.signedUrl, { method: 'PUT', body: file, headers: { 'content-type': file.type || 'application/octet-stream' } })
+      if (!put.ok) throw new Error('upload failed')
+      const s = await fetch('/api/units/board-certifications/submit', {
+        method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ assoc, memberId, doc_type: docType, storage_path: uj.path, filename: file.name, mime_type: file.type }),
+      })
+      if (!s.ok) throw new Error((await s.json()).error || 'submit failed')
+      setMsg('Received — PMI will review it.'); setFile(null); onDone()
+    } catch (e) { setMsg(`Could not upload: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ border: `1px solid ${doc ? '#e5e7eb' : '#fde68a'}`, background: doc ? '#fff' : '#fffbeb', borderRadius: 8, padding: '7px 9px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <span style={{ font: '700 11px system-ui', color: '#111827' }}>{label}</span>
+        {exp
+          ? <span style={{ font: '600 11px system-ui', color: exp.warn ? '#b91c1c' : '#166534' }}>{exp.label} {exp.value}</span>
+          : <span style={{ font: '600 11px system-ui', color: doc ? '#166534' : '#92400e' }}>{doc ? doc.status : 'Not on file'}</span>}
+      </div>
+      <div style={{ marginTop: 5, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => setFile(e.target.files?.[0] ?? null)} style={{ font: '11px system-ui', maxWidth: 190 }} />
+        <button onClick={submit} disabled={!file || busy}
+          style={{ font: '600 11px system-ui', background: file && !busy ? '#f26a1b' : '#e5e7eb', color: file && !busy ? '#fff' : '#9ca3af', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: file && !busy ? 'pointer' : 'default' }}>
+          {busy ? 'Uploading…' : doc ? 'Upload newer' : 'Upload'}
+        </button>
+        {msg && <span style={{ font: '11px system-ui', color: msg.startsWith('Could not') ? '#991b1b' : '#166534' }}>{msg}</span>}
+      </div>
     </div>
   )
 }
