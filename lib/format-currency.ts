@@ -20,6 +20,15 @@ export const BALANCE_COLORS = {
   zero:     '#6b7280', // paid up — muted gray
 } as const
 
+// Units in collections are serviced through the Axela collections agency, whose
+// ledger is authoritative for the amount actually owed. The balance MAIA shows
+// comes from CINC and can lag or diverge from Axela (fees, payments, and legal
+// costs post to Axela first). Surface this wherever a collections balance is
+// shown so the board doesn't treat the CINC number as final. (An Axela API
+// reconciliation is being pursued; until then this is a caution, not a fix.)
+export const COLLECTIONS_BALANCE_NOTE =
+  'In collections — this CINC balance may not match the Axela collections-agency ledger, which is the authoritative amount owed. Treat it as an estimate until the Axela ledger is reconciled.'
+
 /** Format a dollar amount CINC-style: negatives wrapped in parentheses.
  *  `decimals` defaults to 2 (cents, like CINC); pass 0 for compact whole
  *  dollars. Null / non-finite → an em dash. */
