@@ -38,7 +38,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (files.length === 0) return NextResponse.json({ error: 'no files' }, { status: 400 })
   if (files.length > MAX_FILES) return NextResponse.json({ error: `max ${MAX_FILES} files at once` }, { status: 400 })
 
-  const hint = `Owner ${ownerName}, unit ${o?.unit_number ?? t.account}, account ${t.account}, association ${t.assoc} — owner-uploaded unit document`
+  // Per-document uploads name the exact item the owner is submitting (e.g.
+  // "unit.ho6", with the declared insurance type). That tells MAIA's classifier
+  // precisely what this file is, instead of guessing from a shared pile.
+  const declaredItem = String(form.get('item_key') ?? '').trim()
+  const declaredType = String(form.get('declared_type') ?? '').trim()
+  const itemHint = declaredItem
+    ? `. The owner is submitting this specifically as their "${declaredType || declaredItem}" document (compliance item ${declaredItem}).`
+    : ''
+  const hint = `Owner ${ownerName}, unit ${o?.unit_number ?? t.account}, account ${t.account}, association ${t.assoc} — owner-uploaded unit document${itemHint}`
   let saved = 0
   const failed: string[] = []
   for (const f of files) {
