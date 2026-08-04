@@ -52,13 +52,19 @@ export interface IntakeState {
   unitLabel: string | null
   status: string
   submittedAt: string | null
+  emailVerifiedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
   docs: { doc_key: string | null; doc_label: string | null; filename: string; created_at: string }[]
 }
 
+/** Stamp the applicant's email as verified (OTP passed). */
+export async function markEmailVerified(applicationId: string): Promise<void> {
+  await supabaseAdmin.from('listing_applications').update({ email_verified_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', applicationId)
+}
+
 export async function getIntake(applicationId: string): Promise<IntakeState | null> {
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('id, listing_id, association_code, application_type, applicant_role, unit_label, status, submitted_at')
+    .select('id, listing_id, association_code, application_type, applicant_role, unit_label, status, submitted_at, email_verified_at')
     .eq('id', applicationId).maybeSingle()
   if (!app) return null
   const [{ data: sh }, { data: docs }] = await Promise.all([
@@ -69,6 +75,7 @@ export async function getIntake(applicationId: string): Promise<IntakeState | nu
     applicationId: app.id, listingId: app.listing_id, associationCode: String(app.association_code),
     type: app.application_type as ApplicationType, role: String(app.applicant_role ?? 'applicant'),
     unitLabel: (app.unit_label as string | null) ?? null, status: String(app.status), submittedAt: (app.submitted_at as string | null) ?? null,
+    emailVerifiedAt: (app.email_verified_at as string | null) ?? null,
     applicant: sh ? { name: sh.name as string | null, email: sh.email as string | null, phone: sh.phone as string | null } : null,
     docs: (docs ?? []) as IntakeState['docs'],
   }

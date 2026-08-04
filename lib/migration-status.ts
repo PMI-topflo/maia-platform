@@ -3426,6 +3426,15 @@ ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS drive_folder_ur
 NOTIFY pgrst, 'reload schema';`,
   },
   {
+    key:         'preapply_email_verified',
+    label:       'Pre-App intake — email verification',
+    description: 'Adds listing_applications.email_verified_at — the public intake now requires the applicant to verify their email with a one-time code before they can upload documents (confirms the "who" is not just self-declared).',
+    filename:    '20260805_preapply_email_verified.sql',
+    artifact:    { type: 'column', table: 'listing_applications', column: 'email_verified_at' },
+    sql: `ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS email_verified_at timestamptz;
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'preapply_review_columns',
     label:       'Pre-App intake — audit + approval fields',
     description: 'Adds audited_by/audited_at, reviewed_by/reviewed_at/review_note, approved_by_role to listing_applications for the staff audit + dual-approval stage (B4 slice 3). Intake advances submitted → under_review → approved | declined.',
