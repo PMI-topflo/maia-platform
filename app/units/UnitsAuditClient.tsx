@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import FloorPlanGrid, { type AuditUnitEnriched } from './FloorPlanGrid'
-import { formatBalance, balanceColor } from '@/lib/format-currency'
+import { formatBalance, balanceColor, COLLECTIONS_BALANCE_NOTE } from '@/lib/format-currency'
 import BoardCertWhyExpired from '@/components/BoardCertWhyExpired'
 
 type Filter = 'complete' | 'partial' | 'missing' | 'leased' | 'vacant' | 'collections' | 'expired' | 'expiring'
@@ -186,6 +186,11 @@ function FilterPanel({ filter, units, onClose }: { filter: Filter; units: AuditU
           <button onClick={onClose} style={{ font: '500 13px system-ui', color: '#374151', background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, padding: '5px 12px', cursor: 'pointer' }}>← Back to grid</button>
         </div>
       </div>
+      {units.some(u => u.inCollections) && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 16px', background: '#fffbeb', borderBottom: '1px solid #fde68a', font: '400 12px system-ui', color: '#92400e', lineHeight: 1.45 }}>
+          <span aria-hidden>⚠</span><span>{COLLECTIONS_BALANCE_NOTE}</span>
+        </div>
+      )}
       {units.length === 0
         ? <div style={{ padding: 24, color: '#6b7280', textAlign: 'center' }}>No units in this category.</div>
         : (filter === 'leased' || filter === 'vacant' || filter === 'collections')
@@ -222,7 +227,10 @@ function UnitTable({ units }: { units: AuditUnitEnriched[] }) {
               <td style={td}>{u.ownerName || '—'}</td>
               <td style={{ ...td, color: u.occupancy === 'leased' ? '#5b21b6' : '#9ca3af' }}>{u.tenantName || '—'}</td>
               <td style={{ ...td, whiteSpace: 'nowrap' }}>{u.leaseEndDate || '—'}</td>
-              <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', color: balanceColor(u.balance) }}>{money(u.balance)}</td>
+              <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', color: balanceColor(u.balance) }}>
+                {money(u.balance)}
+                {u.inCollections && <span title={COLLECTIONS_BALANCE_NOTE} style={{ marginLeft: 4, cursor: 'help', color: '#b45309', font: '700 10px system-ui' }}>⚠</span>}
+              </td>
               <td style={td}>{u.inCollections ? <span style={{ font: '600 11px system-ui', color: '#dc2626', background: '#fee2e2', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>⛔ collections</span> : <span style={{ color: '#9ca3af', font: '400 12px system-ui' }}>{u.occupancy ?? '—'}</span>}</td>
               <td style={{ ...td, textAlign: 'center', fontWeight: 600, color: u.missingCount > 0 ? '#b45309' : '#16a34a' }}>{u.missingCount}</td>
             </tr>

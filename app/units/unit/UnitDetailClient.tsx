@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AuditUnit } from '@/lib/association-audit'
 import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger'
-import { formatBalance, balanceColor } from '@/lib/format-currency'
+import { formatBalance, balanceColor, COLLECTIONS_BALANCE_NOTE } from '@/lib/format-currency'
 
 type Unit = AuditUnit & { balance: number | null; inCollections: boolean }
 interface Submission {
@@ -122,6 +122,7 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
         <Card title="Balance">
           <span style={{ color: balanceColor(u.balance), fontWeight: 700 }}>{money(u.balance)}</span>
           {u.inCollections && <span style={{ marginLeft: 8, font: '700 11px system-ui', color: '#fff', background: '#dc2626', borderRadius: 6, padding: '2px 6px' }}>IN COLLECTIONS</span>}
+          {u.inCollections && <div style={{ marginTop: 6, font: '400 11px system-ui', color: '#92400e', lineHeight: 1.45 }}>⚠ {COLLECTIONS_BALANCE_NOTE}</div>}
         </Card>
         {u.occupancy === 'leased' && <Card title="Tenant">{u.tenantName || '—'}{u.leaseEndDate ? ` · lease ends ${u.leaseEndDate}` : ''}</Card>}
         {data.tenantRecord && (data.tenantRecord.tenant_name || data.tenantRecord.lease_end) && (

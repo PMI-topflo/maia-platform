@@ -38,7 +38,7 @@ export default function FloorPlanGrid({ units }: { units: AuditUnitEnriched[] })
       <a
         href={`/units/unit?account=${encodeURIComponent(u.accountNumber)}&assoc=${encodeURIComponent(u.associationCode)}`}
         target="_blank" rel="noopener noreferrer"
-        title={`Unit ${u.unit} · ${u.ownerName || 'owner —'} · ${u.occupancy ?? 'occupancy not set'} · balance ${money(u.balance)}${u.inCollections ? ' · IN COLLECTIONS' : ''} · ${u.missingCount} doc(s) missing`}
+        title={`Unit ${u.unit} · ${u.ownerName || 'owner —'} · ${u.occupancy ?? 'occupancy not set'} · balance ${money(u.balance)}${u.inCollections ? ' · IN COLLECTIONS (CINC balance may not match the Axela ledger)' : ''} · ${u.missingCount} doc(s) missing`}
         style={{
           width: 74, height: 56, borderRadius: 8, background: bg, color: fg, textDecoration: 'none',
           border: u.inCollections ? '2px solid #dc2626' : '1px solid rgba(0,0,0,0.08)',
