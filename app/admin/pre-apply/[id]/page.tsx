@@ -14,6 +14,7 @@ interface Detail {
   applicant: { name: string | null; email: string | null; phone: string | null } | null
   rulesAck: { name?: string; at?: string } | null
   driveFolderUrl: string | null
+  screeningProvider: string
   audit: { auditedBy: string | null; auditedAt: string | null; reviewedBy: string | null; reviewedAt: string | null; note: string | null; approvedByRole: string | null }
   checklist: { label: string; required: boolean; provided_by: string; uploaded: boolean }[]
   documents: Doc[]
@@ -28,6 +29,16 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
+  const [tax, setTax] = useState<{ kind: string; confidence: number; verdict: string } | null>(null)
+  const [taxBusy, setTaxBusy] = useState(false)
+
+  async function runTaxCheck() {
+    setTaxBusy(true); setTax(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/tax-check`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); setTax(j)
+    } catch (e) { alert(`Tax check: ${(e as Error).message}`) } finally { setTaxBusy(false) }
+  }
 
   const load = useCallback(() => {
     fetch(`/api/admin/pre-apply/${id}`, { credentials: 'include' })
@@ -84,6 +95,19 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
         ))}
       </div>
 
+      {/* Tax-return-vs-W-2 check (the one real validation) */}
+      {d.checklist.some(c => /tax/i.test(c.label)) && (
+        <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button disabled={taxBusy} onClick={runTaxCheck} style={{ ...btn('#4338ca'), padding: '7px 12px' }}>{taxBusy ? 'Checking…' : 'Check tax doc (is it a return, not a W-2?)'}</button>
+          {tax && (
+            <span style={{ font: '600 13px system-ui', color: tax.verdict === 'ok' ? '#166534' : tax.verdict === 'w2' ? '#b91c1c' : '#b45309' }}>
+              {tax.verdict === 'ok' ? '✓ Looks like a tax return' : tax.verdict === 'w2' ? '⚠ This is a W-2, not a tax return' : tax.verdict === 'unknown' ? 'Could not read it' : '⚠ Not a tax return (' + tax.kind + ')'}
+              {tax.confidence ? ` · ${Math.round(tax.confidence * 100)}%` : ''}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Rules ack */}
       <h2 style={h2}>Rules acknowledgment</h2>
       <p style={{ fontSize: 13, color: '#374151' }}>{d.rulesAck?.name ? <>Signed by <strong>{d.rulesAck.name}</strong> · {fmt(d.rulesAck.at)}</> : <span style={{ color: '#b45309' }}>Not signed</span>}</p>
@@ -110,7 +134,10 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
             <button disabled={busy} onClick={() => act('request')} style={btn('#b45309')}>Request more</button>
             <button disabled={busy} onClick={() => act('decline')} style={btn('#b91c1c')}>Decline</button>
           </div>
-          <p style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 10 }}>Approval is dual: audit first (PMI + Jonathan), then either the on-site manager or the board approves. Populate-MAIA + Checkr trigger + Board Decision Page e-sign land next.</p>
+          <p style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 10 }}>
+            Audit first (PMI + Jonathan), then the on-site manager or the board approves. On approval this hands off to{' '}
+            <strong>{d.screeningProvider === 'maia_checkr' ? 'MAIA + Checkr' : 'Tenant Evaluation (current system)'}</strong> for the background check — change per association on the Association Hub.
+          </p>
         </div>
       )}
     </div>
