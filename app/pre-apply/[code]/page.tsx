@@ -37,6 +37,18 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
+  // Prefill from a staff-generated link (e.g. an email reply): ?type=&unit=&name=&email=
+  // When the type is known, jump straight to the contact step so the applicant
+  // just confirms and uploads.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const q = new URLSearchParams(window.location.search)
+    const qType = q.get('type') ?? ''
+    if (TYPES.some(t => t.key === qType)) setType(qType)
+    setForm(f => ({ ...f, unit: q.get('unit') ?? f.unit, name: q.get('name') ?? f.name, email: q.get('email') ?? f.email }))
+    if (TYPES.some(t => t.key === qType)) setStep('contact')
+  }, [])
+
   async function start() {
     setErr(null)
     if (!type) { setErr('Please choose what you are applying for.'); return }

@@ -339,7 +339,40 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
           </div>
         </Section>
       )}
+
+      <ApplicationLinkCard assoc={assoc} unitLabel={u.unit ?? account} />
     </Shell>
+  )
+}
+
+// Generates the unit-scoped Pre-Application link staff paste into an email
+// reply. Because the link carries the unit + type, MAIA files the applicant's
+// uploads into the correct "On Going Applications" Drive subfolder automatically.
+function ApplicationLinkCard({ assoc, unitLabel }: { assoc: string; unitLabel: string }) {
+  const TYPES = [
+    { key: 'lease', label: 'Rent (new lease)' }, { key: 'purchase', label: 'Purchase' },
+    { key: 'lease_renewal', label: 'Lease renewal' }, { key: 'additional_occupant', label: 'Additional occupant' },
+  ]
+  const [type, setType] = useState('lease')
+  const [copied, setCopied] = useState(false)
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  const link = `${origin}/pre-apply/${encodeURIComponent(assoc)}?unit=${encodeURIComponent(unitLabel)}&type=${type}`
+  const copy = async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800) } catch { /* */ } }
+
+  return (
+    <div style={{ marginTop: 18, padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }}>
+      <div style={{ font: '700 15px system-ui', color: '#1f2a44' }}>Application link (reply by email)</div>
+      <div style={{ font: '400 13px system-ui', color: '#6b7280', margin: '4px 0 12px' }}>
+        Copy this unit-scoped link into your email reply. The applicant gets this unit&apos;s document checklist, uploads each item, and signs the rules — MAIA files everything into this unit&apos;s <strong>On Going Applications</strong> Drive folder automatically (it creates the subfolder).
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <select value={type} onChange={e => setType(e.target.value)} style={{ font: '13px system-ui', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 8 }}>
+          {TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+        </select>
+        <input readOnly value={link} onFocus={e => e.currentTarget.select()} style={{ flex: 1, minWidth: 220, font: '12px ui-monospace, monospace', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 8, color: '#374151' }} />
+        <button onClick={copy} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', background: copied ? '#059669' : '#f26a1b', color: '#fff', font: '600 13px system-ui' }}>{copied ? '✓ Copied' : 'Copy link'}</button>
+      </div>
+    </div>
   )
 }
 
