@@ -3,7 +3,9 @@
 //   → bulk-add on-site managers (building_managers). Skips emails already on
 //     file. Name defaults to the email's local part when not given (so a plain
 //     list of emails works).
-// PATCH /api/admin/building-managers  { id, active }  → activate/deactivate.
+// PATCH /api/admin/building-managers  { id, active?, name?, email?, phone? }
+//   → activate/deactivate and/or edit the name, email, phone in place.
+// DELETE /api/admin/building-managers  { id }  → remove a mistaken entry.
 // Staff-only. On-site managers are association/building-wide — distinct from
 // unit_managers (an owner's per-unit manager).
 
@@ -62,10 +64,32 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  let body: { id?: string; active?: boolean }
+  let body: { id?: string; active?: boolean; name?: string; email?: string; phone?: string }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
   if (!body.id) return NextResponse.json({ error: 'id required' }, { status: 400 })
-  const { error } = await supabaseAdmin.from('building_managers').update({ active: !!body.active }).eq('id', body.id)
+
+  const update: Record<string, unknown> = {}
+  if (typeof body.active === 'boolean') update.active = body.active
+  if (body.name !== undefined) { const { first, last } = splitName(body.name); update.first_name = first; update.last_name = last }
+  if (body.email !== undefined) {
+    const email = body.email.trim().toLowerCase()
+    if (email && !email.includes('@')) return NextResponse.json({ error: 'Enter a valid email.' }, { status: 400 })
+    update.email = email || null
+  }
+  if (body.phone !== undefined) update.phone = body.phone.trim() || null
+  if (Object.keys(update).length === 0) return NextResponse.json({ error: 'nothing to update' }, { status: 400 })
+
+  const { error } = await supabaseAdmin.from('building_managers').update(update).eq('id', body.id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
+
+export async function DELETE(req: Request) {
+  if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  let id = new URL(req.url).searchParams.get('id') ?? ''
+  if (!id) { try { id = String((await req.json())?.id ?? '') } catch { /* no body */ } }
+  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
+  const { error } = await supabaseAdmin.from('building_managers').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }

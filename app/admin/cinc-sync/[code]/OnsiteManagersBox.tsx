@@ -57,6 +57,25 @@ export default function OnsiteManagersBox({ code }: { code: string }) {
     load()
   }
 
+  async function saveEdits(id: string, fields: { name: string; email: string; phone: string }) {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch('/api/admin/building-managers', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ...fields }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setMsg('Saved.'); load()
+    } catch (e) { setMsg(`Could not save: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
+  async function remove(id: string, label: string) {
+    if (!confirm(`Remove ${label} from the on-site managers?`)) return
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch(`/api/admin/building-managers?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setMsg('Removed.'); load()
+    } catch (e) { setMsg(`Could not remove: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
   const box: React.CSSProperties = { border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }
   return (
     <div style={box}>
@@ -66,18 +85,12 @@ export default function OnsiteManagersBox({ code }: { code: string }) {
       {managers === null ? <p style={{ font: '12px system-ui', color: '#9ca3af' }}>Loading…</p>
         : managers.length === 0 ? <p style={{ font: '12px system-ui', color: '#9ca3af' }}>None yet — paste the on-site managers&rsquo; emails below.</p>
         : (
-          <ul style={{ listStyle: 'none', margin: '0 0 12px', padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <ul style={{ listStyle: 'none', margin: '0 0 12px', padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
             {managers.map(m => (
-              <li key={m.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline', opacity: m.active ? 1 : 0.5 }}>
-                <span style={{ font: '13px system-ui' }}>
-                  <span style={{ fontWeight: 600 }}>{[m.first_name, m.last_name].filter(Boolean).join(' ') || '—'}</span>
-                  {m.email ? <span style={{ color: '#6b7280' }}> · {m.email}</span> : null}
-                  {m.company_name ? <span style={{ color: '#9ca3af' }}> · {m.company_name}</span> : null}
-                </span>
-                <button onClick={() => toggle(m.id, !m.active)} style={{ font: '11px system-ui', color: m.active ? '#b91c1c' : '#2563eb', background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  {m.active ? 'Deactivate' : 'Reactivate'}
-                </button>
-              </li>
+              <ManagerRow key={m.id} m={m} busy={busy}
+                onSave={f => saveEdits(m.id, f)}
+                onToggle={() => toggle(m.id, !m.active)}
+                onRemove={() => remove(m.id, [m.first_name, m.last_name].filter(Boolean).join(' ') || m.email || 'this manager')} />
             ))}
           </ul>
         )}
@@ -108,5 +121,36 @@ export default function OnsiteManagersBox({ code }: { code: string }) {
         </>)
       })()}
     </div>
+  )
+}
+
+// One editable manager row: name / phone / email inline, Save when changed,
+// plus Deactivate/Reactivate and Remove.
+function ManagerRow({ m, busy, onSave, onToggle, onRemove }: {
+  m: Manager; busy: boolean
+  onSave: (f: { name: string; email: string; phone: string }) => void
+  onToggle: () => void; onRemove: () => void
+}) {
+  const initial = { name: [m.first_name, m.last_name].filter(Boolean).join(' '), email: m.email ?? '', phone: m.phone ?? '' }
+  const [f, setF] = useState(initial)
+  const dirty = f.name !== initial.name || f.email !== initial.email || f.phone !== initial.phone
+  const inp: React.CSSProperties = { font: '13px system-ui', border: '1px solid #d1d5db', borderRadius: 8, padding: '7px 9px', boxSizing: 'border-box', width: '100%' }
+  const link = (color: string): React.CSSProperties => ({ font: '11px system-ui', color, background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', padding: 0 })
+  return (
+    <li style={{ border: '1px solid #f3f4f6', borderRadius: 10, padding: 10, opacity: m.active ? 1 : 0.6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+        <input style={inp} placeholder="Name" value={f.name} onChange={e => setF(s => ({ ...s, name: e.target.value }))} />
+        <input style={inp} placeholder="Phone" value={f.phone} onChange={e => setF(s => ({ ...s, phone: e.target.value }))} />
+      </div>
+      <input style={inp} placeholder="Email" value={f.email} onChange={e => setF(s => ({ ...s, email: e.target.value }))} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={() => onSave(f)} disabled={!dirty || busy}
+          style={{ font: '600 12px system-ui', background: dirty ? '#f26a1b' : '#e5e7eb', color: dirty ? '#fff' : '#9ca3af', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: dirty && !busy ? 'pointer' : 'default' }}>Save</button>
+        <span style={{ flex: 1 }} />
+        {!m.active && <span style={{ font: '11px system-ui', color: '#9ca3af' }}>inactive</span>}
+        <button onClick={onToggle} style={link(m.active ? '#b91c1c' : '#2563eb')}>{m.active ? 'Deactivate' : 'Reactivate'}</button>
+        <button onClick={onRemove} style={link('#6b7280')}>Remove</button>
+      </div>
+    </li>
   )
 }
