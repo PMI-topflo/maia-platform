@@ -17,6 +17,21 @@ export const dynamic = 'force-dynamic'
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
 const firstEmail = (e: string | null) => (e ?? '').split(/[,;\s]+/).map(s => s.trim()).find(x => x.includes('@')) ?? null
+const firstNonEmpty = (...vals: (string | null | undefined)[]) => vals.map(v => (v ?? '').trim()).find(Boolean) ?? null
+
+/** Compose a single-line unit mailing address from the association's principal
+ *  street address + the unit number + city/state/zip. Any missing part is
+ *  skipped; returns null when there's nothing to show. */
+function composeAddress(a: { street: string | null; unit: string | null; city: string | null; state: string | null; zip: string | null }): string | null {
+  const street = (a.street ?? '').trim()
+  const unit = (a.unit ?? '').trim()
+  // "123 Main St, Unit 511" — only add "Unit N" when it isn't already in the street line.
+  const line1 = [street, unit && !new RegExp(`\\b(unit|apt|#)\\s*${unit}\\b`, 'i').test(street) ? `Unit ${unit}` : '']
+    .filter(Boolean).join(', ')
+  const cityState = [(a.city ?? '').trim(), [(a.state ?? '').trim(), (a.zip ?? '').trim()].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+  const full = [line1, cityState].filter(Boolean).join(', ')
+  return full.trim() ? full : null
+}
 
 function inviteHtml(role: LeasePacketRole, opts: { name: string | null; legal: string; unit: string; link: string }): { subject: string; html: string } {
   const who = role === 'owner' ? 'Unit Owner / Landlord' : 'Tenant'
@@ -43,26 +58,36 @@ export async function POST(req: Request) {
   if (auth.managedUnits && !auth.managedUnits.includes(account)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
   const [{ data: owner }, { data: tenant }, { data: assoc }] = await Promise.all([
-    supabaseAdmin.from('owners').select('first_name, last_name, entity_name, emails, unit_number')
+    supabaseAdmin.from('owners').select('first_name, last_name, entity_name, emails, phone, phone_e164, unit_number')
       .eq('association_code', auth.assoc).eq('account_number', account).or('status.neq.previous,status.is.null').maybeSingle(),
-    supabaseAdmin.from('unit_tenant_contacts').select('tenant_name, tenant_email, lease_start, lease_end')
+    supabaseAdmin.from('unit_tenant_contacts').select('tenant_name, tenant_email, tenant_phone, lease_start, lease_end')
       .eq('association_code', auth.assoc).eq('unit_ref', account).maybeSingle(),
-    supabaseAdmin.from('associations').select('legal_name, association_name').eq('association_code', auth.assoc).maybeSingle(),
+    supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', auth.assoc).maybeSingle(),
   ])
 
   const legal = (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || auth.assoc
   const ownerName = (owner?.entity_name as string | null) || [owner?.first_name, owner?.last_name].filter(Boolean).join(' ').trim() || null
   const ownerEmail = firstEmail((owner?.emails as string | null) ?? null)
+  const ownerMobile = firstNonEmpty((owner?.phone as string | null), (owner?.phone_e164 as string | null))
   const tenantName = (tenant?.tenant_name as string | null) ?? null
   const tenantEmail = firstEmail((tenant?.tenant_email as string | null) ?? null)
+  const tenantMobile = firstNonEmpty((tenant?.tenant_phone as string | null))
   const unitLabel = (owner?.unit_number as string | null) || account
+  // Snapshot the unit's mailing address: association principal street + unit
+  // number + city/state/zip. Composed here (not stored elsewhere); staff verify
+  // it against the lease/approval later per the field-wiring plan.
+  const propertyAddress = composeAddress({
+    street: (assoc?.principal_address as string | null) ?? null, unit: unitLabel,
+    city: (assoc?.city as string | null) ?? null, state: (assoc?.state as string | null) ?? null, zip: (assoc?.zip as string | null) ?? null,
+  })
 
   if (!ownerEmail && !tenantEmail) return NextResponse.json({ error: 'No owner or tenant email on file — add one first.' }, { status: 400 })
 
   const { data: created, error } = await supabaseAdmin.from('lease_packets').insert({
     association_code: auth.assoc, unit_ref: account, unit_number: unitLabel,
-    association_legal_name: legal, owner_name: ownerName, owner_email: ownerEmail,
-    tenant_name: tenantName, tenant_email: tenantEmail,
+    association_legal_name: legal, owner_name: ownerName, owner_email: ownerEmail, owner_mobile: ownerMobile,
+    tenant_name: tenantName, tenant_email: tenantEmail, tenant_mobile: tenantMobile,
+    property_address: propertyAddress,
     lease_start: (tenant?.lease_start as string | null) ?? null, lease_end: (tenant?.lease_end as string | null) ?? null,
     effective_date: new Date().toISOString().slice(0, 10), status: 'sent', created_by: `${auth.persona}`,
   }).select('id').single()

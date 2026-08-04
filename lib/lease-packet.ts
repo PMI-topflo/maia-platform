@@ -20,8 +20,11 @@ export interface LeasePacketRow {
   association_legal_name: string | null
   owner_name: string | null
   owner_email: string | null
+  owner_mobile: string | null
   tenant_name: string | null
   tenant_email: string | null
+  tenant_mobile: string | null
+  property_address: string | null
   lease_start: string | null
   lease_end: string | null
   effective_date: string | null
@@ -38,7 +41,8 @@ export interface LeasePacketRow {
 }
 
 const COLS =
-  'id, association_code, unit_ref, unit_number, association_legal_name, owner_name, owner_email, tenant_name, tenant_email, ' +
+  'id, association_code, unit_ref, unit_number, association_legal_name, owner_name, owner_email, owner_mobile, ' +
+  'tenant_name, tenant_email, tenant_mobile, property_address, ' +
   'lease_start, lease_end, effective_date, status, owner_signed_at, owner_sig_name, owner_sig_image, owner_sig_ip, ' +
   'tenant_signed_at, tenant_sig_name, tenant_sig_image, tenant_sig_ip, created_at'
 
@@ -53,8 +57,11 @@ export function agreementPropsFromPacket(p: LeasePacketRow): LeasePacketAgreemen
   return {
     associationLegalName: p.association_legal_name ?? p.association_code,
     unitNumber: p.unit_number ?? p.unit_ref,
+    propertyAddress: p.property_address,
     ownerName: p.owner_name,
+    ownerMobile: p.owner_mobile,
     tenantNames: p.tenant_name ? [p.tenant_name] : [],
+    tenantMobile: p.tenant_mobile,
     leaseStart: p.lease_start,
     leaseEnd: p.lease_end,
     effectiveDate: p.effective_date,
