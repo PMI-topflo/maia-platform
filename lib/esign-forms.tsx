@@ -107,12 +107,14 @@ export function EsignSigBlock({ label, signer }: { label: string; signer: EsignS
 
 /** Render the signature row for a document's registered roles. */
 function SignatureRow({ doc, def }: { doc: EsignDoc; def: EsignFormDef }) {
-  // Keep the whole signature area together so it never splits across a page.
+  // Render the document's ACTUAL signers (supports a variable number, e.g. two
+  // board approvers); fall back to the form's static roles for the blank copy.
+  const signers = doc.signers.length ? doc.signers : def.roles.map(role => ({ role } as EsignSigner))
   return (
     <View wrap={false}>
       <Text style={s.sectionTitle}>Electronic Signatures</Text>
       <View style={s.sigWrap}>
-        {def.roles.map(role => <EsignSigBlock key={role} label={def.roleLabel(role)} signer={doc.signers.find(x => x.role === role) ?? null} />)}
+        {signers.map((sg, i) => <EsignSigBlock key={i} label={def.roleLabel(sg.role)} signer={doc.signers.find(x => x.role === sg.role) ?? null} />)}
       </View>
     </View>
   )

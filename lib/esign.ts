@@ -11,7 +11,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import type { RoleVerification } from '@/lib/esign-verify'
-import { requiredRoles, computeFormExpiry } from '@/lib/esign-forms'
+import { computeFormExpiry } from '@/lib/esign-forms'
 
 export type EsignStatus = 'draft' | 'sent' | 'partially_signed' | 'completed' | 'void'
 
@@ -117,8 +117,9 @@ export async function recordEsignSignature(
   const after = await patchSigner(id, role, { signed_at: now, sig_name: name, sig_image: input.image, sig_ip: input.ip })
   if (!after) return { ok: false, error: 'Could not save your signature.' }
 
-  const roles = requiredRoles(doc.kind)
-  const complete = roles.length > 0 && roles.every(r => roleSigned(after, r))
+  // Complete when every signer attached to the document has signed (supports a
+  // variable number of signers, e.g. two board approvers).
+  const complete = after.signers.length > 0 && after.signers.every(sg => !!sg.signed_at)
   const status: EsignStatus = complete ? 'completed' : 'partially_signed'
   await supabaseAdmin.from('esign_documents').update({ status, updated_at: now }).eq('id', id)
 
