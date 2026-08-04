@@ -3285,6 +3285,17 @@ DROP POLICY IF EXISTS "service_role_all_lease_packets" ON public.lease_packets;
 CREATE POLICY "service_role_all_lease_packets" ON public.lease_packets FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'lease_packet_contact_fields',
+    label:       'Lease Packet — owner/tenant mobile + property address',
+    description: 'Adds owner_mobile, tenant_mobile and property_address to lease_packets. The Landlord–Tenant Agreement PDF already renders these fields (they showed "—"); they are now snapshotted at send time from owners.phone, unit_tenant_contacts.tenant_phone, and the association principal address + unit number, so the signed document is self-contained. Also supplies the phone number the verified-signature phone factor needs.',
+    filename:    '20260805_lease_packet_contact_fields.sql',
+    artifact:    { type: 'column', table: 'lease_packets', column: 'property_address' },
+    sql: `ALTER TABLE public.lease_packets ADD COLUMN IF NOT EXISTS owner_mobile     text;
+ALTER TABLE public.lease_packets ADD COLUMN IF NOT EXISTS tenant_mobile    text;
+ALTER TABLE public.lease_packets ADD COLUMN IF NOT EXISTS property_address text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
