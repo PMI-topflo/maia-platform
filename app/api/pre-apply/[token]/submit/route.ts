@@ -9,10 +9,12 @@ import { NextResponse } from 'next/server'
 import { verifyPreApplyToken } from '@/lib/preapply-token'
 import { getIntake, submitIntake } from '@/lib/preapply'
 import { getIntakeChecklist } from '@/lib/intake-documents'
+import { mirrorIntakeToDrive } from '@/lib/drive-application-mirror'
 import { sendEmail } from '@/lib/gmail'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 120
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const NOTIFY = (process.env.UNIT_UPLOAD_NOTIFY_EMAILS ?? 'PMI@topfloridaproperties.com,ar@topfloridaproperties.com')
@@ -43,6 +45,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const res = await submitIntake(t.applicationId, { name: rulesName, signature: sig, ip })
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: 500 })
 
+  // Mirror the uploaded documents into the unit's "On Going Applications" Drive
+  // subfolder (MAIA creates it). Best-effort — a Drive blip never fails submit.
+  const drive = await mirrorIntakeToDrive(t.applicationId)
+
   if (NOTIFY.length) {
     void sendEmail({
       to: NOTIFY,
@@ -50,6 +56,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
         <p><strong>${esc(intake.applicant?.name ?? 'An applicant')}</strong> submitted a <strong>${esc(intake.type)}</strong> application for <strong>${esc(intake.associationCode)}</strong>${intake.unitLabel ? ` Unit ${esc(intake.unitLabel)}` : ''}.</p>
         <p>${checklist.length} document(s) on the checklist · ${uploaded.size} uploaded.</p>
+        ${drive.ok && drive.folderUrl ? `<p>📁 Documents filed in Drive: <a href="${drive.folderUrl}">On Going Applications → Unit ${esc(intake.unitLabel ?? '')}</a> (${drive.mirrored} file${drive.mirrored === 1 ? '' : 's'})</p>` : (drive.error ? `<p style="color:#b45309">⚠ Drive mirror pending: ${esc(drive.error)}</p>` : '')}
         <p><a href="${APP}/admin/pre-apply">Open the audit queue →</a></p>
       </div>`,
     }).catch(() => null)

@@ -3415,6 +3415,16 @@ ALTER TABLE public.application_documents ADD COLUMN IF NOT EXISTS doc_key   text
 ALTER TABLE public.application_documents ADD COLUMN IF NOT EXISTS doc_label text;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'preapply_drive_folder',
+    label:       'Pre-App intake — Drive folder link',
+    description: 'Adds drive_folder_id / drive_folder_url to listing_applications — the "On Going Applications" Drive subfolder MAIA creates and mirrors the intake documents into on submit.',
+    filename:    '20260805_preapply_drive_folder.sql',
+    artifact:    { type: 'column', table: 'listing_applications', column: 'drive_folder_id' },
+    sql: `ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS drive_folder_id  text;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS drive_folder_url text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
