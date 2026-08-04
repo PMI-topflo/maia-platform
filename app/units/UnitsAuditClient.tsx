@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import FloorPlanGrid, { type AuditUnitEnriched } from './FloorPlanGrid'
+import { formatBalance, balanceColor } from '@/lib/format-currency'
 
 type Filter = 'complete' | 'partial' | 'missing' | 'leased' | 'vacant' | 'collections' | 'expired' | 'expiring'
 
@@ -190,7 +191,7 @@ function FilterPanel({ filter, units, onClose }: { filter: Filter; units: AuditU
   )
 }
 
-const money = (n: number | null) => n == null ? '—' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+const money = (n: number | null) => formatBalance(n, 0)
 
 // Richer drill-down for occupancy / collections filters: one row per unit with
 // the columns staff want at a glance, before opening the full record.
@@ -217,7 +218,7 @@ function UnitTable({ units }: { units: AuditUnitEnriched[] }) {
               <td style={td}>{u.ownerName || '—'}</td>
               <td style={{ ...td, color: u.occupancy === 'leased' ? '#5b21b6' : '#9ca3af' }}>{u.tenantName || '—'}</td>
               <td style={{ ...td, whiteSpace: 'nowrap' }}>{u.leaseEndDate || '—'}</td>
-              <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', color: u.inCollections ? '#dc2626' : (u.balance ?? 0) > 0 ? '#b91c1c' : '#374151' }}>{money(u.balance)}</td>
+              <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', color: balanceColor(u.balance) }}>{money(u.balance)}</td>
               <td style={td}>{u.inCollections ? <span style={{ font: '600 11px system-ui', color: '#dc2626', background: '#fee2e2', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>⛔ collections</span> : <span style={{ color: '#9ca3af', font: '400 12px system-ui' }}>{u.occupancy ?? '—'}</span>}</td>
               <td style={{ ...td, textAlign: 'center', fontWeight: 600, color: u.missingCount > 0 ? '#b45309' : '#16a34a' }}>{u.missingCount}</td>
             </tr>
