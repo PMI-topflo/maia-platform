@@ -111,21 +111,34 @@ function BoardCertBanner({ assoc }: { assoc?: string }) {
         </span>
         <span style={{ font: '11px system-ui', color: '#6b7280' }}>{open ? 'hide' : 'show'}</span>
       </button>
-      {open && (
+      {open && (() => {
+        const today = new Date().toISOString().slice(0, 10)
+        const c = new Date(`${today}T00:00:00Z`); c.setUTCDate(c.getUTCDate() + 60)
+        const cutoff60 = c.toISOString().slice(0, 10)
+        return (
         <ul style={{ listStyle: 'none', padding: 0, margin: '10px 0 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {data.members.map((m, i) => {
             const s = CERT_STATE[m.state]
+            // When "expiring" is driven by an overdue continuing-ed requirement
+            // (not the initial certificate, which may be years out), say so and
+            // show the continuing-ed due date — not the far-off cert expiry.
+            const ceOverdue = !!(m.continuingEdDue && m.continuingEdDue < today)
+            const initialFarOff = !!(m.initialCertExpiration && m.initialCertExpiration > cutoff60)
+            const ceDriven = m.state === 'expiring' && ceOverdue && initialFarOff
+            const label = ceDriven ? 'Cont. ed due' : s.label
+            const detail = m.state === 'missing' ? ''
+              : ceDriven ? ` · due ${m.continuingEdDue}`
+              : m.initialCertExpiration ? ` · exp ${m.initialCertExpiration}` : ''
             return (
               <li key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, font: '12px system-ui', color: '#374151' }}>
                 <span>{m.name ?? '—'}{m.role ? ` · ${m.role}` : ''}</span>
-                <span style={{ color: s.color, fontWeight: 600 }}>
-                  {s.label}{m.state !== 'missing' && m.initialCertExpiration ? ` · exp ${m.initialCertExpiration}` : ''}
-                </span>
+                <span style={{ color: s.color, fontWeight: 600 }}>{label}{detail}</span>
               </li>
             )
           })}
         </ul>
-      )}
+        )
+      })()}
     </div>
   )
 }
@@ -170,7 +183,47 @@ function FilterPanel({ filter, units, onClose }: { filter: Filter; units: AuditU
       </div>
       {units.length === 0
         ? <div style={{ padding: 24, color: '#6b7280', textAlign: 'center' }}>No units in this category.</div>
-        : <div>{units.map(u => <UnitRow key={u.accountNumber} u={u} filter={filter} showRequest={showRequest} />)}</div>}
+        : (filter === 'leased' || filter === 'vacant' || filter === 'collections')
+          ? <UnitTable units={units} />
+          : <div>{units.map(u => <UnitRow key={u.accountNumber} u={u} filter={filter} showRequest={showRequest} />)}</div>}
+    </div>
+  )
+}
+
+const money = (n: number | null) => n == null ? '—' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+
+// Richer drill-down for occupancy / collections filters: one row per unit with
+// the columns staff want at a glance, before opening the full record.
+function UnitTable({ units }: { units: AuditUnitEnriched[] }) {
+  const th: React.CSSProperties = { textAlign: 'left', padding: '8px 12px', font: '600 11px system-ui', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.03em', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }
+  const td: React.CSSProperties = { padding: '9px 12px', font: '400 13px system-ui', color: '#374151', borderBottom: '1px solid #f3f4f6', verticalAlign: 'top' }
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead><tr>
+          <th style={th}>Unit</th><th style={th}>Owner</th><th style={th}>Tenant</th>
+          <th style={th}>Lease end</th><th style={{ ...th, textAlign: 'right' }}>Balance</th>
+          <th style={th}>Status</th><th style={{ ...th, textAlign: 'center' }}>Missing</th>
+        </tr></thead>
+        <tbody>
+          {units.map(u => (
+            <tr key={u.accountNumber}>
+              <td style={td}>
+                <a href={`/units/unit?account=${encodeURIComponent(u.accountNumber)}&assoc=${encodeURIComponent(u.associationCode)}`}
+                   target="_blank" rel="noopener noreferrer" style={{ color: '#1d4ed8', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                  Unit {u.unit ?? u.accountNumber} ↗
+                </a>
+              </td>
+              <td style={td}>{u.ownerName || '—'}</td>
+              <td style={{ ...td, color: u.occupancy === 'leased' ? '#5b21b6' : '#9ca3af' }}>{u.tenantName || '—'}</td>
+              <td style={{ ...td, whiteSpace: 'nowrap' }}>{u.leaseEndDate || '—'}</td>
+              <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap', color: u.inCollections ? '#dc2626' : (u.balance ?? 0) > 0 ? '#b91c1c' : '#374151' }}>{money(u.balance)}</td>
+              <td style={td}>{u.inCollections ? <span style={{ font: '600 11px system-ui', color: '#dc2626', background: '#fee2e2', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>⛔ collections</span> : <span style={{ color: '#9ca3af', font: '400 12px system-ui' }}>{u.occupancy ?? '—'}</span>}</td>
+              <td style={{ ...td, textAlign: 'center', fontWeight: 600, color: u.missingCount > 0 ? '#b45309' : '#16a34a' }}>{u.missingCount}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

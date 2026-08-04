@@ -103,7 +103,7 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
     return scope ? (q as unknown as { eq(c: string, v: string): Q }).eq('association_code', scope) : q
   }
 
-  const [assocs, owners, occ, tenants, recs, customReqs] = await Promise.all([
+  const [assocs, owners, occ, tenants, utc, recs, customReqs] = await Promise.all([
     fetchAll<{ association_code: string; association_type: string | null }>((from, to) =>
       scoped(supabaseAdmin.from('associations').select('association_code, association_type')).range(from, to)),
     fetchAll<{ account_number: string | null; association_code: string; association_name: string | null; unit_number: string | null; first_name: string | null; last_name: string | null; entity_name: string | null }>((from, to) =>
@@ -115,6 +115,12 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
     fetchAll<{ association_code: string; unit_number: string; first_name: string | null; last_name: string | null; lease_end_date: string | null }>((from, to) =>
       scoped(supabaseAdmin.from('association_tenants')
         .select('association_code, unit_number, first_name, last_name, lease_end_date').eq('status', 'active')).range(from, to)),
+    // unit_tenant_contacts (keyed by account_number) — the canonical tenant
+    // record the drive-organize / approval-move / owner self-service flows
+    // write. Preferred over the older RentVine association_tenants table.
+    fetchAll<{ association_code: string; unit_ref: string; tenant_name: string | null; lease_end: string | null }>((from, to) =>
+      scoped(supabaseAdmin.from('unit_tenant_contacts')
+        .select('association_code, unit_ref, tenant_name, lease_end')).range(from, to)),
     fetchAll<{ association_code: string; unit_ref: string; item_key: string; status: string; expiry_date: string | null; drive_url: string | null }>((from, to) =>
       scoped(supabaseAdmin.from('compliance_records').select('association_code, unit_ref, item_key, status, expiry_date, drive_url').eq('scope', 'unit')).range(from, to)),
     fetchAll<{ association_code: string; item_key: string; label: string | null; occupancy_filter: string | null }>((from, to) =>
@@ -141,6 +147,12 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
   for (const t of tenants) {
     const name = [t.first_name, t.last_name].filter(Boolean).join(' ')
     tenantByUnit.set(key(t.association_code, t.unit_number), { name, leaseEndDate: t.lease_end_date })
+  }
+  // Preferred tenant source: unit_tenant_contacts, keyed by account_number.
+  const tenantByAccount = new Map<string, { name: string; leaseEndDate: string | null }>()
+  for (const t of utc) {
+    if (!t.tenant_name && !t.lease_end) continue
+    tenantByAccount.set(key(t.association_code, t.unit_ref), { name: t.tenant_name ?? '', leaseEndDate: t.lease_end })
   }
 
   const onFileByUnit = new Map<string, Set<string>>()
@@ -186,7 +198,9 @@ export async function buildAssociationAudit(associationCode?: string): Promise<A
     const requiredKeys = [...new Set([...requiredItemKeys(kind, occupancy), ...customKeys])]
     const onFile = onFileByUnit.get(k) ?? new Set<string>()
     const missing = requiredKeys.filter(rk => !onFile.has(rk)).map(rk => ({ key: rk, label: itemLabel(rk) }))
-    const tenant = occupancy === 'leased' ? tenantByUnit.get(key(u.associationCode, u.unitNumber)) : undefined
+    const tenant = occupancy === 'leased'
+      ? (tenantByAccount.get(k) ?? tenantByUnit.get(key(u.associationCode, u.unitNumber)))
+      : undefined
     const { floor, line } = floorLine(u.unitNumber)
 
     // Dated documents: every on-file record that carries an expiry, plus the
