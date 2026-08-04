@@ -5,8 +5,9 @@
 // when a mobile is on file), and signs. Any registered form kind uses this one
 // page — the summary is driven by the document's payload.
 
-import { use, useEffect, useState } from 'react'
+import { use, useCallback, useEffect, useState } from 'react'
 import { SignaturePad } from '@/components/SignatureEvidence'
+import { PetRegistrationFill, PetSummary, type PetPayloadClient } from './PetRegistrationFill'
 
 interface Info {
   kind: string
@@ -15,7 +16,10 @@ interface Info {
   role: string
   roleLabel: string
   associationCode: string
-  payload: { associationLegalName?: string; statement?: string; details?: { label: string; value: string }[] }
+  unitRef: string | null
+  fillable: boolean
+  needsFill: boolean
+  payload: PetPayloadClient & { statement?: string; details?: { label: string; value: string }[] }
   signerName: string | null
   signerEmailMasked: string | null
   signerPhoneMasked: string | null
@@ -53,12 +57,13 @@ export default function EsignPage({ params }: { params: Promise<{ token: string 
   const [emailV, setEmailV] = useState(false)
   const [phoneV, setPhoneV] = useState(false)
 
-  useEffect(() => {
+  const load = useCallback(() => {
     fetch(`/api/esign/${token}`).then(r => r.json()).then(d => {
       if (d.error) setErr(d.error)
-      else { setInfo(d); setName(d.signerName ?? ''); setEmailV(!!d.emailVerified); setPhoneV(!!d.phoneVerified) }
+      else { setInfo(d); setName(prev => prev || (d.signerName ?? '')); setEmailV(!!d.emailVerified); setPhoneV(!!d.phoneVerified) }
     }).catch(() => setErr('Network error — please reload.'))
   }, [token])
+  useEffect(load, [load])
 
   const verifiedEnough = emailV && (!info?.phoneRequired || phoneV)
 
@@ -97,6 +102,19 @@ export default function EsignPage({ params }: { params: Promise<{ token: string 
     </div>
   )
 
+  // Fillable forms (pet registration): collect the applicant's data first.
+  if (info.needsFill) return (
+    <div style={wrap}>
+      <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6b7280', margin: 0 }}>{info.payload?.associationLegalName ?? info.associationCode}</p>
+      <h1 style={{ fontSize: 22, color: '#1f2a44', margin: '4px 0 2px' }}>{info.title ?? info.formLabel}</h1>
+      <p style={{ color: '#6b7280', fontSize: 14, margin: '0 0 6px' }}>Unit {info.unitRef ?? '—'} · fill in your pet details, then you&apos;ll review &amp; e-sign.</p>
+      <p style={{ marginBottom: 14 }}>
+        <a href={`/api/esign/${token}/pdf?blank=1`} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600, fontSize: 13 }}>⬇ Download a blank form (PDF) to print instead →</a>
+      </p>
+      <PetRegistrationFill token={token} petLimit={info.payload?.petLimit ?? 2} onFilled={load} />
+    </div>
+  )
+
   const details = info.payload?.details ?? []
 
   return (
@@ -104,6 +122,8 @@ export default function EsignPage({ params }: { params: Promise<{ token: string 
       <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6b7280', margin: 0 }}>{info.payload?.associationLegalName ?? info.associationCode}</p>
       <h1 style={{ fontSize: 22, color: '#1f2a44', margin: '4px 0 2px' }}>{info.title ?? info.formLabel}</h1>
       <p style={{ color: '#6b7280', fontSize: 14, marginTop: 0 }}>You are signing as the <strong>{info.roleLabel}</strong>.</p>
+
+      {info.kind === 'pet_registration' && <PetSummary payload={info.payload} />}
 
       {details.length > 0 && (
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '4px 14px', marginTop: 8 }}>

@@ -3358,6 +3358,15 @@ DROP POLICY IF EXISTS "service_role_all_esign_documents" ON public.esign_documen
 CREATE POLICY "service_role_all_esign_documents" ON public.esign_documents FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'associations_pet_limit',
+    label:       'Per-association pet limit',
+    description: 'Adds associations.pet_limit (int, default 2) — the max pets an applicant may register on the Pet Registration e-sign form, stored per-association like the other thresholds. Folds into the Board Onboarding Questionnaire later.',
+    filename:    '20260805_associations_pet_limit.sql',
+    artifact:    { type: 'column', table: 'associations', column: 'pet_limit' },
+    sql: `ALTER TABLE public.associations ADD COLUMN IF NOT EXISTS pet_limit integer NOT NULL DEFAULT 2;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

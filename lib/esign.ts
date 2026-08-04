@@ -79,6 +79,14 @@ async function patchSigner(id: string, role: string, patch: Partial<EsignSigner>
   return { ...doc, signers }
 }
 
+/** Merge a patch into the document's payload (applicant-filled fields). */
+export async function mergeEsignPayload(id: string, patch: Record<string, unknown>): Promise<void> {
+  const doc = await getEsignDoc(id)
+  if (!doc) return
+  const next = { ...doc.payload, ...patch }
+  await supabaseAdmin.from('esign_documents').update({ payload: next, updated_at: new Date().toISOString() }).eq('id', id)
+}
+
 /** Merge a patch into the role's verification certificate. */
 export async function setEsignVerification(id: string, role: string, patch: RoleVerification): Promise<RoleVerification> {
   const doc = await getEsignDoc(id)
