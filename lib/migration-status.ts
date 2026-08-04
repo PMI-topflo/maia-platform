@@ -3425,6 +3425,20 @@ NOTIFY pgrst, 'reload schema';`,
 ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS drive_folder_url text;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'preapply_review_columns',
+    label:       'Pre-App intake — audit + approval fields',
+    description: 'Adds audited_by/audited_at, reviewed_by/reviewed_at/review_note, approved_by_role to listing_applications for the staff audit + dual-approval stage (B4 slice 3). Intake advances submitted → under_review → approved | declined.',
+    filename:    '20260805_preapply_review_columns.sql',
+    artifact:    { type: 'column', table: 'listing_applications', column: 'audited_at' },
+    sql: `ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS audited_by       text;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS audited_at       timestamptz;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS reviewed_by      text;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS reviewed_at      timestamptz;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS review_note      text;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS approved_by_role text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
