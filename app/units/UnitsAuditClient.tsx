@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import FloorPlanGrid, { type AuditUnitEnriched } from './FloorPlanGrid'
 import { formatBalance, balanceColor } from '@/lib/format-currency'
+import BoardCertWhyExpired from '@/components/BoardCertWhyExpired'
 
 type Filter = 'complete' | 'partial' | 'missing' | 'leased' | 'vacant' | 'collections' | 'expired' | 'expiring'
 
@@ -103,15 +104,18 @@ function BoardCertBanner({ assoc }: { assoc?: string }) {
 
   return (
     <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 14px', marginBottom: 16, background: allGood ? '#f0fdf4' : '#fffbeb' }}>
-      <button onClick={() => setOpen(o => !o)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
-        <span style={{ font: '600 13px system-ui', color: '#374151' }}>
-          🎓 Board education certificates{' '}
-          {allGood
-            ? <span style={{ color: '#166534' }}>· all {data.members.length} on file</span>
-            : <span style={{ color: '#991b1b' }}>· {needAttention} need attention{data.expiringCount ? `, ${data.expiringCount} expiring` : ''}</span>}
-        </span>
-        <span style={{ font: '11px system-ui', color: '#6b7280' }}>{open ? 'hide' : 'show'}</span>
-      </button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <button onClick={() => setOpen(o => !o)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flex: 1, background: 'none', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left', gap: 8 }}>
+          <span style={{ font: '600 13px system-ui', color: '#374151' }}>
+            🎓 Board education certificates{' '}
+            {allGood
+              ? <span style={{ color: '#166534' }}>· all {data.members.length} on file</span>
+              : <span style={{ color: '#991b1b' }}>· {needAttention} need attention{data.expiringCount ? `, ${data.expiringCount} expiring` : ''}</span>}
+          </span>
+          <span style={{ font: '11px system-ui', color: '#6b7280' }}>{open ? 'hide' : 'show'}</span>
+        </button>
+        {!allGood && <BoardCertWhyExpired kind={data.kind} />}
+      </div>
       {open && (() => {
         const today = new Date().toISOString().slice(0, 10)
         const c = new Date(`${today}T00:00:00Z`); c.setUTCDate(c.getUTCDate() + 60)
