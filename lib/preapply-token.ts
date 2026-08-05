@@ -27,16 +27,20 @@ async function hmacKey(): Promise<CryptoKey> {
   return globalThis.crypto.subtle.importKey('raw', enc.encode(SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify'])
 }
 
-interface Payload { applicationId: string; expiresAt: number }
+// A token is scoped to one stakeholder of one application. Old tokens (minted
+// before multi-collaboration) carry only applicationId; verify then returns
+// stakeholderId: null and the caller resolves the primary stakeholder.
+interface Payload { applicationId: string; stakeholderId?: string; expiresAt: number }
 
-export async function signPreApplyToken(applicationId: string): Promise<string> {
+export async function signPreApplyToken(applicationId: string, stakeholderId?: string): Promise<string> {
   const payload: Payload = { applicationId, expiresAt: Date.now() + TTL_MS }
+  if (stakeholderId) payload.stakeholderId = stakeholderId
   const body = b64uEncode(enc.encode(JSON.stringify(payload)))
   const sig  = await globalThis.crypto.subtle.sign('HMAC', await hmacKey(), enc.encode(body))
   return `${body}.${b64uEncode(sig)}`
 }
 
-export async function verifyPreApplyToken(token: string): Promise<{ applicationId: string } | null> {
+export async function verifyPreApplyToken(token: string): Promise<{ applicationId: string; stakeholderId: string | null } | null> {
   try {
     const dot = token.lastIndexOf('.')
     if (dot < 0) return null
@@ -45,6 +49,6 @@ export async function verifyPreApplyToken(token: string): Promise<{ applicationI
     if (!ok) return null
     const p = JSON.parse(new TextDecoder().decode(b64uDecode(body))) as Payload
     if (p.expiresAt < Date.now() || !p.applicationId) return null
-    return { applicationId: p.applicationId }
+    return { applicationId: p.applicationId, stakeholderId: p.stakeholderId ?? null }
   } catch { return null }
 }

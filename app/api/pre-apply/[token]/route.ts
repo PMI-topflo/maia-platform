@@ -1,11 +1,12 @@
 // GET /api/pre-apply/[token]
-// The intake state + the per-type document checklist + which items are already
-// uploaded, for the applicant's upload/submit page. Token is the auth.
+// The intake state for whichever stakeholder holds this token: their role +
+// whether they sign, the per-type document checklist (flagged with which items
+// are theirs to provide and which are already uploaded), the association rules,
+// and — for the lead — the list of collaborators and their progress. Token auth.
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { verifyPreApplyToken } from '@/lib/preapply-token'
-import { getIntake } from '@/lib/preapply'
+import { getIntake, resolveToken, listStakeholders, roleToProvidedBy, roleLabel } from '@/lib/preapply'
 import { getIntakeChecklist, PROVIDED_BY_LABEL } from '@/lib/intake-documents'
 import { maskEmail } from '@/lib/esign-verify'
 
@@ -14,29 +15,40 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
-  const t = await verifyPreApplyToken(token)
-  if (!t) return NextResponse.json({ error: 'This link has expired or is invalid.' }, { status: 401 })
-  const intake = await getIntake(t.applicationId)
+  const r = await resolveToken(token)
+  if (!r) return NextResponse.json({ error: 'This link has expired or is invalid.' }, { status: 401 })
+  const intake = await getIntake(r.applicationId)
   if (!intake) return NextResponse.json({ error: 'This application could not be found.' }, { status: 404 })
 
-  const [checklist, { data: assoc }, { data: rules }] = await Promise.all([
+  const me = r.stakeholder
+  const [checklist, { data: assoc }, { data: rules }, collaborators] = await Promise.all([
     getIntakeChecklist(intake.associationCode, intake.type),
     supabaseAdmin.from('associations').select('association_name, legal_name').eq('association_code', intake.associationCode).maybeSingle(),
     supabaseAdmin.from('association_application_rules').select('rule_key, label').eq('association_code', intake.associationCode).eq('active', true),
+    listStakeholders(r.applicationId),
   ])
-  const uploaded = new Set(intake.docs.map(d => d.doc_key).filter(Boolean))
+  const uploaded = new Set(intake.docKeys)
+  const myProvidedBy = roleToProvidedBy(me.role)
 
   return NextResponse.json({
     associationName: (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || intake.associationCode,
     type: intake.type,
     unitLabel: intake.unitLabel,
-    applicantName: intake.applicant?.name ?? null,
-    applicantEmailMasked: maskEmail(intake.applicant?.email ?? null),
-    emailVerified: !!intake.emailVerifiedAt,
-    status: intake.status,
+    // The current stakeholder holding this token
+    me: {
+      name: me.name, role: me.role, roleLabel: roleLabel(me.role), signs: me.signs,
+      isPrimary: me.isPrimary, status: me.status, emailVerified: !!me.emailVerifiedAt,
+      emailMasked: maskEmail(me.email), signed: !!me.signedAt,
+    },
+    canAddCollaborators: me.isPrimary,
     submitted: !!intake.submittedAt,
     providerLabels: PROVIDED_BY_LABEL,
-    checklist: checklist.map(d => ({ ...d, uploaded: uploaded.has(d.doc_key) })),
-    rules: (rules ?? []).map(r => ({ rule_key: r.rule_key as string, label: r.label as string })),
+    // Every checklist item, flagged "mine" (this stakeholder provides it) + uploaded
+    checklist: checklist.map(d => ({ ...d, uploaded: uploaded.has(d.doc_key), mine: d.provided_by === myProvidedBy })),
+    rules: (rules ?? []).map(r2 => ({ rule_key: r2.rule_key as string, label: r2.label as string })),
+    collaborators: collaborators.map(s => ({
+      id: s.id, name: s.name, email: maskEmail(s.email), role: s.role, roleLabel: roleLabel(s.role),
+      isPrimary: s.isPrimary, status: s.status, signs: s.signs, signed: !!s.signedAt, emailVerified: !!s.emailVerifiedAt,
+    })),
   })
 }

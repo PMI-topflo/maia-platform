@@ -12,6 +12,7 @@ interface Doc { id: string; doc_key: string | null; doc_label: string | null; fi
 interface Detail {
   id: string; associationCode: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
+  stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; phone: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean }[]
   rulesAck: { name?: string; at?: string } | null
   driveFolderUrl: string | null
   screeningProvider: string
@@ -108,9 +109,20 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
         </div>
       )}
 
-      {/* Rules ack */}
-      <h2 style={h2}>Rules acknowledgment</h2>
-      <p style={{ fontSize: 13, color: '#374151' }}>{d.rulesAck?.name ? <>Signed by <strong>{d.rulesAck.name}</strong> · {fmt(d.rulesAck.at)}</> : <span style={{ color: '#b45309' }}>Not signed</span>}</p>
+      {/* People on this application + who signed the rules */}
+      <h2 style={h2}>People on this application</h2>
+      {d.stakeholders && d.stakeholders.length > 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {d.stakeholders.map(p => (
+            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 13, color: '#374151', padding: '4px 0', borderBottom: '1px solid #f3f4f6' }}>
+              <span><strong>{p.name || p.email || '—'}</strong> <span style={{ color: '#6b7280' }}>· {p.roleLabel}</span>{p.isPrimary && <span style={{ color: '#9ca3af' }}> · lead</span>}{p.email && <span style={{ color: '#9ca3af' }}> · {p.email}</span>}{p.emailVerified && <span style={{ color: '#166534' }}> · ✓ verified</span>}</span>
+              <span style={{ whiteSpace: 'nowrap' }}>{p.signs ? (p.signedAt ? <span style={{ color: '#166534', fontWeight: 600 }}>✍ signed{p.rulesAckName ? ` — ${p.rulesAckName}` : ''}</span> : <span style={{ color: '#b45309' }}>not signed</span>) : <span style={{ color: '#9ca3af' }}>no signature needed</span>}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p style={{ fontSize: 13, color: '#374151' }}>{d.rulesAck?.name ? <>Rules signed by <strong>{d.rulesAck.name}</strong> · {fmt(d.rulesAck.at)}</> : <span style={{ color: '#b45309' }}>Not signed</span>}</p>
+      )}
 
       {/* Board Decision Page e-sign (formal signed decision record) */}
       {d.status === 'approved' && <DecisionPageSender id={id} unit={d.unit} />}

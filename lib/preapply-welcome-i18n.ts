@@ -162,3 +162,164 @@ const ru: PreApplyStrings = {
 
 const COPY: Record<PortalLang, PreApplyStrings> = { en, es, pt, fr, ht, he, ru }
 export function preApplyStrings(lang: PortalLang): PreApplyStrings { return COPY[lang] ?? en }
+
+// =====================================================================
+// Flow strings — the steps AFTER the welcome: choose your role, add the
+// other people involved, verify email, upload documents, and (applicants +
+// owners only) sign. English is the complete base; per-language overrides
+// fall back to English key-by-key, so translations can be filled in safely
+// without ever leaving a blank string on screen.
+// =====================================================================
+
+export interface PreApplyFlowStrings {
+  // Persona / role step
+  personaEye: string; personaH2: string; personaP: string
+  roleApplicant: string; roleApplicantD: string; roleOwner: string; roleOwnerD: string
+  roleListingAgent: string; roleListingAgentD: string; roleTenantAgent: string; roleTenantAgentD: string
+  // Invite collaborators step
+  inviteEye: string; inviteH2: string; inviteP: string
+  invNameL: string; invEmailL: string; invRoleL: string; invRolePick: string
+  invAdd: string; invSend: string; invSending: string; invSkip: string; invContinue: string; invSent: string
+  // Email verification
+  verifyH1: string; verifyP: string; sendCode: string; resendCode: string; codePlaceholder: string; verifyBtn: string; codeSentTo: string
+  // Documents
+  docsH1: string; docsP: string; yourDocsH: string; otherDocsH: string; otherDocsP: string; noDocsForYou: string
+  optional: string; uploadedTag: string; uploadBtn: string; replaceBtn: string; uploadingBtn: string; uploadAllNote: string
+  // Rules + signature
+  rulesH: string; rulesFallback: string; agreeLine: string; signNameL: string; drawSig: string; noSignNote: string
+  submitMyPart: string; submittingBtn: string
+  // Done screens
+  doneH: string; doneP: string; doneSubmittedH: string; doneSubmittedP: string; questions: string
+  // Manage collaborators (lead, on the documents page)
+  peopleH: string; addSomeone: string
+  statusInvited: string; statusActive: string; statusStarted: string; statusCompleted: string; youBadge: string; signsBadge: string
+}
+
+const flowEn: PreApplyFlowStrings = {
+  personaEye: 'Who are you?', personaH2: 'Tell us your role',
+  personaP: 'This lets MAIA show the right documents to each person and record who provided what. Only tenants/buyers and owners sign — agents just upload.',
+  roleApplicant: 'Tenant / Buyer', roleApplicantD: 'I’m applying to lease or purchase',
+  roleOwner: 'Owner', roleOwnerD: 'I own the unit (landlord / seller)',
+  roleListingAgent: 'Listing agent', roleListingAgentD: 'I represent the owner / seller',
+  roleTenantAgent: 'Tenant / Buyer agent', roleTenantAgentD: 'I represent the tenant or buyer',
+  inviteEye: 'Work together', inviteH2: 'Add everyone involved',
+  inviteP: 'Add the other people on this application — co-applicants, the owner, the agent. MAIA emails each of them their own secure link so everyone fills their part at the same time. You can also do this later.',
+  invNameL: 'Full name', invEmailL: 'Email', invRoleL: 'Role', invRolePick: 'Choose a role…',
+  invAdd: '+ Add another person', invSend: 'Send invitations', invSending: 'Sending…',
+  invSkip: 'Skip — it’s just me for now', invContinue: 'Continue to my documents →',
+  invSent: 'Invitations sent — each person got their own link.',
+  verifyH1: 'Verify your email', verifyP: 'We’ll send a code to confirm it’s you before you upload documents.',
+  sendCode: 'Send me a code', resendCode: 'Resend code', codePlaceholder: '6-digit code', verifyBtn: 'Verify', codeSentTo: 'Code sent to',
+  docsH1: 'Your documents', docsP: 'Upload each document below in its own box.',
+  yourDocsH: 'Your documents', otherDocsH: 'Other documents (if you have them)',
+  otherDocsP: 'These are usually provided by someone else on the application — upload only if you have them.',
+  noDocsForYou: 'No documents are required from you — thank you.',
+  optional: 'optional', uploadedTag: 'Uploaded', uploadBtn: 'Upload', replaceBtn: 'Replace', uploadingBtn: 'Uploading…',
+  uploadAllNote: 'Upload all required documents before submitting.',
+  rulesH: 'Association rules — please read & acknowledge',
+  rulesFallback: 'By signing you acknowledge the association’s governing documents, rules, and restrictions.',
+  agreeLine: 'I have read and agree to comply with the association’s rules and restrictions, and I certify the documents and information I provided are true and complete.',
+  signNameL: 'Type your full name to sign', drawSig: 'Draw your signature',
+  noSignNote: 'You don’t need to sign — just upload your documents. Only tenants/buyers and owners sign the acknowledgment.',
+  submitMyPart: 'Submit my part', submittingBtn: 'Submitting…',
+  doneH: 'Your part is complete', doneP: 'Thank you. We’ll take it from here and follow up if anything else is needed.',
+  doneSubmittedH: 'Application submitted', doneSubmittedP: 'Thank you. PMI Top Florida Properties will review the documents and follow up. You don’t need to do anything else right now.',
+  questions: 'Questions? PMI Top Florida Properties · (305) 900-5077',
+  peopleH: 'People on this application', addSomeone: '+ Add someone',
+  statusInvited: 'Invited', statusActive: 'In progress', statusStarted: 'In progress', statusCompleted: 'Done', youBadge: 'You', signsBadge: 'signs',
+}
+
+// Per-language overrides. Persona + invite (the collaborative welcome steps the
+// applicant sees first) are translated now; remaining doc/rules keys fall back
+// to English until their translation pass lands.
+const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
+  en: {},
+  es: {
+    personaEye: '¿Quién es usted?', personaH2: 'Indíquenos su rol',
+    personaP: 'Esto permite que MAIA muestre los documentos correctos a cada persona y registre quién aportó qué. Solo los inquilinos/compradores y los propietarios firman — los agentes solo suben documentos.',
+    roleApplicant: 'Inquilino / Comprador', roleApplicantD: 'Solicito alquilar o comprar',
+    roleOwner: 'Propietario', roleOwnerD: 'Soy dueño de la unidad (arrendador / vendedor)',
+    roleListingAgent: 'Agente del propietario', roleListingAgentD: 'Represento al propietario / vendedor',
+    roleTenantAgent: 'Agente del inquilino / comprador', roleTenantAgentD: 'Represento al inquilino o comprador',
+    inviteEye: 'Trabajen juntos', inviteH2: 'Agregue a todos los involucrados',
+    inviteP: 'Agregue a las demás personas de esta solicitud — coinquilinos, el propietario, el agente. MAIA enviará a cada uno su propio enlace seguro para que todos completen su parte al mismo tiempo. También puede hacerlo más tarde.',
+    invNameL: 'Nombre completo', invEmailL: 'Correo', invRoleL: 'Rol', invRolePick: 'Elija un rol…',
+    invAdd: '+ Agregar otra persona', invSend: 'Enviar invitaciones', invSending: 'Enviando…',
+    invSkip: 'Omitir — por ahora soy solo yo', invContinue: 'Continuar con mis documentos →',
+    invSent: 'Invitaciones enviadas — cada persona recibió su propio enlace.',
+  },
+  pt: {
+    personaEye: 'Quem é você?', personaH2: 'Informe sua função',
+    personaP: 'Isso permite que a MAIA mostre os documentos certos para cada pessoa e registre quem forneceu o quê. Somente inquilinos/compradores e proprietários assinam — os corretores apenas enviam documentos.',
+    roleApplicant: 'Inquilino / Comprador', roleApplicantD: 'Quero alugar ou comprar',
+    roleOwner: 'Proprietário', roleOwnerD: 'Sou dono da unidade (locador / vendedor)',
+    roleListingAgent: 'Corretor do proprietário', roleListingAgentD: 'Represento o proprietário / vendedor',
+    roleTenantAgent: 'Corretor do inquilino / comprador', roleTenantAgentD: 'Represento o inquilino ou comprador',
+    inviteEye: 'Trabalhem juntos', inviteH2: 'Adicione todos os envolvidos',
+    inviteP: 'Adicione as outras pessoas desta inscrição — coinquilinos, o proprietário, o corretor. A MAIA envia a cada um seu próprio link seguro para que todos preencham sua parte ao mesmo tempo. Você também pode fazer isso depois.',
+    invNameL: 'Nome completo', invEmailL: 'E-mail', invRoleL: 'Função', invRolePick: 'Escolha uma função…',
+    invAdd: '+ Adicionar outra pessoa', invSend: 'Enviar convites', invSending: 'Enviando…',
+    invSkip: 'Pular — por enquanto sou só eu', invContinue: 'Continuar para meus documentos →',
+    invSent: 'Convites enviados — cada pessoa recebeu seu próprio link.',
+  },
+  fr: {
+    personaEye: 'Qui êtes-vous ?', personaH2: 'Indiquez votre rôle',
+    personaP: 'Cela permet à MAIA de montrer les bons documents à chaque personne et d’enregistrer qui a fourni quoi. Seuls les locataires/acheteurs et les propriétaires signent — les agents ne font que téléverser.',
+    roleApplicant: 'Locataire / Acheteur', roleApplicantD: 'Je souhaite louer ou acheter',
+    roleOwner: 'Propriétaire', roleOwnerD: 'Je suis propriétaire de l’unité (bailleur / vendeur)',
+    roleListingAgent: 'Agent du propriétaire', roleListingAgentD: 'Je représente le propriétaire / vendeur',
+    roleTenantAgent: 'Agent du locataire / acheteur', roleTenantAgentD: 'Je représente le locataire ou l’acheteur',
+    inviteEye: 'Collaborez', inviteH2: 'Ajoutez toutes les personnes concernées',
+    inviteP: 'Ajoutez les autres personnes de cette demande — colocataires, le propriétaire, l’agent. MAIA envoie à chacun son propre lien sécurisé pour que tout le monde remplisse sa partie en même temps. Vous pouvez aussi le faire plus tard.',
+    invNameL: 'Nom complet', invEmailL: 'E-mail', invRoleL: 'Rôle', invRolePick: 'Choisissez un rôle…',
+    invAdd: '+ Ajouter une autre personne', invSend: 'Envoyer les invitations', invSending: 'Envoi…',
+    invSkip: 'Passer — c’est juste moi pour l’instant', invContinue: 'Continuer vers mes documents →',
+    invSent: 'Invitations envoyées — chacun a reçu son propre lien.',
+  },
+  ht: {
+    personaEye: 'Kiyès ou ye?', personaH2: 'Di nou wòl ou',
+    personaP: 'Sa pèmèt MAIA montre bon dokiman yo bay chak moun epi anrejistre kiyès ki bay kisa. Se sèlman lokatè/achtè ak pwopriyetè ki siyen — ajan yo jis telechaje.',
+    roleApplicant: 'Lokatè / Achtè', roleApplicantD: 'M ap aplike pou lwe oswa achte',
+    roleOwner: 'Pwopriyetè', roleOwnerD: 'Se mwen ki mèt inite a (mèt kay / vandè)',
+    roleListingAgent: 'Ajan pwopriyetè a', roleListingAgentD: 'M reprezante pwopriyetè / vandè a',
+    roleTenantAgent: 'Ajan lokatè / achtè', roleTenantAgentD: 'M reprezante lokatè oswa achtè a',
+    inviteEye: 'Travay ansanm', inviteH2: 'Ajoute tout moun ki enplike',
+    inviteP: 'Ajoute lòt moun nan aplikasyon sa a — ko-aplikan, pwopriyetè a, ajan an. MAIA voye pou chak youn pwòp lyen sekirize yo pou tout moun ranpli pati yo an menm tan. Ou ka fè sa pita tou.',
+    invNameL: 'Non konplè', invEmailL: 'Imèl', invRoleL: 'Wòl', invRolePick: 'Chwazi yon wòl…',
+    invAdd: '+ Ajoute yon lòt moun', invSend: 'Voye envitasyon yo', invSending: 'Y ap voye…',
+    invSkip: 'Sote — se jis mwen pou kounye a', invContinue: 'Kontinye ak dokiman mwen yo →',
+    invSent: 'Envitasyon voye — chak moun jwenn pwòp lyen yo.',
+  },
+  he: {
+    personaEye: 'מי אתם?', personaH2: 'ספרו לנו את התפקיד שלכם',
+    personaP: 'זה מאפשר ל-MAIA להציג את המסמכים הנכונים לכל אדם ולתעד מי סיפק מה. רק שוכרים/קונים ובעלים חותמים — סוכנים רק מעלים מסמכים.',
+    roleApplicant: 'שוכר / קונה', roleApplicantD: 'אני מבקש לשכור או לקנות',
+    roleOwner: 'בעלים', roleOwnerD: 'אני בעל היחידה (משכיר / מוכר)',
+    roleListingAgent: 'סוכן הבעלים', roleListingAgentD: 'אני מייצג את הבעלים / המוכר',
+    roleTenantAgent: 'סוכן השוכר / הקונה', roleTenantAgentD: 'אני מייצג את השוכר או הקונה',
+    inviteEye: 'עבדו יחד', inviteH2: 'הוסיפו את כל המעורבים',
+    inviteP: 'הוסיפו את שאר האנשים בבקשה זו — שותפים, הבעלים, הסוכן. MAIA שולחת לכל אחד קישור מאובטח משלו כדי שכולם ימלאו את חלקם בו-זמנית. אפשר גם לעשות זאת מאוחר יותר.',
+    invNameL: 'שם מלא', invEmailL: 'אימייל', invRoleL: 'תפקיד', invRolePick: 'בחרו תפקיד…',
+    invAdd: '+ הוסף אדם נוסף', invSend: 'שלח הזמנות', invSending: 'שולח…',
+    invSkip: 'דלג — בינתיים רק אני', invContinue: 'המשך למסמכים שלי →',
+    invSent: 'ההזמנות נשלחו — כל אחד קיבל קישור משלו.',
+  },
+  ru: {
+    personaEye: 'Кто вы?', personaH2: 'Укажите вашу роль',
+    personaP: 'Это позволяет MAIA показать нужные документы каждому человеку и записать, кто что предоставил. Подписывают только арендаторы/покупатели и владельцы — агенты только загружают.',
+    roleApplicant: 'Арендатор / Покупатель', roleApplicantD: 'Я подаю заявку на аренду или покупку',
+    roleOwner: 'Владелец', roleOwnerD: 'Я владею квартирой (арендодатель / продавец)',
+    roleListingAgent: 'Агент владельца', roleListingAgentD: 'Я представляю владельца / продавца',
+    roleTenantAgent: 'Агент арендатора / покупателя', roleTenantAgentD: 'Я представляю арендатора или покупателя',
+    inviteEye: 'Работайте вместе', inviteH2: 'Добавьте всех участников',
+    inviteP: 'Добавьте остальных участников этой заявки — созаявителей, владельца, агента. MAIA отправит каждому его собственную защищённую ссылку, чтобы все заполнили свою часть одновременно. Это также можно сделать позже.',
+    invNameL: 'Полное имя', invEmailL: 'Эл. почта', invRoleL: 'Роль', invRolePick: 'Выберите роль…',
+    invAdd: '+ Добавить ещё человека', invSend: 'Отправить приглашения', invSending: 'Отправка…',
+    invSkip: 'Пропустить — пока только я', invContinue: 'Перейти к моим документам →',
+    invSent: 'Приглашения отправлены — каждый получил свою ссылку.',
+  },
+}
+
+export function preApplyFlow(lang: PortalLang): PreApplyFlowStrings {
+  return { ...flowEn, ...(FLOW[lang] ?? {}) }
+}
