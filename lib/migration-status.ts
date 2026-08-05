@@ -3459,6 +3459,20 @@ ALTER TABLE public.associations DROP CONSTRAINT IF EXISTS chk_screening_provider
 ALTER TABLE public.associations ADD CONSTRAINT chk_screening_provider CHECK (screening_provider IN ('tenant_evaluation','maia_checkr'));
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'preapply_stakeholder_collab',
+    label:       'Pre-Application multi-collaboration + per-stakeholder signing',
+    description: 'Adds email_verified_at, signed_at, signature_image, rules_ack_name, rules_ack_ip to application_stakeholders so the intake is multi-collaboration: the lead self-identifies a role (tenant/owner/listing agent/tenant agent), adds everyone involved, and MAIA emails each their own link to verify + fill their part in parallel. Only applicants and owners sign — agents upload but do not sign. Also indexes application_documents.stakeholder_id.',
+    filename:    '20260805_preapply_stakeholder_collab.sql',
+    artifact:    { type: 'column', table: 'application_stakeholders', column: 'signed_at' },
+    sql: `ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS email_verified_at timestamptz;
+ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS signed_at         timestamptz;
+ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS signature_image   text;
+ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS rules_ack_name    text;
+ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS rules_ack_ip      text;
+CREATE INDEX IF NOT EXISTS app_documents_stakeholder_idx ON public.application_documents (stakeholder_id);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

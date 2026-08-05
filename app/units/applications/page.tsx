@@ -12,6 +12,7 @@ interface AppRow { id: string; type: string; unit: string | null; status: string
 interface Detail {
   id: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
+  stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean }[]
   rulesAck: { name?: string; at?: string } | null; driveFolderUrl: string | null
   audited: boolean; decided: boolean; note: string | null; approvedByRole: string | null; canApprove: boolean
   checklist: { label: string; required: boolean; provided_by: string; uploaded: boolean; url: string | null }[]
@@ -96,7 +97,19 @@ function AppDetail({ id, assoc, onChanged }: { id: string; assoc: string | null;
           </div>
         ))}
       </div>
-      <div style={{ fontSize: 12.5, color: '#374151', marginBottom: 8 }}>Rules: {d.rulesAck?.name ? <>signed by <strong>{d.rulesAck.name}</strong></> : <span style={{ color: '#b45309' }}>not signed</span>}</div>
+      {d.stakeholders && d.stakeholders.length > 0 ? (
+        <div style={{ margin: '4px 0 10px', border: '1px solid #eef0f3', borderRadius: 8, padding: '8px 10px', background: '#fafbfc' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', marginBottom: 4 }}>People on this application</div>
+          {d.stakeholders.map(p => (
+            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12.5, color: '#374151', padding: '2px 0' }}>
+              <span><strong>{p.name || p.email || '—'}</strong> <span style={{ color: '#6b7280' }}>· {p.roleLabel}</span></span>
+              <span>{p.signs ? (p.signedAt ? <span style={{ color: '#166534', fontWeight: 600 }}>✍ signed{p.rulesAckName ? ` — ${p.rulesAckName}` : ''}</span> : <span style={{ color: '#b45309' }}>not signed</span>) : <span style={{ color: '#9ca3af' }}>no signature needed</span>}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ fontSize: 12.5, color: '#374151', marginBottom: 8 }}>Rules: {d.rulesAck?.name ? <>signed by <strong>{d.rulesAck.name}</strong></> : <span style={{ color: '#b45309' }}>not signed</span>}</div>
+      )}
       {decided ? (
         <div style={{ fontSize: 13, fontWeight: 600, color: d.status === 'approved' ? '#166534' : '#991b1b' }}>{d.status === 'approved' ? `Approved (${d.approvedByRole})` : 'Declined'}{d.note ? ` — ${d.note}` : ''}</div>
       ) : d.canApprove ? (

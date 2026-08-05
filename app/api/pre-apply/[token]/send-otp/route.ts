@@ -5,8 +5,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { verifyPreApplyToken } from '@/lib/preapply-token'
-import { getIntake } from '@/lib/preapply'
+import { resolveToken } from '@/lib/preapply'
 import { maskEmail } from '@/lib/esign-verify'
 import { sendEmail } from '@/lib/gmail'
 import { checkRateLimit } from '@/lib/rate-limit'
@@ -14,18 +13,16 @@ import { checkRateLimit } from '@/lib/rate-limit'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 const genOTP = () => String(Math.floor(100000 + Math.random() * 900000))
-const identifier = (id: string, email: string) => `pa:${id}:email:${email.trim().toLowerCase()}`
+const identifier = (sid: string, email: string) => `pa:${sid}:email:${email.trim().toLowerCase()}`
 
 export async function POST(_req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
-  const t = await verifyPreApplyToken(token)
-  if (!t) return NextResponse.json({ error: 'This link has expired or is invalid.' }, { status: 401 })
-  const intake = await getIntake(t.applicationId)
-  if (!intake) return NextResponse.json({ error: 'Not found.' }, { status: 404 })
-  const email = (intake.applicant?.email ?? '').trim()
-  if (!email.includes('@')) return NextResponse.json({ error: 'No email on file for this application.' }, { status: 400 })
+  const r = await resolveToken(token)
+  if (!r) return NextResponse.json({ error: 'This link has expired or is invalid.' }, { status: 401 })
+  const email = (r.stakeholder.email ?? '').trim()
+  if (!email.includes('@')) return NextResponse.json({ error: 'No email on file for you on this application.' }, { status: 400 })
 
-  const id = identifier(t.applicationId, email)
+  const id = identifier(r.stakeholder.id, email)
   const { allowed } = await checkRateLimit(id, 'preapply_otp', 5, 60 * 60 * 1000)
   if (!allowed) return NextResponse.json({ error: 'Too many code requests. Please wait a few minutes.' }, { status: 429 })
 

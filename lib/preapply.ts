@@ -1,25 +1,61 @@
 // =====================================================================
 // lib/preapply.ts
 //
-// Server helpers for the public Pre-Application Compliance intake (B4 slice 2).
-// Builds on the existing collaborative-leasing foundation: one intake = a
-// unit_listings row + a listing_applications row + the applicant
-// application_stakeholders row; uploaded documents are application_documents
-// tagged with the intake checklist item (doc_key). No new tables.
+// Server helpers for the public Pre-Application Compliance intake (B4).
+// Multi-collaboration: the person who opens the link self-identifies their
+// role (tenant / owner / listing agent / tenant agent), enters their own
+// info, then adds everyone else involved. MAIA emails each collaborator their
+// own link so they fill their part in parallel — the application populates
+// fast. Only APPLICANTS and OWNERS sign the rules acknowledgment; agents
+// upload but do not sign.
+//
+// Built on the existing collaborative-leasing foundation (20260628): one
+// intake = a unit_listings row + a listing_applications row + one
+// application_stakeholders row per person; uploads are application_documents
+// tagged with the checklist item (doc_key) and the stakeholder who provided
+// them. No new tables.
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { verifyPreApplyToken } from '@/lib/preapply-token'
 import type { ApplicationType, ProvidedBy } from '@/lib/intake-documents'
 
 export const INTAKE_BUCKET = 'application-docs'
 
+// ── Personas ─────────────────────────────────────────────────────────
+// The four ways someone can identify themselves on the welcome page. These
+// map onto the application_stakeholders.role CHECK values.
+export type StakeholderRole = 'applicant' | 'owner' | 'listing_agent' | 'applicant_agent'
+
+export const PREAPPLY_ROLES: { key: StakeholderRole; label: string; blurb: string; signs: boolean }[] = [
+  { key: 'applicant',       label: 'Tenant / Buyer',  blurb: 'You are applying to lease or purchase.',          signs: true  },
+  { key: 'owner',           label: 'Owner',           blurb: 'You own the unit (landlord / seller).',            signs: true  },
+  { key: 'listing_agent',   label: 'Listing agent',   blurb: 'You represent the owner / seller.',                signs: false },
+  { key: 'applicant_agent', label: 'Tenant / Buyer agent', blurb: 'You represent the tenant or buyer.',          signs: false },
+]
+
+const ROLE_KEYS = new Set<StakeholderRole>(PREAPPLY_ROLES.map(r => r.key))
+export function isStakeholderRole(v: string): v is StakeholderRole { return ROLE_KEYS.has(v as StakeholderRole) }
+export function roleLabel(role: string): string { return PREAPPLY_ROLES.find(r => r.key === role)?.label ?? role }
+
+/** Only applicants and owners sign the association-rules acknowledgment. */
+export function roleSigns(role: string): boolean { return role === 'applicant' || role === 'owner' }
+
+/** Which checklist bucket a person's uploads belong to. */
+export function roleToProvidedBy(role: string): ProvidedBy {
+  if (role === 'owner') return 'landlord'
+  if (role === 'listing_agent' || role === 'applicant_agent') return 'agent'
+  return 'applicant'
+}
+
 export interface IntakeApplicant { name: string; email: string; phone?: string | null }
 
-export interface CreatedIntake { applicationId: string; listingId: string }
+export interface CreatedIntake { applicationId: string; listingId: string; stakeholderId: string }
 
-/** Create a new intake: listing + application + applicant stakeholder. */
+/** Create a new intake: listing + application + the lead stakeholder (the
+ *  person who opened the link, in their chosen role). */
 export async function createIntake(input: {
-  associationCode: string; type: ApplicationType; role: string; unitLabel: string | null; applicant: IntakeApplicant
+  associationCode: string; type: ApplicationType; role: StakeholderRole; unitLabel: string | null; applicant: IntakeApplicant
 }): Promise<CreatedIntake | { error: string }> {
   const assoc = input.associationCode.toUpperCase()
   const { data: listing, error: le } = await supabaseAdmin.from('unit_listings').insert({
@@ -34,15 +70,134 @@ export async function createIntake(input: {
   }).select('id').single()
   if (ae || !app) return { error: `Could not start: ${ae?.message ?? 'unknown'}` }
 
-  await supabaseAdmin.from('application_stakeholders').insert({
-    application_id: app.id, role: 'applicant', name: input.applicant.name,
+  const { data: sh, error: se } = await supabaseAdmin.from('application_stakeholders').insert({
+    application_id: app.id, role: input.role, name: input.applicant.name,
     email: input.applicant.email, phone: input.applicant.phone ?? null,
     is_primary: true, status: 'started', added_by_role: input.role, started_at: new Date().toISOString(),
-  })
+  }).select('id').single()
+  if (se || !sh) return { error: `Could not start: ${se?.message ?? 'unknown'}` }
 
-  return { applicationId: app.id, listingId: listing.id }
+  return { applicationId: app.id, listingId: listing.id, stakeholderId: sh.id }
 }
 
+// ── Collaborators ────────────────────────────────────────────────────
+export interface StakeholderRow {
+  id: string; role: StakeholderRole; name: string | null; email: string | null; phone: string | null
+  isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; emailVerifiedAt: string | null
+}
+
+function toRow(r: Record<string, unknown>): StakeholderRow {
+  const role = String(r.role) as StakeholderRole
+  return {
+    id: String(r.id), role, name: (r.name as string | null) ?? null, email: (r.email as string | null) ?? null,
+    phone: (r.phone as string | null) ?? null, isPrimary: Boolean(r.is_primary), status: String(r.status),
+    signs: roleSigns(role), signedAt: (r.signed_at as string | null) ?? null,
+    emailVerifiedAt: (r.email_verified_at as string | null) ?? null,
+  }
+}
+
+export async function listStakeholders(applicationId: string): Promise<StakeholderRow[]> {
+  const { data } = await supabaseAdmin.from('application_stakeholders')
+    .select('id, role, name, email, phone, is_primary, status, signed_at, email_verified_at')
+    .eq('application_id', applicationId).order('is_primary', { ascending: false }).order('created_at', { ascending: true })
+  return (data ?? []).map(toRow)
+}
+
+export async function getStakeholder(applicationId: string, stakeholderId: string): Promise<StakeholderRow | null> {
+  const { data } = await supabaseAdmin.from('application_stakeholders')
+    .select('id, role, name, email, phone, is_primary, status, signed_at, email_verified_at')
+    .eq('application_id', applicationId).eq('id', stakeholderId).maybeSingle()
+  return data ? toRow(data) : null
+}
+
+/** For legacy tokens without a stakeholderId: the primary (lead) stakeholder. */
+export async function resolvePrimaryStakeholderId(applicationId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin.from('application_stakeholders')
+    .select('id').eq('application_id', applicationId).eq('is_primary', true).maybeSingle()
+  return data ? String(data.id) : null
+}
+
+/** Verify a pre-apply token and resolve it to (application, this stakeholder).
+ *  Tokens minted before multi-collaboration carry no stakeholderId — those
+ *  resolve to the primary (lead) stakeholder. */
+export async function resolveToken(token: string): Promise<{ applicationId: string; stakeholder: StakeholderRow } | null> {
+  const t = await verifyPreApplyToken(token)
+  if (!t) return null
+  const sid = t.stakeholderId ?? await resolvePrimaryStakeholderId(t.applicationId)
+  if (!sid) return null
+  const stakeholder = await getStakeholder(t.applicationId, sid)
+  return stakeholder ? { applicationId: t.applicationId, stakeholder } : null
+}
+
+/** Add collaborators to an application (deduped by email). Returns the created
+ *  rows so the caller can email each an invite link. */
+export async function addStakeholders(
+  applicationId: string,
+  people: { name: string; email: string; phone?: string | null; role: StakeholderRole }[],
+  addedByRole: string,
+): Promise<StakeholderRow[]> {
+  const existing = await listStakeholders(applicationId)
+  const have = new Set(existing.map(s => (s.email ?? '').trim().toLowerCase()).filter(Boolean))
+  const fresh = people.filter(p => {
+    const e = p.email.trim().toLowerCase()
+    return e.includes('@') && p.name.trim() && isStakeholderRole(p.role) && !have.has(e) && (have.add(e), true)
+  })
+  if (fresh.length === 0) return []
+  const { data } = await supabaseAdmin.from('application_stakeholders').insert(
+    fresh.map(p => ({
+      application_id: applicationId, role: p.role, name: p.name.trim(), email: p.email.trim(),
+      phone: p.phone?.trim() || null, is_primary: false, status: 'invited', added_by_role: addedByRole,
+    })),
+  ).select('id, role, name, email, phone, is_primary, status, signed_at, email_verified_at')
+  return (data ?? []).map(toRow)
+}
+
+export async function markStakeholderNotified(stakeholderId: string): Promise<void> {
+  await supabaseAdmin.from('application_stakeholders')
+    .update({ notified_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', stakeholderId)
+}
+
+export async function markStakeholderEmailVerified(stakeholderId: string): Promise<void> {
+  const now = new Date().toISOString()
+  await supabaseAdmin.from('application_stakeholders')
+    .update({ email_verified_at: now, status: 'active', started_at: now, updated_at: now })
+    .eq('id', stakeholderId)
+}
+
+/** Record a stakeholder's rules-acknowledgment signature (applicants/owners). */
+export async function signStakeholderRules(stakeholderId: string, ack: { name: string; signature: string | null; ip: string | null }): Promise<void> {
+  const now = new Date().toISOString()
+  await supabaseAdmin.from('application_stakeholders')
+    .update({ rules_ack_name: ack.name, signature_image: ack.signature, rules_ack_ip: ack.ip, signed_at: now, updated_at: now })
+    .eq('id', stakeholderId)
+}
+
+/** Mark a stakeholder's part complete. */
+export async function completeStakeholder(stakeholderId: string): Promise<void> {
+  const now = new Date().toISOString()
+  await supabaseAdmin.from('application_stakeholders')
+    .update({ status: 'completed', completed_at: now, updated_at: now })
+    .eq('id', stakeholderId)
+}
+
+// ── Documents ────────────────────────────────────────────────────────
+/** Record an uploaded intake document against its checklist item + the
+ *  stakeholder who provided it. */
+export async function recordIntakeDoc(applicationId: string, stakeholderId: string | null, doc: { doc_key: string; doc_label: string; storage_path: string; filename: string; mime_type: string | null; uploaded_by_role: string }): Promise<{ ok: boolean; error?: string }> {
+  const { data: app } = await supabaseAdmin.from('listing_applications').select('listing_id').eq('id', applicationId).maybeSingle()
+  if (!app) return { ok: false, error: 'not found' }
+  // Replace any prior upload for the same checklist item (latest wins).
+  await supabaseAdmin.from('application_documents').delete().eq('application_id', applicationId).eq('doc_key', doc.doc_key)
+  const { error } = await supabaseAdmin.from('application_documents').insert({
+    application_id: applicationId, listing_id: app.listing_id, stakeholder_id: stakeholderId, kind: 'other',
+    doc_key: doc.doc_key, doc_label: doc.doc_label, storage_path: doc.storage_path,
+    filename: doc.filename, mime_type: doc.mime_type, uploaded_by_role: doc.uploaded_by_role,
+  })
+  return error ? { ok: false, error: error.message } : { ok: true }
+}
+
+// ── Application-level state ──────────────────────────────────────────
 export interface IntakeState {
   applicationId: string
   listingId: string
@@ -52,57 +207,36 @@ export interface IntakeState {
   unitLabel: string | null
   status: string
   submittedAt: string | null
-  emailVerifiedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
-  docs: { doc_key: string | null; doc_label: string | null; filename: string; created_at: string }[]
-}
-
-/** Stamp the applicant's email as verified (OTP passed). */
-export async function markEmailVerified(applicationId: string): Promise<void> {
-  await supabaseAdmin.from('listing_applications').update({ email_verified_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', applicationId)
+  docKeys: string[]
 }
 
 export async function getIntake(applicationId: string): Promise<IntakeState | null> {
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('id, listing_id, association_code, application_type, applicant_role, unit_label, status, submitted_at, email_verified_at')
+    .select('id, listing_id, association_code, application_type, applicant_role, unit_label, status, submitted_at')
     .eq('id', applicationId).maybeSingle()
   if (!app) return null
   const [{ data: sh }, { data: docs }] = await Promise.all([
-    supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', applicationId).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
-    supabaseAdmin.from('application_documents').select('doc_key, doc_label, filename, created_at').eq('application_id', applicationId).order('created_at', { ascending: true }),
+    supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', applicationId).eq('is_primary', true).maybeSingle(),
+    supabaseAdmin.from('application_documents').select('doc_key').eq('application_id', applicationId),
   ])
   return {
     applicationId: app.id, listingId: app.listing_id, associationCode: String(app.association_code),
     type: app.application_type as ApplicationType, role: String(app.applicant_role ?? 'applicant'),
     unitLabel: (app.unit_label as string | null) ?? null, status: String(app.status), submittedAt: (app.submitted_at as string | null) ?? null,
-    emailVerifiedAt: (app.email_verified_at as string | null) ?? null,
     applicant: sh ? { name: sh.name as string | null, email: sh.email as string | null, phone: sh.phone as string | null } : null,
-    docs: (docs ?? []) as IntakeState['docs'],
+    docKeys: (docs ?? []).map(d => String(d.doc_key)).filter(Boolean),
   }
 }
 
-/** Record an uploaded intake document against its checklist item. */
-export async function recordIntakeDoc(applicationId: string, doc: { doc_key: string; doc_label: string; provided_by?: ProvidedBy; storage_path: string; filename: string; mime_type: string | null }): Promise<{ ok: boolean; error?: string }> {
-  const { data: app } = await supabaseAdmin.from('listing_applications').select('listing_id').eq('id', applicationId).maybeSingle()
-  if (!app) return { ok: false, error: 'not found' }
-  // Replace any prior upload for the same checklist item (latest wins).
-  await supabaseAdmin.from('application_documents').delete().eq('application_id', applicationId).eq('doc_key', doc.doc_key)
-  const { error } = await supabaseAdmin.from('application_documents').insert({
-    application_id: applicationId, listing_id: app.listing_id, kind: 'other',
-    doc_key: doc.doc_key, doc_label: doc.doc_label, storage_path: doc.storage_path,
-    filename: doc.filename, mime_type: doc.mime_type, uploaded_by_role: 'applicant',
-  })
-  return error ? { ok: false, error: error.message } : { ok: true }
-}
-
-/** Finalize the intake: store the shown-&-signed rules acknowledgment + mark it
- *  submitted so it enters the staff audit queue. */
-export async function submitIntake(applicationId: string, rulesAck: { name: string; signature: string | null; ip: string | null }): Promise<{ ok: boolean; error?: string }> {
+/** Finalize the intake for audit: mark submitted so it enters the staff queue.
+ *  `transitioned` is true only on the call that actually flips the status
+ *  (so the audit-notify email + Drive mirror fire exactly once). */
+export async function submitIntake(applicationId: string): Promise<{ ok: boolean; transitioned: boolean; error?: string }> {
   const now = new Date().toISOString()
-  const { error } = await supabaseAdmin.from('listing_applications').update({
-    status: 'submitted', submitted_at: now, completed_at: now,
-    rules_ack: { name: rulesAck.name, signature: rulesAck.signature, ip: rulesAck.ip, at: now },
-    updated_at: now,
-  }).eq('id', applicationId)
-  return error ? { ok: false, error: error.message } : { ok: true }
+  const { data, error } = await supabaseAdmin.from('listing_applications').update({
+    status: 'submitted', submitted_at: now, completed_at: now, updated_at: now,
+  }).eq('id', applicationId).neq('status', 'submitted').select('id')
+  if (error) return { ok: false, transitioned: false, error: error.message }
+  return { ok: true, transitioned: (data?.length ?? 0) > 0 }
 }

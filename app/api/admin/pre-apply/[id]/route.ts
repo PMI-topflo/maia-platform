@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { getIntakeChecklist, isApplicationType, type ApplicationType } from '@/lib/intake-documents'
-import { INTAKE_BUCKET } from '@/lib/preapply'
+import { INTAKE_BUCKET, roleLabel, roleSigns } from '@/lib/preapply'
 import { sendEmail } from '@/lib/gmail'
 
 export const runtime = 'nodejs'
@@ -71,8 +71,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const { data: assocRow } = await supabaseAdmin.from('associations').select('screening_provider').eq('association_code', String(app.association_code)).maybeSingle()
 
-  const [{ data: sh }, { data: docs }, checklist] = await Promise.all([
+  const [{ data: sh }, { data: stakeholders }, { data: docs }, checklist] = await Promise.all([
     supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', id).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
+    supabaseAdmin.from('application_stakeholders').select('id, role, name, email, phone, is_primary, status, signed_at, rules_ack_name, email_verified_at').eq('application_id', id).order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('application_documents').select('id, doc_key, doc_label, storage_path, filename, mime_type, created_at').eq('application_id', id).order('created_at', { ascending: true }),
     isApplicationType(String(app.application_type)) ? getIntakeChecklist(String(app.association_code), app.application_type as ApplicationType) : Promise.resolve([]),
   ])
@@ -88,6 +89,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     id: app.id, associationCode: app.association_code, type: app.application_type, unit: app.unit_label,
     status: app.status, submittedAt: app.submitted_at,
     applicant: sh ? { name: sh.name, email: sh.email, phone: sh.phone } : null,
+    stakeholders: (stakeholders ?? []).map(s => ({
+      id: s.id, role: s.role, roleLabel: roleLabel(String(s.role)), name: s.name, email: s.email, phone: s.phone,
+      isPrimary: s.is_primary, status: s.status, signs: roleSigns(String(s.role)),
+      signedAt: s.signed_at, rulesAckName: s.rules_ack_name, emailVerified: !!s.email_verified_at,
+    })),
     rulesAck: app.rules_ack,
     driveFolderUrl: app.drive_folder_url,
     screeningProvider: (assocRow?.screening_provider as string | null) ?? 'tenant_evaluation',

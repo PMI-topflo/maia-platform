@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveUnitsAuth } from '@/lib/units-portal-auth'
 import { getIntakeChecklist, isApplicationType, type ApplicationType } from '@/lib/intake-documents'
-import { INTAKE_BUCKET } from '@/lib/preapply'
+import { INTAKE_BUCKET, roleLabel, roleSigns } from '@/lib/preapply'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -27,8 +27,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const app = await loadApp(id, auth.assoc)
   if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const [{ data: sh }, { data: docs }, checklist] = await Promise.all([
+  const [{ data: sh }, { data: stakeholders }, { data: docs }, checklist] = await Promise.all([
     supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', id).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
+    supabaseAdmin.from('application_stakeholders').select('id, role, name, email, is_primary, status, signed_at, rules_ack_name, email_verified_at').eq('application_id', id).order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('application_documents').select('doc_key, doc_label, storage_path').eq('application_id', id),
     isApplicationType(String(app.application_type)) ? getIntakeChecklist(auth.assoc, app.application_type as ApplicationType) : Promise.resolve([]),
   ])
@@ -41,6 +42,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   return NextResponse.json({
     id: app.id, type: app.application_type, unit: app.unit_label, status: app.status, submittedAt: app.submitted_at,
     applicant: sh ? { name: sh.name, email: sh.email, phone: sh.phone } : null,
+    stakeholders: (stakeholders ?? []).map(s => ({
+      id: s.id, role: s.role, roleLabel: roleLabel(String(s.role)), name: s.name, email: s.email,
+      isPrimary: s.is_primary, status: s.status, signs: roleSigns(String(s.role)),
+      signedAt: s.signed_at, rulesAckName: s.rules_ack_name, emailVerified: !!s.email_verified_at,
+    })),
     rulesAck: app.rules_ack, driveFolderUrl: app.drive_folder_url,
     audited: !!app.audited_at, decided: !!app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role,
     canApprove: auth.persona === 'board' || auth.persona === 'building_manager' || auth.persona === 'staff',
