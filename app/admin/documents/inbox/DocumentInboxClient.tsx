@@ -78,6 +78,7 @@ export default function DocumentInboxClient({ associations }: { associations: As
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<Set<string>>(new Set())
   const [customReqs, setCustomReqs] = useState<CustomReq[]>([])
+  const [flash, setFlash] = useState<{ ok: boolean; text: string } | null>(null)
 
   function togglePreview(id: string) {
     setPreview(p => { const s = new Set(p); if (s.has(id)) s.delete(id); else s.add(id); return s })
@@ -178,7 +179,13 @@ export default function DocumentInboxClient({ associations }: { associations: As
           action: 'apply', scope: row.scope, association_code: row.association_code, unit_ref: row.unit_ref || null,
           items: checked.map(t => ({ item_key: t.itemKey, effective_date: t.effectiveDate || null, expiration_date: t.expirationDate || null })),
         }) })
-      if (!res.ok) throw new Error((await res.json())?.error ?? 'apply failed')
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j?.error ?? 'apply failed')
+      // Surface the auto-Drive filing outcome for unit docs (best-effort).
+      if (row.scope === 'unit') {
+        if (j?.drive?.ok) setFlash({ ok: true, text: '📁 Filed & renamed into the unit’s Official Drive folder.' })
+        else if (j?.drive?.error) setFlash({ ok: false, text: `Filed to compliance, but Drive copy pending: ${j.drive.error}` })
+      }
       setRows(rs => rs.filter(r => r.id !== row.id))
     } catch (e) { patch(row.id, { busy: false, err: e instanceof Error ? e.message : String(e) }) }
   }
@@ -190,6 +197,12 @@ export default function DocumentInboxClient({ associations }: { associations: As
 
   return (
     <div>
+      {flash && (
+        <div className={`mb-3 flex items-center justify-between gap-3 rounded-lg border px-4 py-2.5 text-sm ${flash.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+          <span>{flash.text}</span>
+          <button onClick={() => setFlash(null)} className="text-lg leading-none opacity-60 hover:opacity-100">×</button>
+        </div>
+      )}
       <div className="mb-3"><DriveImport onImported={onDriveImported} /></div>
       <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#f26a1b]/40 bg-[#fff8f4] px-6 py-8 text-center hover:border-[#f26a1b]">
         <input type="file" accept="application/pdf,image/*" multiple className="hidden" disabled={uploading !== null} onChange={e => onFiles(e.target.files)} />
