@@ -60,6 +60,7 @@ export default function UnitsAuditClient({ assoc }: { assoc?: string }) {
       <h1 style={{ font: '700 22px system-ui', margin: '0 0 2px' }}>{data.associationName}</h1>
       <div style={{ color: '#6b7280', marginBottom: 12 }}>Unit audit — {stats.total} units · click a block to list those units · click any unit to open its full record in a new tab</div>
 
+      <AssociationOverview assoc={assoc} />
       <ApplicationsBanner assoc={assoc} />
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
@@ -103,6 +104,41 @@ const CERT_STATE: Record<BoardCertMember['state'], { label: string; color: strin
 // managers / board members with upload permission also get a separate labeled
 // upload box per required document (kind-aware). Type confirmation + approval
 // stay on the admin Association Hub.
+interface Overview { name: string; type: string | null; service: string | null; statute: string | null; address: string | null; sunbiz: string | null; sunbizStatus: string | null; boardMembers: number; associationDocs: number }
+
+// Association details for board / on-site managers — the non-financial hub info.
+function AssociationOverview({ assoc }: { assoc?: string }) {
+  const [d, setD] = useState<Overview | null>(null)
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const q = assoc ? `?assoc=${encodeURIComponent(assoc)}` : ''
+    fetch(`/api/units/overview${q}`, { credentials: 'include' }).then(r => r.ok ? r.json() : null).then(setD).catch(() => {})
+  }, [assoc])
+  if (!d) return null
+  const rows: [string, string | null][] = [
+    ['Type', d.type], ['Service', d.service], ['Statute', d.statute], ['Address', d.address],
+    ['Sunbiz #', d.sunbiz ? `${d.sunbiz}${d.sunbizStatus ? ` · ${d.sunbizStatus}` : ''}` : null],
+    ['Board members', String(d.boardMembers)], ['Association documents', String(d.associationDocs)],
+  ]
+  return (
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, marginBottom: 12, background: '#fff' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+        <span style={{ font: '600 13px system-ui', color: '#374151' }}>🏢 Association details{d.type ? ` · ${d.type}` : ''}{d.address ? ` · ${d.address}` : ''}</span>
+        <span style={{ font: '11px system-ui', color: '#6b7280' }}>{open ? 'hide' : 'show'}</span>
+      </button>
+      {open && (
+        <div style={{ padding: '2px 14px 12px' }}>
+          {rows.filter(([, v]) => v).map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderTop: '1px solid #f3f4f6', font: '13px system-ui' }}>
+              <span style={{ color: '#6b7280' }}>{k}</span><span style={{ fontWeight: 600, textAlign: 'right' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Entry to the board / on-site-manager application review + approval queue.
 function ApplicationsBanner({ assoc }: { assoc?: string }) {
   const [count, setCount] = useState<{ total: number; pending: number } | null>(null)
