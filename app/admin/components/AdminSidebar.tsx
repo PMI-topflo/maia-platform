@@ -46,8 +46,8 @@ const NAV: Node[] = [
     { label: 'Monthly Report', href: '/admin/reports/monthly' },
   ] },
   { type: 'group', label: 'Leasing', icon: '📝', items: [
-    { label: 'Pre-Application Intake', href: '/admin/pre-apply' },
-    { label: 'Applications', href: '/admin/applications' },
+    { label: 'Applications', href: '/admin/pre-apply' },
+    { label: 'Applications (Checkr)', href: '/admin/applications' },
     { label: 'Pre-Registrations', href: '/admin/pre-registrations' },
     { label: 'Registrations', href: '/admin/registrations' },
     { label: 'Approvals', href: '/admin/pending-approvals' },

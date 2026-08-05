@@ -5,6 +5,7 @@
 // Client Component for the interactive table.
 // =====================================================================
 
+import Link from 'next/link';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import SiteHeader from '@/components/SiteHeader';
 import AdminNav from '../components/AdminNav';
@@ -112,9 +113,9 @@ export default async function ApplicationsPage() {
 
       <main className="max-w-screen-2xl mx-auto px-6 py-6">
         <header className="mb-6 border-l-4 border-[#f26a1b] pl-4">
-          <h1 className="text-xl font-semibold text-gray-900">Applications</h1>
+          <h1 className="text-xl font-semibold text-gray-900">Applications (Checkr)</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Tenant and buyer applications submitted through the portal
+            Detailed applications with background screening (Checkr). For the day-to-day intake, documents, stages, and approvals, use <Link href="/admin/pre-apply" className="text-[#f26a1b] font-medium hover:underline">Applications</Link>.
           </p>
         </header>
 
