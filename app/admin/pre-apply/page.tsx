@@ -32,15 +32,28 @@ export default function PreApplyQueue() {
   const [filter, setFilter] = useState<string | null>(null)
   const [drive, setDrive] = useState<DriveUnit[] | null>(null)
   const [driveErr, setDriveErr] = useState<string | null>(null)
+  const [importing, setImporting] = useState<string | null>(null)
+
+  const loadDrive = () => fetch('/api/admin/pre-apply/ongoing-drive', { credentials: 'include' })
+    .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j })
+    .then(d => { setDrive(d.units); if (d.error) setDriveErr(d.error) }).catch(e => setDriveErr(String(e.message ?? e)))
 
   useEffect(() => {
     fetch('/api/admin/pre-apply', { credentials: 'include' })
       .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j })
       .then(d => setApps(d.applications)).catch(e => setErr(String(e.message ?? e)))
-    fetch('/api/admin/pre-apply/ongoing-drive', { credentials: 'include' })
-      .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j })
-      .then(d => { setDrive(d.units); if (d.error) setDriveErr(d.error) }).catch(e => setDriveErr(String(e.message ?? e)))
+    loadDrive()
   }, [])
+
+  async function bringIntoMaia(u: DriveUnit) {
+    if (!u.unitRef) return
+    setImporting(u.folderName)
+    try {
+      const r = await fetch('/api/admin/pre-apply/ongoing-drive/import', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ unitRef: u.unitRef, folderId: u.url.split('/').pop(), folderUrl: u.url }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      window.location.href = `/admin/pre-apply/${j.applicationId}`
+    } catch (e) { alert(`Could not bring into MAIA: ${(e as Error).message}`); setImporting(null) }
+  }
 
   const count = (k: string) => (apps ?? []).filter(a => a.status === k).length
 
@@ -112,7 +125,10 @@ export default function PreApplyQueue() {
                   <a href={u.url} target="_blank" rel="noreferrer" style={{ font: '600 12px system-ui', color: '#2563eb', textDecoration: 'none' }}>📁 Folder</a>
                   {u.applicationId
                     ? <a href={`/admin/pre-apply/${u.applicationId}`} style={{ font: '600 12px system-ui', color: '#9a3412', textDecoration: 'none' }}>Open application →</a>
-                    : u.unitRef && <a href={`/units/unit?account=${encodeURIComponent(u.unitRef)}&assoc=MANXI`} target="_blank" rel="noreferrer" style={{ font: '600 12px system-ui', color: '#6b7280', textDecoration: 'none' }}>Unit page →</a>}
+                    : <button onClick={() => bringIntoMaia(u)} disabled={importing === u.folderName || !u.unitRef}
+                        style={{ font: '600 12px system-ui', color: '#fff', background: importing === u.folderName ? '#c9ccd3' : '#f26a1b', border: 'none', borderRadius: 7, padding: '4px 10px', cursor: importing === u.folderName ? 'default' : 'pointer' }}>
+                        {importing === u.folderName ? 'Bringing in…' : 'Bring into MAIA'}
+                      </button>}
                 </div>
               </div>
             ))}
