@@ -98,7 +98,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     driveFolderUrl: app.drive_folder_url,
     screeningProvider: (assocRow?.screening_provider as string | null) ?? 'tenant_evaluation',
     audit: { auditedBy: app.audited_by, auditedAt: app.audited_at, reviewedBy: app.reviewed_by, reviewedAt: app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role },
-    checklist: checklist.map(c => ({ label: c.label, required: c.required, provided_by: c.provided_by, uploaded: uploaded.has(c.doc_key) })),
+    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, uploaded: uploaded.has(c.doc_key) })),
     documents: withUrls,
   })
 }
