@@ -44,6 +44,27 @@ export async function ensureOngoingUnitFolder(opts: { unitLabel: string; applica
   return { folderId, webViewLink: meta?.data.webViewLink ?? `https://drive.google.com/drive/folders/${folderId}` }
 }
 
+/** Mirror ONE file into a unit's "On Going Applications" subfolder (created if
+ *  needed). Used when staff upload a document they received by email straight
+ *  into an in-process application. Best-effort — never throws. */
+export async function mirrorFileToOngoing(opts: {
+  unitLabel: string; applicantName?: string | null; label: string; filename: string; mime: string | null; buffer: Buffer
+}): Promise<{ ok: boolean; folderId?: string; folderUrl?: string; error?: string }> {
+  try {
+    const { folderId, webViewLink } = await ensureOngoingUnitFolder({ unitLabel: opts.unitLabel, applicantName: opts.applicantName })
+    const ext = opts.filename.includes('.') ? opts.filename.slice(opts.filename.lastIndexOf('.')) : ''
+    const label = opts.label.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'Document'
+    await mirrorBufferToFolder(folderId, `${label}${ext}`, opts.mime ?? 'application/octet-stream', opts.buffer)
+    return { ok: true, folderId, folderUrl: webViewLink }
+  } catch (err) {
+    const base = err instanceof Error ? err.message : String(err)
+    const sa = serviceAccountEmail()
+    const hint = /not found|permission|forbidden|403|404/i.test(base) && sa
+      ? ` — share the "On Going Applications" folder with ${sa} (Editor).` : ''
+    return { ok: false, error: `${base}${hint}` }
+  }
+}
+
 /** Upload one buffer into a Drive folder, retrying transient failures. */
 export async function mirrorBufferToFolder(folderId: string, filename: string, mime: string, buffer: Buffer): Promise<string> {
   let lastErr: unknown

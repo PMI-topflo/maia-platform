@@ -17,7 +17,7 @@ interface Detail {
   driveFolderUrl: string | null
   screeningProvider: string
   audit: { auditedBy: string | null; auditedAt: string | null; reviewedBy: string | null; reviewedAt: string | null; note: string | null; approvedByRole: string | null }
-  checklist: { label: string; required: boolean; provided_by: string; uploaded: boolean }[]
+  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; uploaded: boolean }[]
   documents: Doc[]
 }
 
@@ -75,16 +75,20 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <p style={{ fontSize: 13, color: '#374151', margin: '4px 0 0' }}>{d.applicant?.email}{d.applicant?.phone ? ` · ${d.applicant.phone}` : ''}</p>
       {d.driveFolderUrl && <p style={{ margin: '8px 0 0' }}><a href={d.driveFolderUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 13, fontWeight: 600 }}>📁 Drive folder →</a></p>}
 
-      {/* Checklist */}
+      {/* Checklist — with staff upload boxes so you can file a doc you got by email */}
       <h2 style={h2}>Documents ({d.documents.length} uploaded)</h2>
+      <p style={{ fontSize: 12.5, color: '#6b7280', margin: '0 0 8px' }}>Upload a document you received directly here — MAIA files it into this unit&apos;s <strong>On Going Applications</strong> Drive folder. (Official only after board approval.)</p>
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         {d.checklist.map((c, i) => {
           const doc = d.documents.find(x => x.doc_label === c.label || x.doc_key === c.label)
           return (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderTop: i ? '1px solid #f3f4f6' : 'none', alignItems: 'center' }}>
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderTop: i ? '1px solid #f3f4f6' : 'none', alignItems: 'center', flexWrap: 'wrap' }}>
               <div><span style={{ fontWeight: 600, fontSize: 14 }}>{c.label}</span> <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px' }}>{c.provided_by}</span>{!c.required && <span style={{ fontSize: 11, color: '#6b7280' }}> · optional</span>}</div>
-              {c.uploaded && doc?.url ? <a href={doc.url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: '#166534', fontWeight: 600 }}>✓ View</a> : c.uploaded ? <span style={{ fontSize: 13, color: '#166534' }}>✓ Uploaded</span> : <span style={{ fontSize: 13, color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {c.uploaded && doc?.url ? <a href={doc.url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: '#166534', fontWeight: 600 }}>✓ View</a> : c.uploaded ? <span style={{ fontSize: 13, color: '#166534' }}>✓ Uploaded</span> : <span style={{ fontSize: 13, color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
+                {!decided && <StaffUpload id={id} docKey={c.doc_key} docLabel={c.label} uploaded={c.uploaded} onDone={load} />}
+              </div>
             </div>
           )
         })}
@@ -249,6 +253,37 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
         </>
       )}
     </div>
+  )
+}
+
+// Staff upload-on-behalf for one checklist item → files it against the
+// application AND mirrors it to the unit's On Going Applications Drive folder.
+function StaffUpload({ id, docKey, docLabel, uploaded, onDone }: { id: string; docKey: string; docLabel: string; uploaded: boolean; onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const inputId = `up-${docKey}`
+
+  async function onFile(file: File | null) {
+    if (!file) return
+    setBusy(true); setMsg(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', file); fd.append('doc_key', docKey); fd.append('doc_label', docLabel)
+      const r = await fetch(`/api/admin/pre-apply/${id}/upload`, { method: 'POST', credentials: 'include', body: fd })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'upload failed')
+      if (j?.drive && !j.drive.ok) setMsg(`Filed · Drive copy pending: ${j.drive.error}`)
+      onDone()
+    } catch (e) { setMsg((e as Error).message) } finally { setBusy(false) }
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <input id={inputId} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" style={{ display: 'none' }} onChange={e => onFile(e.target.files?.[0] ?? null)} />
+      <label htmlFor={inputId} style={{ cursor: busy ? 'default' : 'pointer', font: '600 12px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#f26a1b', borderRadius: 7, padding: '5px 10px' }}>
+        {busy ? 'Uploading…' : uploaded ? 'Replace' : 'Upload'}
+      </label>
+      {msg && <span style={{ font: '11px system-ui', color: '#b45309', maxWidth: 200 }}>{msg}</span>}
+    </span>
   )
 }
 
