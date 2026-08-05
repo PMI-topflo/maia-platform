@@ -8,13 +8,53 @@
 
 import { use, useCallback, useEffect, useState } from 'react'
 import { SignaturePad } from '@/components/SignatureEvidence'
+import { preApplyStrings } from '@/lib/preapply-welcome-i18n'
+import { PORTAL_LANGS, PORTAL_LANG_LABEL, isRtl, normalizePortalLang, type PortalLang } from '@/lib/portal-i18n'
 
-const TYPES = [
-  { key: 'lease',               title: 'Rent (new lease)',      blurb: 'I am applying to rent this unit' },
-  { key: 'purchase',            title: 'Purchase',              blurb: 'I am buying this unit' },
-  { key: 'lease_renewal',       title: 'Lease renewal',         blurb: 'I already rent here and am renewing' },
-  { key: 'additional_occupant', title: 'Add an occupant',       blurb: 'Adding a person to an existing lease' },
-]
+const TYPE_DEFS = [
+  { key: 'lease',               icon: '🏠', tk: 't1t', dk: 't1d' },
+  { key: 'purchase',            icon: '🔑', tk: 't2t', dk: 't2d' },
+  { key: 'lease_renewal',       icon: '🔄', tk: 't3t', dk: 't3d' },
+  { key: 'additional_occupant', icon: '👥', tk: 't4t', dk: 't4d' },
+] as const
+
+const WELCOME_CSS = `
+.pa-page{max-width:720px;margin:0 auto;padding:0 18px 48px;font-family:'Inter',system-ui,-apple-system,sans-serif;color:#1f2a44}
+.pa-page[dir=rtl]{text-align:right}
+.pa-hero{background:linear-gradient(160deg,#1f2a44 0%,#2b3a5e 60%,#3a2a1a 100%);color:#fff;border-radius:0 0 26px 26px;padding:22px 30px 40px;position:relative;overflow:hidden}
+.pa-hero::after{content:'';position:absolute;right:-60px;top:-60px;width:220px;height:220px;background:radial-gradient(circle,#f26a1b55,transparent 70%)}
+.pa-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.pa-brand{display:flex;align-items:center;gap:10px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#f7b98a;font-weight:700}
+.pa-dot{width:7px;height:7px;border-radius:50%;background:#f26a1b}
+.pa-lang{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:6px 10px;font-size:12.5px;font-weight:600;cursor:pointer}
+.pa-lang option{color:#1f2a44}
+.pa-assoc{font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-top:20px;font-weight:600}
+.pa-h1{font-size:29px;line-height:1.15;margin:6px 0 0;font-weight:800;letter-spacing:-.02em}
+.pa-lede{font-size:15px;line-height:1.6;color:rgba(255,255,255,.82);margin:16px 0 0}
+.pa-pill{display:inline-flex;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:14px;padding:8px 14px;font-size:12.5px;font-weight:600;color:#fff;margin-top:20px;line-height:1.45}
+.pa-card{background:#fff;border:1px solid #e7e9ee;border-radius:16px;padding:22px;margin-top:16px;box-shadow:0 1px 3px rgba(20,30,60,.05)}
+.pa-eye{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#f26a1b}
+.pa-card h2{font-size:18px;margin:5px 0 4px;font-weight:700}
+.pa-card p{font-size:13.5px;line-height:1.55;color:#5c6473;margin:0}
+.pa-langline{margin-top:14px;font-size:14px;font-weight:600;color:#33405c}
+.pa-langline i{color:#c7cad2;margin:0 3px;font-weight:400;font-style:normal}
+.pa-sec{display:flex;gap:16px;align-items:flex-start}
+.pa-shield{flex:none;width:46px;height:46px;border-radius:12px;background:linear-gradient(150deg,#0f7a4d,#12a463);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px}
+.pa-chan{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.pa-chip{display:inline-flex;gap:6px;background:#f0fdf6;border:1px solid #b9ecce;color:#0f7a4d;border-radius:999px;padding:5px 11px;font-size:12.5px;font-weight:600}
+.pa-first{margin-top:12px;font-size:12.5px;color:#0f7a4d;background:#f0fdf6;border-radius:9px;padding:9px 11px;border:1px solid #cdeedd;line-height:1.45}
+.pa-types{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+@media(max-width:520px){.pa-types{grid-template-columns:1fr}.pa-h1{font-size:24px}}
+.pa-type{text-align:inherit;border:1.5px solid #e2e5ec;background:#fff;border-radius:14px;padding:16px 15px;cursor:pointer;transition:.15s;font-family:inherit}
+.pa-type:hover{border-color:#f26a1b}
+.pa-type.on{border-color:#f26a1b;background:#fff7f0}
+.pa-ic{font-size:24px}.pa-tt{font-weight:700;font-size:15px;margin-top:8px}.pa-td{font-size:12.5px;color:#6b7280;margin-top:2px;line-height:1.45}
+.pa-cta{width:100%;margin-top:18px;padding:15px;border:none;border-radius:12px;background:#f26a1b;color:#fff;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 6px 16px rgba(242,106,27,.28);font-family:inherit}
+.pa-cta:disabled{background:#c9ccd3;box-shadow:none;cursor:default}
+.pa-foot{text-align:center;color:#9aa0ab;font-size:11.5px;margin-top:22px;line-height:1.7}
+.pa-field{width:100%;padding:11px 12px;font-size:15px;border:1px solid #d1d5db;border-radius:9px;box-sizing:border-box;margin-top:5px;font-family:inherit}
+.pa-lbl{font-size:12.5px;font-weight:600;color:#374151;margin-top:14px;display:block}
+`
 
 interface ChecklistItem { id: string; doc_key: string; label: string; provided_by: 'applicant' | 'landlord' | 'agent'; required: boolean; note: string | null; uploaded: boolean }
 interface Info {
@@ -33,21 +73,21 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
   const { code } = use(params)
   const [step, setStep] = useState<'type' | 'contact' | 'docs'>('type')
   const [type, setType] = useState<string>('')
+  const [lang, setLang] = useState<PortalLang>('en')
   const [form, setForm] = useState({ name: '', email: '', phone: '', unit: '' })
   const [token, setToken] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  // Prefill from a staff-generated link (e.g. an email reply): ?type=&unit=&name=&email=
-  // When the type is known, jump straight to the contact step so the applicant
-  // just confirms and uploads.
+  // Prefill from a staff-generated link (e.g. an email reply): ?type=&unit=&name=&email=&lang=
   useEffect(() => {
     if (typeof window === 'undefined') return
     const q = new URLSearchParams(window.location.search)
     const qType = q.get('type') ?? ''
-    if (TYPES.some(t => t.key === qType)) setType(qType)
+    setLang(normalizePortalLang(q.get('lang')))
+    if (TYPE_DEFS.some(t => t.key === qType)) setType(qType)
     setForm(f => ({ ...f, unit: q.get('unit') ?? f.unit, name: q.get('name') ?? f.name, email: q.get('email') ?? f.email }))
-    if (TYPES.some(t => t.key === qType)) setStep('contact')
+    if (TYPE_DEFS.some(t => t.key === qType)) setStep('contact')
   }, [])
 
   async function start() {
@@ -64,38 +104,84 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
 
   if (step === 'docs' && token) return <DocsStep code={code} token={token} />
 
+  const s = preApplyStrings(lang)
+  const rtl = isRtl(lang)
+  const LangSelect = (
+    <select className="pa-lang" value={lang} onChange={e => setLang(e.target.value as PortalLang)} aria-label={s.chooseLang}>
+      {PORTAL_LANGS.map(l => <option key={l} value={l}>{PORTAL_LANG_LABEL[l]}</option>)}
+    </select>
+  )
+
   return (
-    <div style={wrap}>
-      <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6b7280', margin: 0 }}>{code}</p>
-      <h1 style={{ fontSize: 22, color: '#1f2a44', margin: '4px 0 2px' }}>Application &amp; Compliance</h1>
-      <p style={{ color: '#6b7280', fontSize: 14, marginTop: 0 }}>Start your application. You&apos;ll upload the required documents and acknowledge the association&apos;s rules.</p>
+    <div className="pa-page" dir={rtl ? 'rtl' : 'ltr'}>
+      <style>{WELCOME_CSS}</style>
+      <div className="pa-hero">
+        <div className="pa-top">
+          <div className="pa-brand"><span className="pa-dot" /> PMI Top Florida Properties</div>
+          {LangSelect}
+        </div>
+        <div className="pa-assoc">The Manors of Inverrary XI Condominium Association</div>
+        <h1 className="pa-h1">{s.title}</h1>
+        {step === 'type' && <><p className="pa-lede">{s.lede}</p><span className="pa-pill">{s.pill}</span></>}
+        {step === 'contact' && <p className="pa-lede">{s.contactSub}</p>}
+      </div>
 
       {step === 'type' && (
         <>
-          <label style={label}>What are you applying for?</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
-            {TYPES.map(tp => (
-              <button key={tp.key} onClick={() => setType(tp.key)} style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 10, border: `1px solid ${type === tp.key ? '#f26a1b' : '#e5e7eb'}`, background: type === tp.key ? '#fff7f0' : '#fff', cursor: 'pointer' }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{tp.title}</div>
-                <div style={{ fontSize: 13, color: '#6b7280' }}>{tp.blurb}</div>
-              </button>
-            ))}
+          <div className="pa-card">
+            <div className="pa-eye">🌐 {s.langEye}</div>
+            <h2>{s.langH2}</h2><p>{s.langP}</p>
+            <div className="pa-langline" dir="ltr">English<i>·</i>Español<i>·</i>Português<i>·</i>Français<i>·</i>Kreyòl<i>·</i>עברית<i>·</i>Русский</div>
           </div>
-          {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
-          <button onClick={() => { if (!type) { setErr('Please choose one.'); return } setErr(null); setStep('contact') }} style={primary(!!type)}>Continue →</button>
+
+          <div className="pa-card">
+            <div className="pa-sec">
+              <div className="pa-shield">🔒</div>
+              <div>
+                <div className="pa-eye">{s.secEye}</div>
+                <h2 style={{ marginTop: 5 }}>{s.secH2}</h2><p>{s.secP}</p>
+                <div className="pa-chan"><span className="pa-chip">✉ {s.chEmail}</span><span className="pa-chip">💬 {s.chText}</span><span className="pa-chip">🟢 WhatsApp</span></div>
+                <div className="pa-first">{s.first}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="pa-card">
+            <div className="pa-eye">{s.getEye}</div>
+            <h2>{s.getH2}</h2><p>{s.getP}</p>
+            <div className="pa-types">
+              {TYPE_DEFS.map(tp => (
+                <button key={tp.key} className={`pa-type${type === tp.key ? ' on' : ''}`} onClick={() => { setType(tp.key); setErr(null) }}>
+                  <div className="pa-ic">{tp.icon}</div>
+                  <div className="pa-tt">{s[tp.tk]}</div>
+                  <div className="pa-td">{s[tp.dk]}</div>
+                </button>
+              ))}
+            </div>
+            {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
+            <button className="pa-cta" disabled={!type} onClick={() => { if (!type) return; setErr(null); setStep('contact') }}>{s.cta}</button>
+          </div>
+          <div className="pa-foot">{s.foot}</div>
         </>
       )}
 
       {step === 'contact' && (
-        <>
-          <label style={label}>Your full name<input style={field} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
-          <label style={label}>Email<input style={field} type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
-          <label style={label}>Mobile phone<input style={field} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} inputMode="tel" /></label>
-          <label style={label}>Unit number<input style={field} value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} placeholder="e.g. 511" /></label>
+        <div className="pa-card">
+          <div className="pa-eye">{s.contactTitle}</div>
+          <label className="pa-lbl">{s.chooseLang}</label>
+          <div style={{ marginTop: 5 }}>
+            <select className="pa-field" value={lang} onChange={e => setLang(e.target.value as PortalLang)}>
+              {PORTAL_LANGS.map(l => <option key={l} value={l}>{PORTAL_LANG_LABEL[l]}</option>)}
+            </select>
+          </div>
+          <label className="pa-lbl">{s.nameL}<input className="pa-field" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
+          <label className="pa-lbl">{s.emailL}<input className="pa-field" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
+          <label className="pa-lbl">{s.phoneL}<input className="pa-field" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} inputMode="tel" /></label>
+          <label className="pa-lbl">{s.unitL}<input className="pa-field" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} placeholder="e.g. 511" /></label>
           {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
-          <button onClick={start} disabled={busy} style={primary(!busy)}>{busy ? 'Starting…' : 'Continue to documents →'}</button>
-          <button onClick={() => setStep('type')} style={{ display: 'block', margin: '10px auto 0', background: 'none', border: 'none', color: '#6b7280', fontSize: 13, cursor: 'pointer' }}>← Back</button>
-        </>
+          <button className="pa-cta" onClick={start} disabled={busy}>{busy ? '…' : s.continue2}</button>
+          <button onClick={() => setStep('type')} style={{ display: 'block', margin: '10px auto 0', background: 'none', border: 'none', color: '#6b7280', fontSize: 13, cursor: 'pointer' }}>{s.back}</button>
+        </div>
       )}
     </div>
   )
