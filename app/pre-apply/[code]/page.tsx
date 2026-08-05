@@ -290,6 +290,9 @@ function CollaboratorAdder({ token, lang, onAdded, compact }: { token: string; l
 
 function DocsStep({ code, token, lang }: { code: string; token: string; lang: PortalLang }) {
   const f = preApplyFlow(lang)
+  // The binding rules acknowledgment is a legal attestation — it is always
+  // shown and signed in English, whatever language the rest of the page is in.
+  const fEn = preApplyFlow('en')
   const [info, setInfo] = useState<Info | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [rulesName, setRulesName] = useState('')
@@ -390,26 +393,32 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
         </div>
       )}
 
-      {/* Rules — signed only by tenants/buyers and owners */}
+      {/* Rules — signed only by tenants/buyers and owners. The acknowledgment
+          text is ALWAYS in English (it's the binding attestation). */}
       {info.me.signs ? (
-        <>
-          <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '22px 0 4px' }}>{f.rulesH}</h2>
+        <div dir="ltr" style={{ textAlign: 'left' }}>
+          <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '22px 0 4px' }}>{fEn.rulesH}</h2>
+          {lang !== 'en' && <p style={{ fontSize: 11.5, color: '#9aa0ab', margin: '0 0 6px', fontStyle: 'italic' }}>{f.rulesH} — shown in English for signing.</p>}
+          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, padding: '10px 12px', margin: '8px 0 10px' }}>
+            {lang !== 'en' && <p dir={isRtl(lang) ? 'rtl' : 'ltr'} style={{ fontSize: 12.5, color: '#92400e', margin: '0 0 6px', lineHeight: 1.5, textAlign: isRtl(lang) ? 'right' : 'left' }}>⚠ {f.signDisclaimer}</p>}
+            <p style={{ fontSize: 12.5, color: '#92400e', margin: 0, lineHeight: 1.5 }}>⚠ {fEn.signDisclaimer}</p>
+          </div>
           {info.rules.length > 0 ? (
             <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 13.5, color: '#374151', lineHeight: 1.6 }}>
               {info.rules.map(r => <li key={r.rule_key}>{r.label}</li>)}
             </ul>
-          ) : <p style={{ fontSize: 13, color: '#6b7280' }}>{f.rulesFallback}</p>}
+          ) : <p style={{ fontSize: 13, color: '#6b7280' }}>{fEn.rulesFallback}</p>}
 
           <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 14, fontSize: 13.5, color: '#374151', lineHeight: 1.5 }}>
             <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} style={{ marginTop: 3 }} />
-            <span>{f.agreeLine}</span>
+            <span>{fEn.agreeLine}</span>
           </label>
-          <label style={label}>{f.signNameL}<input style={field} value={rulesName} onChange={e => setRulesName(e.target.value)} /></label>
+          <label style={label}>{fEn.signNameL}<input style={field} value={rulesName} onChange={e => setRulesName(e.target.value)} /></label>
           <div style={{ marginTop: 12 }}>
-            <label style={{ ...label, marginTop: 0 }}>{f.drawSig}</label>
+            <label style={{ ...label, marginTop: 0 }}>{fEn.drawSig}</label>
             <SignaturePad onChange={img => setSig(img ?? '')} />
           </div>
-        </>
+        </div>
       ) : (
         <p style={{ marginTop: 22, fontSize: 13, color: '#0f7a4d', background: '#f0fdf6', border: '1px solid #cdeedd', borderRadius: 9, padding: '10px 12px' }}>{f.noSignNote}</p>
       )}
