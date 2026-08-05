@@ -1,0 +1,81 @@
+// GET   /api/units/pre-apply/[id]?assoc=CODE  → one application for board/manager review.
+// PATCH /api/units/pre-apply/[id]  { assoc, action: 'approve' | 'decline' | 'request', note? }
+//   The on-site manager / board approval decision (the dual-approval stage).
+//   Scoped to the caller's association; approver role is derived from the persona.
+
+import { NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { resolveUnitsAuth } from '@/lib/units-portal-auth'
+import { getIntakeChecklist, isApplicationType, type ApplicationType } from '@/lib/intake-documents'
+import { INTAKE_BUCKET } from '@/lib/preapply'
+
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+async function loadApp(id: string, assoc: string) {
+  const { data } = await supabaseAdmin.from('listing_applications')
+    .select('id, association_code, application_type, unit_label, status, submitted_at, rules_ack, drive_folder_url, audited_at, reviewed_at, review_note, approved_by_role')
+    .eq('id', id).maybeSingle()
+  if (!data || String(data.association_code).toUpperCase() !== assoc.toUpperCase()) return null
+  return data
+}
+
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const auth = await resolveUnitsAuth(new URL(req.url).searchParams.get('assoc'))
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { id } = await ctx.params
+  const app = await loadApp(id, auth.assoc)
+  if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const [{ data: sh }, { data: docs }, checklist] = await Promise.all([
+    supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', id).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
+    supabaseAdmin.from('application_documents').select('doc_key, doc_label, storage_path').eq('application_id', id),
+    isApplicationType(String(app.application_type)) ? getIntakeChecklist(auth.assoc, app.application_type as ApplicationType) : Promise.resolve([]),
+  ])
+  const withUrls = await Promise.all((docs ?? []).map(async d => {
+    const { data: signed } = await supabaseAdmin.storage.from(INTAKE_BUCKET).createSignedUrl(String(d.storage_path), 600)
+    return { doc_key: d.doc_key, doc_label: d.doc_label, url: signed?.signedUrl ?? null }
+  }))
+  const uploaded = new Set((docs ?? []).map(d => d.doc_key).filter(Boolean))
+
+  return NextResponse.json({
+    id: app.id, type: app.application_type, unit: app.unit_label, status: app.status, submittedAt: app.submitted_at,
+    applicant: sh ? { name: sh.name, email: sh.email, phone: sh.phone } : null,
+    rulesAck: app.rules_ack, driveFolderUrl: app.drive_folder_url,
+    audited: !!app.audited_at, decided: !!app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role,
+    canApprove: auth.persona === 'board' || auth.persona === 'building_manager' || auth.persona === 'staff',
+    checklist: checklist.map(c => {
+      const doc = withUrls.find(x => x.doc_label === c.label || x.doc_key === c.label)
+      return { label: c.label, required: c.required, provided_by: c.provided_by, uploaded: uploaded.has(c.doc_key), url: doc?.url ?? null }
+    }),
+  })
+}
+
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  let b: { assoc?: string; action?: string; note?: string }
+  try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
+  const auth = await resolveUnitsAuth(b.assoc ?? null)
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (auth.persona !== 'board' && auth.persona !== 'building_manager' && auth.persona !== 'staff') {
+    return NextResponse.json({ error: 'Not permitted to approve.' }, { status: 403 })
+  }
+  const { id } = await ctx.params
+  const app = await loadApp(id, auth.assoc)
+  if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const now = new Date().toISOString()
+  const who = auth.persona === 'board' ? 'board' : auth.persona === 'building_manager' ? 'onsite manager' : `staff`
+  const role = auth.persona === 'board' ? 'board' : auth.persona === 'building_manager' ? 'onsite_manager' : 'staff'
+  const patch: Record<string, unknown> = { updated_at: now }
+  switch (b.action) {
+    case 'approve': patch.status = 'approved'; patch.reviewed_by = who; patch.reviewed_at = now; patch.approved_by_role = role; patch.review_note = b.note?.trim() || null; break
+    case 'decline': patch.status = 'declined'; patch.reviewed_by = who; patch.reviewed_at = now; patch.review_note = b.note?.trim() || null; break
+    case 'request': patch.status = 'submitted'; patch.review_note = b.note?.trim() || null; break
+    default: return NextResponse.json({ error: 'invalid action' }, { status: 400 })
+  }
+  if ((b.action === 'decline' || b.action === 'request') && !patch.review_note) return NextResponse.json({ error: 'Add a note.' }, { status: 400 })
+
+  const { error } = await supabaseAdmin.from('listing_applications').update(patch).eq('id', id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true, status: patch.status })
+}
