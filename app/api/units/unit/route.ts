@@ -72,6 +72,40 @@ export async function GET(req: Request) {
     ? (await getTenantComplianceState(auth.assoc, account).catch(() => ({ missing: [] }))).missing.map(m => ({ key: m.key, label: m.label }))
     : []
 
+  // Ongoing pre-application for this unit — the board keeps asking for status,
+  // so surface it here: the stage, when it started/was submitted, the documents
+  // already uploaded (with dates), who's on it, and the On Going Drive folder.
+  const ongoingApplication = await (async () => {
+    const unitNo = String(unit.unit ?? '').trim().toLowerCase()
+    if (!unitNo) return null
+    const { data: apps } = await supabaseAdmin.from('listing_applications')
+      .select('id, application_type, status, submitted_at, created_at, drive_folder_url, unit_label')
+      .eq('association_code', auth.assoc)
+      .in('status', ['started', 'submitted', 'under_review'])
+      .order('created_at', { ascending: false })
+    const norm = (v: string) => v.trim().toLowerCase().replace(/^unit\s+/, '')
+    const match = (apps ?? []).find(a => {
+      const ul = norm(String(a.unit_label ?? ''))
+      return !!ul && (ul === unitNo || ul.replace(/\D/g, '') === unitNo.replace(/\D/g, ''))
+    })
+    if (!match) return null
+    const [{ data: docs }, { data: sh }] = await Promise.all([
+      supabaseAdmin.from('application_documents')
+        .select('doc_label, filename, created_at, uploaded_by_role').eq('application_id', match.id)
+        .order('created_at', { ascending: true }),
+      supabaseAdmin.from('application_stakeholders')
+        .select('name, role, signed_at, status, is_primary').eq('application_id', match.id)
+        .order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
+    ])
+    return {
+      id: String(match.id), type: (match.application_type as string | null) ?? null, status: String(match.status),
+      submittedAt: (match.submitted_at as string | null) ?? null, startedAt: (match.created_at as string | null) ?? null,
+      driveFolderUrl: (match.drive_folder_url as string | null) ?? null,
+      documents: (docs ?? []).map(d => ({ label: (d.doc_label as string | null) || (d.filename as string | null) || 'Document', at: String(d.created_at), by: (d.uploaded_by_role as string | null) ?? null })),
+      people: (sh ?? []).map(s => ({ name: (s.name as string | null) ?? null, role: String(s.role), signed: !!s.signed_at, status: String(s.status) })),
+    }
+  })()
+
   return NextResponse.json({
     associationCode: auth.assoc,
     associationName: assocRow.data?.association_name ?? auth.assoc,
@@ -89,5 +123,6 @@ export async function GET(req: Request) {
     tenantMissing,
     tenantRecord: tenantRow.data ?? null,
     submissions: subs.data ?? [],
+    ongoingApplication,
   })
 }

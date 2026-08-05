@@ -20,7 +20,22 @@ interface Data {
   ownerPreviewPath: string
   tenantMissing: { key: string; label: string }[]
   tenantRecord: { tenant_name: string | null; tenant_phone: string | null; tenant_email: string | null; lease_start: string | null; lease_end: string | null; updated_by: string | null; updated_at: string | null } | null
+  ongoingApplication: {
+    id: string; type: string | null; status: string; submittedAt: string | null; startedAt: string | null
+    driveFolderUrl: string | null
+    documents: { label: string; at: string; by: string | null }[]
+    people: { name: string | null; role: string; signed: boolean; status: string }[]
+  } | null
 }
+
+const APP_TYPE_LABEL: Record<string, string> = { lease: 'Rent — new lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
+const APP_STAGE: Record<string, { label: string; bg: string; fg: string }> = {
+  started:      { label: 'Collecting documents', bg: '#fef9c3', fg: '#854d0e' },
+  submitted:    { label: 'Submitted — awaiting audit', bg: '#dbeafe', fg: '#1e40af' },
+  under_review: { label: 'Under review', bg: '#ede9fe', fg: '#5b21b6' },
+}
+const APP_ROLE_LABEL: Record<string, string> = { applicant: 'Tenant / Buyer', owner: 'Owner', listing_agent: 'Listing agent', applicant_agent: 'Tenant / Buyer agent' }
+const fmtDate = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 
 const OCC = [
   { key: 'owner_occupied', label: 'Owner-occupied' },
@@ -147,6 +162,52 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
           </Card>
         )}
       </div>
+
+      {/* Ongoing application — surfaced up top because the board keeps asking
+          "what's the status / what's been submitted?" */}
+      {data.ongoingApplication && (() => {
+        const a = data.ongoingApplication!
+        const stage = APP_STAGE[a.status] ?? { label: a.status, bg: '#f3f4f6', fg: '#374151' }
+        return (
+          <div style={{ marginTop: 18, padding: 16, border: '1px solid #fdba74', borderRadius: 12, background: '#fff7ed' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
+              <div style={{ font: '700 15px system-ui', color: '#9a3412' }}>📋 Application in progress · {a.type ? (APP_TYPE_LABEL[a.type] ?? a.type) : 'Application'}</div>
+              <span style={{ font: '600 11px system-ui', color: stage.fg, background: stage.bg, borderRadius: 999, padding: '3px 10px' }}>{stage.label}</span>
+            </div>
+            <div style={{ font: '400 12.5px system-ui', color: '#6b7280', margin: '4px 0 10px' }}>
+              Started {fmtDate(a.startedAt)}{a.submittedAt ? ` · Submitted ${fmtDate(a.submittedAt)}` : ''}
+            </div>
+
+            <div style={{ font: '700 12px system-ui', color: '#7c2d12', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+              Documents submitted ({a.documents.length})
+            </div>
+            {a.documents.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, margin: '4px 0 10px' }}>
+                {a.documents.map((d, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, font: '400 13px system-ui', color: '#374151' }}>
+                    <span>✓ {d.label}{d.by ? <span style={{ color: '#9ca3af' }}> · {APP_ROLE_LABEL[d.by] ?? d.by}</span> : ''}</span>
+                    <span style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>{fmtDate(d.at)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : <div style={{ font: '400 13px system-ui', color: '#9ca3af', margin: '4px 0 10px' }}>No documents uploaded yet.</div>}
+
+            {a.people.length > 0 && (
+              <div style={{ font: '400 12.5px system-ui', color: '#374151', marginBottom: 10 }}>
+                <span style={{ color: '#7c2d12', fontWeight: 700 }}>People: </span>
+                {a.people.map((p, i) => (
+                  <span key={i}>{i > 0 ? ' · ' : ''}{p.name || '—'} ({APP_ROLE_LABEL[p.role] ?? p.role}{p.signed ? ' ✍' : ''})</span>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+              <a href={`/units/applications?assoc=${encodeURIComponent(assoc)}`} style={{ font: '600 13px system-ui', color: '#9a3412', textDecoration: 'none' }}>Open in applications →</a>
+              {a.driveFolderUrl && <a href={a.driveFolderUrl} target="_blank" rel="noopener noreferrer" style={{ font: '600 13px system-ui', color: '#2563eb', textDecoration: 'none' }}>📁 On Going Applications folder →</a>}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Lease-packet e-signature — leased units only. Emails the owner AND
           the tenant their links to e-sign the Landlord–Tenant Agreement; the
