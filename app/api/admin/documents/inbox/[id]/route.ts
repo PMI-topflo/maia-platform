@@ -10,8 +10,11 @@ import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { COMPLIANCE_TAXONOMY } from '@/lib/compliance-taxonomy'
+import { mirrorComplianceDocToOfficial, driveDateLabel, driveTypeLabel } from '@/lib/drive-application-mirror'
 
+export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 const BUCKET = 'association-documents'
 const VALID_ITEMS = new Set(COMPLIANCE_TAXONOMY.flatMap(c => c.items.map(i => i.key)))
@@ -86,7 +89,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     items.push({ itemKey, expiry: dateOrNull(r.expiration_date) })
   }
 
-  const { data: doc, error: docErr } = await supabaseAdmin.from('document_intake').select('storage_path, status').eq('id', id).single()
+  const { data: doc, error: docErr } = await supabaseAdmin.from('document_intake')
+    .select('storage_path, status, filename, mime_type, doc_type, effective_date').eq('id', id).single()
   if (docErr || !doc) return NextResponse.json({ error: 'intake row not found' }, { status: 404 })
 
   for (const it of items) {
@@ -112,5 +116,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     applied_at: new Date().toISOString(), applied_by: actor(session),
   }).eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+
+  // Auto-file an approved UNIT document into the unit's Official Drive folder,
+  // renamed YYYY_MM_Type — so owner-uploaded compliance docs land in Drive on
+  // approval without the manual Organize pass. Best-effort (MANXI-only today).
+  let drive: { ok: boolean; folderUrl?: string; error?: string } | null = null
+  if (scope === 'unit' && unitRef) {
+    const dateSrc = (doc.effective_date as string | null) || items.find(i => i.expiry)?.expiry || null
+    drive = await mirrorComplianceDocToOfficial({
+      associationCode: assoc, unitRef, storagePath: String(doc.storage_path),
+      filename: String(doc.filename ?? 'document.pdf'), mimeType: (doc.mime_type as string | null) ?? null,
+      typeLabel: driveTypeLabel(doc.doc_type as string | null, items[0]?.itemKey),
+      dateLabel: driveDateLabel(dateSrc),
+    })
+  }
+  return NextResponse.json({ ok: true, drive })
 }

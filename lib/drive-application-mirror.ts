@@ -12,9 +12,11 @@
 
 import { Readable } from 'stream'
 import { getDrive, serviceAccountEmail } from '@/lib/drive-invoice-mirror'
-import { DRIVE_FOLDERS } from '@/lib/drive-organize-folders'
+import { DRIVE_FOLDERS, resolveUnitFolder, stripNoFilesTag } from '@/lib/drive-organize-folders'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getIntake, INTAKE_BUCKET } from '@/lib/preapply'
+
+const COMPLIANCE_BUCKET = 'association-documents'
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
@@ -95,6 +97,60 @@ export async function mirrorIntakeToDrive(applicationId: string): Promise<{ ok: 
     const sa = serviceAccountEmail()
     const hint = /not found|permission|forbidden|403|404/i.test(base) && sa
       ? ` — share the "On Going Applications" folder with ${sa} (Editor).` : ''
+    return { ok: false, error: `${base}${hint}` }
+  }
+}
+
+// ── Approved unit compliance docs → the unit's OFFICIAL Drive folder ─────────
+// When staff file an owner-uploaded (or any) UNIT compliance document in the
+// Document Inbox, mirror the source file into the unit's canonical folder under
+// "Unit Docs - 2026 Maia Official Files", renamed YYYY_MM_Type so the Drive
+// record stays clean without the manual Organize pass. Best-effort — never
+// throws (a Drive blip must not fail the filing). MANXI-only for now (the only
+// association with an Official Drive tree configured).
+
+/** 'YYYY_MM' for a date, or null. */
+export function driveDateLabel(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return null
+  return `${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+/** A clean file-name type token from the doc type / compliance item key. */
+export function driveTypeLabel(docType: string | null | undefined, itemKey: string | null | undefined): string {
+  const raw = (docType && docType.trim()) || (itemKey ? itemKey.split('.').pop() ?? itemKey : '') || 'Document'
+  return raw.replace(/[\\/:*?"<>|]+/g, ' ').replace(/[_\s]+/g, ' ').trim().replace(/\s/g, '_').slice(0, 60) || 'Document'
+}
+
+export async function mirrorComplianceDocToOfficial(opts: {
+  associationCode: string; unitRef: string; storagePath: string; filename: string; mimeType: string | null
+  typeLabel: string; dateLabel: string | null
+}): Promise<{ ok: boolean; fileId?: string; folderUrl?: string; error?: string }> {
+  try {
+    if (opts.associationCode.toUpperCase() !== 'MANXI') return { ok: false, error: 'no Official Drive tree configured for this association' }
+    const unitFolderId = await resolveUnitFolder(DRIVE_FOLDERS.official, opts.unitRef, true)
+    if (!unitFolderId) return { ok: false, error: 'could not resolve the unit folder' }
+
+    // A file is landing — drop the "NO FILES YET" tag if the folder still has it.
+    const drive = getDrive()
+    const meta = await drive.files.get({ fileId: unitFolderId, fields: 'name', supportsAllDrives: true }).catch(() => null)
+    if (meta?.data.name && /NO FILES YET/i.test(meta.data.name)) {
+      await drive.files.update({ fileId: unitFolderId, requestBody: { name: stripNoFilesTag(meta.data.name) }, supportsAllDrives: true }).catch(() => null)
+    }
+
+    const { data: blob } = await supabaseAdmin.storage.from(COMPLIANCE_BUCKET).download(opts.storagePath)
+    if (!blob) return { ok: false, error: 'source file not found in storage' }
+    const buf = Buffer.from(await blob.arrayBuffer())
+    const ext = opts.filename.includes('.') ? opts.filename.slice(opts.filename.lastIndexOf('.')) : ''
+    const name = `${opts.dateLabel ? `${opts.dateLabel}_` : ''}${opts.typeLabel}${ext}`
+    const fileId = await mirrorBufferToFolder(unitFolderId, name, opts.mimeType ?? 'application/octet-stream', buf)
+    return { ok: true, fileId, folderUrl: `https://drive.google.com/drive/folders/${unitFolderId}` }
+  } catch (err) {
+    const base = err instanceof Error ? err.message : String(err)
+    const sa = serviceAccountEmail()
+    const hint = /not found|permission|forbidden|403|404/i.test(base) && sa
+      ? ` — share the "2026 Maia Official Files" folder with ${sa} (Editor).` : ''
     return { ok: false, error: `${base}${hint}` }
   }
 }
