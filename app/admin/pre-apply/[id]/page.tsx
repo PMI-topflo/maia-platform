@@ -128,6 +128,9 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
         <p style={{ fontSize: 13, color: '#374151' }}>{d.rulesAck?.name ? <>Rules signed by <strong>{d.rulesAck.name}</strong> · {fmt(d.rulesAck.at)}</> : <span style={{ color: '#b45309' }}>Not signed</span>}</p>
       )}
 
+      {/* Board approval — files keepers to Official + archives the folder */}
+      {!decided && <BoardApprove id={id} onDone={load} />}
+
       {/* Board Decision Page e-sign (formal signed decision record) */}
       {d.status === 'approved' && <DecisionPageSender id={id} unit={d.unit} />}
 
@@ -284,6 +287,58 @@ function StaffUpload({ id, docKey, docLabel, uploaded, onDone }: { id: string; d
       </label>
       {msg && <span style={{ font: '11px system-ui', color: '#b45309', maxWidth: 200 }}>{msg}</span>}
     </span>
+  )
+}
+
+// Board approval engine: dry-run preview (scan + classify) → confirm → execute
+// (copy keepers to Official, move the folder to Archive, mark approved).
+interface ApprovePlan { toOfficial: { from: string; as: string; docType: string | null }[]; toArchiveOnly: { name: string; docType: string | null }[]; archiveInto: string; totalFiles: number }
+function BoardApprove({ id, onDone }: { id: string; onDone: () => void }) {
+  const [plan, setPlan] = useState<ApprovePlan | null>(null)
+  const [busy, setBusy] = useState<'plan' | 'run' | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [result, setResult] = useState<{ copiedToOfficial: number; movedToArchive: number; errors: string[] } | null>(null)
+
+  async function preview() {
+    setBusy('plan'); setErr(null); setResult(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/board-approve`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dryRun: true }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); setPlan(j)
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(null) }
+  }
+  async function execute() {
+    if (!confirm('This copies the keeper files into the unit’s Official folder and MOVES the whole application folder into OLD/Archive. Continue?')) return
+    setBusy('run'); setErr(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/board-approve`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dryRun: false }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); setResult(j); setPlan(null); onDone()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(null) }
+  }
+
+  return (
+    <div style={{ marginTop: 18, border: '1px solid #bbf7d0', background: '#f0fdf4', borderRadius: 12, padding: 16 }}>
+      <div style={{ font: '700 15px system-ui', color: '#166534' }}>🏛 Board approved</div>
+      <div style={{ font: '400 13px system-ui', color: '#3f6212', margin: '4px 0 12px' }}>MAIA scans each file, copies the <strong>keepers</strong> (Deed, Lease, HO-6, Certificate of Use, Governing-Docs Ack, Board Approval) into the unit’s <strong>Official</strong> folder renamed YYYY_MM_Type, then moves the whole application folder into <strong>OLD/Archive</strong>. Preview first — nothing moves until you confirm.</div>
+      {err && <p style={{ color: '#b91c1c', font: '13px system-ui' }}>⚠ {err}</p>}
+      {result ? (
+        <p style={{ font: '600 13px system-ui', color: '#166534' }}>✓ Done — {result.copiedToOfficial} copied to Official · {result.movedToArchive} moved to Archive{result.errors.length ? ` · ${result.errors.length} issue(s): ${result.errors.join('; ')}` : ''}</p>
+      ) : plan ? (
+        <div style={{ background: '#fff', border: '1px solid #d1fae5', borderRadius: 10, padding: 12 }}>
+          <div style={{ font: '700 12px system-ui', color: '#166534', textTransform: 'uppercase', letterSpacing: '.04em' }}>Copy to Official ({plan.toOfficial.length})</div>
+          {plan.toOfficial.length ? plan.toOfficial.map((k, i) => (
+            <div key={i} style={{ font: '13px system-ui', color: '#374151', margin: '2px 0' }}>✓ <span style={{ color: '#9ca3af' }}>{k.from}</span> → <strong>{k.as}</strong>{k.docType ? <span style={{ color: '#9ca3af' }}> · {k.docType}</span> : ''}</div>
+          )) : <div style={{ font: '13px system-ui', color: '#9ca3af' }}>No keeper documents found.</div>}
+          <div style={{ font: '700 12px system-ui', color: '#92400e', textTransform: 'uppercase', letterSpacing: '.04em', marginTop: 10 }}>Move all {plan.totalFiles} file(s) → {plan.archiveInto}</div>
+          {plan.toArchiveOnly.length > 0 && <div style={{ font: '12px system-ui', color: '#6b7280', marginTop: 2 }}>Archive-only (not copied to Official): {plan.toArchiveOnly.map(a => a.docType || a.name).join(', ')}</div>}
+          <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+            <button onClick={execute} disabled={busy === 'run'} style={btn('#166534')}>{busy === 'run' ? 'Filing…' : 'Confirm & execute →'}</button>
+            <button onClick={() => setPlan(null)} style={{ ...btn('#e5e7eb'), color: '#374151' }}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={preview} disabled={busy === 'plan'} style={btn('#166534')}>{busy === 'plan' ? 'Scanning files…' : 'Board approved — preview the filing'}</button>
+      )}
+    </div>
   )
 }
 
