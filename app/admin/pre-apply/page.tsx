@@ -24,15 +24,22 @@ const STAGES: { key: string; label: string; c: string; b: string }[] = [
   { key: 'declined',     label: 'Declined',                c: '#991b1b', b: '#fee2e2' },
 ]
 
+interface DriveUnit { folderName: string; unitRef: string | null; unitNumber: string | null; url: string; applicationId: string | null; applicationStatus: string | null }
+
 export default function PreApplyQueue() {
   const [apps, setApps] = useState<App[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [filter, setFilter] = useState<string | null>(null)
+  const [drive, setDrive] = useState<DriveUnit[] | null>(null)
+  const [driveErr, setDriveErr] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/admin/pre-apply', { credentials: 'include' })
       .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j })
       .then(d => setApps(d.applications)).catch(e => setErr(String(e.message ?? e)))
+    fetch('/api/admin/pre-apply/ongoing-drive', { credentials: 'include' })
+      .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j })
+      .then(d => { setDrive(d.units); if (d.error) setDriveErr(d.error) }).catch(e => setDriveErr(String(e.message ?? e)))
   }, [])
 
   const count = (k: string) => (apps ?? []).filter(a => a.status === k).length
@@ -84,6 +91,34 @@ export default function PreApplyQueue() {
           </table>
         </div>
       )}
+
+      {/* Units that physically have a folder in the On Going Applications Drive
+          folder — many pre-date the in-app pipeline (no DB record yet). */}
+      <div style={{ marginTop: 28 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 2px' }}>On Going Applications — Drive folder{drive ? ` (${drive.length})` : ''}</h2>
+        <p style={{ color: '#6b7280', fontSize: 13, margin: '0 0 10px' }}>Unit folders already in the &quot;On Going Applications&quot; Google Drive folder. Ones not yet tracked in MAIA are marked — open the folder or start an application to bring them in.</p>
+        {driveErr && <p style={{ color: '#b45309', fontSize: 13 }}>⚠ Could not read the Drive folder: {driveErr}</p>}
+        {!drive && !driveErr ? <p style={{ color: '#9ca3af', fontSize: 13 }}>Reading Drive…</p> : drive && drive.length === 0 ? <p style={{ color: '#9ca3af', fontSize: 13 }}>No unit folders in the On Going Applications folder.</p> : drive && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+            {drive.map(u => (
+              <div key={u.folderName} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 12px', background: '#fff' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6 }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{u.unitRef || u.folderName}</span>
+                  {u.applicationId
+                    ? <span style={{ font: '600 10px system-ui', color: '#166534', background: '#dcfce7', borderRadius: 6, padding: '2px 7px' }}>in MAIA</span>
+                    : <span style={{ font: '600 10px system-ui', color: '#92400e', background: '#fef9c3', borderRadius: 6, padding: '2px 7px' }}>Drive only</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
+                  <a href={u.url} target="_blank" rel="noreferrer" style={{ font: '600 12px system-ui', color: '#2563eb', textDecoration: 'none' }}>📁 Folder</a>
+                  {u.applicationId
+                    ? <a href={`/admin/pre-apply/${u.applicationId}`} style={{ font: '600 12px system-ui', color: '#9a3412', textDecoration: 'none' }}>Open application →</a>
+                    : u.unitRef && <a href={`/units/unit?account=${encodeURIComponent(u.unitRef)}&assoc=MANXI`} target="_blank" rel="noreferrer" style={{ font: '600 12px system-ui', color: '#6b7280', textDecoration: 'none' }}>Unit page →</a>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
