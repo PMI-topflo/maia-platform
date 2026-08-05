@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import FloorPlanGrid, { type AuditUnitEnriched } from './FloorPlanGrid'
 import { formatBalance, balanceColor, COLLECTIONS_BALANCE_NOTE } from '@/lib/format-currency'
 import BoardCertWhyExpired from '@/components/BoardCertWhyExpired'
@@ -57,7 +58,9 @@ export default function UnitsAuditClient({ assoc }: { assoc?: string }) {
   return (
     <div style={{ maxWidth: 1280, margin: '0 auto', padding: '24px 16px', font: '400 14px system-ui' }}>
       <h1 style={{ font: '700 22px system-ui', margin: '0 0 2px' }}>{data.associationName}</h1>
-      <div style={{ color: '#6b7280', marginBottom: 16 }}>Unit audit — {stats.total} units · click a block to list those units · click any unit to open its full record in a new tab</div>
+      <div style={{ color: '#6b7280', marginBottom: 12 }}>Unit audit — {stats.total} units · click a block to list those units · click any unit to open its full record in a new tab</div>
+
+      <ApplicationsBanner assoc={assoc} />
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
         <Stat f="complete"    active={filter} set={setFilter} label="Docs complete"  value={stats.complete}    color="#166534" bg="#dcfce7" />
@@ -100,6 +103,26 @@ const CERT_STATE: Record<BoardCertMember['state'], { label: string; color: strin
 // managers / board members with upload permission also get a separate labeled
 // upload box per required document (kind-aware). Type confirmation + approval
 // stay on the admin Association Hub.
+// Entry to the board / on-site-manager application review + approval queue.
+function ApplicationsBanner({ assoc }: { assoc?: string }) {
+  const [count, setCount] = useState<{ total: number; pending: number } | null>(null)
+  useEffect(() => {
+    const q = assoc ? `?assoc=${encodeURIComponent(assoc)}` : ''
+    fetch(`/api/units/pre-apply${q}`, { credentials: 'include' }).then(r => r.ok ? r.json() : null).then(d => {
+      if (!d?.applications) return
+      setCount({ total: d.applications.length, pending: d.applications.filter((a: { status: string }) => a.status === 'submitted' || a.status === 'under_review').length })
+    }).catch(() => {})
+  }, [assoc])
+  if (!count || count.total === 0) return null
+  const href = `/units/applications${assoc ? `?assoc=${encodeURIComponent(assoc)}` : ''}`
+  return (
+    <Link href={href} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 14px', marginBottom: 16, background: count.pending ? '#fffbeb' : '#f0fdf4', textDecoration: 'none' }}>
+      <span style={{ font: '600 13px system-ui', color: '#374151' }}>📋 Applications to review{count.pending ? <span style={{ color: '#991b1b' }}> · {count.pending} awaiting your decision</span> : <span style={{ color: '#166534' }}> · all handled</span>}</span>
+      <span style={{ font: '600 12px system-ui', color: '#2563eb' }}>Open →</span>
+    </Link>
+  )
+}
+
 function BoardCertBanner({ assoc }: { assoc?: string }) {
   const [data, setData] = useState<BoardCertData | null>(null)
   const [open, setOpen] = useState(false)
