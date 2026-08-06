@@ -78,6 +78,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {/* Checklist — with staff upload boxes so you can file a doc you got by email */}
       <h2 style={h2}>Documents ({d.documents.length} uploaded)</h2>
       <p style={{ fontSize: 12.5, color: '#6b7280', margin: '0 0 8px' }}>Upload a document you received directly here — MAIA files it into this unit&apos;s <strong>On Going Applications</strong> Drive folder. (Official only after board approval.)</p>
+      {d.driveFolderUrl && <ScanDrive id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         {d.checklist.map((c, i) => {
@@ -254,6 +255,40 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
           <input readOnly value={sg.link ?? ''} onFocus={e => e.currentTarget.select()} style={{ ...inp, flex: 1, minWidth: 220, fontFamily: 'ui-monospace, monospace', fontSize: 11.5 }} />
           <button onClick={async () => { await navigator.clipboard.writeText(sg.link ?? ''); setCopied(true); setTimeout(() => setCopied(false), 1800) }} style={{ ...btn(copied ? '#059669' : '#f26a1b'), padding: '6px 12px' }}>{copied ? '✓' : 'Copy'}</button>
         </>
+      )}
+    </div>
+  )
+}
+
+// Read the files already in the linked Drive folder, classify each, and import
+// them into the matching checklist items (non-destructive — nothing in Drive
+// changes). One click; the checklist fills in with what it finds.
+function ScanDrive({ id, onDone }: { id: string; onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [res, setRes] = useState<{ scanned: number; matched: { file: string; item: string }[]; unmatched: { file: string; docType: string | null }[] } | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function scan() {
+    setBusy(true); setErr(null); setRes(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/scan-drive`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed')
+      setRes(j); onDone()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ margin: '0 0 12px' }}>
+      <button onClick={scan} disabled={busy} style={{ font: '600 13px system-ui', color: '#fff', background: busy ? '#9ca3af' : '#4338ca', border: 'none', borderRadius: 8, padding: '9px 14px', cursor: busy ? 'default' : 'pointer' }}>
+        {busy ? 'Reading & scanning Drive files…' : '🔎 Scan the Drive folder & import files'}
+      </button>
+      {err && <p style={{ color: '#b91c1c', font: '13px system-ui', margin: '8px 0 0' }}>⚠ {err}</p>}
+      {res && (
+        <div style={{ marginTop: 8, font: '12.5px system-ui', color: '#374151' }}>
+          <div style={{ color: '#166534', fontWeight: 600 }}>✓ Scanned {res.scanned} file(s) · imported {res.matched.length} to the checklist.</div>
+          {res.matched.map((m, i) => <div key={i} style={{ color: '#374151' }}>• <span style={{ color: '#9ca3af' }}>{m.file}</span> → <strong>{m.item}</strong></div>)}
+          {res.unmatched.length > 0 && <div style={{ color: '#92400e', marginTop: 4 }}>Not matched to a checklist item ({res.unmatched.length}): {res.unmatched.map(u => u.docType || u.file).join(', ')} — upload these manually if needed.</div>}
+        </div>
       )}
     </div>
   )
