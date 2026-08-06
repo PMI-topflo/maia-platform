@@ -272,8 +272,11 @@ function ScanDrive({ id, onDone }: { id: string; onDone: () => void }) {
     setBusy(true); setErr(null); setRes(null)
     try {
       const r = await fetch(`/api/admin/pre-apply/${id}/scan-drive`, { method: 'POST', credentials: 'include' })
-      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed')
-      setRes(j); onDone()
+      const text = await r.text()
+      let j: { error?: string; scanned?: number; matched?: { file: string; item: string }[]; unmatched?: { file: string; docType: string | null }[] }
+      try { j = JSON.parse(text) } catch { throw new Error(r.ok ? 'The scan response was not readable — please try again.' : `Scan failed (${r.status}) — it may have timed out. Try again, or upload manually.`) }
+      if (!r.ok || j.error) throw new Error(j.error || 'failed')
+      setRes(j as { scanned: number; matched: { file: string; item: string }[]; unmatched: { file: string; docType: string | null }[] }); onDone()
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 

@@ -11,7 +11,7 @@ import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getDrive } from '@/lib/drive-invoice-mirror'
 import { downloadDriveFile } from '@/lib/drive-import'
-import { classifyDocument, type AssociationRef } from '@/lib/document-classifier'
+import { quickDocKind } from '@/lib/quick-doc-classify'
 import { getIntakeChecklist, isApplicationType, type ApplicationType } from '@/lib/intake-documents'
 import { INTAKE_BUCKET } from '@/lib/preapply'
 
@@ -25,7 +25,8 @@ const FOLDER_MIME = 'application/vnd.google-apps.folder'
 function tokens(text: string): Set<string> {
   const n = ` ${text.toLowerCase()} `
   const t = new Set<string>()
-  if (/(lease|rental agreement|landlord.?tenant|tenancy)/.test(n)) t.add('lease')
+  if (/(landlord.?tenant|landlord–tenant)/.test(n)) t.add('agreement')
+  if (/(signed lease|lease agreement|rental agreement|\blease\b|tenancy)/.test(n)) t.add('lease')
   if (/(vehicle|auto|automobile|\bcar\b|motor)/.test(n)) t.add('vehicle')
   if (/(propert|homeowner|home owner|ho-?6|dwelling|hazard)/.test(n)) t.add('property')
   if (/(insurance|policy|declaration|binder|coverage)/.test(n)) t.add('insurance')
@@ -33,10 +34,12 @@ function tokens(text: string): Set<string> {
   if (/(driver|licen[sc]e|photo id|identification|passport|\bid\b|state id)/.test(n)) t.add('id')
   if (/(tax|1040|return|w-?2|1099)/.test(n)) t.add('tax')
   if (/(certificate of use|cert.{0,6}use|lauderhill|\bc\.?o\.?u\b)/.test(n)) t.add('certuse')
-  if (/(email|correspond|letter)/.test(n)) t.add('email')
+  if (/(email|correspond)/.test(n)) t.add('email')
   if (/(deed|ownership|title|warranty)/.test(n)) t.add('deed')
   if (/(governing|acknowledg|by-?laws|rules)/.test(n)) t.add('governing')
-  if (/(approval|estoppel)/.test(n)) t.add('approval')
+  if (/(decision page|board decision)/.test(n)) t.add('decision')
+  if (/affidavit/.test(n)) t.add('affidavit')
+  if (/(approval letter|board approv|estoppel)/.test(n)) t.add('approval')
   return t
 }
 function score(a: Set<string>, b: Set<string>): number { let s = 0; for (const x of a) if (b.has(x)) s++; return s }
@@ -78,19 +81,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   try { files = await listDeep(folderId) }
   catch (e) { return NextResponse.json({ error: `Could not read the Drive folder: ${e instanceof Error ? e.message : String(e)}` }, { status: 200 }) }
 
-  const assocs: AssociationRef[] = []
   const matched: { file: string; item: string }[] = []
   const unmatched: { file: string; docType: string | null }[] = []
 
-  for (const f of files) {
-    let classText = f.name, docType: string | null = null
+  for (const f of files.slice(0, 40)) {
+    let docType: string | null = null
     try {
       const buf = await downloadDriveFile(f.id)
-      const c = await classifyDocument(buf, f.mimeType, assocs, 1, `On Going application file for MANXI${String(app.unit_label ?? '').replace(/\D/g, '')}, filename "${f.name}"`)
-      docType = c.items?.[0]?.doc_type ?? c.summary ?? null
-      classText = [c.summary, ...(c.items ?? []).map(it => `${it.doc_type ?? ''} ${it.category ?? ''}`), f.name].filter(Boolean).join(' ')
-
-      const ftoks = tokens(classText)
+      const kind = await quickDocKind(buf, f.mimeType)   // fast single Haiku call
+      docType = kind
+      const ftoks = tokens(`${kind} ${f.name}`)
       let best: typeof items[number] | null = null, bestScore = 0
       for (const it of items) { const s = score(ftoks, it.toks); if (s > bestScore) { bestScore = s; best = it } }
       if (best && bestScore >= 1) {
