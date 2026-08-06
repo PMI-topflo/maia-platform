@@ -1,8 +1,36 @@
-# Session handoff — 2026-08-01 (latest)
+# Session handoff — 2026-08-07 (latest)
 
 Snapshot for picking up on another machine. Everything below is **live in production on `main`** unless noted.
 
 > ⚠️ **Repo path:** the canonical clone is now `~/maia-platform` (moved out of iCloud). Stale copies under `~/Documents/GitHub/maia-platform` and `~/Downloads/maia-platform` — ignore them.
+
+---
+
+## 2026-08-06/07 — Applications COMMAND CENTER + Drive filing UI (PRs #606–#622, all merged)
+
+**What shipped (all live on `main`):** the full staff Applications workflow on **`/admin/pre-apply`** (now the primary "Applications" menu item; the old Checkr `public.applications` screen renamed **"Applications (Checkr)"**, kept for the future MAIA+Checkr flow). See [[pre_application_compliance]] memory for the blow-by-blow.
+
+- **Dashboard (#609/#612):** every application grouped by stage (Collecting docs → Submitted → Under review → Approved/Declined) + a **"On Going Applications — Drive folder"** section listing the 13 unit folders already in Drive (many pre-date the pipeline → "Drive only").
+- **Bring into MAIA (#613):** one click creates a `listing_applications` record linked to the unit's existing On Going Drive folder.
+- **Scan & import (#615/#616):** reads each Drive file **by content** via `lib/quick-doc-classify` (ONE Haiku call/file → `{label, expiration}`; replaced the heavy escalating classifier that was **timing out** = the "not valid JSON" error), matches to the checklist, imports. Capped 40 files, resilient to non-JSON.
+- **Reviewable doc rows (#618/#619/#620/#622):** inline **👁 Preview** (iframe/img via `/doc/[docId]` GET-redirect = **fresh signed URL each click**, fixes the `InvalidJWT exp` error); editable **expiration** + **"Does not expire (keep current)"**; **✎ rename** editable (`suggested_name`, auto `YYYY_MM_Type`); **Ignore**; **Mark N/A** (applicant lacks it → drops from missing-required); **📁 From Drive** picker to assign any folder file to an item, with **page-range extract** ("3-4" pulls just those pages of a combined PDF via pdf-lib — the "W-2 inside full_report.pdf" case) + **keep original name**.
+- **Board approved (#614):** dry-run preview → confirm → copies ⭐**keepers** to Official renamed `YYYY_MM_Type` + MOVES the whole folder to OLD/Archive + trashes the On Going wrapper + extracts lease→`unit_tenant_contacts` + marks approved. **KEEPER LIST (locked):** Deed/Ownership · Lease (+ Landlord–Tenant Agreement) · HO-6 Insurance · Certificate of Use · Governing-Docs Ack · Board Approval → Official; everything else (IDs, tax returns, PII) Archive only.
+- **Applicant-facing:** notarized-form **📥 download to print & notarize** + upload (#617); e-signed Landlord–Tenant Agreement auto-files to the app + On Going on completion (#621).
+- **Notify (#611):** owner emailed when a NON-owner starts an application (reply-to support@).
+- **Unit page (#608):** "📋 Application in progress" card (docs + dates the board keeps asking for).
+- **#607 REVERTED the #606 premature auto-Official** (Official only on board approval).
+
+**Schema added (RPC, all live):** `application_documents.{expiration_date, suggested_name, no_expiration}`; `listing_applications.na_items`; `association_intake_documents.{template_path, requires_notarization}`; `application_stakeholders` signing cols (#604). MANXI lease checklist = 12 items (added board_decision_page, tenant_affidavit, landlord_tenant_agreement, board_approval_letter).
+
+**⏳ NEXT (user testing owed — Drive+AI paths are PROD-ONLY, not verified live by me):**
+1. **Scan unit 1003 fresh** → confirm expiration reading now works (was the gap) + page-extract splits the right pages.
+2. **Board-approved DRY-RUN on ONE unit** → review plan → execute → verify Official+Archive via the Drive read connector before running the rest.
+3. Deferred: auto-rename files **inside the On Going Drive folder on save** (currently rename only applies when copied to Official; editable-rename + keep-name partially cover it).
+4. Offered: preview-with-clickable-page-picker instead of typing ranges.
+5. Finish 7-language translation of the docs/verify/rules steps (English fallback in place; persona+invite done).
+6. **User-side:** move the misfiled `2026_08_Lease_Agreement.pdf` out of MANXI912 Official (from the #606 bug); set `ADDON_TOKEN_SECRET` in Vercel (Paola sidebar); Checkr prod-auth → flip MANXI to `maia_checkr`.
+
+Drive SA = `maia-drive-writer@maia-platform-494322.iam.gserviceaccount.com`. Folder IDs: official `1kRDm6ajZr8lXuXGcAXTnA3vigzhLCZpz` · ongoing `1rX11uKdi5y0rAfaLPvRRlJ_aCactViuZ` · archive `11mMQghXeQfPuXEO4YnWgecqaTKuLKhs8`.
 
 ---
 
