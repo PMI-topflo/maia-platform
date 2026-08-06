@@ -13,10 +13,33 @@ import { downloadDriveFile } from '@/lib/drive-import'
 import { getDrive } from '@/lib/drive-invoice-mirror'
 import { quickDocScan } from '@/lib/quick-doc-classify'
 import { INTAKE_BUCKET } from '@/lib/preapply'
+import { PDFDocument } from 'pdf-lib'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
+
+// "3-4,6" (1-based, inclusive) → 0-based page indices within [0,total).
+function parsePages(spec: string, total: number): number[] {
+  const out: number[] = []
+  for (const part of spec.split(',')) {
+    const m = part.trim().match(/^(\d+)\s*-\s*(\d+)$/)
+    if (m) { for (let n = Number(m[1]); n <= Number(m[2]); n++) if (n >= 1 && n <= total) out.push(n - 1) }
+    else { const n = parseInt(part.trim(), 10); if (n >= 1 && n <= total) out.push(n - 1) }
+  }
+  return [...new Set(out)]
+}
+async function extractPages(buf: Buffer, spec: string): Promise<Buffer | null> {
+  try {
+    const src = await PDFDocument.load(buf, { ignoreEncryption: true })
+    const idx = parsePages(spec, src.getPageCount())
+    if (idx.length === 0) return null
+    const out = await PDFDocument.create()
+    const pages = await out.copyPages(src, idx)
+    pages.forEach(p => out.addPage(p))
+    return Buffer.from(await out.save())
+  } catch { return null }
+}
 
 const TYPE_TOKEN: Record<string, string> = {
   signed_lease: 'Lease', drivers_license: 'ID', car_registration: 'VehicleReg', vehicle_insurance: 'VehicleInsurance',
@@ -30,12 +53,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { data: app } = await supabaseAdmin.from('listing_applications').select('id, listing_id, drive_folder_id').eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'application not found' }, { status: 404 })
 
-  let b: { doc_key?: string; doc_label?: string; fileId?: string; fileName?: string; mimeType?: string }
+  let b: { doc_key?: string; doc_label?: string; fileId?: string; fileName?: string; mimeType?: string; pages?: string; keepName?: boolean }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
   const docKey = String(b.doc_key ?? '').trim()
   const fileId = String(b.fileId ?? '').trim()
   const fileName = String(b.fileName ?? 'file.pdf')
   const mimeType = String(b.mimeType ?? 'application/pdf')
+  const pageSpec = String(b.pages ?? '').trim()
+  const keepName = b.keepName === true
   if (!docKey || !fileId) return NextResponse.json({ error: 'doc_key and fileId required' }, { status: 400 })
 
   // Confirm the file really lives in this application's Drive folder (or subfolders).
@@ -47,20 +72,34 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   let buf: Buffer
   try { buf = await downloadDriveFile(fileId) } catch (e) { return NextResponse.json({ error: `Could not read the file: ${e instanceof Error ? e.message : String(e)}` }, { status: 200 }) }
-  const scan = await quickDocScan(buf, mimeType).catch(() => ({ label: 'other', expiration: null as string | null }))
 
-  const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')) : '.pdf'
-  const rename = `${new Date().getUTCFullYear()}_${String(new Date().getUTCMonth() + 1).padStart(2, '0')}_${TYPE_TOKEN[docKey] ?? 'Document'}${ext}`
+  // Optional: pull only the given pages out of a multi-document PDF (e.g. a
+  // combined report where pages 3-4 are the W-2). The extracted pages become the
+  // document for this item — the original file is untouched.
+  let isPdf = mimeType.includes('pdf') || buf.subarray(0, 5).toString('latin1') === '%PDF-'
+  let extractedPages: number | null = null
+  if (pageSpec && isPdf) {
+    const sub = await extractPages(buf, pageSpec)
+    if (!sub) return NextResponse.json({ error: `Could not extract pages "${pageSpec}" — check the range.` }, { status: 200 })
+    buf = sub; isPdf = true
+    extractedPages = (await PDFDocument.load(sub)).getPageCount()
+  }
+
+  const scan = await quickDocScan(buf, isPdf ? 'application/pdf' : mimeType).catch(() => ({ label: 'other', expiration: null as string | null }))
+  const outMime = extractedPages != null ? 'application/pdf' : mimeType
+  const ext = extractedPages != null ? '.pdf' : (fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')) : '.pdf')
+  const outName = extractedPages != null ? `${fileName.replace(/\.[^.]+$/, '')} (p.${pageSpec}).pdf` : fileName
+  const rename = keepName ? outName : `${new Date().getUTCFullYear()}_${String(new Date().getUTCMonth() + 1).padStart(2, '0')}_${TYPE_TOKEN[docKey] ?? 'Document'}${ext}`
   const path = `intake/${id}/${docKey.replace(/[^\w-]+/g, '_')}/${crypto.randomUUID()}${ext}`
-  const up = await supabaseAdmin.storage.from(INTAKE_BUCKET).upload(path, buf, { contentType: mimeType, upsert: true })
+  const up = await supabaseAdmin.storage.from(INTAKE_BUCKET).upload(path, buf, { contentType: outMime, upsert: true })
   if (up.error) return NextResponse.json({ error: `upload failed: ${up.error.message}` }, { status: 500 })
 
   await supabaseAdmin.from('application_documents').delete().eq('application_id', id).eq('doc_key', docKey)
   const { error } = await supabaseAdmin.from('application_documents').insert({
     application_id: id, listing_id: app.listing_id, kind: 'other', doc_key: docKey, doc_label: String(b.doc_label ?? docKey),
-    storage_path: path, filename: fileName, suggested_name: rename, expiration_date: scan.expiration,
-    mime_type: mimeType, uploaded_by_role: 'drive-pick',
+    storage_path: path, filename: outName, suggested_name: rename, expiration_date: scan.expiration,
+    mime_type: outMime, uploaded_by_role: 'drive-pick',
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true, rename, expiration: scan.expiration })
+  return NextResponse.json({ ok: true, rename, expiration: scan.expiration, extractedPages })
 }
