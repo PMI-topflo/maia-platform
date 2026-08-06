@@ -8,7 +8,7 @@
 import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 
-interface Doc { id: string; doc_key: string | null; doc_label: string | null; filename: string; mime_type: string | null; url: string | null }
+interface Doc { id: string; doc_key: string | null; doc_label: string | null; filename: string; mime_type: string | null; url: string | null; suggestedName: string | null; expirationDate: string | null; bySource: string | null }
 interface Detail {
   id: string; associationCode: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
@@ -82,16 +82,8 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         {d.checklist.map((c, i) => {
-          const doc = d.documents.find(x => x.doc_label === c.label || x.doc_key === c.label)
-          return (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderTop: i ? '1px solid #f3f4f6' : 'none', alignItems: 'center', flexWrap: 'wrap' }}>
-              <div><span style={{ fontWeight: 600, fontSize: 14 }}>{c.label}</span> <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px' }}>{c.provided_by}</span>{!c.required && <span style={{ fontSize: 11, color: '#6b7280' }}> · optional</span>}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {c.uploaded && doc?.url ? <a href={doc.url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: '#166534', fontWeight: 600 }}>✓ View</a> : c.uploaded ? <span style={{ fontSize: 13, color: '#166534' }}>✓ Uploaded</span> : <span style={{ fontSize: 13, color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
-                {!decided && <StaffUpload id={id} docKey={c.doc_key} docLabel={c.label} uploaded={c.uploaded} onDone={load} />}
-              </div>
-            </div>
-          )
+          const doc = d.documents.find(x => x.doc_key === c.doc_key)
+          return <ChecklistRow key={i} id={id} c={c} doc={doc} first={i === 0} decided={decided} onDone={load} />
         })}
         {d.documents.filter(doc => !d.checklist.some(c => c.label === doc.doc_label)).map(doc => (
           <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderTop: '1px solid #f3f4f6', alignItems: 'center' }}>
@@ -260,12 +252,77 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
   )
 }
 
+// One checklist row: the doc (if any) with an INLINE preview box, the suggested
+// YYYY_MM_Type rename, an editable expiration date to approve, Ignore, and the
+// upload/replace control.
+function ChecklistRow({ id, c, doc, first, decided, onDone }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string }; doc: Doc | undefined; first: boolean; decided: boolean; onDone: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [exp, setExp] = useState(doc?.expirationDate ?? '')
+  const [savedExp, setSavedExp] = useState(doc?.expirationDate ?? '')
+  const [busy, setBusy] = useState<string | null>(null)
+  useEffect(() => { setExp(doc?.expirationDate ?? ''); setSavedExp(doc?.expirationDate ?? '') }, [doc?.id, doc?.expirationDate])
+
+  async function saveExp() {
+    setBusy('exp')
+    try { await fetch(`/api/admin/pre-apply/${id}/doc/${doc!.id}`, { method: 'PATCH', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expiration_date: exp || null }) }); setSavedExp(exp) }
+    catch { /* */ } finally { setBusy(null) }
+  }
+  async function ignore() {
+    if (!confirm(`Remove "${c.label}" from this application? (The file stays in Drive.)`)) return
+    setBusy('ignore')
+    try { await fetch(`/api/admin/pre-apply/${id}/doc/${doc!.id}`, { method: 'DELETE', credentials: 'include' }); onDone() }
+    catch { /* */ } finally { setBusy(null) }
+  }
+  const isImg = (doc?.mime_type ?? '').startsWith('image/')
+  const link: React.CSSProperties = { font: '600 13px system-ui', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'none' }
+
+  return (
+    <div style={{ padding: '10px 14px', borderTop: first ? 'none' : '1px solid #f3f4f6' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>{c.label}</span> <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px' }}>{c.provided_by}</span>{!c.required && <span style={{ fontSize: 11, color: '#6b7280' }}> · optional</span>}
+          {doc?.suggestedName && <div style={{ font: '11.5px system-ui', color: '#6b7280', marginTop: 2 }}>Will file as <strong style={{ color: '#374151' }}>{doc.suggestedName}</strong>{doc.bySource === 'drive-scan' ? ' · from Drive scan' : ''}</div>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          {doc ? (
+            <>
+              <button onClick={() => setOpen(o => !o)} style={{ ...link, color: '#4338ca' }}>{open ? 'Hide' : '👁 Preview'}</button>
+              <a href={doc.url ?? '#'} target="_blank" rel="noreferrer" style={{ ...link, color: '#166534' }}>View ↗</a>
+              {!decided && <button onClick={ignore} disabled={busy === 'ignore'} style={{ ...link, color: '#b91c1c' }}>Ignore</button>}
+            </>
+          ) : <span style={{ fontSize: 13, color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
+          {!decided && <StaffUpload id={id} docKey={c.doc_key} docLabel={c.label} uploaded={!!doc} onDone={onDone} />}
+        </div>
+      </div>
+
+      {doc && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+          <span style={{ font: '12px system-ui', color: '#6b7280' }}>Expires:</span>
+          <input type="date" value={exp} onChange={e => setExp(e.target.value)} style={{ font: '13px system-ui', padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 6 }} />
+          {exp !== savedExp && <button onClick={saveExp} disabled={busy === 'exp'} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>{busy === 'exp' ? 'Saving…' : 'Save'}</button>}
+          {exp === savedExp && savedExp && <span style={{ font: '12px system-ui', color: '#166534' }}>✓ saved</span>}
+          {!exp && <span style={{ font: '11.5px system-ui', color: '#9ca3af' }}>none read — add if it expires</span>}
+        </div>
+      )}
+
+      {open && doc && (
+        <div style={{ marginTop: 8, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', background: '#f9fafb' }}>
+          {isImg
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={doc.url ?? ''} alt={c.label} style={{ display: 'block', maxWidth: '100%', margin: '0 auto' }} />
+            : <iframe src={doc.url ?? ''} title={c.label} style={{ width: '100%', height: 480, border: 'none' }} />}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Read the files already in the linked Drive folder, classify each, and import
 // them into the matching checklist items (non-destructive — nothing in Drive
 // changes). One click; the checklist fills in with what it finds.
 function ScanDrive({ id, onDone }: { id: string; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
-  const [res, setRes] = useState<{ scanned: number; matched: { file: string; item: string }[]; unmatched: { file: string; docType: string | null }[] } | null>(null)
+  const [res, setRes] = useState<{ scanned: number; matched: { file: string; item: string; rename?: string; expiration?: string | null }[]; unmatched: { file: string; docType: string | null }[] } | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
   async function scan() {
@@ -273,10 +330,10 @@ function ScanDrive({ id, onDone }: { id: string; onDone: () => void }) {
     try {
       const r = await fetch(`/api/admin/pre-apply/${id}/scan-drive`, { method: 'POST', credentials: 'include' })
       const text = await r.text()
-      let j: { error?: string; scanned?: number; matched?: { file: string; item: string }[]; unmatched?: { file: string; docType: string | null }[] }
+      let j: { error?: string; scanned?: number; matched?: { file: string; item: string; rename?: string; expiration?: string | null }[]; unmatched?: { file: string; docType: string | null }[] }
       try { j = JSON.parse(text) } catch { throw new Error(r.ok ? 'The scan response was not readable — please try again.' : `Scan failed (${r.status}) — it may have timed out. Try again, or upload manually.`) }
       if (!r.ok || j.error) throw new Error(j.error || 'failed')
-      setRes(j as { scanned: number; matched: { file: string; item: string }[]; unmatched: { file: string; docType: string | null }[] }); onDone()
+      setRes(j as { scanned: number; matched: { file: string; item: string; rename?: string; expiration?: string | null }[]; unmatched: { file: string; docType: string | null }[] }); onDone()
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 
@@ -288,8 +345,8 @@ function ScanDrive({ id, onDone }: { id: string; onDone: () => void }) {
       {err && <p style={{ color: '#b91c1c', font: '13px system-ui', margin: '8px 0 0' }}>⚠ {err}</p>}
       {res && (
         <div style={{ marginTop: 8, font: '12.5px system-ui', color: '#374151' }}>
-          <div style={{ color: '#166534', fontWeight: 600 }}>✓ Scanned {res.scanned} file(s) · imported {res.matched.length} to the checklist.</div>
-          {res.matched.map((m, i) => <div key={i} style={{ color: '#374151' }}>• <span style={{ color: '#9ca3af' }}>{m.file}</span> → <strong>{m.item}</strong></div>)}
+          <div style={{ color: '#166534', fontWeight: 600 }}>✓ Scanned {res.scanned} file(s) · imported {res.matched.length} to the checklist. Review each below — preview, edit the expiration, or Ignore.</div>
+          {res.matched.map((m, i) => <div key={i} style={{ color: '#374151' }}>• <span style={{ color: '#9ca3af' }}>{m.file}</span> → <strong>{m.item}</strong>{m.rename ? <span style={{ color: '#9ca3af' }}> · files as {m.rename}</span> : ''}{m.expiration ? <span style={{ color: '#b45309' }}> · expires {m.expiration}</span> : ''}</div>)}
           {res.unmatched.length > 0 && <div style={{ color: '#92400e', marginTop: 4 }}>Not matched to a checklist item ({res.unmatched.length}): {res.unmatched.map(u => u.docType || u.file).join(', ')} — upload these manually if needed.</div>}
         </div>
       )}
