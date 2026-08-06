@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { getIntakeChecklist, isApplicationType, type ApplicationType } from '@/lib/intake-documents'
-import { INTAKE_BUCKET, roleLabel, roleSigns } from '@/lib/preapply'
+import { roleLabel, roleSigns } from '@/lib/preapply'
 import { sendEmail } from '@/lib/gmail'
 
 export const runtime = 'nodejs'
@@ -74,14 +74,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const [{ data: sh }, { data: stakeholders }, { data: docs }, checklist] = await Promise.all([
     supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', id).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
     supabaseAdmin.from('application_stakeholders').select('id, role, name, email, phone, is_primary, status, signed_at, rules_ack_name, email_verified_at').eq('application_id', id).order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
-    supabaseAdmin.from('application_documents').select('id, doc_key, doc_label, storage_path, filename, mime_type, created_at').eq('application_id', id).order('created_at', { ascending: true }),
+    supabaseAdmin.from('application_documents').select('id, doc_key, doc_label, storage_path, filename, mime_type, suggested_name, expiration_date, uploaded_by_role, created_at').eq('application_id', id).order('created_at', { ascending: true }),
     isApplicationType(String(app.application_type)) ? getIntakeChecklist(String(app.association_code), app.application_type as ApplicationType) : Promise.resolve([]),
   ])
 
-  // Short-lived preview URLs for each uploaded doc.
-  const withUrls = await Promise.all((docs ?? []).map(async d => {
-    const { data: signed } = await supabaseAdmin.storage.from(INTAKE_BUCKET).createSignedUrl(String(d.storage_path), 600)
-    return { id: d.id, doc_key: d.doc_key, doc_label: d.doc_label, filename: d.filename, mime_type: d.mime_type, url: signed?.signedUrl ?? null }
+  // View links go through /doc/[docId] (fresh signed URL each click — never expire).
+  const withUrls = (docs ?? []).map(d => ({
+    id: d.id, doc_key: d.doc_key, doc_label: d.doc_label, filename: d.filename, mime_type: d.mime_type,
+    suggestedName: (d.suggested_name as string | null) ?? null, expirationDate: (d.expiration_date as string | null) ?? null,
+    bySource: (d.uploaded_by_role as string | null) ?? null, url: `/api/admin/pre-apply/${id}/doc/${d.id}`,
   }))
   const uploaded = new Set((docs ?? []).map(d => d.doc_key).filter(Boolean))
 
