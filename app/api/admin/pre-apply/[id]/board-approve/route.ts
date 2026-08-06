@@ -19,7 +19,7 @@ import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getDrive } from '@/lib/drive-invoice-mirror'
 import { downloadDriveFile } from '@/lib/drive-import'
-import { classifyDocument, type AssociationRef } from '@/lib/document-classifier'
+import { quickDocKind } from '@/lib/quick-doc-classify'
 import { extractLeaseDetails } from '@/lib/lease-extract'
 import { driveDateLabel } from '@/lib/drive-application-mirror'
 import { DRIVE_FOLDERS, resolveUnitFolder, resolveDatedSubfolder, approvalCategoryFolder, stripNoFilesTag } from '@/lib/drive-organize-folders'
@@ -34,10 +34,13 @@ const FOLDER_MIME = 'application/vnd.google-apps.folder'
 // file-name type — or null when it is NOT a keeper (stays in Archive only).
 function keeperType(haystack: string): string | null {
   const n = haystack.toLowerCase()
+  if (/(decision page|board decision)/.test(n)) return 'BoardDecisionPage'
+  if (/affidavit/.test(n)) return 'TenantAffidavit'
+  if (/(landlord.?tenant agreement|landlord–tenant)/.test(n)) return 'Agreement'
   if (/\b(deed|ownership|warranty|title|quit\s*claim|grant\s*deed)\b/.test(n)) return 'Deed'
   if (/(certificate of use|cert(ificate)? of use|lauderhill|\bc\.?o\.?u\b)/.test(n)) return 'LauderhillCert'
   if (/(ho-?6|home\s*owner|homeowner|hazard|dwelling|insurance|policy|declaration page|declarations page|binder)/.test(n)) return 'Insurance'
-  if (/(landlord|tenant agreement|lease|rental agreement)/.test(n)) return 'Lease'
+  if (/(tenant agreement|lease|rental agreement)/.test(n)) return 'Lease'
   if (/(governing|acknowledg|by-?laws|rules?\s*(&|and)?\s*regulations|declaration of condominium)/.test(n)) return 'GoverningDocsAck'
   if (/(board approv|approval letter|estoppel)/.test(n)) return 'BoardApproval'
   return null
@@ -86,20 +89,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const onGoingId = String(app.drive_folder_id ?? '')
   if (!onGoingId) return NextResponse.json({ error: 'This application has no On Going Drive folder linked yet.' }, { status: 400 })
 
-  // 1. Scan + classify every file by content.
+  // 1. Scan + classify every file by content (fast single-call classifier).
   const { files, children } = await listDeep(onGoingId)
-  const assocs: AssociationRef[] = []   // classifier doesn't need the assoc list for a keeper decision
   const scanned: { id: string; name: string; mimeType: string; createdTime: string | null; docType: string | null; keeper: string | null; newName: string }[] = []
-  for (const f of files) {
+  for (const f of files.slice(0, 40)) {
     let docType: string | null = null
-    let classText = ''
     try {
       const buf = await downloadDriveFile(f.id)
-      const c = await classifyDocument(buf, f.mimeType, assocs, 1, `On Going application file for ${unitRef}, filename "${f.name}"`)
-      docType = c.items?.[0]?.doc_type ?? c.summary ?? null
-      classText = [c.summary, ...(c.items ?? []).map(it => `${it.doc_type ?? ''} ${it.category ?? ''}`)].filter(Boolean).join(' ')
+      docType = await quickDocKind(buf, f.mimeType)
     } catch { /* fall back to the filename below */ }
-    const hay = [classText, f.name].filter(Boolean).join(' ')
+    const hay = [docType, f.name].filter(Boolean).join(' ')
     const type = keeperType(hay)
     const ext = f.name.includes('.') ? f.name.slice(f.name.lastIndexOf('.')) : '.pdf'
     const ym = driveDateLabel(f.createdTime) ?? new Date().toISOString().slice(0, 7).replace('-', '_')
