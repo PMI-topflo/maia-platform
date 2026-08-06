@@ -266,17 +266,22 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
 function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, loadDriveFiles }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string }; doc: Doc | undefined; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void> }) {
   const [open, setOpen] = useState(false)
   const [picking, setPicking] = useState(false)
+  const [keepName, setKeepName] = useState(false)
+  const [pagesFor, setPagesFor] = useState<Record<string, string>>({})
   async function openPicker() { setPicking(true); if (!driveFiles) await loadDriveFiles() }
   async function assign(fileId: string, name: string, mimeType: string) {
     setBusy('assign')
-    try { await fetch(`/api/admin/pre-apply/${id}/assign-drive`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, doc_label: c.label, fileId, fileName: name, mimeType }) }); setPicking(false); onDone() }
+    try { await fetch(`/api/admin/pre-apply/${id}/assign-drive`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, doc_label: c.label, fileId, fileName: name, mimeType, pages: pagesFor[fileId] || '', keepName }) }); setPicking(false); onDone() }
     catch { /* */ } finally { setBusy(null) }
   }
   const [exp, setExp] = useState(doc?.expirationDate ?? '')
   const [savedExp, setSavedExp] = useState(doc?.expirationDate ?? '')
   const [noExp, setNoExp] = useState(!!doc?.noExpiration)
   const [busy, setBusy] = useState<string | null>(null)
-  useEffect(() => { setExp(doc?.expirationDate ?? ''); setSavedExp(doc?.expirationDate ?? ''); setNoExp(!!doc?.noExpiration) }, [doc?.id, doc?.expirationDate, doc?.noExpiration])
+  const [editingName, setEditingName] = useState(false)
+  const [nameVal, setNameVal] = useState(doc?.suggestedName ?? doc?.filename ?? '')
+  useEffect(() => { setExp(doc?.expirationDate ?? ''); setSavedExp(doc?.expirationDate ?? ''); setNoExp(!!doc?.noExpiration); setNameVal(doc?.suggestedName ?? doc?.filename ?? '') }, [doc?.id, doc?.expirationDate, doc?.noExpiration, doc?.suggestedName, doc?.filename])
+  async function saveName() { setBusy('name'); try { await patchDoc({ suggested_name: nameVal }); setEditingName(false); onDone() } catch { /* */ } finally { setBusy(null) } }
 
   async function patchDoc(body: Record<string, unknown>) {
     await fetch(`/api/admin/pre-apply/${id}/doc/${doc!.id}`, { method: 'PATCH', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
@@ -302,7 +307,24 @@ function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, load
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <span style={{ fontWeight: 600, fontSize: 14 }}>{c.label}</span> <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px' }}>{c.provided_by}</span>{!c.required && <span style={{ fontSize: 11, color: '#6b7280' }}> · optional</span>}
-          {doc?.suggestedName && !na && <div style={{ font: '11.5px system-ui', color: '#6b7280', marginTop: 2 }}>Will file as <strong style={{ color: '#374151' }}>{doc.suggestedName}</strong>{doc.bySource === 'drive-scan' ? ' · from Drive scan' : ''}</div>}
+          {doc && !na && (
+            <div style={{ font: '11.5px system-ui', color: '#6b7280', marginTop: 2, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              Will file as
+              {editingName ? (
+                <>
+                  <input value={nameVal} onChange={e => setNameVal(e.target.value)} style={{ font: '11.5px system-ui', padding: '2px 6px', border: '1px solid #d1d5db', borderRadius: 5, width: 210 }} />
+                  <button onClick={saveName} disabled={busy === 'name'} style={{ font: '600 11px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 5, padding: '2px 8px', cursor: 'pointer' }}>Save</button>
+                  <button onClick={() => { setEditingName(false); setNameVal(doc.suggestedName ?? doc.filename) }} style={{ ...link, color: '#9ca3af', fontSize: 11 }}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <strong style={{ color: '#374151' }}>{doc.suggestedName || doc.filename}</strong>
+                  <button onClick={() => setEditingName(true)} style={{ ...link, color: '#2563eb', fontSize: 11 }}>✎ rename</button>
+                </>
+              )}
+              {doc.bySource === 'drive-scan' ? <span>· from Drive scan</span> : doc.bySource === 'esign' ? <span>· e-signed</span> : doc.bySource === 'drive-pick' ? <span>· picked from Drive</span> : null}
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           {na ? <span style={{ font: '600 12px system-ui', color: '#6b7280', background: '#f3f4f6', borderRadius: 6, padding: '2px 8px' }}>N/A — not applicable</span> : doc ? (
@@ -322,17 +344,25 @@ function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, load
       {picking && (
         <div style={{ marginTop: 8, border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 8, padding: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <span style={{ font: '600 12px system-ui', color: '#1e40af' }}>Pick a file from the Drive folder for &quot;{c.label}&quot;:</span>
+            <span style={{ font: '600 12px system-ui', color: '#1e40af' }}>Pick a file for &quot;{c.label}&quot; — optionally pull just a page range (e.g. a W-2 inside a big report):</span>
             <button onClick={() => setPicking(false)} style={{ ...link, color: '#6b7280', fontSize: 12 }}>Close</button>
           </div>
+          <label style={{ font: '12px system-ui', color: '#374151', display: 'inline-flex', gap: 5, alignItems: 'center', cursor: 'pointer', marginBottom: 6 }}>
+            <input type="checkbox" checked={keepName} onChange={e => setKeepName(e.target.checked)} /> Keep the original file name (don&apos;t auto-rename)
+          </label>
           {!driveFiles ? <div style={{ font: '12px system-ui', color: '#6b7280' }}>Reading Drive folder…</div>
             : driveFiles.length === 0 ? <div style={{ font: '12px system-ui', color: '#9ca3af' }}>No files in the Drive folder.</div>
-            : <div style={{ maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {driveFiles.map(ff => (
-                  <button key={ff.fileId} onClick={() => assign(ff.fileId, ff.name, ff.mimeType)} disabled={busy === 'assign'} style={{ textAlign: 'left', font: '12.5px system-ui', color: '#374151', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, padding: '6px 9px', cursor: 'pointer' }}>
-                    {ff.mimeType.startsWith('image/') ? '🖼' : '📄'} {ff.name}
-                  </button>
-                ))}
+            : <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {driveFiles.map(ff => {
+                  const isPdf = ff.mimeType.includes('pdf')
+                  return (
+                    <div key={ff.fileId} style={{ display: 'flex', gap: 6, alignItems: 'center', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, padding: '5px 8px' }}>
+                      <span style={{ font: '12.5px system-ui', color: '#374151', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isPdf ? '📄' : '🖼'} {ff.name}</span>
+                      {isPdf && <input value={pagesFor[ff.fileId] ?? ''} onChange={e => setPagesFor(m => ({ ...m, [ff.fileId]: e.target.value }))} placeholder="pages e.g. 3-4" style={{ width: 96, font: '11.5px system-ui', padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: 5 }} />}
+                      <button onClick={() => assign(ff.fileId, ff.name, ff.mimeType)} disabled={busy === 'assign'} style={{ font: '600 11.5px system-ui', color: '#fff', background: '#2563eb', border: 'none', borderRadius: 5, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>{pagesFor[ff.fileId] ? 'Extract' : 'Assign'}</button>
+                    </div>
+                  )
+                })}
               </div>}
         </div>
       )}
