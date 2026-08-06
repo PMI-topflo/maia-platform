@@ -33,12 +33,14 @@ export interface IntakeDoc {
   required: boolean
   note: string | null
   sort_order: number
+  template_path: string | null
+  requires_notarization: boolean
 }
 
 /** The active document checklist for an association + application type, ordered. */
 export async function getIntakeChecklist(associationCode: string, type: ApplicationType): Promise<IntakeDoc[]> {
   const { data } = await supabaseAdmin.from('association_intake_documents')
-    .select('id, doc_key, label, provided_by, required, note, sort_order')
+    .select('id, doc_key, label, provided_by, required, note, sort_order, template_path, requires_notarization')
     .eq('association_code', associationCode.toUpperCase())
     .eq('application_type', type)
     .eq('active', true)
@@ -49,7 +51,7 @@ export async function getIntakeChecklist(associationCode: string, type: Applicat
 /** The whole checklist for an association, grouped by type (admin view). */
 export async function getIntakeChecklistAll(associationCode: string): Promise<Record<ApplicationType, IntakeDoc[]>> {
   const { data } = await supabaseAdmin.from('association_intake_documents')
-    .select('id, application_type, doc_key, label, provided_by, required, note, sort_order')
+    .select('id, application_type, doc_key, label, provided_by, required, note, sort_order, template_path, requires_notarization')
     .eq('association_code', associationCode.toUpperCase())
     .eq('active', true)
     .order('sort_order', { ascending: true })

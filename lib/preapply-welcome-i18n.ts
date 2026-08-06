@@ -185,6 +185,7 @@ export interface PreApplyFlowStrings {
   // Documents
   docsH1: string; docsP: string; yourDocsH: string; otherDocsH: string; otherDocsP: string; noDocsForYou: string
   optional: string; uploadedTag: string; uploadBtn: string; replaceBtn: string; uploadingBtn: string; uploadAllNote: string
+  downloadForm: string; notarizeSteps: string; printSignUpload: string
   // Rules + signature
   rulesH: string; rulesFallback: string; agreeLine: string; signNameL: string; drawSig: string; noSignNote: string
   signDisclaimer: string
@@ -217,6 +218,9 @@ const flowEn: PreApplyFlowStrings = {
   noDocsForYou: 'No documents are required from you — thank you.',
   optional: 'optional', uploadedTag: 'Uploaded', uploadBtn: 'Upload', replaceBtn: 'Replace', uploadingBtn: 'Uploading…',
   uploadAllNote: 'Upload all required documents before submitting.',
+  downloadForm: 'Download the form to print & notarize',
+  notarizeSteps: 'Print this form, sign it in front of a notary public, then upload the notarized copy here.',
+  printSignUpload: 'Print this form, complete it, then upload it here.',
   rulesH: 'Association rules — please read & acknowledge',
   rulesFallback: 'By signing you acknowledge the association’s governing documents, rules, and restrictions.',
   agreeLine: 'I have read and agree to comply with the association’s rules and restrictions, and I certify the documents and information I provided are true and complete.',

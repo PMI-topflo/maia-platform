@@ -71,7 +71,7 @@ const WELCOME_CSS = `
 .pa-ghost{width:100%;margin-top:12px;padding:11px;border:1.5px dashed #d1d5db;border-radius:10px;background:#fff;color:#374151;font-weight:600;font-size:14px;cursor:pointer;font-family:inherit}
 `
 
-interface ChecklistItem { id: string; doc_key: string; label: string; provided_by: 'applicant' | 'landlord' | 'agent'; required: boolean; note: string | null; uploaded: boolean; mine: boolean }
+interface ChecklistItem { id: string; doc_key: string; label: string; provided_by: 'applicant' | 'landlord' | 'agent'; required: boolean; note: string | null; uploaded: boolean; mine: boolean; requiresNotarization?: boolean; templateUrl?: string | null }
 interface Collaborator { id: string; name: string | null; email: string | null; role: string; roleLabel: string; isPrimary: boolean; status: string; signs: boolean; signed: boolean; emailVerified: boolean }
 interface Info {
   associationName: string; type: string; unitLabel: string | null
@@ -504,6 +504,12 @@ function DocBox({ token, item, lang, onDone }: { token: string; item: ChecklistI
         </div>
         {item.uploaded && <span style={{ fontSize: 12.5, color: '#166534', fontWeight: 600 }}>✓ {f.uploadedTag}</span>}
       </div>
+      {item.templateUrl && (
+        <div style={{ marginTop: 8, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '9px 11px' }}>
+          <a href={item.templateUrl} target="_blank" rel="noreferrer" style={{ font: '700 13px system-ui', color: '#b45309', textDecoration: 'none' }}>📥 {f.downloadForm}</a>
+          <div style={{ font: '12px system-ui', color: '#92400e', marginTop: 4, lineHeight: 1.45 }}>{item.requiresNotarization ? f.notarizeSteps : f.printSignUpload}</div>
+        </div>
+      )}
       <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <input type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" onChange={e => setFile(e.target.files?.[0] ?? null)} style={{ fontSize: 13 }} />
         <button onClick={submit} disabled={!file || busy} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: !file || busy ? 'default' : 'pointer', background: !file || busy ? '#d1d5db' : '#f26a1b', color: '#fff', fontSize: 13, fontWeight: 700 }}>{busy ? f.uploadingBtn : item.uploaded ? f.replaceBtn : f.uploadBtn}</button>
