@@ -33,6 +33,12 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   const [note, setNote] = useState('')
   const [tax, setTax] = useState<{ kind: string; confidence: number; verdict: string } | null>(null)
   const [taxBusy, setTaxBusy] = useState(false)
+  const [driveFiles, setDriveFiles] = useState<{ fileId: string; name: string; mimeType: string }[] | null>(null)
+
+  const loadDriveFiles = useCallback(async () => {
+    const r = await fetch(`/api/admin/pre-apply/${id}/drive-files`, { credentials: 'include' })
+    const j = await r.json(); setDriveFiles(Array.isArray(j.files) ? j.files : [])
+  }, [id])
 
   async function runTaxCheck() {
     setTaxBusy(true); setTax(null)
@@ -85,7 +91,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         {d.checklist.map((c, i) => {
           const doc = d.documents.find(x => x.doc_key === c.doc_key)
-          return <ChecklistRow key={i} id={id} c={c} doc={doc} na={naSet.has(c.doc_key)} first={i === 0} decided={decided} onDone={load} />
+          return <ChecklistRow key={i} id={id} c={c} doc={doc} na={naSet.has(c.doc_key)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} />
         })}
         {d.documents.filter(doc => !d.checklist.some(c => c.label === doc.doc_label)).map(doc => (
           <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderTop: '1px solid #f3f4f6', alignItems: 'center' }}>
@@ -257,8 +263,15 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
 // One checklist row: the doc (if any) with an INLINE preview box, the suggested
 // YYYY_MM_Type rename, an editable expiration date to approve, Ignore, and the
 // upload/replace control.
-function ChecklistRow({ id, c, doc, na, first, decided, onDone }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string }; doc: Doc | undefined; na: boolean; first: boolean; decided: boolean; onDone: () => void }) {
+function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, loadDriveFiles }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string }; doc: Doc | undefined; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void> }) {
   const [open, setOpen] = useState(false)
+  const [picking, setPicking] = useState(false)
+  async function openPicker() { setPicking(true); if (!driveFiles) await loadDriveFiles() }
+  async function assign(fileId: string, name: string, mimeType: string) {
+    setBusy('assign')
+    try { await fetch(`/api/admin/pre-apply/${id}/assign-drive`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, doc_label: c.label, fileId, fileName: name, mimeType }) }); setPicking(false); onDone() }
+    catch { /* */ } finally { setBusy(null) }
+  }
   const [exp, setExp] = useState(doc?.expirationDate ?? '')
   const [savedExp, setSavedExp] = useState(doc?.expirationDate ?? '')
   const [noExp, setNoExp] = useState(!!doc?.noExpiration)
@@ -299,11 +312,30 @@ function ChecklistRow({ id, c, doc, na, first, decided, onDone }: { id: string; 
               {!decided && <button onClick={ignore} disabled={busy === 'ignore'} style={{ ...link, color: '#b91c1c' }}>Ignore</button>}
             </>
           ) : <span style={{ fontSize: 13, color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
+          {!decided && !na && <button onClick={openPicker} disabled={busy === 'assign'} style={{ ...link, color: '#2563eb', fontSize: 12 }}>{busy === 'assign' ? 'Assigning…' : '📁 From Drive'}</button>}
           {!decided && !na && <StaffUpload id={id} docKey={c.doc_key} docLabel={c.label} uploaded={!!doc} onDone={onDone} />}
           {!decided && !doc && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#9ca3af', fontSize: 12 }}>{na ? 'Undo N/A' : 'Mark N/A'}</button>}
           {!decided && na && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#4338ca', fontSize: 12 }}>Undo N/A</button>}
         </div>
       </div>
+
+      {picking && (
+        <div style={{ marginTop: 8, border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 8, padding: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <span style={{ font: '600 12px system-ui', color: '#1e40af' }}>Pick a file from the Drive folder for &quot;{c.label}&quot;:</span>
+            <button onClick={() => setPicking(false)} style={{ ...link, color: '#6b7280', fontSize: 12 }}>Close</button>
+          </div>
+          {!driveFiles ? <div style={{ font: '12px system-ui', color: '#6b7280' }}>Reading Drive folder…</div>
+            : driveFiles.length === 0 ? <div style={{ font: '12px system-ui', color: '#9ca3af' }}>No files in the Drive folder.</div>
+            : <div style={{ maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {driveFiles.map(ff => (
+                  <button key={ff.fileId} onClick={() => assign(ff.fileId, ff.name, ff.mimeType)} disabled={busy === 'assign'} style={{ textAlign: 'left', font: '12.5px system-ui', color: '#374151', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, padding: '6px 9px', cursor: 'pointer' }}>
+                    {ff.mimeType.startsWith('image/') ? '🖼' : '📄'} {ff.name}
+                  </button>
+                ))}
+              </div>}
+        </div>
+      )}
 
       {doc && !na && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
