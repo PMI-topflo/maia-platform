@@ -33,7 +33,7 @@ function mediaTypeFor(ct: string | null): 'image/jpeg' | 'image/png' | 'image/we
 const SCAN_PROMPT = `You are reading a single document for a condo leasing file. Return ONLY JSON:
 {"label":"<one label>","expiration":"<YYYY-MM-DD or null>"}
 - "label": the ONE best match from this list: ${LABELS.join(', ')} (use "other" if none fit).
-- "expiration": the document's expiration / valid-through date if it clearly has one (insurance policy end, certificate of use expiry, lease end date). Otherwise null.`
+- "expiration": ANY expiration / valid-through / "EXP" date printed on the document, in YYYY-MM-DD. Look hard for it: a driver's license or state ID "EXP" date, a vehicle registration expiration, an insurance policy expiration/period-end, a certificate-of-use expiry, or a lease end date. If the document genuinely has no expiration (e.g. a deed, an affidavit, a tax return), return null.`
 
 /** One Haiku call → { label, expiration } for the scan review. */
 export async function quickDocScan(buf: Buffer, contentType: string | null): Promise<{ label: string; expiration: string | null }> {

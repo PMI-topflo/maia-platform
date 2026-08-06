@@ -8,7 +8,7 @@
 import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 
-interface Doc { id: string; doc_key: string | null; doc_label: string | null; filename: string; mime_type: string | null; url: string | null; suggestedName: string | null; expirationDate: string | null; bySource: string | null }
+interface Doc { id: string; doc_key: string | null; doc_label: string | null; filename: string; mime_type: string | null; url: string | null; suggestedName: string | null; expirationDate: string | null; noExpiration: boolean; bySource: string | null }
 interface Detail {
   id: string; associationCode: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
@@ -17,6 +17,7 @@ interface Detail {
   driveFolderUrl: string | null
   screeningProvider: string
   audit: { auditedBy: string | null; auditedAt: string | null; reviewedBy: string | null; reviewedAt: string | null; note: string | null; approvedByRole: string | null }
+  naItems: string[]
   checklist: { doc_key: string; label: string; required: boolean; provided_by: string; uploaded: boolean }[]
   documents: Doc[]
 }
@@ -60,7 +61,8 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   if (err) return <div style={wrap}><p style={{ color: '#991b1b' }}>{err}</p></div>
   if (!d) return <div style={wrap}><p style={{ color: '#9ca3af' }}>Loading…</p></div>
 
-  const missing = d.checklist.filter(c => c.required && !c.uploaded)
+  const naSet = new Set(d.naItems ?? [])
+  const missing = d.checklist.filter(c => c.required && !c.uploaded && !naSet.has(c.doc_key))
   const audited = !!d.audit.auditedAt
   const decided = d.status === 'approved' || d.status === 'declined'
 
@@ -83,7 +85,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         {d.checklist.map((c, i) => {
           const doc = d.documents.find(x => x.doc_key === c.doc_key)
-          return <ChecklistRow key={i} id={id} c={c} doc={doc} first={i === 0} decided={decided} onDone={load} />
+          return <ChecklistRow key={i} id={id} c={c} doc={doc} na={naSet.has(c.doc_key)} first={i === 0} decided={decided} onDone={load} />
         })}
         {d.documents.filter(doc => !d.checklist.some(c => c.label === doc.doc_label)).map(doc => (
           <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderTop: '1px solid #f3f4f6', alignItems: 'center' }}>
@@ -255,53 +257,63 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
 // One checklist row: the doc (if any) with an INLINE preview box, the suggested
 // YYYY_MM_Type rename, an editable expiration date to approve, Ignore, and the
 // upload/replace control.
-function ChecklistRow({ id, c, doc, first, decided, onDone }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string }; doc: Doc | undefined; first: boolean; decided: boolean; onDone: () => void }) {
+function ChecklistRow({ id, c, doc, na, first, decided, onDone }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string }; doc: Doc | undefined; na: boolean; first: boolean; decided: boolean; onDone: () => void }) {
   const [open, setOpen] = useState(false)
   const [exp, setExp] = useState(doc?.expirationDate ?? '')
   const [savedExp, setSavedExp] = useState(doc?.expirationDate ?? '')
+  const [noExp, setNoExp] = useState(!!doc?.noExpiration)
   const [busy, setBusy] = useState<string | null>(null)
-  useEffect(() => { setExp(doc?.expirationDate ?? ''); setSavedExp(doc?.expirationDate ?? '') }, [doc?.id, doc?.expirationDate])
+  useEffect(() => { setExp(doc?.expirationDate ?? ''); setSavedExp(doc?.expirationDate ?? ''); setNoExp(!!doc?.noExpiration) }, [doc?.id, doc?.expirationDate, doc?.noExpiration])
 
-  async function saveExp() {
-    setBusy('exp')
-    try { await fetch(`/api/admin/pre-apply/${id}/doc/${doc!.id}`, { method: 'PATCH', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expiration_date: exp || null }) }); setSavedExp(exp) }
-    catch { /* */ } finally { setBusy(null) }
+  async function patchDoc(body: Record<string, unknown>) {
+    await fetch(`/api/admin/pre-apply/${id}/doc/${doc!.id}`, { method: 'PATCH', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
   }
+  async function saveExp() { setBusy('exp'); try { await patchDoc({ expiration_date: exp || null }); setSavedExp(exp) } catch { /* */ } finally { setBusy(null) } }
+  async function toggleNoExp(v: boolean) { setNoExp(v); if (v) { setExp(''); setSavedExp('') } try { await patchDoc({ no_expiration: v }) } catch { /* */ } }
   async function ignore() {
     if (!confirm(`Remove "${c.label}" from this application? (The file stays in Drive.)`)) return
     setBusy('ignore')
     try { await fetch(`/api/admin/pre-apply/${id}/doc/${doc!.id}`, { method: 'DELETE', credentials: 'include' }); onDone() }
     catch { /* */ } finally { setBusy(null) }
   }
+  async function toggleNa() {
+    setBusy('na')
+    try { await fetch(`/api/admin/pre-apply/${id}/na`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, na: !na }) }); onDone() }
+    catch { /* */ } finally { setBusy(null) }
+  }
   const isImg = (doc?.mime_type ?? '').startsWith('image/')
   const link: React.CSSProperties = { font: '600 13px system-ui', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'none' }
 
   return (
-    <div style={{ padding: '10px 14px', borderTop: first ? 'none' : '1px solid #f3f4f6' }}>
+    <div style={{ padding: '10px 14px', borderTop: first ? 'none' : '1px solid #f3f4f6', opacity: na ? 0.6 : 1 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <span style={{ fontWeight: 600, fontSize: 14 }}>{c.label}</span> <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px' }}>{c.provided_by}</span>{!c.required && <span style={{ fontSize: 11, color: '#6b7280' }}> · optional</span>}
-          {doc?.suggestedName && <div style={{ font: '11.5px system-ui', color: '#6b7280', marginTop: 2 }}>Will file as <strong style={{ color: '#374151' }}>{doc.suggestedName}</strong>{doc.bySource === 'drive-scan' ? ' · from Drive scan' : ''}</div>}
+          {doc?.suggestedName && !na && <div style={{ font: '11.5px system-ui', color: '#6b7280', marginTop: 2 }}>Will file as <strong style={{ color: '#374151' }}>{doc.suggestedName}</strong>{doc.bySource === 'drive-scan' ? ' · from Drive scan' : ''}</div>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          {doc ? (
+          {na ? <span style={{ font: '600 12px system-ui', color: '#6b7280', background: '#f3f4f6', borderRadius: 6, padding: '2px 8px' }}>N/A — not applicable</span> : doc ? (
             <>
               <button onClick={() => setOpen(o => !o)} style={{ ...link, color: '#4338ca' }}>{open ? 'Hide' : '👁 Preview'}</button>
               <a href={doc.url ?? '#'} target="_blank" rel="noreferrer" style={{ ...link, color: '#166534' }}>View ↗</a>
               {!decided && <button onClick={ignore} disabled={busy === 'ignore'} style={{ ...link, color: '#b91c1c' }}>Ignore</button>}
             </>
           ) : <span style={{ fontSize: 13, color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
-          {!decided && <StaffUpload id={id} docKey={c.doc_key} docLabel={c.label} uploaded={!!doc} onDone={onDone} />}
+          {!decided && !na && <StaffUpload id={id} docKey={c.doc_key} docLabel={c.label} uploaded={!!doc} onDone={onDone} />}
+          {!decided && !doc && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#9ca3af', fontSize: 12 }}>{na ? 'Undo N/A' : 'Mark N/A'}</button>}
+          {!decided && na && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#4338ca', fontSize: 12 }}>Undo N/A</button>}
         </div>
       </div>
 
-      {doc && (
+      {doc && !na && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
           <span style={{ font: '12px system-ui', color: '#6b7280' }}>Expires:</span>
-          <input type="date" value={exp} onChange={e => setExp(e.target.value)} style={{ font: '13px system-ui', padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 6 }} />
-          {exp !== savedExp && <button onClick={saveExp} disabled={busy === 'exp'} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>{busy === 'exp' ? 'Saving…' : 'Save'}</button>}
-          {exp === savedExp && savedExp && <span style={{ font: '12px system-ui', color: '#166534' }}>✓ saved</span>}
-          {!exp && <span style={{ font: '11.5px system-ui', color: '#9ca3af' }}>none read — add if it expires</span>}
+          <input type="date" value={exp} disabled={noExp} onChange={e => setExp(e.target.value)} style={{ font: '13px system-ui', padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 6, opacity: noExp ? 0.5 : 1 }} />
+          {!noExp && exp !== savedExp && <button onClick={saveExp} disabled={busy === 'exp'} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>{busy === 'exp' ? 'Saving…' : 'Save'}</button>}
+          {!noExp && exp === savedExp && savedExp && <span style={{ font: '12px system-ui', color: '#166534' }}>✓ saved</span>}
+          <label style={{ font: '12px system-ui', color: '#374151', display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', marginLeft: 6 }}>
+            <input type="checkbox" checked={noExp} onChange={e => toggleNoExp(e.target.checked)} /> Does not expire (keep current)
+          </label>
         </div>
       )}
 
@@ -340,12 +352,12 @@ function ScanDrive({ id, onDone }: { id: string; onDone: () => void }) {
   return (
     <div style={{ margin: '0 0 12px' }}>
       <button onClick={scan} disabled={busy} style={{ font: '600 13px system-ui', color: '#fff', background: busy ? '#9ca3af' : '#4338ca', border: 'none', borderRadius: 8, padding: '9px 14px', cursor: busy ? 'default' : 'pointer' }}>
-        {busy ? 'Reading & scanning Drive files…' : '🔎 Scan the Drive folder & import files'}
+        {busy ? 'Reading & scanning Drive files…' : '🔎 Scan Drive folder & save to MAIA'}
       </button>
       {err && <p style={{ color: '#b91c1c', font: '13px system-ui', margin: '8px 0 0' }}>⚠ {err}</p>}
       {res && (
         <div style={{ marginTop: 8, font: '12.5px system-ui', color: '#374151' }}>
-          <div style={{ color: '#166534', fontWeight: 600 }}>✓ Scanned {res.scanned} file(s) · imported {res.matched.length} to the checklist. Review each below — preview, edit the expiration, or Ignore.</div>
+          <div style={{ color: '#166534', fontWeight: 600 }}>✓ Saved to MAIA — scanned {res.scanned} file(s), imported {res.matched.length} to the checklist. Review each below — preview, set/confirm the expiration, mark &quot;does not expire&quot;, or Ignore.</div>
           {res.matched.map((m, i) => <div key={i} style={{ color: '#374151' }}>• <span style={{ color: '#9ca3af' }}>{m.file}</span> → <strong>{m.item}</strong>{m.rename ? <span style={{ color: '#9ca3af' }}> · files as {m.rename}</span> : ''}{m.expiration ? <span style={{ color: '#b45309' }}> · expires {m.expiration}</span> : ''}</div>)}
           {res.unmatched.length > 0 && <div style={{ color: '#92400e', marginTop: 4 }}>Not matched to a checklist item ({res.unmatched.length}): {res.unmatched.map(u => u.docType || u.file).join(', ')} — upload these manually if needed.</div>}
         </div>
