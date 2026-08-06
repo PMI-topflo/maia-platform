@@ -139,8 +139,56 @@ export async function recordLeaseSignature(
   const { error } = await supabaseAdmin.from('lease_packets').update(patch).eq('id', id)
   if (error) return { ok: false, error: `Could not save your signature: ${error.message}` }
 
-  if (bothSigned) await fileAgreementCompliance(p)
+  if (bothSigned) { await fileAgreementCompliance(p); await mirrorAgreementToOnGoing(p) }
   return { ok: true, status, bothSigned }
+}
+
+// #3(b): when both sign, render the Agreement PDF and file it into the unit's
+// active application — mirrored into the On Going Applications Drive folder and
+// recorded as the landlord_tenant_agreement document (so it appears in the
+// checklist and becomes a keeper for board approval). Best-effort; the PDF
+// render + Drive run only with prod creds, and never block the signature.
+async function mirrorAgreementToOnGoing(p: LeasePacketRow): Promise<void> {
+  try {
+    const digits = String(p.unit_ref ?? '').replace(/\D/g, '')
+    if (!digits) return
+    const { data: apps } = await supabaseAdmin.from('listing_applications')
+      .select('id, listing_id, unit_label, drive_folder_id')
+      .eq('association_code', p.association_code).in('status', ['started', 'submitted', 'under_review'])
+      .order('created_at', { ascending: false })
+    const app = (apps ?? []).find(a => String(a.unit_label ?? '').replace(/\D/g, '') === digits)
+    if (!app) return
+
+    const { renderToBuffer } = await import('@react-pdf/renderer')
+    const { LeasePacketAgreementPdf } = await import('@/lib/lease-packet-pdf')
+    const { mirrorFileToOngoing } = await import('@/lib/drive-application-mirror')
+    const pdf = Buffer.from(await renderToBuffer(LeasePacketAgreementPdf(agreementPropsFromPacket(p))) as unknown as Uint8Array)
+    const { data: sh } = await supabaseAdmin.from('application_stakeholders').select('name').eq('application_id', app.id).eq('is_primary', true).maybeSingle()
+    const filename = 'Landlord-Tenant-Agreement-e-signed.pdf'
+    const now = new Date()
+    const rename = `${now.getUTCFullYear()}_${String(now.getUTCMonth() + 1).padStart(2, '0')}_Agreement.pdf`
+
+    // Copy into the app-docs bucket + record the checklist document.
+    const path = `intake/${app.id}/landlord_tenant_agreement/${crypto.randomUUID()}.pdf`
+    const up = await supabaseAdmin.storage.from('application-docs').upload(path, pdf, { contentType: 'application/pdf', upsert: true })
+    if (!up.error) {
+      await supabaseAdmin.from('application_documents').delete().eq('application_id', app.id).eq('doc_key', 'landlord_tenant_agreement')
+      await supabaseAdmin.from('application_documents').insert({
+        application_id: app.id, listing_id: app.listing_id, kind: 'other',
+        doc_key: 'landlord_tenant_agreement', doc_label: 'Landlord–Tenant Agreement (e-signed)',
+        storage_path: path, filename, suggested_name: rename, expiration_date: (p.lease_end && p.lease_end.trim()) || null,
+        mime_type: 'application/pdf', uploaded_by_role: 'esign',
+      })
+    }
+
+    // Mirror the PDF into the unit's On Going Applications Drive folder.
+    if (app.drive_folder_id) {
+      await mirrorFileToOngoing({
+        unitLabel: String(app.unit_label ?? digits), applicantName: (sh?.name as string | null) ?? null,
+        label: 'Landlord-Tenant Agreement (e-signed)', filename, mime: 'application/pdf', buffer: pdf,
+      })
+    }
+  } catch { /* best-effort */ }
 }
 
 /** File the signed Agreement as the unit's compliance item, expiry = lease end. */
