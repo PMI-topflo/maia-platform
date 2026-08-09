@@ -1,77 +1,48 @@
 // POST /api/admin/pre-apply/[id]/board-approve   { dryRun }
-// The board's approval action for an application, run by MAIA:
-//   1. SCAN each file in the unit's On Going Applications folder by CONTENT
-//      (filenames are often raw scans) and classify it.
-//   2. COPY the keepers — Deed/Ownership, Lease (incl. Landlord–Tenant),
-//      HO-6 Insurance, Certificate of Use, Governing-Docs Acknowledgement, and
-//      the Board Approval — into the unit's OFFICIAL folder, renamed
-//      YYYY_MM_<Type>. Non-keepers (IDs, tax returns, etc.) are NOT copied.
-//   3. MOVE everything (the whole application folder) into OLD/Archive under the
-//      unit's folder — the full history is preserved, off the On Going list.
-//   4. Best-effort: extract the tenant + lease term from the lease into the
-//      unit's tenant record, and mark the application approved.
-//
-// dryRun=true does 1 only and returns the plan — NOTHING in Drive or the DB
-// changes. Staff-only; runs as the Drive service account (prod creds).
+// The board's approval action for an application, run by MAIA. It does NOT
+// re-scan the Drive folder (that duplicated files) — it uses exactly what staff
+// already reviewed and saved to MAIA:
+//   1. COPY the SAVED keeper documents (one per checklist item — Deed/Lease/HO-6/
+//      Certificate of Use/Governing-Docs Ack/Board Approval/Decision Page/
+//      Affidavit/Agreement) into the unit's OFFICIAL folder, each named by its
+//      approved "file as" name. Non-keepers (IDs, tax returns, pay stubs) are
+//      NOT copied.
+//   2. MOVE the whole On Going folder into OLD/Archive under the unit (full
+//      history preserved) and trash the emptied wrapper.
+//   3. Best-effort: extract tenant + lease term from the lease keeper; mark
+//      approved.
+// dryRun=true returns the plan only — NOTHING changes. Staff-only; prod creds.
 
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getDrive } from '@/lib/drive-invoice-mirror'
-import { downloadDriveFile } from '@/lib/drive-import'
-import { quickDocKind } from '@/lib/quick-doc-classify'
 import { extractLeaseDetails } from '@/lib/lease-extract'
-import { driveDateLabel } from '@/lib/drive-application-mirror'
+import { mirrorBufferToFolder } from '@/lib/drive-application-mirror'
+import { INTAKE_BUCKET } from '@/lib/preapply'
 import { DRIVE_FOLDERS, resolveUnitFolder, resolveDatedSubfolder, approvalCategoryFolder, stripNoFilesTag } from '@/lib/drive-organize-folders'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-const FOLDER_MIME = 'application/vnd.google-apps.folder'
+// The documents that belong in the Official (clean, current) record. Everything
+// else stays in Archive only.
+const KEEPER_DOC_KEYS = new Set([
+  'signed_lease', 'property_insurance', 'certificate_of_use', 'board_decision_page',
+  'tenant_affidavit', 'landlord_tenant_agreement', 'board_approval_letter',
+  'purchase_agreement', 'deed', 'ownership', 'governing_docs_ack', 'hoa_estoppel',
+])
 
-// The keeper set the user defined. Maps a classified document to its Official
-// file-name type — or null when it is NOT a keeper (stays in Archive only).
-function keeperType(haystack: string): string | null {
-  const n = haystack.toLowerCase()
-  if (/(decision page|board decision)/.test(n)) return 'BoardDecisionPage'
-  if (/affidavit/.test(n)) return 'TenantAffidavit'
-  if (/(landlord.?tenant agreement|landlord–tenant)/.test(n)) return 'Agreement'
-  if (/\b(deed|ownership|warranty|title|quit\s*claim|grant\s*deed)\b/.test(n)) return 'Deed'
-  if (/(certificate of use|cert(ificate)? of use|lauderhill|\bc\.?o\.?u\b)/.test(n)) return 'LauderhillCert'
-  if (/(ho-?6|home\s*owner|homeowner|hazard|dwelling|insurance|policy|declaration page|declarations page|binder)/.test(n)) return 'Insurance'
-  if (/(tenant agreement|lease|rental agreement)/.test(n)) return 'Lease'
-  if (/(governing|acknowledg|by-?laws|rules?\s*(&|and)?\s*regulations|declaration of condominium)/.test(n)) return 'GoverningDocsAck'
-  if (/(board approv|approval letter|estoppel)/.test(n)) return 'BoardApproval'
-  return null
-}
-
-interface DriveFile { id: string; name: string; mimeType: string; createdTime: string | null }
-
-// Every file under a folder at any depth (application docs often sit in a
-// dated subfolder), plus the immediate children (files + folders) for the move.
-async function listDeep(rootId: string): Promise<{ files: DriveFile[]; children: { id: string; name: string; isFolder: boolean }[] }> {
+// The immediate children (files + subfolders) of the On Going unit folder — the
+// whole lot is moved to Archive on approval.
+async function listChildren(rootId: string): Promise<{ id: string; name: string }[]> {
   const drive = getDrive()
-  const files: DriveFile[] = []
-  const children: { id: string; name: string; isFolder: boolean }[] = []
-  let frontier = [rootId]; const seen = new Set<string>(); let guard = 0
-  while (frontier.length && guard < 300) {
-    const next: string[] = []
-    for (const fid of frontier) {
-      if (seen.has(fid)) continue; seen.add(fid); guard++
-      const res = await drive.files.list({
-        q: `'${fid}' in parents and trashed = false`,
-        fields: 'files(id, name, mimeType, createdTime)', pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true,
-      })
-      for (const f of res.data.files ?? []) {
-        if (fid === rootId) children.push({ id: f.id as string, name: f.name ?? '', isFolder: f.mimeType === FOLDER_MIME })
-        if (f.mimeType === FOLDER_MIME) next.push(f.id as string)
-        else files.push({ id: f.id as string, name: f.name ?? '', mimeType: f.mimeType ?? 'application/octet-stream', createdTime: (f.createdTime as string | null) ?? null })
-      }
-    }
-    frontier = next
-  }
-  return { files, children }
+  const res = await drive.files.list({
+    q: `'${rootId}' in parents and trashed = false`,
+    fields: 'files(id, name)', pageSize: 400, supportsAllDrives: true, includeItemsFromAllDrives: true,
+  })
+  return (res.data.files ?? []).map(f => ({ id: f.id as string, name: f.name ?? '' }))
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -89,30 +60,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const onGoingId = String(app.drive_folder_id ?? '')
   if (!onGoingId) return NextResponse.json({ error: 'This application has no On Going Drive folder linked yet.' }, { status: 400 })
 
-  // 1. Scan + classify every file by content (fast single-call classifier).
-  const { files, children } = await listDeep(onGoingId)
-  const scanned: { id: string; name: string; mimeType: string; createdTime: string | null; docType: string | null; keeper: string | null; newName: string }[] = []
-  for (const f of files.slice(0, 40)) {
-    let docType: string | null = null
-    try {
-      const buf = await downloadDriveFile(f.id)
-      docType = await quickDocKind(buf, f.mimeType)
-    } catch { /* fall back to the filename below */ }
-    const hay = [docType, f.name].filter(Boolean).join(' ')
-    const type = keeperType(hay)
-    const ext = f.name.includes('.') ? f.name.slice(f.name.lastIndexOf('.')) : '.pdf'
-    const ym = driveDateLabel(f.createdTime) ?? new Date().toISOString().slice(0, 7).replace('-', '_')
-    scanned.push({ id: f.id, name: f.name, mimeType: f.mimeType, createdTime: f.createdTime, docType, keeper: type, newName: type ? `${ym}_${type}${ext}` : f.name })
-  }
-  const keepers = scanned.filter(s => s.keeper)
+  // 1. Use the SAVED documents (what staff reviewed), NOT a re-scan. Keeper
+  //    items → Official; one per checklist item, deduped, with the approved name.
+  const { data: docs } = await supabaseAdmin.from('application_documents')
+    .select('id, doc_key, doc_label, storage_path, filename, suggested_name, mime_type')
+    .eq('application_id', id).order('created_at', { ascending: true })
+  const byKey = new Map<string, { doc_key: string; doc_label: string; storage_path: string; filename: string; suggested_name: string | null; mime_type: string | null }>()
+  for (const d of docs ?? []) if (d.doc_key && !byKey.has(String(d.doc_key))) byKey.set(String(d.doc_key), d as never)
+  const keepers = [...byKey.values()].filter(d => KEEPER_DOC_KEYS.has(d.doc_key))
+  const keeperName = (d: { suggested_name: string | null; filename: string }) => (d.suggested_name && d.suggested_name.trim()) || d.filename
 
   if (dryRun) {
     return NextResponse.json({
       ok: true, dryRun: true, unitRef,
-      toOfficial: keepers.map(k => ({ from: k.name, as: k.newName, docType: k.docType })),
-      toArchiveOnly: scanned.filter(s => !s.keeper).map(s => ({ name: s.name, docType: s.docType })),
-      archiveInto: `OLD / Archive → ${unitRef}`,
-      totalFiles: scanned.length,
+      toOfficial: keepers.map(k => ({ from: k.doc_label, as: keeperName(k), docType: k.doc_label })),
+      toArchiveOnly: [...byKey.values()].filter(d => !KEEPER_DOC_KEYS.has(d.doc_key)).map(d => ({ name: d.doc_label, docType: d.doc_label })),
+      archiveInto: `OLD / Archive → ${unitRef} (the whole On Going folder is moved there)`,
+      totalFiles: (docs ?? []).length,
     })
   }
 
@@ -120,7 +84,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const drive = getDrive()
   const done = { copiedToOfficial: 0, movedToArchive: 0, errors: [] as string[] }
 
-  // 2. Copy keepers into the unit's Official folder (category subfolder).
+  // 2. Copy the saved keeper documents into the unit's Official folder.
   try {
     const officialUnit = await resolveUnitFolder(DRIVE_FOLDERS.official, unitRef, true)
     if (officialUnit) {
@@ -129,14 +93,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const catId = await resolveDatedSubfolder(officialUnit, approvalCategoryFolder(kind), true)
       const dest = catId ?? officialUnit
       for (const k of keepers) {
-        try { await drive.files.copy({ fileId: k.id, requestBody: { name: k.newName, parents: [dest] }, fields: 'id', supportsAllDrives: true }); done.copiedToOfficial++ }
-        catch (e) { done.errors.push(`copy ${k.name}: ${e instanceof Error ? e.message : String(e)}`) }
+        try {
+          const { data: blob } = await supabaseAdmin.storage.from(INTAKE_BUCKET).download(k.storage_path)
+          if (!blob) { done.errors.push(`missing file for ${k.doc_label}`); continue }
+          await mirrorBufferToFolder(dest, keeperName(k), k.mime_type ?? 'application/octet-stream', Buffer.from(await blob.arrayBuffer()))
+          done.copiedToOfficial++
+        } catch (e) { done.errors.push(`copy ${k.doc_label}: ${e instanceof Error ? e.message : String(e)}`) }
       }
     } else done.errors.push('could not resolve the Official unit folder')
   } catch (e) { done.errors.push(`Official: ${e instanceof Error ? e.message : String(e)}`) }
 
-  // 3. Move the whole application folder (all children) into Archive/<unit>.
+  // 3. Move the whole On Going folder (all children) into Archive/<unit>.
   try {
+    const children = await listChildren(onGoingId)
     const archiveUnit = await resolveUnitFolder(DRIVE_FOLDERS.archive, unitRef, true)
     if (archiveUnit) {
       for (const ch of children) {
@@ -146,18 +115,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           done.movedToArchive++
         } catch (e) { done.errors.push(`move ${ch.name}: ${e instanceof Error ? e.message : String(e)}`) }
       }
-      // Trash the now-empty On Going wrapper so it leaves the On Going list.
       await drive.files.update({ fileId: onGoingId, requestBody: { trashed: true }, supportsAllDrives: true }).catch(() => null)
     } else done.errors.push('could not resolve the Archive unit folder')
   } catch (e) { done.errors.push(`Archive: ${e instanceof Error ? e.message : String(e)}`) }
 
-  // 4. Best-effort: extract tenant + lease term from the lease keeper.
+  // 4. Best-effort: extract tenant + lease term from the saved lease keeper.
   try {
-    const lease = keepers.find(k => k.keeper === 'Lease')
+    const lease = keepers.find(k => k.doc_key === 'signed_lease')
     if (lease && kind === 'lease') {
-      const buf = await downloadDriveFile(lease.id)
-      const d = await extractLeaseDetails(buf, lease.mimeType)
-      if (d.tenantNames.length || d.leaseEnd) {
+      const { data: blob } = await supabaseAdmin.storage.from(INTAKE_BUCKET).download(lease.storage_path)
+      const d = blob ? await extractLeaseDetails(Buffer.from(await blob.arrayBuffer()), lease.mime_type) : null
+      if (d && (d.tenantNames.length || d.leaseEnd)) {
         await supabaseAdmin.from('unit_tenant_contacts').upsert({
           association_code: String(app.association_code), unit_ref: unitRef,
           tenant_name: d.tenantNames.join(' & ') || null, tenant_email: d.tenantEmail, tenant_phone: d.tenantPhone,

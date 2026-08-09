@@ -487,7 +487,7 @@ function BoardApprove({ id, onDone }: { id: string; onDone: () => void }) {
   return (
     <div style={{ marginTop: 18, border: '1px solid #bbf7d0', background: '#f0fdf4', borderRadius: 12, padding: 16 }}>
       <div style={{ font: '700 15px system-ui', color: '#166534' }}>🏛 Board approved</div>
-      <div style={{ font: '400 13px system-ui', color: '#3f6212', margin: '4px 0 12px' }}>MAIA scans each file, copies the <strong>keepers</strong> (Deed, Lease, HO-6, Certificate of Use, Governing-Docs Ack, Board Approval) into the unit’s <strong>Official</strong> folder renamed YYYY_MM_Type, then moves the whole application folder into <strong>OLD/Archive</strong>. Preview first — nothing moves until you confirm.</div>
+      <div style={{ font: '400 13px system-ui', color: '#3f6212', margin: '4px 0 12px' }}>MAIA copies the <strong>documents you saved above</strong> (the keepers — Lease, HO-6, Certificate of Use, Board Approval, Decision Page, Affidavit, Agreement) into the unit’s <strong>Official</strong> folder using their approved names — one per item, no duplicates — then moves the whole application folder into <strong>OLD/Archive</strong>. Preview first — nothing moves until you confirm.</div>
       {err && <p style={{ color: '#b91c1c', font: '13px system-ui' }}>⚠ {err}</p>}
       {result ? (
         <p style={{ font: '600 13px system-ui', color: '#166534' }}>✓ Done — {result.copiedToOfficial} copied to Official · {result.movedToArchive} moved to Archive{result.errors.length ? ` · ${result.errors.length} issue(s): ${result.errors.join('; ')}` : ''}</p>
