@@ -21,9 +21,9 @@ interface Data {
   tenantMissing: { key: string; label: string }[]
   tenantRecord: { tenant_name: string | null; tenant_phone: string | null; tenant_email: string | null; lease_start: string | null; lease_end: string | null; updated_by: string | null; updated_at: string | null } | null
   ongoingApplication: {
-    id: string; type: string | null; status: string; submittedAt: string | null; startedAt: string | null
+    id: string; type: string | null; status: string; applicantName: string | null; submittedAt: string | null; startedAt: string | null
     driveFolderUrl: string | null
-    documents: { label: string; at: string; by: string | null }[]
+    documents: { label: string; at: string; by: string | null; expiration: string | null; url: string | null }[]
     people: { name: string | null; role: string; signed: boolean; status: string }[]
   } | null
 }
@@ -33,6 +33,7 @@ const APP_STAGE: Record<string, { label: string; bg: string; fg: string }> = {
   started:      { label: 'Collecting documents', bg: '#fef9c3', fg: '#854d0e' },
   submitted:    { label: 'Submitted — awaiting audit', bg: '#dbeafe', fg: '#1e40af' },
   under_review: { label: 'Under review', bg: '#ede9fe', fg: '#5b21b6' },
+  approved:     { label: 'Approved', bg: '#dcfce7', fg: '#166534' },
 }
 const APP_ROLE_LABEL: Record<string, string> = { applicant: 'Tenant / Buyer', owner: 'Owner', listing_agent: 'Listing agent', applicant_agent: 'Tenant / Buyer agent' }
 const fmtDate = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }) : '—'
@@ -168,25 +169,29 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
       {data.ongoingApplication && (() => {
         const a = data.ongoingApplication!
         const stage = APP_STAGE[a.status] ?? { label: a.status, bg: '#f3f4f6', fg: '#374151' }
+        const approved = a.status === 'approved'
         return (
-          <div style={{ marginTop: 18, padding: 16, border: '1px solid #fdba74', borderRadius: 12, background: '#fff7ed' }}>
+          <div style={{ marginTop: 18, padding: 16, border: `1px solid ${approved ? '#86efac' : '#fdba74'}`, borderRadius: 12, background: approved ? '#f0fdf4' : '#fff7ed' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
-              <div style={{ font: '700 15px system-ui', color: '#9a3412' }}>📋 Application in progress · {a.type ? (APP_TYPE_LABEL[a.type] ?? a.type) : 'Application'}</div>
+              <div style={{ font: '700 15px system-ui', color: approved ? '#166534' : '#9a3412' }}>{approved ? '✅ Application' : '📋 Application in progress'}{a.applicantName ? ` — ${a.applicantName}` : ''} · {a.type ? (APP_TYPE_LABEL[a.type] ?? a.type) : 'Application'}</div>
               <span style={{ font: '600 11px system-ui', color: stage.fg, background: stage.bg, borderRadius: 999, padding: '3px 10px' }}>{stage.label}</span>
             </div>
             <div style={{ font: '400 12.5px system-ui', color: '#6b7280', margin: '4px 0 10px' }}>
               Started {fmtDate(a.startedAt)}{a.submittedAt ? ` · Submitted ${fmtDate(a.submittedAt)}` : ''}
             </div>
 
-            <div style={{ font: '700 12px system-ui', color: '#7c2d12', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-              Documents submitted ({a.documents.length})
+            <div style={{ font: '700 12px system-ui', color: approved ? '#14532d' : '#7c2d12', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+              {approved ? 'Official documents on file' : 'Documents submitted'} ({a.documents.length})
             </div>
             {a.documents.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, margin: '4px 0 10px' }}>
                 {a.documents.map((d, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, font: '400 13px system-ui', color: '#374151' }}>
-                    <span>✓ {d.label}{d.by ? <span style={{ color: '#9ca3af' }}> · {APP_ROLE_LABEL[d.by] ?? d.by}</span> : ''}</span>
-                    <span style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>{fmtDate(d.at)}</span>
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, font: '400 13px system-ui', color: '#374151', alignItems: 'baseline' }}>
+                    <span>✓ {d.label}{d.by ? <span style={{ color: '#9ca3af' }}> · {APP_ROLE_LABEL[d.by] ?? d.by}</span> : ''}{d.expiration ? <span style={{ color: '#b45309' }}> · expires {fmtDate(d.expiration)}</span> : ''}</span>
+                    <span style={{ display: 'flex', gap: 10, whiteSpace: 'nowrap' }}>
+                      {d.url && <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none' }}>View</a>}
+                      <span style={{ color: '#9ca3af' }}>{fmtDate(d.at)}</span>
+                    </span>
                   </div>
                 ))}
               </div>
