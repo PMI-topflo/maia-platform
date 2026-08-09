@@ -81,7 +81,7 @@ export async function GET(req: Request) {
     const { data: apps } = await supabaseAdmin.from('listing_applications')
       .select('id, application_type, status, submitted_at, created_at, drive_folder_url, unit_label')
       .eq('association_code', auth.assoc)
-      .in('status', ['started', 'submitted', 'under_review'])
+      .in('status', ['started', 'submitted', 'under_review', 'approved'])   // incl. approved so the board sees the filed docs
       .order('created_at', { ascending: false })
     const norm = (v: string) => v.trim().toLowerCase().replace(/^unit\s+/, '')
     const match = (apps ?? []).find(a => {
@@ -91,17 +91,28 @@ export async function GET(req: Request) {
     if (!match) return null
     const [{ data: docs }, { data: sh }] = await Promise.all([
       supabaseAdmin.from('application_documents')
-        .select('doc_label, filename, created_at, uploaded_by_role').eq('application_id', match.id)
+        .select('id, doc_key, doc_label, filename, storage_path, expiration_date, created_at, uploaded_by_role').eq('application_id', match.id)
         .order('created_at', { ascending: true }),
       supabaseAdmin.from('application_stakeholders')
         .select('name, role, signed_at, status, is_primary').eq('application_id', match.id)
         .order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     ])
+    // Signed view URLs so the board / manager can open each filed document.
+    const withUrls = await Promise.all((docs ?? []).map(async d => {
+      const { data: signed } = await supabaseAdmin.storage.from('application-docs').createSignedUrl(String(d.storage_path), 60 * 60)
+      return {
+        label: (d.doc_label as string | null) || (d.filename as string | null) || 'Document',
+        at: String(d.created_at), by: (d.uploaded_by_role as string | null) ?? null,
+        expiration: (d.expiration_date as string | null) ?? null, url: signed?.signedUrl ?? null,
+      }
+    }))
+    const primary = (sh ?? []).find(s => s.is_primary)
     return {
       id: String(match.id), type: (match.application_type as string | null) ?? null, status: String(match.status),
+      applicantName: (primary?.name as string | null) ?? null,
       submittedAt: (match.submitted_at as string | null) ?? null, startedAt: (match.created_at as string | null) ?? null,
       driveFolderUrl: (match.drive_folder_url as string | null) ?? null,
-      documents: (docs ?? []).map(d => ({ label: (d.doc_label as string | null) || (d.filename as string | null) || 'Document', at: String(d.created_at), by: (d.uploaded_by_role as string | null) ?? null })),
+      documents: withUrls,
       people: (sh ?? []).map(s => ({ name: (s.name as string | null) ?? null, role: String(s.role), signed: !!s.signed_at, status: String(s.status) })),
     }
   })()
