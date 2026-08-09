@@ -197,10 +197,6 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
                 ))}
               </div>
             )}
-
-            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-              <a href={`/units/applications?assoc=${encodeURIComponent(assoc)}`} style={{ font: '600 13px system-ui', color: '#9a3412', textDecoration: 'none' }}>Open in applications →</a>
-            </div>
           </div>
         )
       })()}
