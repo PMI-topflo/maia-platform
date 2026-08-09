@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveUnitsAuth } from '@/lib/units-portal-auth'
+import { normalizePhone } from '@/lib/cinc-sync'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
   const row = {
     association_code: auth.assoc, unit_ref: account,
     tenant_name: 'tenant_name' in b ? (String(b.tenant_name ?? '').trim() || null) : (cur?.tenant_name ?? null),
-    tenant_phone: 'tenant_phone' in b ? (String(b.tenant_phone ?? '').trim() || null) : (cur?.tenant_phone ?? null),
+    tenant_phone: 'tenant_phone' in b ? (normalizePhone(b.tenant_phone) ?? (String(b.tenant_phone ?? '').trim() || null)) : (cur?.tenant_phone ?? null),
     tenant_email: 'tenant_email' in b ? (email || null) : (cur?.tenant_email ?? null),
     lease_start: 'lease_start' in b ? dateOrNull(b.lease_start) : (cur?.lease_start ?? null),
     lease_end: 'lease_end' in b ? dateOrNull(b.lease_end) : (cur?.lease_end ?? null),
