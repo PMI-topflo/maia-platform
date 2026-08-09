@@ -32,12 +32,13 @@ const KEEPER_DOC_KEYS = new Set([
   'signed_lease', 'property_insurance', 'certificate_of_use', 'board_decision_page',
   'tenant_affidavit', 'landlord_tenant_agreement', 'board_approval_letter',
   'purchase_agreement', 'deed', 'ownership', 'governing_docs_ack', 'hoa_estoppel',
+  'occupant_affidavit', 'lease_addendum',   // additional-occupant applications
 ])
 
 // Approved keeper document → the unit compliance item it satisfies, so the
 // unit's "Documents on file" reflects the approval.
 const KEEPER_TO_COMPLIANCE: Record<string, string> = {
-  signed_lease: 'unit.leasing', property_insurance: 'unit.ho6', certificate_of_use: 'unit.lauderhill_cou',
+  signed_lease: 'unit.leasing', lease_addendum: 'unit.leasing', property_insurance: 'unit.ho6', certificate_of_use: 'unit.lauderhill_cou',
   governing_docs_ack: 'unit.rules_ack', landlord_tenant_agreement: 'unit.landlord_tenant_agreement',
   deed: 'unit.ownership', ownership: 'unit.ownership',
 }

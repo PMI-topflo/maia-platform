@@ -5,7 +5,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { createIntake, isStakeholderRole, roleLabel } from '@/lib/preapply'
+import { createIntake, carryOverApprovedDocs, isStakeholderRole, roleLabel } from '@/lib/preapply'
 import { signPreApplyToken } from '@/lib/preapply-token'
 import { isApplicationType } from '@/lib/intake-documents'
 import { sendEmail } from '@/lib/gmail'
@@ -67,6 +67,13 @@ export async function POST(req: Request) {
     applicant: { name, email, phone: String(b.phone ?? '').trim() || null },
   })
   if ('error' in created) return NextResponse.json({ error: created.error }, { status: 500 })
+
+  // Additional-occupant on an already-approved unit: carry the approved lease's
+  // files (lease, Certificate of Use, HO-6, governing-docs ack, …) into this new
+  // application so the occupant only adds their own items. Best-effort.
+  if (type === 'additional_occupant') {
+    void carryOverApprovedDocs(created.applicationId, code, String(b.unit ?? '').trim() || null).catch(() => null)
+  }
 
   // If a non-owner started this, let the unit owner know (best-effort — never
   // blocks the applicant). Owners starting their own application skip this.
