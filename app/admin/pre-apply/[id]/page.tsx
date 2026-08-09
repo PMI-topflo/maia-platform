@@ -131,6 +131,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
 
       {/* Board approval — files keepers to Official + archives the folder */}
       {!decided && <BoardApprove id={id} onDone={load} />}
+      {d.status === 'approved' && <RefileOfficial id={id} onDone={load} />}
 
       {/* Board Decision Page e-sign (formal signed decision record) */}
       {d.status === 'approved' && <DecisionPageSender id={id} unit={d.unit} />}
@@ -507,6 +508,32 @@ function BoardApprove({ id, onDone }: { id: string; onDone: () => void }) {
       ) : (
         <button onClick={preview} disabled={busy === 'plan'} style={btn('#166534')}>{busy === 'plan' ? 'Scanning files…' : 'Board approved — preview the filing'}</button>
       )}
+    </div>
+  )
+}
+
+// Recovery for an already-approved app whose Official folder got duplicates from
+// the old scan-based engine: trash that folder's files + re-copy the clean saved
+// keepers. Trash is reversible from Drive.
+function RefileOfficial({ id, onDone }: { id: string; onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [res, setRes] = useState<{ trashed: number; copiedToOfficial: number; errors: string[] } | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  async function run() {
+    if (!confirm('Trash everything currently in this unit’s Official “Lease/Purchase Applications” folder and re-copy only the clean saved documents? (Trashed files are recoverable from Drive.)')) return
+    setBusy(true); setErr(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/board-approve`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refileOfficial: true }) })
+      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed'); setRes(j); onDone()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+  return (
+    <div style={{ marginTop: 14, border: '1px solid #fed7aa', background: '#fff7ed', borderRadius: 12, padding: 14 }}>
+      <div style={{ font: '700 14px system-ui', color: '#9a3412' }}>🧹 Re-file Official (clean)</div>
+      <div style={{ font: '400 12.5px system-ui', color: '#7c2d12', margin: '3px 0 10px' }}>Trashes the current files in this unit’s Official folder and re-copies only the clean saved keepers (one per item) — use if an earlier approval left duplicates.</div>
+      {err && <p style={{ color: '#b91c1c', font: '13px system-ui' }}>⚠ {err}</p>}
+      {res ? <p style={{ font: '600 13px system-ui', color: '#166534' }}>✓ Trashed {res.trashed} · copied {res.copiedToOfficial} clean keeper(s){res.errors.length ? ` · ${res.errors.length} issue(s): ${res.errors.join('; ')}` : ''}</p>
+        : <button onClick={run} disabled={busy} style={{ ...btn('#9a3412'), padding: '8px 14px' }}>{busy ? 'Re-filing…' : 'Re-file Official cleanly'}</button>}
     </div>
   )
 }
