@@ -197,6 +197,11 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
                 ))}
               </div>
             )}
+
+            {/* Staff-only editor link — board / on-site manager see no link. */}
+            {data.persona === 'staff' && (
+              <a href={`/admin/pre-apply/${a.id}`} style={{ font: '600 13px system-ui', color: '#9a3412', textDecoration: 'none' }}>Update files in Applications →</a>
+            )}
           </div>
         )
       })()}
