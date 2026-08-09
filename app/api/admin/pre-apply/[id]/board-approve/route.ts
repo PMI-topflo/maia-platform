@@ -48,7 +48,7 @@ async function listChildren(rootId: string): Promise<{ id: string; name: string 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await ctx.params
-  let body: { dryRun?: boolean }
+  let body: { dryRun?: boolean; refileOfficial?: boolean }
   try { body = await req.json() } catch { body = {} }
   const dryRun = body.dryRun !== false   // default to a SAFE dry run
 
@@ -69,6 +69,34 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   for (const d of docs ?? []) if (d.doc_key && !byKey.has(String(d.doc_key))) byKey.set(String(d.doc_key), d as never)
   const keepers = [...byKey.values()].filter(d => KEEPER_DOC_KEYS.has(d.doc_key))
   const keeperName = (d: { suggested_name: string | null; filename: string }) => (d.suggested_name && d.suggested_name.trim()) || d.filename
+
+  // Recovery: TRASH whatever is in the unit's Official category subfolder and
+  // re-copy the clean saved keepers — fixes a folder that an earlier run filled
+  // with duplicates/misclassified files. Scoped to that one subfolder; trash is
+  // reversible from Drive.
+  if (body.refileOfficial) {
+    const drive = getDrive()
+    const done = { trashed: 0, copiedToOfficial: 0, errors: [] as string[] }
+    try {
+      const officialUnit = await resolveUnitFolder(DRIVE_FOLDERS.official, unitRef, true)
+      if (!officialUnit) return NextResponse.json({ error: 'could not resolve the Official unit folder' }, { status: 200 })
+      const catId = await resolveDatedSubfolder(officialUnit, approvalCategoryFolder(kind), true)
+      const dest = catId ?? officialUnit
+      for (const ch of await listChildren(dest)) {
+        try { await drive.files.update({ fileId: ch.id, requestBody: { trashed: true }, supportsAllDrives: true }); done.trashed++ }
+        catch (e) { done.errors.push(`trash ${ch.name}: ${e instanceof Error ? e.message : String(e)}`) }
+      }
+      for (const k of keepers) {
+        try {
+          const { data: blob } = await supabaseAdmin.storage.from(INTAKE_BUCKET).download(k.storage_path)
+          if (!blob) { done.errors.push(`missing file for ${k.doc_label}`); continue }
+          await mirrorBufferToFolder(dest, keeperName(k), k.mime_type ?? 'application/octet-stream', Buffer.from(await blob.arrayBuffer()))
+          done.copiedToOfficial++
+        } catch (e) { done.errors.push(`copy ${k.doc_label}: ${e instanceof Error ? e.message : String(e)}`) }
+      }
+    } catch (e) { done.errors.push(String(e instanceof Error ? e.message : e)) }
+    return NextResponse.json({ ok: true, refiled: true, unitRef, ...done })
+  }
 
   if (dryRun) {
     return NextResponse.json({
