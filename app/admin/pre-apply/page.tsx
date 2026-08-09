@@ -141,13 +141,10 @@ export default function PreApplyQueue() {
 
 const td: React.CSSProperties = { padding: '9px 12px', borderBottom: '1px solid #f3f4f6', color: '#374151', verticalAlign: 'top' }
 
-// Build an application link to paste into an email reply. Carries the
-// association + unit + type, so uploads file into the right Drive folder.
+// Build ONE application link to paste into an email reply. It carries only the
+// association + unit (+ optional language) — the applicant picks the application
+// TYPE themselves inside the flow, right after they identify + verify.
 function LinkGenerator() {
-  const TYPES = [
-    { key: 'lease', label: 'Rent (new lease)' }, { key: 'purchase', label: 'Purchase' },
-    { key: 'lease_renewal', label: 'Lease renewal' }, { key: 'additional_occupant', label: 'Additional occupant' },
-  ]
   const LANGS: { key: string; label: string }[] = [
     { key: '', label: 'Language (they choose)' }, { key: 'en', label: 'English' }, { key: 'es', label: 'Español' },
     { key: 'pt', label: 'Português' }, { key: 'fr', label: 'Français' }, { key: 'ht', label: 'Kreyòl' },
@@ -155,11 +152,10 @@ function LinkGenerator() {
   ]
   const [assoc, setAssoc] = useState('MANXI')
   const [unit, setUnit] = useState('')
-  const [type, setType] = useState('lease')
   const [lang, setLang] = useState('')
   const [copied, setCopied] = useState(false)
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
-  const qs = [unit ? `unit=${encodeURIComponent(unit.trim())}` : '', type ? `type=${type}` : '', lang ? `lang=${lang}` : ''].filter(Boolean).join('&')
+  const qs = [unit ? `unit=${encodeURIComponent(unit.trim())}` : '', lang ? `lang=${lang}` : ''].filter(Boolean).join('&')
   const link = `${origin}/pre-apply/${encodeURIComponent(assoc.trim().toUpperCase())}${qs ? `?${qs}` : ''}`
   const copy = async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800) } catch { /* */ } }
   const s: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 8 }
@@ -169,12 +165,11 @@ function LinkGenerator() {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <input value={assoc} onChange={e => setAssoc(e.target.value)} placeholder="Association" style={{ ...s, width: 100 }} />
         <input value={unit} onChange={e => setUnit(e.target.value)} placeholder="Unit (e.g. 103)" style={{ ...s, width: 130 }} />
-        <select value={type} onChange={e => setType(e.target.value)} style={s}>{TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select>
         <select value={lang} onChange={e => setLang(e.target.value)} style={s}>{LANGS.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}</select>
         <input readOnly value={link} onFocus={e => e.currentTarget.select()} style={{ ...s, flex: 1, minWidth: 220, fontFamily: 'ui-monospace, monospace', fontSize: 12, color: '#374151' }} />
         <button onClick={copy} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', background: copied ? '#059669' : '#f26a1b', color: '#fff', font: '600 13px system-ui' }}>{copied ? '✓ Copied' : 'Copy'}</button>
       </div>
-      <p style={{ fontSize: 11.5, color: '#9ca3af', margin: '8px 0 0' }}>Paste into your reply. The applicant uploads that unit&apos;s document checklist + signs the rules; MAIA files it into the unit&apos;s On Going Applications Drive folder.</p>
+      <p style={{ fontSize: 11.5, color: '#9ca3af', margin: '8px 0 0' }}>One link per unit. The applicant identifies who they are, verifies, then picks the application type — MAIA files everything into the unit&apos;s On Going Applications Drive folder.</p>
     </div>
   )
 }

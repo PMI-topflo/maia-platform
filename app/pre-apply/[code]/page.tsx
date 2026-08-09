@@ -85,11 +85,11 @@ const field: React.CSSProperties = { width: '100%', padding: '10px 12px', fontSi
 const label: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: '#374151', marginTop: 14, display: 'block' }
 const primary = (on: boolean): React.CSSProperties => ({ width: '100%', marginTop: 18, padding: '13px', fontSize: 16, fontWeight: 700, color: '#fff', background: on ? '#f26a1b' : '#9ca3af', border: 'none', borderRadius: 8, cursor: on ? 'pointer' : 'default' })
 
-type Step = 'type' | 'persona' | 'contact' | 'invite' | 'docs'
+type Step = 'welcome' | 'persona' | 'contact' | 'type' | 'invite' | 'docs'
 
 export default function PreApplyPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params)
-  const [step, setStep] = useState<Step>('type')
+  const [step, setStep] = useState<Step>('welcome')
   const [type, setType] = useState<string>('')
   const [role, setRole] = useState<string>('')
   const [lang, setLang] = useState<PortalLang>('en')
@@ -106,10 +106,11 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
     setLang(normalizePortalLang(q.get('lang')))
     const t = q.get('t')
     if (t) { setToken(t); setStep('docs'); return }
+    // A staff link may still carry ?type= — pre-select it (the applicant picks
+    // it after they identify), and prefill any name/email/unit.
     const qType = q.get('type') ?? ''
     if (TYPE_DEFS.some(x => x.key === qType)) setType(qType)
     setForm(f => ({ ...f, unit: q.get('unit') ?? f.unit, name: q.get('name') ?? f.name, email: q.get('email') ?? f.email }))
-    if (TYPE_DEFS.some(x => x.key === qType)) setStep('persona')
   }, [])
 
   async function start() {
@@ -145,13 +146,14 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
         </div>
         <div className="pa-assoc">The Manors of Inverrary XI Condominium Association</div>
         <h1 className="pa-h1">{s.title}</h1>
-        {step === 'type' && <><p className="pa-lede">{s.lede}</p><span className="pa-pill">{s.pill}</span></>}
+        {step === 'welcome' && <><p className="pa-lede">{s.lede}</p><span className="pa-pill">{s.pill}</span></>}
         {step === 'persona' && <p className="pa-lede">{f.personaP}</p>}
         {step === 'contact' && <p className="pa-lede">{s.contactSub}</p>}
+        {step === 'type' && <p className="pa-lede">{s.getP}</p>}
         {step === 'invite' && <p className="pa-lede">{f.inviteP}</p>}
       </div>
 
-      {step === 'type' && (
+      {step === 'welcome' && (
         <>
           <div className="pa-card">
             <div className="pa-eye">🌐 {s.langEye}</div>
@@ -174,20 +176,29 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
           <div className="pa-card">
             <div className="pa-eye">{s.getEye}</div>
             <h2>{s.getH2}</h2><p>{s.getP}</p>
-            <div className="pa-types">
-              {TYPE_DEFS.map(tp => (
-                <button key={tp.key} className={`pa-type${type === tp.key ? ' on' : ''}`} onClick={() => { setType(tp.key); setErr(null) }}>
-                  <div className="pa-ic">{tp.icon}</div>
-                  <div className="pa-tt">{s[tp.tk]}</div>
-                  <div className="pa-td">{s[tp.dk]}</div>
-                </button>
-              ))}
-            </div>
-            {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
-            <button className="pa-cta" disabled={!type} onClick={() => { if (!type) return; setErr(null); setStep('persona') }}>{s.cta}</button>
+            <button className="pa-cta" onClick={() => { setErr(null); setStep('persona') }}>{s.cta}</button>
           </div>
           <div className="pa-foot">{s.foot}</div>
         </>
+      )}
+
+      {step === 'type' && (
+        <div className="pa-card">
+          <div className="pa-eye">{s.getEye}</div>
+          <h2>{s.getH2}</h2>
+          <div className="pa-types">
+            {TYPE_DEFS.map(tp => (
+              <button key={tp.key} className={`pa-type${type === tp.key ? ' on' : ''}`} onClick={() => { setType(tp.key); setErr(null) }}>
+                <div className="pa-ic">{tp.icon}</div>
+                <div className="pa-tt">{s[tp.tk]}</div>
+                <div className="pa-td">{s[tp.dk]}</div>
+              </button>
+            ))}
+          </div>
+          {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
+          <button className="pa-cta" disabled={!type || busy} onClick={start}>{busy ? '…' : s.cta}</button>
+          <button onClick={() => setStep('contact')} className="pa-link" style={{ display: 'block', margin: '10px auto 0' }}>{s.back}</button>
+        </div>
       )}
 
       {step === 'persona' && (
@@ -205,7 +216,7 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
           </div>
           {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
           <button className="pa-cta" disabled={!role} onClick={() => { if (!role) return; setErr(null); setStep('contact') }}>{s.continue2}</button>
-          <button onClick={() => setStep('type')} className="pa-link" style={{ display: 'block', margin: '10px auto 0' }}>{s.back}</button>
+          <button onClick={() => setStep('welcome')} className="pa-link" style={{ display: 'block', margin: '10px auto 0' }}>{s.back}</button>
         </div>
       )}
 
@@ -223,7 +234,7 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
           <label className="pa-lbl">{s.phoneL}<input className="pa-field" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} inputMode="tel" /></label>
           <label className="pa-lbl">{s.unitL}<input className="pa-field" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} placeholder="e.g. 511" /></label>
           {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
-          <button className="pa-cta" onClick={start} disabled={busy}>{busy ? '…' : s.continue2}</button>
+          <button className="pa-cta" onClick={() => { if (!form.name.trim() || !form.email.includes('@')) { setErr('Please enter your name and a valid email.'); return } setErr(null); setStep('type') }}>{s.continue2}</button>
           <button onClick={() => setStep('persona')} className="pa-link" style={{ display: 'block', margin: '10px auto 0' }}>{s.back}</button>
         </div>
       )}
