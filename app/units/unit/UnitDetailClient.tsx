@@ -150,20 +150,10 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
           {u.inCollections && <span style={{ marginLeft: 8, font: '700 11px system-ui', color: '#fff', background: '#dc2626', borderRadius: 6, padding: '2px 6px' }}>IN COLLECTIONS</span>}
           {u.inCollections && <div style={{ marginTop: 6, font: '400 11px system-ui', color: '#92400e', lineHeight: 1.45 }}>⚠ {COLLECTIONS_BALANCE_NOTE}</div>}
         </Card>
-        {(u.occupancy === 'leased' || data.tenantRecord?.tenant_name) && (() => {
-          const tr = data.tenantRecord
-          const name = tr?.tenant_name || u.tenantName || '—'
-          const start = tr?.lease_start, end = tr?.lease_end || u.leaseEndDate
-          return (
-            <Card title="Tenant">
-              <div style={{ fontWeight: 600 }}>{name}</div>
-              {(start || end) && <div style={{ font: '500 13px system-ui', color: '#374151' }}>Lease {start || '?'} → {end || '?'}</div>}
-              {tr?.tenant_phone ? <div style={{ font: '500 13px system-ui', color: '#374151' }}>📞 {tr.tenant_phone}</div> : <div style={{ font: '400 12px system-ui', color: '#9ca3af' }}>📞 no phone on file</div>}
-              {tr?.tenant_email ? <div style={{ font: '500 13px system-ui', color: '#374151' }}>✉ {tr.tenant_email}</div> : <div style={{ font: '400 12px system-ui', color: '#9ca3af' }}>✉ no email on file</div>}
-              {tr?.updated_by && <div style={{ font: '400 11px system-ui', color: '#9ca3af', marginTop: 4 }}>source: {tr.updated_by}</div>}
-            </Card>
-          )
-        })()}
+        {(u.occupancy === 'leased' || data.tenantRecord?.tenant_name) && (
+          <TenantCard account={account} assoc={assoc} tr={data.tenantRecord}
+            fallbackName={u.tenantName} fallbackEnd={u.leaseEndDate} canEdit={data.canUpload} onDone={load} />
+        )}
       </div>
 
       {/* Ongoing application — surfaced up top because the board keeps asking
@@ -321,6 +311,14 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
           })}
           {u.requiredKeys.length === 0 && <li style={{ color: '#6b7280' }}>No required documents configured.</li>}
         </ul>
+        {data.canUpload && u.onFileKeys.length < u.requiredKeys.length && (
+          <div style={{ marginTop: 10 }}>
+            <button onClick={emailOwner} disabled={busy === 'email'} style={{ font: '600 13px system-ui', color: '#fff', background: busy === 'email' ? '#9ca3af' : '#1d4ed8', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy === 'email' ? 'default' : 'pointer' }}>
+              {busy === 'email' ? 'Sending…' : '📧 Request missing files from the owner'}
+            </button>
+            <div style={{ font: '400 11.5px system-ui', color: '#9ca3af', marginTop: 4 }}>Emails the owner the list of what&apos;s missing + a link to upload it. Or upload it yourself below — either way PMI + Jonathan are notified to review.</div>
+          </div>
+        )}
       </Section>
 
       {/* Documents on file — the actual filed files with their expiration, so
@@ -409,6 +407,60 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
 
       <ApplicationLinkCard assoc={assoc} unitLabel={u.unit ?? account} />
     </Shell>
+  )
+}
+
+// Tenant card — board / on-site manager / staff can add or edit the tenant's
+// name, phone, email and lease dates (saved to unit_tenant_contacts).
+function TenantCard({ account, assoc, tr, fallbackName, fallbackEnd, canEdit, onDone }: {
+  account: string; assoc: string
+  tr: { tenant_name: string | null; tenant_phone: string | null; tenant_email: string | null; lease_start: string | null; lease_end: string | null; updated_by: string | null; updated_at: string | null } | null
+  fallbackName: string | null; fallbackEnd: string | null; canEdit: boolean; onDone: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [f, setF] = useState({ tenant_name: tr?.tenant_name ?? fallbackName ?? '', tenant_phone: tr?.tenant_phone ?? '', tenant_email: tr?.tenant_email ?? '', lease_start: tr?.lease_start ?? '', lease_end: tr?.lease_end ?? fallbackEnd ?? '' })
+  useEffect(() => { setF({ tenant_name: tr?.tenant_name ?? fallbackName ?? '', tenant_phone: tr?.tenant_phone ?? '', tenant_email: tr?.tenant_email ?? '', lease_start: tr?.lease_start ?? '', lease_end: tr?.lease_end ?? fallbackEnd ?? '' }) }, [tr, fallbackName, fallbackEnd])
+
+  async function save() {
+    setBusy(true); setErr(null)
+    try {
+      const r = await fetch('/api/units/tenant', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account, assoc, ...f }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); setEditing(false); onDone()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+
+  const name = tr?.tenant_name || fallbackName || '—'
+  const start = tr?.lease_start, end = tr?.lease_end || fallbackEnd
+  const inp: React.CSSProperties = { width: '100%', font: '13px system-ui', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', marginTop: 3 }
+  const lbl: React.CSSProperties = { font: '600 11px system-ui', color: '#6b7280', marginTop: 6, display: 'block' }
+
+  if (editing) return (
+    <Card title="Tenant">
+      <label style={{ ...lbl, marginTop: 0 }}>Name<input style={inp} value={f.tenant_name} onChange={e => setF({ ...f, tenant_name: e.target.value })} /></label>
+      <label style={lbl}>Phone<input style={inp} value={f.tenant_phone} onChange={e => setF({ ...f, tenant_phone: e.target.value })} inputMode="tel" /></label>
+      <label style={lbl}>Email<input style={inp} type="email" value={f.tenant_email} onChange={e => setF({ ...f, tenant_email: e.target.value })} /></label>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <label style={{ ...lbl, flex: 1 }}>Lease start<input style={inp} type="date" value={f.lease_start} onChange={e => setF({ ...f, lease_start: e.target.value })} /></label>
+        <label style={{ ...lbl, flex: 1 }}>Lease end<input style={inp} type="date" value={f.lease_end} onChange={e => setF({ ...f, lease_end: e.target.value })} /></label>
+      </div>
+      {err && <div style={{ font: '12px system-ui', color: '#b91c1c', marginTop: 6 }}>⚠ {err}</div>}
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <button onClick={save} disabled={busy} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>{busy ? 'Saving…' : 'Save'}</button>
+        <button onClick={() => { setEditing(false); setErr(null) }} style={{ font: '600 12px system-ui', color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
+      </div>
+    </Card>
+  )
+  return (
+    <Card title="Tenant">
+      <div style={{ fontWeight: 600 }}>{name}</div>
+      {(start || end) && <div style={{ font: '500 13px system-ui', color: '#374151' }}>Lease {start || '?'} → {end || '?'}</div>}
+      {tr?.tenant_phone ? <div style={{ font: '500 13px system-ui', color: '#374151' }}>📞 {tr.tenant_phone}</div> : <div style={{ font: '400 12px system-ui', color: '#9ca3af' }}>📞 no phone on file</div>}
+      {tr?.tenant_email ? <div style={{ font: '500 13px system-ui', color: '#374151' }}>✉ {tr.tenant_email}</div> : <div style={{ font: '400 12px system-ui', color: '#9ca3af' }}>✉ no email on file</div>}
+      {tr?.updated_by && <div style={{ font: '400 11px system-ui', color: '#9ca3af', marginTop: 4 }}>source: {tr.updated_by}</div>}
+      {canEdit && <button onClick={() => setEditing(true)} style={{ font: '600 12px system-ui', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 6 }}>✎ Add / edit contact</button>}
+    </Card>
   )
 }
 
