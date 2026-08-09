@@ -34,11 +34,22 @@ async function flagDriveFolder(appId: string): Promise<void> {
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await ctx.params
-  const { data: app } = await supabaseAdmin.from('listing_applications').select('id, listing_id').eq('id', id).maybeSingle()
+  const { data: app } = await supabaseAdmin.from('listing_applications').select('id, listing_id, status').eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'not found' }, { status: 404 })
 
   let b: { application_type?: string; applicant_name?: string }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
+
+  // Guard: an APPROVED application is the tenant/buyer of record for the unit.
+  // Changing its type or applicant here would overwrite that record in place
+  // (this is how unit 1003 got turned into "Rushayne Shaw · Additional occupant").
+  // To add an occupant or file a different application, start a NEW one from the
+  // unit's Pre-Application link instead.
+  if (app.status === 'approved' && ((typeof b.application_type === 'string' && b.application_type.trim()) || typeof b.applicant_name === 'string')) {
+    return NextResponse.json({
+      error: 'This application is already approved — its type and applicant are locked so the approved record isn\'t overwritten. To add an occupant or file another application for this unit, start a new one from the unit\'s Pre-Application link.',
+    }, { status: 409 })
+  }
 
   if (typeof b.application_type === 'string' && b.application_type.trim()) {
     if (!isApplicationType(b.application_type.trim())) return NextResponse.json({ error: 'invalid application type' }, { status: 400 })
