@@ -80,6 +80,65 @@ export async function createIntake(input: {
   return { applicationId: app.id, listingId: listing.id, stakeholderId: sh.id }
 }
 
+// ── Additional-occupant carry-over ───────────────────────────────────
+// When an additional-occupant application starts on a unit that already has an
+// APPROVED lease/purchase, the occupant doesn't re-submit the whole packet: the
+// approved lease, Certificate of Use, HO-6, governing-docs ack, etc. carry over.
+// The occupant only adds their own new items (ID, occupant affidavit, a lease
+// ADDENDUM instead of a new lease, background-check consent, its own approval
+// letter). We copy the approved keeper files into the new application as
+// INDEPENDENT storage objects so the two applications never share a blob.
+const CARRY_OVER_KEYS = new Set([
+  'signed_lease', 'certificate_of_use', 'property_insurance', 'governing_docs_ack',
+  'landlord_tenant_agreement', 'board_decision_page', 'tenant_affidavit',
+  // NOT board_approval_letter — the additional application gets its own.
+])
+
+export async function carryOverApprovedDocs(newAppId: string, associationCode: string, unitLabel: string | null): Promise<number> {
+  const unit = (unitLabel ?? '').trim()
+  if (!unit) return 0
+  const assoc = associationCode.toUpperCase()
+  const norm = (v: string) => v.trim().toLowerCase().replace(/^unit\s+/, '')
+  const digits = (v: string) => v.replace(/\D/g, '')
+
+  // Most-recent approved lease/purchase/renewal for this unit (the tenant of record).
+  const { data: apps } = await supabaseAdmin.from('listing_applications')
+    .select('id, unit_label, application_type, status, created_at')
+    .eq('association_code', assoc).in('application_type', ['lease', 'purchase', 'lease_renewal']).eq('status', 'approved')
+    .order('created_at', { ascending: false })
+  const src = (apps ?? []).find(a => { const ul = norm(String(a.unit_label ?? '')); return !!ul && (ul === norm(unit) || digits(ul) === digits(unit)) })
+  if (!src || src.id === newAppId) return 0
+
+  const [{ data: srcDocs }, { data: existing }, { data: newApp }] = await Promise.all([
+    supabaseAdmin.from('application_documents')
+      .select('doc_key, doc_label, storage_path, filename, mime_type, expiration_date, no_expiration').eq('application_id', src.id),
+    supabaseAdmin.from('application_documents').select('doc_key').eq('application_id', newAppId),
+    supabaseAdmin.from('listing_applications').select('listing_id').eq('id', newAppId).maybeSingle(),
+  ])
+  const have = new Set((existing ?? []).map(e => String(e.doc_key)))
+  const pick = (srcDocs ?? []).filter(d => d.doc_key && CARRY_OVER_KEYS.has(String(d.doc_key)) && !have.has(String(d.doc_key)))
+  if (!pick.length) return 0
+
+  let filed = 0
+  for (const d of pick) {
+    const from = String(d.storage_path)
+    const ext = from.includes('.') ? from.slice(from.lastIndexOf('.')) : ''
+    const to = `${newAppId}/carried/${d.doc_key}${ext}`
+    // Independent copy; skip this doc if the source object is gone.
+    const { error: ce } = await supabaseAdmin.storage.from(INTAKE_BUCKET).copy(from, to)
+    if (ce) continue
+    const { error: ie } = await supabaseAdmin.from('application_documents').insert({
+      application_id: newAppId, listing_id: (newApp?.listing_id as string | null) ?? null,
+      doc_key: d.doc_key, doc_label: `${d.doc_label} (from approved lease)`,
+      storage_path: to, filename: d.filename, mime_type: d.mime_type,
+      expiration_date: d.expiration_date, no_expiration: d.no_expiration,
+      uploaded_by_role: 'carried-over', kind: 'carried_over',
+    })
+    if (!ie) filed++
+  }
+  return filed
+}
+
 // ── Collaborators ────────────────────────────────────────────────────
 export interface StakeholderRow {
   id: string; role: StakeholderRole; name: string | null; email: string | null; phone: string | null
