@@ -150,18 +150,20 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
           {u.inCollections && <span style={{ marginLeft: 8, font: '700 11px system-ui', color: '#fff', background: '#dc2626', borderRadius: 6, padding: '2px 6px' }}>IN COLLECTIONS</span>}
           {u.inCollections && <div style={{ marginTop: 6, font: '400 11px system-ui', color: '#92400e', lineHeight: 1.45 }}>⚠ {COLLECTIONS_BALANCE_NOTE}</div>}
         </Card>
-        {u.occupancy === 'leased' && <Card title="Tenant">{u.tenantName || '—'}{u.leaseEndDate ? ` · lease ends ${u.leaseEndDate}` : ''}</Card>}
-        {data.tenantRecord && (data.tenantRecord.tenant_name || data.tenantRecord.lease_end) && (
-          <Card title="Tenant on file (confirm)">
-            <div style={{ fontWeight: 600 }}>{data.tenantRecord.tenant_name || '—'}</div>
-            {(data.tenantRecord.lease_start || data.tenantRecord.lease_end) && (
-              <div style={{ font: '500 13px system-ui', color: '#374151' }}>Lease {data.tenantRecord.lease_start || '?'} → {data.tenantRecord.lease_end || '?'}</div>
-            )}
-            {data.tenantRecord.tenant_phone && <div style={{ font: '500 13px system-ui', color: '#374151' }}>📞 {data.tenantRecord.tenant_phone}</div>}
-            {data.tenantRecord.tenant_email && <div style={{ font: '500 13px system-ui', color: '#374151' }}>✉ {data.tenantRecord.tenant_email}</div>}
-            {data.tenantRecord.updated_by && <div style={{ font: '400 11px system-ui', color: '#9ca3af', marginTop: 4 }}>source: {data.tenantRecord.updated_by}</div>}
-          </Card>
-        )}
+        {(u.occupancy === 'leased' || data.tenantRecord?.tenant_name) && (() => {
+          const tr = data.tenantRecord
+          const name = tr?.tenant_name || u.tenantName || '—'
+          const start = tr?.lease_start, end = tr?.lease_end || u.leaseEndDate
+          return (
+            <Card title="Tenant">
+              <div style={{ fontWeight: 600 }}>{name}</div>
+              {(start || end) && <div style={{ font: '500 13px system-ui', color: '#374151' }}>Lease {start || '?'} → {end || '?'}</div>}
+              {tr?.tenant_phone ? <div style={{ font: '500 13px system-ui', color: '#374151' }}>📞 {tr.tenant_phone}</div> : <div style={{ font: '400 12px system-ui', color: '#9ca3af' }}>📞 no phone on file</div>}
+              {tr?.tenant_email ? <div style={{ font: '500 13px system-ui', color: '#374151' }}>✉ {tr.tenant_email}</div> : <div style={{ font: '400 12px system-ui', color: '#9ca3af' }}>✉ no email on file</div>}
+              {tr?.updated_by && <div style={{ font: '400 11px system-ui', color: '#9ca3af', marginTop: 4 }}>source: {tr.updated_by}</div>}
+            </Card>
+          )
+        })()}
       </div>
 
       {/* Ongoing application — surfaced up top because the board keeps asking
@@ -208,7 +210,6 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
 
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
               <a href={`/units/applications?assoc=${encodeURIComponent(assoc)}`} style={{ font: '600 13px system-ui', color: '#9a3412', textDecoration: 'none' }}>Open in applications →</a>
-              {a.driveFolderUrl && <a href={a.driveFolderUrl} target="_blank" rel="noopener noreferrer" style={{ font: '600 13px system-ui', color: '#2563eb', textDecoration: 'none' }}>📁 On Going Applications folder →</a>}
             </div>
           </div>
         )
@@ -411,30 +412,21 @@ export default function UnitDetailClient({ account, assoc }: { account: string; 
   )
 }
 
-// Generates the unit-scoped Pre-Application link staff paste into an email
-// reply. Because the link carries the unit + type, MAIA files the applicant's
-// uploads into the correct "On Going Applications" Drive subfolder automatically.
+// Generates the ONE unit-scoped Pre-Application link staff paste into an email
+// reply. The applicant picks the application type themselves in the flow.
 function ApplicationLinkCard({ assoc, unitLabel }: { assoc: string; unitLabel: string }) {
-  const TYPES = [
-    { key: 'lease', label: 'Rent (new lease)' }, { key: 'purchase', label: 'Purchase' },
-    { key: 'lease_renewal', label: 'Lease renewal' }, { key: 'additional_occupant', label: 'Additional occupant' },
-  ]
-  const [type, setType] = useState('lease')
   const [copied, setCopied] = useState(false)
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
-  const link = `${origin}/pre-apply/${encodeURIComponent(assoc)}?unit=${encodeURIComponent(unitLabel)}&type=${type}`
+  const link = `${origin}/pre-apply/${encodeURIComponent(assoc)}?unit=${encodeURIComponent(unitLabel)}`
   const copy = async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800) } catch { /* */ } }
 
   return (
     <div style={{ marginTop: 18, padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }}>
       <div style={{ font: '700 15px system-ui', color: '#1f2a44' }}>Application link (reply by email)</div>
       <div style={{ font: '400 13px system-ui', color: '#6b7280', margin: '4px 0 12px' }}>
-        Copy this unit-scoped link into your email reply. The applicant gets this unit&apos;s document checklist, uploads each item, and signs the rules — MAIA files everything into this unit&apos;s <strong>On Going Applications</strong> Drive folder automatically (it creates the subfolder).
+        Copy this unit-scoped link into your email reply. The applicant identifies who they are, verifies, then picks the application type — MAIA files everything into this unit&apos;s <strong>On Going Applications</strong> Drive folder automatically.
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <select value={type} onChange={e => setType(e.target.value)} style={{ font: '13px system-ui', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 8 }}>
-          {TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-        </select>
         <input readOnly value={link} onFocus={e => e.currentTarget.select()} style={{ flex: 1, minWidth: 220, font: '12px ui-monospace, monospace', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 8, color: '#374151' }} />
         <button onClick={copy} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', background: copied ? '#059669' : '#f26a1b', color: '#fff', font: '600 13px system-ui' }}>{copied ? '✓ Copied' : 'Copy link'}</button>
       </div>
