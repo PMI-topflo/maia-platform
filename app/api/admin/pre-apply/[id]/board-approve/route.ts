@@ -63,9 +63,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // 1. Use the SAVED documents (what staff reviewed), NOT a re-scan. Keeper
   //    items → Official; one per checklist item, deduped, with the approved name.
   const { data: docs } = await supabaseAdmin.from('application_documents')
-    .select('id, doc_key, doc_label, storage_path, filename, suggested_name, mime_type')
+    .select('id, doc_key, doc_label, storage_path, filename, suggested_name, mime_type, expiration_date, no_expiration')
     .eq('application_id', id).order('created_at', { ascending: true })
-  const byKey = new Map<string, { doc_key: string; doc_label: string; storage_path: string; filename: string; suggested_name: string | null; mime_type: string | null }>()
+  const byKey = new Map<string, { doc_key: string; doc_label: string; storage_path: string; filename: string; suggested_name: string | null; mime_type: string | null; expiration_date: string | null; no_expiration: boolean }>()
   for (const d of docs ?? []) if (d.doc_key && !byKey.has(String(d.doc_key))) byKey.set(String(d.doc_key), d as never)
   const keepers = [...byKey.values()].filter(d => KEEPER_DOC_KEYS.has(d.doc_key))
   const keeperName = (d: { suggested_name: string | null; filename: string }) => (d.suggested_name && d.suggested_name.trim()) || d.filename
@@ -147,21 +147,48 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     } else done.errors.push('could not resolve the Archive unit folder')
   } catch (e) { done.errors.push(`Archive: ${e instanceof Error ? e.message : String(e)}`) }
 
-  // 4. Best-effort: extract tenant + lease term from the saved lease keeper.
-  try {
+  // 4. Best-effort: write the tenant record — name/lease from the lease keeper,
+  //    with the applicant's email + phone (from the primary stakeholder) as the
+  //    contact so the board's Tenant box has a way to reach them.
+  if (kind === 'lease') try {
     const lease = keepers.find(k => k.doc_key === 'signed_lease')
-    if (lease && kind === 'lease') {
+    const { data: primarySh } = await supabaseAdmin.from('application_stakeholders')
+      .select('name, email, phone').eq('application_id', id).eq('is_primary', true).maybeSingle()
+    let d: Awaited<ReturnType<typeof extractLeaseDetails>> | null = null
+    if (lease) {
       const { data: blob } = await supabaseAdmin.storage.from(INTAKE_BUCKET).download(lease.storage_path)
-      const d = blob ? await extractLeaseDetails(Buffer.from(await blob.arrayBuffer()), lease.mime_type) : null
-      if (d && (d.tenantNames.length || d.leaseEnd)) {
-        await supabaseAdmin.from('unit_tenant_contacts').upsert({
-          association_code: String(app.association_code), unit_ref: unitRef,
-          tenant_name: d.tenantNames.join(' & ') || null, tenant_email: d.tenantEmail, tenant_phone: d.tenantPhone,
-          lease_start: d.leaseStart, lease_end: d.leaseEnd, updated_by: 'staff: board approval', updated_at: new Date().toISOString(),
-        }, { onConflict: 'association_code,unit_ref' })
-      }
+      d = blob ? await extractLeaseDetails(Buffer.from(await blob.arrayBuffer()), lease.mime_type) : null
     }
-  } catch (e) { done.errors.push(`lease extract: ${e instanceof Error ? e.message : String(e)}`) }
+    const tenantName = (d?.tenantNames.length ? d.tenantNames.join(' & ') : null) || (primarySh?.name as string | null) || null
+    const email = d?.tenantEmail || (primarySh?.email as string | null) || null
+    const phone = d?.tenantPhone || (primarySh?.phone as string | null) || null
+    if (tenantName || email || phone || d?.leaseEnd) {
+      await supabaseAdmin.from('unit_tenant_contacts').upsert({
+        association_code: String(app.association_code), unit_ref: unitRef,
+        tenant_name: tenantName, tenant_email: email, tenant_phone: phone,
+        lease_start: d?.leaseStart ?? null, lease_end: d?.leaseEnd ?? null, updated_by: 'staff: board approval', updated_at: new Date().toISOString(),
+      }, { onConflict: 'association_code,unit_ref' })
+    }
+  } catch (e) { done.errors.push(`tenant record: ${e instanceof Error ? e.message : String(e)}`) }
+
+  // 4b. File the unit's compliance records from the approved keepers, so the
+  //     unit's "Documents on file" reflects what was just approved.
+  const KEEPER_TO_COMPLIANCE: Record<string, string> = {
+    signed_lease: 'unit.leasing', property_insurance: 'unit.ho6', certificate_of_use: 'unit.lauderhill_cou',
+    governing_docs_ack: 'unit.rules_ack', landlord_tenant_agreement: 'unit.landlord_tenant_agreement',
+    deed: 'unit.ownership', ownership: 'unit.ownership',
+  }
+  const nowIso = new Date().toISOString()
+  for (const k of keepers) {
+    const item = KEEPER_TO_COMPLIANCE[k.doc_key]
+    if (!item) continue
+    const exp = k.no_expiration ? null : (k.expiration_date ?? null)
+    const status = exp && new Date(exp) < new Date() ? 'expiring' : 'current'
+    await supabaseAdmin.from('compliance_records').upsert({
+      scope: 'unit', association_code: String(app.association_code), unit_ref: unitRef, item_key: item,
+      applicable: true, status, expiry_date: exp, updated_by: 'staff: board approval', updated_at: nowIso,
+    }, { onConflict: 'scope,association_code,unit_ref,item_key' }).then(() => null, () => null)
+  }
 
   // 5. Mark approved.
   await supabaseAdmin.from('listing_applications').update({
