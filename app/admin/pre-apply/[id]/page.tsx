@@ -81,6 +81,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       </div>
       <p style={{ color: '#6b7280', fontSize: 14, margin: '2px 0 0' }}>{d.associationCode}{d.unit ? ` · Unit ${d.unit}` : ''} · submitted {fmt(d.submittedAt)}</p>
       <p style={{ fontSize: 13, color: '#374151', margin: '4px 0 0' }}>{d.applicant?.email}{d.applicant?.phone ? ` · ${d.applicant.phone}` : ''}</p>
+      <MetaEditor id={id} name={d.applicant?.name ?? ''} type={d.type} onDone={load} />
       {d.driveFolderUrl && <p style={{ margin: '8px 0 0' }}><a href={d.driveFolderUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 13, fontWeight: 600 }}>📁 Drive folder →</a></p>}
 
       {/* Checklist — with staff upload boxes so you can file a doc you got by email */}
@@ -508,6 +509,44 @@ function BoardApprove({ id, onDone }: { id: string; onDone: () => void }) {
       ) : (
         <button onClick={preview} disabled={busy === 'plan'} style={btn('#166534')}>{busy === 'plan' ? 'Scanning files…' : 'Board approved — preview the filing'}</button>
       )}
+    </div>
+  )
+}
+
+// Set the applicant name + the application type (new lease / lease renewal /
+// purchase / additional occupant). Imported/Drive-only apps have no applicant
+// name, so it shows "—" until set here.
+const APP_TYPES: { key: string; label: string }[] = [
+  { key: 'lease', label: 'New lease' }, { key: 'lease_renewal', label: 'Lease renewal' },
+  { key: 'purchase', label: 'Purchase' }, { key: 'additional_occupant', label: 'Additional occupant' },
+]
+function MetaEditor({ id, name, type, onDone }: { id: string; name: string; type: string; onDone: () => void }) {
+  const [editing, setEditing] = useState(false)
+  const [nameV, setNameV] = useState(name)
+  const [typeV, setTypeV] = useState(type)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { setNameV(name); setTypeV(type) }, [name, type])
+  async function save() {
+    setBusy(true)
+    try { await fetch(`/api/admin/pre-apply/${id}/meta`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ applicant_name: nameV, application_type: typeV }) }); setEditing(false); onDone() }
+    catch { /* */ } finally { setBusy(false) }
+  }
+  if (!editing) return (
+    <p style={{ fontSize: 13, color: '#374151', margin: '6px 0 0', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <span><strong>Applicant:</strong> {name || <span style={{ color: '#b45309' }}>not set</span>}</span>
+      <span style={{ color: '#9ca3af' }}>·</span>
+      <span><strong>Type:</strong> {APP_TYPES.find(t => t.key === type)?.label ?? type}</span>
+      <button onClick={() => setEditing(true)} style={{ font: '600 12px system-ui', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>✎ edit</button>
+    </p>
+  )
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '8px 0 0', flexWrap: 'wrap', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 10px' }}>
+      <input value={nameV} onChange={e => setNameV(e.target.value)} placeholder="Applicant name" style={{ font: '13px system-ui', padding: '5px 9px', border: '1px solid #d1d5db', borderRadius: 6, width: 200 }} />
+      <select value={typeV} onChange={e => setTypeV(e.target.value)} style={{ font: '13px system-ui', padding: '5px 9px', border: '1px solid #d1d5db', borderRadius: 6 }}>
+        {APP_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+      </select>
+      <button onClick={save} disabled={busy} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>{busy ? 'Saving…' : 'Save'}</button>
+      <button onClick={() => { setEditing(false); setNameV(name); setTypeV(type) }} style={{ font: '600 12px system-ui', color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
     </div>
   )
 }
