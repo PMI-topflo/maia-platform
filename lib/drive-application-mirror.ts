@@ -136,6 +136,28 @@ export function driveDateLabel(iso: string | null | undefined): string | null {
   return `${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
+const FOLDER_TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease Renewal', additional_occupant: 'Additional Occupant' }
+
+/** Rename an application's On-Going Drive folder to "<ASSOC>### — <Type> — <Applicants>"
+ *  so the folder name says the application type + who's on it (fixes bare
+ *  "YYYY_MM_Name" folders). Best-effort — prod-only Drive; never throws. */
+export async function renameApplicationFolder(applicationId: string): Promise<void> {
+  try {
+    const { data: app } = await supabaseAdmin.from('listing_applications')
+      .select('association_code, unit_label, application_type, drive_folder_id').eq('id', applicationId).maybeSingle()
+    const fid = String(app?.drive_folder_id ?? '')
+    if (!fid) return
+    const { data: sh } = await supabaseAdmin.from('application_stakeholders')
+      .select('name, is_primary, created_at').eq('application_id', applicationId).eq('role', 'applicant')
+      .order('is_primary', { ascending: false }).order('created_at', { ascending: true })
+    const names = (sh ?? []).map(s => String(s.name ?? '').trim()).filter(Boolean)
+    const unitRef = `${String(app?.association_code ?? '').toUpperCase()}${String(app?.unit_label ?? '').replace(/\D/g, '')}`
+    const label = FOLDER_TYPE_LABEL[String(app?.application_type ?? '')] ?? String(app?.application_type ?? '')
+    const name = [unitRef, label, names.join(' & ')].filter(Boolean).join(' — ').replace(/[\\/:*?"<>|]+/g, ' ').slice(0, 200)
+    if (name) await getDrive().files.update({ fileId: fid, requestBody: { name }, supportsAllDrives: true })
+  } catch { /* prod-only Drive; never fails the caller */ }
+}
+
 /** A clean file-name type token from the doc type / compliance item key. */
 export function driveTypeLabel(docType: string | null | undefined, itemKey: string | null | undefined): string {
   const raw = (docType && docType.trim()) || (itemKey ? itemKey.split('.').pop() ?? itemKey : '') || 'Document'

@@ -14,6 +14,7 @@ import { downloadDriveFile } from '@/lib/drive-import'
 import { quickDocScan } from '@/lib/quick-doc-classify'
 import { getIntakeChecklist, isApplicationType, type ApplicationType } from '@/lib/intake-documents'
 import { INTAKE_BUCKET } from '@/lib/preapply'
+import { renameApplicationFolder } from '@/lib/drive-application-mirror'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -87,15 +88,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!folderId) return NextResponse.json({ error: 'No Drive folder is linked to this application.' }, { status: 400 })
   const type = isApplicationType(String(app.application_type)) ? (app.application_type as ApplicationType) : 'lease'
   const checklist = await getIntakeChecklist(String(app.association_code), type)
-  const items = checklist.map(c => ({ doc_key: c.doc_key, label: c.label, toks: tokens(c.label) }))
+  const items = checklist.map(c => ({ doc_key: c.doc_key, label: c.label, toks: tokens(c.label), perApplicant: c.per_applicant }))
+
+  // Applicant roster — per-person docs are matched to the applicant whose name
+  // appears in the file (each with their own name tokens, ≥3 chars, for scoring).
+  const { data: roster } = await supabaseAdmin.from('application_stakeholders')
+    .select('id, name').eq('application_id', id).eq('role', 'applicant')
+  const applicants = (roster ?? []).map(s => ({ id: String(s.id), name: String(s.name ?? '').trim(), toks: [...tokens(String(s.name ?? ''))].filter(t => t.length >= 3) }))
 
   let files: DriveFile[]
   try { files = await listDeep(folderId) }
   catch (e) { return NextResponse.json({ error: `Could not read the Drive folder: ${e instanceof Error ? e.message : String(e)}` }, { status: 200 }) }
 
-  // Which items already have a doc? Don't overwrite them on a re-scan.
-  const { data: existingDocs } = await supabaseAdmin.from('application_documents').select('doc_key').eq('application_id', id)
-  const taken = new Set((existingDocs ?? []).map(d => String(d.doc_key)))
+  // Which (item, applicant) slots already have a doc? Don't overwrite on re-scan.
+  const { data: existingDocs } = await supabaseAdmin.from('application_documents').select('doc_key, stakeholder_id').eq('application_id', id)
+  const slotKey = (docKey: string, sid: string | null) => `${docKey}#${sid ?? ''}`
+  const taken = new Set((existingDocs ?? []).map(d => slotKey(String(d.doc_key), (d.stakeholder_id as string | null) ?? null)))
 
   const matched: { file: string; item: string; rename: string; expiration: string | null }[] = []
   const unmatched: { file: string; docType: string | null }[] = []
@@ -107,27 +115,42 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const scan = await quickDocScan(buf, f.mimeType)   // one Haiku call → { label, expiration }
       docType = scan.label
       const ftoks = tokens(`${scan.label} ${f.name}`)
+      const fnameToks = new Set(tokens(f.name))
       let best: typeof items[number] | null = null, bestScore = 0
-      for (const it of items) { if (taken.has(it.doc_key)) continue; const s = score(ftoks, it.toks); if (s > bestScore) { bestScore = s; best = it } }
+      for (const it of items) { const s = score(ftoks, it.toks); if (s > bestScore) { bestScore = s; best = it } }
       if (best && bestScore >= 1) {
+        // Per-applicant items: assign to the applicant whose name best matches the
+        // file name (first name disambiguates Jean / Jane / Nicholas — all "Bruna").
+        let sid: string | null = null, who = ''
+        if (best.perApplicant && applicants.length) {
+          let bestA: typeof applicants[number] | null = null, bestAScore = 0
+          for (const a of applicants) { const s = a.toks.filter(t => fnameToks.has(t)).length; if (s > bestAScore) { bestAScore = s; bestA = a } }
+          if (bestA && bestAScore >= 1) { sid = bestA.id; who = bestA.name }
+        }
+        if (taken.has(slotKey(best.doc_key, sid))) { unmatched.push({ file: f.name, docType }); continue }
+        // A per-applicant file we couldn't tie to a person → leave for manual assign.
+        if (best.perApplicant && !sid) { unmatched.push({ file: f.name, docType }); continue }
         const ext = f.name.includes('.') ? f.name.slice(f.name.lastIndexOf('.')) : '.pdf'
-        const rename = `${ym(f.createdTime)}_${TYPE_TOKEN[best.doc_key] ?? 'Document'}${ext}`
+        const rename = `${ym(f.createdTime)}_${TYPE_TOKEN[best.doc_key] ?? 'Document'}${who ? ` — ${who}` : ''}${ext}`
         const path = `intake/${id}/${best.doc_key.replace(/[^\w-]+/g, '_')}/${crypto.randomUUID()}${ext}`
         const up = await supabaseAdmin.storage.from(INTAKE_BUCKET).upload(path, buf, { contentType: f.mimeType || 'application/pdf', upsert: true })
         if (!up.error) {
           await supabaseAdmin.from('application_documents').insert({
             application_id: id, listing_id: app.listing_id, kind: 'other', doc_key: best.doc_key, doc_label: best.label,
             storage_path: path, filename: f.name, suggested_name: rename, expiration_date: scan.expiration,
-            mime_type: f.mimeType || 'application/pdf', uploaded_by_role: 'drive-scan',
+            mime_type: f.mimeType || 'application/pdf', uploaded_by_role: 'drive-scan', stakeholder_id: sid,
           })
-          taken.add(best.doc_key)
-          matched.push({ file: f.name, item: best.label, rename, expiration: scan.expiration })
+          taken.add(slotKey(best.doc_key, sid))
+          matched.push({ file: f.name, item: who ? `${best.label} — ${who}` : best.label, rename, expiration: scan.expiration })
           continue
         }
       }
     } catch { /* fall through to unmatched */ }
     unmatched.push({ file: f.name, docType })
   }
+
+  // Flag the On-Going folder with the type + applicants (fixes bare name folders).
+  void renameApplicationFolder(id).catch(() => null)
 
   return NextResponse.json({ ok: true, scanned: files.length, matched, unmatched })
 }
