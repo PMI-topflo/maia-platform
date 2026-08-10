@@ -137,5 +137,38 @@ export async function recordEsignSignature(
     }, { onConflict: 'scope,association_code,unit_ref,item_key' }).then(() => null, () => null)
   }
 
+  // A fully-signed Board Decision IS the approval letter — file it against the
+  // unit's in-process application so the "Board Approval Letter" checklist item
+  // is satisfied automatically (best-effort; never blocks signing).
+  if (complete && doc.kind === 'board_decision' && doc.unit_ref) {
+    await fileBoardApprovalLetter(id).catch(() => null)
+  }
+
   return { ok: true, status, complete }
+}
+
+async function fileBoardApprovalLetter(esignDocId: string): Promise<void> {
+  const fresh = await getEsignDoc(esignDocId)
+  if (!fresh || !fresh.unit_ref) return
+  const { renderToBuffer } = await import('@react-pdf/renderer')
+  const { renderFormPdf } = await import('@/lib/esign-forms')
+  const el = renderFormPdf(fresh)
+  if (!el) return
+  const pdf = Buffer.from(await renderToBuffer(el))
+
+  // The most recent in-process (or just-approved) application for this unit.
+  const { data: app } = await supabaseAdmin.from('listing_applications')
+    .select('id, listing_id').eq('association_code', fresh.association_code).eq('unit_label', fresh.unit_ref)
+    .in('status', ['started', 'submitted', 'under_review', 'approved']).order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (!app) return
+
+  const path = `intake/${app.id}/board_approval_letter/${crypto.randomUUID()}.pdf`
+  const up = await supabaseAdmin.storage.from('application-docs').upload(path, pdf, { contentType: 'application/pdf', upsert: true })
+  if (up.error) return
+  await supabaseAdmin.from('application_documents').delete().eq('application_id', app.id).eq('doc_key', 'board_approval_letter').is('stakeholder_id', null)
+  await supabaseAdmin.from('application_documents').insert({
+    application_id: app.id, listing_id: app.listing_id, kind: 'other', doc_key: 'board_approval_letter', doc_label: 'Board Approval Letter',
+    storage_path: path, filename: 'Board_Approval_Letter.pdf', suggested_name: 'Board_Approval_Letter.pdf',
+    mime_type: 'application/pdf', uploaded_by_role: 'esign',
+  })
 }
