@@ -10,6 +10,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { INTAKE_BUCKET } from '@/lib/preapply'
 import { extractLeaseDetails } from '@/lib/lease-extract'
+import { renameApplicationFolder } from '@/lib/drive-application-mirror'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -77,6 +78,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (s.signed_at || s.email_verified_at) continue
     await supabaseAdmin.from('application_stakeholders').delete().eq('id', s.id)
   }
+
+  // Re-flag the On-Going folder now that the applicants are known (best-effort).
+  void renameApplicationFolder(id).catch(() => null)
 
   return NextResponse.json({ ok: true, count: names.length })
 }

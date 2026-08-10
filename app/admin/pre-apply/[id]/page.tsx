@@ -126,7 +126,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                 <div key={a.id} style={{ flex: '1 1 340px', minWidth: 300, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
                   <div style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb', padding: '9px 14px', font: '700 14px system-ui', color: '#1f2937' }}>{a.name || a.email || 'Applicant'}{a.isPrimary && <span style={{ font: '600 10px system-ui', color: '#9ca3af', marginLeft: 6 }}>LEAD</span>}</div>
                   {perApplicantItems.map((c, i) => (
-                    <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} />
+                    <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} />
                   ))}
                 </div>
               ))}
@@ -298,7 +298,7 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
 // One checklist row: the doc (if any) with an INLINE preview box, the suggested
 // YYYY_MM_Type rename, an editable expiration date to approve, Ignore, and the
 // upload/replace control.
-function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, loadDriveFiles, stakeholderId }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string }; doc: Doc | undefined; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string }) {
+function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, loadDriveFiles, stakeholderId, applicants }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string }; doc: Doc | undefined; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[] }) {
   const [open, setOpen] = useState(false)
   const [picking, setPicking] = useState(false)
   const [keepName, setKeepName] = useState(false)
@@ -366,6 +366,12 @@ function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, load
             <>
               <button onClick={() => setOpen(o => !o)} style={{ ...link, color: '#4338ca' }}>{open ? 'Hide' : '👁 Preview'}</button>
               <a href={doc.url ?? '#'} target="_blank" rel="noreferrer" style={{ ...link, color: '#166534' }}>View ↗</a>
+              {!decided && applicants && applicants.length > 0 && (
+                <select value={doc.stakeholderId ?? ''} onChange={async e => { setBusy('move'); try { await patchDoc({ stakeholder_id: e.target.value || null }); onDone() } catch { /* */ } finally { setBusy(null) } }} disabled={busy === 'move'} title="Move this document to another applicant" style={{ font: '600 11px system-ui', color: '#4338ca', border: '1px solid #d1d5db', borderRadius: 6, padding: '2px 4px', background: '#fff', cursor: 'pointer' }}>
+                  {applicants.map(a => <option key={a.id} value={a.id}>{a.name || 'Applicant'}</option>)}
+                  <option value="">Shared / none</option>
+                </select>
+              )}
               {!decided && <button onClick={ignore} disabled={busy === 'ignore'} style={{ ...link, color: '#b91c1c' }}>Ignore</button>}
             </>
           ) : <span style={{ fontSize: 13, color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
