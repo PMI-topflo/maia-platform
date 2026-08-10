@@ -8,7 +8,7 @@
 import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 
-interface Doc { id: string; doc_key: string | null; doc_label: string | null; filename: string; mime_type: string | null; url: string | null; suggestedName: string | null; expirationDate: string | null; noExpiration: boolean; bySource: string | null }
+interface Doc { id: string; doc_key: string | null; doc_label: string | null; filename: string; mime_type: string | null; url: string | null; suggestedName: string | null; expirationDate: string | null; noExpiration: boolean; bySource: string | null; stakeholderId: string | null }
 interface Detail {
   id: string; associationCode: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
@@ -18,7 +18,7 @@ interface Detail {
   screeningProvider: string
   audit: { auditedBy: string | null; auditedAt: string | null; reviewedBy: string | null; reviewedAt: string | null; note: string | null; approvedByRole: string | null }
   naItems: string[]
-  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; uploaded: boolean }[]
+  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; per_applicant: boolean; uploaded: boolean }[]
   documents: Doc[]
 }
 
@@ -68,7 +68,16 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   if (!d) return <div style={wrap}><p style={{ color: '#9ca3af' }}>Loading…</p></div>
 
   const naSet = new Set(d.naItems ?? [])
-  const missing = d.checklist.filter(c => c.required && !c.uploaded && !naSet.has(c.doc_key))
+  const applicants = (d.stakeholders ?? []).filter(s => s.role === 'applicant')
+  const sharedItems = d.checklist.filter(c => !c.per_applicant)
+  const perApplicantItems = d.checklist.filter(c => c.per_applicant)
+  const docFor = (docKey: string, sid: string | null) => d.documents.find(x => x.doc_key === docKey && (x.stakeholderId ?? null) === sid)
+  const naFor = (docKey: string, sid: string | null) => naSet.has(sid ? `${docKey}#${sid}` : docKey)
+  // Missing required: shared items + each applicant's per-person items (minus N/A).
+  const missing = [
+    ...sharedItems.filter(c => c.required && !docFor(c.doc_key, null) && !naFor(c.doc_key, null)),
+    ...(applicants.length ? perApplicantItems.flatMap(c => c.required ? applicants.filter(a => !docFor(c.doc_key, a.id) && !naFor(c.doc_key, a.id)).map(a => ({ label: `${c.label} — ${a.name ?? 'applicant'}` })) : []) : perApplicantItems.filter(c => c.required).map(c => ({ label: c.label }))),
+  ]
   const audited = !!d.audit.auditedAt
   const decided = d.status === 'approved' || d.status === 'declined'
 
@@ -90,18 +99,41 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <p style={{ fontSize: 12.5, color: '#6b7280', margin: '0 0 8px' }}>Upload a document you received directly here — MAIA files it into this unit&apos;s <strong>On Going Applications</strong> Drive folder. (Official only after board approval.)</p>
       {d.driveFolderUrl && <ScanDrive id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
+
+      {/* Shared documents — one for the whole unit / application. */}
+      <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '2px 0 6px' }}>Shared documents</div>
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
-        {d.checklist.map((c, i) => {
-          const doc = d.documents.find(x => x.doc_key === c.doc_key)
-          return <ChecklistRow key={i} id={id} c={c} doc={doc} na={naSet.has(c.doc_key)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} />
-        })}
-        {d.documents.filter(doc => !d.checklist.some(c => c.label === doc.doc_label)).map(doc => (
+        {sharedItems.map((c, i) => (
+          <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, null)} na={naFor(c.doc_key, null)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} />
+        ))}
+        {d.documents.filter(doc => !doc.stakeholderId && !d.checklist.some(c => c.doc_key === doc.doc_key)).map(doc => (
           <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderTop: '1px solid #f3f4f6', alignItems: 'center' }}>
             <span style={{ fontWeight: 600, fontSize: 14 }}>{doc.doc_label || doc.filename} <span style={{ fontSize: 11, color: '#9ca3af' }}>(extra)</span></span>
             {doc.url && <a href={doc.url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: '#166534', fontWeight: 600 }}>✓ View</a>}
           </div>
         ))}
       </div>
+
+      {/* Per-applicant documents — one column per applicant. */}
+      {perApplicantItems.length > 0 && (
+        <>
+          <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '18px 0 6px' }}>Per-applicant documents</div>
+          {applicants.length === 0 ? (
+            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e' }}>Add the applicants above (read them from the lease) to collect each person&apos;s documents in their own column.</div>
+          ) : (
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              {applicants.map(a => (
+                <div key={a.id} style={{ flex: '1 1 340px', minWidth: 300, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+                  <div style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb', padding: '9px 14px', font: '700 14px system-ui', color: '#1f2937' }}>{a.name || a.email || 'Applicant'}{a.isPrimary && <span style={{ font: '600 10px system-ui', color: '#9ca3af', marginLeft: 6 }}>LEAD</span>}</div>
+                  {perApplicantItems.map((c, i) => (
+                    <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} />
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       {/* Tax-return-vs-W-2 check (the one real validation) */}
       {d.checklist.some(c => /tax/i.test(c.label)) && (
@@ -266,7 +298,7 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
 // One checklist row: the doc (if any) with an INLINE preview box, the suggested
 // YYYY_MM_Type rename, an editable expiration date to approve, Ignore, and the
 // upload/replace control.
-function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, loadDriveFiles }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string }; doc: Doc | undefined; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void> }) {
+function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, loadDriveFiles, stakeholderId }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string }; doc: Doc | undefined; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string }) {
   const [open, setOpen] = useState(false)
   const [picking, setPicking] = useState(false)
   const [keepName, setKeepName] = useState(false)
@@ -274,7 +306,7 @@ function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, load
   async function openPicker() { setPicking(true); if (!driveFiles) await loadDriveFiles() }
   async function assign(fileId: string, name: string, mimeType: string) {
     setBusy('assign')
-    try { await fetch(`/api/admin/pre-apply/${id}/assign-drive`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, doc_label: c.label, fileId, fileName: name, mimeType, pages: pagesFor[fileId] || '', keepName }) }); setPicking(false); onDone() }
+    try { await fetch(`/api/admin/pre-apply/${id}/assign-drive`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, doc_label: c.label, fileId, fileName: name, mimeType, pages: pagesFor[fileId] || '', keepName, stakeholder_id: stakeholderId }) }); setPicking(false); onDone() }
     catch { /* */ } finally { setBusy(null) }
   }
   const [exp, setExp] = useState(doc?.expirationDate ?? '')
@@ -299,7 +331,7 @@ function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, load
   }
   async function toggleNa() {
     setBusy('na')
-    try { await fetch(`/api/admin/pre-apply/${id}/na`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, na: !na }) }); onDone() }
+    try { await fetch(`/api/admin/pre-apply/${id}/na`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, na: !na, stakeholder_id: stakeholderId }) }); onDone() }
     catch { /* */ } finally { setBusy(null) }
   }
   const isImg = (doc?.mime_type ?? '').startsWith('image/')
@@ -338,7 +370,7 @@ function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, load
             </>
           ) : <span style={{ fontSize: 13, color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
           {!decided && !na && <button onClick={openPicker} disabled={busy === 'assign'} style={{ ...link, color: '#2563eb', fontSize: 12 }}>{busy === 'assign' ? 'Assigning…' : '📁 From Drive'}</button>}
-          {!decided && !na && <StaffUpload id={id} docKey={c.doc_key} docLabel={c.label} uploaded={!!doc} onDone={onDone} />}
+          {!decided && !na && <StaffUpload id={id} docKey={c.doc_key} docLabel={c.label} uploaded={!!doc} onDone={onDone} stakeholderId={stakeholderId} />}
           {!decided && !doc && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#9ca3af', fontSize: 12 }}>{na ? 'Undo N/A' : 'Mark N/A'}</button>}
           {!decided && na && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#4338ca', fontSize: 12 }}>Undo N/A</button>}
         </div>
@@ -433,10 +465,10 @@ function ScanDrive({ id, onDone }: { id: string; onDone: () => void }) {
 
 // Staff upload-on-behalf for one checklist item → files it against the
 // application AND mirrors it to the unit's On Going Applications Drive folder.
-function StaffUpload({ id, docKey, docLabel, uploaded, onDone }: { id: string; docKey: string; docLabel: string; uploaded: boolean; onDone: () => void }) {
+function StaffUpload({ id, docKey, docLabel, uploaded, onDone, stakeholderId }: { id: string; docKey: string; docLabel: string; uploaded: boolean; onDone: () => void; stakeholderId?: string }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
-  const inputId = `up-${docKey}`
+  const inputId = `up-${docKey}-${stakeholderId ?? 'shared'}`
 
   async function onFile(file: File | null) {
     if (!file) return
@@ -444,6 +476,7 @@ function StaffUpload({ id, docKey, docLabel, uploaded, onDone }: { id: string; d
     try {
       const fd = new FormData()
       fd.append('file', file); fd.append('doc_key', docKey); fd.append('doc_label', docLabel)
+      if (stakeholderId) fd.append('stakeholder_id', stakeholderId)
       const r = await fetch(`/api/admin/pre-apply/${id}/upload`, { method: 'POST', credentials: 'include', body: fd })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'upload failed')
       if (j?.drive && !j.drive.ok) setMsg(`Filed · Drive copy pending: ${j.drive.error}`)

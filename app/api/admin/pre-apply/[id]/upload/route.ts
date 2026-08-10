@@ -31,6 +31,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const file = form.get('file')
   const docKey = String(form.get('doc_key') ?? '').trim()
   const docLabel = String(form.get('doc_label') ?? '').trim() || docKey || 'Document'
+  const stakeholderId = String(form.get('stakeholder_id') ?? '').trim() || null
   if (!(file instanceof File) || file.size === 0) return NextResponse.json({ error: 'no file' }, { status: 400 })
   if (!docKey) return NextResponse.json({ error: 'doc_key required' }, { status: 400 })
   if (!ALLOWED.test(file.name)) return NextResponse.json({ error: 'file must be a PDF or image' }, { status: 400 })
@@ -44,11 +45,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const up = await supabaseAdmin.storage.from(INTAKE_BUCKET).upload(path, buf, { contentType: file.type || 'application/pdf', upsert: true })
   if (up.error) return NextResponse.json({ error: `upload failed: ${up.error.message}` }, { status: 500 })
 
-  // Replace any prior upload for this checklist item (latest wins).
-  await supabaseAdmin.from('application_documents').delete().eq('application_id', id).eq('doc_key', docKey)
+  // Replace any prior upload for this checklist item — scoped to the applicant
+  // for per-person items (doc_key + stakeholder_id), so each column is separate.
+  const del = supabaseAdmin.from('application_documents').delete().eq('application_id', id).eq('doc_key', docKey)
+  await (stakeholderId ? del.eq('stakeholder_id', stakeholderId) : del.is('stakeholder_id', null))
   const { error: insErr } = await supabaseAdmin.from('application_documents').insert({
     application_id: id, listing_id: app.listing_id, kind: 'other', doc_key: docKey, doc_label: docLabel,
     storage_path: path, filename: file.name, mime_type: file.type || 'application/pdf', uploaded_by_role: 'staff',
+    stakeholder_id: stakeholderId,
   })
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
 
