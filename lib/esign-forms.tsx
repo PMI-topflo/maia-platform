@@ -288,7 +288,7 @@ export interface BoardDecisionPayload {
   reason?: string
 }
 
-const APP_TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
+const APP_TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant', ownership_transfer: 'Ownership transfer', occupancy_registration: 'Occupancy registration' }
 const fmtDate = (iso: string | null | undefined) => { if (!iso) return null; const d = new Date(iso + 'T00:00:00Z'); return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }) }
 
 const boardDecision: EsignFormDef = {

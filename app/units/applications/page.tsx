@@ -20,7 +20,7 @@ interface Detail {
   checklist: { doc_key: string; label: string; required: boolean; provided_by: string; uploaded: boolean; url: string | null; exampleUrl: string | null }[]
 }
 
-const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
+const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant', ownership_transfer: 'Ownership transfer', occupancy_registration: 'Occupancy registration' }
 const fmt = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '—'
 const assocFromUrl = () => (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('assoc') : null)
 

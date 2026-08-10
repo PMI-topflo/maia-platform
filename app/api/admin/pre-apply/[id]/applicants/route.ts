@@ -8,7 +8,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
-import { INTAKE_BUCKET } from '@/lib/preapply'
+import { INTAKE_BUCKET, isApplicantRole } from '@/lib/preapply'
 import { extractLeaseDetails } from '@/lib/lease-extract'
 import { renameApplicationFolder } from '@/lib/drive-application-mirror'
 
@@ -23,7 +23,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const { id } = await ctx.params
 
   const [{ data: current }, { data: lease }] = await Promise.all([
-    supabaseAdmin.from('application_stakeholders').select('id, name, is_primary').eq('application_id', id).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
+    supabaseAdmin.from('application_stakeholders').select('id, name, is_primary, applicant_role').eq('application_id', id).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('application_documents').select('storage_path, mime_type').eq('application_id', id).eq('doc_key', 'signed_lease').maybeSingle(),
   ])
 
@@ -38,7 +38,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
   return NextResponse.json({
     hasLease: !!lease?.storage_path,
-    current: (current ?? []).map(s => ({ id: String(s.id), name: (s.name as string | null) ?? '' })),
+    current: (current ?? []).map(s => ({ id: String(s.id), name: (s.name as string | null) ?? '', applicant_role: (s.applicant_role as string | null) ?? null })),
     proposed,
   })
 }
@@ -49,10 +49,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { data: app } = await supabaseAdmin.from('listing_applications').select('id, listing_id').eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'not found' }, { status: 404 })
 
-  let b: { names?: unknown }
+  let b: { names?: unknown; applicants?: unknown }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
-  const names = Array.isArray(b.names) ? [...new Set((b.names as unknown[]).map(n => String(n ?? '').trim()).filter(Boolean).map(n => [norm(n), n] as const))].map(([, n]) => n) : []
-  if (names.length === 0) return NextResponse.json({ error: 'Add at least one applicant.' }, { status: 400 })
+  // Accept either { applicants: [{name, applicant_role}] } or the older { names: [] }.
+  const raw: { name: string; role: string | null }[] = Array.isArray(b.applicants)
+    ? (b.applicants as unknown[]).map(a => { const o = (a ?? {}) as Record<string, unknown>; return { name: String(o.name ?? '').trim(), role: o.applicant_role && isApplicantRole(String(o.applicant_role)) ? String(o.applicant_role) : null } })
+    : Array.isArray(b.names) ? (b.names as unknown[]).map(n => ({ name: String(n ?? '').trim(), role: null })) : []
+  // De-dupe by name, keep first occurrence's role.
+  const seen = new Set<string>()
+  const list = raw.filter(r => r.name && !seen.has(norm(r.name)) && seen.add(norm(r.name)))
+  if (list.length === 0) return NextResponse.json({ error: 'Add at least one applicant.' }, { status: 400 })
 
   const { data: existing } = await supabaseAdmin.from('application_stakeholders')
     .select('id, name, is_primary, signed_at, email_verified_at').eq('application_id', id).eq('role', 'applicant')
@@ -60,14 +66,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const keptIds = new Set<string>()
   const now = new Date().toISOString()
 
-  for (let i = 0; i < names.length; i++) {
-    const hit = byName.get(norm(names[i]))
+  for (let i = 0; i < list.length; i++) {
+    const { name, role } = list[i]
+    const applicantRole = role ?? (i === 0 ? 'primary_applicant' : 'co_applicant')
+    const hit = byName.get(norm(name))
     if (hit) {
       keptIds.add(String(hit.id))
-      await supabaseAdmin.from('application_stakeholders').update({ name: names[i], is_primary: i === 0, updated_at: now }).eq('id', hit.id)
+      await supabaseAdmin.from('application_stakeholders').update({ name, is_primary: i === 0, applicant_role: applicantRole, updated_at: now }).eq('id', hit.id)
     } else {
       await supabaseAdmin.from('application_stakeholders').insert({
-        application_id: id, role: 'applicant', name: names[i], is_primary: i === 0, status: 'active', added_by_role: 'staff',
+        application_id: id, role: 'applicant', name, is_primary: i === 0, applicant_role: applicantRole, status: 'active', added_by_role: 'staff',
       })
     }
   }
@@ -82,5 +90,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // Re-flag the On-Going folder now that the applicants are known (best-effort).
   void renameApplicationFolder(id).catch(() => null)
 
-  return NextResponse.json({ ok: true, count: names.length })
+  return NextResponse.json({ ok: true, count: list.length })
 }

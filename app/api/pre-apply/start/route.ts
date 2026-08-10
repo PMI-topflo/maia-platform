@@ -14,7 +14,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const SUPPORT_EMAIL = 'support@topfloridaproperties.com'
-const TYPE_WORD: Record<string, string> = { lease: 'rental', purchase: 'purchase', lease_renewal: 'lease-renewal', additional_occupant: 'additional-occupant' }
+const TYPE_WORD: Record<string, string> = { lease: 'rental', purchase: 'purchase', lease_renewal: 'lease-renewal', additional_occupant: 'additional-occupant', ownership_transfer: 'ownership-transfer', occupancy_registration: 'occupancy-registration' }
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
 
 // When someone who is NOT the unit owner starts an application, email the unit
