@@ -22,7 +22,7 @@ interface Detail {
   documents: Doc[]
 }
 
-const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
+const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant', ownership_transfer: 'Ownership transfer', occupancy_registration: 'Occupancy registration' }
 const fmt = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '—'
 
 export default function PreApplyDetail({ params }: { params: Promise<{ id: string }> }) {
@@ -559,6 +559,7 @@ function BoardApprove({ id, onDone }: { id: string; onDone: () => void }) {
 const APP_TYPES: { key: string; label: string }[] = [
   { key: 'lease', label: 'New lease' }, { key: 'lease_renewal', label: 'Lease renewal' },
   { key: 'purchase', label: 'Purchase' }, { key: 'additional_occupant', label: 'Additional occupant' },
+  { key: 'ownership_transfer', label: 'Ownership transfer' }, { key: 'occupancy_registration', label: 'Occupancy registration' },
 ]
 function MetaEditor({ id, name, type, onDone }: { id: string; name: string; type: string; onDone: () => void }) {
   const [editing, setEditing] = useState(false)

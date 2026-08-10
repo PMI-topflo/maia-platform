@@ -28,7 +28,7 @@ interface Data {
   } | null
 }
 
-const APP_TYPE_LABEL: Record<string, string> = { lease: 'Rent — new lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
+const APP_TYPE_LABEL: Record<string, string> = { lease: 'Rent — new lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant', ownership_transfer: 'Ownership transfer', occupancy_registration: 'Occupancy registration' }
 const APP_STAGE: Record<string, { label: string; bg: string; fg: string }> = {
   started:      { label: 'Collecting documents', bg: '#fef9c3', fg: '#854d0e' },
   submitted:    { label: 'Submitted — awaiting audit', bg: '#dbeafe', fg: '#1e40af' },

@@ -15,7 +15,7 @@ interface ChecklistItem { label: string; provided_by: string; required: boolean;
 interface TypeChecklist { type: string; label: string; blurb: string; items: ChecklistItem[] }
 const TYPE_ORDER = ['lease', 'lease_renewal', 'purchase', 'additional_occupant']
 
-const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
+const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant', ownership_transfer: 'Ownership transfer', occupancy_registration: 'Occupancy registration' }
 const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '—'
 
 // Pipeline stages, in order, with their color.

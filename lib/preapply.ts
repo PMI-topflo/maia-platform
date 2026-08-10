@@ -41,6 +41,25 @@ export function roleLabel(role: string): string { return PREAPPLY_ROLES.find(r =
 /** Only applicants and owners sign the association-rules acknowledgment. */
 export function roleSigns(role: string): boolean { return role === 'applicant' || role === 'owner' }
 
+// The party role each person carries WITHIN an application (Tenant-Evaluation
+// style) — a finer classification than the collaboration `role` above, shown on
+// the per-applicant tabs. Stored on application_stakeholders.applicant_role.
+export const APPLICANT_ROLES: { key: string; label: string }[] = [
+  { key: 'primary_applicant', label: 'Primary Applicant' },
+  { key: 'co_applicant',      label: 'Co-Applicant' },
+  { key: 'owner',             label: 'Owner' },
+  { key: 'tenant',            label: 'Tenant' },
+  { key: 'spouse_partner',    label: 'Spouse / Partner' },
+  { key: 'adult_occupant',    label: 'Adult Occupant' },
+  { key: 'minor_dependent',   label: 'Minor / Dependent' },
+  { key: 'guarantor',         label: 'Guarantor' },
+]
+const APPLICANT_ROLE_KEYS = new Set(APPLICANT_ROLES.map(r => r.key))
+export function isApplicantRole(v: string): boolean { return APPLICANT_ROLE_KEYS.has(v) }
+export function applicantRoleLabel(v: string | null | undefined): string {
+  return APPLICANT_ROLES.find(r => r.key === v)?.label ?? ''
+}
+
 /** Which checklist bucket a person's uploads belong to. */
 export function roleToProvidedBy(role: string): ProvidedBy {
   if (role === 'owner') return 'landlord'

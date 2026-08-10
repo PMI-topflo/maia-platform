@@ -3482,6 +3482,15 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `ALTER TABLE public.association_intake_documents ADD COLUMN IF NOT EXISTS per_applicant boolean NOT NULL DEFAULT false;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'stakeholder_applicant_role',
+    label:       'Applicant role (party classification) on each stakeholder',
+    description: 'Adds applicant_role to application_stakeholders so each person on an application carries their party role (Primary Applicant, Co-Applicant, Owner, Tenant, Spouse/Partner, Adult Occupant, Minor/Dependent, Guarantor) — the Tenant-Evaluation-style per-person classification shown in the applicant tabs. Separate from role (applicant/owner/agent) which drives signing.',
+    filename:    '20260810_stakeholder_applicant_role.sql',
+    artifact:    { type: 'column', table: 'application_stakeholders', column: 'applicant_role' },
+    sql: `ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS applicant_role text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
