@@ -9,6 +9,7 @@
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { INTAKE_BUCKET } from '@/lib/preapply'
 
 export type ApplicationType = 'lease' | 'purchase' | 'additional_occupant' | 'lease_renewal'
 export type ProvidedBy = 'applicant' | 'landlord' | 'agent'
@@ -35,6 +36,18 @@ export interface IntakeDoc {
   sort_order: number
   template_path: string | null
   requires_notarization: boolean
+}
+
+/** Signed preview links for the example-form templates, keyed by template_path.
+ *  Lets reviewers open an example of each form that has one on file. */
+export async function signTemplateUrls(docs: { template_path: string | null }[]): Promise<Map<string, string>> {
+  const paths = [...new Set(docs.map(d => d.template_path).filter((p): p is string => !!p))]
+  const out = new Map<string, string>()
+  await Promise.all(paths.map(async p => {
+    const { data } = await supabaseAdmin.storage.from(INTAKE_BUCKET).createSignedUrl(p, 60 * 60 * 4)
+    if (data?.signedUrl) out.set(p, data.signedUrl)
+  }))
+  return out
 }
 
 /** The active document checklist for an association + application type, ordered. */

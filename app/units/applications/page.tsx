@@ -9,15 +9,15 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 
 interface AppRow { id: string; type: string; unit: string | null; status: string; submittedAt: string | null; audited: boolean; decided: boolean; approvedByRole: string | null; applicant: string | null; docCount: number }
-interface ChecklistItem { label: string; provided_by: string; required: boolean; notarized: boolean }
+interface ChecklistItem { label: string; provided_by: string; required: boolean; notarized: boolean; exampleUrl: string | null }
 interface TypeChecklist { type: string; label: string; blurb: string; items: ChecklistItem[] }
 interface Detail {
   id: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
   stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean }[]
   rulesAck: { name?: string; at?: string } | null; driveFolderUrl: string | null
-  audited: boolean; decided: boolean; note: string | null; approvedByRole: string | null; canApprove: boolean
-  checklist: { label: string; required: boolean; provided_by: string; uploaded: boolean; url: string | null }[]
+  audited: boolean; decided: boolean; note: string | null; approvedByRole: string | null; canApprove: boolean; canUpload?: boolean
+  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; uploaded: boolean; url: string | null; exampleUrl: string | null }[]
 }
 
 const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
@@ -55,8 +55,8 @@ export default function UnitsApplications() {
       <Link href={`/units${q}`} style={{ fontSize: 13, color: '#2563eb', textDecoration: 'none' }}>← Unit audit</Link>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', margin: '8px 0 2px' }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Applications to review</h1>
-          <p style={{ color: '#6b7280', fontSize: 14, margin: '2px 0 0' }}>Pre-Application Compliance — review each applicant&apos;s documents and approve or decline.</p>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Pre-Application Compliance</h1>
+          <p style={{ color: '#6b7280', fontSize: 14, margin: '2px 0 0' }}>Review each applicant&apos;s documents and approve or decline.</p>
         </div>
         {checklists.length > 0 && (
           <button onClick={() => setShowRef(s => !s)} style={{ padding: '9px 14px', borderRadius: 9, border: '1px solid #d1d5db', background: showRef ? '#eef2ff' : '#fff', color: '#3730a3', font: '600 13px system-ui', cursor: 'pointer', whiteSpace: 'nowrap' }}>
@@ -132,6 +132,7 @@ function ChecklistCard({ c }: { c: TypeChecklist }) {
               {it.label}
               <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px', marginLeft: 7 }}>{PROVIDED_LABEL[it.provided_by] ?? it.provided_by}</span>
               {it.notarized && <span style={{ font: '600 10px system-ui', color: '#7a5a1e', background: '#f5ecd8', borderRadius: 5, padding: '1px 6px', marginLeft: 5 }}>notarized</span>}
+              {it.exampleUrl && <a href={it.exampleUrl} target="_blank" rel="noreferrer" style={{ font: '600 11px system-ui', color: '#2563eb', textDecoration: 'none', marginLeft: 7 }}>see example ↗</a>}
             </span>
             {it.required
               ? <span style={{ font: '700 10px system-ui', color: '#fff', background: '#c85d1b', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>REQUIRED</span>
@@ -150,7 +151,8 @@ function AppDetail({ id, assoc, onChanged }: { id: string; assoc: string | null;
   const [busy, setBusy] = useState(false)
   const q = assoc ? `?assoc=${encodeURIComponent(assoc)}` : ''
 
-  useEffect(() => { fetch(`/api/units/pre-apply/${id}${q}`, { credentials: 'include' }).then(r => r.json()).then(setD).catch(() => {}) }, [id, q])
+  const reload = useCallback(() => { fetch(`/api/units/pre-apply/${id}${q}`, { credentials: 'include' }).then(r => r.json()).then(setD).catch(() => {}) }, [id, q])
+  useEffect(reload, [reload])
 
   async function act(action: string) {
     if ((action === 'decline' || action === 'request') && !note.trim()) { alert('Add a note.'); return }
@@ -174,8 +176,12 @@ function AppDetail({ id, assoc, onChanged }: { id: string; assoc: string | null;
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', background: '#fff', marginBottom: 10 }}>
         {d.checklist.map((c, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderTop: i ? '1px solid #f3f4f6' : 'none', alignItems: 'center', fontSize: 13 }}>
-            <span>{c.label} <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px' }}>{c.provided_by}</span></span>
-            {c.uploaded && c.url ? <a href={c.url} target="_blank" rel="noreferrer" style={{ color: '#166534', fontWeight: 600 }}>✓ View</a> : <span style={{ color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
+            <span>{c.label} <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px' }}>{PROVIDED_LABEL[c.provided_by] ?? c.provided_by}</span>
+              {c.exampleUrl && <a href={c.exampleUrl} target="_blank" rel="noreferrer" style={{ font: '600 11px system-ui', color: '#2563eb', textDecoration: 'none', marginLeft: 7 }}>see example ↗</a>}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {c.uploaded && c.url ? <a href={c.url} target="_blank" rel="noreferrer" style={{ color: '#166534', fontWeight: 600 }}>✓ View</a> : <span style={{ color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
+              {d.canUpload && <UploadItem id={id} assoc={assoc} docKey={c.doc_key} docLabel={c.label} uploaded={c.uploaded} onDone={reload} />}
+            </span>
           </div>
         ))}
       </div>
@@ -205,6 +211,31 @@ function AppDetail({ id, assoc, onChanged }: { id: string; assoc: string | null;
         </div>
       ) : <div style={{ fontSize: 12.5, color: '#9ca3af' }}>View only.</div>}
     </div>
+  )
+}
+
+// Board / on-site manager uploads a document for one checklist item. Files it
+// against the application, mirrors to Drive, and notifies PMI + Jonathan to
+// scan → confirm into MAIA.
+function UploadItem({ id, assoc, docKey, docLabel, uploaded, onDone }: { id: string; assoc: string | null; docKey: string; docLabel: string; uploaded: boolean; onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const inputId = `up-${id}-${docKey}`
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]; if (!f) return
+    setBusy(true)
+    try {
+      const fd = new FormData()
+      fd.append('assoc', assoc ?? ''); fd.append('file', f); fd.append('doc_key', docKey); fd.append('doc_label', docLabel)
+      const r = await fetch(`/api/units/pre-apply/${id}/upload`, { method: 'POST', credentials: 'include', body: fd })
+      if (!r.ok) throw new Error((await r.json()).error || 'failed')
+      onDone()
+    } catch (err) { alert(`Could not upload: ${(err as Error).message}`) } finally { setBusy(false); e.target.value = '' }
+  }
+  return (
+    <label htmlFor={inputId} style={{ font: '600 11px system-ui', color: busy ? '#9ca3af' : '#7c3aed', cursor: busy ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
+      {busy ? 'Uploading…' : uploaded ? '⤴ Replace' : '⤴ Upload'}
+      <input id={inputId} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" onChange={onFile} disabled={busy} style={{ display: 'none' }} />
+    </label>
   )
 }
 

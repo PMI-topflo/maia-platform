@@ -6,7 +6,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveUnitsAuth } from '@/lib/units-portal-auth'
-import { getIntakeChecklist, isApplicationType, type ApplicationType } from '@/lib/intake-documents'
+import { getIntakeChecklist, isApplicationType, signTemplateUrls, type ApplicationType } from '@/lib/intake-documents'
 import { INTAKE_BUCKET, roleLabel, roleSigns } from '@/lib/preapply'
 
 export const runtime = 'nodejs'
@@ -38,6 +38,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     return { doc_key: d.doc_key, doc_label: d.doc_label, url: signed?.signedUrl ?? null }
   }))
   const uploaded = new Set((docs ?? []).map(d => d.doc_key).filter(Boolean))
+  const exampleUrls = await signTemplateUrls(checklist)
 
   return NextResponse.json({
     id: app.id, type: app.application_type, unit: app.unit_label, status: app.status, submittedAt: app.submitted_at,
@@ -50,9 +51,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     rulesAck: app.rules_ack, driveFolderUrl: app.drive_folder_url,
     audited: !!app.audited_at, decided: !!app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role,
     canApprove: auth.persona === 'board' || auth.persona === 'building_manager' || auth.persona === 'staff',
+    canUpload: auth.canUpload,
     checklist: checklist.map(c => {
-      const doc = withUrls.find(x => x.doc_label === c.label || x.doc_key === c.label)
-      return { label: c.label, required: c.required, provided_by: c.provided_by, uploaded: uploaded.has(c.doc_key), url: doc?.url ?? null }
+      const doc = withUrls.find(x => x.doc_key === c.doc_key || x.doc_label === c.label)
+      return { doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, uploaded: uploaded.has(c.doc_key), url: doc?.url ?? null, exampleUrl: c.template_path ? exampleUrls.get(c.template_path) ?? null : null }
     }),
   })
 }

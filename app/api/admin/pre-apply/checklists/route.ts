@@ -5,7 +5,7 @@
 
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
-import { getIntakeChecklistAll, APPLICATION_TYPES } from '@/lib/intake-documents'
+import { getIntakeChecklistAll, APPLICATION_TYPES, signTemplateUrls } from '@/lib/intake-documents'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -16,9 +16,10 @@ export async function GET(req: Request) {
   if (!assoc) return NextResponse.json({ error: 'assoc required' }, { status: 400 })
 
   const all = await getIntakeChecklistAll(assoc)
+  const exampleUrls = await signTemplateUrls(Object.values(all).flat())
   const checklists = APPLICATION_TYPES.map(t => ({
     type: t.key, label: t.label, blurb: t.blurb,
-    items: (all[t.key] ?? []).map(d => ({ label: d.label, provided_by: d.provided_by, required: d.required, notarized: d.requires_notarization })),
+    items: (all[t.key] ?? []).map(d => ({ label: d.label, provided_by: d.provided_by, required: d.required, notarized: d.requires_notarization, exampleUrl: d.template_path ? exampleUrls.get(d.template_path) ?? null : null })),
   })).filter(t => t.items.length > 0)
 
   return NextResponse.json({ assoc, checklists })
