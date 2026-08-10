@@ -22,7 +22,7 @@ interface Detail {
   documents: Doc[]
 }
 
-const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant', ownership_transfer: 'Ownership transfer', occupancy_registration: 'Occupancy registration' }
+const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
 // Per-person party roles (mirror of lib/preapply APPLICANT_ROLES; kept local so
 // this client component doesn't import the server lib).
 const APPLICANT_ROLES: { key: string; label: string }[] = [
@@ -107,6 +107,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <h2 style={h2}>Documents ({d.documents.length} uploaded)</h2>
       <p style={{ fontSize: 12.5, color: '#6b7280', margin: '0 0 8px' }}>Upload a document you received directly here — MAIA files it into this unit&apos;s <strong>On Going Applications</strong> Drive folder. (Official only after board approval.)</p>
       {d.driveFolderUrl && <ScanDrive id={id} onDone={load} />}
+      {(d.type === 'lease_renewal' || d.type === 'additional_occupant') && <CarryOverButton id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
 
       {/* Shared documents — one for the whole unit / application. */}
@@ -582,7 +583,6 @@ function BoardApprove({ id, onDone }: { id: string; onDone: () => void }) {
 const APP_TYPES: { key: string; label: string }[] = [
   { key: 'lease', label: 'New lease' }, { key: 'lease_renewal', label: 'Lease renewal' },
   { key: 'purchase', label: 'Purchase' }, { key: 'additional_occupant', label: 'Additional occupant' },
-  { key: 'ownership_transfer', label: 'Ownership transfer' }, { key: 'occupancy_registration', label: 'Occupancy registration' },
 ]
 function MetaEditor({ id, name, type, onDone }: { id: string; name: string; type: string; onDone: () => void }) {
   const [editing, setEditing] = useState(false)
@@ -617,6 +617,29 @@ function MetaEditor({ id, name, type, onDone }: { id: string; name: string; type
 
 // The applicant roster — read the names off the lease, confirm/add/remove, save.
 // This is what lets MAIA collect each applicant's documents in their own column.
+// Lease renewal / additional occupant: pull the previous approved term's keeper
+// files into this application (independent copies; the approval letter isn't
+// carried — a new one is issued).
+function CarryOverButton({ id, onDone }: { id: string; onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  async function run() {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/carry-over`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setMsg(j.count > 0 ? `✓ Brought in ${j.count} file(s) from the previous approved term.` : 'No previous approved application on file for this unit — use “From Drive” on each item to pull the prior files from the folder.')
+      onDone()
+    } catch (e) { setMsg(`Could not bring in files: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+  return (
+    <div style={{ margin: '0 0 10px' }}>
+      <button onClick={run} disabled={busy} style={{ ...btn('#0f766e'), padding: '8px 14px' }}>{busy ? 'Bringing in…' : '📥 Bring in the previous term’s files'}</button>
+      {msg && <p style={{ font: '12.5px system-ui', color: '#6b7280', margin: '6px 0 0' }}>{msg}</p>}
+    </div>
+  )
+}
+
 interface Person { name: string; role: string }
 function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { name: string | null; applicantRole: string | null }[]; onDone: () => void }) {
   const seed = (): Person[] => applicants.map((a, i) => ({ name: (a.name ?? '').trim(), role: a.applicantRole || (i === 0 ? 'primary_applicant' : 'co_applicant') })).filter(p => p.name)

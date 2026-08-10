@@ -12,7 +12,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { downloadDriveFile } from '@/lib/drive-import'
 import { getDrive } from '@/lib/drive-invoice-mirror'
 import { quickDocScan } from '@/lib/quick-doc-classify'
-import { INTAKE_BUCKET } from '@/lib/preapply'
+import { INTAKE_BUCKET, autoRosterFromLease } from '@/lib/preapply'
 import { PDFDocument } from 'pdf-lib'
 
 export const runtime = 'nodejs'
@@ -110,5 +110,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     mime_type: outMime, uploaded_by_role: 'drive-pick', stakeholder_id: stakeholderId,
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  // A freshly-picked lease seeds the applicant roster (best-effort).
+  if (docKey === 'signed_lease') await autoRosterFromLease(id)
   return NextResponse.json({ ok: true, rename, expiration: scan.expiration, extractedPages })
 }

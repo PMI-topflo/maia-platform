@@ -13,7 +13,7 @@ import { getDrive } from '@/lib/drive-invoice-mirror'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const TYPE_LABEL: Record<string, string> = { lease: 'New Lease', lease_renewal: 'Lease Renewal', purchase: 'Purchase', additional_occupant: 'Additional Occupant', ownership_transfer: 'Ownership Transfer', occupancy_registration: 'Occupancy Registration' }
+const TYPE_LABEL: Record<string, string> = { lease: 'New Lease', lease_renewal: 'Lease Renewal', purchase: 'Purchase', additional_occupant: 'Additional Occupant' }
 
 // Rename the application's On Going Drive folder to flag the type + applicant,
 // keeping the "<ASSOC>###" prefix so folder parsing still works. Best-effort.
