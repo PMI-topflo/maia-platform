@@ -38,6 +38,7 @@ export interface IntakeDoc {
   template_path: string | null
   requires_notarization: boolean
   per_applicant: boolean
+  allow_multiple: boolean
 }
 
 /** Signed preview links for the example-form templates, keyed by template_path.
@@ -55,7 +56,7 @@ export async function signTemplateUrls(docs: { template_path: string | null }[])
 /** The active document checklist for an association + application type, ordered. */
 export async function getIntakeChecklist(associationCode: string, type: ApplicationType): Promise<IntakeDoc[]> {
   const { data } = await supabaseAdmin.from('association_intake_documents')
-    .select('id, doc_key, label, provided_by, required, note, sort_order, template_path, requires_notarization, per_applicant')
+    .select('id, doc_key, label, provided_by, required, note, sort_order, template_path, requires_notarization, per_applicant, allow_multiple')
     .eq('association_code', associationCode.toUpperCase())
     .eq('application_type', type)
     .eq('active', true)
@@ -66,7 +67,7 @@ export async function getIntakeChecklist(associationCode: string, type: Applicat
 /** The whole checklist for an association, grouped by type (admin view). */
 export async function getIntakeChecklistAll(associationCode: string): Promise<Record<ApplicationType, IntakeDoc[]>> {
   const { data } = await supabaseAdmin.from('association_intake_documents')
-    .select('id, application_type, doc_key, label, provided_by, required, note, sort_order, template_path, requires_notarization, per_applicant')
+    .select('id, application_type, doc_key, label, provided_by, required, note, sort_order, template_path, requires_notarization, per_applicant, allow_multiple')
     .eq('association_code', associationCode.toUpperCase())
     .eq('active', true)
     .order('sort_order', { ascending: true })

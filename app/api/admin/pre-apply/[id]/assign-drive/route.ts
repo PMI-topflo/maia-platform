@@ -53,10 +53,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { data: app } = await supabaseAdmin.from('listing_applications').select('id, listing_id, drive_folder_id').eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'application not found' }, { status: 404 })
 
-  let b: { doc_key?: string; doc_label?: string; fileId?: string; fileName?: string; mimeType?: string; pages?: string; keepName?: boolean; stakeholder_id?: string }
+  let b: { doc_key?: string; doc_label?: string; fileId?: string; fileName?: string; mimeType?: string; pages?: string; keepName?: boolean; stakeholder_id?: string; allow_multiple?: boolean }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
   const docKey = String(b.doc_key ?? '').trim()
   const stakeholderId = String(b.stakeholder_id ?? '').trim() || null
+  const allowMultiple = b.allow_multiple === true
   const fileId = String(b.fileId ?? '').trim()
   const fileName = String(b.fileName ?? 'file.pdf')
   const mimeType = String(b.mimeType ?? 'application/pdf')
@@ -102,8 +103,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const up = await supabaseAdmin.storage.from(INTAKE_BUCKET).upload(path, buf, { contentType: outMime, upsert: true })
   if (up.error) return NextResponse.json({ error: `upload failed: ${up.error.message}` }, { status: 500 })
 
-  const del = supabaseAdmin.from('application_documents').delete().eq('application_id', id).eq('doc_key', docKey)
-  await (stakeholderId ? del.eq('stakeholder_id', stakeholderId) : del.is('stakeholder_id', null))
+  if (!allowMultiple) {
+    const del = supabaseAdmin.from('application_documents').delete().eq('application_id', id).eq('doc_key', docKey)
+    await (stakeholderId ? del.eq('stakeholder_id', stakeholderId) : del.is('stakeholder_id', null))
+  }
   const { error } = await supabaseAdmin.from('application_documents').insert({
     application_id: id, listing_id: app.listing_id, kind: 'other', doc_key: docKey, doc_label: String(b.doc_label ?? docKey),
     storage_path: path, filename: outName, suggested_name: rename, expiration_date: scan.expiration,

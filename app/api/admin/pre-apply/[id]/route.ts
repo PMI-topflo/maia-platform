@@ -102,7 +102,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     screeningProvider: (assocRow?.screening_provider as string | null) ?? 'tenant_evaluation',
     audit: { auditedBy: app.audited_by, auditedAt: app.audited_at, reviewedBy: app.reviewed_by, reviewedAt: app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role },
     naItems: Array.isArray(app.na_items) ? (app.na_items as string[]) : [],
-    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, per_applicant: c.per_applicant, uploaded: uploaded.has(c.doc_key) })),
+    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, per_applicant: c.per_applicant, allow_multiple: c.allow_multiple, uploaded: uploaded.has(c.doc_key) })),
     documents: withUrls,
   })
 }

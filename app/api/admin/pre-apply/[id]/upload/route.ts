@@ -32,6 +32,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const docKey = String(form.get('doc_key') ?? '').trim()
   const docLabel = String(form.get('doc_label') ?? '').trim() || docKey || 'Document'
   const stakeholderId = String(form.get('stakeholder_id') ?? '').trim() || null
+  const allowMultiple = String(form.get('allow_multiple') ?? '') === '1'
   if (!(file instanceof File) || file.size === 0) return NextResponse.json({ error: 'no file' }, { status: 400 })
   if (!docKey) return NextResponse.json({ error: 'doc_key required' }, { status: 400 })
   if (!ALLOWED.test(file.name)) return NextResponse.json({ error: 'file must be a PDF or image' }, { status: 400 })
@@ -46,9 +47,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (up.error) return NextResponse.json({ error: `upload failed: ${up.error.message}` }, { status: 500 })
 
   // Replace any prior upload for this checklist item — scoped to the applicant
-  // for per-person items (doc_key + stakeholder_id), so each column is separate.
-  const del = supabaseAdmin.from('application_documents').delete().eq('application_id', id).eq('doc_key', docKey)
-  await (stakeholderId ? del.eq('stakeholder_id', stakeholderId) : del.is('stakeholder_id', null))
+  // for per-person items. Multi-file items (e.g. 2 years of tax returns) APPEND.
+  if (!allowMultiple) {
+    const del = supabaseAdmin.from('application_documents').delete().eq('application_id', id).eq('doc_key', docKey)
+    await (stakeholderId ? del.eq('stakeholder_id', stakeholderId) : del.is('stakeholder_id', null))
+  }
   const { error: insErr } = await supabaseAdmin.from('application_documents').insert({
     application_id: id, listing_id: app.listing_id, kind: 'other', doc_key: docKey, doc_label: docLabel,
     storage_path: path, filename: file.name, mime_type: file.type || 'application/pdf', uploaded_by_role: 'staff',
