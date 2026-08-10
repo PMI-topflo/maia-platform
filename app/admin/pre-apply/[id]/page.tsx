@@ -12,7 +12,7 @@ interface Doc { id: string; doc_key: string | null; doc_label: string | null; fi
 interface Detail {
   id: string; associationCode: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
-  stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; phone: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean }[]
+  stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; phone: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean; applicantRole: string | null }[]
   rulesAck: { name?: string; at?: string } | null
   driveFolderUrl: string | null
   screeningProvider: string
@@ -23,6 +23,14 @@ interface Detail {
 }
 
 const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant', ownership_transfer: 'Ownership transfer', occupancy_registration: 'Occupancy registration' }
+// Per-person party roles (mirror of lib/preapply APPLICANT_ROLES; kept local so
+// this client component doesn't import the server lib).
+const APPLICANT_ROLES: { key: string; label: string }[] = [
+  { key: 'primary_applicant', label: 'Primary Applicant' }, { key: 'co_applicant', label: 'Co-Applicant' },
+  { key: 'owner', label: 'Owner' }, { key: 'tenant', label: 'Tenant' }, { key: 'spouse_partner', label: 'Spouse / Partner' },
+  { key: 'adult_occupant', label: 'Adult Occupant' }, { key: 'minor_dependent', label: 'Minor / Dependent' }, { key: 'guarantor', label: 'Guarantor' },
+]
+const applicantRoleLabel = (v: string | null | undefined) => APPLICANT_ROLES.find(r => r.key === v)?.label ?? ''
 const fmt = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '—'
 
 export default function PreApplyDetail({ params }: { params: Promise<{ id: string }> }) {
@@ -34,6 +42,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   const [tax, setTax] = useState<{ kind: string; confidence: number; verdict: string } | null>(null)
   const [taxBusy, setTaxBusy] = useState(false)
   const [driveFiles, setDriveFiles] = useState<{ fileId: string; name: string; mimeType: string }[] | null>(null)
+  const [activeApplicant, setActiveApplicant] = useState<string | null>(null)
 
   const loadDriveFiles = useCallback(async () => {
     const r = await fetch(`/api/admin/pre-apply/${id}/drive-files`, { credentials: 'include' })
@@ -119,19 +128,33 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
         <>
           <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '18px 0 6px' }}>Per-applicant documents</div>
           {applicants.length === 0 ? (
-            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e' }}>Add the applicants above (read them from the lease) to collect each person&apos;s documents in their own column.</div>
-          ) : (
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-              {applicants.map(a => (
-                <div key={a.id} style={{ flex: '1 1 340px', minWidth: 300, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
-                  <div style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb', padding: '9px 14px', font: '700 14px system-ui', color: '#1f2937' }}>{a.name || a.email || 'Applicant'}{a.isPrimary && <span style={{ font: '600 10px system-ui', color: '#9ca3af', marginLeft: 6 }}>LEAD</span>}</div>
-                  {perApplicantItems.map((c, i) => (
-                    <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} />
-                  ))}
+            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e' }}>Add the applicants above (read them from the lease) to collect each person&apos;s documents in their own tab.</div>
+          ) : (() => {
+            const activeId = applicants.some(a => a.id === activeApplicant) ? activeApplicant! : applicants[0].id
+            const a = applicants.find(x => x.id === activeId)!
+            const missingCount = (sid: string) => perApplicantItems.filter(c => c.required && !docFor(c.doc_key, sid) && !naFor(c.doc_key, sid)).length
+            return (
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+                {/* Applicant tabs */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
+                  {applicants.map(x => {
+                    const on = x.id === activeId
+                    const miss = missingCount(x.id)
+                    return (
+                      <button key={x.id} onClick={() => setActiveApplicant(x.id)} style={{ border: 'none', borderBottom: on ? '2px solid #4338ca' : '2px solid transparent', background: on ? '#fff' : 'transparent', cursor: 'pointer', padding: '9px 16px', textAlign: 'left' }}>
+                        <div style={{ font: `${on ? 700 : 600} 14px system-ui`, color: on ? '#1f2937' : '#6b7280' }}>{x.name || 'Applicant'}{miss > 0 && <span style={{ font: '600 10px system-ui', color: '#fff', background: '#f59e0b', borderRadius: 999, padding: '1px 6px', marginLeft: 6 }}>{miss}</span>}</div>
+                        <div style={{ font: '600 11px system-ui', color: '#9ca3af' }}>{applicantRoleLabel(x.applicantRole) || (x.isPrimary ? 'Primary Applicant' : 'Co-Applicant')}</div>
+                      </button>
+                    )
+                  })}
                 </div>
-              ))}
-            </div>
-          )}
+                {/* Active applicant's documents */}
+                {perApplicantItems.map((c, i) => (
+                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} />
+                ))}
+              </div>
+            )
+          })()}
         </>
       )}
 
@@ -594,12 +617,14 @@ function MetaEditor({ id, name, type, onDone }: { id: string; name: string; type
 
 // The applicant roster — read the names off the lease, confirm/add/remove, save.
 // This is what lets MAIA collect each applicant's documents in their own column.
-function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { name: string | null }[]; onDone: () => void }) {
-  const [names, setNames] = useState<string[]>(applicants.map(a => (a.name ?? '').trim()).filter(Boolean))
+interface Person { name: string; role: string }
+function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { name: string | null; applicantRole: string | null }[]; onDone: () => void }) {
+  const seed = (): Person[] => applicants.map((a, i) => ({ name: (a.name ?? '').trim(), role: a.applicantRole || (i === 0 ? 'primary_applicant' : 'co_applicant') })).filter(p => p.name)
+  const [people, setPeople] = useState<Person[]>(seed)
   const [add, setAdd] = useState('')
   const [busy, setBusy] = useState<'read' | 'save' | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
-  const dirty = JSON.stringify(names) !== JSON.stringify(applicants.map(a => (a.name ?? '').trim()).filter(Boolean))
+  const dirty = JSON.stringify(people) !== JSON.stringify(seed())
 
   async function readFromLease() {
     setBusy('read'); setMsg(null)
@@ -607,39 +632,42 @@ function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { 
       const r = await fetch(`/api/admin/pre-apply/${id}/applicants?propose=1`, { credentials: 'include' })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
       if (!j.hasLease) { setMsg('Save the signed lease first, then read the names from it.'); return }
-      const have = new Set(names.map(n => n.toLowerCase().replace(/\s+/g, ' ')))
-      const merged = [...names, ...(j.proposed as string[]).filter(p => !have.has(p.toLowerCase().replace(/\s+/g, ' ')))]
-      setNames(merged); setMsg(j.proposed.length ? `Read ${j.proposed.length} name(s) from the lease.` : 'No names found on the lease — add them below.')
+      const have = new Set(people.map(p => p.name.toLowerCase().replace(/\s+/g, ' ')))
+      const added = (j.proposed as string[]).filter(p => !have.has(p.toLowerCase().replace(/\s+/g, ' '))).map((n, k) => ({ name: n, role: people.length + k === 0 ? 'primary_applicant' : 'co_applicant' }))
+      setPeople([...people, ...added]); setMsg(added.length ? `Read ${added.length} name(s) from the lease.` : 'No new names found — add them below.')
     } catch (e) { setMsg(`Could not read the lease: ${(e as Error).message}`) } finally { setBusy(null) }
   }
   async function save() {
     setBusy('save'); setMsg(null)
     try {
-      const r = await fetch(`/api/admin/pre-apply/${id}/applicants`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ names }) })
+      const r = await fetch(`/api/admin/pre-apply/${id}/applicants`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ applicants: people.map(p => ({ name: p.name, applicant_role: p.role })) }) })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
       onDone()
     } catch (e) { setMsg(`Could not save: ${(e as Error).message}`) } finally { setBusy(null) }
   }
+  const setRole = (i: number, role: string) => setPeople(people.map((p, j) => j === i ? { ...p, role } : p))
 
   return (
     <div style={{ margin: '10px 0 0', border: '1px solid #e5e7eb', borderRadius: 10, background: '#fafafa', padding: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <span style={{ font: '700 13px system-ui', color: '#1f2937' }}>Applicants <span style={{ color: '#9ca3af', fontWeight: 400 }}>· each gets their own document column</span></span>
+        <span style={{ font: '700 13px system-ui', color: '#1f2937' }}>Applicants <span style={{ color: '#9ca3af', fontWeight: 400 }}>· each gets a role + their own document tab</span></span>
         <button onClick={readFromLease} disabled={!!busy} style={{ font: '600 12px system-ui', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 7, padding: '5px 10px', cursor: busy ? 'default' : 'pointer' }}>{busy === 'read' ? 'Reading…' : '📄 Read names from lease'}</button>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-        {names.length === 0 && <span style={{ font: '13px system-ui', color: '#b45309' }}>No applicants yet — read them from the lease or add below.</span>}
-        {names.map((n, i) => (
-          <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, font: '600 13px system-ui', color: '#1f2937', background: '#fff', border: '1px solid #d1d5db', borderRadius: 999, padding: '4px 10px' }}>
-            {i === 0 && <span title="Lead applicant" style={{ color: '#9ca3af', fontWeight: 700, fontSize: 10 }}>LEAD</span>}
-            {n}
-            <button onClick={() => setNames(names.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: '#9ca3af', cursor: 'pointer', font: '700 13px system-ui', padding: 0, lineHeight: 1 }}>×</button>
-          </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+        {people.length === 0 && <span style={{ font: '13px system-ui', color: '#b45309' }}>No applicants yet — read them from the lease or add below.</span>}
+        {people.map((p, i) => (
+          <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, font: '600 13px system-ui', color: '#1f2937', background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, padding: '5px 10px', flexWrap: 'wrap' }}>
+            <span style={{ minWidth: 140 }}>{p.name}</span>
+            <select value={p.role} onChange={e => setRole(i, e.target.value)} style={{ font: '600 12px system-ui', color: '#4338ca', border: '1px solid #d1d5db', borderRadius: 6, padding: '3px 6px', background: '#fff', cursor: 'pointer' }}>
+              {APPLICANT_ROLES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+            </select>
+            <button onClick={() => setPeople(people.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: '#9ca3af', cursor: 'pointer', font: '700 14px system-ui', padding: 0, lineHeight: 1, marginLeft: 'auto' }}>×</button>
+          </div>
         ))}
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <input value={add} onChange={e => setAdd(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && add.trim()) { setNames([...names, add.trim()]); setAdd('') } }} placeholder="Add an applicant's name" style={{ font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6, width: 220 }} />
-        <button onClick={() => { if (add.trim()) { setNames([...names, add.trim()]); setAdd('') } }} style={{ font: '600 12px system-ui', color: '#374151', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>+ Add</button>
+        <input value={add} onChange={e => setAdd(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && add.trim()) { setPeople([...people, { name: add.trim(), role: people.length === 0 ? 'primary_applicant' : 'co_applicant' }]); setAdd('') } }} placeholder="Add an applicant's name" style={{ font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6, width: 220 }} />
+        <button onClick={() => { if (add.trim()) { setPeople([...people, { name: add.trim(), role: people.length === 0 ? 'primary_applicant' : 'co_applicant' }]); setAdd('') } }} style={{ font: '600 12px system-ui', color: '#374151', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>+ Add</button>
         {dirty && <button onClick={save} disabled={!!busy} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: busy ? 'default' : 'pointer' }}>{busy === 'save' ? 'Saving…' : 'Save applicants'}</button>}
       </div>
       {msg && <p style={{ font: '12.5px system-ui', color: '#6b7280', margin: '8px 0 0' }}>{msg}</p>}
