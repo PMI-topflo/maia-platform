@@ -29,15 +29,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
   const [{ data: sh }, { data: stakeholders }, { data: docs }, checklist] = await Promise.all([
     supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', id).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
-    supabaseAdmin.from('application_stakeholders').select('id, role, name, email, is_primary, status, signed_at, rules_ack_name, email_verified_at').eq('application_id', id).order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
-    supabaseAdmin.from('application_documents').select('doc_key, doc_label, storage_path').eq('application_id', id),
+    supabaseAdmin.from('application_stakeholders').select('id, role, name, email, is_primary, status, signed_at, rules_ack_name, email_verified_at, applicant_role').eq('application_id', id).order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
+    supabaseAdmin.from('application_documents').select('doc_key, doc_label, storage_path, stakeholder_id').eq('application_id', id),
     isApplicationType(String(app.application_type)) ? getIntakeChecklist(auth.assoc, app.application_type as ApplicationType) : Promise.resolve([]),
   ])
-  const withUrls = await Promise.all((docs ?? []).map(async d => {
+  const documents = await Promise.all((docs ?? []).map(async d => {
     const { data: signed } = await supabaseAdmin.storage.from(INTAKE_BUCKET).createSignedUrl(String(d.storage_path), 600)
-    return { doc_key: d.doc_key, doc_label: d.doc_label, url: signed?.signedUrl ?? null }
+    return { doc_key: d.doc_key as string | null, label: d.doc_label as string | null, url: signed?.signedUrl ?? null, stakeholderId: (d.stakeholder_id as string | null) ?? null }
   }))
-  const uploaded = new Set((docs ?? []).map(d => d.doc_key).filter(Boolean))
   const exampleUrls = await signTemplateUrls(checklist)
 
   return NextResponse.json({
@@ -47,15 +46,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       id: s.id, role: s.role, roleLabel: roleLabel(String(s.role)), name: s.name, email: s.email,
       isPrimary: s.is_primary, status: s.status, signs: roleSigns(String(s.role)),
       signedAt: s.signed_at, rulesAckName: s.rules_ack_name, emailVerified: !!s.email_verified_at,
+      applicantRole: (s.applicant_role as string | null) ?? null,
     })),
     rulesAck: app.rules_ack, driveFolderUrl: app.drive_folder_url,
     audited: !!app.audited_at, decided: !!app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role,
     canApprove: auth.persona === 'board' || auth.persona === 'building_manager' || auth.persona === 'staff',
     canUpload: auth.canUpload,
-    checklist: checklist.map(c => {
-      const doc = withUrls.find(x => x.doc_key === c.doc_key || x.doc_label === c.label)
-      return { doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, uploaded: uploaded.has(c.doc_key), url: doc?.url ?? null, exampleUrl: c.template_path ? exampleUrls.get(c.template_path) ?? null : null }
-    }),
+    documents,
+    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, per_applicant: c.per_applicant, exampleUrl: c.template_path ? exampleUrls.get(c.template_path) ?? null : null })),
   })
 }
 

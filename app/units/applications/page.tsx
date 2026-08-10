@@ -11,14 +11,17 @@ import Link from 'next/link'
 interface AppRow { id: string; type: string; unit: string | null; status: string; submittedAt: string | null; audited: boolean; decided: boolean; approvedByRole: string | null; applicant: string | null; docCount: number }
 interface ChecklistItem { label: string; provided_by: string; required: boolean; notarized: boolean; exampleUrl: string | null }
 interface TypeChecklist { type: string; label: string; blurb: string; items: ChecklistItem[] }
+interface DetailDoc { doc_key: string | null; label: string | null; url: string | null; stakeholderId: string | null }
 interface Detail {
   id: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
-  stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean }[]
+  stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean; applicantRole: string | null }[]
   rulesAck: { name?: string; at?: string } | null; driveFolderUrl: string | null
   audited: boolean; decided: boolean; note: string | null; approvedByRole: string | null; canApprove: boolean; canUpload?: boolean
-  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; uploaded: boolean; url: string | null; exampleUrl: string | null }[]
+  documents: DetailDoc[]
+  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; per_applicant: boolean; exampleUrl: string | null }[]
 }
+const APPLICANT_ROLE_LABEL: Record<string, string> = { primary_applicant: 'Primary Applicant', co_applicant: 'Co-Applicant', owner: 'Owner', tenant: 'Tenant', spouse_partner: 'Spouse / Partner', adult_occupant: 'Adult Occupant', minor_dependent: 'Minor / Dependent', guarantor: 'Guarantor' }
 
 const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant', ownership_transfer: 'Ownership transfer', occupancy_registration: 'Occupancy registration' }
 const fmt = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '—'
@@ -149,6 +152,7 @@ function AppDetail({ id, assoc, onChanged }: { id: string; assoc: string | null;
   const [d, setD] = useState<Detail | null>(null)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
+  const [tab, setTab] = useState<string | null>(null)
   const q = assoc ? `?assoc=${encodeURIComponent(assoc)}` : ''
 
   const reload = useCallback(() => { fetch(`/api/units/pre-apply/${id}${q}`, { credentials: 'include' }).then(r => r.json()).then(setD).catch(() => {}) }, [id, q])
@@ -166,25 +170,68 @@ function AppDetail({ id, assoc, onChanged }: { id: string; assoc: string | null;
 
   if (!d) return <div style={{ padding: 14, color: '#9ca3af', fontSize: 13, borderTop: '1px solid #f3f4f6' }}>Loading…</div>
   const decided = d.status === 'approved' || d.status === 'declined'
-  const missing = d.checklist.filter(c => c.required && !c.uploaded)
+  const applicants = (d.stakeholders ?? []).filter(s => s.role === 'applicant')
+  const sharedItems = d.checklist.filter(c => !c.per_applicant)
+  const perApplicantItems = d.checklist.filter(c => c.per_applicant)
+  const docFor = (docKey: string, sid: string | null) => d.documents.find(x => x.doc_key === docKey && (x.stakeholderId ?? null) === sid)
+  const missing = [
+    ...sharedItems.filter(c => c.required && !docFor(c.doc_key, null)).map(c => c.label),
+    ...(applicants.length ? perApplicantItems.flatMap(c => c.required ? applicants.filter(a => !docFor(c.doc_key, a.id)).map(a => `${c.label} — ${a.name ?? 'applicant'}`) : []) : perApplicantItems.filter(c => c.required).map(c => c.label)),
+  ]
+  const roleLabel = (s: { applicantRole: string | null; isPrimary: boolean }) => APPLICANT_ROLE_LABEL[s.applicantRole ?? ''] || (s.isPrimary ? 'Primary Applicant' : 'Co-Applicant')
+
+  const Row = ({ c, sid }: { c: Detail['checklist'][number]; sid: string | null }) => {
+    const doc = docFor(c.doc_key, sid)
+    return (
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderTop: '1px solid #f3f4f6', alignItems: 'center', fontSize: 13 }}>
+        <span>{c.label} <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px' }}>{PROVIDED_LABEL[c.provided_by] ?? c.provided_by}</span>
+          {c.exampleUrl && <a href={c.exampleUrl} target="_blank" rel="noreferrer" style={{ font: '600 11px system-ui', color: '#2563eb', textDecoration: 'none', marginLeft: 7 }}>see example ↗</a>}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {doc?.url ? <a href={doc.url} target="_blank" rel="noreferrer" style={{ color: '#166534', fontWeight: 600 }}>✓ View</a> : <span style={{ color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
+          {d.canUpload && <UploadItem id={id} assoc={assoc} docKey={c.doc_key} docLabel={c.label} uploaded={!!doc} onDone={reload} stakeholderId={sid ?? undefined} />}
+        </span>
+      </div>
+    )
+  }
+
+  const activeId = applicants.some(a => a.id === tab) ? tab! : applicants[0]?.id ?? null
 
   return (
     <div style={{ padding: 14, borderTop: '1px solid #f3f4f6', background: '#fafafa' }}>
       <div style={{ fontSize: 13, color: '#374151', marginBottom: 8 }}>{d.applicant?.email}{d.applicant?.phone ? ` · ${d.applicant.phone}` : ''}{d.driveFolderUrl && <> · <a href={d.driveFolderUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>📁 Drive</a></>}</div>
       {!d.audited && <div style={{ fontSize: 12.5, color: '#b45309', marginBottom: 8 }}>⏳ Awaiting PMI compliance audit — you can still review the documents.</div>}
-      {missing.length > 0 && <div style={{ fontSize: 12.5, color: '#b45309', marginBottom: 8 }}>Missing required: {missing.map(m => m.label).join(', ')}</div>}
+      {missing.length > 0 && <div style={{ fontSize: 12.5, color: '#b45309', marginBottom: 8 }}>Missing required: {missing.join(', ')}</div>}
+
+      {/* Shared documents */}
+      <div style={{ font: '700 11px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '2px 0 4px' }}>Shared documents</div>
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', background: '#fff', marginBottom: 10 }}>
-        {d.checklist.map((c, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderTop: i ? '1px solid #f3f4f6' : 'none', alignItems: 'center', fontSize: 13 }}>
-            <span>{c.label} <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px' }}>{PROVIDED_LABEL[c.provided_by] ?? c.provided_by}</span>
-              {c.exampleUrl && <a href={c.exampleUrl} target="_blank" rel="noreferrer" style={{ font: '600 11px system-ui', color: '#2563eb', textDecoration: 'none', marginLeft: 7 }}>see example ↗</a>}</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {c.uploaded && c.url ? <a href={c.url} target="_blank" rel="noreferrer" style={{ color: '#166534', fontWeight: 600 }}>✓ View</a> : <span style={{ color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
-              {d.canUpload && <UploadItem id={id} assoc={assoc} docKey={c.doc_key} docLabel={c.label} uploaded={c.uploaded} onDone={reload} />}
-            </span>
-          </div>
-        ))}
+        {sharedItems.length === 0 ? <div style={{ padding: '8px 12px', fontSize: 12.5, color: '#9ca3af' }}>None.</div> : sharedItems.map(c => <Row key={c.doc_key} c={c} sid={null} />)}
       </div>
+
+      {/* Per-applicant documents — tabs */}
+      {perApplicantItems.length > 0 && (
+        <>
+          <div style={{ font: '700 11px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '4px 0 4px' }}>Per-applicant documents</div>
+          {applicants.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: '#b45309', marginBottom: 10 }}>No applicants recorded yet.</div>
+          ) : (
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', background: '#fff', marginBottom: 10 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
+                {applicants.map(x => {
+                  const on = x.id === activeId
+                  return (
+                    <button key={x.id} onClick={() => setTab(x.id)} style={{ border: 'none', borderBottom: on ? '2px solid #4338ca' : '2px solid transparent', background: on ? '#fff' : 'transparent', cursor: 'pointer', padding: '7px 14px', textAlign: 'left' }}>
+                      <div style={{ font: `${on ? 700 : 600} 13px system-ui`, color: on ? '#1f2937' : '#6b7280' }}>{x.name || 'Applicant'}</div>
+                      <div style={{ font: '600 10px system-ui', color: '#9ca3af' }}>{roleLabel(x)}</div>
+                    </button>
+                  )
+                })}
+              </div>
+              {activeId && perApplicantItems.map(c => <Row key={c.doc_key} c={c} sid={activeId} />)}
+            </div>
+          )}
+        </>
+      )}
       {d.stakeholders && d.stakeholders.length > 0 ? (
         <div style={{ margin: '4px 0 10px', border: '1px solid #eef0f3', borderRadius: 8, padding: '8px 10px', background: '#fafbfc' }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', marginBottom: 4 }}>People on this application</div>
@@ -217,15 +264,16 @@ function AppDetail({ id, assoc, onChanged }: { id: string; assoc: string | null;
 // Board / on-site manager uploads a document for one checklist item. Files it
 // against the application, mirrors to Drive, and notifies PMI + Jonathan to
 // scan → confirm into MAIA.
-function UploadItem({ id, assoc, docKey, docLabel, uploaded, onDone }: { id: string; assoc: string | null; docKey: string; docLabel: string; uploaded: boolean; onDone: () => void }) {
+function UploadItem({ id, assoc, docKey, docLabel, uploaded, onDone, stakeholderId }: { id: string; assoc: string | null; docKey: string; docLabel: string; uploaded: boolean; onDone: () => void; stakeholderId?: string }) {
   const [busy, setBusy] = useState(false)
-  const inputId = `up-${id}-${docKey}`
+  const inputId = `up-${id}-${docKey}-${stakeholderId ?? 'shared'}`
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]; if (!f) return
     setBusy(true)
     try {
       const fd = new FormData()
       fd.append('assoc', assoc ?? ''); fd.append('file', f); fd.append('doc_key', docKey); fd.append('doc_label', docLabel)
+      if (stakeholderId) fd.append('stakeholder_id', stakeholderId)
       const r = await fetch(`/api/units/pre-apply/${id}/upload`, { method: 'POST', credentials: 'include', body: fd })
       if (!r.ok) throw new Error((await r.json()).error || 'failed')
       onDone()
