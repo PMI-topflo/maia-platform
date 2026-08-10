@@ -6,6 +6,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveUnitsAuth } from '@/lib/units-portal-auth'
+import { getIntakeChecklistAll, APPLICATION_TYPES } from '@/lib/intake-documents'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -28,7 +29,15 @@ export async function GET(req: Request) {
   const docCount = new Map<string, number>()
   for (const d of docs ?? []) docCount.set(d.application_id as string, (docCount.get(d.application_id as string) ?? 0) + 1)
 
+  // The required-documents reference, per application type, for this association.
+  const all = await getIntakeChecklistAll(auth.assoc)
+  const checklists = APPLICATION_TYPES.map(t => ({
+    type: t.key, label: t.label, blurb: t.blurb,
+    items: (all[t.key] ?? []).map(d => ({ label: d.label, provided_by: d.provided_by, required: d.required, notarized: d.requires_notarization })),
+  })).filter(t => t.items.length > 0)
+
   return NextResponse.json({
+    checklists,
     canApprove: auth.persona === 'board' || auth.persona === 'building_manager' || auth.persona === 'staff',
     approverRole: auth.persona === 'board' ? 'board' : auth.persona === 'building_manager' ? 'onsite_manager' : 'staff',
     applications: (apps ?? []).map(a => ({
