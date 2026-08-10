@@ -73,7 +73,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const [{ data: sh }, { data: stakeholders }, { data: docs }, checklist] = await Promise.all([
     supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', id).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
-    supabaseAdmin.from('application_stakeholders').select('id, role, name, email, phone, is_primary, status, signed_at, rules_ack_name, email_verified_at, applicant_role').eq('application_id', id).order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
+    supabaseAdmin.from('application_stakeholders').select('id, role, name, email, phone, is_primary, status, signed_at, rules_ack_name, email_verified_at, applicant_role, credit_score').eq('application_id', id).order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('application_documents').select('id, doc_key, doc_label, storage_path, filename, mime_type, suggested_name, expiration_date, no_expiration, uploaded_by_role, stakeholder_id, created_at').eq('application_id', id).order('created_at', { ascending: true }),
     isApplicationType(String(app.application_type)) ? getIntakeChecklist(String(app.association_code), app.application_type as ApplicationType) : Promise.resolve([]),
   ])
@@ -96,6 +96,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       isPrimary: s.is_primary, status: s.status, signs: roleSigns(String(s.role)),
       signedAt: s.signed_at, rulesAckName: s.rules_ack_name, emailVerified: !!s.email_verified_at,
       applicantRole: (s.applicant_role as string | null) ?? null,
+      creditScore: (s.credit_score as number | null) ?? null,
     })),
     rulesAck: app.rules_ack,
     driveFolderUrl: app.drive_folder_url,

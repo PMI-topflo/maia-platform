@@ -12,7 +12,7 @@ interface Doc { id: string; doc_key: string | null; doc_label: string | null; fi
 interface Detail {
   id: string; associationCode: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
-  stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; phone: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean; applicantRole: string | null }[]
+  stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; phone: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean; applicantRole: string | null; creditScore: number | null }[]
   rulesAck: { name?: string; at?: string } | null
   driveFolderUrl: string | null
   screeningProvider: string
@@ -150,6 +150,8 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                     )
                   })}
                 </div>
+                {/* Background-check credit score for the active applicant. */}
+                <CreditScore id={id} stakeholderId={a.id} name={a.name} score={a.creditScore} decided={decided} onDone={load} />
                 {/* Active applicant's documents */}
                 {perApplicantItems.map((c, i) => (
                   <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={c.allow_multiple ? docsFor(c.doc_key, a.id).slice(1) : undefined} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} />
@@ -668,6 +670,47 @@ function CarryOverButton({ id, onDone }: { id: string; onDone: () => void }) {
     <div style={{ margin: '0 0 10px' }}>
       <button onClick={run} disabled={busy} style={{ ...btn('#0f766e'), padding: '8px 14px' }}>{busy ? 'Bringing in…' : '📥 Bring in the previous term’s files'}</button>
       {msg && <p style={{ font: '12.5px system-ui', color: '#6b7280', margin: '6px 0 0' }}>{msg}</p>}
+    </div>
+  )
+}
+
+// Per-applicant credit score — the headline number from their background check
+// (Tenant Evaluation for now). Shown to the board; the report image is the
+// Background / Credit Reports document below.
+function CreditScore({ id, stakeholderId, name, score, decided, onDone }: { id: string; stakeholderId: string; name: string | null; score: number | null; decided: boolean; onDone: () => void }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(score != null ? String(score) : '')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { setVal(score != null ? String(score) : '') }, [score])
+  const band = score == null ? null : score >= 740 ? { t: 'Excellent', c: '#166534' } : score >= 670 ? { t: 'Good', c: '#166534' } : score >= 580 ? { t: 'Fair', c: '#b45309' } : { t: 'Poor', c: '#b91c1c' }
+  async function save() {
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/applicant-score`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stakeholder_id: stakeholderId, credit_score: val.trim() || null }) })
+      if (!r.ok) throw new Error((await r.json()).error || 'failed'); setEditing(false); onDone()
+    } catch (e) { alert(`Could not save: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', margin: '0 0 4px', background: '#f9fafb', border: '1px solid #eef0f3', borderRadius: 8, flexWrap: 'wrap' }}>
+      <span style={{ font: '700 11px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280' }}>Credit score</span>
+      {editing ? (
+        <>
+          <input value={val} onChange={e => setVal(e.target.value.replace(/[^\d]/g, ''))} placeholder="300–850" style={{ font: '700 15px system-ui', width: 90, padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 6 }} />
+          <button onClick={save} disabled={busy} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer' }}>{busy ? 'Saving…' : 'Save'}</button>
+          <button onClick={() => { setEditing(false); setVal(score != null ? String(score) : '') }} style={{ font: '600 12px system-ui', color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
+        </>
+      ) : score != null && band ? (
+        <>
+          <span style={{ font: '800 17px system-ui', color: '#fff', background: band.c, borderRadius: 8, padding: '3px 12px' }}>{score}</span>
+          <span style={{ font: '600 12.5px system-ui', color: band.c }}>{band.t}</span>
+          {!decided && <button onClick={() => setEditing(true)} style={{ font: '600 12px system-ui', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>✎ edit</button>}
+        </>
+      ) : (
+        <>
+          <span style={{ font: '13px system-ui', color: '#9ca3af' }}>Not entered{name ? ` for ${name}` : ''}</span>
+          {!decided && <button onClick={() => setEditing(true)} style={{ font: '600 12px system-ui', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>+ Add from background check</button>}
+        </>
+      )}
     </div>
   )
 }

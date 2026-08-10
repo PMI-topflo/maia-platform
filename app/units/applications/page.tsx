@@ -15,7 +15,7 @@ interface DetailDoc { doc_key: string | null; label: string | null; url: string 
 interface Detail {
   id: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
-  stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean; applicantRole: string | null }[]
+  stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean; applicantRole: string | null; creditScore: number | null }[]
   rulesAck: { name?: string; at?: string } | null; driveFolderUrl: string | null
   audited: boolean; decided: boolean; note: string | null; approvedByRole: string | null; canApprove: boolean; canUpload?: boolean
   documents: DetailDoc[]
@@ -227,6 +227,17 @@ function AppDetail({ id, assoc, onChanged }: { id: string; assoc: string | null;
                   )
                 })}
               </div>
+              {activeId && (() => {
+                const cs = applicants.find(a => a.id === activeId)?.creditScore ?? null
+                const band = cs == null ? null : cs >= 740 ? '#166534' : cs >= 670 ? '#166534' : cs >= 580 ? '#b45309' : '#b91c1c'
+                return cs != null ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: '1px solid #f3f4f6', background: '#f9fafb', fontSize: 13 }}>
+                    <span style={{ font: '700 11px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280' }}>Credit score</span>
+                    <span style={{ font: '800 16px system-ui', color: '#fff', background: band ?? '#374151', borderRadius: 7, padding: '2px 11px' }}>{cs}</span>
+                    <span style={{ color: '#9ca3af', fontSize: 12 }}>from background check</span>
+                  </div>
+                ) : null
+              })()}
               {activeId && perApplicantItems.map(c => <Row key={c.doc_key} c={c} sid={activeId} />)}
             </div>
           )}
