@@ -1,0 +1,82 @@
+// GET  /api/admin/pre-apply/[id]/applicants?propose=1
+//        → { proposed: string[], current: {id,name}[] }  reads the saved lease and
+//          proposes the applicant names (extractLeaseDetails); returns the roster.
+// POST /api/admin/pre-apply/[id]/applicants   { names: string[] }
+//        → replaces the applicant roster (application_stakeholders, role 'applicant').
+//          Signed / email-verified applicants are never deleted. Staff-only.
+
+import { NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requireStaffSession } from '@/lib/staff-auth'
+import { INTAKE_BUCKET } from '@/lib/preapply'
+import { extractLeaseDetails } from '@/lib/lease-extract'
+
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
+const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
+
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { id } = await ctx.params
+
+  const [{ data: current }, { data: lease }] = await Promise.all([
+    supabaseAdmin.from('application_stakeholders').select('id, name, is_primary').eq('application_id', id).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
+    supabaseAdmin.from('application_documents').select('storage_path, mime_type').eq('application_id', id).eq('doc_key', 'signed_lease').maybeSingle(),
+  ])
+
+  let proposed: string[] = []
+  if (new URL(req.url).searchParams.get('propose') && lease?.storage_path) {
+    const { data: blob } = await supabaseAdmin.storage.from(INTAKE_BUCKET).download(String(lease.storage_path))
+    if (blob) {
+      const d = await extractLeaseDetails(Buffer.from(await blob.arrayBuffer()), (lease.mime_type as string | null) ?? null).catch(() => null)
+      proposed = d?.tenantNames ?? []
+    }
+  }
+
+  return NextResponse.json({
+    hasLease: !!lease?.storage_path,
+    current: (current ?? []).map(s => ({ id: String(s.id), name: (s.name as string | null) ?? '' })),
+    proposed,
+  })
+}
+
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { id } = await ctx.params
+  const { data: app } = await supabaseAdmin.from('listing_applications').select('id, listing_id').eq('id', id).maybeSingle()
+  if (!app) return NextResponse.json({ error: 'not found' }, { status: 404 })
+
+  let b: { names?: unknown }
+  try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
+  const names = Array.isArray(b.names) ? [...new Set((b.names as unknown[]).map(n => String(n ?? '').trim()).filter(Boolean).map(n => [norm(n), n] as const))].map(([, n]) => n) : []
+  if (names.length === 0) return NextResponse.json({ error: 'Add at least one applicant.' }, { status: 400 })
+
+  const { data: existing } = await supabaseAdmin.from('application_stakeholders')
+    .select('id, name, is_primary, signed_at, email_verified_at').eq('application_id', id).eq('role', 'applicant')
+  const byName = new Map((existing ?? []).map(s => [norm(String(s.name ?? '')), s]))
+  const keptIds = new Set<string>()
+  const now = new Date().toISOString()
+
+  for (let i = 0; i < names.length; i++) {
+    const hit = byName.get(norm(names[i]))
+    if (hit) {
+      keptIds.add(String(hit.id))
+      await supabaseAdmin.from('application_stakeholders').update({ name: names[i], is_primary: i === 0, updated_at: now }).eq('id', hit.id)
+    } else {
+      await supabaseAdmin.from('application_stakeholders').insert({
+        application_id: id, role: 'applicant', name: names[i], is_primary: i === 0, status: 'active', added_by_role: 'staff',
+      })
+    }
+  }
+
+  // Remove applicants dropped from the list — but never one who signed / verified.
+  for (const s of existing ?? []) {
+    if (keptIds.has(String(s.id))) continue
+    if (s.signed_at || s.email_verified_at) continue
+    await supabaseAdmin.from('application_stakeholders').delete().eq('id', s.id)
+  }
+
+  return NextResponse.json({ ok: true, count: names.length })
+}

@@ -82,6 +82,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <p style={{ color: '#6b7280', fontSize: 14, margin: '2px 0 0' }}>{d.associationCode}{d.unit ? ` · Unit ${d.unit}` : ''} · submitted {fmt(d.submittedAt)}</p>
       <p style={{ fontSize: 13, color: '#374151', margin: '4px 0 0' }}>{d.applicant?.email}{d.applicant?.phone ? ` · ${d.applicant.phone}` : ''}</p>
       <MetaEditor id={id} name={d.applicant?.name ?? ''} type={d.type} onDone={load} />
+      <ApplicantsCard id={id} applicants={(d.stakeholders ?? []).filter(s => s.role === 'applicant')} onDone={load} />
       {d.driveFolderUrl && <p style={{ margin: '8px 0 0' }}><a href={d.driveFolderUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 13, fontWeight: 600 }}>📁 Drive folder →</a></p>}
 
       {/* Checklist — with staff upload boxes so you can file a doc you got by email */}
@@ -547,6 +548,61 @@ function MetaEditor({ id, name, type, onDone }: { id: string; name: string; type
       </select>
       <button onClick={save} disabled={busy} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>{busy ? 'Saving…' : 'Save'}</button>
       <button onClick={() => { setEditing(false); setNameV(name); setTypeV(type) }} style={{ font: '600 12px system-ui', color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
+    </div>
+  )
+}
+
+// The applicant roster — read the names off the lease, confirm/add/remove, save.
+// This is what lets MAIA collect each applicant's documents in their own column.
+function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { name: string | null }[]; onDone: () => void }) {
+  const [names, setNames] = useState<string[]>(applicants.map(a => (a.name ?? '').trim()).filter(Boolean))
+  const [add, setAdd] = useState('')
+  const [busy, setBusy] = useState<'read' | 'save' | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+  const dirty = JSON.stringify(names) !== JSON.stringify(applicants.map(a => (a.name ?? '').trim()).filter(Boolean))
+
+  async function readFromLease() {
+    setBusy('read'); setMsg(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/applicants?propose=1`, { credentials: 'include' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      if (!j.hasLease) { setMsg('Save the signed lease first, then read the names from it.'); return }
+      const have = new Set(names.map(n => n.toLowerCase().replace(/\s+/g, ' ')))
+      const merged = [...names, ...(j.proposed as string[]).filter(p => !have.has(p.toLowerCase().replace(/\s+/g, ' ')))]
+      setNames(merged); setMsg(j.proposed.length ? `Read ${j.proposed.length} name(s) from the lease.` : 'No names found on the lease — add them below.')
+    } catch (e) { setMsg(`Could not read the lease: ${(e as Error).message}`) } finally { setBusy(null) }
+  }
+  async function save() {
+    setBusy('save'); setMsg(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/applicants`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ names }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      onDone()
+    } catch (e) { setMsg(`Could not save: ${(e as Error).message}`) } finally { setBusy(null) }
+  }
+
+  return (
+    <div style={{ margin: '10px 0 0', border: '1px solid #e5e7eb', borderRadius: 10, background: '#fafafa', padding: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+        <span style={{ font: '700 13px system-ui', color: '#1f2937' }}>Applicants <span style={{ color: '#9ca3af', fontWeight: 400 }}>· each gets their own document column</span></span>
+        <button onClick={readFromLease} disabled={!!busy} style={{ font: '600 12px system-ui', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 7, padding: '5px 10px', cursor: busy ? 'default' : 'pointer' }}>{busy === 'read' ? 'Reading…' : '📄 Read names from lease'}</button>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        {names.length === 0 && <span style={{ font: '13px system-ui', color: '#b45309' }}>No applicants yet — read them from the lease or add below.</span>}
+        {names.map((n, i) => (
+          <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, font: '600 13px system-ui', color: '#1f2937', background: '#fff', border: '1px solid #d1d5db', borderRadius: 999, padding: '4px 10px' }}>
+            {i === 0 && <span title="Lead applicant" style={{ color: '#9ca3af', fontWeight: 700, fontSize: 10 }}>LEAD</span>}
+            {n}
+            <button onClick={() => setNames(names.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: '#9ca3af', cursor: 'pointer', font: '700 13px system-ui', padding: 0, lineHeight: 1 }}>×</button>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input value={add} onChange={e => setAdd(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && add.trim()) { setNames([...names, add.trim()]); setAdd('') } }} placeholder="Add an applicant's name" style={{ font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6, width: 220 }} />
+        <button onClick={() => { if (add.trim()) { setNames([...names, add.trim()]); setAdd('') } }} style={{ font: '600 12px system-ui', color: '#374151', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>+ Add</button>
+        {dirty && <button onClick={save} disabled={!!busy} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: busy ? 'default' : 'pointer' }}>{busy === 'save' ? 'Saving…' : 'Save applicants'}</button>}
+      </div>
+      {msg && <p style={{ font: '12.5px system-ui', color: '#6b7280', margin: '8px 0 0' }}>{msg}</p>}
     </div>
   )
 }
