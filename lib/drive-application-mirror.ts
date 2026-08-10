@@ -136,7 +136,7 @@ export function driveDateLabel(iso: string | null | undefined): string | null {
   return `${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
-const FOLDER_TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease Renewal', additional_occupant: 'Additional Occupant', ownership_transfer: 'Ownership Transfer', occupancy_registration: 'Occupancy Registration' }
+const FOLDER_TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease Renewal', additional_occupant: 'Additional Occupant' }
 
 /** Rename an application's On-Going Drive folder to "<ASSOC>### — <Type> — <Applicants>"
  *  so the folder name says the application type + who's on it (fixes bare

@@ -7,7 +7,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
-import { INTAKE_BUCKET } from '@/lib/preapply'
+import { INTAKE_BUCKET, autoRosterFromLease } from '@/lib/preapply'
 import { mirrorFileToOngoing } from '@/lib/drive-application-mirror'
 
 export const runtime = 'nodejs'
@@ -66,6 +66,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (drive.ok && drive.folderUrl) {
     await supabaseAdmin.from('listing_applications').update({ drive_folder_id: drive.folderId, drive_folder_url: drive.folderUrl, updated_at: new Date().toISOString() }).eq('id', id)
   }
+
+  // A freshly-uploaded lease seeds the applicant roster (best-effort).
+  if (docKey === 'signed_lease' && !stakeholderId) await autoRosterFromLease(id)
 
   return NextResponse.json({ ok: true, drive })
 }

@@ -18,9 +18,36 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { verifyPreApplyToken } from '@/lib/preapply-token'
+import { extractLeaseDetails } from '@/lib/lease-extract'
 import type { ApplicationType, ProvidedBy } from '@/lib/intake-documents'
 
 export const INTAKE_BUCKET = 'application-docs'
+
+// When a signed lease is saved and the application has NO applicants yet, read
+// the tenant name(s) off the lease and create the roster (lead + co-applicants)
+// so MAIA fills the applicants automatically. Best-effort; never throws. Returns
+// how many applicants it created (0 if a roster already exists or none found).
+export async function autoRosterFromLease(applicationId: string): Promise<number> {
+  try {
+    const { data: existing } = await supabaseAdmin.from('application_stakeholders')
+      .select('id').eq('application_id', applicationId).eq('role', 'applicant').limit(1)
+    if (existing && existing.length) return 0
+    const { data: lease } = await supabaseAdmin.from('application_documents')
+      .select('storage_path, mime_type').eq('application_id', applicationId).eq('doc_key', 'signed_lease').maybeSingle()
+    if (!lease?.storage_path) return 0
+    const { data: blob } = await supabaseAdmin.storage.from(INTAKE_BUCKET).download(String(lease.storage_path))
+    if (!blob) return 0
+    const d = await extractLeaseDetails(Buffer.from(await blob.arrayBuffer()), (lease.mime_type as string | null) ?? null)
+    const seen = new Set<string>()
+    const names = d.tenantNames.map(n => n.trim()).filter(n => n && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()))
+    if (!names.length) return 0
+    await supabaseAdmin.from('application_stakeholders').insert(names.map((name, i) => ({
+      application_id: applicationId, role: 'applicant', name, is_primary: i === 0,
+      applicant_role: i === 0 ? 'primary_applicant' : 'co_applicant', status: 'active', added_by_role: 'lease',
+    })))
+    return names.length
+  } catch { return 0 }
+}
 
 // ── Personas ─────────────────────────────────────────────────────────
 // The four ways someone can identify themselves on the welcome page. These

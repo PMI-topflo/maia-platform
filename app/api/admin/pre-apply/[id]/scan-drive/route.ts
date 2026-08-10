@@ -13,7 +13,7 @@ import { getDrive } from '@/lib/drive-invoice-mirror'
 import { downloadDriveFile } from '@/lib/drive-import'
 import { quickDocScan } from '@/lib/quick-doc-classify'
 import { getIntakeChecklist, isApplicationType, type ApplicationType } from '@/lib/intake-documents'
-import { INTAKE_BUCKET } from '@/lib/preapply'
+import { INTAKE_BUCKET, autoRosterFromLease } from '@/lib/preapply'
 import { renameApplicationFolder } from '@/lib/drive-application-mirror'
 
 export const runtime = 'nodejs'
@@ -89,6 +89,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const type = isApplicationType(String(app.application_type)) ? (app.application_type as ApplicationType) : 'lease'
   const checklist = await getIntakeChecklist(String(app.association_code), type)
   const items = checklist.map(c => ({ doc_key: c.doc_key, label: c.label, toks: tokens(c.label), perApplicant: c.per_applicant }))
+
+  // If a lease is already saved and there's no roster yet, read the applicant
+  // names off it first so this scan can assign per-person docs to each person.
+  await autoRosterFromLease(id)
 
   // Applicant roster — per-person docs are matched to the applicant whose name
   // appears in the file (each with their own name tokens, ≥3 chars, for scoring).

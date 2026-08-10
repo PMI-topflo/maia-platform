@@ -19,8 +19,6 @@ const TYPE_DEFS = [
   { key: 'purchase',               icon: '🔑', tk: 't2t', dk: 't2d', fbt: 'Purchase',              fbd: 'Buying the unit' },
   { key: 'lease_renewal',          icon: '🔄', tk: 't3t', dk: 't3d', fbt: 'Lease Renewal',         fbd: 'Renewing an existing lease' },
   { key: 'additional_occupant',    icon: '👥', tk: 't4t', dk: 't4d', fbt: 'Additional Occupant',   fbd: 'Adding an occupant to a lease' },
-  { key: 'ownership_transfer',     icon: '📝', tk: 't5t', dk: 't5d', fbt: 'Ownership Transfer',     fbd: 'Transferring ownership' },
-  { key: 'occupancy_registration', icon: '🏘️', tk: 't6t', dk: 't6d', fbt: 'Occupancy Registration', fbd: 'Registering who occupies the unit' },
 ] as const
 
 const ROLE_DEFS = [
