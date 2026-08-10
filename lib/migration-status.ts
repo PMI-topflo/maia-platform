@@ -3473,6 +3473,15 @@ ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS rules_ack_i
 CREATE INDEX IF NOT EXISTS app_documents_stakeholder_idx ON public.application_documents (stakeholder_id);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'intake_documents_per_applicant',
+    label:       'Per-applicant document flag on the intake checklist',
+    description: 'Adds per_applicant to association_intake_documents so a checklist item can be collected once PER PERSON (own column per applicant — Photo ID, Tenant Affidavit, background/credit, vehicle docs) versus once for the unit (lease, HO-6, Certificate of Use, board docs). Drives the roster-first, per-applicant-column intake redesign.',
+    filename:    '20260810_intake_documents_per_applicant.sql',
+    artifact:    { type: 'column', table: 'association_intake_documents', column: 'per_applicant' },
+    sql: `ALTER TABLE public.association_intake_documents ADD COLUMN IF NOT EXISTS per_applicant boolean NOT NULL DEFAULT false;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
