@@ -192,8 +192,9 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {!decided && <BoardApprove id={id} onDone={load} />}
       {d.status === 'approved' && <RefileOfficial id={id} onDone={load} />}
 
-      {/* Board Decision Page e-sign (formal signed decision record) */}
-      {d.status === 'approved' && <DecisionPageSender id={id} unit={d.unit} />}
+      {/* Board approval letter (Decision Page) — available after PMI's review so
+          you can generate it, view it, and send it to the board for signatures. */}
+      {(d.audit.auditedAt || d.status === 'approved') && d.status !== 'declined' && <DecisionPageSender id={id} unit={d.unit} />}
 
       {/* Audit trail */}
       {(d.audit.auditedAt || d.audit.reviewedAt) && (
@@ -229,7 +230,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
 
 interface DecSigner { name: string | null; email: string | null; role?: string | null; hasSignature: boolean }
 interface DecPrefill { applicationType: string; propertyAddress: string | null; applicant: string | null; requiredSignatures: number; defaultSigners: DecSigner[]; leaseStart: string | null; leaseEnd: string | null; occupants: string[]; applicantAsOccupant: string | null }
-interface DecResult { allSigned: boolean; pdfUrl: string; signers: { name: string | null; email: string | null; signed: boolean; link: string | null }[] }
+interface DecResult { allSigned: boolean; pdfUrl: string; docId?: string; signers: { name: string | null; email: string | null; signed: boolean; link: string | null }[] }
 
 // Generates the Board Decision Page (the approval letter). Defaults the signer
 // to the President; if they have an on-file signature it's signed instantly,
@@ -293,9 +294,22 @@ function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
       ) : (
         <div>
           <div style={{ fontSize: 13, color: result.allSigned ? '#166534' : '#374151', marginBottom: 8 }}>
-            {result.allSigned ? '✓ Fully signed. ' : `${result.signers.filter(s => s.signed).length}/${result.signers.length} signed. Send each remaining signer their link: `}
-            <a href={result.pdfUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>View letter (PDF) →</a>
+            {result.allSigned ? '✓ Fully signed. ' : `${result.signers.filter(s => s.signed).length}/${result.signers.length} signed. `}
+            <a href={result.pdfUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>👁 View letter (PDF) →</a>
           </div>
+          {!result.allSigned && result.docId && (
+            <div style={{ marginBottom: 10 }}>
+              <button onClick={async () => {
+                setBusy(true)
+                try {
+                  const r = await fetch(`/api/admin/pre-apply/${id}/decision-page/send`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ docId: result.docId }) })
+                  const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+                  alert(j.sent > 0 ? `Emailed the signing link to ${j.sent} board member(s).` : (j.note ?? 'Nothing to send.'))
+                } catch (e) { alert(`Could not send: ${(e as Error).message}`) } finally { setBusy(false) }
+              }} disabled={busy} style={{ ...btn('#2563eb'), padding: '8px 14px' }}>{busy ? 'Sending…' : '✉ Email the letter to the board for signatures'}</button>
+              <span style={{ font: '12px system-ui', color: '#9ca3af', marginLeft: 8 }}>or copy a link below</span>
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {result.signers.map((sg, i) => <SignerRow key={i} sg={sg} />)}
           </div>
