@@ -14,10 +14,13 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await ctx.params
-  let b: { doc_key?: string; na?: boolean }
+  let b: { doc_key?: string; na?: boolean; stakeholder_id?: string }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
-  const key = String(b.doc_key ?? '').trim()
-  if (!key) return NextResponse.json({ error: 'doc_key required' }, { status: 400 })
+  const docKey = String(b.doc_key ?? '').trim()
+  if (!docKey) return NextResponse.json({ error: 'doc_key required' }, { status: 400 })
+  // Per-applicant items are keyed doc_key#stakeholderId so N/A is per person.
+  const sid = String(b.stakeholder_id ?? '').trim()
+  const key = sid ? `${docKey}#${sid}` : docKey
 
   const { data: app } = await supabaseAdmin.from('listing_applications').select('na_items').eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'not found' }, { status: 404 })

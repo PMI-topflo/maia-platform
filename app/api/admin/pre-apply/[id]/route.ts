@@ -74,7 +74,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const [{ data: sh }, { data: stakeholders }, { data: docs }, checklist] = await Promise.all([
     supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', id).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
     supabaseAdmin.from('application_stakeholders').select('id, role, name, email, phone, is_primary, status, signed_at, rules_ack_name, email_verified_at').eq('application_id', id).order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
-    supabaseAdmin.from('application_documents').select('id, doc_key, doc_label, storage_path, filename, mime_type, suggested_name, expiration_date, no_expiration, uploaded_by_role, created_at').eq('application_id', id).order('created_at', { ascending: true }),
+    supabaseAdmin.from('application_documents').select('id, doc_key, doc_label, storage_path, filename, mime_type, suggested_name, expiration_date, no_expiration, uploaded_by_role, stakeholder_id, created_at').eq('application_id', id).order('created_at', { ascending: true }),
     isApplicationType(String(app.application_type)) ? getIntakeChecklist(String(app.association_code), app.application_type as ApplicationType) : Promise.resolve([]),
   ])
 
@@ -82,7 +82,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const withUrls = (docs ?? []).map(d => ({
     id: d.id, doc_key: d.doc_key, doc_label: d.doc_label, filename: d.filename, mime_type: d.mime_type,
     suggestedName: (d.suggested_name as string | null) ?? null, expirationDate: (d.expiration_date as string | null) ?? null,
-    noExpiration: !!d.no_expiration, bySource: (d.uploaded_by_role as string | null) ?? null, url: `/api/admin/pre-apply/${id}/doc/${d.id}`,
+    noExpiration: !!d.no_expiration, bySource: (d.uploaded_by_role as string | null) ?? null,
+    stakeholderId: (d.stakeholder_id as string | null) ?? null, url: `/api/admin/pre-apply/${id}/doc/${d.id}`,
   }))
   const uploaded = new Set((docs ?? []).map(d => d.doc_key).filter(Boolean))
 
@@ -100,7 +101,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     screeningProvider: (assocRow?.screening_provider as string | null) ?? 'tenant_evaluation',
     audit: { auditedBy: app.audited_by, auditedAt: app.audited_at, reviewedBy: app.reviewed_by, reviewedAt: app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role },
     naItems: Array.isArray(app.na_items) ? (app.na_items as string[]) : [],
-    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, uploaded: uploaded.has(c.doc_key) })),
+    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, per_applicant: c.per_applicant, uploaded: uploaded.has(c.doc_key) })),
     documents: withUrls,
   })
 }

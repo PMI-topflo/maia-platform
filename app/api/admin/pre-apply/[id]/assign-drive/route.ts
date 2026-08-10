@@ -53,9 +53,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { data: app } = await supabaseAdmin.from('listing_applications').select('id, listing_id, drive_folder_id').eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'application not found' }, { status: 404 })
 
-  let b: { doc_key?: string; doc_label?: string; fileId?: string; fileName?: string; mimeType?: string; pages?: string; keepName?: boolean }
+  let b: { doc_key?: string; doc_label?: string; fileId?: string; fileName?: string; mimeType?: string; pages?: string; keepName?: boolean; stakeholder_id?: string }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
   const docKey = String(b.doc_key ?? '').trim()
+  const stakeholderId = String(b.stakeholder_id ?? '').trim() || null
   const fileId = String(b.fileId ?? '').trim()
   const fileName = String(b.fileName ?? 'file.pdf')
   const mimeType = String(b.mimeType ?? 'application/pdf')
@@ -89,16 +90,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const outMime = extractedPages != null ? 'application/pdf' : mimeType
   const ext = extractedPages != null ? '.pdf' : (fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')) : '.pdf')
   const outName = extractedPages != null ? `${fileName.replace(/\.[^.]+$/, '')} (p.${pageSpec}).pdf` : fileName
-  const rename = keepName ? outName : `${new Date().getUTCFullYear()}_${String(new Date().getUTCMonth() + 1).padStart(2, '0')}_${TYPE_TOKEN[docKey] ?? 'Document'}${ext}`
+  // Per-applicant docs append the person to the name so columns stay distinct.
+  let nameSuffix = ''
+  if (stakeholderId) {
+    const { data: shRow } = await supabaseAdmin.from('application_stakeholders').select('name').eq('id', stakeholderId).maybeSingle()
+    const nm = String((shRow?.name as string | null) ?? '').trim()
+    if (nm) nameSuffix = ` — ${nm}`
+  }
+  const rename = keepName ? outName : `${new Date().getUTCFullYear()}_${String(new Date().getUTCMonth() + 1).padStart(2, '0')}_${TYPE_TOKEN[docKey] ?? 'Document'}${nameSuffix}${ext}`
   const path = `intake/${id}/${docKey.replace(/[^\w-]+/g, '_')}/${crypto.randomUUID()}${ext}`
   const up = await supabaseAdmin.storage.from(INTAKE_BUCKET).upload(path, buf, { contentType: outMime, upsert: true })
   if (up.error) return NextResponse.json({ error: `upload failed: ${up.error.message}` }, { status: 500 })
 
-  await supabaseAdmin.from('application_documents').delete().eq('application_id', id).eq('doc_key', docKey)
+  const del = supabaseAdmin.from('application_documents').delete().eq('application_id', id).eq('doc_key', docKey)
+  await (stakeholderId ? del.eq('stakeholder_id', stakeholderId) : del.is('stakeholder_id', null))
   const { error } = await supabaseAdmin.from('application_documents').insert({
     application_id: id, listing_id: app.listing_id, kind: 'other', doc_key: docKey, doc_label: String(b.doc_label ?? docKey),
     storage_path: path, filename: outName, suggested_name: rename, expiration_date: scan.expiration,
-    mime_type: outMime, uploaded_by_role: 'drive-pick',
+    mime_type: outMime, uploaded_by_role: 'drive-pick', stakeholder_id: stakeholderId,
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true, rename, expiration: scan.expiration, extractedPages })
