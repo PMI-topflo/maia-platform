@@ -3501,6 +3501,15 @@ NOTIFY pgrst, 'reload schema';`,
 UPDATE public.association_intake_documents SET allow_multiple = true WHERE doc_key = 'tax_returns_2yr';
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'stakeholder_credit_score',
+    label:       'Credit score per applicant',
+    description: 'Adds credit_score to application_stakeholders — the headline number extracted from each applicant\'s Tenant-Evaluation background check, shown on their tab and to the board (the report image itself is the background_credit document).',
+    filename:    '20260810_stakeholder_credit_score.sql',
+    artifact:    { type: 'column', table: 'application_stakeholders', column: 'credit_score' },
+    sql: `ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS credit_score integer;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
