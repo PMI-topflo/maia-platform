@@ -9,6 +9,8 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 
 interface AppRow { id: string; type: string; unit: string | null; status: string; submittedAt: string | null; audited: boolean; decided: boolean; approvedByRole: string | null; applicant: string | null; docCount: number }
+interface ChecklistItem { label: string; provided_by: string; required: boolean; notarized: boolean }
+interface TypeChecklist { type: string; label: string; blurb: string; items: ChecklistItem[] }
 interface Detail {
   id: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
@@ -22,29 +24,77 @@ const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase
 const fmt = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '—'
 const assocFromUrl = () => (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('assoc') : null)
 
+const TYPE_ORDER = ['lease', 'lease_renewal', 'purchase', 'additional_occupant']
+
 export default function UnitsApplications() {
   const [assoc] = useState(assocFromUrl())
   const [apps, setApps] = useState<AppRow[] | null>(null)
+  const [checklists, setChecklists] = useState<TypeChecklist[]>([])
   const [err, setErr] = useState<string | null>(null)
   const [open, setOpen] = useState<string | null>(null)
+  const [typeFilter, setTypeFilter] = useState<string>('all')
+  const [showRef, setShowRef] = useState(false)
 
   const q = assoc ? `?assoc=${encodeURIComponent(assoc)}` : ''
   const load = useCallback(() => {
     fetch(`/api/units/pre-apply${q}`, { credentials: 'include' })
       .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j })
-      .then(d => setApps(d.applications)).catch(e => setErr(String(e.message ?? e)))
+      .then(d => { setApps(d.applications); setChecklists(d.checklists ?? []) }).catch(e => setErr(String(e.message ?? e)))
   }, [q])
   useEffect(load, [load])
+
+  // Types present, ordered — for the filter chips (with counts).
+  const counts = new Map<string, number>()
+  for (const a of apps ?? []) counts.set(a.type, (counts.get(a.type) ?? 0) + 1)
+  const chipTypes = [...new Set([...TYPE_ORDER.filter(t => counts.has(t)), ...checklists.map(c => c.type)])]
+  const shown = (apps ?? []).filter(a => typeFilter === 'all' || a.type === typeFilter)
+  const filteredChecklist = checklists.find(c => c.type === typeFilter) ?? null
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: 24, fontFamily: 'system-ui' }}>
       <Link href={`/units${q}`} style={{ fontSize: 13, color: '#2563eb', textDecoration: 'none' }}>← Unit audit</Link>
-      <h1 style={{ fontSize: 24, fontWeight: 700, margin: '8px 0 2px' }}>Applications to review</h1>
-      <p style={{ color: '#6b7280', fontSize: 14, margin: 0 }}>Review each applicant&apos;s documents and approve or decline.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', margin: '8px 0 2px' }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Applications to review</h1>
+          <p style={{ color: '#6b7280', fontSize: 14, margin: '2px 0 0' }}>Pre-Application Compliance — review each applicant&apos;s documents and approve or decline.</p>
+        </div>
+        {checklists.length > 0 && (
+          <button onClick={() => setShowRef(s => !s)} style={{ padding: '9px 14px', borderRadius: 9, border: '1px solid #d1d5db', background: showRef ? '#eef2ff' : '#fff', color: '#3730a3', font: '600 13px system-ui', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            📋 Required documents {showRef ? '▲' : '▼'}
+          </button>
+        )}
+      </div>
       {err && <p style={{ color: '#991b1b' }}>{err}</p>}
-      {!apps ? <p style={{ color: '#9ca3af' }}>Loading…</p> : apps.length === 0 ? <p style={{ color: '#9ca3af' }}>No submitted applications.</p> : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 }}>
-          {apps.map(a => (
+
+      {/* Reference: every application type's required documents (Pre-Application Compliance). */}
+      {showRef && checklists.length > 0 && (
+        <div style={{ margin: '12px 0 6px', border: '1px solid #e5e7eb', borderRadius: 12, background: '#fafafa', padding: 14 }}>
+          <div style={{ font: '700 11px system-ui', letterSpacing: '.06em', textTransform: 'uppercase', color: '#6b7280', marginBottom: 4 }}>Pre-Application Compliance · required documents by type</div>
+          <p style={{ fontSize: 12.5, color: '#9ca3af', margin: '0 0 12px' }}>What MAIA requests from applicants for each type of application at {assoc ?? 'this association'}.</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {[...checklists].sort((a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type)).map(c => <ChecklistCard key={c.type} c={c} />)}
+          </div>
+        </div>
+      )}
+
+      {/* Filter the list by application type. */}
+      {apps && apps.length > 0 && (
+        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', margin: '14px 0 4px' }}>
+          <Chip on={typeFilter === 'all'} onClick={() => setTypeFilter('all')}>All <span style={{ opacity: .6 }}>{apps.length}</span></Chip>
+          {chipTypes.map(t => (
+            <Chip key={t} on={typeFilter === t} onClick={() => setTypeFilter(t)}>{TYPE_LABEL[t] ?? t} <span style={{ opacity: .6 }}>{counts.get(t) ?? 0}</span></Chip>
+          ))}
+        </div>
+      )}
+
+      {/* When filtered to a type, show that type's checklist above its applications. */}
+      {filteredChecklist && (
+        <div style={{ margin: '10px 0 6px' }}><ChecklistCard c={filteredChecklist} /></div>
+      )}
+
+      {!apps ? <p style={{ color: '#9ca3af' }}>Loading…</p> : apps.length === 0 ? <p style={{ color: '#9ca3af' }}>No submitted applications.</p> : shown.length === 0 ? <p style={{ color: '#9ca3af', marginTop: 12 }}>No {TYPE_LABEL[typeFilter] ?? ''} applications submitted yet.</p> : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+          {shown.map(a => (
             <div key={a.id} style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
               <button onClick={() => setOpen(open === a.id ? null : a.id)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '12px 14px', background: '#fff', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
                 <div>
@@ -61,6 +111,38 @@ export default function UnitsApplications() {
     </div>
   )
 }
+
+function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return <button onClick={onClick} style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${on ? '#4338ca' : '#d1d5db'}`, background: on ? '#eef2ff' : '#fff', color: on ? '#3730a3' : '#374151', font: '600 13px system-ui', cursor: 'pointer' }}>{children}</button>
+}
+
+function ChecklistCard({ c }: { c: TypeChecklist }) {
+  const req = c.items.filter(i => i.required).length
+  return (
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, padding: '10px 13px', borderBottom: '1px solid #f3f4f6' }}>
+        <span style={{ fontWeight: 700, fontSize: 15, color: '#111827' }}>{c.label}</span>
+        <span style={{ font: '600 11px system-ui', color: '#9ca3af' }}>{c.items.length} items · {req} required</span>
+      </div>
+      <ol style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        {c.items.map((it, i) => (
+          <li key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', padding: '8px 13px', borderTop: i ? '1px solid #f6f6f6' : 'none', fontSize: 13.5 }}>
+            <span style={{ color: '#1f2937' }}>
+              <span style={{ color: '#9ca3af', fontVariant: 'tabular-nums', marginRight: 8 }}>{i + 1}</span>
+              {it.label}
+              <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px', marginLeft: 7 }}>{PROVIDED_LABEL[it.provided_by] ?? it.provided_by}</span>
+              {it.notarized && <span style={{ font: '600 10px system-ui', color: '#7a5a1e', background: '#f5ecd8', borderRadius: 5, padding: '1px 6px', marginLeft: 5 }}>notarized</span>}
+            </span>
+            {it.required
+              ? <span style={{ font: '700 10px system-ui', color: '#fff', background: '#c85d1b', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>REQUIRED</span>
+              : <span style={{ font: '700 10px system-ui', color: '#9ca3af', border: '1px solid #e5e7eb', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>IF APPLICABLE</span>}
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+const PROVIDED_LABEL: Record<string, string> = { applicant: 'Applicant', landlord: 'Owner', agent: 'Agent' }
 
 function AppDetail({ id, assoc, onChanged }: { id: string; assoc: string | null; onChanged: () => void }) {
   const [d, setD] = useState<Detail | null>(null)
