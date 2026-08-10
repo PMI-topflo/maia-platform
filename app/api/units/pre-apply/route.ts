@@ -6,7 +6,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveUnitsAuth } from '@/lib/units-portal-auth'
-import { getIntakeChecklistAll, APPLICATION_TYPES } from '@/lib/intake-documents'
+import { getIntakeChecklistAll, APPLICATION_TYPES, signTemplateUrls } from '@/lib/intake-documents'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -30,10 +30,12 @@ export async function GET(req: Request) {
   for (const d of docs ?? []) docCount.set(d.application_id as string, (docCount.get(d.application_id as string) ?? 0) + 1)
 
   // The required-documents reference, per application type, for this association.
+  // Items with a template get a signed link so reviewers can preview the example form.
   const all = await getIntakeChecklistAll(auth.assoc)
+  const exampleUrls = await signTemplateUrls(Object.values(all).flat())
   const checklists = APPLICATION_TYPES.map(t => ({
     type: t.key, label: t.label, blurb: t.blurb,
-    items: (all[t.key] ?? []).map(d => ({ label: d.label, provided_by: d.provided_by, required: d.required, notarized: d.requires_notarization })),
+    items: (all[t.key] ?? []).map(d => ({ label: d.label, provided_by: d.provided_by, required: d.required, notarized: d.requires_notarization, exampleUrl: d.template_path ? exampleUrls.get(d.template_path) ?? null : null })),
   })).filter(t => t.items.length > 0)
 
   return NextResponse.json({

@@ -11,7 +11,7 @@ interface App {
   submittedAt: string | null; startedAt: string | null; driveFolderUrl: string | null
   applicant: { name: string | null; email: string | null } | null; docCount: number; signed: boolean
 }
-interface ChecklistItem { label: string; provided_by: string; required: boolean; notarized: boolean }
+interface ChecklistItem { label: string; provided_by: string; required: boolean; notarized: boolean; exampleUrl: string | null }
 interface TypeChecklist { type: string; label: string; blurb: string; items: ChecklistItem[] }
 const TYPE_ORDER = ['lease', 'lease_renewal', 'purchase', 'additional_occupant']
 
@@ -202,6 +202,7 @@ function ChecklistCard({ c }: { c: TypeChecklist }) {
               {it.label}
               <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px', marginLeft: 7 }}>{PROVIDED_LABEL[it.provided_by] ?? it.provided_by}</span>
               {it.notarized && <span style={{ font: '600 10px system-ui', color: '#7a5a1e', background: '#f5ecd8', borderRadius: 5, padding: '1px 6px', marginLeft: 5 }}>notarized</span>}
+              {it.exampleUrl && <a href={it.exampleUrl} target="_blank" rel="noreferrer" style={{ font: '600 11px system-ui', color: '#2563eb', textDecoration: 'none', marginLeft: 7 }}>see example ↗</a>}
             </span>
             {it.required
               ? <span style={{ font: '700 10px system-ui', color: '#fff', background: '#c85d1b', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>REQUIRED</span>
