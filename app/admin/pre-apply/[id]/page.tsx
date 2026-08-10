@@ -18,7 +18,7 @@ interface Detail {
   screeningProvider: string
   audit: { auditedBy: string | null; auditedAt: string | null; reviewedBy: string | null; reviewedAt: string | null; note: string | null; approvedByRole: string | null }
   naItems: string[]
-  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; per_applicant: boolean; uploaded: boolean }[]
+  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; per_applicant: boolean; allow_multiple: boolean; uploaded: boolean }[]
   documents: Doc[]
 }
 
@@ -80,7 +80,8 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   const applicants = (d.stakeholders ?? []).filter(s => s.role === 'applicant')
   const sharedItems = d.checklist.filter(c => !c.per_applicant)
   const perApplicantItems = d.checklist.filter(c => c.per_applicant)
-  const docFor = (docKey: string, sid: string | null) => d.documents.find(x => x.doc_key === docKey && (x.stakeholderId ?? null) === sid)
+  const docsFor = (docKey: string, sid: string | null) => d.documents.filter(x => x.doc_key === docKey && (x.stakeholderId ?? null) === sid)
+  const docFor = (docKey: string, sid: string | null) => docsFor(docKey, sid)[0]
   const naFor = (docKey: string, sid: string | null) => naSet.has(sid ? `${docKey}#${sid}` : docKey)
   // Missing required: shared items + each applicant's per-person items (minus N/A).
   const missing = [
@@ -114,7 +115,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '2px 0 6px' }}>Shared documents</div>
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         {sharedItems.map((c, i) => (
-          <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, null)} na={naFor(c.doc_key, null)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} />
+          <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, null)} extraDocs={c.allow_multiple ? docsFor(c.doc_key, null).slice(1) : undefined} na={naFor(c.doc_key, null)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} />
         ))}
         {d.documents.filter(doc => !doc.stakeholderId && !d.checklist.some(c => c.doc_key === doc.doc_key)).map(doc => (
           <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderTop: '1px solid #f3f4f6', alignItems: 'center' }}>
@@ -151,7 +152,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                 </div>
                 {/* Active applicant's documents */}
                 {perApplicantItems.map((c, i) => (
-                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} />
+                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={c.allow_multiple ? docsFor(c.doc_key, a.id).slice(1) : undefined} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} />
                 ))}
               </div>
             )
@@ -322,7 +323,8 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
 // One checklist row: the doc (if any) with an INLINE preview box, the suggested
 // YYYY_MM_Type rename, an editable expiration date to approve, Ignore, and the
 // upload/replace control.
-function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, loadDriveFiles, stakeholderId, applicants }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string }; doc: Doc | undefined; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[] }) {
+function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, driveFiles, loadDriveFiles, stakeholderId, applicants }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string; allow_multiple?: boolean }; doc: Doc | undefined; extraDocs?: Doc[]; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[] }) {
+  const allowMultiple = !!c.allow_multiple
   const [open, setOpen] = useState(false)
   const [picking, setPicking] = useState(false)
   const [keepName, setKeepName] = useState(false)
@@ -330,7 +332,7 @@ function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, load
   async function openPicker() { setPicking(true); if (!driveFiles) await loadDriveFiles() }
   async function assign(fileId: string, name: string, mimeType: string) {
     setBusy('assign')
-    try { await fetch(`/api/admin/pre-apply/${id}/assign-drive`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, doc_label: c.label, fileId, fileName: name, mimeType, pages: pagesFor[fileId] || '', keepName, stakeholder_id: stakeholderId }) }); setPicking(false); onDone() }
+    try { await fetch(`/api/admin/pre-apply/${id}/assign-drive`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, doc_label: c.label, fileId, fileName: name, mimeType, pages: pagesFor[fileId] || '', keepName, stakeholder_id: stakeholderId, allow_multiple: allowMultiple }) }); setPicking(false); onDone() }
     catch { /* */ } finally { setBusy(null) }
   }
   const [exp, setExp] = useState(doc?.expirationDate ?? '')
@@ -400,11 +402,26 @@ function ChecklistRow({ id, c, doc, na, first, decided, onDone, driveFiles, load
             </>
           ) : <span style={{ fontSize: 13, color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
           {!decided && !na && <button onClick={openPicker} disabled={busy === 'assign'} style={{ ...link, color: '#2563eb', fontSize: 12 }}>{busy === 'assign' ? 'Assigning…' : '📁 From Drive'}</button>}
-          {!decided && !na && <StaffUpload id={id} docKey={c.doc_key} docLabel={c.label} uploaded={!!doc} onDone={onDone} stakeholderId={stakeholderId} />}
+          {!decided && !na && <StaffUpload id={id} docKey={c.doc_key} docLabel={c.label} uploaded={!!doc} onDone={onDone} stakeholderId={stakeholderId} allowMultiple={allowMultiple} />}
           {!decided && !doc && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#9ca3af', fontSize: 12 }}>{na ? 'Undo N/A' : 'Mark N/A'}</button>}
           {!decided && na && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#4338ca', fontSize: 12 }}>Undo N/A</button>}
         </div>
       </div>
+
+      {/* Additional files for a multi-file item (e.g. the 2nd year's tax return). */}
+      {allowMultiple && extraDocs && extraDocs.length > 0 && (
+        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {extraDocs.map(ed => (
+            <div key={ed.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#374151', background: '#f9fafb', border: '1px solid #eef0f3', borderRadius: 6, padding: '4px 8px' }}>
+              <span>{ed.suggestedName || ed.filename}</span>
+              <span style={{ display: 'flex', gap: 10 }}>
+                <a href={ed.url ?? '#'} target="_blank" rel="noreferrer" style={{ font: '600 12px system-ui', color: '#166534', textDecoration: 'none' }}>View ↗</a>
+                {!decided && <button onClick={async () => { if (!confirm('Remove this file?')) return; await fetch(`/api/admin/pre-apply/${id}/doc/${ed.id}`, { method: 'DELETE', credentials: 'include' }); onDone() }} style={{ ...link, color: '#b91c1c', fontSize: 12 }}>Ignore</button>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {picking && (
         <div style={{ marginTop: 8, border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 8, padding: 10 }}>
@@ -495,7 +512,7 @@ function ScanDrive({ id, onDone }: { id: string; onDone: () => void }) {
 
 // Staff upload-on-behalf for one checklist item → files it against the
 // application AND mirrors it to the unit's On Going Applications Drive folder.
-function StaffUpload({ id, docKey, docLabel, uploaded, onDone, stakeholderId }: { id: string; docKey: string; docLabel: string; uploaded: boolean; onDone: () => void; stakeholderId?: string }) {
+function StaffUpload({ id, docKey, docLabel, uploaded, onDone, stakeholderId, allowMultiple }: { id: string; docKey: string; docLabel: string; uploaded: boolean; onDone: () => void; stakeholderId?: string; allowMultiple?: boolean }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const inputId = `up-${docKey}-${stakeholderId ?? 'shared'}`
@@ -507,6 +524,7 @@ function StaffUpload({ id, docKey, docLabel, uploaded, onDone, stakeholderId }: 
       const fd = new FormData()
       fd.append('file', file); fd.append('doc_key', docKey); fd.append('doc_label', docLabel)
       if (stakeholderId) fd.append('stakeholder_id', stakeholderId)
+      if (allowMultiple) fd.append('allow_multiple', '1')
       const r = await fetch(`/api/admin/pre-apply/${id}/upload`, { method: 'POST', credentials: 'include', body: fd })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'upload failed')
       if (j?.drive && !j.drive.ok) setMsg(`Filed · Drive copy pending: ${j.drive.error}`)
@@ -518,7 +536,7 @@ function StaffUpload({ id, docKey, docLabel, uploaded, onDone, stakeholderId }: 
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       <input id={inputId} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" style={{ display: 'none' }} onChange={e => onFile(e.target.files?.[0] ?? null)} />
       <label htmlFor={inputId} style={{ cursor: busy ? 'default' : 'pointer', font: '600 12px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#f26a1b', borderRadius: 7, padding: '5px 10px' }}>
-        {busy ? 'Uploading…' : uploaded ? 'Replace' : 'Upload'}
+        {busy ? 'Uploading…' : allowMultiple ? '+ Add file' : uploaded ? 'Replace' : 'Upload'}
       </label>
       {msg && <span style={{ font: '11px system-ui', color: '#b45309', maxWidth: 200 }}>{msg}</span>}
     </span>

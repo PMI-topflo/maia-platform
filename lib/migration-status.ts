@@ -3491,6 +3491,16 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS applicant_role text;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'intake_documents_allow_multiple',
+    label:       'Multi-file checklist items (e.g. 2 years of tax returns)',
+    description: 'Adds allow_multiple to association_intake_documents so a checklist item can hold MORE THAN ONE file (uploads append instead of replacing). Set true for tax_returns_2yr — "Last 2 Years\' Tax Returns" needs one file per year.',
+    filename:    '20260810_intake_documents_allow_multiple.sql',
+    artifact:    { type: 'column', table: 'association_intake_documents', column: 'allow_multiple' },
+    sql: `ALTER TABLE public.association_intake_documents ADD COLUMN IF NOT EXISTS allow_multiple boolean NOT NULL DEFAULT false;
+UPDATE public.association_intake_documents SET allow_multiple = true WHERE doc_key = 'tax_returns_2yr';
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
