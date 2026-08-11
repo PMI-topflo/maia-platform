@@ -10,6 +10,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { signEsignToken } from '@/lib/esign-token'
+import { extractLeaseDetails } from '@/lib/lease-extract'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -41,7 +42,21 @@ async function loadContext(id: string) {
   const occ = Array.isArray(tenant?.occupants) ? (tenant!.occupants as Array<{ name?: string } | string>).map(o => typeof o === 'string' ? o : o?.name).filter(Boolean) as string[] : []
   const required = Math.max(1, (cfg?.required_signatures as number | null) ?? 1)
   const ordered = (members ?? []).slice().sort((a, b) => rolePriority(a.role as string) - rolePriority(b.role as string))
-  return { app, code, legal, propertyAddress: addr || null, applicant: (sh?.name as string | null) ?? null, required, board: ordered, tenant, occupants: occ }
+
+  // Lease term: prefer the filed tenant record; else read it off the signed lease.
+  let leaseStart = (tenant?.lease_start as string | null) ?? null
+  let leaseEnd = (tenant?.lease_end as string | null) ?? null
+  if (!leaseStart || !leaseEnd) {
+    const { data: lease } = await supabaseAdmin.from('application_documents').select('storage_path, mime_type').eq('application_id', id).eq('doc_key', 'signed_lease').maybeSingle()
+    if (lease?.storage_path) {
+      const { data: blob } = await supabaseAdmin.storage.from('application-docs').download(String(lease.storage_path))
+      if (blob) {
+        const d = await extractLeaseDetails(Buffer.from(await blob.arrayBuffer()), (lease.mime_type as string | null) ?? null).catch(() => null)
+        if (d) { leaseStart = leaseStart || d.leaseStart; leaseEnd = leaseEnd || d.leaseEnd }
+      }
+    }
+  }
+  return { app, code, legal, propertyAddress: addr || null, applicant: (sh?.name as string | null) ?? null, required, board: ordered, tenant, occupants: occ, leaseStart, leaseEnd }
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -54,7 +69,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     requiredSignatures: c.required,
     defaultSigners: c.board.slice(0, c.required).map(m => ({ name: m.name, email: m.email, role: m.role, hasSignature: !!m.signature_image })),
     allBoard: c.board.map(m => ({ name: m.name, email: m.email, role: m.role, hasSignature: !!m.signature_image })),
-    leaseStart: c.tenant?.lease_start ?? null, leaseEnd: c.tenant?.lease_end ?? null,
+    leaseStart: c.leaseStart, leaseEnd: c.leaseEnd,
     occupants: c.occupants, applicantAsOccupant: c.applicant,
   })
 }
@@ -70,6 +85,29 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const c = await loadContext(id)
   if (!c) return NextResponse.json({ error: 'Application not found' }, { status: 404 })
 
+  // Preview: render the letter PDF from the current form values without creating
+  // the e-sign document or emailing anyone. Returns the PDF inline.
+  if (new URL(req.url).searchParams.get('preview')) {
+    const occ = (b.occupants ?? []).map(o => String(o).trim()).filter(Boolean)
+    const payload = {
+      associationLegalName: c.legal, propertyAddress: c.propertyAddress, applicant: c.applicant,
+      occupants: occ.length ? occ : (c.applicant ? [c.applicant] : []),
+      unit: c.app.unit_label, applicationType: c.app.application_type,
+      decision: b.decision?.trim() || 'Approved', conditions: b.conditions?.trim() || null,
+      leaseStart: b.leaseStart || c.leaseStart || null, leaseEnd: b.leaseEnd || c.leaseEnd || null,
+    }
+    const previewSigners = (b.signers && b.signers.length ? b.signers : c.board.slice(0, c.required).map(m => ({ name: m.name as string | null, email: m.email as string | null })))
+      .map((x, i) => ({ role: `approver_${i + 1}`, name: x.name?.trim() || null, email: (x.email ?? '').trim(), phone: null as string | null }))
+    const doc = { id: 'preview', kind: 'board_decision' as const, association_code: c.code, unit_ref: c.app.unit_label as string | null,
+      title: 'Board Decision (preview)', payload, signers: previewSigners, status: 'sent' as const, compliance_item: null as string | null, created_at: new Date().toISOString() }
+    const { renderToBuffer } = await import('@react-pdf/renderer')
+    const { renderFormPdf } = await import('@/lib/esign-forms')
+    const el = renderFormPdf(doc)
+    if (!el) return NextResponse.json({ error: 'Could not render the letter.' }, { status: 400 })
+    const pdf = await renderToBuffer(el)
+    return new Response(pdf as unknown as BodyInit, { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="board-approval-letter-preview.pdf"', 'Cache-Control': 'no-store' } })
+  }
+
   // Signers: staff-supplied list, else the top `required` board officers.
   const chosen = (b.signers && b.signers.length ? b.signers : c.board.slice(0, c.required).map(m => ({ name: m.name as string | null, email: m.email as string | null })))
     .map(x => ({ name: x.name?.trim() || null, email: (x.email ?? '').trim() })).filter(x => x.email.includes('@'))
@@ -81,7 +119,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     occupants: occupants.length ? occupants : (c.applicant ? [c.applicant] : []),
     unit: c.app.unit_label, applicationType: c.app.application_type,
     decision: b.decision?.trim() || 'Approved', conditions: b.conditions?.trim() || null,
-    leaseStart: b.leaseStart || c.tenant?.lease_start || null, leaseEnd: b.leaseEnd || c.tenant?.lease_end || null,
+    leaseStart: b.leaseStart || c.leaseStart || null, leaseEnd: b.leaseEnd || c.leaseEnd || null,
   }
 
   const now = new Date().toISOString()
