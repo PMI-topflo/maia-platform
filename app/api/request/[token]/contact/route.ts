@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
+import { normalizePhone } from '@/lib/cinc-sync'
 import { loadRequest } from '../route'
 
 export const runtime = 'nodejs'
@@ -21,9 +22,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   let b: { email?: string; phone?: string }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
   const email = String(b.email ?? '').trim()
-  const phone = String(b.phone ?? '').trim()
+  const rawPhone = String(b.phone ?? '').trim()
   if (!email.includes('@')) return NextResponse.json({ error: 'Please enter a valid email address.' }, { status: 400 })
-  if (!phone) return NextResponse.json({ error: 'Please enter a phone number.' }, { status: 400 })
+  if (!rawPhone) return NextResponse.json({ error: 'Please enter a phone number.' }, { status: 400 })
+  const phone = normalizePhone(rawPhone) ?? rawPhone   // E.164 / WhatsApp-ready
 
   const appId = String(r.req.application_id)
   const { data: primary } = await supabaseAdmin.from('application_stakeholders')

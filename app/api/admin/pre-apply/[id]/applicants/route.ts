@@ -11,6 +11,7 @@ import { requireStaffSession } from '@/lib/staff-auth'
 import { INTAKE_BUCKET, isApplicantRole } from '@/lib/preapply'
 import { extractLeaseDetails } from '@/lib/lease-extract'
 import { renameApplicationFolder } from '@/lib/drive-application-mirror'
+import { normalizePhone } from '@/lib/cinc-sync'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -56,7 +57,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
   // Accept { applicants: [{name, applicant_role, email, phone}] } or older { names: [] }.
   const cleanEmail = (v: unknown) => { const s = String(v ?? '').trim(); return s.includes('@') ? s : null }
-  const cleanPhone = (v: unknown) => { const s = String(v ?? '').trim(); return s || null }
+  const cleanPhone = (v: unknown) => { const s = String(v ?? '').trim(); return s ? (normalizePhone(s) ?? s) : null }
   const raw: { name: string; role: string | null; email: string | null; phone: string | null }[] = Array.isArray(b.applicants)
     ? (b.applicants as unknown[]).map(a => { const o = (a ?? {}) as Record<string, unknown>; return { name: String(o.name ?? '').trim(), role: o.applicant_role && isApplicantRole(String(o.applicant_role)) ? String(o.applicant_role) : null, email: 'email' in o ? cleanEmail(o.email) : undefined as unknown as null, phone: 'phone' in o ? cleanPhone(o.phone) : undefined as unknown as null } })
     : Array.isArray(b.names) ? (b.names as unknown[]).map(n => ({ name: String(n ?? '').trim(), role: null, email: undefined as unknown as null, phone: undefined as unknown as null })) : []
