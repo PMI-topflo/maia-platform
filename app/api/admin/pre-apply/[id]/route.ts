@@ -69,7 +69,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     .eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const { data: assocRow } = await supabaseAdmin.from('associations').select('screening_provider').eq('association_code', String(app.association_code)).maybeSingle()
+  const code = String(app.association_code), unit = (app.unit_label as string | null) ?? ''
+  const [{ data: assocRow }, { data: ownerRow }, { data: tenantRow }] = await Promise.all([
+    supabaseAdmin.from('associations').select('screening_provider').eq('association_code', code).maybeSingle(),
+    supabaseAdmin.from('owners').select('first_name, last_name, emails, unit_number, account_number, status').eq('association_code', code).or(`unit_number.eq.${unit},account_number.eq.${code}${unit}`).or('status.neq.previous,status.is.null').maybeSingle(),
+    supabaseAdmin.from('unit_tenant_contacts').select('tenant_email').eq('association_code', code).eq('unit_ref', unit).maybeSingle(),
+  ])
 
   const [{ data: sh }, { data: stakeholders }, { data: docs }, checklist] = await Promise.all([
     supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', id).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
@@ -91,6 +96,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     id: app.id, associationCode: app.association_code, type: app.application_type, unit: app.unit_label,
     status: app.status, submittedAt: app.submitted_at,
     applicant: sh ? { name: sh.name, email: sh.email, phone: sh.phone } : null,
+    ownerName: ownerRow ? `${ownerRow.first_name ?? ''} ${ownerRow.last_name ?? ''}`.trim() || null : null,
+    ownerEmails: ((ownerRow?.emails as string | null) ?? '').split(',').map(s => s.trim()).filter(e => e.includes('@')).join(', ') || null,
+    tenantEmail: (tenantRow?.tenant_email as string | null) || (sh?.email as string | null) || null,
     stakeholders: (stakeholders ?? []).map(s => ({
       id: s.id, role: s.role, roleLabel: roleLabel(String(s.role)), name: s.name, email: s.email, phone: s.phone,
       isPrimary: s.is_primary, status: s.status, signs: roleSigns(String(s.role)),

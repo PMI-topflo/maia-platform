@@ -14,7 +14,6 @@ export const dynamic = 'force-dynamic'
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const SUPPORT = 'support@topfloridaproperties.com'
 const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease Renewal', additional_occupant: 'Additional Occupant' }
-const firstEmail = (raw: string | null) => (raw ?? '').split(',').map(s => s.trim()).find(e => e.includes('@')) ?? null
 
 type Recipient = 'owner' | 'tenant' | 'both'
 interface Item { doc_key: string; label: string; recipient: Recipient }
@@ -24,7 +23,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await ctx.params
 
-  let b: { items?: unknown; message?: string }
+  let b: { items?: unknown; message?: string; ownerEmail?: string; tenantEmail?: string }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
   const items: Item[] = Array.isArray(b.items) ? (b.items as unknown[]).map(x => {
     const o = (x ?? {}) as Record<string, unknown>
@@ -61,18 +60,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const applicantNames = (applicants ?? []).map(a => String(a.name ?? '').trim()).filter(Boolean)
   const typeLabel = TYPE_LABEL[String(app.application_type)] ?? String(app.application_type)
 
-  const ownerEmail = firstEmail(((owners ?? []).find(o => String(o.unit_number ?? '') === (unit ?? '') || String(o.account_number ?? '') === (unit ?? ''))?.emails as string | null) ?? (owners ?? [])[0]?.emails as string | null ?? null)
-  const tenantEmail = (tenant?.tenant_email as string | null) || firstEmail((applicants ?? []).find(a => a.is_primary)?.email as string | null ?? (applicants ?? [])[0]?.email as string | null ?? null)
+  // Owner emails: a staff override wins; else EVERY email on the matched owner
+  // record (owners often carry several — don't silently pick just the first).
+  const splitEmails = (raw: string | null | undefined) => [...new Set((raw ?? '').split(',').map(s => s.trim()).filter(e => e.includes('@')))]
+  const ownerRow = (owners ?? []).find(o => String(o.unit_number ?? '') === (unit ?? '') || String(o.account_number ?? '') === (unit ?? '') || String(o.account_number ?? '').toUpperCase() === `${code}${unit ?? ''}`.toUpperCase())
+  const ownerOverride = splitEmails(b.ownerEmail)
+  const ownerEmails = ownerOverride.length ? ownerOverride : splitEmails(ownerRow?.emails as string | null)
+  const tenantOverride = splitEmails(b.tenantEmail)
+  const tenantEmails = tenantOverride.length ? tenantOverride : splitEmails((tenant?.tenant_email as string | null) || ((applicants ?? []).find(a => a.is_primary)?.email as string | null) || ((applicants ?? [])[0]?.email as string | null))
 
   const ownerItems = items.filter(i => i.recipient === 'owner' || i.recipient === 'both')
   const tenantItems = items.filter(i => i.recipient === 'tenant' || i.recipient === 'both')
-  const ownerToken = ownerItems.length && ownerEmail ? crypto.randomUUID() : null
-  const tenantToken = tenantItems.length && tenantEmail ? crypto.randomUUID() : null
+  const ownerToken = ownerItems.length && ownerEmails.length ? crypto.randomUUID() : null
+  const tenantToken = tenantItems.length && tenantEmails.length ? crypto.randomUUID() : null
 
   const { data: created, error } = await supabaseAdmin.from('document_requests').insert({
     application_id: id, association_code: code, unit_label: unit, items,
     message: (b.message ?? '').trim() || null, owner_token: ownerToken, tenant_token: tenantToken,
-    owner_email: ownerEmail, tenant_email: tenantEmail, created_by: `staff:${session.displayName}`,
+    owner_email: ownerEmails.join(', ') || null, tenant_email: tenantEmails.join(', ') || null, created_by: `staff:${session.displayName}`,
   }).select('id').single()
   if (error || !created) return NextResponse.json({ error: `Could not create request: ${error?.message ?? 'unknown'}` }, { status: 500 })
 
@@ -80,15 +85,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const intro = (b.message ?? '').trim() || `We're almost done with your ${typeLabel.toLowerCase()}. Please upload the items below — it takes about a minute and doesn't require a login.`
 
   let sentOwner = false, sentTenant = false
-  if (ownerToken && ownerEmail) {
-    await sendEmail({ to: [ownerEmail], replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
+  if (ownerToken && ownerEmails.length) {
+    await sendEmail({ to: ownerEmails, replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
       html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
         items: ownerItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Tenant' : 'You' })), onFile,
         ctaUrl: `${APP}/request/${ownerToken}`, footerReason: `You're receiving this as the owner of ${unit ? `Unit ${unit}` : 'this unit'}.` }),
     }).then(() => { sentOwner = true }, () => null)
   }
-  if (tenantToken && tenantEmail) {
-    await sendEmail({ to: [tenantEmail], replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
+  if (tenantToken && tenantEmails.length) {
+    await sendEmail({ to: tenantEmails, replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
       html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
         items: tenantItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Owner' : 'You' })), onFile,
         ctaUrl: `${APP}/request/${tenantToken}`, footerReason: `You're receiving this because you're on the application for ${unit ? `Unit ${unit}` : 'this unit'}.` }),
@@ -97,11 +102,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   return NextResponse.json({
     ok: true, requestId: created.id,
-    ownerEmail: ownerToken ? ownerEmail : null, tenantEmail: tenantToken ? tenantEmail : null,
+    ownerEmail: ownerToken ? ownerEmails.join(', ') : null, tenantEmail: tenantToken ? tenantEmails.join(', ') : null,
     sentOwner, sentTenant,
     warnings: [
-      ownerItems.length && !ownerEmail ? 'No owner email on file — owner items were not sent.' : null,
-      tenantItems.length && !tenantEmail ? 'No tenant email on file — tenant items were not sent.' : null,
+      ownerItems.length && !ownerEmails.length ? 'No owner email on file — owner items were not sent.' : null,
+      tenantItems.length && !tenantEmails.length ? 'No tenant email on file — tenant items were not sent.' : null,
     ].filter(Boolean),
   })
 }
