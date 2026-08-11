@@ -307,6 +307,17 @@ function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); setResult(j)
     } catch (e) { alert(`Could not create: ${(e as Error).message}`) } finally { setBusy(false) }
   }
+  const preview = async () => {
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/decision-page?preview=1`, {
+        method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ decision, conditions, leaseStart: isLease ? leaseStart : undefined, leaseEnd: isLease ? leaseEnd : undefined, occupants: occupants.split('\n').map(s => s.trim()).filter(Boolean), signers: pf?.defaultSigners.map(s => ({ name: s.name, email: s.email })) }),
+      })
+      if (!r.ok) throw new Error((await r.json()).error || 'preview failed')
+      const url = URL.createObjectURL(await r.blob()); window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 60000)
+    } catch (e) { alert(`Could not preview: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
 
   return (
     <div style={{ marginTop: 18, padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }}>
@@ -331,7 +342,10 @@ function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
           <label style={{ fontSize: 12, color: '#6b7280' }}>Approved occupants (one per line)</label>
           <textarea value={occupants} onChange={e => setOccupants(e.target.value)} style={{ ...inp, minHeight: 60, fontFamily: 'inherit' }} />
           {decision.includes('conditions') && <input placeholder="Conditions" value={conditions} onChange={e => setConditions(e.target.value)} style={inp} />}
-          <button onClick={create} disabled={busy} style={{ ...btn('#059669'), alignSelf: 'flex-start' }}>{busy ? 'Creating…' : 'Create Board Decision Page'}</button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={preview} disabled={busy} style={{ ...btn('#4338ca') }}>👁 Preview letter</button>
+            <button onClick={create} disabled={busy} style={{ ...btn('#059669') }}>{busy ? 'Working…' : 'Create & send for signatures'}</button>
+          </div>
         </div>
       ) : (
         <div>
