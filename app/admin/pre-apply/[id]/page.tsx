@@ -308,6 +308,12 @@ function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
         body: JSON.stringify({ decision, conditions, leaseStart: isLease ? leaseStart : undefined, leaseEnd: isLease ? leaseEnd : undefined, occupants: occupants.split('\n').map(s => s.trim()).filter(Boolean), signers: pf?.defaultSigners.map(s => ({ name: s.name, email: s.email })) }),
       })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); setResult(j)
+      // "Create & send" actually emails the board now (was a separate 2nd click before).
+      if (j.docId && !j.allSigned) {
+        const sr = await fetch(`/api/admin/pre-apply/${id}/decision-page/send`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ docId: j.docId }) })
+        const sj = await sr.json().catch(() => ({}))
+        alert(sr.ok && sj.sent ? `Approval letter emailed to ${sj.sent} board member(s) for signature.` : (sj?.note || 'Letter created. Use “Email the letter to the board” below to send the signing links.'))
+      }
     } catch (e) { alert(`Could not create: ${(e as Error).message}`) } finally { setBusy(false) }
   }
   const preview = async () => {
