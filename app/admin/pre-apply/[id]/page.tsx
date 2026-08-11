@@ -334,7 +334,13 @@ function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
       <div style={{ fontSize: 12.5, color: '#6b7280', margin: '4px 0 6px' }}>{pf?.propertyAddress ?? `Unit ${unit ?? '—'}`}</div>
       {pf && (
         <div style={{ fontSize: 12, color: '#374151', marginBottom: 10 }}>
-          Requires <strong>{pf.requiredSignatures}</strong> signature{pf.requiredSignatures === 1 ? '' : 's'} — {pf.defaultSigners.map(s => `${s.name}${s.hasSignature ? ' ✍' : ''}`).join(', ') || 'set board officers in Board Setup'}
+          Requires <strong>{pf.requiredSignatures}</strong> signature{pf.requiredSignatures === 1 ? '' : 's'} — sent to:
+          {pf.defaultSigners.length === 0 && ' set board officers in Board Setup'}
+          {pf.defaultSigners.map((sg, i) => (
+            <span key={i} style={{ display: 'block', marginTop: 2 }}>
+              • <strong>{sg.name}</strong>{sg.hasSignature ? ' ✍' : ''} — <span style={{ fontFamily: 'ui-monospace, monospace', color: sg.email ? '#2563eb' : '#b91c1c' }}>{sg.email || 'NO EMAIL ON FILE'}</span>
+            </span>
+          ))}
         </div>
       )}
       {!result ? (
