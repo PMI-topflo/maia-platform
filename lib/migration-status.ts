@@ -3510,6 +3510,35 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS credit_score integer;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'document_requests',
+    label:       'Document requests to owner / tenant (with upload tokens)',
+    description: 'document_requests — a staff-sent request for specific missing documents on an application, each item tagged owner/tenant/both. Carries a random owner_token and tenant_token; each recipient opens /request/<token> to upload only their items (no login). All access is server-side via supabaseAdmin.',
+    filename:    '20260810_document_requests.sql',
+    artifact:    { type: 'table', table: 'document_requests' },
+    sql: `CREATE TABLE IF NOT EXISTS public.document_requests (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id uuid NOT NULL,
+  association_code text NOT NULL,
+  unit_label text,
+  items jsonb NOT NULL DEFAULT '[]'::jsonb,
+  message text,
+  owner_token uuid,
+  tenant_token uuid,
+  owner_email text,
+  tenant_email text,
+  created_by text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS document_requests_app_idx ON public.document_requests (application_id);
+CREATE INDEX IF NOT EXISTS document_requests_owner_token_idx ON public.document_requests (owner_token);
+CREATE INDEX IF NOT EXISTS document_requests_tenant_token_idx ON public.document_requests (tenant_token);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.document_requests TO service_role, authenticated;
+ALTER TABLE public.document_requests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_document_requests" ON public.document_requests;
+CREATE POLICY "service_role_all_document_requests" ON public.document_requests FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
