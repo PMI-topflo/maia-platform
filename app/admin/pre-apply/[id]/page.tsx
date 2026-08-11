@@ -12,6 +12,7 @@ interface Doc { id: string; doc_key: string | null; doc_label: string | null; fi
 interface Detail {
   id: string; associationCode: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
+  ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null
   stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; phone: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean; applicantRole: string | null; creditScore: number | null }[]
   rulesAck: { name?: string; at?: string } | null
   driveFolderUrl: string | null
@@ -149,7 +150,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {d.driveFolderUrl && <ScanDrive id={id} onDone={load} />}
       {(d.type === 'lease_renewal' || d.type === 'additional_occupant') && <CarryOverButton id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
-      {!decided && <RequestDocs id={id} items={requestItems} onDone={load} />}
+      {!decided && <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail} onDone={load} />}
 
       {/* Shared documents — one for the whole unit / application. */}
       <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '2px 0 6px' }}>Shared documents</div>
@@ -774,20 +775,26 @@ function CreditScore({ id, stakeholderId, name, score, decided, onDone }: { id: 
 // Request specific documents from the owner and/or tenant — tick items, tag each
 // Owner / Tenant / Both, and MAIA emails each recipient their list + an upload
 // link (the standard PMI email). Uploads file straight back onto the application.
-function RequestDocs({ id, items, onDone }: { id: string; items: { doc_key: string; label: string; provided_by: string; missing: boolean }[]; onDone: () => void }) {
+function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone }: { id: string; items: { doc_key: string; label: string; provided_by: string; missing: boolean }[]; ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null; onDone: () => void }) {
   const [open, setOpen] = useState(false)
   type Rec = 'owner' | 'tenant' | 'both'
   const [state, setState] = useState<Record<string, { on: boolean; rec: Rec }>>(() =>
     Object.fromEntries(items.map(it => [it.doc_key, { on: it.missing, rec: (it.provided_by === 'landlord' ? 'owner' : 'tenant') as Rec }])))
   const [msg, setMsg] = useState('')
+  const [ownerTo, setOwnerTo] = useState(ownerEmails ?? '')
+  const [tenantTo, setTenantTo] = useState(tenantEmail ?? '')
   const [busy, setBusy] = useState(false)
   const selected = items.filter(it => state[it.doc_key]?.on)
+  const needOwner = selected.some(it => state[it.doc_key].rec === 'owner' || state[it.doc_key].rec === 'both')
+  const needTenant = selected.some(it => state[it.doc_key].rec === 'tenant' || state[it.doc_key].rec === 'both')
 
   async function send() {
+    if (needOwner && !ownerTo.includes('@')) { alert('Enter an owner email (verify it — the owners record can carry several).'); return }
+    if (needTenant && !tenantTo.includes('@')) { alert('Enter a tenant email.'); return }
     setBusy(true)
     try {
       const payload = selected.map(it => ({ doc_key: it.doc_key, label: it.label, recipient: state[it.doc_key].rec }))
-      const r = await fetch(`/api/admin/pre-apply/${id}/request-docs`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ items: payload, message: msg }) })
+      const r = await fetch(`/api/admin/pre-apply/${id}/request-docs`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ items: payload, message: msg, ownerEmail: ownerTo, tenantEmail: tenantTo }) })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
       const parts: string[] = []
       if (j.sentOwner) parts.push(`owner (${j.ownerEmail})`)
@@ -822,6 +829,24 @@ function RequestDocs({ id, items, onDone }: { id: string; items: { doc_key: stri
           </div>
         ))}
       </div>
+      {/* Confirm the recipients — the owners record can carry several / wrong emails, so verify before sending. */}
+      {(needOwner || needTenant) && (
+        <div style={{ marginTop: 10, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10 }}>
+          <div style={{ font: '600 11.5px system-ui', color: '#92400e', marginBottom: 6 }}>⚠ Verify who this goes to — remove any wrong address (owner records can mix several contacts). Separate multiple with commas.</div>
+          {needOwner && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+              <span style={{ font: '600 11px system-ui', color: '#6b7280', width: 96 }}>Owner{ownerName ? ` (${ownerName})` : ''}</span>
+              <input value={ownerTo} onChange={e => setOwnerTo(e.target.value)} placeholder="owner@example.com" style={{ flex: '1 1 240px', minWidth: 200, font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6 }} />
+            </div>
+          )}
+          {needTenant && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ font: '600 11px system-ui', color: '#6b7280', width: 96 }}>Tenant</span>
+              <input value={tenantTo} onChange={e => setTenantTo(e.target.value)} placeholder="tenant@example.com" style={{ flex: '1 1 240px', minWidth: 200, font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6 }} />
+            </div>
+          )}
+        </div>
+      )}
       <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Add a note to include in the email (optional)…" style={{ width: '100%', boxSizing: 'border-box', marginTop: 10, minHeight: 48, padding: 9, border: '1px solid #d1d5db', borderRadius: 8, font: '13px system-ui' }} />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
         <button onClick={send} disabled={busy || selected.length === 0} style={{ ...btn(selected.length ? '#c05a1c' : '#c9ccd3'), padding: '8px 14px' }}>{busy ? 'Sending…' : `✉ Send request + upload link (${selected.length})`}</button>
