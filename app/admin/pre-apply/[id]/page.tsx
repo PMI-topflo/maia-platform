@@ -88,6 +88,11 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
     ...sharedItems.filter(c => c.required && !docFor(c.doc_key, null) && !naFor(c.doc_key, null)),
     ...(applicants.length ? perApplicantItems.flatMap(c => c.required ? applicants.filter(a => !docFor(c.doc_key, a.id) && !naFor(c.doc_key, a.id)).map(a => ({ label: `${c.label} — ${a.name ?? 'applicant'}` })) : []) : perApplicantItems.filter(c => c.required).map(c => ({ label: c.label }))),
   ]
+  // What staff can request from owner/tenant (one row per checklist item).
+  const isMissing = (c: Detail['checklist'][number]) => c.per_applicant
+    ? (applicants.length === 0 || applicants.some(a => !docFor(c.doc_key, a.id) && !naFor(c.doc_key, a.id)))
+    : (!docFor(c.doc_key, null) && !naFor(c.doc_key, null))
+  const requestItems = d.checklist.map(c => ({ doc_key: c.doc_key, label: c.label, provided_by: c.provided_by, missing: c.required && isMissing(c) }))
   const audited = !!d.audit.auditedAt
   const decided = d.status === 'approved' || d.status === 'declined'
 
@@ -110,6 +115,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {d.driveFolderUrl && <ScanDrive id={id} onDone={load} />}
       {(d.type === 'lease_renewal' || d.type === 'additional_occupant') && <CarryOverButton id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
+      {!decided && <RequestDocs id={id} items={requestItems} onDone={load} />}
 
       {/* Shared documents — one for the whole unit / application. */}
       <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '2px 0 6px' }}>Shared documents</div>
@@ -711,6 +717,65 @@ function CreditScore({ id, stakeholderId, name, score, decided, onDone }: { id: 
           {!decided && <button onClick={() => setEditing(true)} style={{ font: '600 12px system-ui', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>+ Add from background check</button>}
         </>
       )}
+    </div>
+  )
+}
+
+// Request specific documents from the owner and/or tenant — tick items, tag each
+// Owner / Tenant / Both, and MAIA emails each recipient their list + an upload
+// link (the standard PMI email). Uploads file straight back onto the application.
+function RequestDocs({ id, items, onDone }: { id: string; items: { doc_key: string; label: string; provided_by: string; missing: boolean }[]; onDone: () => void }) {
+  const [open, setOpen] = useState(false)
+  type Rec = 'owner' | 'tenant' | 'both'
+  const [state, setState] = useState<Record<string, { on: boolean; rec: Rec }>>(() =>
+    Object.fromEntries(items.map(it => [it.doc_key, { on: it.missing, rec: (it.provided_by === 'landlord' ? 'owner' : 'tenant') as Rec }])))
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+  const selected = items.filter(it => state[it.doc_key]?.on)
+
+  async function send() {
+    setBusy(true)
+    try {
+      const payload = selected.map(it => ({ doc_key: it.doc_key, label: it.label, recipient: state[it.doc_key].rec }))
+      const r = await fetch(`/api/admin/pre-apply/${id}/request-docs`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ items: payload, message: msg }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      const parts: string[] = []
+      if (j.sentOwner) parts.push(`owner (${j.ownerEmail})`)
+      if (j.sentTenant) parts.push(`tenant (${j.tenantEmail})`)
+      alert(parts.length ? `Sent the request + upload link to ${parts.join(' and ')}.${j.warnings?.length ? '\n\n' + j.warnings.join('\n') : ''}` : (j.warnings?.join('\n') || 'Nothing was sent.'))
+      setOpen(false); onDone()
+    } catch (e) { alert(`Could not send: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
+  const seg = (dk: string, r: Rec, label: string) => (
+    <button onClick={() => setState(s => ({ ...s, [dk]: { ...s[dk], rec: r } }))} style={{ font: '700 12px system-ui', padding: '4px 11px', border: 'none', borderLeft: '1px solid #d1d5db', background: state[dk]?.rec === r ? '#c05a1c' : '#fff', color: state[dk]?.rec === r ? '#fff' : '#6b7280', cursor: 'pointer' }}>{label}</button>
+  )
+
+  if (!open) return (
+    <div style={{ margin: '0 0 12px' }}>
+      <button onClick={() => setOpen(true)} style={{ ...btn('#c05a1c'), padding: '8px 14px' }}>📩 Request documents from owner / tenant</button>
+    </div>
+  )
+  return (
+    <div style={{ margin: '0 0 12px', border: '1px solid #c05a1c', borderRadius: 12, background: '#fff', padding: 14, boxShadow: '0 0 0 1px #c05a1c22' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <span style={{ font: '700 14px system-ui', color: '#1f2937' }}>📩 Request the missing documents</span>
+        <button onClick={() => setOpen(false)} style={{ font: '600 12px system-ui', color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
+      </div>
+      <p style={{ font: '12.5px system-ui', color: '#6b7280', margin: '0 0 10px' }}>Tick what to ask for and who provides it. Each recipient gets one email with their items + a secure upload link (no login).</p>
+      <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+        {items.map((it, i) => (
+          <div key={it.doc_key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: i ? '1px solid #f3f4f6' : 'none' }}>
+            <input type="checkbox" checked={!!state[it.doc_key]?.on} onChange={e => setState(s => ({ ...s, [it.doc_key]: { ...s[it.doc_key], on: e.target.checked } }))} style={{ width: 16, height: 16 }} />
+            <span style={{ flex: 1, font: '600 13.5px system-ui', color: '#1f2937' }}>{it.label}{it.missing && <span style={{ font: '600 11px system-ui', color: '#b45309', marginLeft: 6 }}>missing</span>}</span>
+            <span style={{ display: 'inline-flex', border: '1px solid #d1d5db', borderRadius: 7, overflow: 'hidden' }}>{seg(it.doc_key, 'owner', 'Owner')}{seg(it.doc_key, 'tenant', 'Tenant')}{seg(it.doc_key, 'both', 'Both')}</span>
+          </div>
+        ))}
+      </div>
+      <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Add a note to include in the email (optional)…" style={{ width: '100%', boxSizing: 'border-box', marginTop: 10, minHeight: 48, padding: 9, border: '1px solid #d1d5db', borderRadius: 8, font: '13px system-ui' }} />
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+        <button onClick={send} disabled={busy || selected.length === 0} style={{ ...btn(selected.length ? '#c05a1c' : '#c9ccd3'), padding: '8px 14px' }}>{busy ? 'Sending…' : `✉ Send request + upload link (${selected.length})`}</button>
+      </div>
     </div>
   )
 }
