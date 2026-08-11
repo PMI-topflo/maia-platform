@@ -1,4 +1,32 @@
-# Session handoff — 2026-08-07 (latest)
+# Session handoff — 2026-08-11 (latest)
+
+Snapshot for picking up on another machine. Everything below is **live in production on `main`** unless noted. Drive/AI/email paths are **prod-only** (local SA is a placeholder) — validate live on **MANXI Unit 901 (Shadia Boyd, lease renewal)** or 801 (multi-applicant: Jean/Nicholas/Jane Bruna).
+
+---
+
+## 2026-08-10/11 — Applications: per-applicant model + request-docs + comms + agents + CINC email cleanup (PRs #634–#663, all merged)
+
+Huge continuation of the Applications command center. Full detail in memory [[preapply_per_applicant_and_requests]].
+
+- **Per-applicant intake (Tenant-Evaluation model):** `association_intake_documents.per_applicant` + `allow_multiple` (2 tax returns) columns; **applicants read from the lease automatically** (`autoRosterFromLease`); `application_stakeholders.applicant_role` (Primary/Co/Owner/Tenant/Spouse/Adult-Occ/Minor/Guarantor) + `credit_score`; per-applicant docs render as **TABS** (name+role+missing badge); scan auto-assigns per-person files by name; **shared vs per-applicant** split on both `/admin/pre-apply/[id]` and the board `/units/applications`. Approved apps **locked** from meta-edit (#635). Additional-occupant/lease-renewal **carry-over** of the previous term's keeper files.
+- **Request documents flow:** checkbox items + **Owner/Tenant/Both**, standard MAIA email (`lib/maia-email.ts`) + secure token upload page `/request/[token]` (no login) that files back onto the app. Email lists requested items + **"Already on file" (w/ expiry)** + cross-notes the other party. **Recipient email confirmed/editable before sending** (#659). **"Tenant contact info"** item → the **owner fills the tenant's email/phone** when the lease lacks it (#654). **Agents** (owner=listing_agent, applicant=applicant_agent) CC'd (#663). Upload pages have a **message box** (#661).
+- **Communication history** under the request box: every request (recipients, items, note, replies) + the **Board Approval Letter — only once the board has signed it** (#662).
+- **Approval letter (Board Decision Page):** available after **audit**; **👁 Preview** (no create/send); **lease term prefilled from the lease**; **✉ email the board for signatures**; **auto-files** as `board_approval_letter` on full signature (#650).
+- **Guided page:** progress stepper + MAIA **screams on expired files** (red alarm) (#653). *(Additions on the working page, not the full mockup rewrite — row-restyle still pending.)*
+- **CINC owner-email cleanup (data + sync):** the `owners.emails` field had accumulated **stale addresses** (never-drop union merge). Fixed: CINC is now **authoritative** (sync prunes to CINC, #660); **one-time cleanup ~399 units portfolio-wide** aligned to CINC (backup `owners-emails-backup-ALL.json`, reversible); units where CINC has NO email left intact for review — **MANXI 207/505/708/711/802, SP 10B**. See [[cinc_owner_emails_authoritative]].
+
+**Schema added (RPC, live):** `association_intake_documents.{per_applicant, allow_multiple}`; `application_stakeholders.{applicant_role, credit_score}`; `document_requests` table (+ `owner_note`/`tenant_note`). Standard email header rule: [[maia_email_standard_header]].
+
+**⏳ NEXT / owed:**
+1. Test the whole flow live on **901** (roster from lease → request docs → owner/tenant/agent emails → comms history → approval letter preview+send).
+2. Full **row-restyle** to the approved redesign mockup (status pills per row, sections) — only the stepper+alarm shipped.
+3. Review the **6 skipped owner-email units** (no CINC email) against CINC; decide their emails.
+4. Offered: owner-outreach emails into the comms timeline; both-agents-on-everything (currently each agent copied on their own side); dedicated occupant-affidavit template; background-check consent → Checkr.
+5. Ownership Transfer / Occupancy Registration types were **removed** per user (#647).
+
+---
+
+# Session handoff — 2026-08-07
 
 Snapshot for picking up on another machine. Everything below is **live in production on `main`** unless noted.
 
