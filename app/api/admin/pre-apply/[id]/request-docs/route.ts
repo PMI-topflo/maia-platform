@@ -89,6 +89,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     await sendEmail({ to: ownerEmails, replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
       html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
         items: ownerItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Tenant' : 'You' })), onFile,
+        alsoRequested: tenantToken && tenantItems.length ? { who: 'the tenant', items: tenantItems.map(i => i.label) } : null,
         ctaUrl: `${APP}/request/${ownerToken}`, footerReason: `You're receiving this as the owner of ${unit ? `Unit ${unit}` : 'this unit'}.` }),
     }).then(() => { sentOwner = true }, () => null)
   }
@@ -96,6 +97,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     await sendEmail({ to: tenantEmails, replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
       html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
         items: tenantItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Owner' : 'You' })), onFile,
+        alsoRequested: ownerToken && ownerItems.length ? { who: 'the owner', items: ownerItems.map(i => i.label) } : null,
         ctaUrl: `${APP}/request/${tenantToken}`, footerReason: `You're receiving this because you're on the application for ${unit ? `Unit ${unit}` : 'this unit'}.` }),
     }).then(() => { sentTenant = true }, () => null)
   }
