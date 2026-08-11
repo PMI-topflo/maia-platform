@@ -227,11 +227,25 @@ function LinkGenerator() {
   const [unit, setUnit] = useState('')
   const [lang, setLang] = useState('')
   const [copied, setCopied] = useState(false)
+  const [owner, setOwner] = useState<{ name: string | null; emails: string[]; phone: string | null }[] | null>(null)
+  const [ownerBusy, setOwnerBusy] = useState(false)
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const qs = [unit ? `unit=${encodeURIComponent(unit.trim())}` : '', lang ? `lang=${lang}` : ''].filter(Boolean).join('&')
   const link = `${origin}/pre-apply/${encodeURIComponent(assoc.trim().toUpperCase())}${qs ? `?${qs}` : ''}`
   const copy = async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800) } catch { /* */ } }
   const s: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 8 }
+
+  // Look up the owner for this unit (debounced) so staff see who to contact.
+  useEffect(() => {
+    const a = assoc.trim().toUpperCase(), u = unit.trim()
+    const t = setTimeout(() => {
+      if (!a || !u) { setOwner(null); setOwnerBusy(false); return }
+      setOwnerBusy(true)
+      fetch(`/api/admin/pre-apply/owner-lookup?assoc=${encodeURIComponent(a)}&unit=${encodeURIComponent(u)}`, { credentials: 'include' })
+        .then(r => r.json()).then(d => setOwner(d.owners ?? [])).catch(() => setOwner([])).finally(() => setOwnerBusy(false))
+    }, 350)
+    return () => clearTimeout(t)
+  }, [assoc, unit])
   return (
     <div style={{ margin: '14px 0 20px', padding: 14, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }}>
       <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>Generate an application link (reply by email)</div>
@@ -242,6 +256,20 @@ function LinkGenerator() {
         <input readOnly value={link} onFocus={e => e.currentTarget.select()} style={{ ...s, flex: 1, minWidth: 220, fontFamily: 'ui-monospace, monospace', fontSize: 12, color: '#374151' }} />
         <button onClick={copy} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', background: copied ? '#059669' : '#f26a1b', color: '#fff', font: '600 13px system-ui' }}>{copied ? '✓ Copied' : 'Copy'}</button>
       </div>
+      {unit.trim() && (
+        <div style={{ marginTop: 8, fontSize: 12.5 }}>
+          {ownerBusy && owner === null ? <span style={{ color: '#9ca3af' }}>Looking up the owner…</span>
+            : owner && owner.length > 0 ? owner.map((o, i) => (
+              <div key={i} style={{ color: '#374151', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '2px 0' }}>
+                <span style={{ font: '600 11px system-ui', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.04em' }}>👤 Owner</span>
+                <strong>{o.name ?? '—'}</strong>
+                {o.emails.map(e => <a key={e} href={`mailto:${e}`} style={{ color: '#2563eb', textDecoration: 'none' }}>{e}</a>)}
+                {o.emails[0] && <button onClick={async () => { try { await navigator.clipboard.writeText(o.emails.join(', ')) } catch { /* */ } }} style={{ font: '600 11px system-ui', color: '#6b7280', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '1px 7px', cursor: 'pointer' }}>copy email</button>}
+                {o.phone && <span style={{ color: '#9ca3af' }}>· {o.phone}</span>}
+              </div>
+            )) : <span style={{ color: '#9ca3af' }}>No owner on file for this unit.</span>}
+        </div>
+      )}
       <p style={{ fontSize: 11.5, color: '#9ca3af', margin: '8px 0 0' }}>One link per unit. The applicant identifies who they are, verifies, then picks the application type — MAIA files everything into the unit&apos;s On Going Applications Drive folder.</p>
     </div>
   )
