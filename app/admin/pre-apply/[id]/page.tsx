@@ -124,6 +124,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <p style={{ fontSize: 13, color: '#374151', margin: '4px 0 0' }}>{d.applicant?.email}{d.applicant?.phone ? ` · ${d.applicant.phone}` : ''}</p>
       <MetaEditor id={id} name={d.applicant?.name ?? ''} type={d.type} onDone={load} />
       <ApplicantsCard id={id} applicants={(d.stakeholders ?? []).filter(s => s.role === 'applicant')} onDone={load} />
+      <AgentsCard id={id} stakeholders={d.stakeholders ?? []} onDone={load} />
       {d.driveFolderUrl && <p style={{ margin: '8px 0 0' }}><a href={d.driveFolderUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 13, fontWeight: 600 }}>📁 Drive folder →</a></p>}
 
       {/* Guided progress */}
@@ -883,6 +884,53 @@ function CommunicationsLog({ id }: { id: string }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// The owner's agent (listing_agent) + the applicant's agent (applicant_agent).
+// They're CC'd on every request + communication for their side.
+interface Agent { name: string; email: string; phone: string }
+function AgentsCard({ id, stakeholders, onDone }: { id: string; stakeholders: { role: string; name: string | null; email: string | null; phone: string | null }[]; onDone: () => void }) {
+  const [open, setOpen] = useState(false)
+  const of = (role: string): Agent => { const s = stakeholders.find(x => x.role === role); return { name: (s?.name ?? '').trim(), email: (s?.email ?? '').trim(), phone: (s?.phone ?? '').trim() } }
+  const [owner, setOwner] = useState<Agent>(of('listing_agent'))
+  const [appl, setAppl] = useState<Agent>(of('applicant_agent'))
+  const [busy, setBusy] = useState(false)
+  const has = stakeholders.some(s => s.role === 'listing_agent' || s.role === 'applicant_agent')
+  const dirty = JSON.stringify(owner) !== JSON.stringify(of('listing_agent')) || JSON.stringify(appl) !== JSON.stringify(of('applicant_agent'))
+
+  async function save() {
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/agents`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ owner_agent: owner, applicant_agent: appl }) })
+      if (!r.ok) throw new Error((await r.json()).error || 'failed'); onDone()
+    } catch (e) { alert(`Could not save: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+  const inp: React.CSSProperties = { font: '13px system-ui', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6 }
+  const row = (label: string, a: Agent, set: (x: Agent) => void) => (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '6px 0' }}>
+      <span style={{ font: '600 11.5px system-ui', color: '#6b7280', width: 110 }}>{label}</span>
+      <input value={a.name} onChange={e => set({ ...a, name: e.target.value })} placeholder="Name" style={{ ...inp, width: 150 }} />
+      <input value={a.email} onChange={e => set({ ...a, email: e.target.value })} placeholder="Email (CC'd)" style={{ ...inp, flex: '1 1 180px', minWidth: 160 }} />
+      <input value={a.phone} onChange={e => set({ ...a, phone: e.target.value })} placeholder="Phone" style={{ ...inp, width: 140 }} />
+    </div>
+  )
+
+  if (!open) return (
+    <p style={{ margin: '8px 0 0' }}>
+      <button onClick={() => setOpen(true)} style={{ font: '600 12.5px system-ui', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>👔 Agents (CC on requests){has ? ' ✓' : ''}</button>
+    </p>
+  )
+  return (
+    <div style={{ margin: '8px 0 0', border: '1px solid #e5e7eb', borderRadius: 10, background: '#fafafa', padding: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <span style={{ font: '700 13px system-ui', color: '#1f2937' }}>Agents <span style={{ color: '#9ca3af', fontWeight: 400 }}>· copied on every request + communication for their side</span></span>
+        <button onClick={() => setOpen(false)} style={{ font: '600 12px system-ui', color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer' }}>Hide</button>
+      </div>
+      {row("Owner's agent", owner, setOwner)}
+      {row("Applicant's agent", appl, setAppl)}
+      {dirty && <button onClick={save} disabled={busy} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', marginTop: 8 }}>{busy ? 'Saving…' : 'Save agents'}</button>}
     </div>
   )
 }

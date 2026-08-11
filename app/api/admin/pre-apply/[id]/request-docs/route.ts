@@ -69,6 +69,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const tenantOverride = splitEmails(b.tenantEmail)
   const tenantEmails = tenantOverride.length ? tenantOverride : splitEmails((tenant?.tenant_email as string | null) || ((applicants ?? []).find(a => a.is_primary)?.email as string | null) || ((applicants ?? [])[0]?.email as string | null))
 
+  // Agents get CC'd: owner's agent (listing_agent) on owner emails, applicant's
+  // agent (applicant_agent) on tenant emails.
+  const { data: agents } = await supabaseAdmin.from('application_stakeholders')
+    .select('role, email').eq('application_id', id).in('role', ['listing_agent', 'applicant_agent'])
+  const ownerAgentCc = splitEmails((agents ?? []).find(a => a.role === 'listing_agent')?.email as string | null)
+  const tenantAgentCc = splitEmails((agents ?? []).find(a => a.role === 'applicant_agent')?.email as string | null)
+
   const ownerItems = items.filter(i => i.recipient === 'owner' || i.recipient === 'both')
   const tenantItems = items.filter(i => i.recipient === 'tenant' || i.recipient === 'both')
   const ownerToken = ownerItems.length && ownerEmails.length ? crypto.randomUUID() : null
@@ -86,7 +93,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   let sentOwner = false, sentTenant = false
   if (ownerToken && ownerEmails.length) {
-    await sendEmail({ to: ownerEmails, replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
+    await sendEmail({ to: ownerEmails, cc: ownerAgentCc.length ? ownerAgentCc : undefined, replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
       html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
         items: ownerItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Tenant' : 'You' })), onFile,
         alsoRequested: tenantToken && tenantItems.length ? { who: 'the tenant', items: tenantItems.map(i => i.label) } : null,
@@ -94,7 +101,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }).then(() => { sentOwner = true }, () => null)
   }
   if (tenantToken && tenantEmails.length) {
-    await sendEmail({ to: tenantEmails, replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
+    await sendEmail({ to: tenantEmails, cc: tenantAgentCc.length ? tenantAgentCc : undefined, replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
       html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
         items: tenantItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Owner' : 'You' })), onFile,
         alsoRequested: ownerToken && ownerItems.length ? { who: 'the owner', items: ownerItems.map(i => i.label) } : null,
