@@ -99,7 +99,13 @@ export function EsignSigBlock({ label, signer }: { label: string; signer: EsignS
           <VerificationCertificate v={signer.verification} />
         </>
       ) : (
-        <Text style={s.sigPending}>Awaiting electronic signature.</Text>
+        <>
+          {/* Name the expected approver even before signing, so the letter shows
+              WHO must sign (and at which address it was sent). */}
+          {signer?.name ? <Text style={s.sigMeta}>Printed name: {signer.name}</Text> : null}
+          {signer?.email ? <Text style={s.sigMeta}>Email: {signer.email}</Text> : null}
+          <Text style={s.sigPending}>Awaiting electronic signature.</Text>
+        </>
       )}
     </View>
   )
