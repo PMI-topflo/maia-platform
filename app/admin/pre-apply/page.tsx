@@ -229,6 +229,22 @@ function LinkGenerator() {
   const [copied, setCopied] = useState(false)
   const [owner, setOwner] = useState<{ name: string | null; emails: string[]; phone: string | null }[] | null>(null)
   const [ownerBusy, setOwnerBusy] = useState(false)
+  const [sendOpen, setSendOpen] = useState(false)
+  const [sName, setSName] = useState('')
+  const [sEmail, setSEmail] = useState('')
+  const [ccOwner, setCcOwner] = useState(true)
+  const [ccBoard, setCcBoard] = useState(false)
+  const [sBusy, setSBusy] = useState(false)
+  async function sendInvite() {
+    if (!sEmail.includes('@')) { alert("Enter the applicant's email."); return }
+    setSBusy(true)
+    try {
+      const r = await fetch('/api/admin/pre-apply/send-invite', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ assoc: assoc.trim().toUpperCase(), unit: unit.trim(), name: sName, email: sEmail, lang, ccOwner, ccBoard }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      alert(`Invite sent to ${j.sentTo}${j.cc?.length ? `\nCC: ${j.cc.join(', ')}` : ''}`)
+      setSendOpen(false); setSName(''); setSEmail('')
+    } catch (e) { alert(`Could not send: ${(e as Error).message}`) } finally { setSBusy(false) }
+  }
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const qs = [unit ? `unit=${encodeURIComponent(unit.trim())}` : '', lang ? `lang=${lang}` : ''].filter(Boolean).join('&')
   const link = `${origin}/pre-apply/${encodeURIComponent(assoc.trim().toUpperCase())}${qs ? `?${qs}` : ''}`
@@ -255,7 +271,23 @@ function LinkGenerator() {
         <select value={lang} onChange={e => setLang(e.target.value)} style={s}>{LANGS.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}</select>
         <input readOnly value={link} onFocus={e => e.currentTarget.select()} style={{ ...s, flex: 1, minWidth: 220, fontFamily: 'ui-monospace, monospace', fontSize: 12, color: '#374151' }} />
         <button onClick={copy} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', background: copied ? '#059669' : '#f26a1b', color: '#fff', font: '600 13px system-ui' }}>{copied ? '✓ Copied' : 'Copy'}</button>
+        <button onClick={() => setSendOpen(o => !o)} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #c7d2fe', cursor: 'pointer', background: sendOpen ? '#eef2ff' : '#fff', color: '#3730a3', font: '600 13px system-ui' }}>📨 Send invite</button>
       </div>
+
+      {sendOpen && (
+        <div style={{ marginTop: 10, border: '1px solid #c7d2fe', background: '#f8faff', borderRadius: 10, padding: 12 }}>
+          <div style={{ font: '700 12.5px system-ui', color: '#1f2937', marginBottom: 8 }}>Email the applicant the standard invite (with the link)</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input value={sName} onChange={e => setSName(e.target.value)} placeholder="Applicant name" style={{ ...s, width: 190 }} />
+            <input value={sEmail} onChange={e => setSEmail(e.target.value)} type="email" placeholder="Applicant email" style={{ ...s, flex: '1 1 220px', minWidth: 200 }} />
+          </div>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', margin: '8px 0' }}>
+            <label style={{ font: '12.5px system-ui', color: '#374151', display: 'inline-flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={ccOwner} onChange={e => setCcOwner(e.target.checked)} /> CC owner{owner && owner[0]?.emails[0] ? ` (${owner[0].emails.join(', ')})` : ''}</label>
+            <label style={{ font: '12.5px system-ui', color: '#374151', display: 'inline-flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={ccBoard} onChange={e => setCcBoard(e.target.checked)} /> CC board</label>
+          </div>
+          <button onClick={sendInvite} disabled={sBusy} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', cursor: sBusy ? 'default' : 'pointer', background: sBusy ? '#c9ccd3' : '#166534', color: '#fff', font: '600 13px system-ui' }}>{sBusy ? 'Sending…' : '✉ Send invite'}</button>
+        </div>
+      )}
       {unit.trim() && (
         <div style={{ marginTop: 8, fontSize: 12.5 }}>
           {ownerBusy && owner === null ? <span style={{ color: '#9ca3af' }}>Looking up the owner…</span>
