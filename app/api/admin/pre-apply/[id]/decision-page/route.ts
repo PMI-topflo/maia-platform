@@ -69,7 +69,24 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params
   const c = await loadContext(id)
   if (!c) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // The letter already out for signature (if any), with FRESH signing links — so
+  // staff can copy a signer's link any time, not only right after creating it.
+  const { data: openDoc } = await supabaseAdmin.from('esign_documents')
+    .select('id, status, signers, created_at').eq('kind', 'board_decision')
+    .eq('association_code', c.code).eq('unit_ref', String(c.app.unit_label ?? ''))
+    .neq('status', 'void').order('created_at', { ascending: false }).limit(1).maybeSingle()
+  const pending = openDoc ? {
+    docId: String(openDoc.id), status: String(openDoc.status), createdAt: openDoc.created_at,
+    pdfUrl: `${APP}/api/esign/${await signEsignToken(String(openDoc.id), (openDoc.signers as { role: string }[])[0]?.role ?? 'approver_1')}/pdf`,
+    signers: await Promise.all(((openDoc.signers ?? []) as { role: string; name?: string | null; email?: string | null; signed_at?: string }[]).map(async sg => ({
+      name: sg.name ?? null, email: sg.email ?? null, signed: !!sg.signed_at,
+      link: sg.signed_at ? null : `${APP}/esign/${await signEsignToken(String(openDoc.id), sg.role)}`,
+    }))),
+  } : null
+
   return NextResponse.json({
+    pending,
     applicationType: c.app.application_type, propertyAddress: c.propertyAddress, applicant: c.applicant,
     requiredSignatures: c.required,
     defaultSigners: c.board.slice(0, c.required).map(m => ({ name: m.name, email: m.email, role: m.role, hasSignature: !!m.signature_image })),
