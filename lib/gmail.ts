@@ -5,6 +5,27 @@ import { checkOutboundRateLimit, recordOutboundAttempt } from '@/lib/outbound-ra
 
 const FROM = 'MAIA | PMI Top Florida Properties <maia@pmitop.com>'
 
+/** Readable plain-text fallback from our HTML emails. Keeps link targets (so the
+ *  text part is actually useful) and collapses the markup. Used whenever a
+ *  caller doesn't supply its own `text` — see the note at the send site. */
+export function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_m, href, label) => {
+      const t = String(label).replace(/<[^>]+>/g, '').trim()
+      return t && !/^https?:/i.test(t) ? `${t}: ${href}` : String(href)
+    })
+    .replace(/<(br|\/p|\/div|\/tr|\/h[1-6]|\/li)\s*\/?>/gi, '\n')
+    .replace(/<li\b[^>]*>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&#39;|&apos;/gi, "'").replace(/&quot;/gi, '"')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 // ── Normalise recipients ─────────────────────────────────────────────────────
 
 function toAddresses(to: string | string[]): string[] {
@@ -517,8 +538,13 @@ export async function sendEmail({
   const body = html ?? `<pre style="font-family:sans-serif;white-space:pre-wrap">${text ?? ''}</pre>`
 
   let messageId: string | undefined
+  // Always ship a plain-text alternative alongside the HTML. HTML-only mail is a
+  // well-known spam signal — Yahoo and Gmail both weight multipart/alternative,
+  // and Yahoo in particular junks HTML-only transactional mail from newer domains.
+  const textBody = text ?? htmlToPlainText(body)
+
   if (process.env.RESEND_API_KEY) {
-    messageId = await sendViaResend({ to: addresses, cc: ccAddresses, bcc: bccAddresses, subject, html: body, text, replyTo, headers, attachments })
+    messageId = await sendViaResend({ to: addresses, cc: ccAddresses, bcc: bccAddresses, subject, html: body, text: textBody, replyTo, headers, attachments })
   } else {
     // Gmail fallback has no separate CC/BCC header here — fold CC into recipients.
     // BCC is intentionally NOT folded in (it would make staff visible to the
