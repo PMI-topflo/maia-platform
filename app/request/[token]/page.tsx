@@ -5,8 +5,8 @@
 
 import { use, useCallback, useEffect, useState } from 'react'
 
-interface Item { doc_key: string; label: string; uploaded: boolean }
-interface Data { associationName: string; propertyAddress: string | null; unit: string | null; role: string; message: string | null; items: Item[] }
+interface Item { doc_key: string; label: string; uploaded: boolean; kind?: 'contact' | 'file' }
+interface Data { associationName: string; propertyAddress: string | null; unit: string | null; role: string; message: string | null; tenantName?: string | null; items: Item[] }
 
 export default function RequestUpload({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
@@ -41,11 +41,46 @@ export default function RequestUpload({ params }: { params: Promise<{ token: str
           <div style={{ background: '#e8f3ec', border: '1px solid #15803d', borderRadius: 10, padding: 16, color: '#166534', fontWeight: 600 }}>✓ All done — thank you! You can close this page. We&apos;ll take it from here.</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {d.items.map(it => <ItemRow key={it.doc_key} token={token} item={it} onDone={load} />)}
+            {d.items.map(it => it.kind === 'contact'
+              ? <ContactRow key={it.doc_key} token={token} item={it} tenantName={d.tenantName ?? null} onDone={load} />
+              : <ItemRow key={it.doc_key} token={token} item={it} onDone={load} />)}
           </div>
         )}
         <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 20, borderTop: '1px solid #e7e2d9', paddingTop: 14 }}>Secure upload · PDF or image · no login needed. Questions? Reply to the email or contact support@topfloridaproperties.com.</p>
       </div>
+    </div>
+  )
+}
+
+// The owner fills the tenant's email + phone when the lease didn't have them.
+function ContactRow({ token, item, tenantName, onDone }: { token: string; item: Item; tenantName: string | null; onDone: () => void }) {
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const inp: React.CSSProperties = { font: '14px system-ui', padding: '9px 11px', border: '1px solid #d1d5db', borderRadius: 8, width: '100%', boxSizing: 'border-box' }
+  async function save() {
+    setBusy(true); setErr(null)
+    try {
+      const r = await fetch(`/api/request/${token}/contact`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, phone }) })
+      if (!r.ok) throw new Error((await r.json()).error || 'save failed')
+      onDone()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+  return (
+    <div style={{ border: '1px solid #e7e2d9', borderRadius: 10, padding: '14px 16px', background: item.uploaded ? '#f6faf7' : '#fff' }}>
+      <div style={{ font: '600 14.5px system-ui', color: '#1c2333', marginBottom: 2 }}>{item.label}</div>
+      {item.uploaded ? <div style={{ font: '600 12.5px system-ui', color: '#166534' }}>✓ Received — thank you</div> : (
+        <>
+          <div style={{ font: '12.5px system-ui', color: '#6b7280', margin: '0 0 10px' }}>Please provide the best email and phone for {tenantName || 'the tenant'} so we can reach them.</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="Tenant email" style={inp} />
+            <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Tenant phone" style={inp} />
+            {err && <div style={{ font: '12.5px system-ui', color: '#b91c1c' }}>{err}</div>}
+            <button onClick={save} disabled={busy} style={{ cursor: busy ? 'default' : 'pointer', font: '700 14px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#c0571a', border: 'none', borderRadius: 9, padding: '10px 18px', alignSelf: 'flex-start' }}>{busy ? 'Saving…' : 'Save contact'}</button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

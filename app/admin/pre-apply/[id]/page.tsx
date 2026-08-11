@@ -92,7 +92,13 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   const isMissing = (c: Detail['checklist'][number]) => c.per_applicant
     ? (applicants.length === 0 || applicants.some(a => !docFor(c.doc_key, a.id) && !naFor(c.doc_key, a.id)))
     : (!docFor(c.doc_key, null) && !naFor(c.doc_key, null))
-  const requestItems = d.checklist.map(c => ({ doc_key: c.doc_key, label: c.label, provided_by: c.provided_by, missing: c.required && isMissing(c) }))
+  const primaryApplicant = applicants[0]
+  const tenantContactMissing = !!primaryApplicant && (!primaryApplicant.email || !primaryApplicant.phone)
+  const requestItems = [
+    // Ask the OWNER to fill the tenant's email/phone when we don't have it on file.
+    ...(primaryApplicant ? [{ doc_key: 'tenant_contact_info', label: 'Tenant contact info (email & phone)', provided_by: 'landlord', missing: tenantContactMissing }] : []),
+    ...d.checklist.map(c => ({ doc_key: c.doc_key, label: c.label, provided_by: c.provided_by, missing: c.required && isMissing(c) })),
+  ]
   const expiredDocs = d.documents.filter(x => x.expirationDate && !x.noExpiration && new Date(x.expirationDate) < new Date())
   const audited = !!d.audit.auditedAt
   const decided = d.status === 'approved' || d.status === 'declined'
@@ -810,57 +816,73 @@ function RequestDocs({ id, items, onDone }: { id: string; items: { doc_key: stri
   )
 }
 
-interface Person { name: string; role: string }
-function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { name: string | null; applicantRole: string | null }[]; onDone: () => void }) {
-  const seed = (): Person[] => applicants.map((a, i) => ({ name: (a.name ?? '').trim(), role: a.applicantRole || (i === 0 ? 'primary_applicant' : 'co_applicant') })).filter(p => p.name)
+interface Person { name: string; role: string; email: string; phone: string }
+function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { name: string | null; applicantRole: string | null; email?: string | null; phone?: string | null }[]; onDone: () => void }) {
+  const seed = (): Person[] => applicants.map((a, i) => ({ name: (a.name ?? '').trim(), role: a.applicantRole || (i === 0 ? 'primary_applicant' : 'co_applicant'), email: (a.email ?? '').trim(), phone: (a.phone ?? '').trim() })).filter(p => p.name)
   const [people, setPeople] = useState<Person[]>(seed)
   const [add, setAdd] = useState('')
   const [busy, setBusy] = useState<'read' | 'save' | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const dirty = JSON.stringify(people) !== JSON.stringify(seed())
+  const primaryNoEmail = people.length > 0 && !people[0].email
 
   async function readFromLease() {
     setBusy('read'); setMsg(null)
     try {
       const r = await fetch(`/api/admin/pre-apply/${id}/applicants?propose=1`, { credentials: 'include' })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
-      if (!j.hasLease) { setMsg('Save the signed lease first, then read the names from it.'); return }
+      if (!j.hasLease) { setMsg('Save the signed lease first, then read the contact from it.'); return }
       const have = new Set(people.map(p => p.name.toLowerCase().replace(/\s+/g, ' ')))
-      const added = (j.proposed as string[]).filter(p => !have.has(p.toLowerCase().replace(/\s+/g, ' '))).map((n, k) => ({ name: n, role: people.length + k === 0 ? 'primary_applicant' : 'co_applicant' }))
-      setPeople([...people, ...added]); setMsg(added.length ? `Read ${added.length} name(s) from the lease.` : 'No new names found — add them below.')
+      const added = (j.proposed as string[]).filter(p => !have.has(p.toLowerCase().replace(/\s+/g, ' '))).map((n, k) => ({ name: n, role: people.length + k === 0 ? 'primary_applicant' : 'co_applicant', email: '', phone: '' }))
+      const next = [...people, ...added]
+      // Fill the lead's email/phone from the lease when we don't have them yet.
+      if (next.length) { if (!next[0].email && j.proposedEmail) next[0] = { ...next[0], email: String(j.proposedEmail) }; if (!next[0].phone && j.proposedPhone) next[0] = { ...next[0], phone: String(j.proposedPhone) } }
+      setPeople(next)
+      const bits = [added.length ? `${added.length} name(s)` : null, j.proposedEmail ? 'email' : null, j.proposedPhone ? 'phone' : null].filter(Boolean)
+      setMsg(bits.length ? `Read ${bits.join(' + ')} from the lease.` : 'No new details found — add them below.')
     } catch (e) { setMsg(`Could not read the lease: ${(e as Error).message}`) } finally { setBusy(null) }
   }
   async function save() {
     setBusy('save'); setMsg(null)
     try {
-      const r = await fetch(`/api/admin/pre-apply/${id}/applicants`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ applicants: people.map(p => ({ name: p.name, applicant_role: p.role })) }) })
+      const r = await fetch(`/api/admin/pre-apply/${id}/applicants`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ applicants: people.map(p => ({ name: p.name, applicant_role: p.role, email: p.email, phone: p.phone })) }) })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
       onDone()
     } catch (e) { setMsg(`Could not save: ${(e as Error).message}`) } finally { setBusy(null) }
   }
-  const setRole = (i: number, role: string) => setPeople(people.map((p, j) => j === i ? { ...p, role } : p))
+  const upd = (i: number, patch: Partial<Person>) => setPeople(people.map((p, j) => j === i ? { ...p, ...patch } : p))
+  const inpS: React.CSSProperties = { font: '13px system-ui', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6 }
 
   return (
     <div style={{ margin: '10px 0 0', border: '1px solid #e5e7eb', borderRadius: 10, background: '#fafafa', padding: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <span style={{ font: '700 13px system-ui', color: '#1f2937' }}>Applicants <span style={{ color: '#9ca3af', fontWeight: 400 }}>· each gets a role + their own document tab</span></span>
-        <button onClick={readFromLease} disabled={!!busy} style={{ font: '600 12px system-ui', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 7, padding: '5px 10px', cursor: busy ? 'default' : 'pointer' }}>{busy === 'read' ? 'Reading…' : '📄 Read names from lease'}</button>
+        <span style={{ font: '700 13px system-ui', color: '#1f2937' }}>Applicants <span style={{ color: '#9ca3af', fontWeight: 400 }}>· role + contact + their own document tab</span></span>
+        <button onClick={readFromLease} disabled={!!busy} style={{ font: '600 12px system-ui', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 7, padding: '5px 10px', cursor: busy ? 'default' : 'pointer' }}>{busy === 'read' ? 'Reading…' : '📄 Read from lease'}</button>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
         {people.length === 0 && <span style={{ font: '13px system-ui', color: '#b45309' }}>No applicants yet — read them from the lease or add below.</span>}
         {people.map((p, i) => (
-          <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, font: '600 13px system-ui', color: '#1f2937', background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, padding: '5px 10px', flexWrap: 'wrap' }}>
-            <span style={{ minWidth: 140 }}>{p.name}</span>
-            <select value={p.role} onChange={e => setRole(i, e.target.value)} style={{ font: '600 12px system-ui', color: '#4338ca', border: '1px solid #d1d5db', borderRadius: 6, padding: '3px 6px', background: '#fff', cursor: 'pointer' }}>
-              {APPLICANT_ROLES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
-            </select>
-            <button onClick={() => setPeople(people.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: '#9ca3af', cursor: 'pointer', font: '700 14px system-ui', padding: 0, lineHeight: 1, marginLeft: 'auto' }}>×</button>
+          <div key={i} style={{ background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <input value={p.name} onChange={e => upd(i, { name: e.target.value })} placeholder="Name" style={{ ...inpS, font: '600 13px system-ui', minWidth: 150 }} />
+              <select value={p.role} onChange={e => upd(i, { role: e.target.value })} style={{ font: '600 12px system-ui', color: '#4338ca', border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 6px', background: '#fff', cursor: 'pointer' }}>
+                {APPLICANT_ROLES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+              </select>
+              <button onClick={() => setPeople(people.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: '#9ca3af', cursor: 'pointer', font: '700 15px system-ui', padding: 0, lineHeight: 1, marginLeft: 'auto' }}>×</button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+              <span style={{ font: '11px system-ui', color: '#9ca3af', width: 46 }}>✉ Email</span>
+              <input value={p.email} onChange={e => upd(i, { email: e.target.value })} placeholder="email@example.com" style={{ ...inpS, flex: '1 1 180px', minWidth: 160, borderColor: i === 0 && !p.email ? '#f59e0b' : '#d1d5db' }} />
+              <span style={{ font: '11px system-ui', color: '#9ca3af', width: 44 }}>☎ Phone</span>
+              <input value={p.phone} onChange={e => upd(i, { phone: e.target.value })} placeholder="Phone" style={{ ...inpS, width: 150 }} />
+            </div>
           </div>
         ))}
       </div>
+      {primaryNoEmail && <p style={{ font: '12.5px system-ui', color: '#b45309', margin: '0 0 8px' }}>⚠ No email for the lead applicant — add it above, or 📄 read it from the lease, so MAIA can send them document requests.</p>}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <input value={add} onChange={e => setAdd(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && add.trim()) { setPeople([...people, { name: add.trim(), role: people.length === 0 ? 'primary_applicant' : 'co_applicant' }]); setAdd('') } }} placeholder="Add an applicant's name" style={{ font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6, width: 220 }} />
-        <button onClick={() => { if (add.trim()) { setPeople([...people, { name: add.trim(), role: people.length === 0 ? 'primary_applicant' : 'co_applicant' }]); setAdd('') } }} style={{ font: '600 12px system-ui', color: '#374151', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>+ Add</button>
+        <input value={add} onChange={e => setAdd(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && add.trim()) { setPeople([...people, { name: add.trim(), role: people.length === 0 ? 'primary_applicant' : 'co_applicant', email: '', phone: '' }]); setAdd('') } }} placeholder="Add an applicant's name" style={{ font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6, width: 220 }} />
+        <button onClick={() => { if (add.trim()) { setPeople([...people, { name: add.trim(), role: people.length === 0 ? 'primary_applicant' : 'co_applicant', email: '', phone: '' }]); setAdd('') } }} style={{ font: '600 12px system-ui', color: '#374151', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>+ Add</button>
         {dirty && <button onClick={save} disabled={!!busy} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: busy ? 'default' : 'pointer' }}>{busy === 'save' ? 'Saving…' : 'Save applicants'}</button>}
       </div>
       {msg && <p style={{ font: '12.5px system-ui', color: '#6b7280', margin: '8px 0 0' }}>{msg}</p>}

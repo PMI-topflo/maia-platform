@@ -28,18 +28,23 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const r = await loadRequest(token)
   if (!r) return NextResponse.json({ error: 'This link is invalid or has expired.' }, { status: 404 })
 
-  const [{ data: assoc }, { data: docs }] = await Promise.all([
+  const [{ data: assoc }, { data: docs }, { data: primary }] = await Promise.all([
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', r.req.association_code).maybeSingle(),
     supabaseAdmin.from('application_documents').select('doc_key').eq('application_id', r.req.application_id),
+    supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', r.req.application_id).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
   ])
   const legal = (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || r.req.association_code
   const unit = (r.req.unit_label as string | null) ?? null
   const address = [assoc?.principal_address, unit ? `Unit ${unit}` : null, [assoc?.city, [assoc?.state, assoc?.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ') || null
   const have = new Set((docs ?? []).map(d => String(d.doc_key)))
+  const contactDone = !!(primary?.email && primary?.phone)
 
   return NextResponse.json({
     associationName: legal, propertyAddress: address, unit,
     role: r.role, message: r.req.message ?? null,
-    items: r.mine.map(i => ({ doc_key: i.doc_key, label: i.label, uploaded: have.has(i.doc_key) })),
+    tenantName: (primary?.name as string | null) ?? null,
+    items: r.mine.map(i => i.doc_key === 'tenant_contact_info'
+      ? { doc_key: i.doc_key, label: i.label, kind: 'contact', uploaded: contactDone }
+      : { doc_key: i.doc_key, label: i.label, kind: 'file', uploaded: have.has(i.doc_key) }),
   })
 }
