@@ -858,7 +858,7 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone }:
 
 // Communication history — every document request sent for this application, to
 // whom, what was asked, and any message the owner/tenant sent back.
-interface Comm { id: string; at: string; by: string | null; ownerEmail: string | null; tenantEmail: string | null; ownerItems: string[]; tenantItems: string[]; message: string | null; ownerNote: string | null; tenantNote: string | null }
+interface Comm { type: 'document_request' | 'approval_letter'; id: string; at: string; by?: string | null; ownerEmail?: string | null; tenantEmail?: string | null; ownerItems?: string[]; tenantItems?: string[]; message?: string | null; ownerNote?: string | null; tenantNote?: string | null; signers?: string[] }
 function CommunicationsLog({ id }: { id: string }) {
   const [rows, setRows] = useState<Comm[] | null>(null)
   useEffect(() => { fetch(`/api/admin/pre-apply/${id}/communications`, { credentials: 'include' }).then(r => r.json()).then(d => setRows(d.communications ?? [])).catch(() => setRows([])) }, [id])
@@ -867,11 +867,16 @@ function CommunicationsLog({ id }: { id: string }) {
     <div style={{ margin: '4px 0 14px' }}>
       <div style={{ font: '700 11px system-ui', letterSpacing: '.06em', textTransform: 'uppercase', color: '#6b7280', margin: '0 0 6px' }}>Communication history</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {rows.map(c => (
+        {rows.map(c => c.type === 'approval_letter' ? (
+          <div key={c.id} style={{ border: '1px solid #bbf7d0', borderRadius: 8, padding: '9px 12px', background: '#f0fdf4', fontSize: 12.5 }}>
+            <div style={{ color: '#166534', fontWeight: 600 }}>🏛 Board approval letter signed · {fmt(c.at)}</div>
+            {c.signers && c.signers.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}>Signed by: {c.signers.join(', ')}</div>}
+          </div>
+        ) : (
           <div key={c.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '9px 12px', background: '#fff', fontSize: 12.5 }}>
             <div style={{ color: '#9ca3af' }}>📩 Documents requested · {fmt(c.at)}{c.by ? ` · ${c.by.replace(/^staff:/, '')}` : ''}</div>
-            {c.ownerItems.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}><strong>To owner</strong>{c.ownerEmail ? ` (${c.ownerEmail})` : ''}: {c.ownerItems.join(', ')}</div>}
-            {c.tenantItems.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}><strong>To tenant</strong>{c.tenantEmail ? ` (${c.tenantEmail})` : ''}: {c.tenantItems.join(', ')}</div>}
+            {c.ownerItems && c.ownerItems.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}><strong>To owner</strong>{c.ownerEmail ? ` (${c.ownerEmail})` : ''}: {c.ownerItems.join(', ')}</div>}
+            {c.tenantItems && c.tenantItems.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}><strong>To tenant</strong>{c.tenantEmail ? ` (${c.tenantEmail})` : ''}: {c.tenantItems.join(', ')}</div>}
             {c.message && <div style={{ color: '#6b7280', marginTop: 3, fontStyle: 'italic' }}>Note: {c.message}</div>}
             {c.ownerNote && <div style={{ marginTop: 4, color: '#1f2937', borderLeft: '3px solid #c05a1c', paddingLeft: 8 }}>💬 Owner replied: {c.ownerNote}</div>}
             {c.tenantNote && <div style={{ marginTop: 4, color: '#1f2937', borderLeft: '3px solid #c05a1c', paddingLeft: 8 }}>💬 Tenant replied: {c.tenantNote}</div>}
