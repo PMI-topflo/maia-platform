@@ -274,7 +274,8 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
 }
 
 interface DecSigner { name: string | null; email: string | null; role?: string | null; hasSignature: boolean }
-interface DecPrefill { applicationType: string; propertyAddress: string | null; applicant: string | null; requiredSignatures: number; defaultSigners: DecSigner[]; leaseStart: string | null; leaseEnd: string | null; occupants: string[]; applicantAsOccupant: string | null }
+interface DecPending { docId: string; status: string; createdAt: string; pdfUrl: string; signers: { name: string | null; email: string | null; signed: boolean; link: string | null }[] }
+interface DecPrefill { applicationType: string; propertyAddress: string | null; applicant: string | null; requiredSignatures: number; defaultSigners: DecSigner[]; leaseStart: string | null; leaseEnd: string | null; occupants: string[]; applicantAsOccupant: string | null; pending?: DecPending | null }
 interface DecResult { allSigned: boolean; pdfUrl: string; docId?: string; signers: { name: string | null; email: string | null; signed: boolean; link: string | null }[] }
 
 // Generates the Board Decision Page (the approval letter). Defaults the signer
@@ -341,6 +342,19 @@ function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
               • <strong>{sg.name}</strong>{sg.hasSignature ? ' ✍' : ''} — <span style={{ fontFamily: 'ui-monospace, monospace', color: sg.email ? '#2563eb' : '#b91c1c' }}>{sg.email || 'NO EMAIL ON FILE'}</span>
             </span>
           ))}
+        </div>
+      )}
+      {/* A letter already out for signature — copy each signer's link any time
+          (email can be filtered; this always works). Survives page reloads. */}
+      {!result && pf?.pending && (
+        <div style={{ margin: '0 0 12px', border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 10, padding: 12 }}>
+          <div style={{ font: '700 12.5px system-ui', color: '#1e40af', marginBottom: 2 }}>
+            📤 Letter out for signature — {pf.pending.signers.filter(s => s.signed).length}/{pf.pending.signers.length} signed · sent {fmt(pf.pending.createdAt)}
+          </div>
+          <div style={{ font: '12px system-ui', color: '#6b7280', marginBottom: 8 }}>Copy a signer&apos;s link and send it yourself if they didn&apos;t get the email. <a href={pf.pending.pdfUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>👁 View letter (PDF) →</a></div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {pf.pending.signers.map((sg, i) => <SignerRow key={i} sg={sg} />)}
+          </div>
         </div>
       )}
       {!result ? (
