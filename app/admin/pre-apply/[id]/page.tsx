@@ -239,7 +239,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
 
       {/* Board approval letter (Decision Page) — available after PMI's review so
           you can generate it, view it, and send it to the board for signatures. */}
-      {(d.audit.auditedAt || d.status === 'approved') && d.status !== 'declined' && <DecisionPageSender id={id} unit={d.unit} />}
+      {['submitted', 'under_review', 'approved'].includes(d.status) && <DecisionPageSender id={id} unit={d.unit} />}
 
       {/* Audit trail */}
       {(d.audit.auditedAt || d.audit.reviewedAt) && (
