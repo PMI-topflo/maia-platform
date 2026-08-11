@@ -93,8 +93,18 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
     ? (applicants.length === 0 || applicants.some(a => !docFor(c.doc_key, a.id) && !naFor(c.doc_key, a.id)))
     : (!docFor(c.doc_key, null) && !naFor(c.doc_key, null))
   const requestItems = d.checklist.map(c => ({ doc_key: c.doc_key, label: c.label, provided_by: c.provided_by, missing: c.required && isMissing(c) }))
+  const expiredDocs = d.documents.filter(x => x.expirationDate && !x.noExpiration && new Date(x.expirationDate) < new Date())
   const audited = !!d.audit.auditedAt
   const decided = d.status === 'approved' || d.status === 'declined'
+  const hasLease = d.documents.some(x => x.doc_key === 'signed_lease')
+  const reqCount = d.checklist.filter(c => c.required).length
+  const missingCount = missing.length
+  const steps = [
+    { label: 'Lease & type', done: hasLease, meta: hasLease ? 'read' : 'scan the lease' },
+    { label: 'Applicants', done: applicants.length > 0, meta: applicants.length ? `${applicants.length} · roles set` : 'read from lease' },
+    { label: 'Documents', done: missingCount === 0, meta: `${reqCount - missingCount} of ${reqCount} required` },
+    { label: 'Review & approve', done: decided, meta: audited ? 'letter → board' : 'audit first' },
+  ]
 
   return (
     <div style={wrap}>
@@ -108,6 +118,24 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <MetaEditor id={id} name={d.applicant?.name ?? ''} type={d.type} onDone={load} />
       <ApplicantsCard id={id} applicants={(d.stakeholders ?? []).filter(s => s.role === 'applicant')} onDone={load} />
       {d.driveFolderUrl && <p style={{ margin: '8px 0 0' }}><a href={d.driveFolderUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 13, fontWeight: 600 }}>📁 Drive folder →</a></p>}
+
+      {/* Guided progress */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '16px 0 6px' }}>
+        {steps.map((s, i) => (
+          <div key={i} style={{ flex: '1 1 150px', minWidth: 140, border: `1px solid ${s.done ? '#bbf7d0' : '#e5e7eb'}`, background: s.done ? '#f0fdf4' : '#fff', borderRadius: 10, padding: '9px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}><span style={{ width: 20, height: 20, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', font: '800 11px system-ui', color: '#fff', background: s.done ? '#16a34a' : '#9ca3af' }}>{s.done ? '✓' : i + 1}</span><span style={{ font: '700 13px system-ui', color: '#1f2937' }}>{s.label}</span></div>
+            <div style={{ font: '11.5px system-ui', color: '#9ca3af', marginTop: 3 }}>{s.meta}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* MAIA screams on expired files */}
+      {expiredDocs.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fef2f2', border: '1px solid #b91c1c', borderLeft: '4px solid #b91c1c', borderRadius: 10, padding: '11px 14px', margin: '12px 0' }}>
+          <span style={{ fontSize: 20 }}>🚨</span>
+          <div style={{ flex: 1, fontSize: 13.5, color: '#7f1d1d' }}><b>{expiredDocs.length} expired document{expiredDocs.length === 1 ? '' : 's'}.</b> {expiredDocs.map(x => `${x.doc_label || x.filename} (expired ${new Date(x.expirationDate!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`).join(', ')}. Request current copies below before this can move forward.</div>
+        </div>
+      )}
 
       {/* Checklist — with staff upload boxes so you can file a doc you got by email */}
       <h2 style={h2}>Documents ({d.documents.length} uploaded)</h2>
@@ -383,13 +411,15 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
     catch { /* */ } finally { setBusy(null) }
   }
   const isImg = (doc?.mime_type ?? '').startsWith('image/')
+  const isExpired = !!(doc && doc.expirationDate && !doc.noExpiration && new Date(doc.expirationDate) < new Date())
   const link: React.CSSProperties = { font: '600 13px system-ui', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'none' }
 
   return (
-    <div style={{ padding: '10px 14px', borderTop: first ? 'none' : '1px solid #f3f4f6', opacity: na ? 0.6 : 1 }}>
+    <div style={{ padding: '10px 14px', borderTop: first ? 'none' : '1px solid #f3f4f6', opacity: na ? 0.6 : 1, background: isExpired ? '#fef2f2' : undefined, borderLeft: isExpired ? '3px solid #b91c1c' : undefined }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <span style={{ fontWeight: 600, fontSize: 14 }}>{c.label}</span> <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px' }}>{c.provided_by}</span>{!c.required && <span style={{ fontSize: 11, color: '#6b7280' }}> · optional</span>}
+          {isExpired && <span style={{ font: '700 10px system-ui', color: '#fff', background: '#b91c1c', borderRadius: 5, padding: '2px 7px', marginLeft: 7 }}>🚨 EXPIRED {new Date(doc!.expirationDate!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
           {doc && !na && (
             <div style={{ font: '11.5px system-ui', color: '#6b7280', marginTop: 2, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               Will file as
