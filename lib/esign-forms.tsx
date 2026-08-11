@@ -308,6 +308,7 @@ const boardDecision: EsignFormDef = {
           <Text style={s.assoc}>{p.associationLegalName ?? doc.association_code}</Text>
           <Text style={s.title}>Board Decision</Text>
           <View style={s.rule} />
+          <View style={s.row}><Text style={s.rowKey}>Date</Text><Text style={s.rowVal}>{new Date(doc.created_at ?? Date.now()).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</Text></View>
           <View style={s.row}><Text style={s.rowKey}>Property</Text><Text style={s.rowVal}>{p.propertyAddress ?? (p.unit ? `Unit ${p.unit}` : doc.unit_ref ?? '—')}</Text></View>
           <View style={s.row}><Text style={s.rowKey}>Application type</Text><Text style={s.rowVal}>{APP_TYPE_LABEL[p.applicationType ?? ''] ?? p.applicationType ?? '—'}</Text></View>
           <View style={s.row}><Text style={s.rowKey}>Applicant</Text><Text style={s.rowVal}>{p.applicant ?? '—'}</Text></View>
