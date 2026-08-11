@@ -40,12 +40,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const unit = (app.unit_label as string | null) ?? null
 
   // Context for the standard email.
-  const [{ data: assoc }, { data: applicants }, { data: owners }, { data: tenant }] = await Promise.all([
+  const [{ data: assoc }, { data: applicants }, { data: owners }, { data: tenant }, { data: onFileDocs }] = await Promise.all([
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', code).maybeSingle(),
     supabaseAdmin.from('application_stakeholders').select('name, email, is_primary').eq('application_id', id).eq('role', 'applicant').order('is_primary', { ascending: false }),
     supabaseAdmin.from('owners').select('emails, unit_number, account_number, status').eq('association_code', code).or('status.neq.previous,status.is.null'),
     supabaseAdmin.from('unit_tenant_contacts').select('tenant_email').eq('association_code', code).eq('unit_ref', unit ?? '').maybeSingle(),
+    supabaseAdmin.from('application_documents').select('doc_key, doc_label, expiration_date, no_expiration, created_at').eq('application_id', id).order('created_at', { ascending: true }),
   ])
+
+  // "Already on file" — one per checklist item, with expiration context.
+  const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const seenKeys = new Set<string>()
+  const onFile = (onFileDocs ?? []).filter(dd => { const k = String(dd.doc_key ?? Math.random()); if (seenKeys.has(k)) return false; seenKeys.add(k); return true }).map(dd => {
+    const exp = dd.no_expiration ? null : (dd.expiration_date as string | null)
+    const expired = !!(exp && new Date(exp) < new Date())
+    return { label: String(dd.doc_label ?? 'Document'), note: dd.no_expiration ? 'does not expire' : exp ? `${expired ? 'expired' : 'expires'} ${fmtDate(exp)}` : null, expired }
+  })
   const legal = (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || code
   const address = [assoc?.principal_address, unit ? `Unit ${unit}` : null, [assoc?.city, [assoc?.state, assoc?.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ') || null
   const applicantNames = (applicants ?? []).map(a => String(a.name ?? '').trim()).filter(Boolean)
@@ -73,14 +83,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (ownerToken && ownerEmail) {
     await sendEmail({ to: [ownerEmail], replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
       html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
-        items: ownerItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Tenant' : 'You' })),
+        items: ownerItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Tenant' : 'You' })), onFile,
         ctaUrl: `${APP}/request/${ownerToken}`, footerReason: `You're receiving this as the owner of ${unit ? `Unit ${unit}` : 'this unit'}.` }),
     }).then(() => { sentOwner = true }, () => null)
   }
   if (tenantToken && tenantEmail) {
     await sendEmail({ to: [tenantEmail], replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
       html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
-        items: tenantItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Owner' : 'You' })),
+        items: tenantItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Owner' : 'You' })), onFile,
         ctaUrl: `${APP}/request/${tenantToken}`, footerReason: `You're receiving this because you're on the application for ${unit ? `Unit ${unit}` : 'this unit'}.` }),
     }).then(() => { sentTenant = true }, () => null)
   }

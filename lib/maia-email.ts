@@ -23,6 +23,7 @@ export interface MaiaEmailCtx {
   ctaUrl?: string | null
   ctaLabel?: string | null
   footerReason?: string | null
+  onFile?: { label: string; note: string | null; expired?: boolean }[]   // already-received items + expiry
 }
 
 /** Render the standard MAIA email as an HTML string. */
@@ -42,6 +43,13 @@ export function renderMaiaEmail(c: MaiaEmailCtx): string {
        </table>`
     : ''
 
+  const onFileHtml = c.onFile && c.onFile.length
+    ? `<div style="font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8a8f9a;margin:0 0 8px">Already on file</div>
+       <table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid #e7e2d9;border-radius:10px;overflow:hidden;margin:0 0 20px">
+         ${c.onFile.map((it, i) => `<tr><td style="padding:10px 15px;font-size:13.5px;color:#1c2333;${i ? 'border-top:1px solid #f2efe8' : ''}"><span style="color:${it.expired ? '#b91c1c' : '#15803d'};font-weight:700">${it.expired ? '⚠' : '✓'}</span> ${esc(it.label)}${it.note ? ` <span style="float:right;font-size:12px;color:${it.expired ? '#b91c1c' : '#8a8f9a'}">${esc(it.note)}</span>` : ''}</td></tr>`).join('')}
+       </table>`
+    : ''
+
   const cta = c.ctaUrl
     ? `<div style="text-align:center;margin:6px 0 22px"><a href="${esc(c.ctaUrl)}" style="display:inline-block;background:#c0571a;color:#fff;font:700 15px system-ui;text-decoration:none;padding:14px 30px;border-radius:10px">${esc(c.ctaLabel ?? 'Upload your documents →')}</a><div style="font-size:12px;color:#8a8f9a;margin-top:9px">Secure link · unique to you · no login needed</div></div>`
     : ''
@@ -54,6 +62,7 @@ export function renderMaiaEmail(c: MaiaEmailCtx): string {
       <p style="font-size:14.5px;color:#3f4756;margin:0 0 16px">${esc(c.intro)}</p>
       ${itemsHtml}
       ${cta}
+      ${onFileHtml}
       <div style="display:flex;gap:12px;background:#f8efe6;border-radius:10px;padding:14px 16px;margin:0 0 20px">
         <div style="font-size:22px;line-height:1">✦</div>
         <div style="font-size:13px;color:#3f4756"><b style="color:#c0571a">What is MAIA?</b> MAIA is PMI Top Florida Properties' document assistant. It keeps your association paperwork organized and secure and flags anything expiring — so approvals move faster for you.</div>
