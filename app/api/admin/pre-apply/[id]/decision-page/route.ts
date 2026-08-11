@@ -32,14 +32,19 @@ async function loadContext(id: string) {
   const code = String(app.association_code)
   const [{ data: assoc }, { data: sh }, { data: members }, { data: cfg }, { data: tenant }] = await Promise.all([
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', code).maybeSingle(),
-    supabaseAdmin.from('application_stakeholders').select('name').eq('application_id', id).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
+    supabaseAdmin.from('application_stakeholders').select('name, is_primary').eq('application_id', id).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('association_board_members').select('name, email, role, signature_image').eq('association_code', code).eq('active', true),
     supabaseAdmin.from('association_config').select('required_signatures').eq('association_code', code).maybeSingle(),
     supabaseAdmin.from('unit_tenant_contacts').select('occupants, lease_start, lease_end').eq('association_code', code).eq('unit_ref', app.unit_label ?? '').maybeSingle(),
   ])
   const legal = (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || code
   const addr = [assoc?.principal_address, app.unit_label ? `Unit ${app.unit_label}` : null, [assoc?.city, [assoc?.state, assoc?.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ')
-  const occ = Array.isArray(tenant?.occupants) ? (tenant!.occupants as Array<{ name?: string } | string>).map(o => typeof o === 'string' ? o : o?.name).filter(Boolean) as string[] : []
+  // Everyone on the application (the per-applicant roster) — the letter's
+  // applicant + approved-occupants come from here, not just the primary.
+  const applicantNames = ((sh ?? []) as { name: string | null }[]).map(s => String(s.name ?? '').trim()).filter(Boolean)
+  const applicant = applicantNames[0] ?? null
+  const tenantOcc = Array.isArray(tenant?.occupants) ? (tenant!.occupants as Array<{ name?: string } | string>).map(o => typeof o === 'string' ? o : o?.name).filter(Boolean) as string[] : []
+  const occ = tenantOcc.length ? tenantOcc : applicantNames
   const required = Math.max(1, (cfg?.required_signatures as number | null) ?? 1)
   const ordered = (members ?? []).slice().sort((a, b) => rolePriority(a.role as string) - rolePriority(b.role as string))
 
@@ -56,7 +61,7 @@ async function loadContext(id: string) {
       }
     }
   }
-  return { app, code, legal, propertyAddress: addr || null, applicant: (sh?.name as string | null) ?? null, required, board: ordered, tenant, occupants: occ, leaseStart, leaseEnd }
+  return { app, code, legal, propertyAddress: addr || null, applicant, required, board: ordered, tenant, occupants: occ, leaseStart, leaseEnd }
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
