@@ -6,7 +6,7 @@
 import { use, useCallback, useEffect, useState } from 'react'
 
 interface Item { doc_key: string; label: string; uploaded: boolean; kind?: 'contact' | 'file' }
-interface Data { associationName: string; propertyAddress: string | null; unit: string | null; role: string; message: string | null; tenantName?: string | null; items: Item[] }
+interface Data { associationName: string; propertyAddress: string | null; unit: string | null; role: string; message: string | null; note?: string | null; tenantName?: string | null; items: Item[] }
 
 export default function RequestUpload({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
@@ -46,6 +46,7 @@ export default function RequestUpload({ params }: { params: Promise<{ token: str
               : <ItemRow key={it.doc_key} token={token} item={it} onDone={load} />)}
           </div>
         )}
+        <MessageBox token={token} initial={d.note ?? ''} />
         <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 20, borderTop: '1px solid #e7e2d9', paddingTop: 14 }}>Secure upload · PDF or image · no login needed. Questions? Reply to the email or contact support@topfloridaproperties.com.</p>
       </div>
     </div>
@@ -81,6 +82,31 @@ function ContactRow({ token, item, tenantName, onDone }: { token: string; item: 
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+// A message the owner/tenant can leave for us — registered as communication history.
+function MessageBox({ token, initial }: { token: string; initial: string }) {
+  const [note, setNote] = useState(initial)
+  const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
+  async function save() {
+    setBusy(true); setSaved(false)
+    try {
+      const r = await fetch(`/api/request/${token}/note`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note }) })
+      if (!r.ok) throw new Error((await r.json()).error || 'failed')
+      setSaved(true)
+    } catch { /* */ } finally { setBusy(false) }
+  }
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ font: '600 13px system-ui', color: '#1c2333', marginBottom: 6 }}>Leave us a message (optional)</div>
+      <textarea value={note} onChange={e => { setNote(e.target.value); setSaved(false) }} placeholder="Anything we should know? e.g. a document is on its way, a question…" style={{ width: '100%', boxSizing: 'border-box', minHeight: 70, padding: 10, border: '1px solid #d1d5db', borderRadius: 8, font: '14px system-ui' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+        <button onClick={save} disabled={busy} style={{ cursor: busy ? 'default' : 'pointer', font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#1c2333', border: 'none', borderRadius: 8, padding: '8px 16px' }}>{busy ? 'Sending…' : 'Send message'}</button>
+        {saved && <span style={{ font: '600 12.5px system-ui', color: '#166534' }}>✓ Sent — thank you</span>}
+      </div>
     </div>
   )
 }

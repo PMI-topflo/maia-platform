@@ -24,6 +24,7 @@ export interface MaiaEmailCtx {
   ctaLabel?: string | null
   footerReason?: string | null
   onFile?: { label: string; note: string | null; expired?: boolean }[]   // already-received items + expiry
+  alsoRequested?: { who: string; items: string[] } | null                // "we also emailed the tenant for X"
 }
 
 /** Render the standard MAIA email as an HTML string. */
@@ -50,6 +51,10 @@ export function renderMaiaEmail(c: MaiaEmailCtx): string {
        </table>`
     : ''
 
+  const alsoHtml = c.alsoRequested && c.alsoRequested.items.length
+    ? `<div style="font-size:13px;color:#3f4756;background:#eef4fb;border-radius:8px;padding:11px 13px;margin:0 0 20px">📨 We've also emailed <b>${esc(c.alsoRequested.who)}</b> requesting: ${c.alsoRequested.items.map(esc).join(', ')}.</div>`
+    : ''
+
   const cta = c.ctaUrl
     ? `<div style="text-align:center;margin:6px 0 22px"><a href="${esc(c.ctaUrl)}" style="display:inline-block;background:#c0571a;color:#fff;font:700 15px system-ui;text-decoration:none;padding:14px 30px;border-radius:10px">${esc(c.ctaLabel ?? 'Upload your documents →')}</a><div style="font-size:12px;color:#8a8f9a;margin-top:9px">Secure link · unique to you · no login needed</div></div>`
     : ''
@@ -62,6 +67,7 @@ export function renderMaiaEmail(c: MaiaEmailCtx): string {
       <p style="font-size:14.5px;color:#3f4756;margin:0 0 16px">${esc(c.intro)}</p>
       ${itemsHtml}
       ${cta}
+      ${alsoHtml}
       ${onFileHtml}
       <div style="display:flex;gap:12px;background:#f8efe6;border-radius:10px;padding:14px 16px;margin:0 0 20px">
         <div style="font-size:22px;line-height:1">✦</div>

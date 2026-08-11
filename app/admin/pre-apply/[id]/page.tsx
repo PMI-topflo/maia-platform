@@ -151,6 +151,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {(d.type === 'lease_renewal' || d.type === 'additional_occupant') && <CarryOverButton id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
       {!decided && <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail} onDone={load} />}
+      <CommunicationsLog id={id} />
 
       {/* Shared documents — one for the whole unit / application. */}
       <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '2px 0 6px' }}>Shared documents</div>
@@ -850,6 +851,32 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone }:
       <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Add a note to include in the email (optional)…" style={{ width: '100%', boxSizing: 'border-box', marginTop: 10, minHeight: 48, padding: 9, border: '1px solid #d1d5db', borderRadius: 8, font: '13px system-ui' }} />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
         <button onClick={send} disabled={busy || selected.length === 0} style={{ ...btn(selected.length ? '#c05a1c' : '#c9ccd3'), padding: '8px 14px' }}>{busy ? 'Sending…' : `✉ Send request + upload link (${selected.length})`}</button>
+      </div>
+    </div>
+  )
+}
+
+// Communication history — every document request sent for this application, to
+// whom, what was asked, and any message the owner/tenant sent back.
+interface Comm { id: string; at: string; by: string | null; ownerEmail: string | null; tenantEmail: string | null; ownerItems: string[]; tenantItems: string[]; message: string | null; ownerNote: string | null; tenantNote: string | null }
+function CommunicationsLog({ id }: { id: string }) {
+  const [rows, setRows] = useState<Comm[] | null>(null)
+  useEffect(() => { fetch(`/api/admin/pre-apply/${id}/communications`, { credentials: 'include' }).then(r => r.json()).then(d => setRows(d.communications ?? [])).catch(() => setRows([])) }, [id])
+  if (!rows || rows.length === 0) return null
+  return (
+    <div style={{ margin: '4px 0 14px' }}>
+      <div style={{ font: '700 11px system-ui', letterSpacing: '.06em', textTransform: 'uppercase', color: '#6b7280', margin: '0 0 6px' }}>Communication history</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {rows.map(c => (
+          <div key={c.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '9px 12px', background: '#fff', fontSize: 12.5 }}>
+            <div style={{ color: '#9ca3af' }}>📩 Documents requested · {fmt(c.at)}{c.by ? ` · ${c.by.replace(/^staff:/, '')}` : ''}</div>
+            {c.ownerItems.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}><strong>To owner</strong>{c.ownerEmail ? ` (${c.ownerEmail})` : ''}: {c.ownerItems.join(', ')}</div>}
+            {c.tenantItems.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}><strong>To tenant</strong>{c.tenantEmail ? ` (${c.tenantEmail})` : ''}: {c.tenantItems.join(', ')}</div>}
+            {c.message && <div style={{ color: '#6b7280', marginTop: 3, fontStyle: 'italic' }}>Note: {c.message}</div>}
+            {c.ownerNote && <div style={{ marginTop: 4, color: '#1f2937', borderLeft: '3px solid #c05a1c', paddingLeft: 8 }}>💬 Owner replied: {c.ownerNote}</div>}
+            {c.tenantNote && <div style={{ marginTop: 4, color: '#1f2937', borderLeft: '3px solid #c05a1c', paddingLeft: 8 }}>💬 Tenant replied: {c.tenantNote}</div>}
+          </div>
+        ))}
       </div>
     </div>
   )

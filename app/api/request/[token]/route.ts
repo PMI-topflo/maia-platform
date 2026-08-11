@@ -14,7 +14,7 @@ interface ReqItem { doc_key: string; label: string; recipient: 'owner' | 'tenant
 export async function loadRequest(token: string) {
   if (!UUID.test(token)) return null
   const { data } = await supabaseAdmin.from('document_requests')
-    .select('id, application_id, association_code, unit_label, items, message, owner_token, tenant_token')
+    .select('id, application_id, association_code, unit_label, items, message, owner_token, tenant_token, owner_note, tenant_note')
     .or(`owner_token.eq.${token},tenant_token.eq.${token}`).maybeSingle()
   if (!data) return null
   const role: 'owner' | 'tenant' = data.owner_token === token ? 'owner' : 'tenant'
@@ -42,6 +42,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   return NextResponse.json({
     associationName: legal, propertyAddress: address, unit,
     role: r.role, message: r.req.message ?? null,
+    note: (r.role === 'owner' ? r.req.owner_note : r.req.tenant_note) as string | null ?? null,
     tenantName: (primary?.name as string | null) ?? null,
     items: r.mine.map(i => i.doc_key === 'tenant_contact_info'
       ? { doc_key: i.doc_key, label: i.label, kind: 'contact', uploaded: contactDone }

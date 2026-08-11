@@ -3539,6 +3539,16 @@ DROP POLICY IF EXISTS "service_role_all_document_requests" ON public.document_re
 CREATE POLICY "service_role_all_document_requests" ON public.document_requests FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'document_requests_recipient_notes',
+    label:       'Recipient reply notes on document requests',
+    description: 'Adds owner_note + tenant_note to document_requests so the owner/tenant can write a message back on their upload page — registered as part of the application\'s communication history.',
+    filename:    '20260811_document_requests_recipient_notes.sql',
+    artifact:    { type: 'column', table: 'document_requests', column: 'owner_note' },
+    sql: `ALTER TABLE public.document_requests ADD COLUMN IF NOT EXISTS owner_note text;
+ALTER TABLE public.document_requests ADD COLUMN IF NOT EXISTS tenant_note text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
