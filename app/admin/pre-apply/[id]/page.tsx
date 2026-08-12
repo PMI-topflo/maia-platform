@@ -100,7 +100,12 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
     ...(primaryApplicant ? [{ doc_key: 'tenant_contact_info', label: 'Tenant contact info (email & phone)', provided_by: 'landlord', missing: tenantContactMissing }] : []),
     ...d.checklist.map(c => ({ doc_key: c.doc_key, label: c.label, provided_by: c.provided_by, missing: c.required && isMissing(c) })),
   ]
-  const expiredDocs = d.documents.filter(x => x.expirationDate && !x.noExpiration && new Date(x.expirationDate) < new Date())
+  // Only documents that belong to THIS application's checklist can raise the
+  // expired alarm. Files the Drive scan pulled in that aren't part of this
+  // application type (e.g. a previous tenant's lease on a purchase) show as
+  // "extra" and must not flag the application as non-compliant.
+  const checklistKeys = new Set(d.checklist.map(c => c.doc_key))
+  const expiredDocs = d.documents.filter(x => x.doc_key && checklistKeys.has(x.doc_key) && x.expirationDate && !x.noExpiration && new Date(x.expirationDate) < new Date())
   const audited = !!d.audit.auditedAt
   const decided = d.status === 'approved' || d.status === 'declined'
   const hasLease = d.documents.some(x => x.doc_key === 'signed_lease')
@@ -178,7 +183,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
         ))}
         {d.documents.filter(doc => !doc.stakeholderId && !d.checklist.some(c => c.doc_key === doc.doc_key)).map(doc => (
           <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderTop: '1px solid #f3f4f6', alignItems: 'center' }}>
-            <span style={{ fontWeight: 600, fontSize: 14 }}>{doc.doc_label || doc.filename} <span style={{ fontSize: 11, color: '#9ca3af' }}>(extra)</span></span>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>{doc.doc_label || doc.filename} <span style={{ fontSize: 11, color: '#9ca3af' }}>· not required for this application type</span>{doc.expirationDate && !doc.noExpiration && new Date(doc.expirationDate) < new Date() && <span style={{ font: '600 10.5px system-ui', color: '#9ca3af', marginLeft: 6 }}>expired {new Date(doc.expirationDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}</span>
             {doc.url && <a href={doc.url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: '#166534', fontWeight: 600 }}>✓ View</a>}
           </div>
         ))}
