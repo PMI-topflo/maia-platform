@@ -28,6 +28,12 @@ export const maxDuration = 300
 
 // The documents that belong in the Official (clean, current) record. Everything
 // else stays in Archive only.
+// Stamped onto the archived folder name so OLD/Archive says what the application
+// was ("2026_07_Donald" → "2026_07_Donald_Purchase").
+const TYPE_TAG: Record<string, string> = {
+  lease: 'Lease', lease_renewal: 'LeaseRenewal', purchase: 'Purchase', additional_occupant: 'AdditionalOccupant',
+}
+
 const KEEPER_DOC_KEYS = new Set([
   'signed_lease', 'property_insurance', 'certificate_of_use', 'board_decision_page',
   'tenant_affidavit', 'landlord_tenant_agreement', 'board_approval_letter',
@@ -182,10 +188,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const children = await listChildren(onGoingId)
     const archiveUnit = await resolveUnitFolder(DRIVE_FOLDERS.archive, unitRef, true)
     if (archiveUnit) {
+      // Stamp the application type onto what we archive (e.g. "2026_07_Donald" →
+      // "2026_07_Donald_Purchase"), so a folder in OLD says what it was without
+      // opening it. Skipped when the name already carries the type.
+      const typeTag = (TYPE_TAG[String(app.application_type ?? '')] ?? '').trim()
       for (const ch of children) {
         try {
           const m = await drive.files.get({ fileId: ch.id, fields: 'parents', supportsAllDrives: true })
-          await drive.files.update({ fileId: ch.id, addParents: archiveUnit, removeParents: (m.data.parents ?? []).join(',') || undefined, supportsAllDrives: true })
+          const name = String(ch.name ?? '')
+          const needsTag = typeTag && !new RegExp(typeTag, 'i').test(name)
+          await drive.files.update({
+            fileId: ch.id, addParents: archiveUnit, removeParents: (m.data.parents ?? []).join(',') || undefined,
+            ...(needsTag ? { requestBody: { name: `${name}_${typeTag}` } } : {}),
+            supportsAllDrives: true,
+          })
           done.movedToArchive++
         } catch (e) { done.errors.push(`move ${ch.name}: ${e instanceof Error ? e.message : String(e)}`) }
       }

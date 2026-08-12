@@ -68,9 +68,13 @@ async function listDeep(rootId: string): Promise<DriveFile[]> {
 // A unit-folder file name Type token per checklist item, for the YYYY_MM_Type
 // suggested rename shown for staff to approve.
 const TYPE_TOKEN: Record<string, string> = {
-  signed_lease: 'Lease', drivers_license: 'ID', car_registration: 'VehicleReg', vehicle_insurance: 'VehicleInsurance',
+  signed_lease: 'Lease', signed_purchase: 'Purchase', lease_addendum: 'LeaseAddendum',
+  drivers_license: 'ID', car_registration: 'VehicleReg', vehicle_insurance: 'VehicleInsurance',
   landlord_email: 'LandlordEmail', tax_returns_2yr: 'TaxReturns', property_insurance: 'Insurance', certificate_of_use: 'LauderhillCert',
-  board_decision_page: 'DecisionPage', tenant_affidavit: 'Affidavit', landlord_tenant_agreement: 'Agreement',
+  board_decision_page: 'DecisionPage', tenant_affidavit: 'Affidavit', occupant_affidavit: 'OccupantAffidavit',
+  landlord_tenant_agreement: 'Agreement', board_approval_letter: 'BoardApproval',
+  deed: 'Deed', ownership: 'Ownership', governing_docs_ack: 'RulesAck', hoa_estoppel: 'Estoppel',
+  background_credit: 'BackgroundCredit', emergency_contact: 'EmergencyContacts', pet_esa_documents: 'AnimalDocs',
 }
 const ym = (iso: string | null): string => {
   const d = iso ? new Date(iso) : new Date()
