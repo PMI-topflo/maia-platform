@@ -201,7 +201,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '2px 0 6px' }}>Shared documents</div>
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         {sharedItems.map((c, i) => (
-          <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, null)} extraDocs={docsFor(c.doc_key, null).slice(1)} na={naFor(c.doc_key, null)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} />
+          <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, null)} extraDocs={docsFor(c.doc_key, null).slice(1)} na={naFor(c.doc_key, null)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} />
         ))}
         {d.documents.filter(doc => !doc.stakeholderId && !d.checklist.some(c => c.doc_key === doc.doc_key)).map(doc => (
           <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderTop: '1px solid #f3f4f6', alignItems: 'center' }}>
@@ -240,7 +240,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                 <CreditScore id={id} stakeholderId={a.id} name={a.name} score={a.creditScore} decided={decided} onDone={load} />
                 {/* Active applicant's documents */}
                 {perApplicantItems.map((c, i) => (
-                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={docsFor(c.doc_key, a.id).slice(1)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} />
+                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={docsFor(c.doc_key, a.id).slice(1)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} />
                 ))}
               </div>
             )
@@ -475,7 +475,7 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
 // One checklist row: the doc (if any) with an INLINE preview box, the suggested
 // YYYY_MM_Type rename, an editable expiration date to approve, Ignore, and the
 // upload/replace control.
-function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, driveFiles, loadDriveFiles, stakeholderId, applicants }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string; allow_multiple?: boolean }; doc: Doc | undefined; extraDocs?: Doc[]; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[] }) {
+function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, driveFiles, loadDriveFiles, stakeholderId, applicants, checklist }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string; allow_multiple?: boolean }; doc: Doc | undefined; extraDocs?: Doc[]; checklist?: { doc_key: string; label: string }[]; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[] }) {
   const allowMultiple = !!c.allow_multiple
   const [open, setOpen] = useState(false)
   const [picking, setPicking] = useState(false)
@@ -512,6 +512,25 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
     try { await fetch(`/api/admin/pre-apply/${id}/na`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, na: !na, stakeholder_id: stakeholderId }) }); onDone() }
     catch { /* */ } finally { setBusy(null) }
   }
+  // Re-file a document onto a different checklist item — the content scan can
+  // misread a page (three pages of one lease landing on three items), so staff
+  // fix it after opening the file instead of deleting and re-uploading.
+  async function refile(docId: string, nextKey: string) {
+    const target = (checklist ?? []).find(x => x.doc_key === nextKey)
+    if (!target) return
+    setBusy('refile')
+    try {
+      await fetch(`/api/admin/pre-apply/${id}/doc/${docId}`, { method: 'PATCH', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: target.doc_key, doc_label: target.label }) })
+      onDone()
+    } catch { /* */ } finally { setBusy(null) }
+  }
+  const RefileSelect = ({ docId, small }: { docId: string; small?: boolean }) => (checklist && checklist.length > 1) ? (
+    <select value={c.doc_key} onChange={e => refile(docId, e.target.value)} disabled={busy === 'refile'} title="File this document under a different item"
+      style={{ font: `600 ${small ? 10.5 : 11}px system-ui`, color: '#7c3aed', border: '1px solid #ddd6fe', borderRadius: 6, padding: small ? '1px 3px' : '2px 4px', background: '#fff', cursor: 'pointer', maxWidth: small ? 150 : 190 }}>
+      {checklist.map(x => <option key={x.doc_key} value={x.doc_key}>{x.doc_key === c.doc_key ? `↳ ${x.label}` : `Move to: ${x.label}`}</option>)}
+    </select>
+  ) : null
+
   const isImg = (doc?.mime_type ?? '').startsWith('image/')
   const isExpired = !!(doc && doc.expirationDate && !doc.noExpiration && new Date(doc.expirationDate) < new Date())
   const link: React.CSSProperties = { font: '600 13px system-ui', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'none' }
@@ -552,6 +571,7 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
                   <option value="">Shared / none</option>
                 </select>
               )}
+              {!decided && doc && <RefileSelect docId={doc.id} />}
               {!decided && <button onClick={ignore} disabled={busy === 'ignore'} style={{ ...link, color: '#b91c1c' }}>Ignore</button>}
             </>
           ) : <span style={{ fontSize: 13, color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
@@ -570,6 +590,7 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
               <span>{ed.suggestedName || ed.filename}</span>
               <span style={{ display: 'flex', gap: 10 }}>
                 <a href={ed.url ?? '#'} target="_blank" rel="noreferrer" style={{ font: '600 12px system-ui', color: '#166534', textDecoration: 'none' }}>View ↗</a>
+                {!decided && <RefileSelect docId={ed.id} small />}
                 {!decided && <button onClick={async () => { if (!confirm('Remove this file?')) return; await fetch(`/api/admin/pre-apply/${id}/doc/${ed.id}`, { method: 'DELETE', credentials: 'include' }); onDone() }} style={{ ...link, color: '#b91c1c', fontSize: 12 }}>Ignore</button>}
               </span>
             </div>
