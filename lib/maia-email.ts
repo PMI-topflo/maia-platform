@@ -61,7 +61,7 @@ export function renderMaiaEmail(c: MaiaEmailCtx): string {
 
   return `<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;background:#eceef2;padding:24px 12px">
     <div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #e7e2d9;border-radius:12px;padding:30px 34px 26px">
-      <div style="font:700 11px system-ui;letter-spacing:.14em;text-transform:uppercase;color:#c0571a;margin-bottom:10px">PMI Top Florida Properties · Application Managing Agent</div>
+      <div style="font:700 11px system-ui;letter-spacing:.14em;text-transform:uppercase;color:#c0571a;margin-bottom:10px">PMI Top Florida Properties</div>
       <h1 style="font:800 24px/1.2 Georgia,serif;color:#1c2333;margin:0 0 12px">${esc(c.heading)}</h1>
       <table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid #e7e2d9;border-radius:10px;overflow:hidden;margin:0 0 20px">${rows.join('')}</table>
       <p style="font-size:14.5px;color:#3f4756;margin:0 0 16px">${esc(c.intro)}</p>
@@ -74,7 +74,7 @@ export function renderMaiaEmail(c: MaiaEmailCtx): string {
         <div style="font-size:13px;color:#3f4756"><b style="color:#c0571a">What is MAIA?</b> MAIA is PMI Top Florida Properties' document assistant. It keeps your association paperwork organized and secure and flags anything expiring — so approvals move faster for you.</div>
       </div>
       <div style="border-top:1px solid #e7e2d9;padding-top:16px;font-size:12px;color:#8a8f9a;line-height:1.6">
-        <b style="color:#3f4756">PMI Top Florida Properties</b> — Application Managing Agent for ${esc(c.associationName)}.<br>
+        <b style="color:#3f4756">PMI Top Florida Properties</b> — for ${esc(c.associationName)}.<br>
         Questions? Reply to this email or contact <a href="mailto:${SUPPORT}" style="color:#c0571a">${SUPPORT}</a>.${c.footerReason ? `<br>${esc(c.footerReason)}` : ''}
       </div>
     </div>

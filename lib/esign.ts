@@ -171,4 +171,9 @@ async function fileBoardApprovalLetter(esignDocId: string): Promise<void> {
     storage_path: path, filename: 'Board_Approval_Letter.pdf', suggested_name: 'Board_Approval_Letter.pdf',
     mime_type: 'application/pdf', uploaded_by_role: 'esign',
   })
+
+  // Send the signed letter to every party (applicant, owner, agents, signers,
+  // on-site manager, PMI) — all BCC'd. Best-effort; never blocks the filing.
+  const { distributeApprovalLetter } = await import('@/lib/approval-distribution')
+  await distributeApprovalLetter({ doc: fresh, applicationId: String(app.id), pdf }).catch(() => null)
 }
