@@ -7,7 +7,7 @@
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { isApplicationType } from '@/lib/intake-documents'
+import { isApplicationType, getIntakeChecklist, type ApplicationType } from '@/lib/intake-documents'
 import { getDrive } from '@/lib/drive-invoice-mirror'
 
 export const runtime = 'nodejs'
@@ -51,9 +51,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }, { status: 409 })
   }
 
+  // Documents already imported under the OLD type that the NEW type doesn't ask
+  // for (e.g. a lease scanned in before the app was switched to Purchase). They
+  // stay on the record — staff decide — but we report them so nobody is surprised
+  // by a stray "expired lease" on a purchase.
+  const staleDocs: string[] = []
   if (typeof b.application_type === 'string' && b.application_type.trim()) {
-    if (!isApplicationType(b.application_type.trim())) return NextResponse.json({ error: 'invalid application type' }, { status: 400 })
-    await supabaseAdmin.from('listing_applications').update({ application_type: b.application_type.trim(), updated_at: new Date().toISOString() }).eq('id', id)
+    const nextType = b.application_type.trim()
+    if (!isApplicationType(nextType)) return NextResponse.json({ error: 'invalid application type' }, { status: 400 })
+    await supabaseAdmin.from('listing_applications').update({ application_type: nextType, updated_at: new Date().toISOString() }).eq('id', id)
+
+    const { data: appRow } = await supabaseAdmin.from('listing_applications').select('association_code').eq('id', id).maybeSingle()
+    const checklist = await getIntakeChecklist(String(appRow?.association_code ?? ''), nextType as ApplicationType)
+    const keys = new Set(checklist.map(c => c.doc_key))
+    const { data: docs } = await supabaseAdmin.from('application_documents').select('doc_key, doc_label').eq('application_id', id)
+    for (const d of docs ?? []) if (d.doc_key && !keys.has(String(d.doc_key))) staleDocs.push(String(d.doc_label ?? d.doc_key))
   }
 
   if (typeof b.applicant_name === 'string') {
@@ -70,5 +82,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   await flagDriveFolder(id)
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, staleDocs })
 }
