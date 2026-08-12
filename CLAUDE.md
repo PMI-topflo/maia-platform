@@ -28,7 +28,7 @@ npx tsc --noEmit
 - **SMS/WhatsApp**: Twilio
 - **AI**: Anthropic Claude API (`@anthropic-ai/sdk`)
 - **Payments**: Stripe
-- **Deployment**: Vercel (Node 20.x required)
+- **Deployment**: Vercel (Node 22.x — Node 20 reached end of life; Vercel disables new 20.x builds 2026-09-30)
 
 ## Architecture
 

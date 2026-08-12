@@ -554,7 +554,7 @@ export async function sendEmail({
 
   // Record AFTER successful provider call so the counter reflects what
   // actually went out (not what we attempted but failed to send).
-  await recordOutboundAttempt({ toEmails: addresses, subject })
+  await recordOutboundAttempt({ toEmails: addresses, subject, providerMessageId: messageId })
 
   return messageId !== undefined ? { messageId } : {}
 }

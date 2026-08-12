@@ -84,11 +84,14 @@ export async function checkOutboundRateLimit({ toEmails, subject }: CheckArgs): 
  * sends. The trade-off: a Supabase outage could let the counter drift low,
  * but that's still better than hard-failing every email.
  */
-export async function recordOutboundAttempt(opts: { toEmails: string[]; subject: string; blockedReason?: string }): Promise<void> {
+export async function recordOutboundAttempt(opts: { toEmails: string[]; subject: string; blockedReason?: string; providerMessageId?: string }): Promise<void> {
   const rows = opts.toEmails.map(to => ({
     to_email:       to.toLowerCase(),
     subject:        opts.subject,
     blocked_reason: opts.blockedReason ?? null,
+    // The provider's id (Resend) for this send — lets us look the message up and
+    // record its delivery status instead of guessing whether it arrived.
+    provider_message_id: opts.providerMessageId ?? null,
   }))
   const { error } = await supabaseAdmin.from('outbound_send_attempts').insert(rows)
   if (error) {
