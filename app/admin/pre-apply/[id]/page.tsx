@@ -742,8 +742,17 @@ function MetaEditor({ id, name, type, onDone }: { id: string; name: string; type
   useEffect(() => { setNameV(name); setTypeV(type) }, [name, type])
   async function save() {
     setBusy(true)
-    try { await fetch(`/api/admin/pre-apply/${id}/meta`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ applicant_name: nameV, application_type: typeV }) }); setEditing(false); onDone() }
-    catch { /* */ } finally { setBusy(false) }
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/meta`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ applicant_name: nameV, application_type: typeV }) })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(j?.error || 'failed')
+      // Documents imported under the previous type that this type doesn't need.
+      if (Array.isArray(j.staleDocs) && j.staleDocs.length) {
+        alert(`Saved.\n\nThese documents were imported under the previous type and are NOT required for ${APP_TYPES.find(t => t.key === typeV)?.label ?? typeV}:\n\n• ${j.staleDocs.join('\n• ')}\n\nThey'll show as "not required for this application type" and won't raise alarms. Use Ignore on a row to remove it (the file stays in Drive).`)
+      }
+      setEditing(false); onDone()
+    }
+    catch (e) { alert(`Could not save: ${(e as Error).message}`) } finally { setBusy(false) }
   }
   if (!editing) return (
     <p style={{ fontSize: 13, color: '#374151', margin: '6px 0 0', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
