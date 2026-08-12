@@ -424,6 +424,7 @@ async function processStaffAccountEmails(account: StaffAccountRow, newHistoryId:
   for (const id of messageIds) {
     try {
       const msg    = await fetchGmailMessageWithToken(id, accessToken)
+      if (!msg) continue   // message deleted/moved between the notification and this fetch
       const parsed = parseGmailMessage(msg)
 
       // Skip automated messages
