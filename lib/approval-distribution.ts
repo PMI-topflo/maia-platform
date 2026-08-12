@@ -110,5 +110,13 @@ export async function distributeApprovalLetter(opts: { doc: EsignDoc; applicatio
     html,
     attachments: [{ filename: 'Board_Approval_Letter.pdf', content: pdf.toString('base64') }],
   })
+
+  // Register it on the letter so it shows in the application's communication
+  // history ("approval letter emailed to N parties", with who).
+  const { mergeEsignPayload } = await import('@/lib/esign')
+  await mergeEsignPayload(doc.id, {
+    distribution: { at: new Date().toISOString(), recipients: uniq.map(p => ({ role: p.role, name: p.name, email: p.email })) },
+  }).catch(() => null)
+
   return { sent: uniq.length }
 }

@@ -391,6 +391,16 @@ function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
             <button onClick={preview} disabled={busy} style={{ ...btn('#4338ca') }}>👁 Preview letter</button>
             <button onClick={create} disabled={busy} style={{ ...btn('#059669') }}>{busy ? 'Working…' : 'Create & send for signatures'}</button>
           </div>
+          {/* Once the board has signed, (re)send the signed letter to every party. */}
+          <button onClick={async () => {
+            if (!confirm('Email the SIGNED approval letter (PDF attached) to all parties — applicant, owner, agents, board signers, on-site manager, PMI? Everyone is BCC\'d.')) return
+            setBusy(true)
+            try {
+              const r = await fetch(`/api/admin/pre-apply/${id}/distribute-approval`, { method: 'POST', credentials: 'include' })
+              const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+              alert(`Sent the signed approval letter to ${j.sent} recipient(s).`)
+            } catch (e) { alert((e as Error).message) } finally { setBusy(false) }
+          }} disabled={busy} style={{ ...btn('#0f766e'), alignSelf: 'flex-start' }}>📤 Send signed letter to all parties</button>
         </div>
       ) : (
         <div>
@@ -901,7 +911,7 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone }:
 
 // Communication history — every document request sent for this application, to
 // whom, what was asked, and any message the owner/tenant sent back.
-interface Comm { type: 'document_request' | 'approval_letter'; id: string; at: string; by?: string | null; ownerEmail?: string | null; tenantEmail?: string | null; ownerItems?: string[]; tenantItems?: string[]; message?: string | null; ownerNote?: string | null; tenantNote?: string | null; signers?: string[] }
+interface Comm { type: 'document_request' | 'approval_letter' | 'approval_sent'; id: string; at: string; by?: string | null; ownerEmail?: string | null; tenantEmail?: string | null; ownerItems?: string[]; tenantItems?: string[]; message?: string | null; ownerNote?: string | null; tenantNote?: string | null; signers?: string[]; recipients?: string[] }
 function CommunicationsLog({ id }: { id: string }) {
   const [rows, setRows] = useState<Comm[] | null>(null)
   useEffect(() => { fetch(`/api/admin/pre-apply/${id}/communications`, { credentials: 'include' }).then(r => r.json()).then(d => setRows(d.communications ?? [])).catch(() => setRows([])) }, [id])
@@ -910,7 +920,12 @@ function CommunicationsLog({ id }: { id: string }) {
     <div style={{ margin: '4px 0 14px' }}>
       <div style={{ font: '700 11px system-ui', letterSpacing: '.06em', textTransform: 'uppercase', color: '#6b7280', margin: '0 0 6px' }}>Communication history</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {rows.map(c => c.type === 'approval_letter' ? (
+        {rows.map(c => c.type === 'approval_sent' ? (
+          <div key={c.id} style={{ border: '1px solid #bfdbfe', borderRadius: 8, padding: '9px 12px', background: '#eff6ff', fontSize: 12.5 }}>
+            <div style={{ color: '#1e40af', fontWeight: 600 }}>📤 Approval letter emailed to all parties · {fmt(c.at)}</div>
+            {c.recipients && c.recipients.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}>{c.recipients.join(' · ')}</div>}
+          </div>
+        ) : c.type === 'approval_letter' ? (
           <div key={c.id} style={{ border: '1px solid #bbf7d0', borderRadius: 8, padding: '9px 12px', background: '#f0fdf4', fontSize: 12.5 }}>
             <div style={{ color: '#166534', fontWeight: 600 }}>🏛 Board approval letter signed · {fmt(c.at)}</div>
             {c.signers && c.signers.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}>Signed by: {c.signers.join(', ')}</div>}

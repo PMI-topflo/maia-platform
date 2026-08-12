@@ -23,7 +23,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       .eq('application_id', id),
     // Approval letter shows in the timeline ONLY once the board has signed it.
     app ? supabaseAdmin.from('esign_documents')
-      .select('id, updated_at, created_at, signers, title')
+      .select('id, updated_at, created_at, signers, title, payload')
       .eq('kind', 'board_decision').eq('association_code', String(app.association_code)).eq('unit_ref', String(app.unit_label ?? ''))
       .eq('status', 'completed')
       : Promise.resolve({ data: [] as unknown[] }),
@@ -41,14 +41,21 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         ownerNote: (r.owner_note as string | null) ?? null, tenantNote: (r.tenant_note as string | null) ?? null,
       }
     }),
-    ...((letters ?? []) as { id: string; updated_at: string; created_at: string; signers: unknown }[]).map(l => {
+    ...((letters ?? []) as { id: string; updated_at: string; created_at: string; signers: unknown; payload: unknown }[]).flatMap(l => {
       const signers = (Array.isArray(l.signers) ? l.signers : []) as { name?: string | null; signed_at?: string }[]
-      return {
+      const dist = (l.payload as { distribution?: { at?: string; recipients?: { role?: string; name?: string | null }[] } } | null)?.distribution
+      const out: Record<string, unknown>[] = [{
         type: 'approval_letter' as const, id: String(l.id), at: String(l.updated_at || l.created_at), by: null,
         signers: signers.filter(s => s.signed_at).map(s => String(s.name ?? 'Board member')),
-      }
+      }]
+      // The signed letter being emailed to every party is its own timeline entry.
+      if (dist?.at) out.push({
+        type: 'approval_sent' as const, id: `${l.id}-dist`, at: String(dist.at), by: null,
+        recipients: (dist.recipients ?? []).map(r => `${r.name ?? '—'} (${r.role ?? 'party'})`),
+      })
+      return out
     }),
-  ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+  ].sort((a, b) => new Date(String(b.at)).getTime() - new Date(String(a.at)).getTime())
 
   return NextResponse.json({ communications })
 }
