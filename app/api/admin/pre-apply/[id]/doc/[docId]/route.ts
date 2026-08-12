@@ -39,9 +39,17 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string;
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; docId: string }> }) {
   if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id, docId } = await ctx.params
-  let b: { expiration_date?: string | null; suggested_name?: string; no_expiration?: boolean; stakeholder_id?: string | null }
+  let b: { expiration_date?: string | null; suggested_name?: string; no_expiration?: boolean; stakeholder_id?: string | null; doc_key?: string; doc_label?: string }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
   const patch: Record<string, unknown> = {}
+  // Re-file a document onto a DIFFERENT checklist item. The scan classifies by
+  // content and sometimes gets it wrong — three pages of one lease can land on
+  // three different items — so staff must be able to correct it after opening
+  // the file, without deleting and re-uploading.
+  if (typeof b.doc_key === 'string' && b.doc_key.trim()) {
+    patch.doc_key = b.doc_key.trim()
+    if (typeof b.doc_label === 'string' && b.doc_label.trim()) patch.doc_label = b.doc_label.trim()
+  }
   if ('expiration_date' in b) patch.expiration_date = (b.expiration_date && /^\d{4}-\d{2}-\d{2}$/.test(b.expiration_date)) ? b.expiration_date : null
   if (typeof b.suggested_name === 'string') patch.suggested_name = b.suggested_name.trim() || null
   if (typeof b.no_expiration === 'boolean') { patch.no_expiration = b.no_expiration; if (b.no_expiration) patch.expiration_date = null }
