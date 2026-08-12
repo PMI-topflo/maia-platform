@@ -137,6 +137,22 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
         ))}
       </div>
 
+      {/* Missing contact — MAIA can't reach these people (requests, approval letter). */}
+      {(() => {
+        const noEmail = applicants.filter(a => !a.email)
+        const noPhone = applicants.filter(a => a.email && !a.phone)
+        if (noEmail.length === 0 && noPhone.length === 0) return null
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: noEmail.length ? '#fef2f2' : '#fffbeb', border: `1px solid ${noEmail.length ? '#b91c1c' : '#fbbf24'}`, borderLeft: `4px solid ${noEmail.length ? '#b91c1c' : '#f59e0b'}`, borderRadius: 10, padding: '11px 14px', margin: '12px 0' }}>
+            <span style={{ fontSize: 20 }}>{noEmail.length ? '🚨' : '⚠'}</span>
+            <div style={{ flex: 1, fontSize: 13.5, color: noEmail.length ? '#7f1d1d' : '#92400e' }}>
+              {noEmail.length > 0 && <div><b>No email on file for {noEmail.map(a => a.name || 'an applicant').join(', ')}.</b> MAIA cannot send them document requests or the approval letter — add it on the Applicants card above.</div>}
+              {noPhone.length > 0 && <div style={{ marginTop: noEmail.length ? 4 : 0 }}>No phone for {noPhone.map(a => a.name || 'an applicant').join(', ')} — add it so MAIA can text/WhatsApp them.</div>}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* MAIA screams on expired files */}
       {expiredDocs.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fef2f2', border: '1px solid #b91c1c', borderLeft: '4px solid #b91c1c', borderRadius: 10, padding: '11px 14px', margin: '12px 0' }}>
