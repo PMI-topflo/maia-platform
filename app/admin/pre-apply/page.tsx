@@ -121,6 +121,30 @@ export default function PreApplyQueue() {
       )}
 
       {err && <p style={{ color: '#991b1b' }}>{err}</p>}
+
+      {/* In progress — the applicant is uploading but hasn't submitted. These are
+          invisible on the board view and easy to miss in the table, which is how
+          MANXI 1002's three documents sat unnoticed. */}
+      {(() => {
+        const inFlight = (apps ?? []).filter(a => a.status === 'started' && a.docCount > 0)
+        if (inFlight.length === 0) return null
+        return (
+          <div style={{ margin: '4px 0 18px', border: '1px solid #fbbf24', borderLeft: '4px solid #f59e0b', background: '#fffbeb', borderRadius: 10, padding: '12px 14px' }}>
+            <div style={{ font: '700 13.5px system-ui', color: '#92400e', marginBottom: 6 }}>📥 Documents arriving — {inFlight.length} application{inFlight.length === 1 ? '' : 's'} in progress (not submitted yet)</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {inFlight.map(a => (
+                <a key={a.id} href={`/admin/pre-apply/${a.id}`} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', font: '13px system-ui', color: '#1f2937', textDecoration: 'none' }}>
+                  <strong>{a.associationCode}{a.unit ? ` · Unit ${a.unit}` : ''}</strong>
+                  <span style={{ color: '#6b7280' }}>{a.applicant?.name || 'applicant'} · {TYPE_LABEL[a.type] ?? a.type}</span>
+                  <span style={{ font: '700 11px system-ui', color: '#fff', background: '#f59e0b', borderRadius: 999, padding: '2px 8px' }}>{a.docCount} doc{a.docCount === 1 ? '' : 's'}</span>
+                  <span style={{ color: '#9ca3af', fontSize: 12 }}>started {fmt(a.startedAt)}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
       {!apps ? <p style={{ color: '#9ca3af' }}>Loading…</p> : apps.length === 0 ? <p style={{ color: '#9ca3af' }}>No applications yet.</p> : (
         <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 12 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>

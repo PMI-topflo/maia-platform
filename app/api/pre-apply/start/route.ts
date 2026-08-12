@@ -61,9 +61,32 @@ export async function POST(req: Request) {
   const { data: assoc } = await supabaseAdmin.from('associations').select('association_code, active').eq('association_code', code).maybeSingle()
   if (!assoc || assoc.active === false) return NextResponse.json({ error: 'This association is not accepting applications online.' }, { status: 404 })
 
+  const unitLabel = String(b.unit ?? '').trim() || null
+
+  // RESUME instead of duplicating. The link is per-unit and gets opened more
+  // than once (a second session, a re-read of the email, an abandoned first
+  // try), and every open used to mint a NEW application — MANXI 1002 and 613
+  // each ended up with two, one empty. If this same person already has an
+  // unsubmitted application for this unit, hand them back their existing one so
+  // their documents stay together. A DIFFERENT applicant on the same unit still
+  // gets their own application.
+  if (unitLabel) {
+    const { data: openApps } = await supabaseAdmin.from('listing_applications')
+      .select('id').eq('association_code', code).eq('unit_label', unitLabel).eq('status', 'started')
+      .order('created_at', { ascending: false }).limit(20)
+    for (const a of openApps ?? []) {
+      const { data: me } = await supabaseAdmin.from('application_stakeholders')
+        .select('id').eq('application_id', a.id).ilike('email', email).maybeSingle()
+      if (me) {
+        const resumed = await signPreApplyToken(String(a.id), String(me.id))
+        return NextResponse.json({ ok: true, token: resumed, resumed: true })
+      }
+    }
+  }
+
   const created = await createIntake({
     associationCode: code, type, role,
-    unitLabel: String(b.unit ?? '').trim() || null,
+    unitLabel,
     applicant: { name, email, phone: String(b.phone ?? '').trim() || null },
   })
   if ('error' in created) return NextResponse.json({ error: created.error }, { status: 500 })
