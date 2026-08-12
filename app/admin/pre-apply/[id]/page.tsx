@@ -170,6 +170,21 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <h2 style={h2}>Documents ({d.documents.length} uploaded)</h2>
       <p style={{ fontSize: 12.5, color: '#6b7280', margin: '0 0 8px' }}>Upload a document you received directly here — MAIA files it into this unit&apos;s <strong>On Going Applications</strong> Drive folder. (Official only after board approval.)</p>
       {d.driveFolderUrl && <ScanDrive id={id} onDone={load} />}
+      {/* Documents saved in MAIA but not yet in Drive (uploaded before uploads
+          auto-mirrored, or a mirror that failed while Drive was unreachable). */}
+      {d.documents.length > 0 && !d.driveFolderUrl && (
+        <div style={{ margin: '0 0 10px' }}>
+          <button onClick={async () => {
+            setBusy(true)
+            try {
+              const r = await fetch(`/api/admin/pre-apply/${id}/mirror-drive`, { method: 'POST', credentials: 'include' })
+              const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed')
+              alert(`Sent ${j.documents} document(s) to the unit's On Going Applications folder.`); load()
+            } catch (e) { alert(`Could not send to Drive: ${(e as Error).message}`) } finally { setBusy(false) }
+          }} disabled={busy} style={{ ...btn('#0f766e'), padding: '8px 14px' }}>📤 Send these documents to Drive</button>
+          <p style={{ font: '12px system-ui', color: '#9ca3af', margin: '5px 0 0' }}>These {d.documents.length} document(s) are saved in MAIA but no Drive folder exists for this application yet.</p>
+        </div>
+      )}
       {(d.type === 'lease_renewal' || d.type === 'additional_occupant') && <CarryOverButton id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
       {!decided && <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail} onDone={load} />}
