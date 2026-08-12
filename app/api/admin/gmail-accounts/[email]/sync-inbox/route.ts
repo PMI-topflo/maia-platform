@@ -174,7 +174,9 @@ export async function POST(
   let backfillFailed = 0
   for (const id of missingIds.slice(0, BACKFILL_CAP)) {
     try {
-      const parsed = parseGmailMessage(await fetchMsg(id))
+      const raw = await fetchMsg(id)
+      if (!raw) continue   // gone from the mailbox — nothing to backfill
+      const parsed = parseGmailMessage(raw)
       await logEmail({
         direction:      'inbound',
         fromEmail:      parsed.senderEmail,

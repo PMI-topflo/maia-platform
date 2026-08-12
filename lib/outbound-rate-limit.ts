@@ -14,6 +14,16 @@ const GLOBAL_LIMIT      = Number(process.env.MAIA_OUTBOUND_GLOBAL_LIMIT      ?? 
 const PER_RECIP_LIMIT   = Number(process.env.MAIA_OUTBOUND_PER_RECIPIENT_LIMIT ?? 3)
 const FAIL_OPEN         = process.env.MAIA_OUTBOUND_FAIL_OPEN === 'true'
 
+// Our own staff inboxes (billing@, ar@, PMI@, service@…) legitimately receive
+// many notifications in a burst — e.g. several invoices arriving together —
+// and the 3-per-5-minutes cap was silently dropping real invoice-approval
+// emails. The cap exists to protect RESIDENTS from a runaway loop; internal
+// recipients get a higher cap and are still covered by the global limit.
+const INTERNAL_DOMAINS  = (process.env.MAIA_OUTBOUND_INTERNAL_DOMAINS ?? 'topfloridaproperties.com,pmitop.com,mypmitop.com')
+  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+const INTERNAL_LIMIT    = Number(process.env.MAIA_OUTBOUND_INTERNAL_LIMIT ?? 25)
+const isInternal = (email: string) => INTERNAL_DOMAINS.some(d => email.toLowerCase().endsWith(`@${d}`))
+
 /**
  * Application-level outbound rate limit. Runs inside sendEmail() so every
  * caller is counted (freeform replies, structured-record replies, ticket
@@ -65,8 +75,9 @@ export async function checkOutboundRateLimit({ toEmails, subject }: CheckArgs): 
       if (perCount === null) {
         return failClosed('counter-unavailable', `per-recipient count returned null for ${to}`)
       }
-      if (perCount >= PER_RECIP_LIMIT) {
-        return { allow: false, reason: 'per-recipient-rate-limit', detail: `${perCount} sent to ${to} in last ${WINDOW_MS}ms exceeds per-recipient cap of ${PER_RECIP_LIMIT} (subject="${subject}")` }
+      const cap = isInternal(to) ? INTERNAL_LIMIT : PER_RECIP_LIMIT
+      if (perCount >= cap) {
+        return { allow: false, reason: 'per-recipient-rate-limit', detail: `${perCount} sent to ${to} in last ${WINDOW_MS}ms exceeds per-recipient cap of ${cap} (subject="${subject}")` }
       }
     }
 

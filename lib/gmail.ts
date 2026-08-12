@@ -362,11 +362,17 @@ export async function refreshStaffToken(refreshToken: string): Promise<{ access_
   return res.json() as Promise<{ access_token: string; expires_in: number }>
 }
 
-export async function fetchGmailMessageWithToken(messageId: string, accessToken: string): Promise<GmailFullMessage> {
+/** Fetch one staff-inbox message. Returns null when Gmail says the message is
+ *  GONE (404) or not yet readable (400 failedPrecondition) — that happens
+ *  routinely because a message can be deleted, moved, or still settling between
+ *  the Pub/Sub notification and this fetch. Those are normal races, not errors,
+ *  and must not be logged as failures (they were drowning the error log). */
+export async function fetchGmailMessageWithToken(messageId: string, accessToken: string): Promise<GmailFullMessage | null> {
   const res = await fetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
   )
+  if (res.status === 404 || res.status === 400) return null
   if (!res.ok) throw new Error(`[Gmail staff] Fetch message failed (${res.status}): ${await res.text()}`)
   return res.json() as Promise<GmailFullMessage>
 }
