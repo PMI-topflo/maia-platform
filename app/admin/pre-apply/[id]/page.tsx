@@ -201,7 +201,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '2px 0 6px' }}>Shared documents</div>
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         {sharedItems.map((c, i) => (
-          <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, null)} extraDocs={c.allow_multiple ? docsFor(c.doc_key, null).slice(1) : undefined} na={naFor(c.doc_key, null)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} />
+          <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, null)} extraDocs={docsFor(c.doc_key, null).slice(1)} na={naFor(c.doc_key, null)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} />
         ))}
         {d.documents.filter(doc => !doc.stakeholderId && !d.checklist.some(c => c.doc_key === doc.doc_key)).map(doc => (
           <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderTop: '1px solid #f3f4f6', alignItems: 'center' }}>
@@ -240,7 +240,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                 <CreditScore id={id} stakeholderId={a.id} name={a.name} score={a.creditScore} decided={decided} onDone={load} />
                 {/* Active applicant's documents */}
                 {perApplicantItems.map((c, i) => (
-                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={c.allow_multiple ? docsFor(c.doc_key, a.id).slice(1) : undefined} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} />
+                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={docsFor(c.doc_key, a.id).slice(1)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} />
                 ))}
               </div>
             )
@@ -563,7 +563,7 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
       </div>
 
       {/* Additional files for a multi-file item (e.g. the 2nd year's tax return). */}
-      {allowMultiple && extraDocs && extraDocs.length > 0 && (
+      {extraDocs && extraDocs.length > 0 && (
         <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
           {extraDocs.map(ed => (
             <div key={ed.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#374151', background: '#f9fafb', border: '1px solid #eef0f3', borderRadius: 6, padding: '4px 8px' }}>
@@ -669,7 +669,11 @@ function ScanDrive({ id, onDone }: { id: string; onDone: () => void }) {
 function StaffUpload({ id, docKey, docLabel, uploaded, onDone, stakeholderId, allowMultiple }: { id: string; docKey: string; docLabel: string; uploaded: boolean; onDone: () => void; stakeholderId?: string; allowMultiple?: boolean }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  // "add" appends another file to the SAME item — a lease split across three
+  // scans, a policy with its declarations page — instead of replacing.
+  const [mode, setMode] = useState<'replace' | 'add'>('replace')
   const inputId = `up-${docKey}-${stakeholderId ?? 'shared'}`
+  const addId = `add-${docKey}-${stakeholderId ?? 'shared'}`
 
   async function onFile(file: File | null) {
     if (!file) return
@@ -678,7 +682,7 @@ function StaffUpload({ id, docKey, docLabel, uploaded, onDone, stakeholderId, al
       const fd = new FormData()
       fd.append('file', file); fd.append('doc_key', docKey); fd.append('doc_label', docLabel)
       if (stakeholderId) fd.append('stakeholder_id', stakeholderId)
-      if (allowMultiple) fd.append('allow_multiple', '1')
+      if (allowMultiple || mode === 'add') fd.append('allow_multiple', '1')
       const r = await fetch(`/api/admin/pre-apply/${id}/upload`, { method: 'POST', credentials: 'include', body: fd })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'upload failed')
       if (j?.drive && !j.drive.ok) setMsg(`Filed · Drive copy pending: ${j.drive.error}`)
@@ -688,10 +692,18 @@ function StaffUpload({ id, docKey, docLabel, uploaded, onDone, stakeholderId, al
 
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <input id={inputId} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" style={{ display: 'none' }} onChange={e => onFile(e.target.files?.[0] ?? null)} />
+      <input id={inputId} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" style={{ display: 'none' }} onChange={e => { setMode('replace'); onFile(e.target.files?.[0] ?? null) }} />
       <label htmlFor={inputId} style={{ cursor: busy ? 'default' : 'pointer', font: '600 12px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#f26a1b', borderRadius: 7, padding: '5px 10px' }}>
         {busy ? 'Uploading…' : allowMultiple ? '+ Add file' : uploaded ? 'Replace' : 'Upload'}
       </label>
+      {/* Once something is on file, allow MORE files on the same item — a lease
+          scanned as three separate pages belongs together, not as a replacement. */}
+      {uploaded && !allowMultiple && (
+        <>
+          <input id={addId} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" style={{ display: 'none' }} onChange={e => { setMode('add'); onFile(e.target.files?.[0] ?? null) }} />
+          <label htmlFor={addId} title="Add another file/page to this same item" style={{ cursor: busy ? 'default' : 'pointer', font: '600 12px system-ui', color: '#0f766e', background: '#fff', border: '1px solid #99f6e4', borderRadius: 7, padding: '4px 9px' }}>+ Add page</label>
+        </>
+      )}
       {msg && <span style={{ font: '11px system-ui', color: '#b45309', maxWidth: 200 }}>{msg}</span>}
     </span>
   )
