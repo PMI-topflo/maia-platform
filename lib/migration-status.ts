@@ -3549,6 +3549,17 @@ NOTIFY pgrst, 'reload schema';`,
 ALTER TABLE public.document_requests ADD COLUMN IF NOT EXISTS tenant_note text;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'outbound_provider_message_id',
+    label:       'Provider message id + delivery status on outbound emails',
+    description: 'Adds provider_message_id (Resend\'s email id, now returned on every send) and delivery_status to outbound_send_attempts, so a MAIA email can be traced to the provider record and its delivered/bounced outcome recorded — instead of guessing whether a board member or owner received it.',
+    filename:    '20260811_outbound_provider_message_id.sql',
+    artifact:    { type: 'column', table: 'outbound_send_attempts', column: 'provider_message_id' },
+    sql: `ALTER TABLE public.outbound_send_attempts ADD COLUMN IF NOT EXISTS provider_message_id text;
+ALTER TABLE public.outbound_send_attempts ADD COLUMN IF NOT EXISTS delivery_status text;
+CREATE INDEX IF NOT EXISTS outbound_send_attempts_msgid_idx ON public.outbound_send_attempts (provider_message_id);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
