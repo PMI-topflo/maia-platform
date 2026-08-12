@@ -28,10 +28,22 @@ export async function GET(req: Request) {
     .select('association_code')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const codes = Array.from(new Set((data ?? []).map(r => (r.association_code as string).toUpperCase())))
+  const allCodes = Array.from(new Set((data ?? []).map(r => (r.association_code as string).toUpperCase()))).sort()
+
+  // The sweep is hourly and CINC is slow (and intermittently 502s), so the full
+  // 26-association pass could exceed the 300s ceiling and die mid-way — losing
+  // the whole run's work. Instead: start where the clock says (rotating by hour
+  // so every association comes first sometimes) and stop cleanly at a time
+  // budget. Whatever is left is picked up by the next hourly run.
+  const BUDGET_MS = 240_000
+  const startedAt = Date.now()
+  const offset = allCodes.length ? (new Date().getUTCHours() * 5) % allCodes.length : 0
+  const codes = [...allCodes.slice(offset), ...allCodes.slice(0, offset)]
 
   const results: ReconSyncStats[] = []
+  const skipped: string[] = []
   for (const code of codes) {
+    if (Date.now() - startedAt > BUDGET_MS) { skipped.push(code); continue }
     try {
       results.push(await syncReconciliationForAssoc(code))
     } catch (err) {
@@ -53,11 +65,14 @@ export async function GET(req: Request) {
   const totalMatches   = results.reduce((s, r) => s + r.draftMatches,     0)
   const totalTxs       = results.reduce((s, r) => s + r.transactionsSeen, 0)
   const totalErrors    = results.reduce((s, r) => s + r.errors.length,    0)
-  console.log(`[recon-cron] swept ${codes.length} assocs: ${totalTxs} txs seen · ${totalCreated} created · ${totalUpdated} updated · ${totalMatches} draft matches · ${totalErrors} errors`)
+  console.log(`[recon-cron] swept ${results.length}/${allCodes.length} assocs in ${Math.round((Date.now() - startedAt) / 1000)}s: ${totalTxs} txs seen · ${totalCreated} created · ${totalUpdated} updated · ${totalMatches} draft matches · ${totalErrors} errors${skipped.length ? ` · ${skipped.length} deferred to the next run: ${skipped.join(', ')}` : ''}`)
 
   return NextResponse.json({
     ok:            true,
-    assocsSwept:   codes.length,
+    assocsSwept:   results.length,
+    assocsTotal:   allCodes.length,
+    assocsDeferred: skipped,
+    elapsedMs:     Date.now() - startedAt,
     totalCreated,
     totalUpdated,
     totalMatches,
