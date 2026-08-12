@@ -81,7 +81,14 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   const applicants = (d.stakeholders ?? []).filter(s => s.role === 'applicant')
   const sharedItems = d.checklist.filter(c => !c.per_applicant)
   const perApplicantItems = d.checklist.filter(c => c.per_applicant)
-  const docsFor = (docKey: string, sid: string | null) => d.documents.filter(x => x.doc_key === docKey && (x.stakeholderId ?? null) === sid)
+  // A SHARED item (sid null) is satisfied by the document whoever uploaded it —
+  // the applicant intake stamps the uploader's stakeholder_id on every file, so
+  // requiring an unscoped row made shared items read "Missing" while the
+  // document sat right there (MANXI 103 and 1002). Per-applicant items stay
+  // strictly scoped to their person. Unscoped rows sort first.
+  const docsFor = (docKey: string, sid: string | null) => sid
+    ? d.documents.filter(x => x.doc_key === docKey && (x.stakeholderId ?? null) === sid)
+    : d.documents.filter(x => x.doc_key === docKey).sort((a, b) => Number(!!a.stakeholderId) - Number(!!b.stakeholderId))
   const docFor = (docKey: string, sid: string | null) => docsFor(docKey, sid)[0]
   const naFor = (docKey: string, sid: string | null) => naSet.has(sid ? `${docKey}#${sid}` : docKey)
   // Missing required: shared items + each applicant's per-person items (minus N/A).

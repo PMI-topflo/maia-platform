@@ -173,7 +173,12 @@ function AppDetail({ id, assoc, onChanged }: { id: string; assoc: string | null;
   const applicants = (d.stakeholders ?? []).filter(s => s.role === 'applicant')
   const sharedItems = d.checklist.filter(c => !c.per_applicant)
   const perApplicantItems = d.checklist.filter(c => c.per_applicant)
-  const docFor = (docKey: string, sid: string | null) => d.documents.find(x => x.doc_key === docKey && (x.stakeholderId ?? null) === sid)
+  // Shared items (sid null) match whoever uploaded the document — applicant
+  // uploads carry the uploader's stakeholder_id, so requiring an unscoped row
+  // made them read "Missing". Per-applicant items stay scoped to their person.
+  const docFor = (docKey: string, sid: string | null) => sid
+    ? d.documents.find(x => x.doc_key === docKey && (x.stakeholderId ?? null) === sid)
+    : d.documents.filter(x => x.doc_key === docKey).sort((a, b) => Number(!!a.stakeholderId) - Number(!!b.stakeholderId))[0]
   const missing = [
     ...sharedItems.filter(c => c.required && !docFor(c.doc_key, null)).map(c => c.label),
     ...(applicants.length ? perApplicantItems.flatMap(c => c.required ? applicants.filter(a => !docFor(c.doc_key, a.id)).map(a => `${c.label} — ${a.name ?? 'applicant'}`) : []) : perApplicantItems.filter(c => c.required).map(c => c.label)),
