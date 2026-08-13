@@ -190,7 +190,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {(d.type === 'lease_renewal' || d.type === 'additional_occupant') && <CarryOverButton id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
       {!decided && <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail} onDone={load} />}
-      <CommunicationsLog id={id} />
+      <CommunicationsLog id={id} unit={d.unit} associationCode={d.associationCode} />
 
       {/* Shared documents — one for the whole unit / application. */}
       <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '2px 0 6px' }}>Shared documents</div>
@@ -1009,16 +1009,26 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone }:
 
 // Communication history — every document request sent for this application, to
 // whom, what was asked, and any message the owner/tenant sent back.
-interface Comm { type: 'document_request' | 'approval_letter' | 'approval_sent'; id: string; at: string; by?: string | null; ownerEmail?: string | null; tenantEmail?: string | null; ownerItems?: string[]; tenantItems?: string[]; message?: string | null; ownerNote?: string | null; tenantNote?: string | null; signers?: string[]; recipients?: string[] }
-function CommunicationsLog({ id }: { id: string }) {
+interface Comm { type: 'document_request' | 'approval_letter' | 'approval_sent' | 'filed_email'; id: string; at: string; by?: string | null; ownerEmail?: string | null; tenantEmail?: string | null; ownerItems?: string[]; tenantItems?: string[]; message?: string | null; ownerNote?: string | null; tenantNote?: string | null; signers?: string[]; recipients?: string[]; subject?: string | null; body?: string; fromEmail?: string | null; fromName?: string | null; toEmails?: string[]; ccEmails?: string[]; attachmentNames?: string[] }
+function CommunicationsLog({ id, unit, associationCode }: { id: string; unit: string | null; associationCode: string }) {
   const [rows, setRows] = useState<Comm[] | null>(null)
   useEffect(() => { fetch(`/api/admin/pre-apply/${id}/communications`, { credentials: 'include' }).then(r => r.json()).then(d => setRows(d.communications ?? [])).catch(() => setRows([])) }, [id])
-  if (!rows || rows.length === 0) return null
+  if (!rows) return null
+  const cmd = `@maia upapp ${associationCode}${unit ?? ''}`
+  // The section used to render nothing at all until the first request went
+  // out, which made staff think it didn't exist. It now always shows, and
+  // when it's empty it explains how to put something in it.
   return (
     <div style={{ margin: '4px 0 14px' }}>
       <div style={{ font: '700 11px system-ui', letterSpacing: '.06em', textTransform: 'uppercase', color: '#6b7280', margin: '0 0 6px' }}>Communication history</div>
+      <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, background: '#f9fafb', padding: '8px 11px', marginBottom: 8, font: '12px system-ui', color: '#4b5563' }}>
+        📨 Forward any email with the board, tenants or agents to <strong>maia@pmitop.com</strong> with <code style={{ background: '#eef2ff', color: '#3730a3', padding: '1px 6px', borderRadius: 4, font: '600 11.5px ui-monospace,monospace' }}>{cmd}</code> in the body and MAIA files it here, with its date.
+      </div>
+      {rows.length === 0 && <div style={{ font: '12.5px system-ui', color: '#9ca3af', padding: '2px 2px 6px' }}>Nothing filed yet — document requests, the signed approval letter, and any email you forward will appear here.</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {rows.map(c => c.type === 'approval_sent' ? (
+        {rows.map(c => c.type === 'filed_email' ? (
+          <FiledEmailRow key={c.id} c={c} />
+        ) : c.type === 'approval_sent' ? (
           <div key={c.id} style={{ border: '1px solid #bfdbfe', borderRadius: 8, padding: '9px 12px', background: '#eff6ff', fontSize: 12.5 }}>
             <div style={{ color: '#1e40af', fontWeight: 600 }}>📤 Approval letter emailed to all parties · {fmt(c.at)}</div>
             {c.recipients && c.recipients.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}>{c.recipients.join(' · ')}</div>}
@@ -1039,6 +1049,29 @@ function CommunicationsLog({ id }: { id: string }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// An email staff forwarded in with "@maia upapp <UNIT>". Long threads are
+// collapsed — the timeline stays scannable and the full text is one click away.
+function FiledEmailRow({ c }: { c: Comm }) {
+  const [open, setOpen] = useState(false)
+  const body = c.body ?? ''
+  const long = body.length > 320
+  const who = c.fromName ? `${c.fromName} <${c.fromEmail ?? ''}>` : (c.fromEmail ?? 'unknown sender')
+  return (
+    <div style={{ border: '1px solid #ddd6fe', borderRadius: 8, padding: '9px 12px', background: '#faf5ff', fontSize: 12.5 }}>
+      <div style={{ color: '#6d28d9', fontWeight: 600 }}>📨 Email filed · {fmt(c.at)}</div>
+      <div style={{ color: '#374151', marginTop: 3 }}><strong>From</strong> {who}</div>
+      {c.toEmails && c.toEmails.length > 0 && <div style={{ color: '#6b7280', marginTop: 2 }}>To: {c.toEmails.join(', ')}{c.ccEmails && c.ccEmails.length > 0 ? ` · Cc: ${c.ccEmails.join(', ')}` : ''}</div>}
+      {c.subject && <div style={{ color: '#1f2937', marginTop: 3, fontWeight: 600 }}>{c.subject}</div>}
+      <div style={{ marginTop: 5, color: '#1f2937', borderLeft: '3px solid #a78bfa', paddingLeft: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        {long && !open ? `${body.slice(0, 320)}…` : body}
+      </div>
+      {long && <button onClick={() => setOpen(o => !o)} style={{ marginTop: 5, font: '600 11.5px system-ui', color: '#6d28d9', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>{open ? 'Show less' : 'Show full email'}</button>}
+      {c.attachmentNames && c.attachmentNames.length > 0 && <div style={{ color: '#6b7280', marginTop: 5 }}>📎 {c.attachmentNames.join(', ')} <span style={{ color: '#b45309' }}>(names only — attachments are not stored on the application)</span></div>}
+      {c.by && <div style={{ color: '#9ca3af', marginTop: 4 }}>Filed by {c.by}</div>}
     </div>
   )
 }

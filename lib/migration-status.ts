@@ -3560,6 +3560,45 @@ ALTER TABLE public.outbound_send_attempts ADD COLUMN IF NOT EXISTS delivery_stat
 CREATE INDEX IF NOT EXISTS outbound_send_attempts_msgid_idx ON public.outbound_send_attempts (provider_message_id);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'application_communications',
+    label:       'Correspondence filed against an application',
+    description: 'application_communications table — the emails with the board, tenants and agents that happen OUTSIDE MAIA\'s own request/approval flows. Staff file one by forwarding it to maia@pmitop.com with "@maia update application MANXI103"; the body, sender and the email\'s own date land in the application\'s Communication history. gmail_message_id is uniquely indexed so a webhook retry cannot file the same email twice.',
+    filename:    '20260813_application_communications.sql',
+    artifact:    { type: 'table', table: 'application_communications' },
+    sql: `CREATE TABLE IF NOT EXISTS public.application_communications (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id    uuid NOT NULL,
+  association_code  text,
+  unit_label        text,
+  direction         text NOT NULL DEFAULT 'inbound'
+    CHECK (direction IN ('inbound','outbound','note')),
+  subject           text,
+  body              text NOT NULL,
+  from_email        text,
+  from_name         text,
+  to_emails         text[],
+  cc_emails         text[],
+  attachment_names  text[],
+  occurred_at       timestamptz NOT NULL DEFAULT now(),
+  gmail_message_id  text,
+  gmail_thread_id   text,
+  logged_by         text,
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS application_communications_app_idx
+  ON public.application_communications (application_id, occurred_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS application_communications_gmail_msg_uidx
+  ON public.application_communications (gmail_message_id)
+  WHERE gmail_message_id IS NOT NULL;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.application_communications
+  TO anon, authenticated, service_role;
+ALTER TABLE public.application_communications ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_application_communications" ON public.application_communications;
+CREATE POLICY "service_role_all_application_communications"
+  ON public.application_communications FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

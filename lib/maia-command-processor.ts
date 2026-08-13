@@ -27,6 +27,7 @@ import { saveWorkOrderAttachmentBytes, isImageFilename } from '@/lib/work-order-
 import { isSignatureOrLogoImage, dedupeAttachments } from '@/lib/email-attachment-filter'
 import { normalizeUpload } from '@/lib/pdf-normalize'
 import { isValidTicketCategory } from '@/lib/ticket-categories'
+import { detectApplicationLogTrigger, logApplicationCommunication, buildLogReplyHtml } from '@/lib/application-comm-log'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -2404,6 +2405,42 @@ export async function processEmailCommand(messageId: string): Promise<void> {
       // to the freeform handler so they get a real reply (the prompt
       // will explain what's missing).
       console.warn(`[MAIA] invoice trigger from ${parsed.senderEmail} but no PDF/image attached — falling through`)
+    }
+
+    // File correspondence against an application: "@maia upapp MANXI103" (or
+    // the long "@maia update application MANXI103"). Staff forward a thread
+    // with the board, the tenants or an agent and it lands in that
+    // application's Communication history with the email's own date. Returns
+    // early — like the invoice branch — so the forward doesn't also open a
+    // ticket or get run through the record-extraction pipeline.
+    if (allowed) {
+      const appRef = detectApplicationLogTrigger(parsed.body)
+      if (appRef) {
+        const result = await logApplicationCommunication({
+          ref: appRef,
+          subject: parsed.subject,
+          body: parsed.body,
+          fromEmail: parsed.senderEmail,
+          fromName: parsed.senderName,
+          to: parsed.to,
+          cc: parsed.cc,
+          attachmentNames: parsed.attachments.map(a => a.filename).filter(Boolean),
+          // The forwarded thread's own date is unknowable from here; the
+          // message we received is the best timestamp we have.
+          occurredAt: parsed.internalDate,
+          gmailMessageId: parsed.messageId,
+          gmailThreadId: parsed.threadId,
+          loggedBy: parsed.senderEmail,
+        })
+        console.log(`[MAIA] upapp ${appRef.associationCode}${appRef.unitLabel ?? ''} → ok=${result.ok} reason=${result.reason ?? '—'} dup=${!!result.duplicate}`)
+        await sendEmail({
+          to: parsed.senderEmail,
+          subject: parsed.subject.startsWith('Re:') ? parsed.subject : `Re: ${parsed.subject}`,
+          html: buildLogReplyHtml(result, appRef, parsed.subject),
+          ...(parsed.rfcMessageId && { headers: { 'In-Reply-To': parsed.rfcMessageId, References: parsed.rfcMessageId } }),
+        }).catch(() => null)
+        return
+      }
     }
 
     // Tickets are created only when staff initiate them via an explicit
