@@ -1,9 +1,33 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-07-13**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-08-13**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
+
+---
+
+## ✅ LIVE — Applications / Pre-Application Compliance command center (PRs #606–#689, 2026-08-06 → 08-13)
+
+The staff workflow on **`/admin/pre-apply`** and the board view on **`/units/applications`**. Detail in `docs/SESSION-HANDOFF.md` (top three sections) and memory [[preapply_per_applicant_and_requests]].
+
+- ✅ Per-applicant intake (tabs + roles + credit score), shared vs per-person checklist, roster read from the lease.
+- ✅ Request-documents flow (Owner/Tenant/Both → standard MAIA email → token upload page) + communication history + agents CC'd.
+- ✅ Approval letter: preview → email board for e-signature → auto-file → **BCC the signed PDF to all parties** (#676/#677).
+- ✅ Applicant uploads mirror to Drive + notify staff **on arrival** (#683), resume instead of duplicating (#684), multi-page "+ Add page" (#687), "Move to:" re-file (#688), and **every upload reads its expiration** (#689).
+- ✅ Delivery observability: plain-text alternative (#672), provider message id (#674), **Resend webhook** (#675) — ⚠️ needs `RESEND_WEBHOOK_SECRET` + the webhook registered in Resend.
+- 🔴 **Open:** full row-restyle to the approved mockup; on-site manager page; dedicated occupant-affidavit template; background-check consent → Checkr wiring; owner-outreach emails into the comms timeline.
+
+## ✅ LIVE — production fixes found via the Vercel MCP (2026-08-12)
+
+- ✅ **Node 22** (20.x EOL; Vercel disables new 20.x builds 2026-09-30) — ⚠️ **also flip it in the Vercel project settings UI**.
+- ✅ Gmail 404 flood on purged messages (#681).
+- ✅ Outbound rate limit was **silently dropping staff notifications** (55 invoice confirmations to `billing@`); internal domains now get `MAIA_OUTBOUND_INTERNAL_LIMIT` (default 25) (#681).
+- ✅ Reconciliation cron finishes inside a 240s budget with an hour-rotated offset instead of dying at 300s (#682).
+
+## 🔴 Pricing / commercial (2026-08-13, decided, not implemented)
+
+Per-association MAIA fee set at **$50/month + $0.50/unit** (MANXI 148 units → **$124/mo**). No billing mechanism exists in the platform — proposals are produced by hand today.
 
 ---
 
