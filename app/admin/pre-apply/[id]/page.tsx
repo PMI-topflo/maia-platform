@@ -493,7 +493,8 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
   const [busy, setBusy] = useState<string | null>(null)
   const [editingName, setEditingName] = useState(false)
   const [nameVal, setNameVal] = useState(doc?.suggestedName ?? doc?.filename ?? '')
-  useEffect(() => { setExp(doc?.expirationDate ?? ''); setSavedExp(doc?.expirationDate ?? ''); setNoExp(!!doc?.noExpiration); setNameVal(doc?.suggestedName ?? doc?.filename ?? '') }, [doc?.id, doc?.expirationDate, doc?.noExpiration, doc?.suggestedName, doc?.filename])
+  const [rescanMsg, setRescanMsg] = useState<{ tone: 'good' | 'bad' | 'plain'; text: string } | null>(null)
+  useEffect(() => { setExp(doc?.expirationDate ?? ''); setSavedExp(doc?.expirationDate ?? ''); setNoExp(!!doc?.noExpiration); setNameVal(doc?.suggestedName ?? doc?.filename ?? ''); setRescanMsg(null) }, [doc?.id, doc?.expirationDate, doc?.noExpiration, doc?.suggestedName, doc?.filename])
   async function saveName() { setBusy('name'); try { await patchDoc({ suggested_name: nameVal }); setEditingName(false); onDone() } catch { /* */ } finally { setBusy(null) } }
 
   async function patchDoc(body: Record<string, unknown>) {
@@ -501,6 +502,20 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
   }
   async function saveExp() { setBusy('exp'); try { await patchDoc({ expiration_date: exp || null }); setSavedExp(exp) } catch { /* */ } finally { setBusy(null) } }
   async function toggleNoExp(v: boolean) { setNoExp(v); if (v) { setExp(''); setSavedExp('') } try { await patchDoc({ no_expiration: v }) } catch { /* */ } }
+  // Re-read a document that's already stored. The scan on upload is best-effort
+  // (a failed read must never lose the file), so a document can end up with a
+  // blank expiration and no way back — this reads it again on demand.
+  async function rescan() {
+    setBusy('rescan'); setRescanMsg(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/doc/${doc!.id}/rescan`, { method: 'POST', credentials: 'include' })
+      const j = await r.json() as { error?: string; expiration?: string | null; foundExpiration?: boolean }
+      if (!r.ok) { setRescanMsg({ tone: 'bad', text: j.error ?? 'Could not read this document.' }); return }
+      if (j.foundExpiration && j.expiration) { setExp(j.expiration); setSavedExp(j.expiration); setRescanMsg({ tone: 'good', text: `✓ MAIA read this document — expires ${j.expiration}` }); onDone() }
+      else setRescanMsg({ tone: 'plain', text: 'MAIA read this document and found no expiration date printed on it. Set one by hand, or tick “Does not expire”.' })
+    } catch { setRescanMsg({ tone: 'bad', text: 'Could not reach MAIA — try again.' }) }
+    finally { setBusy(null) }
+  }
   async function ignore() {
     if (!confirm(`Remove "${c.label}" from this application? (The file stays in Drive.)`)) return
     setBusy('ignore')
@@ -633,6 +648,13 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
           <label style={{ font: '12px system-ui', color: '#374151', display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', marginLeft: 6 }}>
             <input type="checkbox" checked={noExp} onChange={e => toggleNoExp(e.target.checked)} /> Does not expire (keep current)
           </label>
+          {!decided && !noExp && (
+            <button onClick={rescan} disabled={busy === 'rescan'} title="Have MAIA read the stored file again and pull the expiration date off it"
+              style={{ font: '600 12px system-ui', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
+              {busy === 'rescan' ? 'Reading…' : '🔍 Read expiration'}
+            </button>
+          )}
+          {rescanMsg && <span style={{ font: '12px system-ui', color: rescanMsg.tone === 'good' ? '#166534' : rescanMsg.tone === 'bad' ? '#b91c1c' : '#6b7280', flexBasis: '100%' }}>{rescanMsg.text}</span>}
         </div>
       )}
 
