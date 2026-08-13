@@ -4,9 +4,11 @@
 // for on an application. No login — the link is the auth.
 
 import { use, useCallback, useEffect, useState } from 'react'
+import { OCCUPANT_ROLES, applicantRoleLabel } from '@/lib/applicant-roles'
 
 interface Item { doc_key: string; label: string; uploaded: boolean; kind?: 'contact' | 'file' }
-interface Data { associationName: string; propertyAddress: string | null; unit: string | null; role: string; message: string | null; note?: string | null; tenantName?: string | null; items: Item[] }
+interface Person { name: string; email: string; phone: string; role: string }
+interface Data { associationName: string; propertyAddress: string | null; unit: string | null; role: string; message: string | null; note?: string | null; tenantName?: string | null; people?: Person[]; items: Item[] }
 
 export default function RequestUpload({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
@@ -42,7 +44,7 @@ export default function RequestUpload({ params }: { params: Promise<{ token: str
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {d.items.map(it => it.kind === 'contact'
-              ? <ContactRow key={it.doc_key} token={token} item={it} tenantName={d.tenantName ?? null} onDone={load} />
+              ? <RosterRow key={it.doc_key} token={token} item={it} people={d.people ?? []} onDone={load} />
               : <ItemRow key={it.doc_key} token={token} item={it} onDone={load} />)}
           </div>
         )}
@@ -53,32 +55,63 @@ export default function RequestUpload({ params }: { params: Promise<{ token: str
   )
 }
 
-// The owner fills the tenant's email + phone when the lease didn't have them.
-function ContactRow({ token, item, tenantName, onDone }: { token: string; item: Item; tenantName: string | null; onDone: () => void }) {
-  const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
+// The owner tells us WHO is going to live in the unit — one row per person,
+// name + email + phone. This is what lets us email the tenants directly for
+// the documents only they can provide, so it has to accept a whole household,
+// not one address.
+function RosterRow({ token, item, people, onDone }: { token: string; item: Item; people: Person[]; onDone: () => void }) {
+  const blank = (): Person => ({ name: '', email: '', phone: '', role: 'tenant' })
+  const [rows, setRows] = useState<Person[]>(people.length ? people : [blank()])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [editing, setEditing] = useState(!item.uploaded)
   const inp: React.CSSProperties = { font: '14px system-ui', padding: '9px 11px', border: '1px solid #d1d5db', borderRadius: 8, width: '100%', boxSizing: 'border-box' }
+  const set = (i: number, k: keyof Person, v: string) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r))
+
   async function save() {
     setBusy(true); setErr(null)
     try {
-      const r = await fetch(`/api/request/${token}/contact`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, phone }) })
-      if (!r.ok) throw new Error((await r.json()).error || 'save failed')
-      onDone()
+      const r = await fetch(`/api/request/${token}/contact`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ people: rows }) })
+      const j = await r.json() as { error?: string; tenantSent?: boolean }
+      if (!r.ok) throw new Error(j.error || 'save failed')
+      setEditing(false); onDone()
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
+
   return (
-    <div style={{ border: '1px solid #e7e2d9', borderRadius: 10, padding: '14px 16px', background: item.uploaded ? '#f6faf7' : '#fff' }}>
+    <div style={{ border: '1px solid #e7e2d9', borderRadius: 10, padding: '14px 16px', background: item.uploaded && !editing ? '#f6faf7' : '#fff' }}>
       <div style={{ font: '600 14.5px system-ui', color: '#1c2333', marginBottom: 2 }}>{item.label}</div>
-      {item.uploaded ? <div style={{ font: '600 12.5px system-ui', color: '#166534' }}>✓ Received — thank you</div> : (
+      {item.uploaded && !editing ? (
         <>
-          <div style={{ font: '12.5px system-ui', color: '#6b7280', margin: '0 0 10px' }}>Please provide the best email and phone for {tenantName || 'the tenant'} so we can reach them.</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="Tenant email" style={inp} />
-            <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Tenant phone" style={inp} />
+          <div style={{ font: '600 12.5px system-ui', color: '#166534', marginBottom: 6 }}>✓ Received — thank you</div>
+          {rows.map((p, i) => <div key={i} style={{ font: '13px system-ui', color: '#3f4756' }}>{p.name} <span style={{ color: '#9ca3af' }}>({applicantRoleLabel(p.role) || 'Tenant'})</span> — {p.email} · {p.phone}</div>)}
+          <button onClick={() => setEditing(true)} style={{ marginTop: 8, cursor: 'pointer', font: '600 12.5px system-ui', color: '#c0571a', background: 'none', border: 'none', padding: 0 }}>Add or correct someone</button>
+        </>
+      ) : (
+        <>
+          <div style={{ font: '12.5px system-ui', color: '#6b7280', margin: '0 0 12px' }}>
+            Please list <strong>everyone who will live in the unit</strong> — their full name, email and phone. We email each person directly for the documents only they can provide (ID, income, and so on), so we need a real address for each adult.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {rows.map((p, i) => (
+              <div key={i} style={{ border: '1px solid #eee9e0', borderRadius: 9, padding: 12, background: '#faf8f4' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
+                  <span style={{ font: '700 11px system-ui', letterSpacing: '.06em', textTransform: 'uppercase', color: '#8a8f9a' }}>Person {i + 1}</span>
+                  {rows.length > 1 && <button onClick={() => setRows(rs => rs.filter((_, j) => j !== i))} style={{ cursor: 'pointer', font: '600 12px system-ui', color: '#b91c1c', background: 'none', border: 'none', padding: 0 }}>Remove</button>}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <input value={p.name} onChange={e => set(i, 'name', e.target.value)} placeholder="Full name" style={inp} />
+                  <input value={p.email} onChange={e => set(i, 'email', e.target.value)} type="email" placeholder="Email" style={inp} />
+                  <input value={p.phone} onChange={e => set(i, 'phone', e.target.value)} placeholder="Phone" style={inp} />
+                  <select value={p.role} onChange={e => set(i, 'role', e.target.value)} style={{ ...inp, background: '#fff' }}>
+                    {OCCUPANT_ROLES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+                  </select>
+                </div>
+              </div>
+            ))}
+            <button onClick={() => setRows(rs => [...rs, blank()])} style={{ cursor: 'pointer', font: '700 13px system-ui', color: '#c0571a', background: '#fff7f0', border: '1px dashed #e8b48b', borderRadius: 9, padding: '9px 14px', alignSelf: 'flex-start' }}>+ Add another person</button>
             {err && <div style={{ font: '12.5px system-ui', color: '#b91c1c' }}>{err}</div>}
-            <button onClick={save} disabled={busy} style={{ cursor: busy ? 'default' : 'pointer', font: '700 14px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#c0571a', border: 'none', borderRadius: 9, padding: '10px 18px', alignSelf: 'flex-start' }}>{busy ? 'Saving…' : 'Save contact'}</button>
+            <button onClick={save} disabled={busy} style={{ cursor: busy ? 'default' : 'pointer', font: '700 14px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#c0571a', border: 'none', borderRadius: 9, padding: '10px 18px', alignSelf: 'flex-start' }}>{busy ? 'Saving…' : `Save ${rows.length > 1 ? `all ${rows.length}` : 'contact'}`}</button>
           </div>
         </>
       )}
