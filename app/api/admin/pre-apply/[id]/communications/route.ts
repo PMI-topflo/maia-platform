@@ -17,7 +17,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params
   const { data: app } = await supabaseAdmin.from('listing_applications').select('association_code, unit_label').eq('id', id).maybeSingle()
 
-  const [{ data: reqs }, { data: letters }] = await Promise.all([
+  const [{ data: reqs }, { data: letters }, { data: filed }] = await Promise.all([
     supabaseAdmin.from('document_requests')
       .select('id, created_at, created_by, owner_email, tenant_email, items, message, owner_note, tenant_note')
       .eq('application_id', id),
@@ -27,6 +27,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       .eq('kind', 'board_decision').eq('association_code', String(app.association_code)).eq('unit_ref', String(app.unit_label ?? ''))
       .eq('status', 'completed')
       : Promise.resolve({ data: [] as unknown[] }),
+    // Correspondence staff filed by forwarding it to maia@ ("@maia upapp …").
+    // The table is new, so tolerate its absence rather than 500 the whole
+    // timeline on an environment where the migration hasn't been applied.
+    supabaseAdmin.from('application_communications')
+      .select('id, occurred_at, created_at, subject, body, from_email, from_name, to_emails, cc_emails, attachment_names, direction, logged_by')
+      .eq('application_id', id)
+      .then(r => r, () => ({ data: [] as unknown[] })),
   ])
 
   const communications = [
@@ -55,6 +62,18 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       })
       return out
     }),
+    ...((filed ?? []) as Record<string, unknown>[]).map(f => ({
+      type: 'filed_email' as const, id: String(f.id), at: String(f.occurred_at ?? f.created_at),
+      by: (f.logged_by as string | null) ?? null,
+      subject: (f.subject as string | null) ?? null,
+      body: (f.body as string | null) ?? '',
+      fromEmail: (f.from_email as string | null) ?? null,
+      fromName: (f.from_name as string | null) ?? null,
+      toEmails: (f.to_emails as string[] | null) ?? [],
+      ccEmails: (f.cc_emails as string[] | null) ?? [],
+      attachmentNames: (f.attachment_names as string[] | null) ?? [],
+      direction: (f.direction as string | null) ?? 'inbound',
+    })),
   ].sort((a, b) => new Date(String(b.at)).getTime() - new Date(String(a.at)).getTime())
 
   return NextResponse.json({ communications })
