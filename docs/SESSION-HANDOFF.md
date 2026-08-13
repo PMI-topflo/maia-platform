@@ -1,4 +1,49 @@
-# Session handoff — 2026-08-11 (latest)
+# Session handoff — 2026-08-13 (latest)
+
+Snapshot for picking up on another machine. Everything below is **live in production on `main`** unless noted. Drive/AI/email paths are **prod-only** (local service account + `RESEND_API_KEY` are placeholders/absent) — validate live on **MANXI 309 (purchase, approval letter signed)**, **103 / 1002** (applicant-uploaded docs), or **901 / 801**.
+
+---
+
+## 2026-08-12/13 — approval-letter distribution, production fixes found via Vercel MCP, applicant-upload gaps (PRs #665–#689, all merged)
+
+### Approval letter — from "create" to "everybody has the signed PDF"
+- **#668** "Create & send for signatures" now actually emails the board (it silently required a second hidden button). **#667** the section appears as soon as an application is submitted. **#669** issue date on the letter. **#670** applicant + approved occupants pulled from the **whole roster** (was only the primary → blank on 801). **#671** names the expected approvers + shows their emails. **#673** "Copy signing link" that persists across reloads.
+- **#676 / #677** `lib/approval-distribution.ts` → `distributeApprovalLetter()`: on full signature (and via a manual **📤 Send signed letter to all parties** button) the signed PDF is emailed **BCC** to applicant, owner, both agents, signers, on-site manager and PMI, with a congratulations email; recorded in the **communication history**. Also **flags a missing applicant email/phone** — the letter can't reach someone MAIA has no contact for.
+- **#666** "📨 Send invite" button; **#665** the link generator shows the unit's owner (name + email) automatically.
+
+### Email deliverability (the "Angelique didn't receive it" thread)
+- **#672** every MAIA email now carries a **plain-text alternative** (Yahoo/Gmail treat HTML-only as spammy). **#674** `providerMessageId` recorded on every send. **#675** new **Resend delivery webhook** at `/api/webhooks/resend` (Svix-verified) recording delivered / bounced / complained per email.
+- ⚠️ **User-side setup still owed:** add the webhook in the Resend dashboard (`https://www.pmitop.com/api/webhooks/resend`) and set **`RESEND_WEBHOOK_SECRET`** in Vercel.
+- Root cause of that thread was **not** DNS — Resend showed Delivered, and DKIM/SPF/DMARC all verified.
+
+### Production issues found with the Vercel MCP (none had been reported by staff)
+The Vercel MCP is now connected (`vercel mcp --clients "Claude Code"`; `npx vercel plugins add` does not exist in CLI 58.9.5). Reading real runtime errors surfaced three live bugs:
+1. **#681 Gmail 404 flood** — a vanished/purged message threw on every poll. Now returns `null` instead of erroring.
+2. **#681 rate limit was silently dropping staff email** — the per-recipient cap (3 / 5 min) killed **55 invoice-approval confirmations** to `billing@` during batch sends. Internal domains now get a higher cap (`MAIA_OUTBOUND_INTERNAL_LIMIT`, default 25). This is exactly the "Karen sometimes gets no confirmation" complaint. **All invoices themselves landed in MAIA** — only notifications were lost.
+3. **#682 reconciliation cron** was dying at 300s. Now hour-rotated offset + a 240s budget, reporting `assocsDeferred`.
+- **#674 Node 22** (20.x is EOL; Vercel disables new 20.x builds 2026-09-30). ⚠️ **User-side:** flip the Node version in Vercel project settings too.
+
+### Applicant uploads were arriving invisibly
+- **#683** every applicant upload now **mirrors to Drive immediately** and the **first document pings staff** — before, files only reached Drive/staff when the applicant pressed SUBMIT at the very end (MANXI 1002: three documents in, nobody told).
+- **#684** opening the link twice used to create a **new application every time** → it now **resumes** the existing unsubmitted one; the dashboard gained a **📥 Documents arriving** in-progress block. (Two empty duplicates on 1002 and 613 were deleted.)
+- **#685** "📤 Send these documents to Drive" for applications whose files never mirrored.
+- **#686** a **shared** document counts no matter who uploaded it (applicant uploads stamp `stakeholder_id`; the shared lookup required null → showed "Missing" on 103/1002).
+- **#687** "**+ Add page**" keeps a multi-file document (e.g. a 3-page lease scanned as 3 files) together on one checklist item; **#688** "**Move to:**" re-files a misclassified document onto a different item without delete + re-upload.
+- **#689** **every upload now reads its expiration date.** Only the Drive scan ran `quickDocScan`, so anything uploaded directly (applicant link or staff) was stored with **no expiration and no filing name** — the exact feature the intake exists for. `DOC_TYPE_TOKEN` + `suggestedIntakeName()` now live once in **`lib/intake-naming.ts`** (the duplicated copy is how `signed_purchase` went missing and a purchase agreement filed itself as "Document" — **#680** fixed the naming/archive-folder side of that).
+
+### Other fixes
+- **#678** the expired-file alarm only counts documents on **this** application's checklist (a purchase was showing a phantom "expired lease"); **#679** the meta editor now **reports documents left over** when the application type changes (the real cause).
+
+**⏳ NEXT / owed:**
+1. **User-side setup:** Resend webhook + `RESEND_WEBHOOK_SECRET`; Node 22 in Vercel project settings; `vercel login` for the CLI.
+2. **MANXI 309:** click **📤 Send signed letter to all parties**, then **Board approved → Confirm & execute**.
+3. **MANXI 103 / 1002:** click **📤 Send these documents to Drive**; on 103 use **Move to: Full Executed Lease** for the two misfiled lease pages. Re-uploading anything now captures expirations (#689) — old rows still need a manual expiry or a re-scan.
+4. Still open from before: full **row-restyle** to the approved mockup; on-site manager page; dedicated occupant-affidavit template; background-check consent → Checkr wiring.
+5. **Business collateral produced this session (not in the repo):** a MAIA briefing + pricing model, and a MANXI board proposal at **$50/month + $0.50/unit → $124/mo for 148 units**, leading with expiration tracking + full CINC integration.
+
+---
+
+# Session handoff — 2026-08-11
 
 Snapshot for picking up on another machine. Everything below is **live in production on `main`** unless noted. Drive/AI/email paths are **prod-only** (local SA is a placeholder) — validate live on **MANXI Unit 901 (Shadia Boyd, lease renewal)** or 801 (multi-applicant: Jean/Nicholas/Jane Bruna).
 
