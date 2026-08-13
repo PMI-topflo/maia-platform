@@ -9,6 +9,8 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { INTAKE_BUCKET, autoRosterFromLease } from '@/lib/preapply'
 import { mirrorFileToOngoing } from '@/lib/drive-application-mirror'
+import { quickDocScan } from '@/lib/quick-doc-classify'
+import { suggestedIntakeName } from '@/lib/intake-naming'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,10 +54,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const del = supabaseAdmin.from('application_documents').delete().eq('application_id', id).eq('doc_key', docKey)
     await (stakeholderId ? del.eq('stakeholder_id', stakeholderId) : del.is('stakeholder_id', null))
   }
+  // Read the document so its expiration is captured on upload — the Drive scan
+  // did this but a direct upload didn't, so anything uploaded by hand had no
+  // expiry to track (and no YYYY_MM_Type filing name). Best-effort.
+  const scan = await quickDocScan(buf, file.type || 'application/pdf').catch(() => ({ label: 'other', expiration: null as string | null }))
+  let personName: string | null = null
+  if (stakeholderId) {
+    const { data: shRow } = await supabaseAdmin.from('application_stakeholders').select('name').eq('id', stakeholderId).maybeSingle()
+    personName = (shRow?.name as string | null) ?? null
+  }
   const { error: insErr } = await supabaseAdmin.from('application_documents').insert({
     application_id: id, listing_id: app.listing_id, kind: 'other', doc_key: docKey, doc_label: docLabel,
     storage_path: path, filename: file.name, mime_type: file.type || 'application/pdf', uploaded_by_role: 'staff',
     stakeholder_id: stakeholderId,
+    expiration_date: scan.expiration,
+    suggested_name: suggestedIntakeName({ docKey, filename: file.name, personName }),
   })
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
 

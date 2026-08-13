@@ -20,6 +20,8 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { verifyPreApplyToken } from '@/lib/preapply-token'
 import { extractLeaseDetails } from '@/lib/lease-extract'
 import type { ApplicationType, ProvidedBy } from '@/lib/intake-documents'
+import { quickDocScan } from '@/lib/quick-doc-classify'
+import { suggestedIntakeName } from '@/lib/intake-naming'
 
 export const INTAKE_BUCKET = 'application-docs'
 
@@ -294,10 +296,29 @@ export async function recordIntakeDoc(applicationId: string, stakeholderId: stri
   if (!app) return { ok: false, error: 'not found' }
   // Replace any prior upload for the same checklist item (latest wins).
   await supabaseAdmin.from('application_documents').delete().eq('application_id', applicationId).eq('doc_key', doc.doc_key)
+  // Read the document for its expiration date. Only the Drive scan used to do
+  // this, so anything an applicant uploaded through the link arrived with no
+  // expiry at all — which is exactly what the expiry tracking exists for.
+  // Best-effort: a failed read must never lose the upload.
+  let expiration: string | null = null
+  try {
+    const dl = await supabaseAdmin.storage.from(INTAKE_BUCKET).download(doc.storage_path)
+    if (dl.data) {
+      const buf = Buffer.from(await dl.data.arrayBuffer())
+      expiration = (await quickDocScan(buf, doc.mime_type ?? 'application/pdf')).expiration
+    }
+  } catch { /* keep the document even if the scan fails */ }
+  let personName: string | null = null
+  if (stakeholderId) {
+    const { data: sh } = await supabaseAdmin.from('application_stakeholders').select('name').eq('id', stakeholderId).maybeSingle()
+    personName = (sh?.name as string | null) ?? null
+  }
   const { error } = await supabaseAdmin.from('application_documents').insert({
     application_id: applicationId, listing_id: app.listing_id, stakeholder_id: stakeholderId, kind: 'other',
     doc_key: doc.doc_key, doc_label: doc.doc_label, storage_path: doc.storage_path,
     filename: doc.filename, mime_type: doc.mime_type, uploaded_by_role: doc.uploaded_by_role,
+    expiration_date: expiration,
+    suggested_name: suggestedIntakeName({ docKey: doc.doc_key, filename: doc.filename, personName }),
   })
   return error ? { ok: false, error: error.message } : { ok: true }
 }

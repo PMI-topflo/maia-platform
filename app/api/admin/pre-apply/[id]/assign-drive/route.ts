@@ -14,6 +14,7 @@ import { getDrive } from '@/lib/drive-invoice-mirror'
 import { quickDocScan } from '@/lib/quick-doc-classify'
 import { INTAKE_BUCKET, autoRosterFromLease } from '@/lib/preapply'
 import { PDFDocument } from 'pdf-lib'
+import { DOC_TYPE_TOKEN } from '@/lib/intake-naming'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -41,15 +42,6 @@ async function extractPages(buf: Buffer, spec: string): Promise<Buffer | null> {
   } catch { return null }
 }
 
-const TYPE_TOKEN: Record<string, string> = {
-  signed_lease: 'Lease', signed_purchase: 'Purchase', lease_addendum: 'LeaseAddendum',
-  drivers_license: 'ID', car_registration: 'VehicleReg', vehicle_insurance: 'VehicleInsurance',
-  landlord_email: 'LandlordEmail', tax_returns_2yr: 'TaxReturns', property_insurance: 'Insurance', certificate_of_use: 'LauderhillCert',
-  board_decision_page: 'DecisionPage', tenant_affidavit: 'Affidavit', occupant_affidavit: 'OccupantAffidavit',
-  landlord_tenant_agreement: 'Agreement', board_approval_letter: 'BoardApproval',
-  deed: 'Deed', ownership: 'Ownership', governing_docs_ack: 'RulesAck', hoa_estoppel: 'Estoppel',
-  background_credit: 'BackgroundCredit', emergency_contact: 'EmergencyContacts', pet_esa_documents: 'AnimalDocs',
-}
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -102,7 +94,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const nm = String((shRow?.name as string | null) ?? '').trim()
     if (nm) nameSuffix = ` — ${nm}`
   }
-  const rename = keepName ? outName : `${new Date().getUTCFullYear()}_${String(new Date().getUTCMonth() + 1).padStart(2, '0')}_${TYPE_TOKEN[docKey] ?? 'Document'}${nameSuffix}${ext}`
+  const rename = keepName ? outName : `${new Date().getUTCFullYear()}_${String(new Date().getUTCMonth() + 1).padStart(2, '0')}_${DOC_TYPE_TOKEN[docKey] ?? 'Document'}${nameSuffix}${ext}`
   const path = `intake/${id}/${docKey.replace(/[^\w-]+/g, '_')}/${crypto.randomUUID()}${ext}`
   const up = await supabaseAdmin.storage.from(INTAKE_BUCKET).upload(path, buf, { contentType: outMime, upsert: true })
   if (up.error) return NextResponse.json({ error: `upload failed: ${up.error.message}` }, { status: 500 })

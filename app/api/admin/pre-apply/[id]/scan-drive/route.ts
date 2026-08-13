@@ -15,6 +15,7 @@ import { quickDocScan } from '@/lib/quick-doc-classify'
 import { getIntakeChecklist, isApplicationType, type ApplicationType } from '@/lib/intake-documents'
 import { INTAKE_BUCKET, autoRosterFromLease } from '@/lib/preapply'
 import { renameApplicationFolder } from '@/lib/drive-application-mirror'
+import { DOC_TYPE_TOKEN } from '@/lib/intake-naming'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -65,17 +66,6 @@ async function listDeep(rootId: string): Promise<DriveFile[]> {
   return out
 }
 
-// A unit-folder file name Type token per checklist item, for the YYYY_MM_Type
-// suggested rename shown for staff to approve.
-const TYPE_TOKEN: Record<string, string> = {
-  signed_lease: 'Lease', signed_purchase: 'Purchase', lease_addendum: 'LeaseAddendum',
-  drivers_license: 'ID', car_registration: 'VehicleReg', vehicle_insurance: 'VehicleInsurance',
-  landlord_email: 'LandlordEmail', tax_returns_2yr: 'TaxReturns', property_insurance: 'Insurance', certificate_of_use: 'LauderhillCert',
-  board_decision_page: 'DecisionPage', tenant_affidavit: 'Affidavit', occupant_affidavit: 'OccupantAffidavit',
-  landlord_tenant_agreement: 'Agreement', board_approval_letter: 'BoardApproval',
-  deed: 'Deed', ownership: 'Ownership', governing_docs_ack: 'RulesAck', hoa_estoppel: 'Estoppel',
-  background_credit: 'BackgroundCredit', emergency_contact: 'EmergencyContacts', pet_esa_documents: 'AnimalDocs',
-}
 const ym = (iso: string | null): string => {
   const d = iso ? new Date(iso) : new Date()
   return `${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, '0')}`
@@ -139,7 +129,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         // A per-applicant file we couldn't tie to a person → leave for manual assign.
         if (best.perApplicant && !sid) { unmatched.push({ file: f.name, docType }); continue }
         const ext = f.name.includes('.') ? f.name.slice(f.name.lastIndexOf('.')) : '.pdf'
-        const rename = `${ym(f.createdTime)}_${TYPE_TOKEN[best.doc_key] ?? 'Document'}${who ? ` — ${who}` : ''}${ext}`
+        const rename = `${ym(f.createdTime)}_${DOC_TYPE_TOKEN[best.doc_key] ?? 'Document'}${who ? ` — ${who}` : ''}${ext}`
         const path = `intake/${id}/${best.doc_key.replace(/[^\w-]+/g, '_')}/${crypto.randomUUID()}${ext}`
         const up = await supabaseAdmin.storage.from(INTAKE_BUCKET).upload(path, buf, { contentType: f.mimeType || 'application/pdf', upsert: true })
         if (!up.error) {
