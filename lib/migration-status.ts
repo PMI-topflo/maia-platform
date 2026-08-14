@@ -3599,6 +3599,31 @@ CREATE POLICY "service_role_all_application_communications"
   ON public.application_communications FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'drive_folder_renames',
+    label:       'Drive unit-folder rename log',
+    description: 'drive_folder_renames table — one row per folder MAIA renames to the ACCOUNT_ADDRESS convention, keeping the previous name so a bad run can be walked back. Written by lib/assoc-folder-rename.ts.',
+    filename:    '20260814_drive_folder_renames.sql',
+    artifact:    { type: 'table', table: 'drive_folder_renames' },
+    sql: `CREATE TABLE IF NOT EXISTS public.drive_folder_renames (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code text NOT NULL,
+  file_id text NOT NULL,
+  previous_name text NOT NULL,
+  new_name text NOT NULL,
+  reverted_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS drive_folder_renames_assoc_idx
+  ON public.drive_folder_renames (association_code, created_at DESC);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.drive_folder_renames
+  TO anon, authenticated, service_role;
+ALTER TABLE public.drive_folder_renames ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_drive_folder_renames" ON public.drive_folder_renames;
+CREATE POLICY "service_role_all_drive_folder_renames"
+  ON public.drive_folder_renames FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
