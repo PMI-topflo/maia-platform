@@ -191,6 +191,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
       {!decided && <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail} onDone={load} />}
       {!decided && <RulesAckSender id={id} />}
+      {!decided && <PetRegSender id={id} />}
       <CommunicationsLog id={id} unit={d.unit} associationCode={d.associationCode} />
 
       {/* Shared documents — one for the whole unit / application. */}
@@ -378,6 +379,57 @@ function RulesAckSender({ id }: { id: string }) {
           {sent.map((s, i) => <div key={i} style={{ marginTop: 3 }}><strong>{s.name}</strong> {s.email ? `(${s.email})` : ''} — <a href={s.link} target="_blank" rel="noreferrer" style={{ color: '#6d28d9' }}>signing link</a></div>)}
         </div>
       )}
+    </div>
+  )
+}
+
+// Pet Registration — optional, staff-triggered. The applicant fills in the pets
+// themselves and e-signs; the completed form files onto the checklist with its
+// own renewal expiry.
+interface PetRegInfo {
+  recipient: { name: string; email: string | null } | null
+  petLimit: number
+  blockers: string[]
+  existing: { id: string; status: string; createdAt: string; signers: { role: string; name?: string | null; signed_at?: string }[] } | null
+}
+function PetRegSender({ id }: { id: string }) {
+  const [info, setInfo] = useState<PetRegInfo | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState<string | null>(null)
+  const load = useCallback(() => { fetch(`/api/admin/pre-apply/${id}/pet-registration`, { credentials: 'include' }).then(r => r.json()).then(setInfo).catch(() => setInfo(null)) }, [id])
+  useEffect(load, [load])
+  if (!info) return null
+
+  async function send() {
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/pet-registration`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setSent(j.sentTo); load()
+    } catch (e) { alert(`Could not send: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
+  const signed = info.existing?.status === 'completed'
+  return (
+    <div style={{ margin: '4px 0 14px', border: '1px solid #fed7aa', background: '#fff7ed', borderRadius: 10, padding: 12 }}>
+      <div style={{ font: '700 13px system-ui', color: '#9a3412', marginBottom: 4 }}>🐾 Pet Registration <span style={{ font: '400 11.5px system-ui', color: '#9ca3af' }}>· optional — only if the household has an animal</span></div>
+      {info.existing ? (
+        <div style={{ font: '12.5px system-ui', color: signed ? '#166534' : '#374151', fontWeight: signed ? 600 : 400 }}>
+          {signed ? '✓ Signed — filed on the checklist with its renewal date.' : `Sent ${fmt(info.existing.createdAt)} · awaiting the applicant's form + signature.`}
+        </div>
+      ) : info.blockers.length > 0 ? (
+        <div style={{ font: '12.5px system-ui', color: '#92400e' }}>{info.blockers.map((b, i) => <div key={i}>⚠ {b}</div>)}</div>
+      ) : (
+        <>
+          <div style={{ font: '12.5px system-ui', color: '#4b5563', marginBottom: 8 }}>
+            Emails {info.recipient?.name}{info.recipient?.email ? ` (${info.recipient.email})` : ''} a link to list their pets (limit {info.petLimit}) and e-sign. If they have none, mark the item N/A instead.
+          </div>
+          <button onClick={send} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#c05a1c', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
+            {busy ? 'Sending…' : '🐾 Send pet registration'}
+          </button>
+        </>
+      )}
+      {sent && <div style={{ marginTop: 6, font: '12px system-ui', color: '#166534' }}>✓ Sent to {sent}</div>}
     </div>
   )
 }
