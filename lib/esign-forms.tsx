@@ -414,11 +414,24 @@ const rulesKnowledgeAck: EsignFormDef = {
             </View>
           ))}
 
+          <Text style={{ ...s.para, color: MUTED, fontSize: 9 }}>
+            The Association&apos;s full Rules and Regulations follow this page and form part of this document.
+          </Text>
+        </Page>
+
+        {/* The acknowledgment and signatures are a SEPARATE page on purpose. The
+            board's own Rules and Regulations pages are spliced in between these
+            two (see buildRulesAckPdf), so the signer signs after them — and the
+            governing text stays the board's verbatim pages, never retyped. */}
+        <Page size="LETTER" style={s.page}>
+          <Text style={s.assoc}>{p.associationLegalName ?? doc.association_code}</Text>
+          <Text style={s.title}>Acknowledgment</Text>
+          <View style={s.rule} />
           <Text style={s.para}>
-            I/We, the purchaser(s)/tenant(s) of the unit identified above, have read and understand all of the
-            foregoing Rules and Regulations and agree to abide by them. This summary does not replace the full
-            Rules and Regulations, Declaration, By-Laws and Articles of Incorporation on file with the
-            Association, all of which govern in case of any conflict.
+            I/We, the purchaser(s)/tenant(s) of {p.propertyAddress ?? (p.unit ? `Unit ${p.unit}` : 'the unit identified above')},
+            have read and understand all of the foregoing Rules and Regulations and agree to abide by them.
+            This acknowledgment does not replace the full Rules and Regulations, Declaration, By-Laws and
+            Articles of Incorporation on file with the Association, all of which govern in case of any conflict.
           </Text>
           <SignatureRow doc={doc} def={rulesKnowledgeAck} />
         </Page>
