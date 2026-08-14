@@ -12,11 +12,37 @@
 
 import { getDrive } from '@/lib/drive-invoice-mirror'
 
+// Manors XI's three folders. Still the default for the MANXI-specific bulk
+// organize tooling under /admin/documents/organize, which only ever ran against
+// this association. The APPLICATION pipeline no longer uses these directly —
+// see resolveAssocDriveFolders() — because a Venetian I application filing its
+// documents into Manors XI's Drive tree is a silent, wrong, and very annoying
+// thing to discover later.
 export const DRIVE_FOLDERS = {
   official: process.env.MANXI_OFFICIAL_FOLDER_ID ?? '1kRDm6ajZr8lXuXGcAXTnA3vigzhLCZpz',
   archive:  process.env.MANXI_ARCHIVE_FOLDER_ID  ?? '11mMQghXeQfPuXEO4YnWgecqaTKuLKhs8',
   ongoing:  process.env.MANXI_ONGOING_FOLDER_ID  ?? '1rX11uKdi5y0rAfaLPvRRlJ_aCactViuZ',
 } as const
+
+export interface AssocDriveFolders { official: string | null; archive: string | null; ongoing: string | null }
+
+/** The three Drive folders for ONE association. Falls back to the Manors XI
+ *  constants only for MANXI itself — every other association must have its own
+ *  folders configured, and gets nulls (callers refuse to file) until it does.
+ *  Silently defaulting would put one association's documents in another's. */
+export async function resolveAssocDriveFolders(associationCode: string): Promise<AssocDriveFolders> {
+  const code = associationCode.trim().toUpperCase()
+  const { supabaseAdmin } = await import('@/lib/supabase-admin')
+  const { data } = await supabaseAdmin.from('associations')
+    .select('official_folder_id, archive_folder_id, ongoing_folder_id')
+    .eq('association_code', code).maybeSingle()
+  const fallback = code === 'MANXI' ? DRIVE_FOLDERS : { official: null, archive: null, ongoing: null }
+  return {
+    official: (data?.official_folder_id as string | null) || fallback.official,
+    archive:  (data?.archive_folder_id  as string | null) || fallback.archive,
+    ongoing:  (data?.ongoing_folder_id  as string | null) || fallback.ongoing,
+  }
+}
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
@@ -28,9 +54,52 @@ export function stripNoFilesTag(name: string): string {
 }
 
 /** Canonical per-unit folder name in the Official tree, e.g.
- *  "MANXI811 - 4174 Inverrary Drive". */
-export function unitFolderName(unitRef: string): string {
-  return `${unitRef} - 4174 Inverrary Drive`
+ *  "MANXI811 - 4174 Inverrary Drive".
+ *
+ *  The address is the UNIT'S, not the association's. Manors XI is one building
+ *  on one street so a constant worked; Venetian Park I is 60 units across a
+ *  dozen streets, and naming them all "4174 Inverrary Drive" would be wrong on
+ *  every single one. Falls back to the old constant only when no address is
+ *  supplied, so existing MANXI folders keep matching. */
+export function unitFolderName(unitRef: string, address?: string | null): string {
+  const addr = (address ?? '').replace(/\s+/g, ' ').trim() || '4174 Inverrary Drive'
+  return `${unitRef} - ${addr}`
+}
+
+/** The unit's real account number for an application's unit label.
+ *
+ *  `${code}${digits}` only works where accounts ARE code+digits (Manors XI).
+ *  Venetian Park I's are VPCI91M / VPCI25J — a trailing building letter that no
+ *  amount of string-building recovers — so this looks the account up in CINC
+ *  and only falls back to the old construction when there's no match. */
+export async function resolveUnitRef(associationCode: string, unitLabel: string | null): Promise<string> {
+  const code = associationCode.trim().toUpperCase()
+  const label = String(unitLabel ?? '').trim()
+  const digits = label.replace(/\D/g, '')
+  if (label) {
+    const { supabaseAdmin } = await import('@/lib/supabase-admin')
+    const { data } = await supabaseAdmin.from('owners')
+      .select('account_number, unit_number').eq('association_code', code)
+    for (const o of data ?? []) {
+      const acct = String(o.account_number ?? '')
+      const unit = String(o.unit_number ?? '')
+      if (!acct) continue
+      if (unit.toUpperCase() === label.toUpperCase()) return acct
+      if (acct.toUpperCase() === label.toUpperCase()) return acct
+      if (digits && unit.replace(/\D/g, '') === digits) return acct
+    }
+  }
+  return `${code}${digits}`
+}
+
+/** The unit's street address from CINC, used to name its folder. Same source
+ *  that drove the Venetian I folder renames correctly. */
+export async function unitAddress(associationCode: string, unitRef: string): Promise<string | null> {
+  const { supabaseAdmin } = await import('@/lib/supabase-admin')
+  const { data } = await supabaseAdmin.from('owners')
+    .select('address').eq('association_code', associationCode.toUpperCase())
+    .eq('account_number', unitRef).limit(1).maybeSingle()
+  return (data?.address as string | null) ?? null
 }
 
 /** Find (or create, when create=true) the folder for a unit directly under

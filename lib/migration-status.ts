@@ -3624,6 +3624,22 @@ CREATE POLICY "service_role_all_drive_folder_renames"
   ON public.drive_folder_renames FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'association_drive_folders',
+    label:       'Per-association Drive folders',
+    description: 'Adds associations.{official,archive,ongoing}_folder_id. The application pipeline used ONE global triple of Manors XI folder ids, so any other association\'s documents would have been filed into Manors XI\'s Drive tree. Backfilled with the existing MANXI ids so nothing changes for Manors XI; every other association must set its own before documents can be filed.',
+    filename:    '20260814_association_drive_folders.sql',
+    artifact:    { type: 'column', table: 'associations', column: 'ongoing_folder_id' },
+    sql: `ALTER TABLE public.associations ADD COLUMN IF NOT EXISTS official_folder_id text;
+ALTER TABLE public.associations ADD COLUMN IF NOT EXISTS archive_folder_id  text;
+ALTER TABLE public.associations ADD COLUMN IF NOT EXISTS ongoing_folder_id  text;
+UPDATE public.associations SET
+  official_folder_id = COALESCE(official_folder_id, '1kRDm6ajZr8lXuXGcAXTnA3vigzhLCZpz'),
+  archive_folder_id  = COALESCE(archive_folder_id,  '11mMQghXeQfPuXEO4YnWgecqaTKuLKhs8'),
+  ongoing_folder_id  = COALESCE(ongoing_folder_id,  '1rX11uKdi5y0rAfaLPvRRlJ_aCactViuZ')
+WHERE association_code = 'MANXI';
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

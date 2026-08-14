@@ -65,7 +65,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   })
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
 
-  void mirrorFileToOngoing({ unitLabel: String(app.unit_label ?? appId.slice(0, 8)), applicantName: null, label: item.label, filename: file.name, mime: file.type || 'application/pdf', buffer: buf }).catch(() => null)
+  void mirrorFileToOngoing({ unitLabel: String(app.unit_label ?? appId.slice(0, 8)), applicantName: null, label: item.label, filename: file.name, mime: file.type || 'application/pdf', buffer: buf, associationCode: r.req.association_code ? String(r.req.association_code) : null }).catch(() => null)
 
   if (NOTIFY.length) {
     void sendEmail({ to: NOTIFY, subject: `Requested document uploaded — ${r.req.association_code} Unit ${app.unit_label ?? '—'} · ${item.label}`,

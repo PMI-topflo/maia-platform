@@ -153,7 +153,7 @@ async function mirrorAgreementToOnGoing(p: LeasePacketRow): Promise<void> {
     const digits = String(p.unit_ref ?? '').replace(/\D/g, '')
     if (!digits) return
     const { data: apps } = await supabaseAdmin.from('listing_applications')
-      .select('id, listing_id, unit_label, drive_folder_id')
+      .select('id, listing_id, association_code, unit_label, drive_folder_id')
       .eq('association_code', p.association_code).in('status', ['started', 'submitted', 'under_review'])
       .order('created_at', { ascending: false })
     const app = (apps ?? []).find(a => String(a.unit_label ?? '').replace(/\D/g, '') === digits)
@@ -186,6 +186,7 @@ async function mirrorAgreementToOnGoing(p: LeasePacketRow): Promise<void> {
       await mirrorFileToOngoing({
         unitLabel: String(app.unit_label ?? digits), applicantName: (sh?.name as string | null) ?? null,
         label: 'Landlord-Tenant Agreement (e-signed)', filename, mime: 'application/pdf', buffer: pdf,
+        associationCode: (app.association_code as string | null) ?? null,
       })
     }
   } catch { /* best-effort */ }
