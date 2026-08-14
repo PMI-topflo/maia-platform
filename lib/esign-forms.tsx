@@ -52,6 +52,11 @@ const s = StyleSheet.create({
   sigMeta: { fontSize: 8, color: MUTED, marginTop: 2 },
   sigVerifyTitle: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: NAVY, marginTop: 2, marginBottom: 1 },
   sigPending: { fontSize: 8.5, color: MUTED, fontFamily: 'Helvetica-Oblique', marginTop: 18 },
+  // Statutory notices sit in a boxed callout so they read as a legal notice the
+  // signer must see, not as one more bullet among the house rules.
+  notice: { borderWidth: 1, borderColor: '#fde68a', backgroundColor: '#fffbeb', borderRadius: 5, padding: 9, marginTop: 10 },
+  noticeTitle: { fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: '#92400e', marginBottom: 3 },
+  noticeBody: { fontSize: 9, color: '#3a3f4a', lineHeight: 1.45 },
 })
 
 function fmtDateTime(iso: string | null | undefined): string {
@@ -343,10 +348,90 @@ const boardDecision: EsignFormDef = {
   },
 }
 
+// ── Rules Knowledge Acknowledgment ───────────────────────────────────
+// Replaces the print-sign-scan packet. Two instructions from the paper form
+// are deliberately gone: "complete, sign and email it to support@" and
+// "complete the application and background check online at …" — MAIA collects
+// the documents and orders the background check, so telling the applicant to
+// do both somewhere else is now wrong. The four Name/Signature/Date rules at
+// the end, and the "___ has been screened on ___" line, are replaced by the
+// verified electronic signature block.
+//
+// The rules themselves are the association's, carried in the payload rather
+// than hard-coded, so each association supplies its own.
+export interface RulesAckPayload {
+  associationLegalName?: string
+  propertyAddress?: string
+  unit?: string
+  applicationType?: string
+  applicants?: string[]
+  rules?: string[]
+  instructions?: string[]
+  rulesRevision?: string
+  /** Statutory notices the signer is acknowledging — e.g. the §718.116(11)
+   *  rent-demand right on a delinquent unit. Set apart from the house rules
+   *  because these bind the tenant by statute, not by the Association's
+   *  discretion, and a tenant who signs this needs to have actually seen it. */
+  statutoryNotices?: { title: string; body: string }[]
+}
+
+const rulesKnowledgeAck: EsignFormDef = {
+  kind: 'rules_knowledge_ack',
+  label: 'Rules Knowledge Acknowledgment',
+  roles: ['applicant'],
+  roleLabel: () => 'Applicant / Lessee',
+  renderPdf: (doc) => {
+    const p = doc.payload as RulesAckPayload
+    return (
+      <Document>
+        <Page size="LETTER" style={s.page}>
+          <Text style={s.assoc}>{p.associationLegalName ?? doc.association_code}</Text>
+          <Text style={s.title}>Rules Knowledge Acknowledgment</Text>
+          <View style={s.rule} />
+          <View style={s.row}><Text style={s.rowKey}>Property</Text><Text style={s.rowVal}>{p.propertyAddress ?? (p.unit ? `Unit ${p.unit}` : doc.unit_ref ?? '—')}</Text></View>
+          <View style={s.row}><Text style={s.rowKey}>Application type</Text><Text style={s.rowVal}>{APP_TYPE_LABEL[p.applicationType ?? ''] ?? p.applicationType ?? '—'}</Text></View>
+          <View style={s.row}><Text style={s.rowKey}>Applicant(s)</Text><Text style={s.rowVal}>{(p.applicants ?? []).join(', ') || '—'}</Text></View>
+          {p.rulesRevision ? <View style={s.row}><Text style={s.rowKey}>Rules revision</Text><Text style={s.rowVal}>{p.rulesRevision}</Text></View> : null}
+
+          {(p.instructions ?? []).length > 0 && (
+            <>
+              <Text style={s.sectionTitle}>Instructions</Text>
+              {(p.instructions ?? []).map((t, i) => (
+                <Text key={i} style={{ ...s.para, marginTop: 3 }}>{i + 1}. {t}</Text>
+              ))}
+            </>
+          )}
+
+          <Text style={s.sectionTitle}>Key rules every applicant must acknowledge</Text>
+          {(p.rules ?? []).map((r, i) => (
+            <Text key={i} style={{ ...s.para, marginTop: 2 }}>•  {r}</Text>
+          ))}
+
+          {(p.statutoryNotices ?? []).map((n, i) => (
+            <View key={i} style={s.notice} wrap={false}>
+              <Text style={s.noticeTitle}>{n.title}</Text>
+              <Text style={s.noticeBody}>{n.body}</Text>
+            </View>
+          ))}
+
+          <Text style={s.para}>
+            I/We, the purchaser(s)/tenant(s) of the unit identified above, have read and understand all of the
+            foregoing Rules and Regulations and agree to abide by them. This summary does not replace the full
+            Rules and Regulations, Declaration, By-Laws and Articles of Incorporation on file with the
+            Association, all of which govern in case of any conflict.
+          </Text>
+          <SignatureRow doc={doc} def={rulesKnowledgeAck} />
+        </Page>
+      </Document>
+    )
+  },
+}
+
 const REGISTRY: Record<string, EsignFormDef> = {
   [associationAcknowledgment.kind]: associationAcknowledgment,
   [petRegistration.kind]: petRegistration,
   [boardDecision.kind]: boardDecision,
+  [rulesKnowledgeAck.kind]: rulesKnowledgeAck,
 }
 
 export const PET_ACK = PET_ACK_DEFAULT
