@@ -7,6 +7,7 @@
 
 import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import { APPLICANT_ROLES, applicantRoleLabel } from '@/lib/applicant-roles'
 
 interface Doc { id: string; doc_key: string | null; doc_label: string | null; filename: string; mime_type: string | null; url: string | null; suggestedName: string | null; expirationDate: string | null; noExpiration: boolean; bySource: string | null; stakeholderId: string | null }
 interface Detail {
@@ -24,14 +25,6 @@ interface Detail {
 }
 
 const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
-// Per-person party roles (mirror of lib/preapply APPLICANT_ROLES; kept local so
-// this client component doesn't import the server lib).
-const APPLICANT_ROLES: { key: string; label: string }[] = [
-  { key: 'primary_applicant', label: 'Primary Applicant' }, { key: 'co_applicant', label: 'Co-Applicant' },
-  { key: 'owner', label: 'Owner' }, { key: 'tenant', label: 'Tenant' }, { key: 'spouse_partner', label: 'Spouse / Partner' },
-  { key: 'adult_occupant', label: 'Adult Occupant' }, { key: 'minor_dependent', label: 'Minor / Dependent' }, { key: 'guarantor', label: 'Guarantor' },
-]
-const applicantRoleLabel = (v: string | null | undefined) => APPLICANT_ROLES.find(r => r.key === v)?.label ?? ''
 const fmt = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '—'
 
 export default function PreApplyDetail({ params }: { params: Promise<{ id: string }> }) {
@@ -100,11 +93,13 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   const isMissing = (c: Detail['checklist'][number]) => c.per_applicant
     ? (applicants.length === 0 || applicants.some(a => !docFor(c.doc_key, a.id) && !naFor(c.doc_key, a.id)))
     : (!docFor(c.doc_key, null) && !naFor(c.doc_key, null))
-  const primaryApplicant = applicants[0]
-  const tenantContactMissing = !!primaryApplicant && (!primaryApplicant.email || !primaryApplicant.phone)
+  // Ask the OWNER who is moving in. This must be offerable when the roster is
+  // EMPTY — that's the case that needs it most. It used to require an applicant
+  // to already exist, so on a unit with nobody on the roster the one item that
+  // collects the tenants' details was hidden.
+  const rosterMissing = applicants.length === 0 || applicants.some(a => !a.email || !a.phone)
   const requestItems = [
-    // Ask the OWNER to fill the tenant's email/phone when we don't have it on file.
-    ...(primaryApplicant ? [{ doc_key: 'tenant_contact_info', label: 'Tenant contact info (email & phone)', provided_by: 'landlord', missing: tenantContactMissing }] : []),
+    { doc_key: 'tenant_contact_info', label: 'Tenant names, emails & phone numbers', provided_by: 'landlord', missing: rosterMissing },
     ...d.checklist.map(c => ({ doc_key: c.doc_key, label: c.label, provided_by: c.provided_by, missing: c.required && isMissing(c) })),
   ]
   // Only documents that belong to THIS application's checklist can raise the
@@ -933,9 +928,17 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone }:
   const needOwner = selected.some(it => state[it.doc_key].rec === 'owner' || state[it.doc_key].rec === 'both')
   const needTenant = selected.some(it => state[it.doc_key].rec === 'tenant' || state[it.doc_key].rec === 'both')
 
+  // Asking the owner for the roster is what UNBLOCKS a missing tenant address —
+  // so it must never be blocked BY one. When it's ticked, tenant items ride
+  // along and go out on their own the moment the owner sends the names back.
+  const askingRoster = selected.some(it => it.doc_key === 'tenant_contact_info' && (state[it.doc_key].rec === 'owner' || state[it.doc_key].rec === 'both'))
+
   async function send() {
     if (needOwner && !ownerTo.includes('@')) { alert('Enter an owner email (verify it — the owners record can carry several).'); return }
-    if (needTenant && !tenantTo.includes('@')) { alert('Enter a tenant email.'); return }
+    if (needTenant && !tenantTo.includes('@') && !askingRoster) {
+      alert('There is no tenant email on file.\n\nTick "Tenant names, emails & phone numbers" and send it to the owner — MAIA will email the tenants their items automatically as soon as the owner fills the list in.')
+      return
+    }
     setBusy(true)
     try {
       const payload = selected.map(it => ({ doc_key: it.doc_key, label: it.label, recipient: state[it.doc_key].rec }))
@@ -944,7 +947,8 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone }:
       const parts: string[] = []
       if (j.sentOwner) parts.push(`owner (${j.ownerEmail})`)
       if (j.sentTenant) parts.push(`tenant (${j.tenantEmail})`)
-      alert(parts.length ? `Sent the request + upload link to ${parts.join(' and ')}.${j.warnings?.length ? '\n\n' + j.warnings.join('\n') : ''}` : (j.warnings?.join('\n') || 'Nothing was sent.'))
+      const held = j.tenantHeld ? '\n\nThe tenant items are waiting on their contact details — MAIA emails them automatically as soon as the owner fills in the list.' : ''
+      alert(parts.length ? `Sent the request + upload link to ${parts.join(' and ')}.${held}${j.warnings?.length ? '\n\n' + j.warnings.join('\n') : ''}` : (j.warnings?.join('\n') || 'Nothing was sent.'))
       setOpen(false); onDone()
     } catch (e) { alert(`Could not send: ${(e as Error).message}`) } finally { setBusy(false) }
   }
@@ -987,8 +991,11 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone }:
           {needTenant && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ font: '600 11px system-ui', color: '#6b7280', width: 96 }}>Tenant</span>
-              <input value={tenantTo} onChange={e => setTenantTo(e.target.value)} placeholder="tenant@example.com" style={{ flex: '1 1 240px', minWidth: 200, font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6 }} />
+              <input value={tenantTo} onChange={e => setTenantTo(e.target.value)} placeholder={askingRoster ? 'leave blank — the owner is being asked for this' : 'tenant@example.com'} style={{ flex: '1 1 240px', minWidth: 200, font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6 }} />
             </div>
+          )}
+          {needTenant && !tenantTo.includes('@') && askingRoster && (
+            <div style={{ font: '11.5px system-ui', color: '#166534', marginTop: 6 }}>✓ No tenant address needed right now — the owner is being asked for the names, emails and phones, and MAIA emails the tenants their items automatically once that comes back.</div>
           )}
         </div>
       )}

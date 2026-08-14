@@ -6,14 +6,10 @@
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { sendEmail } from '@/lib/gmail'
-import { renderMaiaEmail } from '@/lib/maia-email'
+import { sendDocumentRequestEmails, splitEmails } from '@/lib/document-request-email'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
-const SUPPORT = 'support@topfloridaproperties.com'
-const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease Renewal', additional_occupant: 'Additional Occupant' }
 
 type Recipient = 'owner' | 'tenant' | 'both'
 interface Item { doc_key: string; label: string; recipient: Recipient }
@@ -38,48 +34,29 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const code = String(app.association_code)
   const unit = (app.unit_label as string | null) ?? null
 
-  // Context for the standard email.
-  const [{ data: assoc }, { data: applicants }, { data: owners }, { data: tenant }, { data: onFileDocs }] = await Promise.all([
-    supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', code).maybeSingle(),
-    supabaseAdmin.from('application_stakeholders').select('name, email, is_primary').eq('application_id', id).eq('role', 'applicant').order('is_primary', { ascending: false }),
+  const [{ data: applicants }, { data: owners }, { data: tenant }] = await Promise.all([
+    supabaseAdmin.from('application_stakeholders').select('email, is_primary').eq('application_id', id).eq('role', 'applicant').order('is_primary', { ascending: false }),
     supabaseAdmin.from('owners').select('emails, unit_number, account_number, status').eq('association_code', code).or('status.neq.previous,status.is.null'),
     supabaseAdmin.from('unit_tenant_contacts').select('tenant_email').eq('association_code', code).eq('unit_ref', unit ?? '').maybeSingle(),
-    supabaseAdmin.from('application_documents').select('doc_key, doc_label, expiration_date, no_expiration, created_at').eq('application_id', id).order('created_at', { ascending: true }),
   ])
-
-  // "Already on file" — one per checklist item, with expiration context.
-  const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  const seenKeys = new Set<string>()
-  const onFile = (onFileDocs ?? []).filter(dd => { const k = String(dd.doc_key ?? Math.random()); if (seenKeys.has(k)) return false; seenKeys.add(k); return true }).map(dd => {
-    const exp = dd.no_expiration ? null : (dd.expiration_date as string | null)
-    const expired = !!(exp && new Date(exp) < new Date())
-    return { label: String(dd.doc_label ?? 'Document'), note: dd.no_expiration ? 'does not expire' : exp ? `${expired ? 'expired' : 'expires'} ${fmtDate(exp)}` : null, expired }
-  })
-  const legal = (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || code
-  const address = [assoc?.principal_address, unit ? `Unit ${unit}` : null, [assoc?.city, [assoc?.state, assoc?.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ') || null
-  const applicantNames = (applicants ?? []).map(a => String(a.name ?? '').trim()).filter(Boolean)
-  const typeLabel = TYPE_LABEL[String(app.application_type)] ?? String(app.application_type)
 
   // Owner emails: a staff override wins; else EVERY email on the matched owner
   // record (owners often carry several — don't silently pick just the first).
-  const splitEmails = (raw: string | null | undefined) => [...new Set((raw ?? '').split(',').map(s => s.trim()).filter(e => e.includes('@')))]
   const ownerRow = (owners ?? []).find(o => String(o.unit_number ?? '') === (unit ?? '') || String(o.account_number ?? '') === (unit ?? '') || String(o.account_number ?? '').toUpperCase() === `${code}${unit ?? ''}`.toUpperCase())
   const ownerOverride = splitEmails(b.ownerEmail)
   const ownerEmails = ownerOverride.length ? ownerOverride : splitEmails(ownerRow?.emails as string | null)
   const tenantOverride = splitEmails(b.tenantEmail)
   const tenantEmails = tenantOverride.length ? tenantOverride : splitEmails((tenant?.tenant_email as string | null) || ((applicants ?? []).find(a => a.is_primary)?.email as string | null) || ((applicants ?? [])[0]?.email as string | null))
 
-  // Agents get CC'd: owner's agent (listing_agent) on owner emails, applicant's
-  // agent (applicant_agent) on tenant emails.
-  const { data: agents } = await supabaseAdmin.from('application_stakeholders')
-    .select('role, email').eq('application_id', id).in('role', ['listing_agent', 'applicant_agent'])
-  const ownerAgentCc = splitEmails((agents ?? []).find(a => a.role === 'listing_agent')?.email as string | null)
-  const tenantAgentCc = splitEmails((agents ?? []).find(a => a.role === 'applicant_agent')?.email as string | null)
-
   const ownerItems = items.filter(i => i.recipient === 'owner' || i.recipient === 'both')
   const tenantItems = items.filter(i => i.recipient === 'tenant' || i.recipient === 'both')
   const ownerToken = ownerItems.length && ownerEmails.length ? crypto.randomUUID() : null
+  // No tenant address yet is NOT a dead end: if we're asking the owner for the
+  // roster on this same request, the tenant half is HELD and goes out by itself
+  // the moment the owner supplies the names and emails.
   const tenantToken = tenantItems.length && tenantEmails.length ? crypto.randomUUID() : null
+  const askingForRoster = ownerItems.some(i => i.doc_key === 'tenant_contact_info')
+  const tenantHeld = tenantItems.length > 0 && !tenantEmails.length && askingForRoster
 
   const { data: created, error } = await supabaseAdmin.from('document_requests').insert({
     application_id: id, association_code: code, unit_label: unit, items,
@@ -88,34 +65,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }).select('id').single()
   if (error || !created) return NextResponse.json({ error: `Could not create request: ${error?.message ?? 'unknown'}` }, { status: 500 })
 
-  const heading = `Documents needed for your ${typeLabel.toLowerCase()}`
-  const intro = (b.message ?? '').trim() || `We're almost done with your ${typeLabel.toLowerCase()}. Please upload the items below — it takes about a minute and doesn't require a login.`
-
-  let sentOwner = false, sentTenant = false
-  if (ownerToken && ownerEmails.length) {
-    await sendEmail({ to: ownerEmails, cc: ownerAgentCc.length ? ownerAgentCc : undefined, replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
-      html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
-        items: ownerItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Tenant' : 'You' })), onFile,
-        alsoRequested: tenantToken && tenantItems.length ? { who: 'the tenant', items: tenantItems.map(i => i.label) } : null,
-        ctaUrl: `${APP}/request/${ownerToken}`, footerReason: `You're receiving this as the owner of ${unit ? `Unit ${unit}` : 'this unit'}.` }),
-    }).then(() => { sentOwner = true }, () => null)
-  }
-  if (tenantToken && tenantEmails.length) {
-    await sendEmail({ to: tenantEmails, cc: tenantAgentCc.length ? tenantAgentCc : undefined, replyTo: SUPPORT, subject: `${heading} — ${unit ? `Unit ${unit}` : legal}`,
-      html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
-        items: tenantItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Owner' : 'You' })), onFile,
-        alsoRequested: ownerToken && ownerItems.length ? { who: 'the owner', items: ownerItems.map(i => i.label) } : null,
-        ctaUrl: `${APP}/request/${tenantToken}`, footerReason: `You're receiving this because you're on the application for ${unit ? `Unit ${unit}` : 'this unit'}.` }),
-    }).then(() => { sentTenant = true }, () => null)
-  }
+  const { sentOwner, sentTenant } = await sendDocumentRequestEmails(String(created.id))
 
   return NextResponse.json({
     ok: true, requestId: created.id,
     ownerEmail: ownerToken ? ownerEmails.join(', ') : null, tenantEmail: tenantToken ? tenantEmails.join(', ') : null,
-    sentOwner, sentTenant,
+    sentOwner, sentTenant, tenantHeld,
     warnings: [
       ownerItems.length && !ownerEmails.length ? 'No owner email on file — owner items were not sent.' : null,
-      tenantItems.length && !tenantEmails.length ? 'No tenant email on file — tenant items were not sent.' : null,
+      tenantItems.length && !tenantEmails.length && !askingForRoster ? 'No tenant email on file — tenant items were not sent. Tick “Tenant names, emails & phone numbers” and send it to the owner to collect them.' : null,
     ].filter(Boolean),
   })
 }
