@@ -12,7 +12,7 @@
 
 import { Readable } from 'stream'
 import { getDrive, serviceAccountEmail } from '@/lib/drive-invoice-mirror'
-import { DRIVE_FOLDERS } from '@/lib/drive-organize-folders'
+import { DRIVE_FOLDERS, resolveAssocDriveFolders } from '@/lib/drive-organize-folders'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getIntake, INTAKE_BUCKET } from '@/lib/preapply'
 
@@ -35,9 +35,23 @@ async function findOrCreateSubfolder(name: string, parentId: string): Promise<st
   return created.data.id
 }
 
-/** Find or create the per-unit subfolder under "On Going Applications". */
-export async function ensureOngoingUnitFolder(opts: { unitLabel: string; applicantName?: string | null; rootId?: string }): Promise<{ folderId: string; webViewLink: string }> {
-  const root = opts.rootId ?? DRIVE_FOLDERS.ongoing
+/** Find or create the per-unit subfolder under "On Going Applications".
+ *
+ *  `associationCode` decides WHICH association's On Going folder — pass it for
+ *  anything other than Manors XI. An association with no folders configured
+ *  throws rather than falling back, because the fallback would file the
+ *  documents into Manors XI's tree. */
+export async function ensureOngoingUnitFolder(opts: { unitLabel: string; applicantName?: string | null; rootId?: string; associationCode?: string | null }): Promise<{ folderId: string; webViewLink: string }> {
+  let root = opts.rootId
+  if (!root) {
+    if (opts.associationCode) {
+      const folders = await resolveAssocDriveFolders(opts.associationCode)
+      if (!folders.ongoing) throw new Error(`${opts.associationCode} has no "On Going Applications" Drive folder configured — set it on the association before filing documents.`)
+      root = folders.ongoing
+    } else {
+      root = DRIVE_FOLDERS.ongoing
+    }
+  }
   const name = [`Unit ${opts.unitLabel}`.trim(), opts.applicantName?.trim()].filter(Boolean).join(' - ')
   const folderId = await findOrCreateSubfolder(name, root)
   const meta = await getDrive().files.get({ fileId: folderId, fields: 'webViewLink', supportsAllDrives: true }).catch(() => null)
@@ -49,9 +63,10 @@ export async function ensureOngoingUnitFolder(opts: { unitLabel: string; applica
  *  into an in-process application. Best-effort — never throws. */
 export async function mirrorFileToOngoing(opts: {
   unitLabel: string; applicantName?: string | null; label: string; filename: string; mime: string | null; buffer: Buffer
+  associationCode?: string | null
 }): Promise<{ ok: boolean; folderId?: string; folderUrl?: string; error?: string }> {
   try {
-    const { folderId, webViewLink } = await ensureOngoingUnitFolder({ unitLabel: opts.unitLabel, applicantName: opts.applicantName })
+    const { folderId, webViewLink } = await ensureOngoingUnitFolder({ unitLabel: opts.unitLabel, applicantName: opts.applicantName, associationCode: opts.associationCode })
     const ext = opts.filename.includes('.') ? opts.filename.slice(opts.filename.lastIndexOf('.')) : ''
     const label = opts.label.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'Document'
     await mirrorBufferToFolder(folderId, `${label}${ext}`, opts.mime ?? 'application/octet-stream', opts.buffer)
@@ -92,7 +107,7 @@ export async function mirrorIntakeToDrive(applicationId: string): Promise<{ ok: 
     const intake = await getIntake(applicationId)
     if (!intake) return { ok: false, error: 'intake not found' }
     const unitLabel = intake.unitLabel || intake.applicationId.slice(0, 8)
-    const { folderId, webViewLink } = await ensureOngoingUnitFolder({ unitLabel, applicantName: intake.applicant?.name })
+    const { folderId, webViewLink } = await ensureOngoingUnitFolder({ unitLabel, applicantName: intake.applicant?.name, associationCode: intake.associationCode })
 
     const { data: docs } = await supabaseAdmin.from('application_documents')
       .select('doc_key, doc_label, storage_path, filename, mime_type').eq('application_id', applicationId)

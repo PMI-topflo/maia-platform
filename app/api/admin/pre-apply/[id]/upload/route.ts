@@ -78,6 +78,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const drive = await mirrorFileToOngoing({
     unitLabel: String(app.unit_label ?? id.slice(0, 8)), applicantName: (sh?.name as string | null) ?? null,
     label: docLabel, filename: file.name, mime: file.type || 'application/pdf', buffer: buf,
+    associationCode: String(app.association_code),
   })
   if (drive.ok && drive.folderUrl) {
     await supabaseAdmin.from('listing_applications').update({ drive_folder_id: drive.folderId, drive_folder_url: drive.folderUrl, updated_at: new Date().toISOString() }).eq('id', id)

@@ -37,10 +37,18 @@ export interface OngoingUnitPlan {
   warnings: string[]
 }
 
-/** "Unit 910" / "MANXI910" / "unit 0910 - note" → "MANXI910". */
-export function unitRefFromFolder(name: string): string | null {
-  const m = String(name).match(/\b(?:unit|manxi)\s*#?\s*0*(\d{1,4})\b/i)
-  return m ? `MANXI${m[1]}` : null
+/** "Unit 910" / "MANXI910" / "unit 0910 - note" → "MANXI910".
+ *
+ *  The association prefix is a parameter, not a literal. Note this only works
+ *  where unit numbers are numeric: Venetian Park I's accounts carry a trailing
+ *  building letter (VPCI91M, VPCI25J) that cannot be reconstructed from a
+ *  folder name, so VPCI folders are matched by address instead — see
+ *  lib/assoc-folder-rename.ts. */
+export function unitRefFromFolder(name: string, associationCode = 'MANXI'): string | null {
+  const code = associationCode.trim().toUpperCase()
+  const esc = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const m = String(name).match(new RegExp(String.raw`\b(?:unit|${esc})\s*#?\s*0*(\d{1,4})\b`, 'i'))
+  return m ? `${code}${m[1]}` : null
 }
 
 /** "Yuhao Zhou" → "Yuhao" (letters only, so it's filename-safe). */

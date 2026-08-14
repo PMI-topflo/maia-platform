@@ -67,6 +67,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   void mirrorFileToOngoing({
     unitLabel: String(app.unit_label ?? id.slice(0, 8)), applicantName: (sh?.name as string | null) ?? null,
     label: docLabel, filename: file.name, mime: file.type || 'application/pdf', buffer: buf,
+    associationCode: String(app.association_code),
   }).catch(() => null)
 
   // Tell PMI + Jonathan so they scan, read, and confirm it into MAIA.

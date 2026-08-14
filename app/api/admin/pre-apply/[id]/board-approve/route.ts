@@ -20,7 +20,7 @@ import { getDrive } from '@/lib/drive-invoice-mirror'
 import { extractLeaseDetails } from '@/lib/lease-extract'
 import { mirrorBufferToFolder } from '@/lib/drive-application-mirror'
 import { INTAKE_BUCKET } from '@/lib/preapply'
-import { DRIVE_FOLDERS, resolveUnitFolder, resolveDatedSubfolder, approvalCategoryFolder, stripNoFilesTag } from '@/lib/drive-organize-folders'
+import { resolveAssocDriveFolders, resolveUnitRef, resolveUnitFolder, resolveDatedSubfolder, approvalCategoryFolder, stripNoFilesTag } from '@/lib/drive-organize-folders'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -105,7 +105,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { data: app } = await supabaseAdmin.from('listing_applications')
     .select('id, association_code, unit_label, application_type, status, drive_folder_id').eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'application not found' }, { status: 404 })
-  const unitRef = `MANXI${String(app.unit_label ?? '').replace(/\D/g, '')}`
+  // The unit's REAL account number — Venetian Park I's carry a building letter
+  // (VPCI91M) that `code + digits` cannot produce.
+  const unitRef = await resolveUnitRef(String(app.association_code), app.unit_label as string | null)
+  // This association's own Official/Archive folders. Filing an approved
+  // Venetian I application into Manors XI's tree is the failure this prevents.
+  const assocFolders = await resolveAssocDriveFolders(String(app.association_code))
+  if (!assocFolders.official || !assocFolders.archive) {
+    return NextResponse.json({ error: `${app.association_code} has no Official/Archive Drive folders configured — set them on the association before approving.` }, { status: 400 })
+  }
   const kind = app.application_type === 'purchase' ? 'purchase' : 'lease'
   const onGoingId = String(app.drive_folder_id ?? '')
   if (!onGoingId) return NextResponse.json({ error: 'This application has no On Going Drive folder linked yet.' }, { status: 400 })
@@ -128,7 +136,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const drive = getDrive()
     const done = { trashed: 0, copiedToOfficial: 0, errors: [] as string[] }
     try {
-      const officialUnit = await resolveUnitFolder(DRIVE_FOLDERS.official, unitRef, true)
+      const officialUnit = await resolveUnitFolder(assocFolders.official, unitRef, true)
       if (!officialUnit) return NextResponse.json({ error: 'could not resolve the Official unit folder' }, { status: 200 })
       const catId = await resolveDatedSubfolder(officialUnit, approvalCategoryFolder(kind), true)
       const dest = catId ?? officialUnit
@@ -166,7 +174,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   // 2. Copy the saved keeper documents into the unit's Official folder.
   try {
-    const officialUnit = await resolveUnitFolder(DRIVE_FOLDERS.official, unitRef, true)
+    const officialUnit = await resolveUnitFolder(assocFolders.official, unitRef, true)
     if (officialUnit) {
       const meta = await drive.files.get({ fileId: officialUnit, fields: 'name', supportsAllDrives: true }).catch(() => null)
       if (meta?.data.name && /NO FILES YET/i.test(meta.data.name)) await drive.files.update({ fileId: officialUnit, requestBody: { name: stripNoFilesTag(meta.data.name) }, supportsAllDrives: true }).catch(() => null)
@@ -186,7 +194,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // 3. Move the whole On Going folder (all children) into Archive/<unit>.
   try {
     const children = await listChildren(onGoingId)
-    const archiveUnit = await resolveUnitFolder(DRIVE_FOLDERS.archive, unitRef, true)
+    const archiveUnit = await resolveUnitFolder(assocFolders.archive, unitRef, true)
     if (archiveUnit) {
       // Stamp the application type onto what we archive (e.g. "2026_07_Donald" →
       // "2026_07_Donald_Purchase"), so a folder in OLD says what it was without
