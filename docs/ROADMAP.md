@@ -1,9 +1,33 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-08-13**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-08-14**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
+
+---
+
+## ✅ LIVE — applications pipeline is association-generic + Venetian Park I onboarded (PRs #691–#696, 2026-08-14)
+
+Detail in `docs/SESSION-HANDOFF.md` (top section) and memory [[venetian_i_onboarding]].
+
+- ✅ Per-association Drive folders (`associations.{official,archive,ongoing}_folder_id`). The global Manors XI triple would have filed other associations' documents into Manors XI's tree; unconfigured associations now get a named error, never a fallback.
+- ✅ Unit folder names use the unit's own address; unit refs resolved from CINC (VPCI accounts carry a building letter `MANXI+digits` can't produce).
+- ✅ Venetian I: folders, legal name, 27-row checklist, stored Rules PDF, 13 folders renamed `ACCOUNT_ADDRESS`, 5 lease dates imported.
+- ✅ `rules_knowledge_ack` e-sign form; the board's own Rules pages spliced in verbatim rather than retyped.
+- ✅ `provided_by: 'both'` — a document can come from tenant OR owner (renter's insurance).
+- 🔴 **Open: nothing creates a `rules_knowledge_ack`** for an applicant to sign. Blocks a real VPCI application.
+- 🔴 Open: row-restyle of `/admin/pre-apply/[id]` — the approved mockup is not in the repo; ask before building.
+
+## ⚠️ Checkr — integration proven, key mode unverified (2026-08-14)
+
+The integration is **live-verified end to end in production** (real sandbox orders from prod, real webhook deliveries, stored report PDFs, user completed the hosted consent flow). What is NOT verified is whether `CHECKR_API_KEY` is `ckr_sk_test_` or `ckr_sk_live_` — the Vercel vars are Sensitive (unreadable via UI or API) and unedited since Jul 6, when they were added with test values.
+
+**Do not set any association's `screening_provider` to `maia_checkr` until the prefix is confirmed live.** A sandbox key returns canned results for real people — worse than an error, because nothing looks wrong. Offered, not built: an admin diagnostic reporting only the key prefix.
+
+## 🔴 Rentvine tenant sync — dead since 2026-06-17
+
+`/api/cron/sync-rentvine-tenants` calls `${base}/leases/export`, gets HTML, and `res.json()` throws on every run. No `res.ok` check, no status in the log line. Months of residential lease-end archiving and new-tenant adds have not happened. Found 2026-08-13, still unfixed.
 
 ---
 

@@ -1,3 +1,35 @@
+# Session handoff — 2026-08-14 (latest)
+
+## Venetian Park I onboarded — and the pipeline stopped being Manors-XI-only (PRs #691–#696, all merged)
+
+**Applications pipeline de-MANXI'd (#696).** Three couplings, all of which would have bitten association #3 the same way:
+- `DRIVE_FOLDERS` was ONE global triple of Manors XI folder ids, used unconditionally — a Venetian I application would have filed its documents **into Manors XI's Drive tree, silently**. Now `associations.{official,archive,ongoing}_folder_id` + `resolveAssocDriveFolders()`; an unconfigured association gets a **named error, never a fallback**.
+- `unitFolderName()` hard-coded `4174 Inverrary Drive` → now the unit's own `owners.address`.
+- Unit refs were `MANXI` + digits; VPCI accounts carry a building letter (`VPCI91M`) → `resolveUnitRef()` reads CINC.
+**Manors XI is unchanged** — same ids, names, refs.
+
+**Venetian I is configured (live in prod DB).** Folders official `1wMphbTBY3C1YOe9wLdvBa8Yc7WbsaLaj` / ongoing `15JEWV6LdZ-fLVxqWHcxW0EdDsSEIcBwh` / archive `1qkPYGjrZMTATJWltWiaZf87HO4ihq1X8`; legal name set; `rules_pdf_path` stored. ⚠️ The user's first "Official" link was the PARENT container — check folder titles before wiring ids.
+
+**Its own 27-row checklist** replaced Manors XI's inherited 39 (which included a City-of-Lauderhill certificate — wrong city; **VPCI has no certificate of use**): driver's licence · vehicle registration · Rules Knowledge Acknowledgment (e-signed) · background check · pet registration (optional) · **Liability & Renter's Insurance (annual, `provided_by: 'both'`)** · lease/purchase agreement. `chk_intake_provider` widened to allow `'both'`.
+
+**Rules Knowledge Acknowledgment is now an e-sign form** (`rules_knowledge_ack`), replacing an 11-page print-sign-scan packet. Two instructions removed ("email it to support@", "do the background check on Rentvine") because MAIA does both; manual signature sheet replaced by verified e-signatures; §718.116(11) DELINQUENT UNIT notice added. **The board's own Rules pages are spliced in verbatim** (`lib/rules-ack-pdf.ts`) — never retyped, so the signed copy can't drift from the recorded governing document.
+
+**13 Venetian I Drive folders renamed to `ACCOUNT_ADDRESS`** (#695 built the engine; the renames themselves were done directly). Matcher verified 13/13, 0 wrong. Old names logged in `drive_folder_renames` — reversible.
+
+**Lease dates imported.** VPCI had **zero** `unit_tenant_contacts` rows; now 5, read out of the actual lease PDFs. **Every lease has already expired except one** — 97M (Aharonov/Vaknin) runs to **2026-08-31 and its lease is UNSIGNED**; its 7-day renewal alert fires **2026-08-24**.
+
+**Also merged:** #691 re-read a stored document's expiration on demand (+ backfilled 7 rows; MANXI 1002's HO-6 was already expired), #692 owner fills the tenant roster and tenant items are held until they do, #694 `@maia upapp MANXI103` files an email into the application's communication history.
+
+### ⏳ NEXT
+1. **Nothing creates a `rules_knowledge_ack` document** — the form renders, but no applicant can be sent one. Same wiring check for `pet_registration` (confirmed: should trigger the existing pet e-sign form) and `renters_insurance`. **This is what blocks a real VPCI application.**
+2. **Checkr:** integration is proven end-to-end in production; only the KEY MODE is unverified — Vercel vars are Sensitive and unedited since Jul 6, so probably still `ckr_sk_test`. **Do not flip anyone to `maia_checkr` until the prefix is confirmed live.**
+3. Row-restyle of `/admin/pre-apply/[id]` — **the approved mockup is not in the repo and has never been seen. Ask for it; don't invent it.**
+4. Owner outreach for VPCI gaps: 50K no screening + no lease since 2024-11; 91M no board approval; 97M-2024 no eviction reports; 97M-2025 unsigned lease.
+5. Official folder intentionally empty until a future feature emails owners to declare leased / owner-occupied / vacant.
+6. **Rentvine tenant-sync cron has been dead since 2026-06-17** — `${base}/leases/export` returns HTML, `res.json()` throws every run, no `res.ok` check. Still unfixed.
+
+---
+
 # Session handoff — 2026-08-13 (latest)
 
 Snapshot for picking up on another machine. Everything below is **live in production on `main`** unless noted. Drive/AI/email paths are **prod-only** (local service account + `RESEND_API_KEY` are placeholders/absent) — validate live on **MANXI 309 (purchase, approval letter signed)**, **103 / 1002** (applicant-uploaded docs), or **901 / 801**.
