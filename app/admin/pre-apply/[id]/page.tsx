@@ -919,7 +919,10 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone }:
   const [open, setOpen] = useState(false)
   type Rec = 'owner' | 'tenant' | 'both'
   const [state, setState] = useState<Record<string, { on: boolean; rec: Rec }>>(() =>
-    Object.fromEntries(items.map(it => [it.doc_key, { on: it.missing, rec: (it.provided_by === 'landlord' ? 'owner' : 'tenant') as Rec }])))
+    // 'both' is a real answer on the checklist, not just an ad-hoc choice at
+    // send time — renter's insurance can come from either the tenant or the
+    // owner, so it defaults to asking both rather than guessing one.
+    Object.fromEntries(items.map(it => [it.doc_key, { on: it.missing, rec: (it.provided_by === 'both' ? 'both' : it.provided_by === 'landlord' ? 'owner' : 'tenant') as Rec }])))
   const [msg, setMsg] = useState('')
   const [ownerTo, setOwnerTo] = useState(ownerEmails ?? '')
   const [tenantTo, setTenantTo] = useState(tenantEmail ?? '')
