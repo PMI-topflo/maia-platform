@@ -190,6 +190,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {(d.type === 'lease_renewal' || d.type === 'additional_occupant') && <CarryOverButton id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
       {!decided && <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail} onDone={load} />}
+      {!decided && <RulesAckSender id={id} />}
       <CommunicationsLog id={id} unit={d.unit} associationCode={d.associationCode} />
 
       {/* Shared documents — one for the whole unit / application. */}
@@ -320,6 +321,67 @@ interface DecResult { allSigned: boolean; pdfUrl: string; docId?: string; signer
 // to the President; if they have an on-file signature it's signed instantly,
 // else a signing link is returned. Full address, occupants, and lease term
 // prefill from the association + unit records.
+// Send the Rules Knowledge Acknowledgment for e-signature. Every adult on the
+// roster gets their own link — the association's Rules require a copy signed by
+// all parties who will occupy.
+interface RulesAckInfo {
+  associationLegalName: string; propertyAddress: string | null
+  signers: { name: string; email: string | null }[]
+  blockers: string[]
+  existing: { id: string; status: string; createdAt: string; signers: { role: string; name?: string | null; signed_at?: string }[] } | null
+}
+function RulesAckSender({ id }: { id: string }) {
+  const [info, setInfo] = useState<RulesAckInfo | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState<{ name: string; email: string | null; link: string }[] | null>(null)
+  const load = useCallback(() => { fetch(`/api/admin/pre-apply/${id}/rules-ack`, { credentials: 'include' }).then(r => r.json()).then(setInfo).catch(() => setInfo(null)) }, [id])
+  useEffect(load, [load])
+  if (!info) return null
+
+  const signedCount = (info.existing?.signers ?? []).filter(s => s.signed_at).length
+  const total = (info.existing?.signers ?? []).length
+
+  async function create() {
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/rules-ack`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setSent(j.signers); load()
+    } catch (e) { alert(`Could not create: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ margin: '4px 0 14px', border: '1px solid #ddd6fe', background: '#faf5ff', borderRadius: 10, padding: 12 }}>
+      <div style={{ font: '700 13px system-ui', color: '#5b21b6', marginBottom: 4 }}>📜 Rules Knowledge Acknowledgment</div>
+      {info.existing ? (
+        <div style={{ font: '12.5px system-ui', color: '#374151' }}>
+          {info.existing.status === 'completed'
+            ? <span style={{ color: '#166534', fontWeight: 600 }}>✓ Signed by all {total} — filed on the checklist.</span>
+            : <>Sent {fmt(info.existing.createdAt)} · <strong>{signedCount}/{total} signed</strong>{(info.existing.signers ?? []).filter(s => !s.signed_at).length > 0 && <> · waiting on {(info.existing.signers ?? []).filter(s => !s.signed_at).map(s => s.name ?? s.role).join(', ')}</>}</>}
+        </div>
+      ) : info.blockers.length > 0 ? (
+        <div style={{ font: '12.5px system-ui', color: '#92400e' }}>
+          {info.blockers.map((b, i) => <div key={i}>⚠ {b}</div>)}
+        </div>
+      ) : (
+        <>
+          <div style={{ font: '12.5px system-ui', color: '#4b5563', marginBottom: 8 }}>
+            Each adult signs their own block: {info.signers.map(s => s.name).join(', ')}. The association&apos;s own Rules and Regulations pages are included in the document.
+          </div>
+          <button onClick={create} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#6d28d9', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
+            {busy ? 'Creating…' : `✍ Send for signature (${info.signers.length})`}
+          </button>
+        </>
+      )}
+      {sent && (
+        <div style={{ marginTop: 8, font: '12px system-ui', color: '#374151' }}>
+          {sent.map((s, i) => <div key={i} style={{ marginTop: 3 }}><strong>{s.name}</strong> {s.email ? `(${s.email})` : ''} — <a href={s.link} target="_blank" rel="noreferrer" style={{ color: '#6d28d9' }}>signing link</a></div>)}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
   const [pf, setPf] = useState<DecPrefill | null>(null)
   const [decision, setDecision] = useState('Approved')

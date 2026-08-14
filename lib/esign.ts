@@ -144,7 +144,39 @@ export async function recordEsignSignature(
     await fileBoardApprovalLetter(id).catch(() => null)
   }
 
+  // A fully-signed Rules Knowledge Acknowledgment satisfies the checklist item
+  // of the same name — file it so staff never chase a document the applicants
+  // have already signed.
+  if (complete && doc.kind === 'rules_knowledge_ack' && doc.unit_ref) {
+    await fileRulesAcknowledgment(id).catch(() => null)
+  }
+
   return { ok: true, status, complete }
+}
+
+async function fileRulesAcknowledgment(esignDocId: string): Promise<void> {
+  const fresh = await getEsignDoc(esignDocId)
+  if (!fresh || !fresh.unit_ref) return
+  // The ASSEMBLED pdf (cover + the board's own Rules pages + signatures), not
+  // the bare wrapper — the filed copy must be the document people signed.
+  const { assembleRulesAckPdf } = await import('@/lib/rules-ack-content')
+  const pdf = await assembleRulesAckPdf(fresh)
+
+  const { data: app } = await supabaseAdmin.from('listing_applications')
+    .select('id, listing_id').eq('association_code', fresh.association_code).eq('unit_label', fresh.unit_ref)
+    .in('status', ['started', 'submitted', 'under_review', 'approved']).order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (!app) return
+
+  const path = `intake/${app.id}/governing_docs_ack/${crypto.randomUUID()}.pdf`
+  const up = await supabaseAdmin.storage.from('application-docs').upload(path, pdf, { contentType: 'application/pdf', upsert: true })
+  if (up.error) return
+  await supabaseAdmin.from('application_documents').delete().eq('application_id', app.id).eq('doc_key', 'governing_docs_ack').is('stakeholder_id', null)
+  await supabaseAdmin.from('application_documents').insert({
+    application_id: app.id, listing_id: app.listing_id, kind: 'other', doc_key: 'governing_docs_ack',
+    doc_label: 'Rules Knowledge Acknowledgment (e-signed)',
+    storage_path: path, filename: 'Rules_Knowledge_Acknowledgment.pdf', suggested_name: 'Rules_Knowledge_Acknowledgment.pdf',
+    mime_type: 'application/pdf', uploaded_by_role: 'esign',
+  })
 }
 
 async function fileBoardApprovalLetter(esignDocId: string): Promise<void> {
