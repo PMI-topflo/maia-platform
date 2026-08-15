@@ -30,6 +30,20 @@
 
 ---
 
+### 2026-08-15 — Manors XI purchase requirements + assistance-animal groundwork
+
+**MANXI purchase** gained three items from the association's own packet: HO-6 policy **quote** (issued policy due after closing), escrow deposit letter (10% held in escrow), and the Florida Board of Realtors **Condominium Rider** (routed to the **agent**, who the request-docs flow already CCs).
+
+**`associations.pets_allowed` added** — MANXI `false` (its packet says "NO PETS ALLOWED AT ANY TIME"), VPCI `true`. **24 associations are still null and need their board's answer.**
+
+⚠️ **`pets_allowed = false` must NOT mean "no animal questions".** A no-pet association must still consider a reasonable accommodation for a service animal or ESA. The full build spec — including the different documentation rules for service animals vs ESAs, and the things MAIA must be structurally unable to ask for (diagnosis, medical records, notarization, pet fees) — is in **`docs/ASSISTANCE-ANIMAL-PROCEDURE.md`**. **Not built. Needs an attorney's sign-off before it gates a real application.**
+
+**Still not built:** the vehicle/pet **yes-no confirmation gate** in the applicant flow (all associations). Both items are currently unconditionally required at VPCI, so a car-free applicant is permanently incomplete.
+
+**Manors XI rules packet** (`Manors_XI_Applicant_Rules_Acknowledgment_Packet_Clean.docx`) — its Exhibits 1-3 are **scanned images**, and there's no LibreOffice on this machine to convert them. Export it to PDF and it wires exactly like Venetian I's. The text content extracts cleanly (106 paragraphs) for `rulesAckContentFor('MANXI')`.
+
+---
+
 # Session handoff — 2026-08-13 (latest)
 
 Snapshot for picking up on another machine. Everything below is **live in production on `main`** unless noted. Drive/AI/email paths are **prod-only** (local service account + `RESEND_API_KEY` are placeholders/absent) — validate live on **MANXI 309 (purchase, approval letter signed)**, **103 / 1002** (applicant-uploaded docs), or **901 / 801**.

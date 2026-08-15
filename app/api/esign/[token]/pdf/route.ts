@@ -22,6 +22,21 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
   const el = blank ? (renderFormBlank(doc) ?? renderFormPdf(doc)) : renderFormPdf(doc)
   if (!el) return new Response('This form type is not available.', { status: 400 })
 
+  // The acknowledgment is ASSEMBLED, not just rendered: the association's own
+  // Rules pages sit between the cover and the signatures. Serving the bare
+  // wrapper here would show a signer a document whose rules are missing.
+  if (!blank && doc.kind === 'rules_knowledge_ack') {
+    const { assembleRulesAckPdf } = await import('@/lib/rules-ack-content')
+    const full = await assembleRulesAckPdf(doc)
+    return new Response(full as unknown as BodyInit, {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="rules-acknowledgment-${doc.id.slice(0, 8)}.pdf"`,
+        'Cache-Control': 'no-store',
+      },
+    })
+  }
+
   const pdf = await renderToBuffer(el)
   return new Response(pdf as unknown as BodyInit, {
     headers: {

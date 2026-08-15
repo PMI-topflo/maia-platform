@@ -144,7 +144,73 @@ export async function recordEsignSignature(
     await fileBoardApprovalLetter(id).catch(() => null)
   }
 
+  // A fully-signed Rules Knowledge Acknowledgment satisfies the checklist item
+  // of the same name — file it so staff never chase a document the applicants
+  // have already signed.
+  if (complete && doc.kind === 'rules_knowledge_ack' && doc.unit_ref) {
+    await fileEsignToApplication(id, {
+      docKey: 'governing_docs_ack', docLabel: 'Rules Knowledge Acknowledgment (e-signed)',
+      filename: 'Rules_Knowledge_Acknowledgment.pdf', assemble: true,
+    }).catch(() => null)
+  }
+
+  // A completed Pet Registration satisfies the pet item on an in-process
+  // application the same way. It also carries its own renewal expiry, which the
+  // checklist row then tracks like any other expiring document.
+  if (complete && doc.kind === 'pet_registration' && doc.unit_ref) {
+    await fileEsignToApplication(id, {
+      docKey: 'pet_registration', docLabel: 'Pet Registration (e-signed)',
+      filename: 'Pet_Registration.pdf',
+    }).catch(() => null)
+  }
+
   return { ok: true, status, complete }
+}
+
+/** File a completed e-sign document onto the unit's in-process application, so
+ *  the checklist item it satisfies stops asking for something already signed.
+ *  `assemble` is for kinds whose real PDF is more than the bare render (the
+ *  rules acknowledgment splices in the association's own Rules pages). */
+async function fileEsignToApplication(
+  esignDocId: string,
+  opts: { docKey: string; docLabel: string; filename: string; assemble?: boolean },
+): Promise<void> {
+  const fresh = await getEsignDoc(esignDocId)
+  if (!fresh || !fresh.unit_ref) return
+
+  let pdf: Buffer
+  if (opts.assemble) {
+    const { assembleRulesAckPdf } = await import('@/lib/rules-ack-content')
+    pdf = await assembleRulesAckPdf(fresh)
+  } else {
+    const { renderToBuffer } = await import('@react-pdf/renderer')
+    const { renderFormPdf } = await import('@/lib/esign-forms')
+    const el = renderFormPdf(fresh)
+    if (!el) return
+    pdf = Buffer.from(await renderToBuffer(el))
+  }
+
+  const { data: app } = await supabaseAdmin.from('listing_applications')
+    .select('id, listing_id').eq('association_code', fresh.association_code).eq('unit_label', fresh.unit_ref)
+    .in('status', ['started', 'submitted', 'under_review', 'approved']).order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (!app) return
+
+  const path = `intake/${app.id}/${opts.docKey}/${crypto.randomUUID()}.pdf`
+  const up = await supabaseAdmin.storage.from('application-docs').upload(path, pdf, { contentType: 'application/pdf', upsert: true })
+  if (up.error) return
+  await supabaseAdmin.from('application_documents').delete().eq('application_id', app.id).eq('doc_key', opts.docKey).is('stakeholder_id', null)
+
+  // Carry the form's own expiry onto the checklist row (pet registrations renew).
+  const { getFormDef } = await import('@/lib/esign-forms')
+  const expiry = getFormDef(fresh.kind)?.computeExpiry?.(fresh) ?? null
+
+  await supabaseAdmin.from('application_documents').insert({
+    application_id: app.id, listing_id: app.listing_id, kind: 'other',
+    doc_key: opts.docKey, doc_label: opts.docLabel,
+    storage_path: path, filename: opts.filename, suggested_name: opts.filename,
+    mime_type: 'application/pdf', uploaded_by_role: 'esign',
+    expiration_date: expiry,
+  })
 }
 
 async function fileBoardApprovalLetter(esignDocId: string): Promise<void> {
