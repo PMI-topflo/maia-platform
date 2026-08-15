@@ -19,7 +19,10 @@ export interface MaiaEmailCtx {
   applicationType?: string | null         // human label, e.g. "Lease Renewal"
   heading: string
   intro: string
-  items?: { label: string; whoFor?: string | null }[]
+  /** `note` explains what the document actually is; `exampleUrl` links a real
+   *  example of it. Both exist because "Please send me an example of this
+   *  document you want" was the most common reply to this email. */
+  items?: { label: string; whoFor?: string | null; note?: string | null; exampleUrl?: string | null }[]
   ctaUrl?: string | null
   ctaLabel?: string | null
   footerReason?: string | null
@@ -40,7 +43,7 @@ export function renderMaiaEmail(c: MaiaEmailCtx): string {
   const itemsHtml = c.items && c.items.length
     ? `<div style="font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8a8f9a;margin:0 0 8px">Please upload</div>
        <table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid #e7e2d9;border-radius:10px;overflow:hidden;margin:0 0 20px">
-         ${c.items.map((it, i) => `<tr><td style="padding:11px 15px;font-size:14.5px;color:#1c2333;font-weight:600;${i ? 'border-top:1px solid #f2efe8' : ''}">${esc(it.label)}${it.whoFor ? ` <span style="float:right;font:700 10.5px system-ui;text-transform:uppercase;color:#c0571a;background:#f8efe6;border-radius:999px;padding:3px 9px">${esc(it.whoFor)}</span>` : ''}</td></tr>`).join('')}
+         ${c.items.map((it, i) => `<tr><td style="padding:11px 15px;font-size:14.5px;color:#1c2333;font-weight:600;${i ? 'border-top:1px solid #f2efe8' : ''}">${esc(it.label)}${it.whoFor ? ` <span style="float:right;font:700 10.5px system-ui;text-transform:uppercase;color:#c0571a;background:#f8efe6;border-radius:999px;padding:3px 9px">${esc(it.whoFor)}</span>` : ''}${it.note ? `<div style="font-weight:400;font-size:12.5px;color:#6b7280;margin-top:3px;line-height:1.45">${esc(it.note)}</div>` : ''}${it.exampleUrl ? `<div style="margin-top:5px"><a href="${it.exampleUrl}" style="font:600 12.5px system-ui;color:#2563eb;text-decoration:none">📎 See an example of this document →</a></div>` : ''}</td></tr>`).join('')}
        </table>`
     : ''
 

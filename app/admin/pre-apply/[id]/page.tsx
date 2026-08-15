@@ -27,7 +27,7 @@ interface Detail {
   animalGuidance: { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[]; staffNote: string } | null
   assistanceAnimalDenialGrounds: string[]
   assistanceAnimalDecisionDays: number
-  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; per_applicant: boolean; allow_multiple: boolean; uploaded: boolean; condition_key: string | null }[]
+  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; per_applicant: boolean; allow_multiple: boolean; uploaded: boolean; condition_key: string | null; template_path: string | null }[]
   documents: Doc[]
 }
 
@@ -237,7 +237,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                 </>
               )}
               <p style={{ fontSize: 11.5, color: '#9ca3af', margin: '9px 0 0', lineHeight: 1.5 }}>
-                MAIA organises this request; it does not decide it. The decision is the board&apos;s, with counsel where needed.
+                MAIA organises this request; it does not decide it. Record the decision on the board decision page below.
               </p>
             </div>
           )}
@@ -274,7 +274,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '2px 0 6px' }}>Shared documents</div>
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         {sharedItems.map((c, i) => (
-          <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, null)} extraDocs={docsFor(c.doc_key, null).slice(1)} na={naFor(c.doc_key, null)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} />
+          <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, null)} extraDocs={docsFor(c.doc_key, null).slice(1)} na={naFor(c.doc_key, null)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} assoc={d.associationCode} appType={d.type} hasExample={!!c.template_path} />
         ))}
         {d.documents.filter(doc => !doc.stakeholderId && !d.checklist.some(c => c.doc_key === doc.doc_key)).map(doc => (
           <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderTop: '1px solid #f3f4f6', alignItems: 'center' }}>
@@ -313,7 +313,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                 <CreditScore id={id} stakeholderId={a.id} name={a.name} score={a.creditScore} decided={decided} onDone={load} />
                 {/* Active applicant's documents */}
                 {perApplicantItems.map((c, i) => (
-                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={docsFor(c.doc_key, a.id).slice(1)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} />
+                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={docsFor(c.doc_key, a.id).slice(1)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} assoc={d.associationCode} appType={d.type} hasExample={!!c.template_path} />
                 ))}
               </div>
             )
@@ -660,7 +660,7 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
 // One checklist row: the doc (if any) with an INLINE preview box, the suggested
 // YYYY_MM_Type rename, an editable expiration date to approve, Ignore, and the
 // upload/replace control.
-function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, driveFiles, loadDriveFiles, stakeholderId, applicants, checklist }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string; allow_multiple?: boolean }; doc: Doc | undefined; extraDocs?: Doc[]; checklist?: { doc_key: string; label: string }[]; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[] }) {
+function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, driveFiles, loadDriveFiles, stakeholderId, applicants, checklist, assoc, appType, hasExample }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string; allow_multiple?: boolean }; doc: Doc | undefined; extraDocs?: Doc[]; checklist?: { doc_key: string; label: string }[]; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[]; assoc?: string; appType?: string; hasExample?: boolean }) {
   const allowMultiple = !!c.allow_multiple
   const [open, setOpen] = useState(false)
   const [picking, setPicking] = useState(false)
@@ -707,6 +707,24 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
     try { await fetch(`/api/admin/pre-apply/${id}/doc/${doc!.id}`, { method: 'DELETE', credentials: 'include' }); onDone() }
     catch { /* */ } finally { setBusy(null) }
   }
+  // Attach an EXAMPLE of this document, once, for the whole association. Every
+  // future request email for this item then carries it automatically — the
+  // answer to "please send me an example of this document you want".
+  async function uploadExample(file: File) {
+    if (!assoc || !appType) return
+    setBusy('example')
+    try {
+      const body = { associationCode: assoc, applicationType: appType, docKey: c.doc_key }
+      const u = await fetch('/api/admin/intake-documents/template', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, filename: file.name }) })
+      const uj = await u.json(); if (!u.ok) throw new Error(uj.error || 'failed')
+      const put = await fetch(uj.signedUrl, { method: 'PUT', body: file, headers: { 'content-type': file.type || 'application/octet-stream' } })
+      if (!put.ok) throw new Error('upload failed')
+      const c2 = await fetch('/api/admin/intake-documents/template', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, path: uj.path }) })
+      if (!c2.ok) throw new Error((await c2.json()).error || 'could not save')
+      onDone()
+    } catch (e) { alert(`Could not attach the example: ${(e as Error).message}`) } finally { setBusy(null) }
+  }
+
   async function toggleNa() {
     setBusy('na')
     try { await fetch(`/api/admin/pre-apply/${id}/na`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, na: !na, stakeholder_id: stakeholderId }) }); onDone() }
@@ -777,6 +795,12 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
           ) : <span style={{ fontSize: 13, color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
           {!decided && !na && <button onClick={openPicker} disabled={busy === 'assign'} style={{ ...link, color: '#2563eb', fontSize: 12 }}>{busy === 'assign' ? 'Assigning…' : '📁 From Drive'}</button>}
           {!decided && !na && <StaffUpload id={id} docKey={c.doc_key} docLabel={c.label} uploaded={!!doc} onDone={onDone} stakeholderId={stakeholderId} allowMultiple={allowMultiple} />}
+          {!decided && assoc && appType && (
+            <label style={{ ...link, color: hasExample ? '#166534' : '#9ca3af', fontSize: 12, cursor: 'pointer' }} title={hasExample ? 'An example is attached — every request email for this item includes it' : 'Attach an example so request emails can show one'}>
+              {busy === 'example' ? 'Attaching…' : hasExample ? '📎 Example attached' : '📎 Add example'}
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) uploadExample(f) }} />
+            </label>
+          )}
           {!decided && !doc && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#9ca3af', fontSize: 12 }}>{na ? 'Undo N/A' : 'Mark N/A'}</button>}
           {!decided && na && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#4338ca', fontSize: 12 }}>Undo N/A</button>}
         </div>

@@ -16,8 +16,10 @@
 // ⚠ MAIA ORGANISES THIS PROCESS; IT DOES NOT ADJUDICATE IT. Nothing in this
 // module denies, delays, or auto-rejects anything. It decides which documents
 // to ASK for and which questions are forbidden — the decision stays with the
-// board and its counsel. Refusing an assistance animal wrongly, or demanding a
-// document the statute forbids, is fair-housing exposure.
+// board, recorded on the board decision page. Refusing an assistance animal
+// wrongly, or demanding a document the statute forbids, is fair-housing
+// exposure, which is why the guardrails below are structural rather than
+// advisory.
 // =====================================================================
 
 /** Mirrors AnimalRequestType in lib/animal-questionnaire.ts. 'unsure' is a

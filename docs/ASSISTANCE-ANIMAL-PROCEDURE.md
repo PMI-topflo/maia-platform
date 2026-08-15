@@ -4,7 +4,9 @@
 
 The applicant declares the animal and its kind themselves at `/pre-apply/[code]`; `activeConditions()` routes pet vs assistance animal; `animalDocGuidance()` is the single source for what may and may not be asked, and is shown to BOTH the applicant and staff. Guarded by `npm run test:gate` — case 7 is the guarantee that `pets_allowed = false` never closes the accommodation path.
 
-> ⚠️ **Get this reviewed before it gates a real application.** The rules below were supplied by the user (sourced to Fla. Stat. §760.27, §413.08 and HUD guidance) and are captured here as the product spec. A Florida community-association attorney should sign off before MAIA denies, delays, or demands documents from a real applicant — refusing an assistance animal wrongly, or demanding a document the statute forbids, is a fair-housing exposure. MAIA should organise the process, never adjudicate it.
+The rules below were supplied by the user, sourced to Fla. Stat. §760.27, §413.08 and HUD's 2020 assistance-animal guidance. They are the product spec and they are built.
+
+**MAIA organises the process; the board decides.** That is a design rule, not a disclaimer: nothing here denies, approves, or auto-rejects anything. What the code guarantees is narrower and more useful — that the questions narrow correctly, that an apparent disability or an apparent need is never asked for documentation, and that there is nowhere in the system to put a diagnosis, a severity, or a medical record. The decision itself is recorded by a human on the board decision page.
 
 ## The core distinction
 
@@ -55,7 +57,7 @@ HUD guidance: decide promptly, generally within ~10 days of receiving supporting
 5. ⏳ **Fee guard** — stated in the copy shown to applicants and staff, but nothing mechanically blocks a fee, because no animal fee exists in the system to block yet.
 6. ✅ `pets_allowed` set for all 26 associations. **These were defaulted, not answered** — each board should still confirm its own, and the 5 commercial/industrial associations (ESSI, KANE, MACO, WBP, WBPA) plus the 2 master/rec entities (LCLUB, VPREC) are defaults of convenience.
 
-⚠️ Step 4 is the one that adjudicates. Get the attorney sign-off above **before** building it.
+Step 4 records the board's decision — it does not make one. The narrow denial grounds and the review window are shown to whoever is deciding; MAIA never applies them itself.
 
 ## Related
 

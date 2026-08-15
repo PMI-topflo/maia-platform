@@ -150,7 +150,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     animalGuidance: declarations.animal?.has && declarations.animal.kind ? animalDocGuidance(declarations.animal.kind) : null,
     assistanceAnimalDenialGrounds: isAssistanceAnimal(declarations.animal?.kind) ? ASSISTANCE_ANIMAL_DENIAL_GROUNDS : [],
     assistanceAnimalDecisionDays: ASSISTANCE_ANIMAL_DECISION_DAYS,
-    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, per_applicant: c.per_applicant, allow_multiple: c.allow_multiple, uploaded: uploaded.has(c.doc_key), condition_key: c.condition_key })),
+    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, per_applicant: c.per_applicant, allow_multiple: c.allow_multiple, uploaded: uploaded.has(c.doc_key), condition_key: c.condition_key, template_path: c.template_path })),
     documents: withUrls,
   })
 }
