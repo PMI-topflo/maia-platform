@@ -74,9 +74,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const code = String(app.association_code), unit = (app.unit_label as string | null) ?? ''
-  const [{ data: assocRow }, { data: ownerRow }, { data: tenantRow }] = await Promise.all([
+  const [{ data: assocRow }, { data: ownerRows }, { data: tenantRow }] = await Promise.all([
     supabaseAdmin.from('associations').select('screening_provider, pets_allowed').eq('association_code', code).maybeSingle(),
-    supabaseAdmin.from('owners').select('first_name, last_name, emails, unit_number, account_number, status').eq('association_code', code).or(`unit_number.eq.${unit},account_number.eq.${code}${unit}`).or('status.neq.previous,status.is.null').maybeSingle(),
+    // NOT maybeSingle(): a co-owned unit has one row PER OWNER, and MANXI 103
+    // (Andre + Marcia Danford) is exactly that. maybeSingle() returns PGRST116
+    // "multiple rows returned" and yields null, so the owner's name and email
+    // silently vanished from the header — and from the document-request form,
+    // which seeds the owner recipient from the same field. Married co-owners
+    // are the common case in a condo, so this hit far more than one unit.
+    supabaseAdmin.from('owners').select('first_name, last_name, entity_name, emails, unit_number, account_number, status').eq('association_code', code).or(`unit_number.eq.${unit},account_number.eq.${code}${unit}`).or('status.neq.previous,status.is.null'),
     supabaseAdmin.from('unit_tenant_contacts').select('tenant_email').eq('association_code', code).eq('unit_ref', unit).maybeSingle(),
   ])
 
@@ -96,6 +102,17 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   }))
   const uploaded = new Set((docs ?? []).map(d => d.doc_key).filter(Boolean))
 
+  // Every owner on the unit, not just the first: a co-owned unit shows both
+  // names, and a document request goes to every owner address on file (deduped,
+  // since co-owners frequently share one).
+  const ownerNames = (ownerRows ?? [])
+    .map(o => (o.entity_name as string | null)?.trim() || `${o.first_name ?? ''} ${o.last_name ?? ''}`.trim())
+    .filter(Boolean)
+  const ownerEmails = [...new Set((ownerRows ?? [])
+    .flatMap(o => ((o.emails as string | null) ?? '').split(','))
+    .map(e => e.trim().toLowerCase())
+    .filter(e => e.includes('@')))]
+
   // The applicant's own yes/no answers retire the items that don't apply to
   // them (no car → no vehicle registration). Those are folded into naItems as
   // BARE doc_keys, which every completeness gate already reads as "applies to
@@ -111,8 +128,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     id: app.id, associationCode: app.association_code, type: app.application_type, unit: app.unit_label,
     status: app.status, submittedAt: app.submitted_at,
     applicant: sh ? { name: sh.name, email: sh.email, phone: sh.phone } : null,
-    ownerName: ownerRow ? `${ownerRow.first_name ?? ''} ${ownerRow.last_name ?? ''}`.trim() || null : null,
-    ownerEmails: ((ownerRow?.emails as string | null) ?? '').split(',').map(s => s.trim()).filter(e => e.includes('@')).join(', ') || null,
+    ownerName: ownerNames.join(' & ') || null,
+    ownerEmails: ownerEmails.join(', ') || null,
     tenantEmail: (tenantRow?.tenant_email as string | null) || (sh?.email as string | null) || null,
     stakeholders: (stakeholders ?? []).map(s => ({
       id: s.id, role: s.role, roleLabel: roleLabel(String(s.role)), name: s.name, email: s.email, phone: s.phone,

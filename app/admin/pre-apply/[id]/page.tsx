@@ -5,7 +5,7 @@
 // (preview), the signed rules acknowledgment, and the Drive folder. Advance it:
 // audit (PMI/Jonathan) → approve (on-site manager OR board) or decline.
 
-import { use, useCallback, useEffect, useState } from 'react'
+import { use, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { APPLICANT_ROLES, applicantRoleLabel } from '@/lib/applicant-roles'
 
@@ -1115,6 +1115,16 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone }:
     Object.fromEntries(items.map(it => [it.doc_key, { on: it.missing, rec: (it.provided_by === 'both' ? 'both' : it.provided_by === 'landlord' ? 'owner' : 'tenant') as Rec }])))
   const [msg, setMsg] = useState('')
   const [ownerTo, setOwnerTo] = useState(ownerEmails ?? '')
+  // Seeded once, so an owner address that arrives (or is corrected) after the
+  // first render left this box empty — which is how a request went out with no
+  // owner recipient at all.
+  const ownerSeed = useRef(ownerEmails ?? '')
+  useEffect(() => {
+    const next = ownerEmails ?? ''
+    if (ownerSeed.current === next) return
+    ownerSeed.current = next
+    setOwnerTo(cur => cur.trim() ? cur : next)
+  }, [ownerEmails])
   const [tenantTo, setTenantTo] = useState(tenantEmail ?? '')
   const [busy, setBusy] = useState(false)
   const selected = items.filter(it => state[it.doc_key]?.on)
@@ -1323,7 +1333,21 @@ function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { 
   const [add, setAdd] = useState('')
   const [busy, setBusy] = useState<'read' | 'save' | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
-  const dirty = JSON.stringify(people) !== JSON.stringify(seed())
+  // The editor is seeded from props ONCE, so anything the server normalised on
+  // save (a phone rewritten by normalizePhone, a role defaulted) stayed
+  // different from what was typed — `dirty` never cleared, "Save applicants"
+  // never went away, and every save looked like it hadn't taken. Re-seed
+  // whenever the saved roster actually changes and we're not mid-edit.
+  const savedKey = JSON.stringify(seed())
+  const lastSaved = useRef(savedKey)
+  useEffect(() => {
+    if (lastSaved.current === savedKey) return
+    lastSaved.current = savedKey
+    if (busy) return
+    setPeople(seed())
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedKey])
+  const dirty = JSON.stringify(people) !== savedKey
   const primaryNoEmail = people.length > 0 && !people[0].email
 
   async function readFromLease() {
