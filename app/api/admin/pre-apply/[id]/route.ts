@@ -6,7 +6,11 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
-import { getIntakeChecklist, isApplicationType, type ApplicationType } from '@/lib/intake-documents'
+import { getIntakeChecklist, isApplicationType, parseDeclarations, declaredNaKeys, type ApplicationType } from '@/lib/intake-documents'
+import {
+  animalDocGuidance, declaredPetWhereProhibited, isAssistanceAnimal,
+  ASSISTANCE_ANIMAL_DENIAL_GROUNDS, ASSISTANCE_ANIMAL_DECISION_DAYS,
+} from '@/lib/animal-accommodation'
 import { roleLabel, roleSigns } from '@/lib/preapply'
 import { sendEmail } from '@/lib/gmail'
 
@@ -65,13 +69,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params
 
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('id, association_code, application_type, applicant_role, unit_label, status, submitted_at, rules_ack, drive_folder_url, na_items, audited_by, audited_at, reviewed_by, reviewed_at, review_note, approved_by_role')
+    .select('id, association_code, application_type, applicant_role, unit_label, status, submitted_at, rules_ack, drive_folder_url, na_items, declarations, audited_by, audited_at, reviewed_by, reviewed_at, review_note, approved_by_role')
     .eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const code = String(app.association_code), unit = (app.unit_label as string | null) ?? ''
   const [{ data: assocRow }, { data: ownerRow }, { data: tenantRow }] = await Promise.all([
-    supabaseAdmin.from('associations').select('screening_provider').eq('association_code', code).maybeSingle(),
+    supabaseAdmin.from('associations').select('screening_provider, pets_allowed').eq('association_code', code).maybeSingle(),
     supabaseAdmin.from('owners').select('first_name, last_name, emails, unit_number, account_number, status').eq('association_code', code).or(`unit_number.eq.${unit},account_number.eq.${code}${unit}`).or('status.neq.previous,status.is.null').maybeSingle(),
     supabaseAdmin.from('unit_tenant_contacts').select('tenant_email').eq('association_code', code).eq('unit_ref', unit).maybeSingle(),
   ])
@@ -92,6 +96,17 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   }))
   const uploaded = new Set((docs ?? []).map(d => d.doc_key).filter(Boolean))
 
+  // The applicant's own yes/no answers retire the items that don't apply to
+  // them (no car → no vehicle registration). Those are folded into naItems as
+  // BARE doc_keys, which every completeness gate already reads as "applies to
+  // nobody" — so this needs no change anywhere downstream, and it survives a
+  // later change to the roster. Staff can still see the declaration and
+  // override any single row by hand.
+  const petsAllowed = (assocRow?.pets_allowed as boolean | null) ?? null
+  const declarations = parseDeclarations(app.declarations)
+  const derivedNa = declaredNaKeys(checklist, declarations, { petsAllowed })
+  const naItems = [...new Set([...(Array.isArray(app.na_items) ? (app.na_items as string[]) : []), ...derivedNa])]
+
   return NextResponse.json({
     id: app.id, associationCode: app.association_code, type: app.application_type, unit: app.unit_label,
     status: app.status, submittedAt: app.submitted_at,
@@ -110,8 +125,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     driveFolderUrl: app.drive_folder_url,
     screeningProvider: (assocRow?.screening_provider as string | null) ?? 'tenant_evaluation',
     audit: { auditedBy: app.audited_by, auditedAt: app.audited_at, reviewedBy: app.reviewed_by, reviewedAt: app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role },
-    naItems: Array.isArray(app.na_items) ? (app.na_items as string[]) : [],
-    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, per_applicant: c.per_applicant, allow_multiple: c.allow_multiple, uploaded: uploaded.has(c.doc_key) })),
+    naItems,
+    declarations,
+    declaredNa: derivedNa,
+    petsAllowed,
+    petsProhibitedNotice: declaredPetWhereProhibited(declarations, petsAllowed),
+    animalGuidance: declarations.animal?.has && declarations.animal.kind ? animalDocGuidance(declarations.animal.kind) : null,
+    assistanceAnimalDenialGrounds: isAssistanceAnimal(declarations.animal?.kind) ? ASSISTANCE_ANIMAL_DENIAL_GROUNDS : [],
+    assistanceAnimalDecisionDays: ASSISTANCE_ANIMAL_DECISION_DAYS,
+    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, per_applicant: c.per_applicant, allow_multiple: c.allow_multiple, uploaded: uploaded.has(c.doc_key), condition_key: c.condition_key })),
     documents: withUrls,
   })
 }

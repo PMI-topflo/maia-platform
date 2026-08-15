@@ -14,6 +14,11 @@
 import { Document, Page, Text, View, Image, StyleSheet, type DocumentProps } from '@react-pdf/renderer'
 import type { ReactElement } from 'react'
 import type { EsignDoc, EsignSigner } from '@/lib/esign'
+import {
+  effectiveBranch, asksServiceTaskDetail, asksDisabilityDocumentation, asksNeedDocumentation,
+  asksProviderDetail, asksPerAnimalNeed, certificationFor, petRulesApply,
+  REQUEST_TYPE_LABEL, type AnimalQuestionnaire,
+} from '@/lib/animal-questionnaire'
 
 type PdfElement = ReactElement<DocumentProps>
 
@@ -23,10 +28,10 @@ export interface EsignFormDef {
   roles: string[]                         // required signer roles, in signing order
   roleLabel: (role: string) => string
   renderPdf: (doc: EsignDoc) => PdfElement
-  /** Fillable forms (e.g. pet registration): the applicant enters data before
-   *  signing. `renderBlank` produces a printable empty copy. */
+  /** Fillable forms (the animal questionnaire): the applicant enters their
+   *  answers before signing. There is no printable blank counterpart — these
+   *  forms branch, so a printed copy would ask the wrong questions. */
   fillable?: boolean
-  renderBlank?: (doc: EsignDoc) => PdfElement
   /** Optional expiry (ISO date) filed on the compliance record when the doc
    *  completes and used by the renewal-alert cron. */
   computeExpiry?: (doc: EsignDoc) => string | null
@@ -179,6 +184,11 @@ export interface PetPayload {
   vetName?: string
   vetPhone?: string
   rulesAck?: string
+  /** The Animal Information & Reasonable Accommodation Questionnaire. Merged
+   *  into this document rather than standing beside it: one form, three
+   *  branches (pet / service animal / assistance animal). Absent on documents
+   *  created before 2026-08-15, which render exactly as they always did. */
+  questionnaire?: AnimalQuestionnaire
 }
 
 const PET_ACK_DEFAULT =
@@ -190,72 +200,190 @@ const petStyles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: { width: '50%', paddingVertical: 1.5, flexDirection: 'row' },
   cellK: { color: MUTED, width: 82, fontSize: 9 }, cellV: { fontFamily: 'Helvetica-Bold', flex: 1, fontSize: 9 },
-  blankLine: { borderBottomWidth: 1, borderBottomColor: '#9ca3af', flex: 1, marginLeft: 4, height: 8 },
 })
 
-function petCell(k: string, v: string | undefined, blank: boolean) {
+function petCell(k: string, v: string | undefined) {
   return (
     <View style={petStyles.cell}>
       <Text style={petStyles.cellK}>{k}</Text>
-      {blank ? <View style={petStyles.blankLine} /> : <Text style={petStyles.cellV}>{v && v.trim() ? v : '—'}</Text>}
+      <Text style={petStyles.cellV}>{v && v.trim() ? v : '—'}</Text>
     </View>
   )
 }
 
-function PetCard({ pet, index, blank }: { pet: Pet | null; index: number; blank: boolean }) {
+function PetCard({ pet, index }: { pet: Pet | null; index: number }) {
   const p = pet ?? {}
   return (
     <View style={petStyles.petCard} wrap={false}>
       <Text style={petStyles.petTitle}>Pet {index + 1}</Text>
       <View style={petStyles.grid}>
-        {petCell('Type', p.type, blank)}
-        {petCell('Name', p.name, blank)}
-        {petCell('Breed', p.breed, blank)}
-        {petCell('Color', p.color, blank)}
-        {petCell('Weight (lb)', p.weight, blank)}
-        {petCell('Age', p.age, blank)}
-        {petCell('Sex', p.sex, blank)}
-        {petCell('Spayed/Neutered', blank ? undefined : (p.altered ? 'Yes' : 'No'), blank)}
-        {petCell('License / Tag #', p.license, blank)}
-        {petCell('Rabies vax date', p.rabiesDate, blank)}
-        {petCell('Service/ESA', blank ? undefined : (p.serviceAnimal ? 'Yes' : 'No'), blank)}
-        {petCell('Vax record', blank ? undefined : (p.vaccinationDoc?.filename ? 'on file' : 'not provided'), blank)}
+        {petCell('Type', p.type)}
+        {petCell('Name', p.name)}
+        {petCell('Breed', p.breed)}
+        {petCell('Color', p.color)}
+        {petCell('Weight (lb)', p.weight)}
+        {petCell('Age', p.age)}
+        {petCell('Sex', p.sex)}
+        {petCell('Spayed/Neutered', p.altered ? 'Yes' : 'No')}
+        {petCell('License / Tag #', p.license)}
+        {petCell('Rabies vax date', p.rabiesDate)}
+        {petCell('Service/ESA', p.serviceAnimal ? 'Yes' : 'No')}
+        {petCell('Vax record', p.vaccinationDoc?.filename ? 'on file' : 'not provided')}
+        {petCell('Photo', p.photo?.filename ? 'on file' : 'not provided')}
       </View>
     </View>
   )
 }
 
-function renderPetPdf(doc: EsignDoc, blank: boolean): PdfElement {
+const yn = (v: string | undefined) => v === 'yes' ? 'Yes' : v === 'no' ? 'No' : v === 'unsure' ? 'Unsure' : v === 'na' ? 'Not applicable' : v === 'defer' ? 'Prefer that Management determine whether documentation is necessary' : '—'
+
+/** The questionnaire section of the form. Only the branch the applicant
+ *  actually reached is printed — a signed copy must not carry disability
+ *  questions that were never asked, nor imply they were. */
+function QuestionnaireSection({ q }: { q: AnimalQuestionnaire }) {
+  const branch = effectiveBranch(q)
+  if (!branch) return null
+  const e = q.esa ?? {}, sv = q.service ?? {}
+  const row = (k: string, v: string) => <View style={s.row}><Text style={s.rowKey}>{k}</Text><Text style={s.rowVal}>{v}</Text></View>
+  return (
+    <>
+      <Text style={s.sectionTitle}>Type of request</Text>
+      <Text style={{ ...s.para, marginTop: 2 }}>{REQUEST_TYPE_LABEL[q.requestType ?? 'pet']}</Text>
+      {q.requestType === 'service' && sv.isDog === 'no' && (
+        <Text style={{ ...s.para, marginTop: 2, color: MUTED, fontSize: 9 }}>
+          The animal is not a dog, so this request is reviewed as an assistance-animal accommodation request.
+        </Text>
+      )}
+
+      {branch === 'unsure' && (
+        <Text style={{ ...s.para, marginTop: 4 }}>
+          The applicant is not sure which category applies. No disability questions were asked. Management to follow up.
+        </Text>
+      )}
+
+      {branch === 'service' && (
+        <>
+          <Text style={s.sectionTitle}>Service animal</Text>
+          {row('Is the animal a dog?', yn(sv.isDog))}
+          {row('Work or task readily apparent?', yn(sv.taskApparent))}
+          {asksServiceTaskDetail(q) ? (
+            <>
+              {row('Required because of a disability?', yn(sv.requiredForDisability))}
+              {row('Work or task trained to perform', (sv.taskDescription ?? '').trim() || '—')}
+            </>
+          ) : (
+            <Text style={{ ...s.para, marginTop: 2, color: MUTED, fontSize: 9 }}>
+              The work or task is readily apparent, so no further inquiry into the disability was made.
+            </Text>
+          )}
+          {row('Vaccinated and licensed as required by law?', yn(sv.vaccinatedAndLicensed))}
+        </>
+      )}
+
+      {branch === 'esa' && (
+        <>
+          <Text style={s.sectionTitle}>Assistance animal — reasonable accommodation request</Text>
+          {row('Requesting an accommodation because of a disability?', yn(e.requestingAccommodation))}
+          {row('Disability readily apparent or already known?', yn(e.disabilityApparent))}
+          {row('Need for this particular animal readily apparent?', yn(e.needApparent))}
+          {row('Number of assistance animals requested', String(e.animalCount ?? 1))}
+          {asksPerAnimalNeed(q) && (
+            <Text style={{ ...s.para, marginTop: 2, color: MUTED, fontSize: 9 }}>
+              More than one animal is requested; documentation of the disability-related need may be requested for each.
+            </Text>
+          )}
+          {(asksDisabilityDocumentation(q) || asksNeedDocumentation(q)) ? (
+            <>
+              {e.documentation === 'attached' && (e.documentationFiles ?? []).length > 0 && (
+                <Text style={{ ...s.para, marginTop: 2, fontSize: 9 }}>
+                  Attached: {(e.documentationFiles ?? []).map(f => f.filename).join(', ')}
+                </Text>
+              )}
+              {row('Supporting documentation', e.documentation === 'attached' ? 'Attached'
+                : e.documentation === 'separate' ? 'Will be provided separately'
+                : e.documentation === 'unnecessary' ? 'Believed unnecessary — disability and need are readily apparent'
+                : e.documentation === 'none' ? 'None' : '—')}
+              {asksProviderDetail(q) && (
+                <>
+                  <Text style={s.sectionTitle}>Healthcare professional</Text>
+                  {row('Name', (e.provider?.name ?? '').trim() || '—')}
+                  {row('Title', (e.provider?.title ?? '').trim() || '—')}
+                  {row('License number', (e.provider?.licenseNumber ?? '').trim() || '—')}
+                  {row('State of licensure', (e.provider?.licenseState ?? '').trim() || '—')}
+                  {row('Contact', (e.provider?.contact ?? '').trim() || '—')}
+                  {row('Obtained only from an online ESA registry/certificate?', yn(e.onlineRegistryOnly))}
+                  {e.onlineRegistryOnly === 'yes' && (
+                    <Text style={{ ...s.para, marginTop: 2, color: MUTED, fontSize: 9 }}>
+                      An online registration, certificate, ID card, vest or patch is not by itself sufficient documentation
+                      of a disability or of a disability-related need.
+                    </Text>
+                  )}
+                  {(e.outOfState?.licenseState ?? '').trim() ? (
+                    <>
+                      {row('Provider licensed in', String(e.outOfState?.licenseState))}
+                      {row('Has personally provided you care or services?', yn(e.outOfState?.hasTreatedYou))}
+                      {row('In-person care on at least one occasion?', yn(e.outOfState?.inPersonAtLeastOnce))}
+                    </>
+                  ) : null}
+                </>
+              )}
+            </>
+          ) : (
+            <Text style={{ ...s.para, marginTop: 2, color: MUTED, fontSize: 9 }}>
+              The disability and the disability-related need are readily apparent, so no supporting documentation was requested.
+            </Text>
+          )}
+          {row('Vaccinated and licensed as required by law?', yn(e.vaccinatedAndLicensed))}
+        </>
+      )}
+
+      {branch === 'pet' && q.petVaccinated && row('Vaccinated as required by law?', yn(q.petVaccinated))}
+
+      {branch !== 'pet' && branch !== 'unsure' && (
+        <Text style={{ ...s.para, marginTop: 6, color: MUTED, fontSize: 9 }}>
+          No diagnosis, severity of condition, or medical records were requested or provided. An approved service or
+          assistance animal is not an ordinary pet and is not subject to a pet fee, pet deposit, surcharge, or breed or
+          size restriction.
+        </Text>
+      )}
+    </>
+  )
+}
+
+function renderPetPdf(doc: EsignDoc): PdfElement {
   const p = (doc.payload ?? {}) as PetPayload
-  const limit = Math.max(1, p.petLimit ?? 2)
-  const pets: (Pet | null)[] = blank
-    ? Array.from({ length: limit }, () => null)
-    : (p.pets && p.pets.length ? p.pets : [null])
+  const q = p.questionnaire
+  const branch = effectiveBranch(q)
+  const pets: (Pet | null)[] = (p.pets && p.pets.length ? p.pets : [null])
+  const title = branch === 'service' ? 'Service Animal Information'
+    : branch === 'esa' ? 'Assistance Animal Accommodation Request'
+    : branch === 'unsure' ? 'Animal Information'
+    : 'Pet Registration'
   return (
     <Document>
       <Page size="LETTER" style={s.page}>
         <Text style={s.assoc}>{p.associationLegalName ?? doc.association_code}</Text>
-        <Text style={s.title}>Pet Registration</Text>
+        <Text style={s.title}>{title}</Text>
         <View style={s.rule} />
         <View style={s.row}><Text style={s.rowKey}>Unit</Text><Text style={s.rowVal}>{doc.unit_ref ?? '—'}</Text></View>
-        <View style={s.row}><Text style={s.rowKey}>Pets registered</Text><Text style={s.rowVal}>{blank ? `up to ${limit}` : String((p.pets ?? []).length)}</Text></View>
+        <View style={s.row}><Text style={s.rowKey}>Animals listed</Text><Text style={s.rowVal}>{String((p.pets ?? []).length)}</Text></View>
 
-        <Text style={s.sectionTitle}>Pets</Text>
-        {pets.map((pet, i) => <PetCard key={i} pet={pet} index={i} blank={blank} />)}
+        {q && <QuestionnaireSection q={q} />}
+
+        <Text style={s.sectionTitle}>{branch && branch !== 'pet' ? 'Animal' : 'Pets'}</Text>
+        {pets.map((pet, i) => <PetCard key={i} pet={pet} index={i} />)}
 
         <Text style={s.sectionTitle}>Veterinarian</Text>
-        <View style={s.row}><Text style={s.rowKey}>Name</Text>{blank ? <View style={petStyles.blankLine} /> : <Text style={s.rowVal}>{p.vetName || '—'}</Text>}</View>
-        <View style={s.row}><Text style={s.rowKey}>Phone</Text>{blank ? <View style={petStyles.blankLine} /> : <Text style={s.rowVal}>{p.vetPhone || '—'}</Text>}</View>
+        <View style={s.row}><Text style={s.rowKey}>Name</Text><Text style={s.rowVal}>{p.vetName || '—'}</Text></View>
+        <View style={s.row}><Text style={s.rowKey}>Phone</Text><Text style={s.rowVal}>{p.vetPhone || '—'}</Text></View>
 
-        <Text style={s.para}>{p.rulesAck || PET_ACK_DEFAULT}</Text>
-        {!blank && <SignatureRow doc={doc} def={petRegistration} />}
-        {blank && (
-          <>
-            <Text style={s.sectionTitle}>Signature</Text>
-            <View style={s.row}><Text style={s.rowKey}>Applicant</Text><View style={petStyles.blankLine} /></View>
-            <View style={s.row}><Text style={s.rowKey}>Date</Text><View style={petStyles.blankLine} /></View>
-          </>
+        <Text style={s.para}>{p.rulesAck || (p.questionnaire ? certificationFor(p.questionnaire) : PET_ACK_DEFAULT)}</Text>
+        {p.questionnaire && !petRulesApply(p.questionnaire) && (
+          <Text style={{ ...s.para, marginTop: 3, color: MUTED, fontSize: 9 }}>
+            The Association&apos;s ordinary pet rules, procedures and fees do NOT apply to an approved service or assistance animal.
+          </Text>
         )}
+        <SignatureRow doc={doc} def={petRegistration} />
       </Page>
     </Document>
   )
@@ -275,11 +403,10 @@ export function petRegistrationExpiry(payload: PetPayload, signedAtIso?: string 
 
 const petRegistration: EsignFormDef = {
   kind: 'pet_registration',
-  label: 'Pet Registration',
+  label: 'Animal Information & Accommodation Request',
   roles: ['applicant'],
   roleLabel: () => 'Applicant',
-  renderPdf: (doc) => renderPetPdf(doc, false),
-  renderBlank: (doc) => renderPetPdf(doc, true),
+  renderPdf: (doc) => renderPetPdf(doc),
   fillable: true,
   computeExpiry: (doc) => petRegistrationExpiry(doc.payload as PetPayload, doc.signers.find(sg => sg.role === 'applicant')?.signed_at ?? null),
 }
@@ -453,6 +580,5 @@ export function getFormDef(kind: string): EsignFormDef | null { return REGISTRY[
 export function requiredRoles(kind: string): string[] { return REGISTRY[kind]?.roles ?? [] }
 export function roleLabel(kind: string, role: string): string { return REGISTRY[kind]?.roleLabel(role) ?? role }
 export function renderFormPdf(doc: EsignDoc): PdfElement | null { return REGISTRY[doc.kind]?.renderPdf(doc) ?? null }
-export function renderFormBlank(doc: EsignDoc): PdfElement | null { return REGISTRY[doc.kind]?.renderBlank?.(doc) ?? null }
 export function isFillable(kind: string): boolean { return !!REGISTRY[kind]?.fillable }
 export function computeFormExpiry(doc: EsignDoc): string | null { return REGISTRY[doc.kind]?.computeExpiry?.(doc) ?? null }

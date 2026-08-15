@@ -13,6 +13,7 @@
 
 import type { EsignDoc } from '@/lib/esign'
 import { VPCI_INSTRUCTIONS, VPCI_RULES, VPCI_STATUTORY_NOTICES, VPCI_RULES_REVISION } from '@/lib/vpci-rules-ack'
+import { MANXI_INSTRUCTIONS, MANXI_RULES, MANXI_STATUTORY_NOTICES, MANXI_RULES_REVISION } from '@/lib/manxi-rules-ack'
 import { loadAssociationRulesPdf, mergeRulesIntoWrapper } from '@/lib/rules-ack-pdf'
 
 export interface RulesAckContent {
@@ -34,6 +35,13 @@ export function rulesAckContentFor(associationCode: string): RulesAckContent | n
         rules: VPCI_RULES,
         statutoryNotices: VPCI_STATUTORY_NOTICES,
         rulesRevision: VPCI_RULES_REVISION,
+      }
+    case 'MANXI':
+      return {
+        instructions: MANXI_INSTRUCTIONS,
+        rules: MANXI_RULES,
+        statutoryNotices: MANXI_STATUTORY_NOTICES,
+        rulesRevision: MANXI_RULES_REVISION,
       }
     default:
       return null

@@ -71,13 +71,23 @@ const WELCOME_CSS = `
 .pa-ghost{width:100%;margin-top:12px;padding:11px;border:1.5px dashed #d1d5db;border-radius:10px;background:#fff;color:#374151;font-weight:600;font-size:14px;cursor:pointer;font-family:inherit}
 `
 
-interface ChecklistItem { id: string; doc_key: string; label: string; provided_by: 'applicant' | 'landlord' | 'agent'; required: boolean; note: string | null; uploaded: boolean; mine: boolean; requiresNotarization?: boolean; templateUrl?: string | null }
+interface ChecklistItem { id: string; doc_key: string; label: string; provided_by: 'applicant' | 'landlord' | 'agent'; required: boolean; note: string | null; uploaded: boolean; mine: boolean; requiresNotarization?: boolean; templateUrl?: string | null; conditionKey?: string | null }
+type AnimalKind = 'pet' | 'service' | 'esa' | 'unsure'
+interface Declarations { vehicle?: { has: boolean } | null; animal?: { has: boolean; kind?: AnimalKind | null } | null }
+interface AnimalGuidance { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[] }
 interface Collaborator { id: string; name: string | null; email: string | null; role: string; roleLabel: string; isPrimary: boolean; status: string; signs: boolean; signed: boolean; emailVerified: boolean }
 interface Info {
   associationName: string; type: string; unitLabel: string | null
   me: { name: string | null; role: string; roleLabel: string; signs: boolean; isPrimary: boolean; status: string; emailVerified: boolean; emailMasked: string | null; signed: boolean }
   canAddCollaborators: boolean; submitted: boolean
   checklist: ChecklistItem[]; rules: { rule_key: string; label: string }[]; collaborators: Collaborator[]
+  declarations: Declarations
+  pendingDeclarations: ('vehicle' | 'animal')[]
+  petsAllowed: boolean | null
+  petsProhibitedNotice: boolean
+  animalKinds: { key: AnimalKind; label: string; blurb: string }[]
+  animalGuidance: AnimalGuidance | null
+  animalUnsure: boolean
 }
 
 const wrap: React.CSSProperties = { maxWidth: 640, margin: '0 auto', padding: 20, fontFamily: 'system-ui, sans-serif', color: '#1a1a1a' }
@@ -349,7 +359,13 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
   const myDocs = info.checklist.filter(d => d.mine)
   const otherDocs = info.checklist.filter(d => !d.mine)
   const myRequiredDone = myDocs.every(d => !d.required || d.uploaded)
-  const canSubmit = myRequiredDone && (!info.me.signs || (agreed && !!rulesName.trim()))
+  // Only the applicant (or whoever leads the application) answers the yes/no
+  // gates; an agent uploading their part is never asked. Whoever IS asked
+  // cannot submit until they have answered, so an unanswered gate can't be
+  // mistaken for "nothing applies".
+  const answersGates = info.me.role === 'applicant' || info.me.isPrimary
+  const gatesPending = answersGates && info.pendingDeclarations.length > 0
+  const canSubmit = myRequiredDone && !gatesPending && (!info.me.signs || (agreed && !!rulesName.trim()))
 
   // Verify email first (per person).
   if (!info.me.emailVerified) return (
@@ -368,6 +384,10 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
       <p style={{ color: '#6b7280', fontSize: 14, marginTop: 0 }}>
         {info.me.roleLabel}{info.unitLabel ? ` · Unit ${info.unitLabel}` : ''} · {f.docsP}
       </p>
+
+      {answersGates && (info.pendingDeclarations.length > 0 || info.declarations.vehicle || info.declarations.animal) && (
+        <DeclarationCard token={token} info={info} onDone={load} />
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
         {myDocs.length === 0
@@ -434,6 +454,7 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
         <p style={{ marginTop: 22, fontSize: 13, color: '#0f7a4d', background: '#f0fdf6', border: '1px solid #cdeedd', borderRadius: 9, padding: '10px 12px' }}>{f.noSignNote}</p>
       )}
 
+      {gatesPending && <p style={{ color: '#92400e', fontSize: 12.5, marginTop: 12 }}>⚠ Please answer the questions above before submitting.</p>}
       {!myRequiredDone && <p style={{ color: '#92400e', fontSize: 12.5, marginTop: 12 }}>{f.uploadAllNote}</p>}
       {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
       <button onClick={submit} disabled={busy || !canSubmit} style={primary(!busy && canSubmit)}>{busy ? f.submittingBtn : f.submitMyPart}</button>
@@ -481,6 +502,141 @@ function VerifyEmail({ token, lang, onVerified }: { token: string; lang: PortalL
         <button onClick={verify} disabled={busy || code.length < 4} style={{ ...btn, background: busy || code.length < 4 ? '#9ca3af' : '#059669' }}>{f.verifyBtn}</button>
       </>}
       {msg && <p style={{ width: '100%', fontSize: 13, color: msg.startsWith(f.codeSentTo) ? '#166534' : '#b91c1c', margin: '4px 0 0' }}>{msg}</p>}
+    </div>
+  )
+}
+
+// The vehicle / animal yes-no gates. Both used to be unconditionally required,
+// so an applicant with no car was permanently incomplete and the only way out
+// was a staff member marking the item N/A by hand.
+//
+// The animal question is deliberately not just yes/no. A service animal and an
+// emotional support animal are NOT pets: an association that permits no pets
+// must still consider a reasonable accommodation for either, and the two are
+// asked for different things (a service animal is never asked for medical
+// documentation). Asking "do you have a pet?" alone is what closes that door
+// by accident.
+function DeclarationCard({ token, info, onDone }: { token: string; info: Info; onDone: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const d = info.declarations
+  const asks = new Set(info.checklist.map(c => c.conditionKey).filter(Boolean) as string[])
+  const asksVehicle = info.pendingDeclarations.includes('vehicle') || !!d.vehicle
+  const asksAnimal = info.pendingDeclarations.includes('animal') || !!d.animal
+
+  async function save(body: Record<string, unknown>, tag: string) {
+    setBusy(tag); setErr(null)
+    try {
+      const r = await fetch(`/api/pre-apply/${token}/declare`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      if (!r.ok) throw new Error((await r.json()).error ?? 'Could not save')
+      onDone()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(null) }
+  }
+
+  const yn = (on: boolean, active: boolean): React.CSSProperties => ({
+    padding: '9px 20px', borderRadius: 9, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+    border: `1.5px solid ${active ? (on ? '#0f7a4d' : '#b45309') : '#d1d5db'}`,
+    background: active ? (on ? '#ecfdf5' : '#fffbeb') : '#fff',
+    color: active ? (on ? '#0f7a4d' : '#b45309') : '#374151',
+  })
+  const qStyle: React.CSSProperties = { fontSize: 14, fontWeight: 600, color: '#1f2a44', margin: '0 0 8px' }
+
+  return (
+    <div style={{ marginTop: 14, border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: 12, padding: 16 }}>
+      <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '0 0 2px' }}>A couple of quick questions</h2>
+      <p style={{ fontSize: 12.5, color: '#6b7280', margin: '0 0 14px', lineHeight: 1.5 }}>
+        Your answers decide which documents you are asked for. If something does not apply to you, say so and it will not be requested.
+      </p>
+
+      {asksVehicle && (
+        <div style={{ marginBottom: asksAnimal ? 18 : 0 }}>
+          <p style={qStyle}>Will you keep a vehicle at the property?</p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => save({ vehicle: true }, 'v1')} disabled={!!busy} style={yn(true, d.vehicle?.has === true)}>Yes</button>
+            <button onClick={() => save({ vehicle: false }, 'v0')} disabled={!!busy} style={yn(false, d.vehicle?.has === false)}>No</button>
+          </div>
+          {d.vehicle?.has === false && (
+            <p style={{ fontSize: 12.5, color: '#0f7a4d', margin: '8px 0 0' }}>✓ The vehicle registration and vehicle insurance will not be requested.</p>
+          )}
+        </div>
+      )}
+
+      {asksAnimal && (
+        <div>
+          <p style={qStyle}>Will any animal live in the unit?</p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => save({ animal: true }, 'a1')} disabled={!!busy} style={yn(true, d.animal?.has === true)}>Yes</button>
+            <button onClick={() => save({ animal: false }, 'a0')} disabled={!!busy} style={yn(false, d.animal?.has === false)}>No</button>
+          </div>
+
+          {d.animal?.has === true && (
+            <div style={{ marginTop: 12 }}>
+              <p style={{ ...qStyle, marginBottom: 4 }}>What kind of animal?</p>
+              <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 8px', lineHeight: 1.5 }}>
+                A service animal and an emotional support animal are not pets. They are handled as a reasonable-accommodation
+                request, and are never charged a pet fee or deposit, or restricted by breed or size.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {info.animalKinds.map(k => {
+                  const on = d.animal?.kind === k.key
+                  return (
+                    <button key={k.key} onClick={() => save({ animal: true, animalKind: k.key }, k.key)} disabled={!!busy}
+                      style={{ textAlign: 'left', border: `1.5px solid ${on ? '#f26a1b' : '#e2e5ec'}`, background: on ? '#fff7f0' : '#fff', borderRadius: 10, padding: '11px 13px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: '#1f2a44' }}>{k.label}</div>
+                      <div style={{ fontSize: 12.5, color: '#6b7280', marginTop: 2, lineHeight: 1.45 }}>{k.blurb}</div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {d.animal?.has === false && (
+            <p style={{ fontSize: 12.5, color: '#0f7a4d', margin: '8px 0 0' }}>✓ No animal documents will be requested.</p>
+          )}
+
+          {info.petsProhibitedNotice && (
+            <div style={{ marginTop: 12, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, padding: '10px 12px' }}>
+              <p style={{ fontSize: 12.5, color: '#92400e', margin: 0, lineHeight: 1.5 }}>
+                ⚠ This association does not permit pets. Your answer has been recorded and staff will contact you.
+                If your animal is a <strong>service animal</strong> or an <strong>emotional support animal</strong>, choose that
+                option above instead — those are not pets, and this rule does not apply to them.
+              </p>
+            </div>
+          )}
+
+          {info.animalUnsure && (
+            <div style={{ marginTop: 12, background: '#f0fdf6', border: '1px solid #cdeedd', borderRadius: 9, padding: '11px 13px' }}>
+              <p style={{ fontSize: 12.5, color: '#166534', margin: 0, lineHeight: 1.5 }}>
+                That&apos;s fine — nothing further is asked here. Staff will follow up to work out which applies. You will
+                not be asked for a diagnosis or medical records at any point.
+              </p>
+            </div>
+          )}
+
+          {info.animalGuidance && (
+            <div style={{ marginTop: 12, background: '#f0fdf6', border: '1px solid #cdeedd', borderRadius: 9, padding: '11px 13px' }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: '#0f7a4d' }}>{info.animalGuidance.heading}</div>
+              <p style={{ fontSize: 12.5, color: '#166534', margin: '4px 0 0', lineHeight: 1.5 }}>{info.animalGuidance.intro}</p>
+              {info.animalGuidance.mayRequest.length > 0 && (
+                <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#166534', lineHeight: 1.55 }}>
+                  {info.animalGuidance.mayRequest.map((t, i) => <li key={i}>{t}</li>)}
+                </ul>
+              )}
+              {info.animalGuidance.mustNotRequest.length > 0 && (
+                <p style={{ fontSize: 12, color: '#0f7a4d', margin: '8px 0 0', lineHeight: 1.5 }}>
+                  You will <strong>never</strong> be asked for: {info.animalGuidance.mustNotRequest[0].toLowerCase()}.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!asksVehicle && !asksAnimal && asks.size === 0 && null}
+      {err && <p style={{ fontSize: 12.5, color: '#b91c1c', margin: '10px 0 0' }}>⚠ {err}</p>}
     </div>
   )
 }

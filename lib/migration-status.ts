@@ -3640,6 +3640,31 @@ UPDATE public.associations SET
 WHERE association_code = 'MANXI';
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'vehicle_animal_declarations',
+    label:       'Vehicle / animal declarations + assistance-animal path',
+    description: 'Adds association_intake_documents.condition_key and listing_applications.declarations so the applicant answers the vehicle and animal yes/no gates themselves — before this, "Vehicle Registration" was unconditionally required and an applicant with no car could never reach complete. Also declares associations.pets_allowed for real (it had been added straight to production and never registered) and defaults the 24 unanswered associations to true. The animal gate asks WHAT KIND, because pets_allowed = false closes the pet path but must never close the reasonable-accommodation path for a service animal or an ESA — see docs/ASSISTANCE-ANIMAL-PROCEDURE.md and lib/animal-accommodation.ts. Seeds pet_registration + assistance_animal_documentation on every association and every application type, gives MANXI a governing_docs_ack item so its Rules Knowledge Acknowledgment has somewhere to land, and normalises MANXI\'s hand-entered no_pet rule from the JSON string "true" to a boolean.',
+    filename:    '20260815_vehicle_animal_declarations.sql',
+    artifact:    { type: 'column', table: 'listing_applications', column: 'declarations' },
+    sql: `ALTER TABLE public.associations ADD COLUMN IF NOT EXISTS pets_allowed boolean;
+UPDATE public.associations SET pets_allowed = true WHERE pets_allowed IS NULL;
+ALTER TABLE public.association_intake_documents ADD COLUMN IF NOT EXISTS condition_key text;
+DO $$ BEGIN
+  ALTER TABLE public.association_intake_documents
+    ADD CONSTRAINT chk_intake_condition
+    CHECK (condition_key IS NULL OR condition_key IN ('vehicle','pet','assistance_animal'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS declarations jsonb NOT NULL DEFAULT '{}'::jsonb;
+UPDATE public.association_intake_documents SET condition_key = 'vehicle', updated_at = now()
+ WHERE doc_key IN ('car_registration','vehicle_insurance') AND condition_key IS DISTINCT FROM 'vehicle';
+UPDATE public.association_intake_documents SET condition_key = 'pet', updated_at = now()
+ WHERE doc_key = 'pet_registration' AND condition_key IS DISTINCT FROM 'pet';
+UPDATE public.association_intake_documents SET active = false, updated_at = now()
+ WHERE doc_key = 'pet_esa_documents' AND active;
+-- Full seed of the animal items, the MANXI acknowledgment item and the no_pet
+-- rule normalisation: see supabase/migrations/20260815_vehicle_animal_declarations.sql
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

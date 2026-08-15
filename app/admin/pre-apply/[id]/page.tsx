@@ -20,7 +20,14 @@ interface Detail {
   screeningProvider: string
   audit: { auditedBy: string | null; auditedAt: string | null; reviewedBy: string | null; reviewedAt: string | null; note: string | null; approvedByRole: string | null }
   naItems: string[]
-  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; per_applicant: boolean; allow_multiple: boolean; uploaded: boolean }[]
+  declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null }
+  declaredNa: string[]
+  petsAllowed: boolean | null
+  petsProhibitedNotice: boolean
+  animalGuidance: { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[]; staffNote: string } | null
+  assistanceAnimalDenialGrounds: string[]
+  assistanceAnimalDecisionDays: number
+  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; per_applicant: boolean; allow_multiple: boolean; uploaded: boolean; condition_key: string | null }[]
   documents: Doc[]
 }
 
@@ -83,7 +90,11 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
     ? d.documents.filter(x => x.doc_key === docKey && (x.stakeholderId ?? null) === sid)
     : d.documents.filter(x => x.doc_key === docKey).sort((a, b) => Number(!!a.stakeholderId) - Number(!!b.stakeholderId))
   const docFor = (docKey: string, sid: string | null) => docsFor(docKey, sid)[0]
-  const naFor = (docKey: string, sid: string | null) => naSet.has(sid ? `${docKey}#${sid}` : docKey)
+  // A BARE doc_key in naItems means "applies to nobody on this application" —
+  // that's how the applicant's own declaration is expressed ("I keep no
+  // vehicle"), so it must retire the per-applicant rows too, not just the
+  // shared one. A `docKey#stakeholderId` entry stays scoped to that person.
+  const naFor = (docKey: string, sid: string | null) => naSet.has(docKey) || (!!sid && naSet.has(`${docKey}#${sid}`))
   // Missing required: shared items + each applicant's per-person items (minus N/A).
   const missing = [
     ...sharedItems.filter(c => c.required && !docFor(c.doc_key, null) && !naFor(c.doc_key, null)),
@@ -165,6 +176,71 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fef2f2', border: '1px solid #b91c1c', borderLeft: '4px solid #b91c1c', borderRadius: 10, padding: '11px 14px', margin: '12px 0' }}>
           <span style={{ fontSize: 20 }}>🚨</span>
           <div style={{ flex: 1, fontSize: 13.5, color: '#7f1d1d' }}><b>{expiredDocs.length} expired document{expiredDocs.length === 1 ? '' : 's'}.</b> {expiredDocs.map(x => `${x.doc_label || x.filename} (expired ${new Date(x.expirationDate!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`).join(', ')}. Request current copies below before this can move forward.</div>
+        </div>
+      )}
+
+      {/* What the applicant declared about themselves — vehicle and animal.
+          These retire the matching checklist items, so staff need to see the
+          answer that did it rather than wondering why a row went N/A. */}
+      {(d.declarations?.vehicle || d.declarations?.animal) && (
+        <div style={{ border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: 10, padding: '12px 14px', margin: '12px 0' }}>
+          <div style={{ font: '700 12px system-ui', color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em' }}>Applicant declared</div>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 6, fontSize: 13.5, color: '#374151' }}>
+            {d.declarations.vehicle && (
+              <span>🚗 Vehicle at the property: <strong>{d.declarations.vehicle.has ? 'Yes' : 'No'}</strong></span>
+            )}
+            {d.declarations.animal && (
+              <span>🐾 Animal in the unit: <strong>{d.declarations.animal.has ? 'Yes' : 'No'}</strong>
+                {d.declarations.animal.has && d.declarations.animal.kind && (
+                  <> · <strong>{d.declarations.animal.kind === 'pet' ? 'Pet' : d.declarations.animal.kind === 'service' ? 'Service animal' : d.declarations.animal.kind === 'unsure' ? 'Not sure yet' : 'Emotional support animal'}</strong></>
+                )}
+              </span>
+            )}
+          </div>
+          {d.declaredNa?.length > 0 && (
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
+              Retired by this answer: {d.declaredNa.join(', ')}. Override any single row with <em>Undo N/A</em> below.
+            </div>
+          )}
+
+          {d.petsProhibitedNotice && (
+            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '9px 11px', marginTop: 9, fontSize: 12.5, color: '#92400e', lineHeight: 1.5 }}>
+              ⚠ <strong>A pet was declared at an association that permits none.</strong> Contact the applicant. If the animal is
+              actually a service animal or an emotional support animal, have them change the answer — the pet rule does not
+              apply to either, and neither may be charged a pet fee or deposit or restricted by breed or size.
+            </div>
+          )}
+
+          {d.animalGuidance && (d.declarations.animal?.kind === 'service' || d.declarations.animal?.kind === 'esa') && (
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px', marginTop: 9 }}>
+              <div style={{ font: '700 13px system-ui', color: '#1f2a44' }}>{d.animalGuidance.heading} — reasonable accommodation</div>
+              <p style={{ fontSize: 12.5, color: '#4b5563', margin: '4px 0 0', lineHeight: 1.5 }}>{d.animalGuidance.intro}</p>
+              <div style={{ fontSize: 12.5, color: '#166534', marginTop: 8, fontWeight: 700 }}>May be requested</div>
+              <ul style={{ margin: '3px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#374151', lineHeight: 1.5 }}>
+                {d.animalGuidance.mayRequest.map((t, i) => <li key={i}>{t}</li>)}
+              </ul>
+              <div style={{ fontSize: 12.5, color: '#991b1b', marginTop: 8, fontWeight: 700 }}>Must never be requested</div>
+              <ul style={{ margin: '3px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#7f1d1d', lineHeight: 1.5 }}>
+                {d.animalGuidance.mustNotRequest.map((t, i) => <li key={i}>{t}</li>)}
+              </ul>
+              {d.animalGuidance.staffNote && (
+                <p style={{ fontSize: 12, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 7, padding: '8px 10px', margin: '9px 0 0', lineHeight: 1.5 }}>{d.animalGuidance.staffNote}</p>
+              )}
+              {d.assistanceAnimalDenialGrounds?.length > 0 && (
+                <>
+                  <div style={{ fontSize: 12.5, color: '#1f2a44', marginTop: 8, fontWeight: 700 }}>
+                    The only grounds for refusal — decide within about {d.assistanceAnimalDecisionDays} days of receiving the documentation
+                  </div>
+                  <ul style={{ margin: '3px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#374151', lineHeight: 1.5 }}>
+                    {d.assistanceAnimalDenialGrounds.map((t, i) => <li key={i}>{t}</li>)}
+                  </ul>
+                </>
+              )}
+              <p style={{ fontSize: 11.5, color: '#9ca3af', margin: '9px 0 0', lineHeight: 1.5 }}>
+                MAIA organises this request; it does not decide it. The decision is the board&apos;s, with counsel where needed.
+              </p>
+            </div>
+          )}
         </div>
       )}
 

@@ -71,7 +71,9 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const unitLabel = c.unit ?? '—'
   const { data: created, error } = await supabaseAdmin.from('esign_documents').insert({
     kind: 'pet_registration', association_code: c.code, unit_ref: c.unit,
-    title: `Pet Registration — Unit ${unitLabel}`,
+    // Neutral until the applicant picks a branch; the rendered PDF titles
+    // itself from the answers (documentTitleFor / renderPetPdf).
+    title: `Animal Information — Unit ${unitLabel}`,
     payload: { associationLegalName: c.legal, petLimit: c.petLimit, rulesAck: PET_ACK },
     signers: [{ role: 'applicant', name: c.name, email: c.email, phone: c.phone }],
     status: 'sent', compliance_item: 'unit.pet', created_by: `staff:${session.displayName}`,
@@ -82,12 +84,13 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   try {
     await sendEmail({
       to: c.email,
-      subject: `Pet Registration — Unit ${unitLabel}`,
+      subject: `Animal information — Unit ${unitLabel}`,
       html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
         <p>Hello${c.name ? ` ${esc(c.name)}` : ''},</p>
-        <p>${esc(c.legal)} asks that you register your pet(s) for <strong>Unit ${esc(unitLabel)}</strong> as part of your application. Fill in the short form and e-sign it — it takes a minute.</p>
-        <p style="margin:22px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Register your pet &amp; e-sign →</a></p>
-        <p style="color:#6b7280;font-size:12px">If you have no pets, tell us and we'll mark this item as not applicable. No account needed; this link is specific to you.</p>
+        <p>${esc(c.legal)} asks for information about any animal that will live at <strong>Unit ${esc(unitLabel)}</strong> as part of your application. Fill in the short form and e-sign it — it takes a minute.</p>
+        <p>If your animal is a <strong>service animal</strong> or an <strong>emotional support / assistance animal</strong>, say so on the form. Those are not pets: no pet fee, deposit, or breed or size restriction applies, and you will never be asked for a diagnosis or medical records.</p>
+        <p style="margin:22px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Complete the animal form &amp; e-sign →</a></p>
+        <p style="color:#6b7280;font-size:12px">If no animal will live in the unit, tell us and we'll mark this item as not applicable. No account needed; this link is specific to you.</p>
         <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p></div>`,
     })
   } catch (e) {

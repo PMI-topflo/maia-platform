@@ -1,4 +1,35 @@
-# Session handoff — 2026-08-14 (latest)
+# Session handoff — 2026-08-15 (latest)
+
+## Vehicle/animal declaration gate, assistance-animal routing, Manors XI rules packet
+
+**The applicant now answers the yes/no gates themselves.** `association_intake_documents.condition_key` + `listing_applications.declarations` (migration `20260815_vehicle_animal_declarations.sql`, applied to prod). Before this, "Vehicle Registration" and "Vehicle Insurance" were unconditionally required, so **a car-free Venetian Park I applicant could never reach complete** — only staff could clear it, by hand, via `na_items`. The declaration writes BARE doc_keys, which every existing completeness gate already reads as "applies to nobody", so nothing downstream needed rewriting and the answer survives a later roster change. `naFor()` on `/admin/pre-apply/[id]` now honours a bare key for per-applicant rows too.
+
+**`pets_allowed = false` no longer means "no animal questions".** The animal gate asks WHAT KIND — pet / service animal / ESA — and routes to different document sets (`lib/animal-accommodation.ts`, from `docs/ASSISTANCE-ANIMAL-PROCEDURE.md`). A no-pets association closes the pet path and **opens** the accommodation path. A pet declared where pets are prohibited is never silently dropped: the applicant is told, and staff get a flag. Applicant and staff both see what may and may **not** be asked — the service-animal path names "a doctor's letter or any medical documentation" as never requestable. **MAIA organises; it does not adjudicate.** Verified live on VPCI (pets allowed) and MANXI (pets prohibited).
+
+**`npm run test:gate`** — new, and the second real test in the repo. 18 cases; case 7 is the fair-housing guarantee that `pets_allowed = false` never closes the accommodation path. Run it before touching `lib/animal-accommodation.ts`.
+
+**`associations.pets_allowed` is now a real migration.** It had only ever been set directly on production, so a fresh environment did not have the column. All 26 associations answered: MANXI `false`, everything else `true`. ⚠️ **These are defaults, not board answers** — the 5 commercial associations (ESSI, KANE, MACO, WBP, WBPA) and the 2 master/rec entities (LCLUB, VPREC) are defaults of convenience.
+
+**Pet registration + assistance-animal items are on every association**, all 4 application types, both optional and conditional — so they stay invisible until an applicant declares an animal. MANXI's ad-hoc `pet_esa_documents` (lease_renewal only) is deactivated in favour of `assistance_animal_documentation`; it had never been used.
+
+**Manors XI can now be sent a Rules Knowledge Acknowledgment.** `lib/manxi-rules-ack.ts` + a `MANXI` case in `rulesAckContentFor()`, and the packet's official source documents are stored at `MANXI/rules-and-regulations-source-documents.pdf`. MANXI also gained a `governing_docs_ack` checklist item — the e-signed acknowledgment files under that key, and MANXI had no such item, so the document had nowhere to land. Assembles to **25 pages** (2 cover + the board's 22 verbatim pages + signatures), verified by rendering.
+
+⚠️ **The packet's exhibits are fine — the packet is correctly ordered.** Verify page order with `pdftoppm` (full-document render) or `pdfimages -list`, **not** with single-page extraction: the single-page path returned pages 7/8/11/13/19/26 as each other's content for this file and nearly caused a "fix" that would have genuinely scrambled a governing document. Confirmed order: Ex 1 = 1989 Rules (p7-11), Ex 2 = 1986 Rules (p13-17), Ex 3 = Manors Club 2012 master rules (p19-26).
+
+**Only pages 5-26 are spliced** into the acknowledgment. Pages 1-4 are the packet's own cover, requirements summary and an acknowledgment with blank ink-signature lines — `rules_knowledge_ack` supplies all three, and splicing them would put blank signature lines beside the verified e-signature block. That content lives in `MANXI_RULES` / `MANXI_INSTRUCTIONS` on the MAIA cover instead. Same convention as VPCI (8 pages, rules only).
+
+**MANXI's `no_pet` rule row normalised** — it had been entered by hand as the JSON *string* `"true"` rather than a boolean, and its label now states what actually happens rather than reading as a blanket animal ban.
+
+### ⏳ NEXT
+1. **The assistance-animal decision record is NOT built** (step 4 of the procedure doc): no structured decision row, no running ~10-day clock, no reminder. Staff see the guidance and the narrow denial grounds; that is all. **Get the attorney sign-off before building the part that adjudicates.**
+2. **The admin-side panel on `/admin/pre-apply/[id]` was typechecked but not seen** — the staff portal needs a session I could not create locally. Look at it on a real application before relying on it.
+3. Each board should confirm its own `pets_allowed` rather than living on the default.
+4. **Checkr key prefix** still unconfirmed — nobody moves to `maia_checkr` until it is known.
+5. **Rentvine tenant-sync cron still dead since 2026-06-17.**
+
+---
+
+# Session handoff — 2026-08-14
 
 ## Venetian Park I onboarded — and the pipeline stopped being Manors-XI-only (PRs #691–#696, all merged)
 

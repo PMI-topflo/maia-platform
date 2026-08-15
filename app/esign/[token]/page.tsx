@@ -102,15 +102,16 @@ export default function EsignPage({ params }: { params: Promise<{ token: string 
     </div>
   )
 
-  // Fillable forms (pet registration): collect the applicant's data first.
+  // Fillable forms (the animal questionnaire): collect the applicant's answers
+  // first. There is deliberately NO "download a blank copy to print" link — the
+  // whole application is online, and a printed blank cannot branch, so anyone
+  // filling one in would answer the PET questions and never reach the
+  // service-animal or assistance-animal path.
   if (info.needsFill) return (
     <div style={wrap}>
       <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6b7280', margin: 0 }}>{info.payload?.associationLegalName ?? info.associationCode}</p>
       <h1 style={{ fontSize: 22, color: '#1f2a44', margin: '4px 0 2px' }}>{info.title ?? info.formLabel}</h1>
-      <p style={{ color: '#6b7280', fontSize: 14, margin: '0 0 6px' }}>Unit {info.unitRef ?? '—'} · fill in your pet details, then you&apos;ll review &amp; e-sign.</p>
-      <p style={{ marginBottom: 14 }}>
-        <a href={`/api/esign/${token}/pdf?blank=1`} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600, fontSize: 13 }}>⬇ Download a blank form (PDF) to print instead →</a>
-      </p>
+      <p style={{ color: '#6b7280', fontSize: 14, margin: '0 0 14px' }}>Unit {info.unitRef ?? '—'} · answer a few questions, then you&apos;ll review &amp; e-sign.</p>
       <PetRegistrationFill token={token} petLimit={info.payload?.petLimit ?? 2} onFilled={load} />
     </div>
   )

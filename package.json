@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:gate": "npx tsx scripts/test-declaration-gate.ts",
     "eval:intent": "npx tsx evals/run-intent-eval.ts"
   },
   "dependencies": {
