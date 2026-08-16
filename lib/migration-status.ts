@@ -3724,6 +3724,39 @@ ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS board_window_op
 ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS board_window_days integer NOT NULL DEFAULT 30;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'occupant_sponsorships',
+    label:       'Tenant sponsorship of an additional occupant',
+    description: 'occupant_sponsorships — the already-approved TENANT confirms somebody joining their lease, supplies that person\'s OWN email and phone, and acknowledges the responsibility the governing documents already place on them. The occupant\'s email is REQUIRED and rejected if it matches the tenant\'s or anyone else on the application: MAIA uses email as identity, so a shared address would send the occupant\'s affidavit to the tenant\'s mailbox, verify it there, and record it as signed by him (MANXI 1003).',
+    filename:    '20260816_occupant_sponsorship.sql',
+    artifact:    { type: 'table', table: 'occupant_sponsorships' },
+    sql: `CREATE TABLE IF NOT EXISTS public.occupant_sponsorships (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id uuid NOT NULL,
+  association_code text NOT NULL,
+  unit_label text,
+  token text NOT NULL,
+  tenant_name text,
+  tenant_email text NOT NULL,
+  occupant_name text NOT NULL,
+  responded_at timestamptz,
+  decision text,
+  occupant_email text,
+  occupant_phone text,
+  acknowledged boolean NOT NULL DEFAULT false,
+  note text,
+  created_by text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_sponsorship_decision CHECK (decision IS NULL OR decision IN ('requested','declined'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS occupant_sponsorships_token ON public.occupant_sponsorships (token);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.occupant_sponsorships TO anon, authenticated, service_role;
+ALTER TABLE public.occupant_sponsorships ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_occupant_sponsorships" ON public.occupant_sponsorships;
+CREATE POLICY "service_role_all_occupant_sponsorships" ON public.occupant_sponsorships FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

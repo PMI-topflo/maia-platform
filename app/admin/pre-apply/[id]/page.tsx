@@ -20,6 +20,7 @@ interface Detail {
   screeningProvider: string
   audit: { auditedBy: string | null; auditedAt: string | null; reviewedBy: string | null; reviewedAt: string | null; note: string | null; approvedByRole: string | null }
   naItems: string[]
+  currentLease: { tenantName: string | null; tenantEmail: string | null; tenantPhone: string | null; leaseStart: string | null; leaseEnd: string | null; approvedAt: string | null; approvedApplicationId: string | null; documents: { docKey: string; label: string; url: string }[] } | null
   review: {
     rows: { scopeKey: string; docKey: string; state: 'waiting' | 'received' | 'approved' | 'refused'; decision: { by: string; role: string; at: string; reason: string | null } | null; perApplicantName: string | null }[]
     totals: { required: number; received: number; decided: number; approved: number; refused: number; waiting: number }
@@ -187,6 +188,39 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fef2f2', border: '1px solid #b91c1c', borderLeft: '4px solid #b91c1c', borderRadius: 10, padding: '11px 14px', margin: '12px 0' }}>
           <span style={{ fontSize: 20 }}>🚨</span>
           <div style={{ flex: 1, fontSize: 13.5, color: '#7f1d1d' }}><b>{expiredDocs.length} expired document{expiredDocs.length === 1 ? '' : 's'}.</b> {expiredDocs.map(x => `${x.doc_label || x.filename} (expired ${new Date(x.expirationDate!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`).join(', ')}. Request current copies below before this can move forward.</div>
+        </div>
+      )}
+
+      {/* An additional occupant is joining a lease that already exists. Show it
+          — the tenant of record, the term, and links to the approved
+          application's own documents — rather than copying those files onto
+          this application, where they would drift and carry a stale expiry. */}
+      {d.currentLease && (
+        <div style={{ border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: 10, padding: '12px 14px', margin: '12px 0' }}>
+          <div style={{ font: '700 12px system-ui', color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em' }}>Current lease on this unit</div>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 6, fontSize: 13.5, color: '#374151' }}>
+            {d.currentLease.tenantName && <span>👤 Approved tenant: <strong>{d.currentLease.tenantName}</strong></span>}
+            {(d.currentLease.leaseStart || d.currentLease.leaseEnd) && (
+              <span>📅 Term: <strong>{d.currentLease.leaseStart ?? '—'} → {d.currentLease.leaseEnd ?? '—'}</strong></span>
+            )}
+            {d.currentLease.approvedAt && <span>🏛 Board approved {fmt(d.currentLease.approvedAt)}</span>}
+          </div>
+          {(d.currentLease.tenantEmail || d.currentLease.tenantPhone) && (
+            <div style={{ fontSize: 12.5, color: '#6b7280', marginTop: 4 }}>
+              {d.currentLease.tenantEmail}{d.currentLease.tenantPhone ? ` · ${d.currentLease.tenantPhone}` : ''}
+            </div>
+          )}
+          {d.currentLease.documents.length > 0 && (
+            <div style={{ fontSize: 12.5, color: '#374151', marginTop: 7 }}>
+              On the approved lease:{' '}
+              {d.currentLease.documents.map((x, i) => (
+                <span key={x.docKey}>{i ? ' · ' : ''}<a href={x.url} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>{x.label}</a></span>
+              ))}
+            </div>
+          )}
+          <div style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 6 }}>
+            Shown, not copied — these stay on the approved lease so there is only ever one of each.
+          </div>
         </div>
       )}
 

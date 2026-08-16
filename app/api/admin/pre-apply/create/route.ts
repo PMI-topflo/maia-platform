@@ -15,7 +15,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
-import { createIntake, carryOverApprovedDocs } from '@/lib/preapply'
+import { createIntake } from '@/lib/preapply'
 import { isApplicationType, type ApplicationType } from '@/lib/intake-documents'
 import { ensureOngoingUnitFolder } from '@/lib/drive-application-mirror'
 import { normalizePhone } from '@/lib/cinc-sync'
@@ -99,11 +99,12 @@ export async function POST(req: Request) {
     review_note: `[${new Date().toISOString().slice(0, 10)}] Opened by ${session.displayName}${String(b.note ?? '').trim() ? ` — ${String(b.note).trim()}` : ''}`,
   }).eq('id', created.applicationId)
 
-  // An additional occupant inherits the approved lease, HO-6, certificate of
-  // use and so on rather than re-collecting them.
-  if (type === 'additional_occupant') {
-    await carryOverApprovedDocs(created.applicationId, code, unit).catch(() => null)
-  }
+  // NOT carried over as copies. An additional occupant's application SHOWS the
+  // approved lease, certificate of use and tenant of record (the "Current
+  // lease on this unit" panel) and links through to the approved application's
+  // own files. Copying produced two PDFs that drift apart, a duplicate in
+  // Drive, and a carried expiry that then read as THIS application's expired
+  // document.
 
   // The folder is the point of this route — somewhere to put the email
   // attachments. Drive is prod-only, so a failure here reports itself instead
