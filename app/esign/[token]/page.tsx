@@ -8,6 +8,7 @@
 import { use, useCallback, useEffect, useState } from 'react'
 import { SignaturePad } from '@/components/SignatureEvidence'
 import { PetRegistrationFill, PetSummary, type PetPayloadClient } from './PetRegistrationFill'
+import { EmergencyContactFill, EmergencySummary, type EmergencyPayloadClient } from './EmergencyContactFill'
 
 interface Info {
   kind: string
@@ -112,7 +113,9 @@ export default function EsignPage({ params }: { params: Promise<{ token: string 
       <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6b7280', margin: 0 }}>{info.payload?.associationLegalName ?? info.associationCode}</p>
       <h1 style={{ fontSize: 22, color: '#1f2a44', margin: '4px 0 2px' }}>{info.title ?? info.formLabel}</h1>
       <p style={{ color: '#6b7280', fontSize: 14, margin: '0 0 14px' }}>Unit {info.unitRef ?? '—'} · answer a few questions, then you&apos;ll review &amp; e-sign.</p>
-      <PetRegistrationFill token={token} petLimit={info.payload?.petLimit ?? 2} onFilled={load} />
+      {info.kind === 'emergency_contact_list'
+        ? <EmergencyContactFill token={token} payload={info.payload as EmergencyPayloadClient | null} onFilled={load} />
+        : <PetRegistrationFill token={token} petLimit={info.payload?.petLimit ?? 2} onFilled={load} />}
     </div>
   )
 
@@ -125,6 +128,7 @@ export default function EsignPage({ params }: { params: Promise<{ token: string 
       <p style={{ color: '#6b7280', fontSize: 14, marginTop: 0 }}>You are signing as the <strong>{info.roleLabel}</strong>.</p>
 
       {info.kind === 'pet_registration' && <PetSummary payload={info.payload} />}
+      {info.kind === 'emergency_contact_list' && <EmergencySummary payload={info.payload as EmergencyPayloadClient | null} />}
 
       {details.length > 0 && (
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '4px 14px', marginTop: 8 }}>

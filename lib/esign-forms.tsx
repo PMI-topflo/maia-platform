@@ -411,6 +411,138 @@ const petRegistration: EsignFormDef = {
   computeExpiry: (doc) => petRegistrationExpiry(doc.payload as PetPayload, doc.signers.find(sg => sg.role === 'applicant')?.signed_at ?? null),
 }
 
+// ── Emergency contact list ───────────────────────────────────────────
+//
+// Who the Association calls when something happens at a unit and the people
+// who live there cannot be reached. Sent to EVERY owner — whether the unit is
+// rented out or they live in it themselves — and to every renter.
+//
+// ONE form that adapts, rather than two that drift apart. The only real
+// difference is who occupies the unit: a landlord who lives in another state
+// is confirming their TENANT's household, not their own, so the occupant
+// section is prefilled from the tenant record and reworded. Everything else —
+// the contacts, the key holder, the entry permission — is asked identically.
+//
+// The "help evacuating" question is disability-adjacent and is treated the
+// same way as the animal questionnaire: a single OPTIONAL yes/no, with the
+// purpose stated on the form, and NO field anywhere for a condition, a
+// diagnosis, or why. See docs/ASSISTANCE-ANIMAL-PROCEDURE.md for the same
+// principle applied to animals.
+
+export interface EmergencyOccupant { name: string; note?: string }
+export interface EmergencyContact {
+  name: string
+  relationship?: string
+  phone?: string
+  email?: string
+}
+export interface EmergencyContactPayload {
+  associationLegalName?: string
+  propertyAddress?: string
+  /** 'resident' — the signer lives in the unit. 'landlord' — a non-resident
+   *  owner confirming their tenant's household. Set when the form is created,
+   *  never by the person filling it in. */
+  audience?: 'resident' | 'landlord'
+  /** Prefilled from the tenant record for a landlord; typed by a resident. */
+  occupants?: EmergencyOccupant[]
+  contacts?: EmergencyContact[]
+  access?: { keyHolder?: string; keyHolderPhone?: string; mayEnter?: boolean }
+  /** Voluntary. A bare boolean — there is deliberately nowhere to say why. */
+  assistance?: { needed?: boolean }
+  certification?: string
+}
+
+export const EMERGENCY_CERTIFICATION =
+  'I confirm the details above are correct to the best of my knowledge, and that the people listed have agreed to be contacted in an emergency at this unit. I will tell the Association if they change.'
+
+/** The one thing this form must never become is a health questionnaire, so the
+ *  evacuation line states its purpose and its limit on the signed page itself. */
+const ASSISTANCE_NOTE =
+  'Answered voluntarily. It is used only to check on the unit during a hurricane, fire or evacuation. The Association does not ask, and does not record, the reason.'
+
+function renderEmergencyPdf(doc: EsignDoc): PdfElement {
+  const p = (doc.payload ?? {}) as EmergencyContactPayload
+  const landlord = p.audience === 'landlord'
+  const occupants = p.occupants ?? []
+  const contacts = (p.contacts ?? []).filter(c => (c.name ?? '').trim())
+  return (
+    <Document>
+      <Page size="LETTER" style={s.page}>
+        <Text style={s.assoc}>{p.associationLegalName ?? doc.association_code}</Text>
+        <Text style={s.title}>Emergency Contact List</Text>
+        <View style={s.rule} />
+        <View style={s.row}><Text style={s.rowKey}>Unit</Text><Text style={s.rowVal}>{doc.unit_ref ?? '—'}</Text></View>
+        {p.propertyAddress ? <View style={s.row}><Text style={s.rowKey}>Address</Text><Text style={s.rowVal}>{p.propertyAddress}</Text></View> : null}
+        <View style={s.row}><Text style={s.rowKey}>Completed by</Text><Text style={s.rowVal}>{landlord ? 'Unit owner (non-resident)' : 'Resident'}</Text></View>
+
+        <Text style={s.sectionTitle}>{landlord ? 'Who lives in the unit' : 'Who lives here'}</Text>
+        {occupants.length === 0
+          ? <Text style={s.para}>None listed.</Text>
+          : occupants.map((o, i) => (
+              <View key={i} style={s.row}>
+                <Text style={s.rowKey}>{o.note?.trim() || `Occupant ${i + 1}`}</Text>
+                <Text style={s.rowVal}>{o.name || '—'}</Text>
+              </View>
+            ))}
+
+        <Text style={s.sectionTitle}>Emergency contacts</Text>
+        {contacts.length === 0
+          ? <Text style={s.para}>None listed.</Text>
+          : contacts.map((c, i) => (
+              <View key={i} wrap={false}>
+                <Text style={{ ...s.sectionTitle, fontSize: 9.5, marginTop: 7, marginBottom: 2 }}>
+                  Contact {i + 1}{i === 1 ? ' (preferably outside the area)' : ''}
+                </Text>
+                <View style={s.row}><Text style={s.rowKey}>Name</Text><Text style={s.rowVal}>{c.name || '—'}</Text></View>
+                <View style={s.row}><Text style={s.rowKey}>Relationship</Text><Text style={s.rowVal}>{c.relationship || '—'}</Text></View>
+                <View style={s.row}><Text style={s.rowKey}>Phone</Text><Text style={s.rowVal}>{c.phone || '—'}</Text></View>
+                <View style={s.row}><Text style={s.rowKey}>Email</Text><Text style={s.rowVal}>{c.email || '—'}</Text></View>
+              </View>
+            ))}
+
+        <Text style={s.sectionTitle}>Access to the unit</Text>
+        <View style={s.row}><Text style={s.rowKey}>Key held by</Text><Text style={s.rowVal}>{p.access?.keyHolder || '—'}</Text></View>
+        <View style={s.row}><Text style={s.rowKey}>Their phone</Text><Text style={s.rowVal}>{p.access?.keyHolderPhone || '—'}</Text></View>
+        <View style={s.row}>
+          <Text style={s.rowKey}>Entry permitted in an emergency</Text>
+          <Text style={s.rowVal}>{p.access?.mayEnter ? 'Yes' : 'Not granted'}</Text>
+        </View>
+
+        {p.assistance?.needed ? (
+          <View style={s.notice}>
+            <Text style={s.noticeTitle}>Someone in this unit would need help to evacuate</Text>
+            <Text style={s.noticeBody}>{ASSISTANCE_NOTE}</Text>
+          </View>
+        ) : null}
+
+        <Text style={s.para}>{p.certification || EMERGENCY_CERTIFICATION}</Text>
+        <SignatureRow doc={doc} def={emergencyContactList} />
+      </Page>
+    </Document>
+  )
+}
+
+/** Emergency contacts go stale silently — people move, numbers change, and
+ *  nobody thinks to tell the Association. One year from signing, so the
+ *  renewal-alert cron asks for a fresh one before it is a year old. */
+export function emergencyContactExpiry(signedAtIso?: string | null): string | null {
+  if (!signedAtIso) return null
+  const d = new Date(signedAtIso.slice(0, 10) + 'T00:00:00Z')
+  if (Number.isNaN(d.getTime())) return null
+  d.setUTCFullYear(d.getUTCFullYear() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
+const emergencyContactList: EsignFormDef = {
+  kind: 'emergency_contact_list',
+  label: 'Emergency Contact List',
+  roles: ['resident'],
+  roleLabel: () => 'Owner / Resident',
+  renderPdf: (doc) => renderEmergencyPdf(doc),
+  fillable: true,
+  computeExpiry: (doc) => emergencyContactExpiry(doc.signers.find(sg => sg.role === 'resident')?.signed_at ?? null),
+}
+
 // ── Board Decision Page ──────────────────────────────────────────────
 export interface BoardDecisionPayload {
   associationLegalName?: string
@@ -572,6 +704,7 @@ const REGISTRY: Record<string, EsignFormDef> = {
   [petRegistration.kind]: petRegistration,
   [boardDecision.kind]: boardDecision,
   [rulesKnowledgeAck.kind]: rulesKnowledgeAck,
+  [emergencyContactList.kind]: emergencyContactList,
 }
 
 export const PET_ACK = PET_ACK_DEFAULT
