@@ -1631,6 +1631,9 @@ function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { 
   const [add, setAdd] = useState('')
   const [busy, setBusy] = useState<'read' | 'save' | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  /** The last person removed, so it can be put back at the position it held. */
+  const [removed, setRemoved] = useState<{ person: Person; at: number } | null>(null)
+  const [collapsed, setCollapsed] = useState(false)
   // The editor is seeded from props ONCE, so anything the server normalised on
   // save (a phone rewritten by normalizePhone, a role defaulted) stayed
   // different from what was typed — `dirty` never cleared, "Save applicants"
@@ -1669,6 +1672,7 @@ function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { 
     try {
       const r = await fetch(`/api/admin/pre-apply/${id}/applicants`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ applicants: people.map(p => ({ name: p.name, applicant_role: p.role, email: p.email, phone: p.phone })) }) })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setRemoved(null)
       onDone()
     } catch (e) { setMsg(`Could not save: ${(e as Error).message}`) } finally { setBusy(null) }
   }
@@ -1677,12 +1681,46 @@ function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { 
 
   return (
     <div style={{ margin: '10px 0 0', border: '1px solid #e5e7eb', borderRadius: 10, background: '#fafafa', padding: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: collapsed ? 0 : 8 }}>
         <span style={{ font: '700 13px system-ui', color: '#1f2937' }}>Applicants <span style={{ color: '#9ca3af', fontWeight: 400 }}>· role + contact + their own document tab</span></span>
-        <button onClick={readFromLease} disabled={!!busy} style={{ font: '600 12px system-ui', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 7, padding: '5px 10px', cursor: busy ? 'default' : 'pointer' }}>{busy === 'read' ? 'Reading…' : '📄 Read from lease'}</button>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={readFromLease} disabled={!!busy} style={{ font: '600 12px system-ui', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 7, padding: '5px 10px', cursor: busy ? 'default' : 'pointer' }}>{busy === 'read' ? 'Reading…' : '📄 Read from lease'}</button>
+          {/* The card had no way to collapse, so the only thing that looked
+              like "close" was the per-person × — which deleted that person.
+              Give the card its own Hide, as the Agents card has. */}
+          <button onClick={() => setCollapsed(c => !c)} style={{ font: '600 12px system-ui', color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer' }}>{collapsed ? 'Show' : 'Hide'}</button>
+        </span>
       </div>
+      {collapsed && (
+        <div style={{ font: '12.5px system-ui', color: '#6b7280', marginTop: 6 }}>
+          {people.length === 0 ? 'No applicants listed.' : people.map(p => p.name || p.email || 'unnamed').join(' · ')}
+          {dirty && <span style={{ color: '#b45309', fontWeight: 600 }}> · unsaved changes</span>}
+        </div>
+      )}
+      {!collapsed && <>
+
+      {/* Put back the person just removed. Nothing is written until Save, so the
+          record is still intact — but that is impossible to know from a list
+          that has simply lost a name. */}
+      {removed && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 11px', marginBottom: 8 }}>
+          <span style={{ font: '12.5px system-ui', color: '#92400e' }}>
+            Removed <strong>{removed.person.name || removed.person.email || 'a person'}</strong> from the list. Nothing is saved until you press Save.
+          </span>
+          <button onClick={() => { setPeople(ps => { const n = [...ps]; n.splice(Math.min(removed.at, n.length), 0, removed.person); return n }); setRemoved(null) }}
+            style={{ font: '600 12px system-ui', color: '#fff', background: '#92400e', border: 'none', borderRadius: 6, padding: '4px 11px', cursor: 'pointer' }}>↩ Undo</button>
+          <button onClick={() => setRemoved(null)} style={{ font: '600 12px system-ui', color: '#92400e', background: 'none', border: 'none', cursor: 'pointer' }}>Dismiss</button>
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
-        {people.length === 0 && <span style={{ font: '13px system-ui', color: '#b45309' }}>No applicants yet — read them from the lease or add below.</span>}
+        {/* "No applicants yet" was shown whenever the LIST was empty, including
+            when the application still has applicants that were removed on
+            screen — telling staff the record was empty when it was not. */}
+        {people.length === 0 && (applicants.length > 0
+          ? <span style={{ font: '13px system-ui', color: '#b42318' }}>
+              You have removed all {applicants.length} applicant{applicants.length === 1 ? '' : 's'} from this list. <strong>They are still on the application</strong> — reload the page to bring them back, or press Save to remove them for good.
+            </span>
+          : <span style={{ font: '13px system-ui', color: '#b45309' }}>No applicants yet — read them from the lease or add below.</span>)}
         {people.map((p, i) => (
           <div key={i} style={{ background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1691,7 +1729,21 @@ function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { 
               <select value={p.role} onChange={e => upd(i, { role: e.target.value })} style={{ font: '600 12px system-ui', color: '#4338ca', border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 6px', background: '#fff', cursor: 'pointer' }}>
                 {APPLICANT_ROLES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
               </select>
-              <button onClick={() => setPeople(people.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: '#9ca3af', cursor: 'pointer', font: '700 15px system-ui', padding: 0, lineHeight: 1, marginLeft: 'auto' }}>×</button>
+              {/* This REMOVES a person from the application. It used to be a
+                  bare grey "×" in the corner of a card, which reads as "close
+                  this panel" — so it was clicked to collapse the row and took
+                  the applicant with it, silently and with no way back. It now
+                  says what it does, asks first, and can be undone. */}
+              <button
+                onClick={() => {
+                  const label = p.name || p.email || 'this person'
+                  if (!confirm(`Remove ${label} from this application?\n\nThey stay on the application until you press Save.`)) return
+                  setRemoved({ person: p, at: i })
+                  setPeople(people.filter((_, j) => j !== i))
+                }}
+                title={`Remove ${p.name || p.email || 'this person'} from this application`}
+                style={{ border: '1px solid #e5e7eb', background: '#fff', color: '#b42318', cursor: 'pointer', font: '600 11.5px system-ui', padding: '3px 9px', borderRadius: 6, lineHeight: 1.4, marginLeft: 'auto' }}
+              >Remove</button>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
               <span style={{ font: '11px system-ui', color: '#9ca3af', width: 46 }}>✉ Email</span>
@@ -1710,15 +1762,22 @@ function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { 
             was already saved offered no button and no confirmation — leaving
             "where is the save button?" as the only possible reading. The state
             of the record is the thing to show, not the availability of a verb. */}
-        <button onClick={save} disabled={!!busy || !dirty} style={{
-          font: '600 12px system-ui', border: 'none', borderRadius: 6, padding: '6px 14px',
-          color: dirty ? '#fff' : '#6b7280', background: dirty ? '#166534' : '#eef0f3',
-          cursor: dirty && !busy ? 'pointer' : 'default',
-        }}>{busy === 'save' ? 'Saving…' : dirty ? `Save ${people.length} applicant${people.length === 1 ? '' : 's'}` : '✓ Saved'}</button>
-        {dirty
-          ? <span style={{ font: '12px system-ui', color: '#b45309' }}>Unsaved changes</span>
+        {(() => {
+          // An empty list is never a save. The API refuses it anyway ("Add at
+          // least one applicant"), and reaching it by clicking Remove is far
+          // likelier than actually meaning to clear the roster.
+          const canSave = dirty && people.length > 0
+          return <button onClick={save} disabled={!!busy || !canSave} style={{
+            font: '600 12px system-ui', border: 'none', borderRadius: 6, padding: '6px 14px',
+            color: canSave ? '#fff' : '#6b7280', background: canSave ? '#166534' : '#eef0f3',
+            cursor: canSave && !busy ? 'pointer' : 'default',
+          }}>{busy === 'save' ? 'Saving…' : canSave ? `Save ${people.length} applicant${people.length === 1 ? '' : 's'}` : '✓ Saved'}</button>
+        })()}
+        {people.length === 0 ? <span style={{ font: '12px system-ui', color: '#b42318' }}>Add at least one person before saving</span>
+          : dirty ? <span style={{ font: '12px system-ui', color: '#b45309' }}>Unsaved changes</span>
           : <span style={{ font: '12px system-ui', color: '#9ca3af' }}>{people.length} on file — edit any field to enable saving</span>}
       </div>
+      </>}
       {msg && <p style={{ font: '12.5px system-ui', color: '#6b7280', margin: '8px 0 0' }}>{msg}</p>}
     </div>
   )
