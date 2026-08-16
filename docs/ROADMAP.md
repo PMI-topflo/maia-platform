@@ -1,9 +1,53 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-08-14**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-08-16**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
+
+---
+
+## ✅ LIVE — per-document board review + the 30-day window (PR #698, merged 2026-08-16 → `95a9483`)
+
+Full detail in `docs/SESSION-HANDOFF.md` (top). Memory: [[board_document_review]], [[pdf-single-page-extraction-unreliable]].
+
+**The standard rule, everywhere:** the Board may decide up to **30 days after the last requested document is received**. `lib/board-review.ts` is the one place that decides it, so the staff screen, the reviewer page, the emails and the cron cannot disagree.
+
+- ✅ Four document states replace "saved": ⚪ waiting · 🟠 on file, not reviewed · 🟢 approved · 🔴 refused. **A document that has not arrived cannot be reviewed** — it waits on an upload, not a decision.
+- ✅ `/board-review/[token]` — board + on-site manager, one link, ANY ONE settles a document, each opens inline, every decision stamped who + when (ET).
+- ✅ Refusal requires a reason (API-enforced) and that reason travels into the **request email** and the **communication history**.
+- ✅ Staff decide on the same record; the old application-wide Actions block is gone.
+- ✅ Row restyle: one ✎ Edit opens Upload · From Drive · Request · Mark N/A, expiration inside it.
+- ✅ 5-day signature reminder cron (`/api/cron/board-review-reminders`, 7am ET) — only once the window is open, never to someone who already signed.
+- 🔴 **Open: dashboards** for staff, board and on-site manager. Last item from the user's 2026-08-15/16 list.
+
+## ✅ LIVE — animal questionnaire, merged into pet registration
+
+- ✅ One form, three branches (pet / service animal / ESA / "I am not sure"), merged INTO the existing `pet_registration` e-sign rather than beside it, so an accommodation request is never filed under a name that calls it a pet.
+- ✅ Readily-apparent task, or apparent disability + apparent need → **the inquiry stops**. No field anywhere for diagnosis, severity or medical records; the fill route whitelists field-by-field so none can be persisted.
+- ✅ `pets_allowed = false` closes the PET path and **opens** the accommodation path. Answered for all 26 associations (MANXI false, rest true) — **defaults, not board answers.**
+- ✅ Files: vaccination record required when the applicant answers "yes, vaccinated"; **photo required on every branch** (user direction, 2026-08-15).
+- ✅ Guarded by `npm run test:gate` — 48 cases, the second real test in the repo. Run it before touching `lib/animal-*.ts`.
+- ⛔ Attorney-review gating **removed** per user direction 2026-08-15. Behavioural guardrails remain and are the substantive protection.
+
+## ✅ LIVE — vehicle/animal declaration gate
+
+A car-free applicant could never reach complete: vehicle documents were unconditionally required and only staff could clear them. `association_intake_documents.condition_key` + `listing_applications.declarations`; answers write BARE doc_keys into `na_items` so every existing completeness gate works unchanged.
+
+## ✅ LIVE — staff-created applications, tenant sponsorship, request examples
+
+- ✅ `+ New application` on the audit queue creates the application **and its Drive folder** — for documents that arrive by email. No email sent; ≥1 name required; duplicate-unit guard.
+- ✅ **Tenant sponsorship** (`/sponsorship/[token]`): the approved tenant confirms an additional occupant and supplies that person's **own email — required, and rejected if it matches hers**. Email is identity for OTP and e-signature, so a shared address records the occupant's signature against the tenant's mailbox.
+- ✅ Additional occupants **show** the current lease (tenant of record, term, board approval, links) rather than copying its files.
+- ✅ Request emails carry the checklist's clarifier + an **example** of each document; 📎 Add example per row (nothing could set `template_path` before); 📨 Re-send rebuilds from the current checklist.
+- ✅ Owner unit insurance required on **18 associations** (15 condo + LFA co-op + GVH + PVV). Out: BHB (single-family), LCLUB/VPREC (master, no units).
+- 🔴 **Open: commercial insurance form** for ESSI, KANE, MACO, WBP, WBPA — CP 00 17 / BOP, not HO-6. Confirm with the agent before seeding.
+
+## 🔴 Bugs fixed this round — watch for recurrence
+
+- **`.maybeSingle()` on a lookup that can legitimately return several rows.** Any co-owned unit lost its owner name AND email (header + request recipient): **231 of 521 units, 37 at MANXI**. Grep for `.maybeSingle()` on `owners` before adding another.
+- **Editors seeded from props once** never re-sync after the server normalises a value — `dirty` never clears and saves look like they failed.
+- **An approved application could not be corrected** — the fix is confirm-then-edit with an audit stamp, not "start a new one" (which discards uploaded documents and the signed approval letter).
 
 ---
 
@@ -16,8 +60,8 @@ Detail in `docs/SESSION-HANDOFF.md` (top section) and memory [[venetian_i_onboar
 - ✅ Venetian I: folders, legal name, 27-row checklist, stored Rules PDF, 13 folders renamed `ACCOUNT_ADDRESS`, 5 lease dates imported.
 - ✅ `rules_knowledge_ack` e-sign form; the board's own Rules pages spliced in verbatim rather than retyped.
 - ✅ `provided_by: 'both'` — a document can come from tenant OR owner (renter's insurance).
-- 🔴 **Open: nothing creates a `rules_knowledge_ack`** for an applicant to sign. Blocks a real VPCI application.
-- 🔴 Open: row-restyle of `/admin/pre-apply/[id]` — the approved mockup is not in the repo; ask before building.
+- ✅ **Closed (#698):** `rules_knowledge_ack` can be created and sent; MANXI now has content + stored packet + a `governing_docs_ack` item.
+- ✅ **Closed (#698):** rows restyled to the previewed design — one ✎ Edit, four flag states, expiration inside the drawer.
 
 ## ⚠️ Checkr — integration proven, key mode unverified (2026-08-14)
 

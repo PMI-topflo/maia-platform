@@ -1,3 +1,47 @@
+# Session handoff — 2026-08-16 (latest)
+
+## Applications: the board actually reviews documents now (PR #698, MERGED → `95a9483`)
+
+Nine commits, squash-merged. **All five migrations were applied to production DURING the build**, so prod ran new schema against old code until the merge; the merge closed that. Verified after: all tables present, 0 test rows left, `pets_allowed` null on 0 associations.
+
+### The rule everything hangs off
+**"The Board may decide up to 30 days after the last requested document is received."** One sentence (`boardWindowSentence()`), shown identically to applicant, owner, agent and board. Two consequences enforced in `lib/board-review.ts`, the single place that decides them:
+- A document that has **not arrived** cannot be reviewed. It waits on an UPLOAD, not a decision. This was the real defect in the old screen, where "saved" was a document's only state.
+- The window opens only when every required document has arrived **and** been approved. A refusal closes it again.
+
+### What shipped
+- **Four document states** replace one: ⚪ waiting · 🟠 on file, not reviewed · 🟢 approved · 🔴 refused. Green means a human read it.
+- **`/board-review/[token]`** — board + on-site manager. One link, **any one** approver settles a document; each opens INLINE (doc route scoped to the round's application). Every decision stamps who + when in ET.
+- **Refusal requires a reason, enforced by the API.** The reason then travels: into the **request email** ("Sent back by Walter Giles: …") and into the **communication history**. Without that, the second request email was indistinguishable from the first.
+- **Staff decide on the same record** from `/admin/pre-apply/[id]`. The old Actions block (Mark audited / Request more / Decline) is **gone** — it asked for an application-wide verdict that never said WHICH document was wrong.
+- **Row restyle**: one ✎ Edit opens Upload · From Drive · Request it · Mark N/A + rename/refile/move/Add example; expiration + "Does not expire" moved inside it.
+- **Animal questionnaire merged INTO `pet_registration`** — one form, three branches (pet / service / ESA / "not sure"). Readily-apparent task or disability ends the inquiry; no field anywhere for diagnosis or medical records; fill route whitelists field-by-field. Vaccination record required when they answer "yes it's vaccinated"; **photo required on every branch** (user direction). `npm run test:gate` = 48 cases.
+- **Vehicle/animal declaration gate** — a car-free applicant could never reach complete. Answers write BARE doc_keys into `na_items`, so every existing gate works unchanged.
+- **Staff-created applications** + Drive folder (`+ New application` on the audit queue). No email sent; ≥1 name required; duplicate-unit guard; Drive failure reported not swallowed.
+- **Tenant sponsorship** (`/sponsorship/[token]`) — the approved tenant confirms an additional occupant and gives that person's **own email, required, rejected if it matches hers**. MANXI 1003 is why: the occupant's paperwork carried the tenant's address, and email is identity for OTP + e-signature.
+- **Additional occupants SHOW the current lease**, no longer copy its files (user direction) — copies drifted, duplicated in Drive, and carried a stale expiry.
+- **Examples in request emails** — `template_path` had no API or UI; now 📎 Add example per row + 📨 Re-send rebuilds from the current checklist.
+- **Owner unit insurance required on 18 associations** (15 condo + LFA co-op + GVH + PVV). Out: BHB (single-family), LCLUB/VPREC (master, no units), 5 commercial condos (need CP 00 17 / BOP, pending).
+- **MANXI Rules Knowledge Acknowledgment** wired (`lib/manxi-rules-ack.ts`, packet pages 5-26 stored, `governing_docs_ack` item). Assembles to 25 pages.
+
+### Bugs found and fixed
+- **`.maybeSingle()` on the owners lookup** → PGRST116 on any co-owned unit → owner name AND email blank on the header and in the request form. **231 of 521 units portfolio-wide, 37 at MANXI.** Now reads all rows ("Andre Danford & Marcia Danford").
+- **ApplicantsCard / RequestDocs seeded from props once** → server normalisation (phone) meant `dirty` never cleared, "Save applicants" never disappeared, saves looked like they hadn't taken.
+- **Approved applications couldn't be corrected** — the meta route refused and said "start a new one", discarding uploaded docs + the signed approval letter. Now confirm-then-edit, stamped on the review note.
+- **MANXI 1003 approved with an EMPTY roster** → no name anywhere, and the unit had **no tenant record at all** so its lease expiry was tracked nowhere. Backfilled from the stored approval letter: Yanytza Batista Carmona + Kaioni Shaw (4), term 15 May 2026 → 15 May 2027.
+
+### ⚠️ Gotcha worth keeping
+**Single-page PDF extraction returned the WRONG pages** on the 26-page Manors XI packet. It made a correctly-ordered packet look scrambled and I nearly "fixed" it with three page swaps that would have genuinely scrambled a recorded governing document. **Verify page order with a full-document `pdftoppm` render or `pdfimages -list`, never single-page reads.** See [[pdf-single-page-extraction-unreliable]].
+
+### ⏳ NEXT
+1. **Dashboards** for staff, board and on-site manager — the last item from the user's list, untouched.
+2. **First production runs to watch:** the 7am ET reminder cron (silent until an application is fully approved — that's correct); **Drive folder creation on staff-created applications** (only ever ran locally, where it correctly failed with no service account); the first request email carrying notes + examples.
+3. **MANXI 1003 additional occupant** — create it for **Rushayne K Shaw**, then send the sponsorship to Yanytza. Do NOT type his email from the Tenant Evaluation form: that is HER address. His credit report is **549 with serious delinquency**, below MANXI's 635 advance-maintenance floor — put it in front of the board with the sponsorship.
+4. **Commercial insurance form** for ESSI, KANE, MACO, WBP, WBPA (CP 00 17 / BOP — confirm with the agent).
+5. Older, unchanged: **Checkr key prefix** unverified (don't flip anyone to `maia_checkr`); **Rentvine tenant-sync cron dead since 2026-06-17**.
+
+---
+
 # Session handoff — 2026-08-15 (latest)
 
 ## Vehicle/animal declaration gate, assistance-animal routing, Manors XI rules packet
