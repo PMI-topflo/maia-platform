@@ -42,9 +42,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   // Owner emails: a staff override wins; else EVERY email on the matched owner
   // record (owners often carry several — don't silently pick just the first).
-  const ownerRow = (owners ?? []).find(o => String(o.unit_number ?? '') === (unit ?? '') || String(o.account_number ?? '') === (unit ?? '') || String(o.account_number ?? '').toUpperCase() === `${code}${unit ?? ''}`.toUpperCase())
+  // EVERY owner row for the unit, not the first: a co-owned unit has one row
+  // per owner, and picking one silently dropped the other's address.
+  const ownerRows = (owners ?? []).filter(o => String(o.unit_number ?? '') === (unit ?? '') || String(o.account_number ?? '') === (unit ?? '') || String(o.account_number ?? '').toUpperCase() === `${code}${unit ?? ''}`.toUpperCase())
   const ownerOverride = splitEmails(b.ownerEmail)
-  const ownerEmails = ownerOverride.length ? ownerOverride : splitEmails(ownerRow?.emails as string | null)
+  const ownerEmails = ownerOverride.length ? ownerOverride : splitEmails(ownerRows.map(o => String(o.emails ?? '')).join(','))
   const tenantOverride = splitEmails(b.tenantEmail)
   const tenantEmails = tenantOverride.length ? tenantOverride : splitEmails((tenant?.tenant_email as string | null) || ((applicants ?? []).find(a => a.is_primary)?.email as string | null) || ((applicants ?? [])[0]?.email as string | null))
 

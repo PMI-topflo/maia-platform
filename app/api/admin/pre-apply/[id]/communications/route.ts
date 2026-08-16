@@ -36,7 +36,21 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       .then(r => r, () => ({ data: [] as unknown[] })),
   ])
 
+  // Every per-document decision belongs in the same timeline. A refusal is a
+  // message to the applicant — "the affidavit is not notarized" — so burying it
+  // on the row alone would leave the history showing a request going out and
+  // nothing explaining why it was needed again.
+  const { data: decisions } = await supabaseAdmin.from('application_document_reviews')
+    .select('id, doc_key, scope_key, decision, reason, decided_by, decided_by_role, decided_at')
+    .eq('application_id', id)
+    .then(r => r, () => ({ data: [] as unknown[] }))
+
   const communications = [
+    ...((decisions ?? []) as { id: string; doc_key: string; decision: string; reason: string | null; decided_by: string; decided_by_role: string; decided_at: string }[]).map(v => ({
+      type: 'document_decision' as const, id: String(v.id), at: String(v.decided_at),
+      by: v.decided_by, byRole: v.decided_by_role,
+      docKey: v.doc_key, decision: v.decision, reason: v.reason ?? null,
+    })),
     ...(reqs ?? []).map(r => {
       const items = (Array.isArray(r.items) ? r.items : []) as Item[]
       return {

@@ -1,8 +1,12 @@
 # Assistance Animals — build spec for the application flow
 
-**Status: SPEC ONLY. Not built.** `associations.pets_allowed` exists and is set for MANXI (false) and VPCI (true); everything below is what still needs building.
+**Status: BUILT, except the board decision record (step 4).** Shipped 2026-08-15 in `supabase/migrations/20260815_vehicle_animal_declarations.sql` + `lib/animal-accommodation.ts`. `associations.pets_allowed` is now declared in a migration (it had only ever been set straight on production) and answered for all 26 associations — MANXI `false`, everything else `true` per the user's "pets allowed is the default".
 
-> ⚠️ **Get this reviewed before it gates a real application.** The rules below were supplied by the user (sourced to Fla. Stat. §760.27, §413.08 and HUD guidance) and are captured here as the product spec. A Florida community-association attorney should sign off before MAIA denies, delays, or demands documents from a real applicant — refusing an assistance animal wrongly, or demanding a document the statute forbids, is a fair-housing exposure. MAIA should organise the process, never adjudicate it.
+The applicant declares the animal and its kind themselves at `/pre-apply/[code]`; `activeConditions()` routes pet vs assistance animal; `animalDocGuidance()` is the single source for what may and may not be asked, and is shown to BOTH the applicant and staff. Guarded by `npm run test:gate` — case 7 is the guarantee that `pets_allowed = false` never closes the accommodation path.
+
+The rules below were supplied by the user, sourced to Fla. Stat. §760.27, §413.08 and HUD's 2020 assistance-animal guidance. They are the product spec and they are built.
+
+**MAIA organises the process; the board decides.** That is a design rule, not a disclaimer: nothing here denies, approves, or auto-rejects anything. What the code guarantees is narrower and more useful — that the questions narrow correctly, that an apparent disability or an apparent need is never asked for documentation, and that there is nowhere in the system to put a diagnosis, a severity, or a medical record. The decision itself is recorded by a human on the board decision page.
 
 ## The core distinction
 
@@ -44,16 +48,16 @@ Telehealth documentation is **not** automatically invalid — the test is whethe
 
 HUD guidance: decide promptly, generally within ~10 days of receiving supporting documentation.
 
-## What to build
+## What was built
 
-1. **Applicant declares** whether they have an animal (part of the same yes/no gate as the vehicle question).
-2. **Branch on `associations.pets_allowed`:**
-   - `true` → existing `pet_registration` e-sign form.
-   - `false` → assistance-animal accommodation request; the ordinary pet path stays closed.
-3. **Branch again on animal type** (service vs ESA) into the two document sets above. The service-animal path must NOT request medical documentation.
-4. **Board/staff review** with a decision record, the narrow denial grounds, and the ~10-day clock.
-5. **Fee guard:** no animal-related fee can attach to an approved assistance animal.
-6. Set `pets_allowed` for the remaining **24 associations** — each needs its board's answer, not a guess.
+1. ✅ **Applicant declares** whether they have an animal, in the same card as the vehicle question. `listing_applications.declarations`; `POST /api/pre-apply/[token]/declare`. An unanswered gate hides the item AND blocks submission, so silence is never read as "no".
+2. ✅ **Branch on `associations.pets_allowed`** — `true` → the `pet_registration` e-sign form; `false` → the pet path closes and the accommodation path opens. A pet declared where pets are prohibited is never silently dropped: `declaredPetWhereProhibited()` tells the applicant and flags staff.
+3. ✅ **Branch again on animal type.** `assistance_animal_documentation` is seeded on every association × every application type. The service-animal path lists "a doctor's letter or any medical documentation" under *must never be requested*.
+4. ⏳ **Board/staff review decision record** — NOT built. Staff currently see the guidance, the narrow denial grounds and the ~10-day clock on `/admin/pre-apply/[id]`, but there is no structured decision row, no clock that actually runs, and no reminder. This is the remaining piece.
+5. ⏳ **Fee guard** — stated in the copy shown to applicants and staff, but nothing mechanically blocks a fee, because no animal fee exists in the system to block yet.
+6. ✅ `pets_allowed` set for all 26 associations. **These were defaulted, not answered** — each board should still confirm its own, and the 5 commercial/industrial associations (ESSI, KANE, MACO, WBP, WBPA) plus the 2 master/rec entities (LCLUB, VPREC) are defaults of convenience.
+
+Step 4 records the board's decision — it does not make one. The narrow denial grounds and the review window are shown to whoever is deciding; MAIA never applies them itself.
 
 ## Related
 

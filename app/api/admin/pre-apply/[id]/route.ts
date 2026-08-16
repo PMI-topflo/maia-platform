@@ -6,8 +6,14 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
-import { getIntakeChecklist, isApplicationType, type ApplicationType } from '@/lib/intake-documents'
+import { getIntakeChecklist, isApplicationType, parseDeclarations, declaredNaKeys, type ApplicationType } from '@/lib/intake-documents'
+import {
+  animalDocGuidance, declaredPetWhereProhibited, isAssistanceAnimal,
+  ASSISTANCE_ANIMAL_DENIAL_GROUNDS, ASSISTANCE_ANIMAL_DECISION_DAYS,
+} from '@/lib/animal-accommodation'
 import { roleLabel, roleSigns } from '@/lib/preapply'
+import { getReviewState } from '@/lib/board-review'
+import { getCurrentLease } from '@/lib/occupant-sponsorship'
 import { sendEmail } from '@/lib/gmail'
 
 export const runtime = 'nodejs'
@@ -65,14 +71,20 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params
 
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('id, association_code, application_type, applicant_role, unit_label, status, submitted_at, rules_ack, drive_folder_url, na_items, audited_by, audited_at, reviewed_by, reviewed_at, review_note, approved_by_role')
+    .select('id, association_code, application_type, applicant_role, unit_label, status, submitted_at, rules_ack, drive_folder_url, na_items, declarations, audited_by, audited_at, reviewed_by, reviewed_at, review_note, approved_by_role')
     .eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const code = String(app.association_code), unit = (app.unit_label as string | null) ?? ''
-  const [{ data: assocRow }, { data: ownerRow }, { data: tenantRow }] = await Promise.all([
-    supabaseAdmin.from('associations').select('screening_provider').eq('association_code', code).maybeSingle(),
-    supabaseAdmin.from('owners').select('first_name, last_name, emails, unit_number, account_number, status').eq('association_code', code).or(`unit_number.eq.${unit},account_number.eq.${code}${unit}`).or('status.neq.previous,status.is.null').maybeSingle(),
+  const [{ data: assocRow }, { data: ownerRows }, { data: tenantRow }] = await Promise.all([
+    supabaseAdmin.from('associations').select('screening_provider, pets_allowed').eq('association_code', code).maybeSingle(),
+    // NOT maybeSingle(): a co-owned unit has one row PER OWNER, and MANXI 103
+    // (Andre + Marcia Danford) is exactly that. maybeSingle() returns PGRST116
+    // "multiple rows returned" and yields null, so the owner's name and email
+    // silently vanished from the header — and from the document-request form,
+    // which seeds the owner recipient from the same field. Married co-owners
+    // are the common case in a condo, so this hit far more than one unit.
+    supabaseAdmin.from('owners').select('first_name, last_name, entity_name, emails, unit_number, account_number, status').eq('association_code', code).or(`unit_number.eq.${unit},account_number.eq.${code}${unit}`).or('status.neq.previous,status.is.null'),
     supabaseAdmin.from('unit_tenant_contacts').select('tenant_email').eq('association_code', code).eq('unit_ref', unit).maybeSingle(),
   ])
 
@@ -92,12 +104,44 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   }))
   const uploaded = new Set((docs ?? []).map(d => d.doc_key).filter(Boolean))
 
+  // Every owner on the unit, not just the first: a co-owned unit shows both
+  // names, and a document request goes to every owner address on file (deduped,
+  // since co-owners frequently share one).
+  const ownerNames = (ownerRows ?? [])
+    .map(o => (o.entity_name as string | null)?.trim() || `${o.first_name ?? ''} ${o.last_name ?? ''}`.trim())
+    .filter(Boolean)
+  const ownerEmails = [...new Set((ownerRows ?? [])
+    .flatMap(o => ((o.emails as string | null) ?? '').split(','))
+    .map(e => e.trim().toLowerCase())
+    .filter(e => e.includes('@')))]
+
+  // The applicant's own yes/no answers retire the items that don't apply to
+  // them (no car → no vehicle registration). Those are folded into naItems as
+  // BARE doc_keys, which every completeness gate already reads as "applies to
+  // nobody" — so this needs no change anywhere downstream, and it survives a
+  // later change to the roster. Staff can still see the declaration and
+  // override any single row by hand.
+  // The per-document review: which are approved, refused, or merely on file.
+  // The staff rows and the board's page read the SAME record, so a green flag
+  // means the same thing on both.
+  const review = await getReviewState(id)
+  // What is already true about this unit. Shown on an additional-occupant
+  // application so the board sees the tenant of record and the lease it is
+  // being added to, without a second copy of either.
+  const currentLease = String(app.application_type) === 'additional_occupant'
+    ? await getCurrentLease(code, unit || null)
+    : null
+  const petsAllowed = (assocRow?.pets_allowed as boolean | null) ?? null
+  const declarations = parseDeclarations(app.declarations)
+  const derivedNa = declaredNaKeys(checklist, declarations, { petsAllowed })
+  const naItems = [...new Set([...(Array.isArray(app.na_items) ? (app.na_items as string[]) : []), ...derivedNa])]
+
   return NextResponse.json({
     id: app.id, associationCode: app.association_code, type: app.application_type, unit: app.unit_label,
     status: app.status, submittedAt: app.submitted_at,
     applicant: sh ? { name: sh.name, email: sh.email, phone: sh.phone } : null,
-    ownerName: ownerRow ? `${ownerRow.first_name ?? ''} ${ownerRow.last_name ?? ''}`.trim() || null : null,
-    ownerEmails: ((ownerRow?.emails as string | null) ?? '').split(',').map(s => s.trim()).filter(e => e.includes('@')).join(', ') || null,
+    ownerName: ownerNames.join(' & ') || null,
+    ownerEmails: ownerEmails.join(', ') || null,
     tenantEmail: (tenantRow?.tenant_email as string | null) || (sh?.email as string | null) || null,
     stakeholders: (stakeholders ?? []).map(s => ({
       id: s.id, role: s.role, roleLabel: roleLabel(String(s.role)), name: s.name, email: s.email, phone: s.phone,
@@ -110,8 +154,21 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     driveFolderUrl: app.drive_folder_url,
     screeningProvider: (assocRow?.screening_provider as string | null) ?? 'tenant_evaluation',
     audit: { auditedBy: app.audited_by, auditedAt: app.audited_at, reviewedBy: app.reviewed_by, reviewedAt: app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role },
-    naItems: Array.isArray(app.na_items) ? (app.na_items as string[]) : [],
-    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, per_applicant: c.per_applicant, allow_multiple: c.allow_multiple, uploaded: uploaded.has(c.doc_key) })),
+    naItems,
+    currentLease,
+    review: review ? {
+      rows: review.rows.map(r => ({ scopeKey: r.scopeKey, docKey: r.docKey, state: r.state, decision: r.decision, perApplicantName: r.perApplicantName })),
+      totals: review.totals, complete: review.complete,
+      windowOpenedAt: review.windowOpenedAt, windowDays: review.windowDays, dueAt: review.dueAt,
+    } : null,
+    declarations,
+    declaredNa: derivedNa,
+    petsAllowed,
+    petsProhibitedNotice: declaredPetWhereProhibited(declarations, petsAllowed),
+    animalGuidance: declarations.animal?.has && declarations.animal.kind ? animalDocGuidance(declarations.animal.kind) : null,
+    assistanceAnimalDenialGrounds: isAssistanceAnimal(declarations.animal?.kind) ? ASSISTANCE_ANIMAL_DENIAL_GROUNDS : [],
+    assistanceAnimalDecisionDays: ASSISTANCE_ANIMAL_DECISION_DAYS,
+    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, per_applicant: c.per_applicant, allow_multiple: c.allow_multiple, uploaded: uploaded.has(c.doc_key), condition_key: c.condition_key, template_path: c.template_path })),
     documents: withUrls,
   })
 }

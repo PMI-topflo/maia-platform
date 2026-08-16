@@ -13,6 +13,8 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { renderMaiaEmail } from '@/lib/maia-email'
+import { getIntakeChecklist, isApplicationType } from '@/lib/intake-documents'
+import { INTAKE_BUCKET } from '@/lib/preapply'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const SUPPORT = 'support@topfloridaproperties.com'
@@ -65,6 +67,46 @@ export async function sendDocumentRequestEmails(requestId: string, opts?: { only
   const applicantNames = (applicants ?? []).map(a => String(a.name ?? '').trim()).filter(Boolean)
   const typeLabel = TYPE_LABEL[String(app?.application_type)] ?? String(app?.application_type ?? '')
 
+  // "Please send me an example of this document you want" was the most common
+  // reply to this email, so every requested item now carries the checklist's
+  // own clarifier AND a link to a real example where the association has one
+  // on file. The template was already used on the upload page; it had simply
+  // never made it into the email that asks for the document.
+  const type = String(app?.application_type ?? '')
+  const checklist = isApplicationType(type) ? await getIntakeChecklist(code, type) : []
+  const byKey = new Map(checklist.map(c => [c.doc_key, c]))
+  const exampleUrls = new Map<string, string>()
+  await Promise.all([...new Set(items.map(i => i.doc_key))].map(async k => {
+    const path = byKey.get(k)?.template_path
+    if (!path) return
+    // Long-lived on purpose: an owner may open the email days after it lands.
+    const { data } = await supabaseAdmin.storage.from(INTAKE_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 30)
+    if (data?.signedUrl) exampleUrls.set(k, data.signedUrl)
+  }))
+  // A REFUSED document is being asked for again, and the applicant is owed the
+  // reason. Without this the same email goes out twice and the second one looks
+  // identical to the first — which is exactly how "your application is
+  // incomplete" reads to somebody who thought they had already sent it.
+  const { data: refusals } = await supabaseAdmin.from('application_document_reviews')
+    .select('doc_key, decision, reason, decided_by')
+    .eq('application_id', id).eq('decision', 'refused')
+    .then(r => r, () => ({ data: [] as unknown[] }))
+  const refusedBy = new Map(((refusals ?? []) as { doc_key: string; reason: string | null; decided_by: string }[])
+    .filter(r => (r.reason ?? '').trim())
+    .map(r => [r.doc_key, { reason: String(r.reason), by: String(r.decided_by) }]))
+
+  const decorate = (i: RequestItem, whoFor: string) => {
+    const refused = refusedBy.get(i.doc_key)
+    const note = byKey.get(i.doc_key)?.note ?? null
+    return {
+      label: i.label, whoFor,
+      // The reason leads: it is the new information, and the generic clarifier
+      // is what they already read the first time.
+      note: refused ? `Sent back by ${refused.by}: ${refused.reason}${note ? ` · ${note}` : ''}` : note,
+      exampleUrl: exampleUrls.get(i.doc_key) ?? null,
+    }
+  }
+
   const ownerAgentCc = splitEmails((agents ?? []).find(a => a.role === 'listing_agent')?.email as string | null)
   const tenantAgentCc = splitEmails((agents ?? []).find(a => a.role === 'applicant_agent')?.email as string | null)
 
@@ -82,7 +124,7 @@ export async function sendDocumentRequestEmails(requestId: string, opts?: { only
   if (opts?.only !== 'tenant' && ownerToken && ownerEmails.length && ownerItems.length) {
     await sendEmail({ to: ownerEmails, cc: ownerAgentCc.length ? ownerAgentCc : undefined, replyTo: SUPPORT, subject,
       html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
-        items: ownerItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Tenant' : 'You' })), onFile,
+        items: ownerItems.map(i => decorate(i, i.recipient === 'both' ? 'You + Tenant' : 'You')), onFile,
         alsoRequested: tenantItems.length ? { who: 'the tenant', items: tenantItems.map(i => i.label) } : null,
         ctaUrl: `${APP}/request/${ownerToken}`, footerReason: `You're receiving this as the owner of ${unit ? `Unit ${unit}` : 'this unit'}.` }),
     }).then(() => { out.sentOwner = true }, () => null)
@@ -91,7 +133,7 @@ export async function sendDocumentRequestEmails(requestId: string, opts?: { only
   if (opts?.only !== 'owner' && tenantToken && tenantEmails.length && tenantItems.length) {
     await sendEmail({ to: tenantEmails, cc: tenantAgentCc.length ? tenantAgentCc : undefined, replyTo: SUPPORT, subject,
       html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
-        items: tenantItems.map(i => ({ label: i.label, whoFor: i.recipient === 'both' ? 'You + Owner' : 'You' })), onFile,
+        items: tenantItems.map(i => decorate(i, i.recipient === 'both' ? 'You + Owner' : 'You')), onFile,
         alsoRequested: ownerItems.length ? { who: 'the owner', items: ownerItems.map(i => i.label) } : null,
         ctaUrl: `${APP}/request/${tenantToken}`, footerReason: `You're receiving this because you're on the application for ${unit ? `Unit ${unit}` : 'this unit'}.` }),
     }).then(() => { out.sentTenant = true }, () => null)

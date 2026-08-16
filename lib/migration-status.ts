@@ -3640,6 +3640,132 @@ UPDATE public.associations SET
 WHERE association_code = 'MANXI';
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'vehicle_animal_declarations',
+    label:       'Vehicle / animal declarations + assistance-animal path',
+    description: 'Adds association_intake_documents.condition_key and listing_applications.declarations so the applicant answers the vehicle and animal yes/no gates themselves — before this, "Vehicle Registration" was unconditionally required and an applicant with no car could never reach complete. Also declares associations.pets_allowed for real (it had been added straight to production and never registered) and defaults the 24 unanswered associations to true. The animal gate asks WHAT KIND, because pets_allowed = false closes the pet path but must never close the reasonable-accommodation path for a service animal or an ESA — see docs/ASSISTANCE-ANIMAL-PROCEDURE.md and lib/animal-accommodation.ts. Seeds pet_registration + assistance_animal_documentation on every association and every application type, gives MANXI a governing_docs_ack item so its Rules Knowledge Acknowledgment has somewhere to land, and normalises MANXI\'s hand-entered no_pet rule from the JSON string "true" to a boolean.',
+    filename:    '20260815_vehicle_animal_declarations.sql',
+    artifact:    { type: 'column', table: 'listing_applications', column: 'declarations' },
+    sql: `ALTER TABLE public.associations ADD COLUMN IF NOT EXISTS pets_allowed boolean;
+UPDATE public.associations SET pets_allowed = true WHERE pets_allowed IS NULL;
+ALTER TABLE public.association_intake_documents ADD COLUMN IF NOT EXISTS condition_key text;
+DO $$ BEGIN
+  ALTER TABLE public.association_intake_documents
+    ADD CONSTRAINT chk_intake_condition
+    CHECK (condition_key IS NULL OR condition_key IN ('vehicle','pet','assistance_animal'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS declarations jsonb NOT NULL DEFAULT '{}'::jsonb;
+UPDATE public.association_intake_documents SET condition_key = 'vehicle', updated_at = now()
+ WHERE doc_key IN ('car_registration','vehicle_insurance') AND condition_key IS DISTINCT FROM 'vehicle';
+UPDATE public.association_intake_documents SET condition_key = 'pet', updated_at = now()
+ WHERE doc_key = 'pet_registration' AND condition_key IS DISTINCT FROM 'pet';
+UPDATE public.association_intake_documents SET active = false, updated_at = now()
+ WHERE doc_key = 'pet_esa_documents' AND active;
+-- Full seed of the animal items, the MANXI acknowledgment item and the no_pet
+-- rule normalisation: see supabase/migrations/20260815_vehicle_animal_declarations.sql
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'document_requests_resend',
+    label:       'Document request — resend stamp',
+    description: 'Adds document_requests.{last_sent_at,last_sent_by}. A request can now be RE-sent after staff attach an example of a document it asks for; the email is rebuilt from the current checklist so the resend carries the example, while keeping the same upload tokens so any link the recipient already has keeps working. Without these columns a request sent once looks identical to one chased three times.',
+    filename:    '20260815_document_requests_resend.sql',
+    artifact:    { type: 'column', table: 'document_requests', column: 'last_sent_at' },
+    sql: `ALTER TABLE public.document_requests ADD COLUMN IF NOT EXISTS last_sent_at timestamptz;
+ALTER TABLE public.document_requests ADD COLUMN IF NOT EXISTS last_sent_by text;
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'board_document_review',
+    label:       'Board document review + 30-day window',
+    description: 'application_document_reviews (one live decision per document — approved/refused, the reason, WHO decided and when) + document_review_rounds (each time staff send the list to the board and on-site manager, with its token and the 5-day reminder stamp) + listing_applications.{board_window_opened_at,board_window_days}. Encodes the standard rule: the Board may decide up to 30 days after the LAST REQUESTED DOCUMENT IS RECEIVED — so the window cannot open while anything is outstanding, and a refusal closes it again until the document is replaced.',
+    filename:    '20260815_board_document_review.sql',
+    artifact:    { type: 'table', table: 'application_document_reviews' },
+    sql: `CREATE TABLE IF NOT EXISTS public.application_document_reviews (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id uuid NOT NULL,
+  doc_key text NOT NULL,
+  scope_key text NOT NULL,
+  decision text NOT NULL,
+  reason text,
+  decided_by text NOT NULL,
+  decided_by_role text NOT NULL,
+  decided_at timestamptz NOT NULL DEFAULT now(),
+  round_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_adr_decision CHECK (decision IN ('approved','refused')),
+  CONSTRAINT chk_adr_role CHECK (decided_by_role IN ('board','onsite_manager','staff'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS application_document_reviews_uniq ON public.application_document_reviews (application_id, scope_key);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.application_document_reviews TO anon, authenticated, service_role;
+ALTER TABLE public.application_document_reviews ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_application_document_reviews" ON public.application_document_reviews;
+CREATE POLICY "service_role_all_application_document_reviews" ON public.application_document_reviews FOR ALL TO service_role USING (true);
+CREATE TABLE IF NOT EXISTS public.document_review_rounds (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id uuid NOT NULL,
+  association_code text NOT NULL,
+  unit_label text,
+  token text NOT NULL,
+  recipients jsonb NOT NULL DEFAULT '[]'::jsonb,
+  note text,
+  started_by text,
+  last_reminder_at timestamptz,
+  reminder_count integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS document_review_rounds_token ON public.document_review_rounds (token);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.document_review_rounds TO anon, authenticated, service_role;
+ALTER TABLE public.document_review_rounds ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_document_review_rounds" ON public.document_review_rounds;
+CREATE POLICY "service_role_all_document_review_rounds" ON public.document_review_rounds FOR ALL TO service_role USING (true);
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS board_window_opened_at timestamptz;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS board_window_days integer NOT NULL DEFAULT 30;
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'occupant_sponsorships',
+    label:       'Tenant sponsorship of an additional occupant',
+    description: 'occupant_sponsorships — the already-approved TENANT confirms somebody joining their lease, supplies that person\'s OWN email and phone, and acknowledges the responsibility the governing documents already place on them. The occupant\'s email is REQUIRED and rejected if it matches the tenant\'s or anyone else on the application: MAIA uses email as identity, so a shared address would send the occupant\'s affidavit to the tenant\'s mailbox, verify it there, and record it as signed by him (MANXI 1003).',
+    filename:    '20260816_occupant_sponsorship.sql',
+    artifact:    { type: 'table', table: 'occupant_sponsorships' },
+    sql: `CREATE TABLE IF NOT EXISTS public.occupant_sponsorships (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id uuid NOT NULL,
+  association_code text NOT NULL,
+  unit_label text,
+  token text NOT NULL,
+  tenant_name text,
+  tenant_email text NOT NULL,
+  occupant_name text NOT NULL,
+  responded_at timestamptz,
+  decision text,
+  occupant_email text,
+  occupant_phone text,
+  acknowledged boolean NOT NULL DEFAULT false,
+  note text,
+  created_by text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_sponsorship_decision CHECK (decision IS NULL OR decision IN ('requested','declined'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS occupant_sponsorships_token ON public.occupant_sponsorships (token);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.occupant_sponsorships TO anon, authenticated, service_role;
+ALTER TABLE public.occupant_sponsorships ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_occupant_sponsorships" ON public.occupant_sponsorships;
+CREATE POLICY "service_role_all_occupant_sponsorships" ON public.occupant_sponsorships FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'unit_owner_insurance',
+    label:       'Unit owner insurance on every association with units',
+    description: 'Seeds the existing property_insurance item (the OWNER\'s policy, not the tenant\'s renters insurance) as required on lease / lease_renewal / additional_occupant for the 15 condos + the co-op + GVH and PVV. Excluded, deliberately: BHB (single-family — no shared structure and no association coverage behind it), LCLUB and VPREC (master associations, no units), and the 5 commercial condos (they need CP 00 17 / BOP, not an HO-6, pending confirmation). GVH and PVV are included because their association policy does not cover the inside of the units and the units are attached to their neighbours.',
+    filename:    '20260816_unit_owner_insurance.sql',
+    artifact:    { type: 'column', table: 'association_intake_documents', column: 'doc_key' },
+    sql: `-- See supabase/migrations/20260816_unit_owner_insurance.sql for the full seed.
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
