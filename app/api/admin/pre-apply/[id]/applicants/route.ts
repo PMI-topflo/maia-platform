@@ -61,14 +61,33 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const raw: { name: string; role: string | null; email: string | null; phone: string | null }[] = Array.isArray(b.applicants)
     ? (b.applicants as unknown[]).map(a => { const o = (a ?? {}) as Record<string, unknown>; return { name: String(o.name ?? '').trim(), role: o.applicant_role && isApplicantRole(String(o.applicant_role)) ? String(o.applicant_role) : null, email: 'email' in o ? cleanEmail(o.email) : undefined as unknown as null, phone: 'phone' in o ? cleanPhone(o.phone) : undefined as unknown as null } })
     : Array.isArray(b.names) ? (b.names as unknown[]).map(n => ({ name: String(n ?? '').trim(), role: null, email: undefined as unknown as null, phone: undefined as unknown as null })) : []
-  // De-dupe by name, keep first occurrence.
+  // Keep a row if it identifies SOMEBODY — a name, or an email, or a phone.
+  //
+  // It used to require a name, and further down anyone missing from this list
+  // is DELETED. So an occupant the owner submitted with only an email was
+  // dropped from the payload and then deleted from the roster on the next save
+  // of any unrelated field. A person we hold an address for is a person; a
+  // missing name is something to fill in, not grounds for removing them.
+  //
+  // De-dupe by name where there is one, else by email — two different people
+  // with no name yet must not collapse into one row.
   const seen = new Set<string>()
-  const list = raw.filter(r => r.name && !seen.has(norm(r.name)) && seen.add(norm(r.name)))
+  const dedupeKey = (r: { name: string; email: string | null }) => r.name ? `n:${norm(r.name)}` : `e:${(r.email ?? '').toLowerCase()}`
+  const list = raw.filter(r => {
+    if (!r.name && !r.email && !r.phone) return false
+    const k = dedupeKey(r)
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
   if (list.length === 0) return NextResponse.json({ error: 'Add at least one applicant.' }, { status: 400 })
 
   const { data: existing } = await supabaseAdmin.from('application_stakeholders')
-    .select('id, name, is_primary, signed_at, email_verified_at').eq('application_id', id).eq('role', 'applicant')
+    .select('id, name, email, is_primary, signed_at, email_verified_at').eq('application_id', id).eq('role', 'applicant')
   const byName = new Map((existing ?? []).map(s => [norm(String(s.name ?? '')), s]))
+  // Matched by email when the row has no name, so a nameless person is updated
+  // in place rather than inserted again beside themselves.
+  const byEmail = new Map((existing ?? []).filter(s => s.email).map(s => [String(s.email).toLowerCase(), s]))
   const keptIds = new Set<string>()
   const now = new Date().toISOString()
 
@@ -78,7 +97,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const contact: Record<string, unknown> = {}
     if (email !== undefined) contact.email = email
     if (phone !== undefined) contact.phone = phone
-    const hit = byName.get(norm(name))
+    const hit = name ? byName.get(norm(name)) : (email ? byEmail.get(String(email).toLowerCase()) : undefined)
     if (hit) {
       keptIds.add(String(hit.id))
       await supabaseAdmin.from('application_stakeholders').update({ name, is_primary: i === 0, applicant_role: applicantRole, ...contact, updated_at: now }).eq('id', hit.id)

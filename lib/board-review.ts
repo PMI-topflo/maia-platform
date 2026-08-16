@@ -19,7 +19,7 @@
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { getIntakeChecklist, isApplicationType, parseDeclarations, declaredNaKeys, type IntakeDoc } from '@/lib/intake-documents'
+import { getIntakeChecklist, getIntakeChecklistAll, isApplicationType, parseDeclarations, declaredNaKeys, type IntakeDoc } from '@/lib/intake-documents'
 
 export type ReviewDecision = 'approved' | 'refused'
 export type ReviewerRole = 'board' | 'onsite_manager' | 'staff'
@@ -61,7 +61,27 @@ export interface ReviewState {
 
 const scoped = (docKey: string, sid: string | null) => sid ? `${docKey}#${sid}` : docKey
 
-/** Read the whole review state for an application. One query set, one truth. */
+// ── The raw material one application's state is derived from ─────────
+// Named so the single-application reader and the dashboard's batched reader
+// can hand the SAME shape to the SAME derivation. The rule at the top of this
+// file is decided once, in deriveReviewState, and nowhere else.
+
+export interface ReviewInputs {
+  app: {
+    na_items: unknown
+    declarations: unknown
+    board_window_opened_at: string | null
+    board_window_days: number | null
+  }
+  checklist: IntakeDoc[]
+  docs: { id: string; doc_key: string; filename: string | null; stakeholder_id: string | null }[]
+  reviews: { scope_key: string; decision: string; reason: string | null; decided_by: string; decided_by_role: string; decided_at: string }[]
+  /** Applicants, primary first. */
+  people: { id: string; name: string | null; applicant_role: string | null }[]
+  petsAllowed: boolean | null
+}
+
+/** Read the whole review state for ONE application. One query set, one truth. */
 export async function getReviewState(applicationId: string): Promise<ReviewState | null> {
   const { data: app } = await supabaseAdmin.from('listing_applications')
     .select('association_code, application_type, na_items, declarations, board_window_opened_at, board_window_days')
@@ -78,23 +98,40 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
     supabaseAdmin.from('associations').select('pets_allowed').eq('association_code', code).maybeSingle(),
   ])
 
+  return deriveReviewState({
+    app: {
+      na_items: app.na_items, declarations: app.declarations,
+      board_window_opened_at: (app.board_window_opened_at as string | null) ?? null,
+      board_window_days: (app.board_window_days as number | null) ?? null,
+    },
+    checklist,
+    docs: (docs ?? []).map(d => ({ id: String(d.id), doc_key: String(d.doc_key), filename: (d.filename as string | null) ?? null, stakeholder_id: d.stakeholder_id ? String(d.stakeholder_id) : null })),
+    reviews: (reviews ?? []).map(r => ({ scope_key: String(r.scope_key), decision: String(r.decision), reason: (r.reason as string | null) ?? null, decided_by: String(r.decided_by), decided_by_role: String(r.decided_by_role), decided_at: String(r.decided_at) })),
+    people: (people ?? []).map(p => ({ id: String(p.id), name: (p.name as string | null) ?? null, applicant_role: (p.applicant_role as string | null) ?? null })),
+    petsAllowed: (assoc?.pets_allowed as boolean | null) ?? null,
+  })
+}
+
+/** The derivation itself — pure, so it cannot drift between the one-application
+ *  screens and the dashboards that roll many of them up. */
+export function deriveReviewState({ app, checklist, docs, reviews, people, petsAllowed }: ReviewInputs): ReviewState {
   // Items the applicant's own declaration retired ("I keep no vehicle") are not
   // outstanding — they do not apply, so they must never hold the window shut.
   const declarations = parseDeclarations(app.declarations)
   const na = new Set([
     ...(Array.isArray(app.na_items) ? (app.na_items as string[]) : []),
-    ...declaredNaKeys(checklist, declarations, { petsAllowed: (assoc?.pets_allowed as boolean | null) ?? null }),
+    ...declaredNaKeys(checklist, declarations, { petsAllowed }),
   ])
   const isNa = (docKey: string, sid: string | null) => na.has(docKey) || (!!sid && na.has(`${docKey}#${sid}`))
 
-  const byScope = new Map((reviews ?? []).map(r => [String(r.scope_key), r]))
+  const byScope = new Map(reviews.map(r => [r.scope_key, r]))
   // Minors don't hold up a review — they provide nothing.
-  const applicants = (people ?? []).filter(p => String(p.applicant_role ?? '') !== 'minor_dependent')
+  const applicants = people.filter(p => (p.applicant_role ?? '') !== 'minor_dependent')
 
   const rows: ReviewRow[] = []
   for (const c of checklist) {
     const targets: { sid: string | null; name: string | null }[] = c.per_applicant && applicants.length
-      ? applicants.map(a => ({ sid: String(a.id), name: (a.name as string | null) ?? null }))
+      ? applicants.map(a => ({ sid: a.id, name: a.name }))
       : [{ sid: null, name: null }]
 
     for (const t of targets) {
@@ -103,8 +140,8 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
       // A SHARED item is satisfied by whoever uploaded it; a per-applicant item
       // is strictly that person's.
       const doc = t.sid
-        ? (docs ?? []).find(d => d.doc_key === c.doc_key && String(d.stakeholder_id ?? '') === t.sid)
-        : (docs ?? []).find(d => d.doc_key === c.doc_key)
+        ? docs.find(d => d.doc_key === c.doc_key && (d.stakeholder_id ?? '') === t.sid)
+        : docs.find(d => d.doc_key === c.doc_key)
       const rev = byScope.get(scopeKey)
       const state: DocState = !doc ? 'waiting'
         : rev?.decision === 'approved' ? 'approved'
@@ -114,11 +151,11 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
         docKey: c.doc_key, scopeKey, label: c.label, providedBy: c.provided_by, required: c.required,
         perApplicantName: t.name,
         state,
-        documentId: doc ? String(doc.id) : null,
-        filename: doc ? ((doc.filename as string | null) ?? null) : null,
+        documentId: doc ? doc.id : null,
+        filename: doc ? doc.filename : null,
         decision: rev ? {
-          by: String(rev.decided_by), role: String(rev.decided_by_role) as ReviewerRole,
-          at: String(rev.decided_at), reason: (rev.reason as string | null) ?? null,
+          by: rev.decided_by, role: rev.decided_by_role as ReviewerRole,
+          at: rev.decided_at, reason: rev.reason,
         } : null,
       })
     }
@@ -137,13 +174,72 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
   // a better document, so the window stays shut until it is replaced.
   const complete = req.length > 0 && totals.approved === req.length
 
-  const windowOpenedAt = (app.board_window_opened_at as string | null) ?? null
-  const windowDays = (app.board_window_days as number | null) ?? 30
+  const windowOpenedAt = app.board_window_opened_at
+  const windowDays = app.board_window_days ?? 30
   const dueAt = windowOpenedAt
     ? new Date(new Date(windowOpenedAt).getTime() + windowDays * 86400000).toISOString()
     : null
 
   return { rows, totals, complete, windowOpenedAt, windowDays, dueAt }
+}
+
+/** The same state for MANY applications, in a fixed number of queries rather
+ *  than five per application. Used by the dashboards, which roll up dozens at
+ *  a time; the per-application reader above would issue hundreds.
+ *
+ *  Both paths end in deriveReviewState, so a dashboard can never show a
+ *  different answer from the screen it links to. */
+export async function getReviewStates(applicationIds: string[]): Promise<Map<string, ReviewState>> {
+  const out = new Map<string, ReviewState>()
+  const ids = [...new Set(applicationIds.map(String))].filter(Boolean)
+  if (!ids.length) return out
+
+  const { data: apps } = await supabaseAdmin.from('listing_applications')
+    .select('id, association_code, application_type, na_items, declarations, board_window_opened_at, board_window_days')
+    .in('id', ids)
+  if (!apps?.length) return out
+
+  const codes = [...new Set(apps.map(a => String(a.association_code ?? '').toUpperCase()).filter(Boolean))]
+  const [{ data: docs }, { data: reviews }, { data: people }, { data: assocs }, checklistsByCode] = await Promise.all([
+    supabaseAdmin.from('application_documents').select('id, application_id, doc_key, filename, stakeholder_id').in('application_id', ids),
+    supabaseAdmin.from('application_document_reviews').select('application_id, scope_key, decision, reason, decided_by, decided_by_role, decided_at').in('application_id', ids),
+    supabaseAdmin.from('application_stakeholders').select('id, application_id, name, applicant_role').eq('role', 'applicant').in('application_id', ids)
+      .order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
+    codes.length ? supabaseAdmin.from('associations').select('association_code, pets_allowed').in('association_code', codes) : Promise.resolve({ data: [] }),
+    // One checklist read per ASSOCIATION, not per application.
+    Promise.all(codes.map(async c => [c, await getIntakeChecklistAll(c)] as const)).then(e => new Map(e)),
+  ])
+
+  const petsBy = new Map((assocs ?? []).map(a => [String(a.association_code).toUpperCase(), (a.pets_allowed as boolean | null) ?? null]))
+  const group = <T extends { application_id: unknown }>(rows: T[] | null) => {
+    const m = new Map<string, T[]>()
+    for (const r of rows ?? []) {
+      const k = String(r.application_id)
+      const arr = m.get(k); if (arr) arr.push(r); else m.set(k, [r])
+    }
+    return m
+  }
+  const docsBy = group(docs), reviewsBy = group(reviews), peopleBy = group(people)
+
+  for (const a of apps) {
+    const id = String(a.id)
+    const code = String(a.association_code ?? '').toUpperCase()
+    const type = String(a.application_type ?? '')
+    const checklist = isApplicationType(type) ? (checklistsByCode.get(code)?.[type] ?? []) : []
+    out.set(id, deriveReviewState({
+      app: {
+        na_items: a.na_items, declarations: a.declarations,
+        board_window_opened_at: (a.board_window_opened_at as string | null) ?? null,
+        board_window_days: (a.board_window_days as number | null) ?? null,
+      },
+      checklist,
+      docs: (docsBy.get(id) ?? []).map(d => ({ id: String(d.id), doc_key: String(d.doc_key), filename: (d.filename as string | null) ?? null, stakeholder_id: d.stakeholder_id ? String(d.stakeholder_id) : null })),
+      reviews: (reviewsBy.get(id) ?? []).map(r => ({ scope_key: String(r.scope_key), decision: String(r.decision), reason: (r.reason as string | null) ?? null, decided_by: String(r.decided_by), decided_by_role: String(r.decided_by_role), decided_at: String(r.decided_at) })),
+      people: (peopleBy.get(id) ?? []).map(p => ({ id: String(p.id), name: (p.name as string | null) ?? null, applicant_role: (p.applicant_role as string | null) ?? null })),
+      petsAllowed: petsBy.get(code) ?? null,
+    }))
+  }
+  return out
 }
 
 /** Open or close the 30-day window to match reality, and report what changed.

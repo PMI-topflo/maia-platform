@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
+import ApplicationsDashboard from '@/components/ApplicationsDashboard'
 
 interface AppRow { id: string; type: string; unit: string | null; status: string; submittedAt: string | null; audited: boolean; decided: boolean; approvedByRole: string | null; applicant: string | null; docCount: number }
 interface ChecklistItem { label: string; provided_by: string; required: boolean; notarized: boolean; exampleUrl: string | null }
@@ -69,6 +70,16 @@ export default function UnitsApplications() {
       </div>
       {err && <p style={{ color: '#991b1b' }}>{err}</p>}
 
+      {/* Whose turn it is. The same numbers the office sees — one library
+          computes them — with the board's own stages called out. */}
+      <div style={{ marginTop: 16 }}>
+        <ApplicationsDashboard
+          endpoint={`/api/units/applications/dashboard${q}`}
+          role="board"
+          onOpen={id => { setTypeFilter('all'); setOpen(id); document.getElementById(`app-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }}
+        />
+      </div>
+
       {/* Reference: every application type's required documents (Pre-Application Compliance). */}
       {showRef && checklists.length > 0 && (
         <div style={{ margin: '12px 0 6px', border: '1px solid #e5e7eb', borderRadius: 12, background: '#fafafa', padding: 14 }}>
@@ -98,7 +109,7 @@ export default function UnitsApplications() {
       {!apps ? <p style={{ color: '#9ca3af' }}>Loading…</p> : apps.length === 0 ? <p style={{ color: '#9ca3af' }}>No submitted applications.</p> : shown.length === 0 ? <p style={{ color: '#9ca3af', marginTop: 12 }}>No {TYPE_LABEL[typeFilter] ?? ''} applications submitted yet.</p> : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
           {shown.map(a => (
-            <div key={a.id} style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+            <div key={a.id} id={`app-${a.id}`} style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
               <button onClick={() => setOpen(open === a.id ? null : a.id)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '12px 14px', background: '#fff', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{a.applicant || 'Applicant'} <span style={{ color: '#6b7280', fontWeight: 400, fontSize: 13 }}>· {TYPE_LABEL[a.type] ?? a.type}{a.unit ? ` · Unit ${a.unit}` : ''}</span></div>
