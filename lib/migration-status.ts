@@ -3665,6 +3665,16 @@ UPDATE public.association_intake_documents SET active = false, updated_at = now(
 -- rule normalisation: see supabase/migrations/20260815_vehicle_animal_declarations.sql
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'document_requests_resend',
+    label:       'Document request — resend stamp',
+    description: 'Adds document_requests.{last_sent_at,last_sent_by}. A request can now be RE-sent after staff attach an example of a document it asks for; the email is rebuilt from the current checklist so the resend carries the example, while keeping the same upload tokens so any link the recipient already has keeps working. Without these columns a request sent once looks identical to one chased three times.',
+    filename:    '20260815_document_requests_resend.sql',
+    artifact:    { type: 'column', table: 'document_requests', column: 'last_sent_at' },
+    sql: `ALTER TABLE public.document_requests ADD COLUMN IF NOT EXISTS last_sent_at timestamptz;
+ALTER TABLE public.document_requests ADD COLUMN IF NOT EXISTS last_sent_by text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

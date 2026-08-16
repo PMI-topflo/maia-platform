@@ -32,23 +32,41 @@ async function flagDriveFolder(appId: string): Promise<void> {
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const session = await requireStaffSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await ctx.params
   const { data: app } = await supabaseAdmin.from('listing_applications').select('id, listing_id, status').eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'not found' }, { status: 404 })
 
-  let b: { application_type?: string; applicant_name?: string }
+  let b: { application_type?: string; applicant_name?: string; confirmApproved?: boolean }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
 
-  // Guard: an APPROVED application is the tenant/buyer of record for the unit.
-  // Changing its type or applicant here would overwrite that record in place
-  // (this is how unit 1003 got turned into "Rushayne Shaw · Additional occupant").
-  // To add an occupant or file a different application, start a NEW one from the
-  // unit's Pre-Application link instead.
-  if (app.status === 'approved' && ((typeof b.application_type === 'string' && b.application_type.trim()) || typeof b.applicant_name === 'string')) {
+  // An APPROVED application is the tenant/buyer of record for the unit, so
+  // changing its type or applicant rewrites that record in place — which is how
+  // 1003 once became "Rushayne Shaw · Additional occupant" by accident.
+  //
+  // But a flat block was the wrong remedy. An application filed under the wrong
+  // TYPE still carries its uploaded documents and its signed board approval
+  // letter, and "start a new one" throws all of that away to fix a dropdown.
+  // So the change is CONFIRMED rather than forbidden: staff acknowledge they
+  // are rewriting an approved record, and the change is recorded on the audit
+  // note so it is never a silent edit.
+  const touchesRecord = (typeof b.application_type === 'string' && b.application_type.trim()) || typeof b.applicant_name === 'string'
+  if (app.status === 'approved' && touchesRecord && !b.confirmApproved) {
     return NextResponse.json({
-      error: 'This application is already approved — its type and applicant are locked so the approved record isn\'t overwritten. To add an occupant or file another application for this unit, start a new one from the unit\'s Pre-Application link.',
+      error: 'This application is already APPROVED — it is the record of who the board approved for this unit. Changing its type or applicant rewrites that record in place. Confirm to proceed, or start a new application from the unit\'s Pre-Application link if this is a separate request.',
+      needsConfirm: true,
     }, { status: 409 })
+  }
+  if (app.status === 'approved' && touchesRecord && b.confirmApproved) {
+    const stamp = `[${new Date().toISOString().slice(0, 10)}] Approved record edited by ${session.displayName}: ${[
+      typeof b.application_type === 'string' && b.application_type.trim() ? `type → ${b.application_type.trim()}` : null,
+      typeof b.applicant_name === 'string' ? `applicant → ${b.applicant_name.trim() || '(cleared)'}` : null,
+    ].filter(Boolean).join(', ')}`
+    const { data: cur } = await supabaseAdmin.from('listing_applications').select('review_note').eq('id', id).maybeSingle()
+    await supabaseAdmin.from('listing_applications')
+      .update({ review_note: [(cur?.review_note as string | null) ?? '', stamp].filter(Boolean).join('\n') })
+      .eq('id', id)
   }
 
   // Documents already imported under the OLD type that the NEW type doesn't ask

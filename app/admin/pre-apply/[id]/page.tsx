@@ -1029,7 +1029,16 @@ function MetaEditor({ id, name, type, onDone }: { id: string; name: string; type
   async function save() {
     setBusy(true)
     try {
-      const r = await fetch(`/api/admin/pre-apply/${id}/meta`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ applicant_name: nameV, application_type: typeV }) })
+      // An approved application is the record of who the board approved, so the
+      // server asks for an explicit confirmation before it is rewritten rather
+      // than refusing outright — refusing meant re-filing from scratch and
+      // losing the uploaded documents and the signed approval letter.
+      const post = (confirmApproved?: boolean) => fetch(`/api/admin/pre-apply/${id}/meta`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ applicant_name: nameV, application_type: typeV, ...(confirmApproved ? { confirmApproved: true } : {}) }) })
+      let r = await post()
+      if (r.status === 409) {
+        const j409 = await r.clone().json().catch(() => ({}))
+        if (j409?.needsConfirm && confirm(`${j409.error}\n\nRewrite the approved record?`)) r = await post(true)
+      }
       const j = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(j?.error || 'failed')
       // Documents imported under the previous type that this type doesn't need.
@@ -1234,6 +1243,33 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone }:
   )
 }
 
+// Re-send a request that already went out. The email is rebuilt from the
+// CURRENT checklist, so attaching an example and pressing this is how an owner
+// who asked "send me an example of this document" gets one — without a second,
+// differently-worded request confusing them. The upload tokens don't change,
+// so any link they already have keeps working.
+function ResendRequest({ id, requestId }: { id: string; requestId: string }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  async function resend() {
+    if (!confirm('Re-send this request? The recipients get the same list again, now including any examples you have attached since.')) return
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/request-docs/${requestId}/resend`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: '{}' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setMsg(`Re-sent${j.sentOwner ? ' to the owner' : ''}${j.sentOwner && j.sentTenant ? ' and' : ''}${j.sentTenant ? ' to the tenant' : ''}.`)
+    } catch (e) { setMsg(`Could not re-send: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+  return (
+    <div style={{ marginTop: 6 }}>
+      <button onClick={resend} disabled={busy} style={{ background: 'none', border: 'none', padding: 0, cursor: busy ? 'default' : 'pointer', font: '600 12px system-ui', color: '#2563eb' }}>
+        {busy ? 'Re-sending…' : '📨 Re-send (includes any examples attached since)'}
+      </button>
+      {msg && <div style={{ font: '12px system-ui', color: msg.startsWith('Re-sent') ? '#166534' : '#b91c1c', marginTop: 3 }}>{msg}</div>}
+    </div>
+  )
+}
+
 // Communication history — every document request sent for this application, to
 // whom, what was asked, and any message the owner/tenant sent back.
 interface Comm { type: 'document_request' | 'approval_letter' | 'approval_sent' | 'filed_email'; id: string; at: string; by?: string | null; ownerEmail?: string | null; tenantEmail?: string | null; ownerItems?: string[]; tenantItems?: string[]; message?: string | null; ownerNote?: string | null; tenantNote?: string | null; signers?: string[]; recipients?: string[]; subject?: string | null; body?: string; fromEmail?: string | null; fromName?: string | null; toEmails?: string[]; ccEmails?: string[]; attachmentNames?: string[] }
@@ -1273,6 +1309,7 @@ function CommunicationsLog({ id, unit, associationCode }: { id: string; unit: st
             {c.message && <div style={{ color: '#6b7280', marginTop: 3, fontStyle: 'italic' }}>Note: {c.message}</div>}
             {c.ownerNote && <div style={{ marginTop: 4, color: '#1f2937', borderLeft: '3px solid #c05a1c', paddingLeft: 8 }}>💬 Owner replied: {c.ownerNote}</div>}
             {c.tenantNote && <div style={{ marginTop: 4, color: '#1f2937', borderLeft: '3px solid #c05a1c', paddingLeft: 8 }}>💬 Tenant replied: {c.tenantNote}</div>}
+            <ResendRequest id={id} requestId={c.id} />
           </div>
         ))}
       </div>
