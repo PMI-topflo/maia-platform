@@ -83,11 +83,29 @@ export async function sendDocumentRequestEmails(requestId: string, opts?: { only
     const { data } = await supabaseAdmin.storage.from(INTAKE_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 30)
     if (data?.signedUrl) exampleUrls.set(k, data.signedUrl)
   }))
-  const decorate = (i: RequestItem, whoFor: string) => ({
-    label: i.label, whoFor,
-    note: byKey.get(i.doc_key)?.note ?? null,
-    exampleUrl: exampleUrls.get(i.doc_key) ?? null,
-  })
+  // A REFUSED document is being asked for again, and the applicant is owed the
+  // reason. Without this the same email goes out twice and the second one looks
+  // identical to the first — which is exactly how "your application is
+  // incomplete" reads to somebody who thought they had already sent it.
+  const { data: refusals } = await supabaseAdmin.from('application_document_reviews')
+    .select('doc_key, decision, reason, decided_by')
+    .eq('application_id', id).eq('decision', 'refused')
+    .then(r => r, () => ({ data: [] as unknown[] }))
+  const refusedBy = new Map(((refusals ?? []) as { doc_key: string; reason: string | null; decided_by: string }[])
+    .filter(r => (r.reason ?? '').trim())
+    .map(r => [r.doc_key, { reason: String(r.reason), by: String(r.decided_by) }]))
+
+  const decorate = (i: RequestItem, whoFor: string) => {
+    const refused = refusedBy.get(i.doc_key)
+    const note = byKey.get(i.doc_key)?.note ?? null
+    return {
+      label: i.label, whoFor,
+      // The reason leads: it is the new information, and the generic clarifier
+      // is what they already read the first time.
+      note: refused ? `Sent back by ${refused.by}: ${refused.reason}${note ? ` · ${note}` : ''}` : note,
+      exampleUrl: exampleUrls.get(i.doc_key) ?? null,
+    }
+  }
 
   const ownerAgentCc = splitEmails((agents ?? []).find(a => a.role === 'listing_agent')?.email as string | null)
   const tenantAgentCc = splitEmails((agents ?? []).find(a => a.role === 'applicant_agent')?.email as string | null)

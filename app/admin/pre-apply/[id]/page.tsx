@@ -20,6 +20,11 @@ interface Detail {
   screeningProvider: string
   audit: { auditedBy: string | null; auditedAt: string | null; reviewedBy: string | null; reviewedAt: string | null; note: string | null; approvedByRole: string | null }
   naItems: string[]
+  review: {
+    rows: { scopeKey: string; docKey: string; state: 'waiting' | 'received' | 'approved' | 'refused'; decision: { by: string; role: string; at: string; reason: string | null } | null; perApplicantName: string | null }[]
+    totals: { required: number; received: number; decided: number; approved: number; refused: number; waiting: number }
+    complete: boolean; windowOpenedAt: string | null; windowDays: number; dueAt: string | null
+  } | null
   declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null }
   declaredNa: string[]
   petsAllowed: boolean | null
@@ -44,6 +49,9 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   const [taxBusy, setTaxBusy] = useState(false)
   const [driveFiles, setDriveFiles] = useState<{ fileId: string; name: string; mimeType: string }[] | null>(null)
   const [activeApplicant, setActiveApplicant] = useState<string | null>(null)
+  // "Request it" on a row opens the request panel with that item preselected —
+  // staff still choose WHO it goes to.
+  const [requestFor, setRequestFor] = useState<{ doc_key: string; label: string } | null>(null)
 
   const loadDriveFiles = useCallback(async () => {
     const r = await fetch(`/api/admin/pre-apply/${id}/drive-files`, { credentials: 'include' })
@@ -94,6 +102,9 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   // that's how the applicant's own declaration is expressed ("I keep no
   // vehicle"), so it must retire the per-applicant rows too, not just the
   // shared one. A `docKey#stakeholderId` entry stays scoped to that person.
+  const reviewFor = (docKey: string, sid: string | null) =>
+    (d.review?.rows ?? []).find(r => r.scopeKey === (sid ? `${docKey}#${sid}` : docKey)) ?? null
+  const scopeKeyOf = (docKey: string, sid: string | null) => sid ? `${docKey}#${sid}` : docKey
   const naFor = (docKey: string, sid: string | null) => naSet.has(docKey) || (!!sid && naSet.has(`${docKey}#${sid}`))
   // Missing required: shared items + each applicant's per-person items (minus N/A).
   const missing = [
@@ -265,7 +276,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       )}
       {(d.type === 'lease_renewal' || d.type === 'additional_occupant') && <CarryOverButton id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
-      {!decided && <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail} onDone={load} />}
+      {!decided && <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail} onDone={load} preselect={requestFor} onPreselectHandled={() => setRequestFor(null)} />}
       {!decided && <RulesAckSender id={id} />}
       {!decided && <PetRegSender id={id} />}
       <CommunicationsLog id={id} unit={d.unit} associationCode={d.associationCode} />
@@ -274,7 +285,8 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '2px 0 6px' }}>Shared documents</div>
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         {sharedItems.map((c, i) => (
-          <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, null)} extraDocs={docsFor(c.doc_key, null).slice(1)} na={naFor(c.doc_key, null)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} assoc={d.associationCode} appType={d.type} hasExample={!!c.template_path} />
+          <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, null)} extraDocs={docsFor(c.doc_key, null).slice(1)} na={naFor(c.doc_key, null)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} assoc={d.associationCode} appType={d.type} hasExample={!!c.template_path}
+                        review={reviewFor(c.doc_key, null)} scopeKey={scopeKeyOf(c.doc_key, null)} onRequest={(k, l) => setRequestFor({ doc_key: k, label: l })} />
         ))}
         {d.documents.filter(doc => !doc.stakeholderId && !d.checklist.some(c => c.doc_key === doc.doc_key)).map(doc => (
           <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderTop: '1px solid #f3f4f6', alignItems: 'center' }}>
@@ -313,7 +325,8 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                 <CreditScore id={id} stakeholderId={a.id} name={a.name} score={a.creditScore} decided={decided} onDone={load} />
                 {/* Active applicant's documents */}
                 {perApplicantItems.map((c, i) => (
-                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={docsFor(c.doc_key, a.id).slice(1)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} assoc={d.associationCode} appType={d.type} hasExample={!!c.template_path} />
+                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={docsFor(c.doc_key, a.id).slice(1)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} assoc={d.associationCode} appType={d.type} hasExample={!!c.template_path}
+                        review={reviewFor(c.doc_key, a.id)} scopeKey={scopeKeyOf(c.doc_key, a.id)} onRequest={(k, l) => setRequestFor({ doc_key: k, label: l })} />
                 ))}
               </div>
             )
@@ -365,22 +378,45 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
         </div>
       )}
 
-      {/* Actions */}
-      {!decided && (
+      {/* Where the application stands, and what to do next.
+          The old block asked for an application-wide verdict — "Request more"
+          with a hand-typed note — which never said WHICH document was wrong.
+          Decisions now live on the documents themselves; this summarises them
+          and pushes the outstanding ones into a request. */}
+      {!decided && d.review && (
         <div style={{ marginTop: 20, padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fafafa' }}>
-          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>Actions</div>
-          <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Note (required to decline or request more)" style={{ width: '100%', boxSizing: 'border-box', minHeight: 54, padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, marginBottom: 10 }} />
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {!audited && <button disabled={busy} onClick={() => act('audit')} style={btn('#2563eb')}>Mark audited (PMI/Jonathan)</button>}
-            {audited && <>
+          <div style={{ display: 'flex', gap: 13, alignItems: 'flex-start' }}>
+            <span style={{ width: 11, height: 11, borderRadius: '50%', marginTop: 6, flex: 'none', background: d.review.complete ? '#0f7a4d' : '#b45309' }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: d.review.complete ? '#0f7a4d' : '#b45309' }}>
+                {d.review.complete && d.review.dueAt
+                  ? `All documents approved — board decision due ${fmt(d.review.dueAt)}`
+                  : `${d.review.totals.decided} of ${d.review.totals.required} decided${d.review.totals.waiting ? ` · ${d.review.totals.waiting} still to arrive` : ''}${d.review.totals.refused ? ` · ${d.review.totals.refused} refused` : ''}`}
+              </div>
+              <div style={{ fontSize: 13.5, color: '#4a5265', marginTop: 3 }}>
+                The Board may decide up to {d.review.windowDays} days after the last requested document is received.
+                {!d.review.complete && ' The window opens once every document is in and approved.'}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 13 }}>
+            {(d.review.totals.waiting > 0 || d.review.totals.refused > 0) && (
+              <button disabled={busy} onClick={() => setRequestFor({ doc_key: '__outstanding__', label: 'outstanding' })} style={btn('#b45309')}>
+                📨 Request the {d.review.totals.waiting + d.review.totals.refused} outstanding
+              </button>
+            )}
+            <BoardReviewSender id={id} onDone={load} />
+            {audited && d.review.complete && <>
               <button disabled={busy} onClick={() => act('approve', 'onsite_manager')} style={btn('#059669')}>Approve — on-site manager</button>
               <button disabled={busy} onClick={() => act('approve', 'board')} style={btn('#059669')}>Approve — board</button>
             </>}
-            <button disabled={busy} onClick={() => act('request')} style={btn('#b45309')}>Request more</button>
-            <button disabled={busy} onClick={() => act('decline')} style={btn('#b91c1c')}>Decline</button>
+            {!audited && <button disabled={busy} onClick={() => act('audit')} style={btn('#2563eb')}>Mark audited (PMI/Jonathan)</button>}
+            <button disabled={busy} onClick={() => { if (!note.trim()) { alert('Add a note explaining why.'); return } act('decline') }} style={btn('#b91c1c')}>Decline the application</button>
           </div>
-          <p style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 10 }}>
-            Audit first (PMI + Jonathan), then the on-site manager or the board approves. On approval this hands off to{' '}
+          <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Note — required to decline the whole application. To send one document back, use Refuse on its row instead." style={{ width: '100%', boxSizing: 'border-box', minHeight: 46, padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, marginTop: 10 }} />
+          <p style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 8 }}>
+            On approval this hands off to{' '}
             <strong>{d.screeningProvider === 'maia_checkr' ? 'MAIA + Checkr' : 'Tenant Evaluation (current system)'}</strong> for the background check — change per association on the Association Hub.
           </p>
         </div>
@@ -660,7 +696,9 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
 // One checklist row: the doc (if any) with an INLINE preview box, the suggested
 // YYYY_MM_Type rename, an editable expiration date to approve, Ignore, and the
 // upload/replace control.
-function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, driveFiles, loadDriveFiles, stakeholderId, applicants, checklist, assoc, appType, hasExample }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string; allow_multiple?: boolean }; doc: Doc | undefined; extraDocs?: Doc[]; checklist?: { doc_key: string; label: string }[]; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[]; assoc?: string; appType?: string; hasExample?: boolean }) {
+function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, driveFiles, loadDriveFiles, stakeholderId, applicants, checklist, assoc, appType, hasExample, review, scopeKey, onRequest }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string; allow_multiple?: boolean }; doc: Doc | undefined; extraDocs?: Doc[]; checklist?: { doc_key: string; label: string }[]; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[]; assoc?: string; appType?: string; hasExample?: boolean;
+  review?: { state: 'waiting' | 'received' | 'approved' | 'refused'; decision: { by: string; role: string; at: string; reason: string | null } | null } | null;
+  scopeKey?: string; onRequest?: (docKey: string, label: string) => void }) {
   const allowMultiple = !!c.allow_multiple
   const [open, setOpen] = useState(false)
   const [picking, setPicking] = useState(false)
@@ -749,6 +787,32 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
     </select>
   ) : null
 
+  // One Edit control opens the choices, instead of every option sitting on
+  // every row. The flag on the right is the document's REVIEW state, not
+  // "saved" — green means somebody read it and accepted it.
+  const [editing, setEditing] = useState(false)
+  const [refusing, setRefusing] = useState<string | null>(null)
+  const rState = review?.state ?? (doc ? 'received' : 'waiting')
+  const FLAG: Record<string, string> = { approved: '🟢', refused: '🔴', received: '🟠', waiting: '⚪' }
+
+  async function decide(decision: 'approved' | 'refused' | 'clear') {
+    if (!scopeKey) return
+    if (decision === 'refused' && (refusing ?? '').trim().length < 4) {
+      if (refusing === null) { setRefusing(''); return }
+      alert('Say briefly why it is refused — the applicant sees this.')
+      return
+    }
+    setBusy('decide')
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/review-decision`, {
+        method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ scopeKey, decision, reason: refusing ?? '' }),
+      })
+      if (!r.ok) throw new Error((await r.json()).error || 'failed')
+      setRefusing(null); onDone()
+    } catch (e) { alert(`Could not save: ${(e as Error).message}`) } finally { setBusy(null) }
+  }
+
   const isImg = (doc?.mime_type ?? '').startsWith('image/')
   const isExpired = !!(doc && doc.expirationDate && !doc.noExpiration && new Date(doc.expirationDate) < new Date())
   const link: React.CSSProperties = { font: '600 13px system-ui', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'none' }
@@ -778,10 +842,54 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          {na ? <span style={{ font: '600 12px system-ui', color: '#6b7280', background: '#f3f4f6', borderRadius: 6, padding: '2px 8px' }}>N/A — not applicable</span> : doc ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+          {na ? <span style={{ font: '600 12px system-ui', color: '#6b7280', background: '#f3f4f6', borderRadius: 6, padding: '2px 8px' }}>N/A — not applicable</span> : (
             <>
-              <button onClick={() => setOpen(o => !o)} style={{ ...link, color: '#4338ca' }}>{open ? 'Hide' : '👁 Preview'}</button>
+              {doc && <button onClick={() => setOpen(o => !o)} style={{ ...link, color: '#4338ca' }}>{open ? 'Hide' : '👁 Preview'}</button>}
+              {!decided && doc && (
+                <>
+                  <button onClick={() => decide(rState === 'approved' ? 'clear' : 'approved')} disabled={busy === 'decide'}
+                    title={rState === 'approved' ? 'Undo this approval' : 'Approve this document'}
+                    style={{ font: '600 12.5px system-ui', borderRadius: 7, padding: '5px 11px', cursor: 'pointer',
+                      border: `1px solid ${rState === 'approved' ? '#0f7a4d' : '#d1d5db'}`,
+                      background: rState === 'approved' ? '#0f7a4d' : '#fff', color: rState === 'approved' ? '#fff' : '#4a5265' }}>Approve</button>
+                  <button onClick={() => decide('refused')} disabled={busy === 'decide'}
+                    style={{ font: '600 12.5px system-ui', borderRadius: 7, padding: '5px 11px', cursor: 'pointer',
+                      border: `1px solid ${rState === 'refused' ? '#b42318' : '#d1d5db'}`,
+                      background: rState === 'refused' ? '#b42318' : '#fff', color: rState === 'refused' ? '#fff' : '#4a5265' }}>Refuse</button>
+                </>
+              )}
+              {!decided && <button onClick={() => setEditing(e => !e)} aria-expanded={editing}
+                style={{ font: '600 12.5px system-ui', borderRadius: 7, padding: '5px 11px', cursor: 'pointer',
+                  border: '1px solid ' + (editing ? '#1f2a44' : '#d1d5db'), background: editing ? '#1f2a44' : '#fff', color: editing ? '#fff' : '#4a5265' }}>
+                {editing ? '✕ Close' : '✎ Edit'}</button>}
+              <span style={{ fontSize: 17, width: 20, textAlign: 'center' }} title={rState}>{FLAG[rState]}</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* The decision, on the row, so nobody re-asks what the board objected to. */}
+      {review?.decision && (
+        <div style={{ font: '12.5px system-ui', color: '#4a5265', marginTop: 5 }}>
+          {review.state === 'approved' ? '🟢' : '🔴'} <strong>{review.state === 'approved' ? 'Approved' : 'Refused'} by {review.decision.by}</strong>
+          {' · '}<span style={{ color: '#9ca3af' }}>{fmt(review.decision.at)}</span>
+          {review.decision.reason && <div style={{ marginTop: 3, borderLeft: '3px solid #b42318', paddingLeft: 8, color: '#16202f' }}>“{review.decision.reason}”</div>}
+        </div>
+      )}
+      {refusing !== null && (
+        <div style={{ marginTop: 7 }}>
+          <textarea autoFocus value={refusing} onChange={e => setRefusing(e.target.value)}
+            placeholder="Why is this refused? The applicant reads it — e.g. signed but not notarized."
+            style={{ width: '100%', boxSizing: 'border-box', font: '13px system-ui', border: '1px solid #b42318', borderRadius: 7, padding: '7px 9px', minHeight: 46 }} />
+          <div style={{ font: '11.5px system-ui', color: '#6b7280', marginTop: 3 }}>Press <b>Refuse</b> again to send it back · <button onClick={() => setRefusing(null)} style={{ ...link, color: '#6b7280', fontSize: 11.5 }}>cancel</button></div>
+        </div>
+      )}
+
+      {editing && !na && (
+        <div style={{ marginTop: 10, border: '1px solid #e5e7eb', borderRadius: 9, background: '#f9fafb', padding: 11, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          {doc && (
+            <>
               <a href={doc.url ?? '#'} target="_blank" rel="noreferrer" style={{ ...link, color: '#166534' }}>View ↗</a>
               {!decided && applicants && applicants.length > 0 && (
                 <select value={doc.stakeholderId ?? ''} onChange={async e => { setBusy('move'); try { await patchDoc({ stakeholder_id: e.target.value || null }); onDone() } catch { /* */ } finally { setBusy(null) } }} disabled={busy === 'move'} title="Move this document to another applicant" style={{ font: '600 11px system-ui', color: '#4338ca', border: '1px solid #d1d5db', borderRadius: 6, padding: '2px 4px', background: '#fff', cursor: 'pointer' }}>
@@ -792,19 +900,20 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
               {!decided && doc && <RefileSelect docId={doc.id} />}
               {!decided && <button onClick={ignore} disabled={busy === 'ignore'} style={{ ...link, color: '#b91c1c' }}>Ignore</button>}
             </>
-          ) : <span style={{ fontSize: 13, color: c.required ? '#b45309' : '#9ca3af' }}>{c.required ? 'Missing' : '—'}</span>}
-          {!decided && !na && <button onClick={openPicker} disabled={busy === 'assign'} style={{ ...link, color: '#2563eb', fontSize: 12 }}>{busy === 'assign' ? 'Assigning…' : '📁 From Drive'}</button>}
-          {!decided && !na && <StaffUpload id={id} docKey={c.doc_key} docLabel={c.label} uploaded={!!doc} onDone={onDone} stakeholderId={stakeholderId} allowMultiple={allowMultiple} />}
-          {!decided && assoc && appType && (
+          )}
+          {!na && <button onClick={openPicker} disabled={busy === 'assign'} style={{ ...link, color: '#2563eb', fontSize: 12 }}>{busy === 'assign' ? 'Assigning…' : '📁 From Drive'}</button>}
+          {!na && <StaffUpload id={id} docKey={c.doc_key} docLabel={c.label} uploaded={!!doc} onDone={onDone} stakeholderId={stakeholderId} allowMultiple={allowMultiple} />}
+          {assoc && appType && (
             <label style={{ ...link, color: hasExample ? '#166534' : '#9ca3af', fontSize: 12, cursor: 'pointer' }} title={hasExample ? 'An example is attached — every request email for this item includes it' : 'Attach an example so request emails can show one'}>
               {busy === 'example' ? 'Attaching…' : hasExample ? '📎 Example attached' : '📎 Add example'}
               <input type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) uploadExample(f) }} />
             </label>
           )}
-          {!decided && !doc && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#9ca3af', fontSize: 12 }}>{na ? 'Undo N/A' : 'Mark N/A'}</button>}
-          {!decided && na && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#4338ca', fontSize: 12 }}>Undo N/A</button>}
+          {onRequest && <button onClick={() => onRequest(c.doc_key, c.label)} style={{ ...link, color: '#c2410c', fontSize: 12 }}>📨 Request it</button>}
+          {!doc && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#9ca3af', fontSize: 12 }}>{na ? 'Undo N/A' : 'Mark N/A'}</button>}
+          {na && <button onClick={toggleNa} disabled={busy === 'na'} style={{ ...link, color: '#4338ca', fontSize: 12 }}>Undo N/A</button>}
         </div>
-      </div>
+      )}
 
       {/* Additional files for a multi-file item (e.g. the 2nd year's tax return). */}
       {extraDocs && extraDocs.length > 0 && (
@@ -848,9 +957,9 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
         </div>
       )}
 
-      {doc && !na && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
-          <span style={{ font: '12px system-ui', color: '#6b7280' }}>Expires:</span>
+      {doc && !na && editing && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap', border: '1px solid #e5e7eb', borderRadius: 9, background: '#fff', padding: '9px 11px' }}>
+          <span style={{ font: '600 12px system-ui', color: '#4a5265' }}>Expires:</span>
           <input type="date" value={exp} disabled={noExp} onChange={e => setExp(e.target.value)} style={{ font: '13px system-ui', padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 6, opacity: noExp ? 0.5 : 1 }} />
           {!noExp && exp !== savedExp && <button onClick={saveExp} disabled={busy === 'exp'} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>{busy === 'exp' ? 'Saving…' : 'Save'}</button>}
           {!noExp && exp === savedExp && savedExp && <span style={{ font: '12px system-ui', color: '#166534' }}>✓ saved</span>}
@@ -1138,7 +1247,7 @@ function CreditScore({ id, stakeholderId, name, score, decided, onDone }: { id: 
 // Request specific documents from the owner and/or tenant — tick items, tag each
 // Owner / Tenant / Both, and MAIA emails each recipient their list + an upload
 // link (the standard PMI email). Uploads file straight back onto the application.
-function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone }: { id: string; items: { doc_key: string; label: string; provided_by: string; missing: boolean }[]; ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null; onDone: () => void }) {
+function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone, preselect, onPreselectHandled }: { id: string; items: { doc_key: string; label: string; provided_by: string; missing: boolean }[]; ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null; onDone: () => void; preselect?: { doc_key: string; label: string } | null; onPreselectHandled?: () => void }) {
   const [open, setOpen] = useState(false)
   type Rec = 'owner' | 'tenant' | 'both'
   const [state, setState] = useState<Record<string, { on: boolean; rec: Rec }>>(() =>
@@ -1160,6 +1269,21 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone }:
   }, [ownerEmails])
   const [tenantTo, setTenantTo] = useState(tenantEmail ?? '')
   const [busy, setBusy] = useState(false)
+
+  // "Request it" on a document row opens this panel with ONLY that item ticked,
+  // so the choice left to make is who it goes to — the panel is the one place
+  // that decides recipients, rather than a second half-copy on the row.
+  useEffect(() => {
+    if (!preselect) return
+    setOpen(true)
+    setState(st => Object.fromEntries(Object.entries(st).map(([k, v]) => [k, {
+      ...v,
+      // '__outstanding__' means "everything still owed" — the default ticks
+      // already reflect what is missing, so leave them alone in that case.
+      on: preselect.doc_key === '__outstanding__' ? v.on : k === preselect.doc_key,
+    }])))
+    onPreselectHandled?.()
+  }, [preselect, onPreselectHandled])
   const selected = items.filter(it => state[it.doc_key]?.on)
   const needOwner = selected.some(it => state[it.doc_key].rec === 'owner' || state[it.doc_key].rec === 'both')
   const needTenant = selected.some(it => state[it.doc_key].rec === 'tenant' || state[it.doc_key].rec === 'both')
@@ -1270,9 +1394,34 @@ function ResendRequest({ id, requestId }: { id: string; requestId: string }) {
   )
 }
 
+// Send the per-document list to the board + on-site manager. Any one of them
+// settles a document; PMI and Jonathan are told each time somebody responds.
+function BoardReviewSender({ id, onDone }: { id: string; onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  async function send() {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/board-review`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: '{}' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setMsg(j.sent ? `Sent to ${(j.to ?? []).join(', ')}` : 'Created — copy the link and send it by hand.')
+      onDone()
+    } catch (e) { setMsg(`Could not send: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+  return (
+    <>
+      <button disabled={busy} onClick={send} style={{ font: '600 13px system-ui', color: '#fff', background: busy ? '#9ca3af' : '#1f2a44', border: 'none', borderRadius: 8, padding: '9px 14px', cursor: busy ? 'default' : 'pointer' }}>
+        {busy ? 'Sending…' : '🏛 Send to the board to review'}
+      </button>
+      {msg && <span style={{ font: '12.5px system-ui', color: msg.startsWith('Could not') ? '#b91c1c' : '#166534', alignSelf: 'center' }}>{msg}</span>}
+    </>
+  )
+}
+
 // Communication history — every document request sent for this application, to
 // whom, what was asked, and any message the owner/tenant sent back.
-interface Comm { type: 'document_request' | 'approval_letter' | 'approval_sent' | 'filed_email'; id: string; at: string; by?: string | null; ownerEmail?: string | null; tenantEmail?: string | null; ownerItems?: string[]; tenantItems?: string[]; message?: string | null; ownerNote?: string | null; tenantNote?: string | null; signers?: string[]; recipients?: string[]; subject?: string | null; body?: string; fromEmail?: string | null; fromName?: string | null; toEmails?: string[]; ccEmails?: string[]; attachmentNames?: string[] }
+interface Comm { type: 'document_request' | 'approval_letter' | 'approval_sent' | 'filed_email' | 'document_decision';
+  byRole?: string; docKey?: string; decision?: string; reason?: string | null; id: string; at: string; by?: string | null; ownerEmail?: string | null; tenantEmail?: string | null; ownerItems?: string[]; tenantItems?: string[]; message?: string | null; ownerNote?: string | null; tenantNote?: string | null; signers?: string[]; recipients?: string[]; subject?: string | null; body?: string; fromEmail?: string | null; fromName?: string | null; toEmails?: string[]; ccEmails?: string[]; attachmentNames?: string[] }
 function CommunicationsLog({ id, unit, associationCode }: { id: string; unit: string | null; associationCode: string }) {
   const [rows, setRows] = useState<Comm[] | null>(null)
   useEffect(() => { fetch(`/api/admin/pre-apply/${id}/communications`, { credentials: 'include' }).then(r => r.json()).then(d => setRows(d.communications ?? [])).catch(() => setRows([])) }, [id])
@@ -1289,7 +1438,14 @@ function CommunicationsLog({ id, unit, associationCode }: { id: string; unit: st
       </div>
       {rows.length === 0 && <div style={{ font: '12.5px system-ui', color: '#9ca3af', padding: '2px 2px 6px' }}>Nothing filed yet — document requests, the signed approval letter, and any email you forward will appear here.</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {rows.map(c => c.type === 'filed_email' ? (
+        {rows.map(c => c.type === 'document_decision' ? (
+          <div key={c.id} style={{ border: `1px solid ${c.decision === 'approved' ? '#bbf7d0' : '#f3c9c3'}`, borderRadius: 8, padding: '9px 12px', background: c.decision === 'approved' ? '#f0fdf4' : '#fdf2f0', fontSize: 12.5 }}>
+            <div style={{ color: c.decision === 'approved' ? '#166534' : '#b42318', fontWeight: 600 }}>
+              {c.decision === 'approved' ? '🟢' : '🔴'} {c.docKey} {c.decision === 'approved' ? 'approved' : 'sent back'} by {c.by} · {fmt(c.at)}
+            </div>
+            {c.reason && <div style={{ marginTop: 4, color: '#1f2937', borderLeft: '3px solid #b42318', paddingLeft: 8 }}>“{c.reason}”</div>}
+          </div>
+        ) : c.type === 'filed_email' ? (
           <FiledEmailRow key={c.id} c={c} />
         ) : c.type === 'approval_sent' ? (
           <div key={c.id} style={{ border: '1px solid #bfdbfe', borderRadius: 8, padding: '9px 12px', background: '#eff6ff', fontSize: 12.5 }}>

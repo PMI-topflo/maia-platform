@@ -12,6 +12,7 @@ import {
   ASSISTANCE_ANIMAL_DENIAL_GROUNDS, ASSISTANCE_ANIMAL_DECISION_DAYS,
 } from '@/lib/animal-accommodation'
 import { roleLabel, roleSigns } from '@/lib/preapply'
+import { getReviewState } from '@/lib/board-review'
 import { sendEmail } from '@/lib/gmail'
 
 export const runtime = 'nodejs'
@@ -119,6 +120,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   // nobody" — so this needs no change anywhere downstream, and it survives a
   // later change to the roster. Staff can still see the declaration and
   // override any single row by hand.
+  // The per-document review: which are approved, refused, or merely on file.
+  // The staff rows and the board's page read the SAME record, so a green flag
+  // means the same thing on both.
+  const review = await getReviewState(id)
   const petsAllowed = (assocRow?.pets_allowed as boolean | null) ?? null
   const declarations = parseDeclarations(app.declarations)
   const derivedNa = declaredNaKeys(checklist, declarations, { petsAllowed })
@@ -143,6 +148,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     screeningProvider: (assocRow?.screening_provider as string | null) ?? 'tenant_evaluation',
     audit: { auditedBy: app.audited_by, auditedAt: app.audited_at, reviewedBy: app.reviewed_by, reviewedAt: app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role },
     naItems,
+    review: review ? {
+      rows: review.rows.map(r => ({ scopeKey: r.scopeKey, docKey: r.docKey, state: r.state, decision: r.decision, perApplicantName: r.perApplicantName })),
+      totals: review.totals, complete: review.complete,
+      windowOpenedAt: review.windowOpenedAt, windowDays: review.windowDays, dueAt: review.dueAt,
+    } : null,
     declarations,
     declaredNa: derivedNa,
     petsAllowed,
