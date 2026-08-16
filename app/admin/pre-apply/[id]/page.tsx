@@ -148,14 +148,20 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <Link href="/admin/pre-apply" style={{ fontSize: 13, color: '#2563eb', textDecoration: 'none' }}>← Audit queue</Link>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>{d.applicant?.name || 'Applicant'} <span style={{ color: '#6b7280', fontWeight: 400, fontSize: 18 }}>· {TYPE_LABEL[d.type] ?? d.type}</span></h1>
-        <StatusPill status={d.status} />
+        {/* The Drive folder belongs at the TOP of the card. It was below the
+            applicants and agents editors, where it read as a footnote to them
+            rather than as the application's own folder, and was routinely
+            missed in the middle of the page. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {d.driveFolderUrl && <a href={d.driveFolderUrl} target="_blank" rel="noreferrer" style={{ font: '600 13px system-ui', color: '#2563eb', textDecoration: 'none', border: '1px solid #dbeafe', background: '#eff6ff', borderRadius: 8, padding: '5px 11px', whiteSpace: 'nowrap' }}>📁 Drive folder →</a>}
+          <StatusPill status={d.status} />
+        </div>
       </div>
       <p style={{ color: '#6b7280', fontSize: 14, margin: '2px 0 0' }}>{d.associationCode}{d.unit ? ` · Unit ${d.unit}` : ''} · submitted {fmt(d.submittedAt)}</p>
       <p style={{ fontSize: 13, color: '#374151', margin: '4px 0 0' }}>{d.applicant?.email}{d.applicant?.phone ? ` · ${d.applicant.phone}` : ''}</p>
       <MetaEditor id={id} name={d.applicant?.name ?? ''} type={d.type} onDone={load} />
       <ApplicantsCard id={id} applicants={(d.stakeholders ?? []).filter(s => s.role === 'applicant')} onDone={load} />
       <AgentsCard id={id} stakeholders={d.stakeholders ?? []} onDone={load} />
-      {d.driveFolderUrl && <p style={{ margin: '8px 0 0' }}><a href={d.driveFolderUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 13, fontWeight: 600 }}>📁 Drive folder →</a></p>}
 
       {/* Guided progress */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '16px 0 6px' }}>
@@ -310,7 +316,6 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       )}
       {(d.type === 'lease_renewal' || d.type === 'additional_occupant') && <CarryOverButton id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
-      {!decided && <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail} onDone={load} preselect={requestFor} onPreselectHandled={() => setRequestFor(null)} />}
       {!decided && <RulesAckSender id={id} />}
       {!decided && <PetRegSender id={id} />}
       <CommunicationsLog id={id} unit={d.unit} associationCode={d.associationCode} />
@@ -366,6 +371,15 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
             )
           })()}
         </>
+      )}
+
+      {/* Request documents — BELOW both document lists, because "which of these
+          do I still need?" is a question you answer by reading the lists first.
+          Opening it above them pushed the very rows being ticked off-screen. */}
+      {!decided && (
+        <div style={{ marginTop: 16 }}>
+          <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail} onDone={load} preselect={requestFor} onPreselectHandled={() => setRequestFor(null)} />
+        </div>
       )}
 
       {/* Tax-return-vs-W-2 check (the one real validation) */}
@@ -853,13 +867,18 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
 
   return (
     <div style={{ padding: '10px 14px', borderTop: first ? 'none' : '1px solid #f3f4f6', opacity: na ? 0.6 : 1, background: isExpired ? '#fef2f2' : undefined, borderLeft: isExpired ? '3px solid #b91c1c' : undefined }}>
+      {/* The actions stay on the title line for EVERY row. The left column had
+          no width limit, so one long "Will file as …" filename widened it far
+          enough to wrap the whole action group onto a second line — which is
+          why one row's buttons sat below its title while its neighbours' sat
+          beside theirs. */}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div>
+        <div style={{ flex: '1 1 260px', minWidth: 0 }}>
           <span style={{ fontWeight: 600, fontSize: 14 }}>{c.label}</span> <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px' }}>{c.provided_by}</span>{!c.required && <span style={{ fontSize: 11, color: '#6b7280' }}> · optional</span>}
           {isExpired && <span style={{ font: '700 10px system-ui', color: '#fff', background: '#b91c1c', borderRadius: 5, padding: '2px 7px', marginLeft: 7 }}>🚨 EXPIRED {new Date(doc!.expirationDate!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
           {doc && !na && (
-            <div style={{ font: '11.5px system-ui', color: '#6b7280', marginTop: 2, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-              Will file as
+            <div style={{ font: '11.5px system-ui', color: '#6b7280', marginTop: 2, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
+              <span style={{ flexShrink: 0 }}>Will file as</span>
               {editingName ? (
                 <>
                   <input value={nameVal} onChange={e => setNameVal(e.target.value)} style={{ font: '11.5px system-ui', padding: '2px 6px', border: '1px solid #d1d5db', borderRadius: 5, width: 210 }} />
@@ -868,15 +887,15 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
                 </>
               ) : (
                 <>
-                  <strong style={{ color: '#374151' }}>{doc.suggestedName || doc.filename}</strong>
-                  <button onClick={() => setEditingName(true)} style={{ ...link, color: '#2563eb', fontSize: 11 }}>✎ rename</button>
+                  <strong title={doc.suggestedName || doc.filename} style={{ color: '#374151', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.suggestedName || doc.filename}</strong>
+                  <button onClick={() => setEditingName(true)} style={{ ...link, color: '#2563eb', fontSize: 11, flexShrink: 0 }}>✎ rename</button>
                 </>
               )}
               {doc.bySource === 'drive-scan' ? <span>· from Drive scan</span> : doc.bySource === 'esign' ? <span>· e-signed</span> : doc.bySource === 'drive-pick' ? <span>· picked from Drive</span> : null}
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', flexShrink: 0 }}>
           {na ? <span style={{ font: '600 12px system-ui', color: '#6b7280', background: '#f3f4f6', borderRadius: 6, padding: '2px 8px' }}>N/A — not applicable</span> : (
             <>
               {doc && <button onClick={() => setOpen(o => !o)} style={{ ...link, color: '#4338ca' }}>{open ? 'Hide' : '👁 Preview'}</button>}
@@ -1304,19 +1323,32 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone, p
   const [tenantTo, setTenantTo] = useState(tenantEmail ?? '')
   const [busy, setBusy] = useState(false)
 
-  // "Request it" on a document row opens this panel with ONLY that item ticked,
-  // so the choice left to make is who it goes to — the panel is the one place
-  // that decides recipients, rather than a second half-copy on the row.
+  // "Request it" on a document row brings you here with that item ticked, so
+  // the only choice left is who it goes to.
+  //
+  // It used to REPLACE the whole selection every time, which meant clicking
+  // "Request it" on three rows left only the third ticked, and any boxes ticked
+  // by hand were silently cleared. So: opening the panel from a row narrows to
+  // that row (you asked for that one), but once the panel is already open every
+  // further "Request it" ADDS to what is ticked.
   useEffect(() => {
     if (!preselect) return
+    const wasOpen = open
     setOpen(true)
     setState(st => Object.fromEntries(Object.entries(st).map(([k, v]) => [k, {
       ...v,
       // '__outstanding__' means "everything still owed" — the default ticks
       // already reflect what is missing, so leave them alone in that case.
-      on: preselect.doc_key === '__outstanding__' ? v.on : k === preselect.doc_key,
+      on: preselect.doc_key === '__outstanding__' ? v.on
+        : wasOpen ? (v.on || k === preselect.doc_key)
+        : k === preselect.doc_key,
     }])))
+    // The panel now sits below both document lists, so a click from a row up
+    // the page has to bring it into view.
+    requestAnimationFrame(() => document.getElementById('request-docs-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
     onPreselectHandled?.()
+  // `open` is read to decide narrow-vs-add; it must not re-run this effect.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preselect, onPreselectHandled])
   const selected = items.filter(it => state[it.doc_key]?.on)
   const needOwner = selected.some(it => state[it.doc_key].rec === 'owner' || state[it.doc_key].rec === 'both')
@@ -1357,18 +1389,26 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone, p
     </div>
   )
   return (
-    <div style={{ margin: '0 0 12px', border: '1px solid #c05a1c', borderRadius: 12, background: '#fff', padding: 14, boxShadow: '0 0 0 1px #c05a1c22' }}>
+    <div id="request-docs-panel" style={{ margin: '0 0 12px', border: '1px solid #c05a1c', borderRadius: 12, background: '#fff', padding: 14, boxShadow: '0 0 0 1px #c05a1c22' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <span style={{ font: '700 14px system-ui', color: '#1f2937' }}>📩 Request the missing documents</span>
         <button onClick={() => setOpen(false)} style={{ font: '600 12px system-ui', color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
       </div>
       <p style={{ font: '12.5px system-ui', color: '#6b7280', margin: '0 0 10px' }}>Tick what to ask for and who provides it. Each recipient gets one email with their items + a secure upload link (no login).</p>
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+        {/* Every row is ONE line of the same height. A long label — "Tenant
+            Affidavit (signed & notarized by tenant and landlord) — one per
+            occupant" — used to wrap onto a second line, making that row taller
+            than its neighbours and knocking the Owner/Tenant/Both controls out
+            of their column. The label truncates with the full text on hover
+            instead; the controls never shrink. */}
         {items.map((it, i) => (
-          <div key={it.doc_key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: i ? '1px solid #f3f4f6' : 'none' }}>
-            <input type="checkbox" checked={!!state[it.doc_key]?.on} onChange={e => setState(s => ({ ...s, [it.doc_key]: { ...s[it.doc_key], on: e.target.checked } }))} style={{ width: 16, height: 16 }} />
-            <span style={{ flex: 1, font: '600 13.5px system-ui', color: '#1f2937' }}>{it.label}{it.missing && <span style={{ font: '600 11px system-ui', color: '#b45309', marginLeft: 6 }}>missing</span>}</span>
-            <span style={{ display: 'inline-flex', border: '1px solid #d1d5db', borderRadius: 7, overflow: 'hidden' }}>{seg(it.doc_key, 'owner', 'Owner')}{seg(it.doc_key, 'tenant', 'Tenant')}{seg(it.doc_key, 'both', 'Both')}</span>
+          <div key={it.doc_key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', height: 42, borderTop: i ? '1px solid #f3f4f6' : 'none' }}>
+            <input type="checkbox" checked={!!state[it.doc_key]?.on} onChange={e => setState(s => ({ ...s, [it.doc_key]: { ...s[it.doc_key], on: e.target.checked } }))} style={{ width: 16, height: 16, flexShrink: 0 }} />
+            <span title={it.label} style={{ flex: 1, minWidth: 0, font: '600 13.5px system-ui', color: '#1f2937', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {it.label}{it.missing && <span style={{ font: '600 11px system-ui', color: '#b45309', marginLeft: 6 }}>missing</span>}
+            </span>
+            <span style={{ display: 'inline-flex', border: '1px solid #d1d5db', borderRadius: 7, overflow: 'hidden', flexShrink: 0 }}>{seg(it.doc_key, 'owner', 'Owner')}{seg(it.doc_key, 'tenant', 'Tenant')}{seg(it.doc_key, 'both', 'Both')}</span>
           </div>
         ))}
       </div>
@@ -1579,7 +1619,14 @@ function AgentsCard({ id, stakeholders, onDone }: { id: string; stakeholders: { 
 
 interface Person { name: string; role: string; email: string; phone: string }
 function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { name: string | null; applicantRole: string | null; email?: string | null; phone?: string | null }[]; onDone: () => void }) {
-  const seed = (): Person[] => applicants.map((a, i) => ({ name: (a.name ?? '').trim(), role: a.applicantRole || (i === 0 ? 'primary_applicant' : 'co_applicant'), email: (a.email ?? '').trim(), phone: (a.phone ?? '').trim() })).filter(p => p.name)
+  // Kept if they have a name OR an email OR a phone. It used to require a NAME,
+  // so an occupant the owner submitted with only an email vanished from this
+  // editor entirely: not shown, not editable, and — because the same seed feeds
+  // `dirty` — with no button offered to save them either. Whoever the owner
+  // sent is shown, and a missing name is something to fill in, not to drop.
+  const seed = (): Person[] => applicants
+    .map((a, i) => ({ name: (a.name ?? '').trim(), role: a.applicantRole || (i === 0 ? 'primary_applicant' : 'co_applicant'), email: (a.email ?? '').trim(), phone: (a.phone ?? '').trim() }))
+    .filter(p => p.name || p.email || p.phone)
   const [people, setPeople] = useState<Person[]>(seed)
   const [add, setAdd] = useState('')
   const [busy, setBusy] = useState<'read' | 'save' | null>(null)
@@ -1639,7 +1686,8 @@ function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { 
         {people.map((p, i) => (
           <div key={i} style={{ background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <input value={p.name} onChange={e => upd(i, { name: e.target.value })} placeholder="Name" style={{ ...inpS, font: '600 13px system-ui', minWidth: 150 }} />
+              <input value={p.name} onChange={e => upd(i, { name: e.target.value })} placeholder="Name" style={{ ...inpS, font: '600 13px system-ui', minWidth: 150, borderColor: p.name ? '#d1d5db' : '#f59e0b' }} />
+              {!p.name && <span style={{ font: '11.5px system-ui', color: '#b45309' }}>name missing</span>}
               <select value={p.role} onChange={e => upd(i, { role: e.target.value })} style={{ font: '600 12px system-ui', color: '#4338ca', border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 6px', background: '#fff', cursor: 'pointer' }}>
                 {APPLICANT_ROLES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
               </select>
@@ -1658,7 +1706,18 @@ function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <input value={add} onChange={e => setAdd(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && add.trim()) { setPeople([...people, { name: add.trim(), role: people.length === 0 ? 'primary_applicant' : 'co_applicant', email: '', phone: '' }]); setAdd('') } }} placeholder="Add an applicant's name" style={{ font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6, width: 220 }} />
         <button onClick={() => { if (add.trim()) { setPeople([...people, { name: add.trim(), role: people.length === 0 ? 'primary_applicant' : 'co_applicant', email: '', phone: '' }]); setAdd('') } }} style={{ font: '600 12px system-ui', color: '#374151', background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}>+ Add</button>
-        {dirty && <button onClick={save} disabled={!!busy} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: busy ? 'default' : 'pointer' }}>{busy === 'save' ? 'Saving…' : 'Save applicants'}</button>}
+        {/* ALWAYS shown. It used to appear only while `dirty`, so a roster that
+            was already saved offered no button and no confirmation — leaving
+            "where is the save button?" as the only possible reading. The state
+            of the record is the thing to show, not the availability of a verb. */}
+        <button onClick={save} disabled={!!busy || !dirty} style={{
+          font: '600 12px system-ui', border: 'none', borderRadius: 6, padding: '6px 14px',
+          color: dirty ? '#fff' : '#6b7280', background: dirty ? '#166534' : '#eef0f3',
+          cursor: dirty && !busy ? 'pointer' : 'default',
+        }}>{busy === 'save' ? 'Saving…' : dirty ? `Save ${people.length} applicant${people.length === 1 ? '' : 's'}` : '✓ Saved'}</button>
+        {dirty
+          ? <span style={{ font: '12px system-ui', color: '#b45309' }}>Unsaved changes</span>
+          : <span style={{ font: '12px system-ui', color: '#9ca3af' }}>{people.length} on file — edit any field to enable saving</span>}
       </div>
       {msg && <p style={{ font: '12.5px system-ui', color: '#6b7280', margin: '8px 0 0' }}>{msg}</p>}
     </div>
