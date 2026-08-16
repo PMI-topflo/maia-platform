@@ -1,5 +1,49 @@
 # Session handoff — 2026-08-16 (latest)
 
+## Applications dashboards — staff, board, on-site manager (branch `feat/applications-dashboards-2026-08-16`)
+
+The last item from the 2026-08-15/16 list. Three views, **one library**, because a board screen and an office screen that disagree about whether an application is late will get somebody acting on the wrong one.
+
+### The question a dashboard answers
+Not "which applications exist" — the table already did that — but **whose turn is it, and for how long has it been their turn.** A document count says nothing: "14 documents" is equally true of an application nobody has touched in three weeks and one that is finished.
+
+`lib/application-dashboard.ts` reduces every application to one stage:
+
+| Stage | Owner | Meaning |
+|---|---|---|
+| `refused` | applicant (staff drive it) | sent back; a replacement must come in |
+| `not_sent` | **staff** | every document is on file and **nobody has been asked to review it** |
+| `review` | board / on-site manager | the reviewers have it |
+| `letter` | **staff** | all approved; the Board Decision is not written |
+| `signature` | board | the letter is out, awaiting signatures |
+| `applicant` | applicant | required documents have not arrived |
+| `decided` | — | approved or declined |
+
+**The order of those branches IS the rule**, and it is `decideStage()`, pure and tested:
+- **refused before waiting** — a refusal is a specific instruction about one document and must not be buried in a generic "still waiting on documents".
+- **waiting before review** — the board cannot review what has not arrived, so an application with a gap is never described as being with them.
+- **`not_sent` vs `review`** — identical on a status column, and the difference is everything. This is the hole the dashboard was worth building for: an application can sit at `under_review` that **no reviewer has ever been sent a link to**.
+
+### What each desk gets
+- **Staff** — `/admin/pre-apply`, all associations. Their turn is `refused` + `not_sent` + `letter`, **plus any open row carrying an alarm**: an application that has gone quiet is the office's to chase, nobody else will. (Without that rule the staff view reported "your turn: 0" against real production data where all 8 open applications were waiting on applicants.)
+- **Board** — `/units/applications`, their association only. Their turn is `review` + `signature`. Rows link to the **round token they were actually sent**, the only place they can decide.
+- **On-site manager** — same page, same numbers, `review` only: they review documents but do not sign the Board Decision.
+- `unit_manager` is refused (403) — an owner's per-unit manager, not association staff; an association-wide list of applicants is not theirs to read. See [[manager_roles_distinction]].
+
+Alarms: `overdue` (past the 30-day window) · `due_soon` (≤7 days left) · `stalled` (`STALLED_DAYS = 14`, no movement). Silent when zero.
+
+### Structural changes worth knowing
+- **`deriveReviewState()` extracted from `getReviewState()`** in `lib/board-review.ts` — pure, and now the single derivation behind both the one-application screens and the dashboards. Coercions moved to the DB boundary; behaviour identical.
+- **`getReviewStates(ids)`** — the same state for many applications in a **fixed** number of queries (one checklist read per *association*, not per application). The per-application reader would have issued ~1500 queries for 300 applications.
+- **`npm run test:review`** — **46 cases**, the third real test in the repo. Covers the window rule (a document that has not arrived cannot be reviewed; a refusal closes the window again; `dueAt = opened + days`), N/A and declaration retirement, per-applicant expansion excluding minors, and every `decideStage` branch order. **Run it before touching `lib/board-review.ts` or `lib/application-dashboard.ts`.**
+
+### ⚠️ Verified how far
+`npx tsc --noEmit` clean · `npm run lint` clean on every touched file · `npm run build` succeeds, both new routes present · `test:review` 46/46 · `test:gate` 48/48 · **`getApplicationDashboard()` run against production**: 10 applications, 8 `applicant` / 2 `decided`, no alarms; MANXI 309 correctly shows its letter 2/2, MANXI 801 correctly leads with its document gap despite a letter already existing.
+
+**NOT render-verified.** Port 3000 was held by another session's dev server that did not respond, and both portals need an OTP session that cannot be created locally. **Look at both screens on a real login before relying on them.**
+
+---
+
 ## Applications: the board actually reviews documents now (PR #698, MERGED → `95a9483`)
 
 Nine commits, squash-merged. **All five migrations were applied to production DURING the build**, so prod ran new schema against old code until the merge; the merge closed that. Verified after: all tables present, 0 test rows left, `pets_allowed` null on 0 associations.
@@ -34,7 +78,7 @@ Nine commits, squash-merged. **All five migrations were applied to production DU
 **Single-page PDF extraction returned the WRONG pages** on the 26-page Manors XI packet. It made a correctly-ordered packet look scrambled and I nearly "fixed" it with three page swaps that would have genuinely scrambled a recorded governing document. **Verify page order with a full-document `pdftoppm` render or `pdfimages -list`, never single-page reads.** See [[pdf-single-page-extraction-unreliable]].
 
 ### ⏳ NEXT
-1. **Dashboards** for staff, board and on-site manager — the last item from the user's list, untouched.
+1. ~~**Dashboards** for staff, board and on-site manager~~ — **built**, see the section above.
 2. **First production runs to watch:** the 7am ET reminder cron (silent until an application is fully approved — that's correct); **Drive folder creation on staff-created applications** (only ever ran locally, where it correctly failed with no service account); the first request email carrying notes + examples.
 3. **MANXI 1003 additional occupant** — create it for **Rushayne K Shaw**, then send the sponsorship to Yanytza. Do NOT type his email from the Tenant Evaluation form: that is HER address. His credit report is **549 with serious delinquency**, below MANXI's 635 advance-maintenance floor — put it in front of the board with the sponsorship.
 4. **Commercial insurance form** for ESSI, KANE, MACO, WBP, WBPA (CP 00 17 / BOP — confirm with the agent).

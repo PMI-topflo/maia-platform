@@ -5,6 +5,7 @@
 // per-application audit + dual approval + staff document upload.
 
 import { useEffect, useState } from 'react'
+import ApplicationsDashboard from '@/components/ApplicationsDashboard'
 
 interface App {
   id: string; associationCode: string; type: string; unit: string | null; status: string
@@ -105,6 +106,12 @@ export default function PreApplyQueue() {
           )}
         </div>
       )}
+
+      {/* Whose turn it is, before anything else. The table below still answers
+          "which applications exist"; this answers "which ones need somebody". */}
+      <div style={{ marginTop: 18 }}>
+        <ApplicationsDashboard endpoint="/api/admin/pre-apply/dashboard" role="staff" />
+      </div>
 
       <StaffCreate />
       <LinkGenerator />

@@ -19,7 +19,19 @@ Full detail in `docs/SESSION-HANDOFF.md` (top). Memory: [[board_document_review]
 - ✅ Staff decide on the same record; the old application-wide Actions block is gone.
 - ✅ Row restyle: one ✎ Edit opens Upload · From Drive · Request · Mark N/A, expiration inside it.
 - ✅ 5-day signature reminder cron (`/api/cron/board-review-reminders`, 7am ET) — only once the window is open, never to someone who already signed.
-- 🔴 **Open: dashboards** for staff, board and on-site manager. Last item from the user's 2026-08-15/16 list.
+- ✅ **Dashboards** for staff, board and on-site manager — see the section below.
+
+## ✅ BUILT — applications dashboards for staff, board and on-site manager (branch `feat/applications-dashboards-2026-08-16`)
+
+Full detail in `docs/SESSION-HANDOFF.md` (top).
+
+- ✅ `lib/application-dashboard.ts` reduces every application to **whose turn it is** — `refused` · `not_sent` · `review` · `letter` · `signature` · `applicant` · `decided` — plus how long they have owed it. One library serves all three desks, so they cannot disagree.
+- ✅ **`not_sent` is the hole this was worth building for**: an application can sit at `under_review` that no reviewer has ever been sent a link to. On a status column that is indistinguishable from "the board has it".
+- ✅ Staff (`/admin/pre-apply`, all associations) · board + on-site manager (`/units/applications`, own association, links to the round token they were sent). `unit_manager` refused 403.
+- ✅ Staff's "your turn" also picks up any open application carrying an alarm — a quiet application is the office's to chase.
+- ✅ `deriveReviewState()` extracted pure from `getReviewState()`; new `getReviewStates(ids)` batches many applications into a fixed query count.
+- ✅ **`npm run test:review` — 46 cases**, the third real test in the repo. Run it before touching `lib/board-review.ts` or `lib/application-dashboard.ts`.
+- ⚠️ **Not render-verified** — port 3000 was held by another session and both portals need an OTP session unavailable locally. Verified by build, both test suites, and running `getApplicationDashboard()` against production. **Look at both screens on a real login.**
 
 ## ✅ LIVE — animal questionnaire, merged into pet registration
 

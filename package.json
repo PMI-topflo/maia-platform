@@ -11,6 +11,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:gate": "npx tsx scripts/test-declaration-gate.ts",
+    "test:review": "npx tsx scripts/test-review-state.ts",
     "eval:intent": "npx tsx evals/run-intent-eval.ts"
   },
   "dependencies": {
