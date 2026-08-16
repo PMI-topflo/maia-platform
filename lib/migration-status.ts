@@ -3675,6 +3675,55 @@ NOTIFY pgrst, 'reload schema';`,
 ALTER TABLE public.document_requests ADD COLUMN IF NOT EXISTS last_sent_by text;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'board_document_review',
+    label:       'Board document review + 30-day window',
+    description: 'application_document_reviews (one live decision per document — approved/refused, the reason, WHO decided and when) + document_review_rounds (each time staff send the list to the board and on-site manager, with its token and the 5-day reminder stamp) + listing_applications.{board_window_opened_at,board_window_days}. Encodes the standard rule: the Board may decide up to 30 days after the LAST REQUESTED DOCUMENT IS RECEIVED — so the window cannot open while anything is outstanding, and a refusal closes it again until the document is replaced.',
+    filename:    '20260815_board_document_review.sql',
+    artifact:    { type: 'table', table: 'application_document_reviews' },
+    sql: `CREATE TABLE IF NOT EXISTS public.application_document_reviews (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id uuid NOT NULL,
+  doc_key text NOT NULL,
+  scope_key text NOT NULL,
+  decision text NOT NULL,
+  reason text,
+  decided_by text NOT NULL,
+  decided_by_role text NOT NULL,
+  decided_at timestamptz NOT NULL DEFAULT now(),
+  round_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_adr_decision CHECK (decision IN ('approved','refused')),
+  CONSTRAINT chk_adr_role CHECK (decided_by_role IN ('board','onsite_manager','staff'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS application_document_reviews_uniq ON public.application_document_reviews (application_id, scope_key);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.application_document_reviews TO anon, authenticated, service_role;
+ALTER TABLE public.application_document_reviews ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_application_document_reviews" ON public.application_document_reviews;
+CREATE POLICY "service_role_all_application_document_reviews" ON public.application_document_reviews FOR ALL TO service_role USING (true);
+CREATE TABLE IF NOT EXISTS public.document_review_rounds (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id uuid NOT NULL,
+  association_code text NOT NULL,
+  unit_label text,
+  token text NOT NULL,
+  recipients jsonb NOT NULL DEFAULT '[]'::jsonb,
+  note text,
+  started_by text,
+  last_reminder_at timestamptz,
+  reminder_count integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS document_review_rounds_token ON public.document_review_rounds (token);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.document_review_rounds TO anon, authenticated, service_role;
+ALTER TABLE public.document_review_rounds ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_document_review_rounds" ON public.document_review_rounds;
+CREATE POLICY "service_role_all_document_review_rounds" ON public.document_review_rounds FOR ALL TO service_role USING (true);
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS board_window_opened_at timestamptz;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS board_window_days integer NOT NULL DEFAULT 30;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
