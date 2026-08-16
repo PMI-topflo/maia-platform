@@ -106,6 +106,7 @@ export default function PreApplyQueue() {
         </div>
       )}
 
+      <StaffCreate />
       <LinkGenerator />
 
       {/* Stage summary chips (click to filter) */}
@@ -234,6 +235,96 @@ function ChecklistCard({ c }: { c: TypeChecklist }) {
           </li>
         ))}
       </ol>
+    </div>
+  )
+}
+
+// Open an application HERE, with its Drive folder, instead of only being able
+// to send a link and wait. The case this covers is documents that arrive by
+// email: until now they had nowhere to live, because an application only came
+// into existence when the applicant used a link.
+//
+// No email is sent — staff are recording something that already happened.
+function StaffCreate() {
+  const TYPES = [
+    { key: 'lease', label: 'Lease / Rental' }, { key: 'purchase', label: 'Purchase' },
+    { key: 'lease_renewal', label: 'Lease Renewal' }, { key: 'additional_occupant', label: 'Additional Occupant' },
+  ]
+  const [open, setOpen] = useState(false)
+  const [assoc, setAssoc] = useState('MANXI')
+  const [unit, setUnit] = useState('')
+  const [type, setType] = useState('lease')
+  const [people, setPeople] = useState([{ name: '', email: '', phone: '' }])
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const upd = (i: number, patch: Partial<{ name: string; email: string; phone: string }>) =>
+    setPeople(ps => ps.map((p, j) => j === i ? { ...p, ...patch } : p))
+
+  async function create(force?: boolean) {
+    if (!unit.trim()) { setMsg('Enter the unit.'); return }
+    if (!people.some(p => p.name.trim())) { setMsg('Add at least one applicant name.'); return }
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch('/api/admin/pre-apply/create', {
+        method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ associationCode: assoc, unit: unit.trim(), applicationType: type, applicants: people, note, ...(force ? { force: true } : {}) }),
+      })
+      const j = await r.json()
+      if (r.status === 409 && j.needsConfirm) {
+        if (confirm(`${j.error}\n\nStart another anyway?`)) return void create(true)
+        setMsg(null); return
+      }
+      if (!r.ok) throw new Error(j.error || 'failed')
+      window.location.href = `/admin/pre-apply/${j.applicationId}`
+    } catch (e) { setMsg(`Could not create: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
+  const inp: React.CSSProperties = { font: '13px system-ui', padding: '7px 9px', border: '1px solid #d1d5db', borderRadius: 7 }
+  return (
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff', padding: 14, marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div>
+          <span style={{ font: '700 14px system-ui', color: '#1f2a44' }}>Open an application</span>
+          <span style={{ font: '13px system-ui', color: '#6b7280' }}> — with its Drive folder, for documents that came by email</span>
+        </div>
+        <button onClick={() => setOpen(o => !o)} style={{ font: '600 13px system-ui', color: '#fff', background: open ? '#6b7280' : '#1f2a44', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer' }}>
+          {open ? 'Cancel' : '+ New application'}
+        </button>
+      </div>
+
+      {open && (
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <input value={assoc} onChange={e => setAssoc(e.target.value.toUpperCase())} placeholder="Association" style={{ ...inp, width: 110 }} />
+            <input value={unit} onChange={e => setUnit(e.target.value)} placeholder="Unit e.g. 1003" style={{ ...inp, width: 130 }} />
+            <select value={type} onChange={e => setType(e.target.value)} style={{ ...inp, cursor: 'pointer' }}>
+              {TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+          </div>
+
+          {people.map((p, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input value={p.name} onChange={e => upd(i, { name: e.target.value })} placeholder={i === 0 ? 'Applicant name' : 'Also on the application'} style={{ ...inp, width: 210, fontWeight: i === 0 ? 600 : 400 }} />
+              <input value={p.email} onChange={e => upd(i, { email: e.target.value })} placeholder="email (optional)" style={{ ...inp, width: 210 }} />
+              <input value={p.phone} onChange={e => upd(i, { phone: e.target.value })} placeholder="phone (optional)" style={{ ...inp, width: 140 }} />
+              {people.length > 1 && <button onClick={() => setPeople(ps => ps.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: '#9ca3af', cursor: 'pointer', font: '700 15px system-ui' }}>×</button>}
+            </div>
+          ))}
+          <button onClick={() => setPeople(ps => [...ps, { name: '', email: '', phone: '' }])} style={{ alignSelf: 'flex-start', font: '600 12px system-ui', color: '#374151', background: '#fff', border: '1px dashed #d1d5db', borderRadius: 7, padding: '6px 12px', cursor: 'pointer' }}>+ Add another person</button>
+
+          <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note — e.g. documents received by email from the owner" style={{ ...inp, width: '100%', boxSizing: 'border-box' }} />
+
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button onClick={() => create()} disabled={busy} style={{ font: '600 13px system-ui', color: '#fff', background: busy ? '#9ca3af' : '#166534', border: 'none', borderRadius: 8, padding: '9px 16px', cursor: busy ? 'default' : 'pointer' }}>
+              {busy ? 'Creating…' : 'Create + open its folder'}
+            </button>
+            <span style={{ font: '12px system-ui', color: '#9ca3af' }}>The applicant is not emailed — send them a link separately if you need to.</span>
+          </div>
+          {msg && <p style={{ font: '13px system-ui', color: '#b91c1c', margin: 0 }}>⚠ {msg}</p>}
+        </div>
+      )}
     </div>
   )
 }
