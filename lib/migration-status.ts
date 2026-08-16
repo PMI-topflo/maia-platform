@@ -3757,6 +3757,15 @@ DROP POLICY IF EXISTS "service_role_all_occupant_sponsorships" ON public.occupan
 CREATE POLICY "service_role_all_occupant_sponsorships" ON public.occupant_sponsorships FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'unit_owner_insurance',
+    label:       'Unit owner insurance on every association with units',
+    description: 'Seeds the existing property_insurance item (the OWNER\'s policy, not the tenant\'s renters insurance) as required on lease / lease_renewal / additional_occupant for the 15 condos + the co-op + GVH and PVV. Excluded, deliberately: BHB (single-family — no shared structure and no association coverage behind it), LCLUB and VPREC (master associations, no units), and the 5 commercial condos (they need CP 00 17 / BOP, not an HO-6, pending confirmation). GVH and PVV are included because their association policy does not cover the inside of the units and the units are attached to their neighbours.',
+    filename:    '20260816_unit_owner_insurance.sql',
+    artifact:    { type: 'column', table: 'association_intake_documents', column: 'doc_key' },
+    sql: `-- See supabase/migrations/20260816_unit_owner_insurance.sql for the full seed.
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
