@@ -87,12 +87,31 @@ interface CampaignPreview {
   errors: { unitRef: string; email: string; error: string }[]
 }
 
+interface EmailVariant {
+  key: string; title: string; subject: string; html: string
+  count: number
+  sampleOf: { unitRef: string; name: string | null; email: string; party: string } | null
+}
+
 function EmergencyContactCampaign({ code }: { code: string }) {
   const [open, setOpen] = useState(false)
-  const [busy, setBusy] = useState<null | 'preview' | 'send'>(null)
+  const [busy, setBusy] = useState<null | 'preview' | 'send' | 'email'>(null)
   const [preview, setPreview] = useState<CampaignPreview | null>(null)
   const [result, setResult] = useState<CampaignPreview | null>(null)
+  const [email, setEmail] = useState<EmailVariant[] | null>(null)
+  const [shownVariant, setShownVariant] = useState(0)
   const [err, setErr] = useState<string | null>(null)
+
+  async function loadEmail() {
+    if (email) { setEmail(null); return }   // toggle closed
+    setBusy('email'); setErr(null)
+    try {
+      const r = await fetch(`/api/admin/emergency-contacts/campaign/preview-email?assoc=${encodeURIComponent(code)}`, { credentials: 'include' })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error ?? 'failed')
+      setEmail(d.variants as EmailVariant[]); setShownVariant(0)
+    } catch (e) { setErr(e instanceof Error ? e.message : 'failed') } finally { setBusy(null) }
+  }
 
   async function run(send: boolean) {
     setBusy(send ? 'send' : 'preview'); setErr(null)
@@ -122,11 +141,56 @@ function EmergencyContactCampaign({ code }: { code: string }) {
             An e-signed form to every owner (rented out or not) and every renter — who to call if something happens at the unit.
           </p>
         </div>
-        <button onClick={() => { setOpen(o => !o); if (!open && !preview) run(false) }}
-          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-          {open ? 'Hide' : 'Set up a send'}
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => { setOpen(true); loadEmail() }} disabled={!!busy}
+            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+            {busy === 'email' ? 'Loading…' : email ? 'Hide the email' : '✉ Preview the email'}
+          </button>
+          <button onClick={() => { setOpen(o => !o); if (!open && !preview) run(false) }}
+            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            {open ? 'Hide' : 'Set up a send'}
+          </button>
+        </div>
       </div>
+
+      {/* The actual email, from the same builder that sends it. Two variants,
+          because they are materially different letters. */}
+      {email && (
+        <div className="mt-3 border-t border-gray-100 pt-3">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            {email.map((v, i) => (
+              <button key={v.key} onClick={() => setShownVariant(i)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium ${i === shownVariant ? 'border-[#c2410c] bg-orange-50 text-[#c2410c]' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}>
+                {v.title} · {v.count}
+              </button>
+            ))}
+          </div>
+          {(() => {
+            const v = email[shownVariant]
+            if (!v) return null
+            return (
+              <div className="rounded-lg border border-gray-200 bg-white">
+                <div className="border-b border-gray-100 px-4 py-2.5 text-sm">
+                  <div><span className="text-gray-500">Subject</span> <span className="font-medium text-gray-900">{v.subject}</span></div>
+                  <div className="mt-0.5 text-gray-500">
+                    {v.sampleOf
+                      ? <>Shown for a real recipient — unit <span className="font-medium text-gray-700">{v.sampleOf.unitRef}</span>, {v.sampleOf.name ?? 'no name on file'} &lt;{v.sampleOf.email}&gt;</>
+                      : <>No recipient of this kind at {code} — shown with placeholder details.</>}
+                  </div>
+                </div>
+                {/* Rendering it as HTML is the point — staff need to see the
+                    email, not its source. Safe here because the markup is our
+                    own template built server-side, and every value dropped
+                    into it (names, unit, address) goes through esc() first. */}
+                <div className="px-4 py-3" dangerouslySetInnerHTML={{ __html: v.html }} />
+                <div className="border-t border-gray-100 px-4 py-2 text-xs text-gray-500">
+                  The button above is inert in this preview. Each real email carries its own signing link, unique to that person.
+                </div>
+              </div>
+            )
+          })()}
+        </div>
+      )}
 
       {open && (
         <div className="mt-3 border-t border-gray-100 pt-3">
