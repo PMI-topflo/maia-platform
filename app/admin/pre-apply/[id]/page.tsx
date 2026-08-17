@@ -127,8 +127,24 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   // to already exist, so on a unit with nobody on the roster the one item that
   // collects the tenants' details was hidden.
   const rosterMissing = applicants.length === 0 || applicants.some(a => !a.email || !a.phone)
+  // Name the person we are actually asking about. "Tenant names, emails &
+  // phone numbers" on an ADDITIONAL OCCUPANT application read as though we
+  // wanted the existing tenant's details — which the owner already sent, and
+  // which is how an occupant's paperwork came back carrying the tenant's
+  // address. On this type it is one named person, and it is HIS OWN email:
+  // email is identity here, for the OTP and the e-signature.
+  const rosterLabel = (() => {
+    const named = applicants.map(a => (a.name ?? '').trim()).filter(Boolean)
+    if (d.type === 'additional_occupant') {
+      return named.length === 1
+        ? `${named[0]}'s OWN email & phone (the additional occupant — not the tenant's)`
+        : "The additional occupant's name, and their OWN email & phone (not the tenant's)"
+    }
+    if (d.type === 'purchase') return 'Buyer names, emails & phone numbers'
+    return 'Tenant names, emails & phone numbers'
+  })()
   const requestItems = [
-    { doc_key: 'tenant_contact_info', label: 'Tenant names, emails & phone numbers', provided_by: 'landlord', missing: rosterMissing },
+    { doc_key: 'tenant_contact_info', label: rosterLabel, provided_by: 'landlord', missing: rosterMissing },
     ...d.checklist.map(c => ({ doc_key: c.doc_key, label: c.label, provided_by: c.provided_by, missing: c.required && isMissing(c) })),
   ]
   // Only documents that belong to THIS application's checklist can raise the
@@ -153,7 +169,17 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
     <div style={wrap}>
       <Link href="/admin/pre-apply" style={{ fontSize: 13, color: '#2563eb', textDecoration: 'none' }}>← Audit queue</Link>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>{d.applicant?.name || 'Applicant'} <span style={{ color: '#6b7280', fontWeight: 400, fontSize: 18 }}>· {TYPE_LABEL[d.type] ?? d.type}</span></h1>
+        {/* EVERY applicant, not just the lead. The header read the primary
+            alone, so a co-applicant who was saved perfectly well was nowhere on
+            the page above the fold — which looks exactly like not having saved.
+            Same defect as the approval letter that went out naming one person
+            on a two-person application. */}
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>
+          {applicants.length > 0
+            ? applicants.map(a => a.name).filter(Boolean).join(' & ') || 'Applicant'
+            : (d.applicant?.name || 'Applicant')}
+          <span style={{ color: '#6b7280', fontWeight: 400, fontSize: 18 }}> · {TYPE_LABEL[d.type] ?? d.type}</span>
+        </h1>
         {/* The Drive folder belongs at the TOP of the card. It was below the
             applicants and agents editors, where it read as a footnote to them
             rather than as the application's own folder, and was routinely
@@ -165,7 +191,9 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       </div>
       <p style={{ color: '#6b7280', fontSize: 14, margin: '2px 0 0' }}>{d.associationCode}{d.unit ? ` · Unit ${d.unit}` : ''} · submitted {fmt(d.submittedAt)}</p>
       <p style={{ fontSize: 13, color: '#374151', margin: '4px 0 0' }}>{d.applicant?.email}{d.applicant?.phone ? ` · ${d.applicant.phone}` : ''}</p>
-      <MetaEditor id={id} name={d.applicant?.name ?? ''} type={d.type} onDone={load} />
+      {/* `name` is the LEAD applicant, which is what this editor renames. The
+          others are named beside it so the line matches the roster. */}
+      <MetaEditor id={id} name={d.applicant?.name ?? ''} others={applicants.slice(1).map(a => a.name).filter((n): n is string => !!n)} type={d.type} onDone={load} />
       <ApplicantsCard id={id} applicants={(d.stakeholders ?? []).filter(s => s.role === 'applicant')} onDone={load} />
       <AgentsCard id={id} stakeholders={d.stakeholders ?? []} onDone={load} />
 
@@ -1188,7 +1216,7 @@ const APP_TYPES: { key: string; label: string }[] = [
   { key: 'lease', label: 'New lease' }, { key: 'lease_renewal', label: 'Lease renewal' },
   { key: 'purchase', label: 'Purchase' }, { key: 'additional_occupant', label: 'Additional occupant' },
 ]
-function MetaEditor({ id, name, type, onDone }: { id: string; name: string; type: string; onDone: () => void }) {
+function MetaEditor({ id, name, others = [], type, onDone }: { id: string; name: string; others?: string[]; type: string; onDone: () => void }) {
   const [editing, setEditing] = useState(false)
   const [nameV, setNameV] = useState(name)
   const [typeV, setTypeV] = useState(type)
@@ -1219,7 +1247,10 @@ function MetaEditor({ id, name, type, onDone }: { id: string; name: string; type
   }
   if (!editing) return (
     <p style={{ fontSize: 13, color: '#374151', margin: '6px 0 0', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-      <span><strong>Applicant:</strong> {name || <span style={{ color: '#b45309' }}>not set</span>}</span>
+      <span>
+        <strong>Applicant{others.length ? 's' : ''}:</strong> {name || <span style={{ color: '#b45309' }}>not set</span>}
+        {others.length > 0 && <span> &amp; {others.join(' & ')}</span>}
+      </span>
       <span style={{ color: '#9ca3af' }}>·</span>
       <span><strong>Type:</strong> {APP_TYPES.find(t => t.key === type)?.label ?? type}</span>
       <button onClick={() => setEditing(true)} style={{ font: '600 12px system-ui', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>✎ edit</button>

@@ -14,6 +14,7 @@ import { getDrive } from '@/lib/drive-invoice-mirror'
 import { quickDocScan } from '@/lib/quick-doc-classify'
 import { INTAKE_BUCKET, autoRosterFromLease } from '@/lib/preapply'
 import { PDFDocument } from 'pdf-lib'
+import { pdfLooksBlank } from '@/lib/pdf-normalize'
 import { DOC_TYPE_TOKEN } from '@/lib/intake-naming'
 
 export const runtime = 'nodejs'
@@ -77,8 +78,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   let isPdf = mimeType.includes('pdf') || buf.subarray(0, 5).toString('latin1') === '%PDF-'
   let extractedPages: number | null = null
   if (pageSpec && isPdf) {
+    const total = await PDFDocument.load(buf, { ignoreEncryption: true }).then(d => d.getPageCount()).catch(() => 0)
     const sub = await extractPages(buf, pageSpec)
-    if (!sub) return NextResponse.json({ error: `Could not extract pages "${pageSpec}" — check the range.` }, { status: 200 })
+    if (!sub) {
+      return NextResponse.json({ error: `Could not extract page${pageSpec.includes(',') || pageSpec.includes('-') ? 's' : ''} "${pageSpec}"${total ? ` — the file has ${total} page${total === 1 ? '' : 's'}` : ' — check the range'}.` }, { status: 200 })
+    }
+    // A page that draws NOTHING is almost always the wrong page number, and it
+    // used to file silently: the row went green on a white sheet, and nobody
+    // found out until they opened it. Refuse it and say so.
+    if (await pdfLooksBlank(sub)) {
+      return NextResponse.json({
+        error: `Page ${pageSpec} came out blank — no text and no image on it. That usually means the page number is off. The file has ${total || '?'} pages; open it in Drive, note the page the document is actually on, and try that number.`,
+      }, { status: 200 })
+    }
     buf = sub; isPdf = true
     extractedPages = (await PDFDocument.load(sub)).getPageCount()
   }
