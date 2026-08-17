@@ -196,6 +196,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
           unitRef: cx.account, party: 'owner',
           audience: t ? 'landlord' : 'resident',
           name: cx.ownerName, email: to ?? '', occupants,
+          // Irrelevant here — notify:false means no email is built — but the
+          // shape is shared, so it is stated rather than left to a default.
+          lang: null,
         },
       })
       return NextResponse.json({ ok: true, signUrl: link })
