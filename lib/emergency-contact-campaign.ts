@@ -110,15 +110,20 @@ export async function emergencyContactRecipients(associationCode: string): Promi
   return { recipients, skipped }
 }
 
-/** Create ONE emergency contact form and email its link. Returns the link. */
+/** Create ONE emergency contact form and email its link. Returns the link.
+ *
+ *  `notify: false` creates it without sending mail — for the owner portal,
+ *  where the owner is already on the page and is handed the link directly.
+ *  Emailing them a link to a page they are looking at is noise. */
 export async function sendEmergencyContactForm(opts: {
   associationCode: string
   recipient: Recipient
   legalName: string
   propertyAddress: string | null
   createdBy: string
+  notify?: boolean
 }): Promise<string> {
-  const { associationCode, recipient: r, legalName, propertyAddress, createdBy } = opts
+  const { associationCode, recipient: r, legalName, propertyAddress, createdBy, notify = true } = opts
 
   const { data: created, error } = await supabaseAdmin.from('esign_documents').insert({
     kind: 'emergency_contact_list',
@@ -140,6 +145,7 @@ export async function sendEmergencyContactForm(opts: {
   if (error || !created) throw new Error(error?.message ?? 'could not create the form')
 
   const link = `${APP}/esign/${await signEsignToken(String(created.id), 'resident')}`
+  if (!notify) return link
   const landlord = r.audience === 'landlord'
 
   await sendEmail({
