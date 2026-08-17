@@ -174,6 +174,10 @@ export async function recordEsignSignature(
       docKey: 'emergency_contact', docLabel: 'Emergency Contact List (e-signed)',
       filename: 'Emergency_Contact_List.pdf',
     }).catch(() => null)
+    // The survey's answers are only worth collecting if they land somewhere the
+    // rest of MAIA reads. This is the step that turns it from a filed PDF into
+    // a unit whose occupancy is known and whose tenants can be written to.
+    await applyUnitSurveyAnswers(id).catch(() => null)
   }
 
   return { ok: true, status, complete }
@@ -183,6 +187,93 @@ export async function recordEsignSignature(
  *  the checklist item it satisfies stops asking for something already signed.
  *  `assemble` is for kinds whose real PDF is more than the bare render (the
  *  rules acknowledgment splices in the association's own Rules pages). */
+/**
+ * Push a signed unit survey's answers into the records the rest of MAIA reads.
+ *
+ * Without this the survey is a PDF in a folder: the unit's occupancy stays
+ * unknown, the tenants stay unreachable, and the next email still goes out in
+ * English to whoever the Association happened to have on file. The whole point
+ * of asking is that the NEXT round can write to the right person, in their
+ * language, for the documents that are actually theirs.
+ *
+ * Best-effort throughout, and deliberately non-destructive: a tenant already on
+ * file is UPDATED, never replaced, so a survey that names one of two tenants
+ * does not silently delete the other. Signing must never fail because a
+ * downstream write did.
+ */
+async function applyUnitSurveyAnswers(esignDocId: string): Promise<void> {
+  const doc = await getEsignDoc(esignDocId)
+  if (!doc?.unit_ref) return
+  const p = doc.payload as {
+    occupancy?: 'owner_occupied' | 'leased' | 'vacant'
+    language?: string
+    tenants?: { name?: string; email?: string; phone?: string }[]
+    audience?: string
+    party?: 'owner' | 'renter'
+  }
+  const assoc = doc.association_code, unit = doc.unit_ref
+  const now = new Date().toISOString()
+  const signer = doc.signers.find(sg => sg.signed_at) ?? null
+  const by = `esign:unit_survey:${signer?.name ?? 'signer'}`
+
+  // 1. Occupancy — the answer that decides which documents a unit owes at all.
+  if (p.occupancy) {
+    const { setUnitOccupancy } = await import('@/lib/unit-required-docs')
+    await setUnitOccupancy(assoc, unit, p.occupancy, by).catch(() => null)
+  }
+
+  // 2. Language — stored on the PERSON who answered, which is why `party` is
+  //    stamped on the payload at creation. An owner and their tenant are two
+  //    different answers about the same unit, and writing a renter's choice
+  //    onto the owners record would change the language the LANDLORD is
+  //    written to. `audience` cannot carry this: a renter and an
+  //    owner-occupier are both 'resident'.
+  if (p.language) {
+    if (p.party === 'renter') {
+      await supabaseAdmin.from('unit_tenant_contacts')
+        .update({ preferred_language: p.language, updated_at: now })
+        .eq('association_code', assoc).eq('unit_ref', unit)
+        .then(() => null, () => null)
+    } else {
+      await supabaseAdmin.from('owners')
+        .update({ preferred_language: p.language })
+        .eq('association_code', assoc)
+        .or(`account_number.eq.${unit},unit_number.eq.${unit}`)
+        .then(() => null, () => null)
+    }
+  }
+
+  // 3. Tenants — the gap this survey exists to close. Their email is what lets
+  //    the next round ask them directly instead of routing it via the landlord.
+  const tenants = (p.tenants ?? []).filter(t => String(t.name ?? '').trim())
+  if (p.occupancy === 'leased' && tenants.length > 0) {
+    const lead = tenants[0]
+    const { data: existing } = await supabaseAdmin.from('unit_tenant_contacts')
+      .select('id, tenant_name, tenant_email, tenant_phone')
+      .eq('association_code', assoc).eq('unit_ref', unit).maybeSingle()
+
+    // Only fill what the survey actually answered — a blank field on the form
+    // is "not supplied", never "delete what you had".
+    const patch: Record<string, unknown> = { updated_at: now }
+    if (lead.name) patch.tenant_name = lead.name
+    if (lead.email) patch.tenant_email = lead.email
+    if (lead.phone) patch.tenant_phone = lead.phone
+    if (p.language) patch.preferred_language = p.language
+    // Everyone after the first is an additional occupant on the same record.
+    if (tenants.length > 1) {
+      patch.occupants = tenants.slice(1).map(t => ({ name: t.name, email: t.email ?? null, phone: t.phone ?? null }))
+    }
+
+    if (existing) {
+      await supabaseAdmin.from('unit_tenant_contacts').update(patch).eq('id', existing.id).then(() => null, () => null)
+    } else {
+      await supabaseAdmin.from('unit_tenant_contacts')
+        .insert({ association_code: assoc, unit_ref: unit, ...patch })
+        .then(() => null, () => null)
+    }
+  }
+}
+
 async function fileEsignToApplication(
   esignDocId: string,
   opts: { docKey: string; docLabel: string; filename: string; assemble?: boolean },

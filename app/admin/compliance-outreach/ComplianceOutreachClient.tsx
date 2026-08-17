@@ -89,8 +89,14 @@ interface CampaignPreview {
 
 interface EmailVariant {
   key: string; title: string; subject: string; html: string
-  count: number
+  count: number; lang: string
   sampleOf: { unitRef: string; name: string | null; email: string; party: string } | null
+}
+interface EmailPreview { variants: EmailVariant[]; byLang: Record<string, number>; languages: string[] }
+
+const LANG_LABEL: Record<string, string> = {
+  en: 'English', es: 'Español', pt: 'Português', fr: 'Français',
+  ht: 'Kreyòl', he: 'עברית', ru: 'Русский',
 }
 
 function EmergencyContactCampaign({ code }: { code: string }) {
@@ -98,18 +104,20 @@ function EmergencyContactCampaign({ code }: { code: string }) {
   const [busy, setBusy] = useState<null | 'preview' | 'send' | 'email'>(null)
   const [preview, setPreview] = useState<CampaignPreview | null>(null)
   const [result, setResult] = useState<CampaignPreview | null>(null)
-  const [email, setEmail] = useState<EmailVariant[] | null>(null)
+  const [email, setEmail] = useState<EmailPreview | null>(null)
   const [shownVariant, setShownVariant] = useState(0)
+  const [langPreview, setLangPreview] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
-  async function loadEmail() {
-    if (email) { setEmail(null); return }   // toggle closed
+  async function loadEmail(lang?: string | null, toggle = false) {
+    if (toggle && email) { setEmail(null); setLangPreview(null); return }
     setBusy('email'); setErr(null)
     try {
-      const r = await fetch(`/api/admin/emergency-contacts/campaign/preview-email?assoc=${encodeURIComponent(code)}`, { credentials: 'include' })
+      const q = `assoc=${encodeURIComponent(code)}${lang ? `&lang=${encodeURIComponent(lang)}` : ''}`
+      const r = await fetch(`/api/admin/emergency-contacts/campaign/preview-email?${q}`, { credentials: 'include' })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error ?? 'failed')
-      setEmail(d.variants as EmailVariant[]); setShownVariant(0)
+      setEmail(d as EmailPreview); setLangPreview(lang ?? null)
     } catch (e) { setErr(e instanceof Error ? e.message : 'failed') } finally { setBusy(null) }
   }
 
@@ -142,7 +150,7 @@ function EmergencyContactCampaign({ code }: { code: string }) {
           </p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => { setOpen(true); loadEmail() }} disabled={!!busy}
+          <button onClick={() => { setOpen(true); loadEmail(null, true) }} disabled={!!busy}
             className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
             {busy === 'email' ? 'Loading…' : email ? 'Hide the email' : '✉ Preview the email'}
           </button>
@@ -157,8 +165,30 @@ function EmergencyContactCampaign({ code }: { code: string }) {
           because they are materially different letters. */}
       {email && (
         <div className="mt-3 border-t border-gray-100 pt-3">
+          {/* How the send actually breaks down by language today. Everyone who
+              has not answered yet gets English — the survey is what changes
+              that, so the number should fall with each round. */}
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+            <span className="font-medium text-gray-700">Would be sent in:</span>
+            {Object.entries(email.byLang).sort((a, b) => b[1] - a[1]).map(([k, n]) => (
+              <span key={k} className="rounded bg-gray-100 px-2 py-0.5">{LANG_LABEL[k] ?? k} · {n}</span>
+            ))}
+          </div>
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-medium text-gray-700">Preview in:</span>
+            <button onClick={() => loadEmail(null)}
+              className={`rounded-full border px-2.5 py-1 ${langPreview === null ? 'border-[#c2410c] bg-orange-50 text-[#c2410c]' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}>
+              Each recipient&apos;s own
+            </button>
+            {email.languages.map(l => (
+              <button key={l} onClick={() => loadEmail(l)}
+                className={`rounded-full border px-2.5 py-1 ${langPreview === l ? 'border-[#c2410c] bg-orange-50 text-[#c2410c]' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}>
+                {LANG_LABEL[l] ?? l}
+              </button>
+            ))}
+          </div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            {email.map((v, i) => (
+            {email.variants.map((v, i) => (
               <button key={v.key} onClick={() => setShownVariant(i)}
                 className={`rounded-full border px-3 py-1 text-xs font-medium ${i === shownVariant ? 'border-[#c2410c] bg-orange-50 text-[#c2410c]' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}>
                 {v.title} · {v.count}
@@ -166,7 +196,7 @@ function EmergencyContactCampaign({ code }: { code: string }) {
             ))}
           </div>
           {(() => {
-            const v = email[shownVariant]
+            const v = email.variants[shownVariant]
             if (!v) return null
             return (
               <div className="rounded-lg border border-gray-200 bg-white">
@@ -182,7 +212,7 @@ function EmergencyContactCampaign({ code }: { code: string }) {
                     email, not its source. Safe here because the markup is our
                     own template built server-side, and every value dropped
                     into it (names, unit, address) goes through esc() first. */}
-                <div className="px-4 py-3" dangerouslySetInnerHTML={{ __html: v.html }} />
+                <div className="px-4 py-3" dir={v.lang === 'he' ? 'rtl' : undefined} dangerouslySetInnerHTML={{ __html: v.html }} />
                 <div className="border-t border-gray-100 px-4 py-2 text-xs text-gray-500">
                   The button above is inert in this preview. Each real email carries its own signing link, unique to that person.
                 </div>

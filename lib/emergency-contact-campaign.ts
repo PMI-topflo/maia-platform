@@ -24,6 +24,8 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { signEsignToken } from '@/lib/esign-token'
 import { sendEmail } from '@/lib/gmail'
 import { EMERGENCY_CERTIFICATION, type EmergencyOccupant } from '@/lib/esign-forms'
+import { surveyEmailStrings } from '@/lib/emergency-contact-email-i18n'
+import { isRtl, normalizePortalLang } from '@/lib/portal-i18n'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const esc = (s: string) => String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
@@ -41,6 +43,9 @@ export interface Recipient {
   name: string | null
   email: string
   occupants: EmergencyOccupant[]
+  /** What this person previously asked to be written to in. Null = never
+   *  asked; the email falls back to English and the survey asks them. */
+  lang: string | null
 }
 
 export interface CampaignResult {
@@ -58,16 +63,16 @@ export async function emergencyContactRecipients(associationCode: string): Promi
   const code = associationCode.toUpperCase()
   const [{ data: owners }, { data: tenants }] = await Promise.all([
     supabaseAdmin.from('owners')
-      .select('account_number, unit_number, first_name, last_name, entity_name, emails')
+      .select('account_number, unit_number, first_name, last_name, entity_name, emails, preferred_language')
       .eq('association_code', code).or('status.neq.previous,status.is.null'),
     supabaseAdmin.from('unit_tenant_contacts')
-      .select('unit_ref, tenant_name, tenant_email, occupants, lease_end')
+      .select('unit_ref, tenant_name, tenant_email, occupants, lease_end, preferred_language')
       .eq('association_code', code),
   ])
 
   // account_number is the reliable unit key — unit_number is reused across
   // distinct accounts at commercial associations. See [[unit_occupancy_lease_tracking_landscape]].
-  const tenantBy = new Map<string, { name: string | null; email: string | null; occupants: EmergencyOccupant[] }>()
+  const tenantBy = new Map<string, { name: string | null; email: string | null; occupants: EmergencyOccupant[]; lang: string | null }>()
   for (const t of tenants ?? []) {
     const ref = String(t.unit_ref ?? '').trim()
     if (!ref) continue
@@ -77,7 +82,7 @@ export async function emergencyContactRecipients(associationCode: string): Promi
       ...extra.map(o => ({ name: String(typeof o === 'string' ? o : o?.name ?? '').trim(), note: 'Occupant' }))
         .filter(o => o.name),
     ]
-    tenantBy.set(ref, { name: (t.tenant_name as string | null) ?? null, email: (t.tenant_email as string | null) ?? null, occupants })
+    tenantBy.set(ref, { name: (t.tenant_name as string | null) ?? null, email: (t.tenant_email as string | null) ?? null, occupants, lang: (t.preferred_language as string | null) ?? null })
   }
 
   const recipients: Recipient[] = []
@@ -92,7 +97,7 @@ export async function emergencyContactRecipients(associationCode: string): Promi
   // is what gets one: the owners' names are joined on it, and the link goes to
   // every distinct address they hold. Any one of them can sign it, the same
   // convention the board review round already uses.
-  const ownersByUnit = new Map<string, { names: string[]; emails: string[] }>()
+  const ownersByUnit = new Map<string, { names: string[]; emails: string[]; lang: string | null }>()
   for (const o of owners ?? []) {
     const ref = String(o.account_number ?? '').trim() || String(o.unit_number ?? '').trim()
     if (!ref) continue
@@ -105,7 +110,10 @@ export async function emergencyContactRecipients(associationCode: string): Promi
     const name = (o.entity_name as string | null)?.trim()
       || [o.first_name, o.last_name].map(x => String(x ?? '').trim()).filter(Boolean).join(' ')
       || ''
-    const cur = ownersByUnit.get(ref) ?? { names: [], emails: [] }
+    const cur = ownersByUnit.get(ref) ?? { names: [], emails: [], lang: null }
+    // First answer on the unit wins — co-owners who disagree is not a case
+    // worth a tie-break, and the survey asks again every year anyway.
+    if (!cur.lang && o.preferred_language) cur.lang = String(o.preferred_language)
     if (name && !cur.names.includes(name)) cur.names.push(name)
     for (const e of emailsOf(o.emails)) if (!cur.emails.some(x => x.toLowerCase() === e.toLowerCase())) cur.emails.push(e)
     ownersByUnit.set(ref, cur)
@@ -122,12 +130,13 @@ export async function emergencyContactRecipients(associationCode: string): Promi
       name: own.names.join(' & ') || null,
       email: own.emails.join(', '),
       occupants: tenant?.occupants ?? [],
+      lang: own.lang,
     })
   }
 
   for (const [ref, t] of tenantBy) {
     if (!t.email) { skipped.push({ unitRef: ref, party: 'renter', reason: 'no tenant email on file' }); continue }
-    recipients.push({ unitRef: ref, party: 'renter', audience: 'resident', name: t.name, email: t.email, occupants: t.occupants })
+    recipients.push({ unitRef: ref, party: 'renter', audience: 'resident', name: t.name, email: t.email, occupants: t.occupants, lang: t.lang })
   }
 
   return { recipients, skipped }
@@ -157,6 +166,11 @@ export async function sendEmergencyContactForm(opts: {
       associationLegalName: legalName,
       propertyAddress,
       audience: r.audience,
+      // Whether we are writing to the OWNER or the RENTER. `audience` cannot
+      // carry it — a renter and an owner-occupier are both 'resident' — and
+      // the signing write-through needs it to know whose language preference
+      // it is recording.
+      party: r.party,
       occupants: r.occupants,
       certification: EMERGENCY_CERTIFICATION,
     },
@@ -173,6 +187,7 @@ export async function sendEmergencyContactForm(opts: {
   const mail = emergencyContactEmail({
     recipientName: r.name, legalName, propertyAddress,
     unitRef: r.unitRef, landlord: r.audience === 'landlord', link,
+    lang: r.lang,
   })
   await sendEmail({ to: r.email, subject: mail.subject, html: mail.html })
   return link
@@ -194,19 +209,27 @@ export function emergencyContactEmail(opts: {
   unitRef: string
   landlord: boolean
   link: string
+  /** The recipient's own answer. Absent falls back to English — a fallback,
+   *  not an assumption that they read it. */
+  lang?: string | null
 }): { subject: string; html: string } {
   const { recipientName, legalName, propertyAddress, unitRef, landlord, link } = opts
+  const t = surveyEmailStrings(opts.lang)
+  // Hebrew is the only right-to-left language in the set. Set it on the
+  // container rather than per-paragraph so punctuation and the interpolated
+  // unit reference sit on the correct side of the line.
+  const rtl = isRtl(normalizePortalLang(opts.lang ?? 'en'))
+  const dir = rtl ? ' dir="rtl"' : ''
+  const align = rtl ? 'text-align:right;' : ''
   return {
-    subject: `Emergency contact list — Unit ${unitRef}`,
-    html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
-      <p>Hello${recipientName ? ` ${esc(recipientName)}` : ''},</p>
-      <p><strong>${esc(legalName)}</strong> keeps an emergency contact list for every unit${propertyAddress ? ` at ${esc(propertyAddress)}` : ''}. It is who we call if something happens at <strong>Unit ${esc(unitRef)}</strong> — a burst pipe, a fire, a storm — and we cannot reach the people who live there.</p>
-      ${landlord
-        ? `<p>Your unit is tenant-occupied, so the form already lists the residents we have on file. Please check that list is right and give us contacts for the unit.</p>`
-        : `<p>It takes about a minute. You will be asked who lives in the unit, one or two people we can call, and whether anyone else holds a key.</p>`}
-      <p style="margin:22px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Complete the emergency contact list →</a></p>
-      <p style="color:#6b7280;font-size:12px">No account or password needed — this link is specific to you. You will get a signed copy by email.</p>
-      <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties · MAIA keeps your association's records up to date and reminds you when something is due.</p></div>`,
+    subject: t.subject(unitRef),
+    html: `<div${dir} style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5;${align}">
+      <p>${esc(t.hello(recipientName))}</p>
+      <p>${t.intro(esc(legalName), esc(unitRef), propertyAddress ? esc(propertyAddress) : null)}</p>
+      <p>${esc(landlord ? t.landlordBody : t.residentBody)}</p>
+      <p style="margin:22px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">${esc(t.cta)} →</a></p>
+      <p style="color:#6b7280;font-size:12px">${esc(t.noAccount)}</p>
+      <p style="color:#9ca3af;font-size:11px">${esc(t.signOff)}</p></div>`,
   }
 }
 

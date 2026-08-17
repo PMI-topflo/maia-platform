@@ -24,10 +24,31 @@ export interface EmergencyPayloadClient {
   audience?: 'resident' | 'landlord'
   occupants?: EmergencyOccupantClient[]
   contacts?: { name?: string; relationship?: string; phone?: string; email?: string }[]
+  occupancy?: Occupancy
+  language?: string
+  tenants?: { name?: string; email?: string; phone?: string }[]
 }
 
+type Occupancy = 'owner_occupied' | 'leased' | 'vacant'
 interface Contact { name: string; relationship: string; phone: string; email: string }
+interface TenantRow { name: string; email: string; phone: string }
 const blank = (): Contact => ({ name: '', relationship: '', phone: '', email: '' })
+const blankTenant = (): TenantRow => ({ name: '', email: '', phone: '' })
+
+const OCCUPANCY: { key: Occupancy; label: string; hint: string }[] = [
+  { key: 'owner_occupied', label: 'I live here', hint: 'Owner-occupied' },
+  { key: 'leased', label: 'It is rented', hint: 'A tenant lives here' },
+  { key: 'vacant', label: 'Nobody lives here', hint: 'Vacant right now' },
+]
+
+// Kept in step with PORTAL_LANGS in lib/portal-i18n.ts. Each label is written
+// in its own language — somebody who reads little English still finds theirs.
+const LANGUAGES: { key: string; label: string }[] = [
+  { key: 'en', label: 'English' }, { key: 'es', label: 'Español' },
+  { key: 'pt', label: 'Português' }, { key: 'fr', label: 'Français' },
+  { key: 'ht', label: 'Kreyòl Ayisyen' }, { key: 'he', label: 'עברית' },
+  { key: 'ru', label: 'Русский' },
+]
 
 const inp: React.CSSProperties = { font: '14px system-ui', padding: '9px 10px', border: '1px solid #d1d5db', borderRadius: 8, width: '100%', boxSizing: 'border-box' }
 const label: React.CSSProperties = { font: '600 13px system-ui', color: '#1f2937', marginBottom: 3 }
@@ -50,6 +71,13 @@ export function EmergencyContactFill({ token, payload, onFilled }: {
     payload?.occupants?.length ? payload.occupants : [{ name: '', note: '' }],
   )
   const [contacts, setContacts] = useState<Contact[]>([blank(), blank()])
+  const [occupancy, setOccupancy] = useState<Occupancy | null>(payload?.occupancy ?? null)
+  const [language, setLanguage] = useState<string>(payload?.language ?? 'en')
+  const [tenants, setTenants] = useState<TenantRow[]>(
+    payload?.tenants?.length
+      ? payload.tenants.map(t => ({ name: t.name ?? '', email: t.email ?? '', phone: t.phone ?? '' }))
+      : [blankTenant()],
+  )
   const [keyHolder, setKeyHolder] = useState('')
   const [keyPhone, setKeyPhone] = useState('')
   const [mayEnter, setMayEnter] = useState(false)
@@ -63,9 +91,17 @@ export function EmergencyContactFill({ token, payload, onFilled }: {
   const updCon = (i: number, patch: Partial<Contact>) =>
     setContacts(c => c.map((x, j) => j === i ? { ...x, ...patch } : x))
 
+  const updTenant = (i: number, patch: Partial<TenantRow>) =>
+    setTenants(t => t.map((x, j) => j === i ? { ...x, ...patch } : x))
+
   async function save() {
     setErr(null)
     const named = contacts.filter(c => c.name.trim())
+    const namedTenants = tenants.filter(t => t.name.trim())
+    if (!occupancy) { setErr('Tell us how the unit is used.'); return }
+    if (occupancy === 'leased' && namedTenants.length === 0) {
+      setErr('The unit is rented — please give us at least the tenant’s name.'); return
+    }
     if (named.length === 0) { setErr('Add at least one emergency contact.'); return }
     if (!named[0].phone.trim() && !named[0].email.trim()) {
       setErr(`Add a phone number or an email for ${named[0].name.trim()} — without one there is no way to reach them.`); return
@@ -78,6 +114,8 @@ export function EmergencyContactFill({ token, payload, onFilled }: {
         body: JSON.stringify({
           occupants: occupants.filter(o => o.name.trim()),
           contacts: named,
+          occupancy, language,
+          tenants: occupancy === 'leased' ? namedTenants : [],
           access: { keyHolder, keyHolderPhone: keyPhone, mayEnter },
           assistance: { needed: assist },
         }),
@@ -89,9 +127,87 @@ export function EmergencyContactFill({ token, payload, onFilled }: {
 
   return (
     <div>
+      {/* ── How the unit is used ─────────────────────────────────────
+          Asked first because it decides what the rest of the form needs:
+          a rented unit has to name its tenants, a vacant one has nobody to
+          list. It is also the answer the Association most often does not
+          have — occupancy is what says which documents a unit even owes. */}
+      <div>
+        <div style={label}>How is this unit used?</div>
+        <p style={hint}>So we ask you for the right things, and stop asking for the wrong ones.</p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {OCCUPANCY.map(o => {
+            const on = occupancy === o.key
+            return (
+              <button key={o.key} onClick={() => { setOccupancy(o.key); setErr(null) }}
+                style={{
+                  flex: '1 1 150px', textAlign: 'left', padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
+                  border: on ? '2px solid #f26a1b' : '1px solid #d1d5db', background: on ? '#fff7ed' : '#fff',
+                }}>
+                <div style={{ font: '600 14px system-ui', color: on ? '#c2410c' : '#111827' }}>{o.label}</div>
+                <div style={{ font: '11.5px system-ui', color: '#6b7280' }}>{o.hint}</div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ── Tenants, only when it is rented ──────────────────────────
+          Their EMAIL is the point. Without it the Association can reach the
+          landlord and nobody who actually lives in the unit, so every request
+          for a tenant's own document has to be relayed by their landlord. */}
+      {occupancy === 'leased' && (
+        <div style={section}>
+          <div style={label}>Who rents it?</div>
+          <p style={hint}>
+            With their email we can write to them directly for the things only they can give us — their ID, their lease, their renter&apos;s insurance —
+            instead of sending everything through you.
+          </p>
+          {tenants.map((t, i) => (
+            <div key={i} style={{ border: '1px solid #eef0f3', borderRadius: 8, padding: 10, marginBottom: 8, background: '#fafafa' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ font: '700 11px system-ui', letterSpacing: '.05em', textTransform: 'uppercase', color: '#8a8f9a' }}>Tenant {i + 1}</span>
+                {tenants.length > 1 && (
+                  <button onClick={() => setTenants(x => x.filter((_, j) => j !== i))}
+                    style={{ font: '600 12px system-ui', color: '#b42318', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Remove</button>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 8 }}>
+                <input value={t.name} onChange={e => { updTenant(i, { name: e.target.value }); setErr(null) }} placeholder="Full name" style={inp} />
+                <input value={t.email} onChange={e => updTenant(i, { email: e.target.value })} placeholder="Their email" style={inp} />
+                <input value={t.phone} onChange={e => updTenant(i, { phone: e.target.value })} placeholder="Their phone" style={inp} />
+              </div>
+            </div>
+          ))}
+          <button onClick={() => setTenants(t => [...t, blankTenant()])}
+            style={{ font: '600 12.5px system-ui', color: '#374151', background: '#fff', border: '1px dashed #d1d5db', borderRadius: 8, padding: '7px 13px', cursor: 'pointer' }}>+ Add another tenant</button>
+        </div>
+      )}
+
+      {/* ── Language ─────────────────────────────────────────────────
+          Every label is in its own language, so somebody who reads little
+          English can still find theirs. */}
+      <div style={section}>
+        <div style={label}>What language should we write to you in?</div>
+        <p style={hint}>MAIA will use it for everything we send you from now on.</p>
+        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+          {LANGUAGES.map(l => {
+            const on = language === l.key
+            return (
+              <button key={l.key} onClick={() => setLanguage(l.key)}
+                style={{
+                  font: `${on ? 700 : 600} 13px system-ui`, cursor: 'pointer', borderRadius: 999, padding: '7px 14px',
+                  border: on ? '2px solid #f26a1b' : '1px solid #d1d5db', background: on ? '#fff7ed' : '#fff',
+                  color: on ? '#c2410c' : '#374151',
+                }}>{l.label}</button>
+            )
+          })}
+        </div>
+      </div>
+
       {/* Who lives here. For a landlord this arrives prefilled from the tenant
           record — they are checking our list, not writing one from memory. */}
-      <div>
+      <div style={section}>
         <div style={label}>{landlord ? 'Who lives in the unit' : 'Who lives here'}</div>
         <p style={hint}>
           {landlord
