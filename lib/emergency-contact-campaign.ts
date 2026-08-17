@@ -169,22 +169,45 @@ export async function sendEmergencyContactForm(opts: {
 
   const link = `${APP}/esign/${await signEsignToken(String(created.id), 'resident')}`
   if (!notify) return link
-  const landlord = r.audience === 'landlord'
 
-  await sendEmail({
-    to: r.email,
-    subject: `Emergency contact list — Unit ${r.unitRef}`,
+  const mail = emergencyContactEmail({
+    recipientName: r.name, legalName, propertyAddress,
+    unitRef: r.unitRef, landlord: r.audience === 'landlord', link,
+  })
+  await sendEmail({ to: r.email, subject: mail.subject, html: mail.html })
+  return link
+}
+
+/**
+ * The campaign email itself — subject and body — as a pure function.
+ *
+ * Extracted so the "Preview the email" button on Compliance Outreach renders
+ * THE EMAIL, not a mock-up of it. A preview built from a second copy of this
+ * markup would drift the first time somebody edited one of them, and staff
+ * would be approving a send on the strength of a message that is not the one
+ * going out.
+ */
+export function emergencyContactEmail(opts: {
+  recipientName: string | null
+  legalName: string
+  propertyAddress: string | null
+  unitRef: string
+  landlord: boolean
+  link: string
+}): { subject: string; html: string } {
+  const { recipientName, legalName, propertyAddress, unitRef, landlord, link } = opts
+  return {
+    subject: `Emergency contact list — Unit ${unitRef}`,
     html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
-      <p>Hello${r.name ? ` ${esc(r.name)}` : ''},</p>
-      <p><strong>${esc(legalName)}</strong> keeps an emergency contact list for every unit${propertyAddress ? ` at ${esc(propertyAddress)}` : ''}. It is who we call if something happens at <strong>Unit ${esc(r.unitRef)}</strong> — a burst pipe, a fire, a storm — and we cannot reach the people who live there.</p>
+      <p>Hello${recipientName ? ` ${esc(recipientName)}` : ''},</p>
+      <p><strong>${esc(legalName)}</strong> keeps an emergency contact list for every unit${propertyAddress ? ` at ${esc(propertyAddress)}` : ''}. It is who we call if something happens at <strong>Unit ${esc(unitRef)}</strong> — a burst pipe, a fire, a storm — and we cannot reach the people who live there.</p>
       ${landlord
         ? `<p>Your unit is tenant-occupied, so the form already lists the residents we have on file. Please check that list is right and give us contacts for the unit.</p>`
         : `<p>It takes about a minute. You will be asked who lives in the unit, one or two people we can call, and whether anyone else holds a key.</p>`}
       <p style="margin:22px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Complete the emergency contact list →</a></p>
       <p style="color:#6b7280;font-size:12px">No account or password needed — this link is specific to you. You will get a signed copy by email.</p>
       <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties · MAIA keeps your association's records up to date and reminds you when something is due.</p></div>`,
-  })
-  return link
+  }
 }
 
 /**
