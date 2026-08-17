@@ -8,6 +8,9 @@ interface Status {
   ownerName: string | null; unit: string | null; associationName: string | null
   emails: string[]; phones: string[]; appraiser: { name: string; url: string }
   contactConfirmedAt: string | null; emergencyContact: Occupant | null
+  /** The unit's signed Emergency Contact List — the record that replaced the
+   *  loose name/phone/email boxes that used to live on this page. */
+  emergencyForm: { status: string; signedAt: string | null; signedBy: string | null; pdfUrl: string; signUrl: string | null } | null
   tenant: Occupant | null; occupants: Occupant[]
   unitManager: Occupant | null
   occupancy: string | null; kind: string; commercialUseType: string | null; missing: MissingItem[]
@@ -42,7 +45,7 @@ export default function OwnerComplianceClient({ token }: { token: string }) {
   const [confirming, setConfirming] = useState(false)
   const [showChange, setShowChange] = useState(false); const [changeText, setChangeText] = useState(''); const [changeSaved, setChangeSaved] = useState(false)
   // Emergency contact
-  const [em, setEm] = useState<Occupant>({ name: '', phone: '', email: '' }); const [savingEm, setSavingEm] = useState(false); const [emSaved, setEmSaved] = useState(false)
+  const [startingEm, setStartingEm] = useState(false)
   // Occupants (leased)
   const [occs, setOccs] = useState<Occupant[]>([{ name: '', phone: '', email: '' }]); const [savingOccs, setSavingOccs] = useState(false); const [occsSaved, setOccsSaved] = useState(false)
   // Commercial use type
@@ -55,7 +58,6 @@ export default function OwnerComplianceClient({ token }: { token: string }) {
       .then((d: Status) => {
         if (!alive) return
         setS(d); setUseType(d.commercialUseType ?? '')
-        if (d.emergencyContact) setEm({ name: d.emergencyContact.name ?? '', phone: d.emergencyContact.phone ?? '', email: d.emergencyContact.email ?? '' })
         const existing = d.occupants?.length ? d.occupants : (d.tenant ? [d.tenant] : [])
         if (existing.length) setOccs(existing.map(o => ({ name: o.name ?? '', phone: o.phone ?? '', email: o.email ?? '' })))
       })
@@ -87,11 +89,15 @@ export default function OwnerComplianceClient({ token }: { token: string }) {
     try { await post({ contactChangeRequest: changeText }); setChangeSaved(true) }
     catch (e) { setError((e as Error).message) }
   }
-  async function saveEmergency() {
-    if (!em.name.trim()) { setError("Enter the emergency contact's name."); return }
-    setSavingEm(true); setError(null)
-    try { const j = await post({ emergencyContact: em }); patch({ missing: j.missing }); setEmSaved(true) }
-    catch (e) { setError((e as Error).message) } finally { setSavingEm(false) }
+  /** Start a fresh Emergency Contact List and go straight to it — the owner is
+   *  already here, so emailing them a link would just be a detour. */
+  async function newEmergencyForm() {
+    setStartingEm(true); setError(null)
+    try {
+      const j = await post({ newEmergencyForm: true })
+      if (j.signUrl) window.location.href = String(j.signUrl)
+      else throw new Error('Could not start the form.')
+    } catch (e) { setError((e as Error).message); setStartingEm(false) }
   }
   async function saveOccupants() {
     setSavingOccs(true); setError(null)
@@ -147,20 +153,53 @@ export default function OwnerComplianceClient({ token }: { token: string }) {
         )}
       </div>
 
-      {/* Emergency contact — fields, not a file */}
+      {/* Emergency contact — the SIGNED list, not three loose boxes.
+          This used to collect a name, phone and email here, which duplicated
+          the Emergency Contact List the unit already signs and left two
+          records of the same thing that could disagree. The signed form is
+          the record; here the owner reads it, or signs a new one. */}
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 14, marginBottom: 16 }}>
-        <div style={sectionLabel}>Emergency contact</div>
-        <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 10px' }}>Someone we can reach in an emergency at your unit (not a document — just their details).</p>
-        {s.unitManager && (
-          <button onClick={() => { setEm({ name: s.unitManager!.name, phone: s.unitManager!.phone ?? '', email: s.unitManager!.email ?? '' }); setEmSaved(false) }}
-            style={{ display: 'inline-block', marginBottom: 10, padding: '6px 12px', borderRadius: 8, border: '1px dashed #9ca3af', background: '#fff', color: '#374151', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-            Use my unit manager ({s.unitManager.name})
-          </button>
+        <div style={sectionLabel}>Emergency contact list</div>
+        {s.emergencyForm?.signedAt ? (
+          <>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 10px' }}>
+              Signed{s.emergencyForm.signedBy ? ` by ${s.emergencyForm.signedBy}` : ''} on{' '}
+              {new Date(s.emergencyForm.signedAt).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' })}.
+              We keep it for a year, then ask you to confirm it is still right.
+            </p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <a href={s.emergencyForm.pdfUrl} target="_blank" rel="noreferrer"
+                style={{ display: 'inline-block', padding: '9px 14px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#1f2a44', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+                📄 View the signed list
+              </a>
+              <button onClick={newEmergencyForm} disabled={startingEm}
+                style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#374151', fontSize: 13, fontWeight: 600, cursor: startingEm ? 'default' : 'pointer' }}>
+                {startingEm ? 'Starting…' : 'Replace it — sign a new one'}
+              </button>
+            </div>
+            <p style={{ fontSize: 11.5, color: '#9ca3af', margin: '8px 0 0' }}>
+              Signing a new one replaces this as the list we use. The old copy stays on file.
+            </p>
+          </>
+        ) : s.emergencyForm?.signUrl ? (
+          <>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 10px' }}>You have one waiting — it has not been signed yet.</p>
+            <a href={s.emergencyForm.signUrl}
+              style={{ display: 'inline-block', padding: '9px 14px', borderRadius: 8, background: '#f26a1b', color: '#fff', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+              Finish and sign it →
+            </a>
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 10px' }}>
+              Who we call if something happens at your unit and we cannot reach the people who live there. It takes about a minute, and you e-sign it.
+            </p>
+            <button onClick={newEmergencyForm} disabled={startingEm}
+              style={{ padding: '9px 14px', borderRadius: 8, border: 'none', background: startingEm ? '#c9ccd3' : '#f26a1b', color: '#fff', fontSize: 13, fontWeight: 600, cursor: startingEm ? 'default' : 'pointer' }}>
+              {startingEm ? 'Starting…' : 'Complete the emergency contact list'}
+            </button>
+          </>
         )}
-        <input value={em.name} onChange={e => { setEm({ ...em, name: e.target.value }); setEmSaved(false) }} placeholder="Emergency contact name" style={inp} />
-        <input value={em.phone} onChange={e => { setEm({ ...em, phone: e.target.value }); setEmSaved(false) }} placeholder="Phone" inputMode="tel" style={inp} />
-        <input value={em.email} onChange={e => { setEm({ ...em, email: e.target.value }); setEmSaved(false) }} placeholder="Email (optional)" inputMode="email" style={inp} />
-        <button onClick={saveEmergency} disabled={savingEm} style={primaryBtn(emSaved)}>{savingEm ? 'Saving…' : emSaved ? '✓ Saved' : 'Save emergency contact'}</button>
       </div>
 
       {/* Occupancy */}

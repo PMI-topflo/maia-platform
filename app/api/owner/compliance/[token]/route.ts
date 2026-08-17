@@ -12,9 +12,12 @@ import { verifyOwnerComplianceToken } from '@/lib/owner-portal-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getUnitComplianceState, setUnitOccupancy, setCommercialUseType, OCCUPANCY_LABEL, type Occupancy } from '@/lib/unit-required-docs'
 import { propertyAppraiser } from '@/lib/property-appraiser'
+import { signEsignToken } from '@/lib/esign-token'
+import { sendEmergencyContactForm } from '@/lib/emergency-contact-campaign'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 
 async function ownerContext(token: string) {
   const t = await verifyOwnerComplianceToken(token)
@@ -47,6 +50,36 @@ async function markItem(assoc: string, account: string, itemKey: string, expiryD
 /** One year from today, ISO date. */
 function inOneYear(): string {
   const d = new Date(); d.setFullYear(d.getFullYear() + 1); return d.toISOString().slice(0, 10)
+}
+
+/** The unit's Emergency Contact List, as the owner should see it: the signed
+ *  document they already have, with a link to read it.
+ *
+ *  This replaces three loose name/phone/email boxes that collected the same
+ *  thing a second time, in a shape nobody signed and nothing filed. The signed
+ *  form IS the record; the owner's options here are to read it, or to sign a
+ *  fresh one that supersedes it. */
+async function emergencyFormFor(assoc: string, account: string) {
+  const { data } = await supabaseAdmin.from('esign_documents')
+    .select('id, status, signers, created_at')
+    .eq('kind', 'emergency_contact_list').eq('association_code', assoc).eq('unit_ref', account)
+    .neq('status', 'void').order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (!data) return null
+
+  const signers = (Array.isArray(data.signers) ? data.signers : []) as { role?: string; name?: string | null; signed_at?: string }[]
+  const signed = signers.find(sg => sg.signed_at) ?? null
+  const role = signers[0]?.role ?? 'resident'
+  const tok = await signEsignToken(String(data.id), role)
+  return {
+    status: String(data.status),
+    signedAt: signed?.signed_at ?? null,
+    signedBy: signed?.name ?? null,
+    createdAt: String(data.created_at),
+    // A completed form is read as a PDF; one still outstanding is opened to
+    // be finished, so the link differs by state rather than by guesswork.
+    pdfUrl: `${APP_URL}/api/esign/${tok}/pdf`,
+    signUrl: signed ? null : `${APP_URL}/esign/${tok}`,
+  }
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {
@@ -90,6 +123,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     emails: cx.emails, phones: cx.phones, appraiser: cx.appraiser,
     contactConfirmedAt: reqRow?.contact_confirmed_at ?? null,
     emergencyContact: reqRow?.emergency_contact ?? null,
+    emergencyForm: await emergencyFormFor(cx.assoc, cx.account),
     tenant: tenantRow ? { name: tenantRow.tenant_name, phone: tenantRow.tenant_phone, email: tenantRow.tenant_email } : null,
     occupants: (tenantRow?.occupants as unknown[] | null) ?? [],
     unitManager,
@@ -102,7 +136,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const cx = await ownerContext(token)
   if (!cx) return NextResponse.json({ error: 'invalid or expired link' }, { status: 401 })
 
-  let body: { status?: string; commercialUseType?: string; confirmContact?: boolean; contactChangeRequest?: string; emergencyContact?: { name?: string; phone?: string; email?: string } }
+  let body: { status?: string; commercialUseType?: string; confirmContact?: boolean; contactChangeRequest?: string; emergencyContact?: { name?: string; phone?: string; email?: string }; newEmergencyForm?: boolean }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
 
   // Owner confirms their name/email/phone on file are correct → satisfies the
@@ -129,7 +163,50 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     return NextResponse.json({ ok: true, changeRequested: true })
   }
 
+  // Start a fresh Emergency Contact List. The owner is on the page, so they get
+  // the link straight back rather than an email to a page they are looking at.
+  //
+  // A new one SUPERSEDES the last: emergencyFormFor reads the newest, and
+  // signing files a fresh PDF over the checklist row. Nothing is deleted — the
+  // superseded copy stays readable, because a list somebody signed is a record
+  // of what they told the Association on that date.
+  if (body.newEmergencyForm) {
+    const to = cx.emails[0] ?? null
+    const { data: assocRow } = await supabaseAdmin.from('associations')
+      .select('legal_name, association_name, principal_address, city, state, zip')
+      .eq('association_code', cx.assoc).maybeSingle()
+    const legalName = (assocRow?.legal_name as string | null) || (assocRow?.association_name as string | null) || cx.assoc
+    const propertyAddress = [assocRow?.principal_address, cx.unit ? `Unit ${cx.unit}` : null,
+      [assocRow?.city, [assocRow?.state, assocRow?.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ') || null
+
+    // A unit with a tenant on file is rented out, so the owner is confirming
+    // somebody else's household — the form says so and prefills it.
+    const { data: t } = await supabaseAdmin.from('unit_tenant_contacts')
+      .select('tenant_name, occupants').eq('association_code', cx.assoc).eq('unit_ref', cx.account).maybeSingle()
+    const extra = (Array.isArray(t?.occupants) ? t!.occupants : []) as Array<{ name?: string } | string>
+    const occupants = [
+      ...(t?.tenant_name ? [{ name: String(t.tenant_name), note: 'Tenant of record' }] : []),
+      ...extra.map(o => ({ name: String(typeof o === 'string' ? o : o?.name ?? '').trim(), note: 'Occupant' })).filter(o => o.name),
+    ]
+
+    try {
+      const link = await sendEmergencyContactForm({
+        associationCode: cx.assoc, legalName, propertyAddress, createdBy: 'owner-portal', notify: false,
+        recipient: {
+          unitRef: cx.account, party: 'owner',
+          audience: t ? 'landlord' : 'resident',
+          name: cx.ownerName, email: to ?? '', occupants,
+        },
+      })
+      return NextResponse.json({ ok: true, signUrl: link })
+    } catch (e) {
+      return NextResponse.json({ error: `Could not start the form: ${e instanceof Error ? e.message : 'error'}` }, { status: 500 })
+    }
+  }
+
   // Emergency contact — fields, not a file → satisfies "Emergency Contact".
+  // LEGACY: superseded by the signed Emergency Contact List above. Kept so a
+  // link already in somebody's inbox does not break; the UI no longer offers it.
   if (body.emergencyContact) {
     const ec = body.emergencyContact
     const name = String(ec.name ?? '').trim()

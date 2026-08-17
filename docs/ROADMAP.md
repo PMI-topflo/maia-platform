@@ -30,7 +30,7 @@ Detail in `docs/SESSION-HANDOFF.md` (top).
 - ✅ Liability text on both variants, shown before signing as well as on the PDF, with a Ch. 718 savings clause. ⚠️ **Not attorney-reviewed.**
 - ✅ Campaign UI on `/admin/compliance-outreach` — **dry-run preview of the exact recipient list**, then Confirm.
 - ✅ `"Updated Vehicle Information"` → `"Car Registration"`. ⚠️ **Migration needs applying by hand.**
-- 🔴 **Open:** the owner portal's older single emergency-contact field (`owner_compliance_requests.emergency_contact`) now overlaps this form — decide whether to retire it.
+- ✅ **Closed:** the owner portal's three loose name/phone/email boxes are gone. `/owner/compliance/[token]` now shows the **signed list with a link to read it**, plus "Replace it — sign a new one" (user direction). A new one supersedes the last; the old copy stays on file, because a list somebody signed records what they said on that date. The legacy `emergencyContact` POST branch is kept so a link already in an inbox does not break, but nothing offers it.
 
 ## ✅ BUILT — applications dashboards for staff, board and on-site manager (branch `feat/applications-dashboards-2026-08-16`)
 
