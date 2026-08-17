@@ -34,6 +34,12 @@ const label: React.CSSProperties = { font: '600 13px system-ui', color: '#1f2937
 const hint: React.CSSProperties = { font: '12.5px system-ui', color: '#6b7280', margin: '0 0 10px', lineHeight: 1.5 }
 const section: React.CSSProperties = { borderTop: '1px solid #eef0f3', paddingTop: 16, marginTop: 18 }
 
+// Kept verbatim in step with lib/esign-forms.tsx → EMERGENCY_LIABILITY, which
+// is what the signed PDF prints. Duplicated as a literal rather than imported
+// because that module pulls in @react-pdf/renderer, which has no business in
+// the browser bundle.
+const LIABILITY_TEXT = 'The Association maintains this list as a courtesy and will make reasonable efforts to use it. It does not undertake to reach any person named here, and cannot guarantee that contact will be made, or made in time — an emergency is unpredictable, and telephone, internet and postal service may be unavailable during one. Keeping these details current is the responsibility of the person who signed this form, and the Association is not responsible for the consequences of information that is out of date, incomplete or incorrect, or of being unable to reach any person listed. Nothing in this form obliges the Association to provide emergency, medical, rescue or evacuation services, and nothing in it limits or waives any duty the Association owes under Chapter 718, Florida Statutes, or under its governing documents. In a life-safety emergency, call 911 first.'
+
 export function EmergencyContactFill({ token, payload, onFilled }: {
   token: string
   payload: EmergencyPayloadClient | null
@@ -154,10 +160,16 @@ export function EmergencyContactFill({ token, payload, onFilled }: {
         </label>
       </div>
 
+      {/* Shown BEFORE signing, not only on the signed PDF — a limitation the
+          signer first meets in their filed copy is not one they agreed to. */}
       <div style={section}>
+        <div style={{ border: '1px solid #e5e7eb', background: '#fafafa', borderRadius: 8, padding: '11px 13px', marginBottom: 14 }}>
+          <div style={{ font: '700 12px system-ui', color: '#1f2a44', marginBottom: 5 }}>What the Association is and is not undertaking</div>
+          <p style={{ font: '12.5px system-ui', color: '#4b5563', margin: 0, lineHeight: 1.55 }}>{LIABILITY_TEXT}</p>
+        </div>
         <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', font: '13.5px system-ui', color: '#374151', lineHeight: 1.5, cursor: 'pointer', marginBottom: 14 }}>
           <input type="checkbox" checked={agreed} onChange={e => { setAgreed(e.target.checked); setErr(null) }} style={{ marginTop: 3 }} />
-          <span>The details above are correct to the best of my knowledge, and the people listed have agreed to be contacted in an emergency at this unit.</span>
+          <span>I have read the note above. The details are correct to the best of my knowledge, and the people listed have agreed to be contacted in an emergency at this unit.</span>
         </label>
         {err && <p style={{ font: '13px system-ui', color: '#b42318', margin: '0 0 10px' }}>{err}</p>}
         <button onClick={save} disabled={busy}

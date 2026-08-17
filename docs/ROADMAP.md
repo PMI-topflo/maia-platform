@@ -21,6 +21,17 @@ Full detail in `docs/SESSION-HANDOFF.md` (top). Memory: [[board_document_review]
 - ✅ 5-day signature reminder cron (`/api/cron/board-review-reminders`, 7am ET) — only once the window is open, never to someone who already signed.
 - ✅ **Dashboards** for staff, board and on-site manager — see the section below.
 
+## ✅ BUILT — Emergency Contact List + the three e-sign checklist items (2026-08-16)
+
+Detail in `docs/SESSION-HANDOFF.md` (top).
+
+- ✅ **`lib/application-esign-forms.ts`** — the one table saying which `doc_key`s are forms MAIA generates. Requesting one now **sends the form**; everything else still asks for an upload. Fixes a live defect where ticking "Rules Knowledge Acknowledgment" or "Pet Registration" emailed an **upload link for a document only MAIA can produce**.
+- ✅ **Emergency Contact List** (`emergency_contact_list`) — e-signed, one form that adapts for a non-resident owner, sent to every owner **and** every renter. Files under `emergency_contact`, stamps `unit.emergency`, one-year expiry.
+- ✅ Liability text on both variants, shown before signing as well as on the PDF, with a Ch. 718 savings clause. ⚠️ **Not attorney-reviewed.**
+- ✅ Campaign UI on `/admin/compliance-outreach` — **dry-run preview of the exact recipient list**, then Confirm.
+- ✅ `"Updated Vehicle Information"` → `"Car Registration"`. ⚠️ **Migration needs applying by hand.**
+- 🔴 **Open:** the owner portal's older single emergency-contact field (`owner_compliance_requests.emergency_contact`) now overlaps this form — decide whether to retire it.
+
 ## ✅ BUILT — applications dashboards for staff, board and on-site manager (branch `feat/applications-dashboards-2026-08-16`)
 
 Full detail in `docs/SESSION-HANDOFF.md` (top).

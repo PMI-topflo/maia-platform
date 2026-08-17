@@ -455,6 +455,17 @@ export interface EmergencyContactPayload {
 export const EMERGENCY_CERTIFICATION =
   'I confirm the details above are correct to the best of my knowledge, and that the people listed have agreed to be contacted in an emergency at this unit. I will tell the Association if they change.'
 
+/** What the Association is and is not undertaking by holding this list.
+ *
+ *  Written to be defensible rather than sweeping. The savings clause matters:
+ *  a Florida condominium association cannot contract out of its duties under
+ *  Chapter 718 or its own governing documents, and a disclaimer that TRIES to
+ *  is the kind a court strikes down entirely. Saying plainly what is not being
+ *  promised — that anyone will be reached, or reached in time — is what this
+ *  can actually do. NOT reviewed by an attorney; see docs/SESSION-HANDOFF.md. */
+export const EMERGENCY_LIABILITY =
+  'The Association maintains this list as a courtesy and will make reasonable efforts to use it. It does not undertake to reach any person named here, and cannot guarantee that contact will be made, or made in time — an emergency is unpredictable, and telephone, internet and postal service may be unavailable during one. Keeping these details current is the responsibility of the person who signed this form, and the Association is not responsible for the consequences of information that is out of date, incomplete or incorrect, or of being unable to reach any person listed. Nothing in this form obliges the Association to provide emergency, medical, rescue or evacuation services, and nothing in it limits or waives any duty the Association owes under Chapter 718, Florida Statutes, or under its governing documents. In a life-safety emergency, call 911 first.'
+
 /** The one thing this form must never become is a health questionnaire, so the
  *  evacuation line states its purpose and its limit on the signed page itself. */
 const ASSISTANCE_NOTE =
@@ -516,6 +527,14 @@ function renderEmergencyPdf(doc: EsignDoc): PdfElement {
         ) : null}
 
         <Text style={s.para}>{p.certification || EMERGENCY_CERTIFICATION}</Text>
+
+        {/* On BOTH variants — one renderer serves the resident and the
+            non-resident owner, so neither can end up without it. */}
+        <View style={{ ...s.notice, borderColor: '#e5e7eb', backgroundColor: '#fafafa' }}>
+          <Text style={{ ...s.noticeTitle, color: NAVY }}>What the Association is and is not undertaking</Text>
+          <Text style={s.noticeBody}>{EMERGENCY_LIABILITY}</Text>
+        </View>
+
         <SignatureRow doc={doc} def={emergencyContactList} />
       </Page>
     </Document>
