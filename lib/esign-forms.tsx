@@ -436,6 +436,15 @@ export interface EmergencyContact {
   phone?: string
   email?: string
 }
+/** How the unit is used. Same three values as unit_occupancy.status, so the
+ *  answer writes straight through without translation. */
+export type UnitOccupancy = 'owner_occupied' | 'leased' | 'vacant'
+
+/** A tenant the owner reports. The email is the point: it is what lets the
+ *  NEXT survey ask the tenant directly for the documents only they can give,
+ *  instead of routing everything through their landlord. */
+export interface ReportedTenant { name: string; email?: string; phone?: string }
+
 export interface EmergencyContactPayload {
   associationLegalName?: string
   propertyAddress?: string
@@ -449,7 +458,23 @@ export interface EmergencyContactPayload {
   access?: { keyHolder?: string; keyHolderPhone?: string; mayEnter?: boolean }
   /** Voluntary. A bare boolean — there is deliberately nowhere to say why. */
   assistance?: { needed?: boolean }
+  /** One of PORTAL_LANGS. Absent means never answered — not English. */
+  language?: string
+  occupancy?: UnitOccupancy
+  /** Collected only when occupancy is 'leased'. */
+  tenants?: ReportedTenant[]
   certification?: string
+}
+
+export const OCCUPANCY_LABEL_FORM: Record<UnitOccupancy, string> = {
+  owner_occupied: 'Owner-occupied — the owner lives here',
+  leased: 'Rented — a tenant lives here',
+  vacant: 'Vacant — nobody lives here right now',
+}
+
+export const LANGUAGE_LABEL: Record<string, string> = {
+  en: 'English', es: 'Español', pt: 'Português', fr: 'Français',
+  ht: 'Kreyòl Ayisyen', he: 'עברית', ru: 'Русский',
 }
 
 export const EMERGENCY_CERTIFICATION =
@@ -480,11 +505,29 @@ function renderEmergencyPdf(doc: EsignDoc): PdfElement {
     <Document>
       <Page size="LETTER" style={s.page}>
         <Text style={s.assoc}>{p.associationLegalName ?? doc.association_code}</Text>
-        <Text style={s.title}>Emergency Contact List</Text>
+        <Text style={s.title}>Unit Update &amp; Emergency Contacts</Text>
         <View style={s.rule} />
         <View style={s.row}><Text style={s.rowKey}>Unit</Text><Text style={s.rowVal}>{doc.unit_ref ?? '—'}</Text></View>
         {p.propertyAddress ? <View style={s.row}><Text style={s.rowKey}>Address</Text><Text style={s.rowVal}>{p.propertyAddress}</Text></View> : null}
         <View style={s.row}><Text style={s.rowKey}>Completed by</Text><Text style={s.rowVal}>{landlord ? 'Unit owner (non-resident)' : 'Resident'}</Text></View>
+        {p.occupancy ? <View style={s.row}><Text style={s.rowKey}>How the unit is used</Text><Text style={s.rowVal}>{OCCUPANCY_LABEL_FORM[p.occupancy]}</Text></View> : null}
+        {p.language ? <View style={s.row}><Text style={s.rowKey}>Preferred language</Text><Text style={s.rowVal}>{LANGUAGE_LABEL[p.language] ?? p.language}</Text></View> : null}
+
+        {/* Reported only when the unit is let. This is what lets the NEXT
+            survey reach the tenant directly instead of through their landlord. */}
+        {p.occupancy === 'leased' && (p.tenants ?? []).length > 0 ? (
+          <>
+            <Text style={s.sectionTitle}>Tenant contact details</Text>
+            {(p.tenants ?? []).map((t, i) => (
+              <View key={i} wrap={false}>
+                <Text style={{ ...s.sectionTitle, fontSize: 9.5, marginTop: 7, marginBottom: 2 }}>Tenant {i + 1}</Text>
+                <View style={s.row}><Text style={s.rowKey}>Name</Text><Text style={s.rowVal}>{t.name || '—'}</Text></View>
+                <View style={s.row}><Text style={s.rowKey}>Email</Text><Text style={s.rowVal}>{t.email || '—'}</Text></View>
+                <View style={s.row}><Text style={s.rowKey}>Phone</Text><Text style={s.rowVal}>{t.phone || '—'}</Text></View>
+              </View>
+            ))}
+          </>
+        ) : null}
 
         <Text style={s.sectionTitle}>{landlord ? 'Who lives in the unit' : 'Who lives here'}</Text>
         {occupants.length === 0
@@ -552,9 +595,12 @@ export function emergencyContactExpiry(signedAtIso?: string | null): string | nu
   return d.toISOString().slice(0, 10)
 }
 
+// `kind` stays 'emergency_contact_list' — documents already exist under it and
+// renaming a kind orphans them. The form simply grew: it now also asks how the
+// unit is used, who rents it, and what language to write in.
 const emergencyContactList: EsignFormDef = {
   kind: 'emergency_contact_list',
-  label: 'Emergency Contact List',
+  label: 'Unit Update & Emergency Contacts',
   roles: ['resident'],
   roleLabel: () => 'Owner / Resident',
   renderPdf: (doc) => renderEmergencyPdf(doc),

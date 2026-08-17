@@ -157,6 +157,11 @@ export async function sendEmergencyContactForm(opts: {
       associationLegalName: legalName,
       propertyAddress,
       audience: r.audience,
+      // Whether we are writing to the OWNER or the RENTER. `audience` cannot
+      // carry it — a renter and an owner-occupier are both 'resident' — and
+      // the signing write-through needs it to know whose language preference
+      // it is recording.
+      party: r.party,
       occupants: r.occupants,
       certification: EMERGENCY_CERTIFICATION,
     },

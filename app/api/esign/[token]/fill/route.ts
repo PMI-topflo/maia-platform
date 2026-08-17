@@ -27,7 +27,9 @@ import { getEsignDoc, roleSigned, mergeEsignPayload } from '@/lib/esign'
 import {
   isFillable, EMERGENCY_CERTIFICATION,
   type Pet, type PetPayload, type EmergencyContact, type EmergencyOccupant,
+  type ReportedTenant, type UnitOccupancy,
 } from '@/lib/esign-forms'
+import { PORTAL_LANGS } from '@/lib/portal-i18n'
 import {
   certificationFor, effectiveBranch, missingAnswers,
   type AnimalQuestionnaire, type AnimalRequestType, type YesNo, type Tri,
@@ -115,6 +117,14 @@ const occupant = (raw: unknown): EmergencyOccupant | null => {
   return name ? { name, note: str(o.note) } : null
 }
 
+const tenant = (raw: unknown): ReportedTenant | null => {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  const name = str(o.name).trim()
+  if (!name) return null
+  return { name, email: str(o.email).trim(), phone: str(o.phone).trim() }
+}
+
 async function fillEmergency(docId: string, body: Record<string, unknown>) {
   const occupants = (Array.isArray(body.occupants) ? body.occupants : [])
     .slice(0, 12).map(occupant).filter((o): o is EmergencyOccupant => !!o)
@@ -130,14 +140,33 @@ async function fillEmergency(docId: string, body: Record<string, unknown>) {
     return NextResponse.json({ error: `Add a phone number or an email for ${first.name} — without one there is no way to reach them.` }, { status: 400 })
   }
 
+  const occupancy = pick<UnitOccupancy>(body.occupancy, ['owner_occupied', 'leased', 'vacant'] as const)
+  if (!occupancy) {
+    return NextResponse.json({ error: 'Tell us how the unit is used — owner-occupied, rented, or vacant.' }, { status: 400 })
+  }
+  const language = pick(body.language, PORTAL_LANGS)
+
+  // A rented unit without its tenants is the gap this survey exists to close:
+  // the Association ends up able to reach the landlord and nobody who actually
+  // lives there. A name is required; an address is what makes the next survey
+  // able to write to them, so it is asked for hard but not made a wall — a
+  // landlord who genuinely does not have it must still be able to finish.
+  const tenants = occupancy === 'leased'
+    ? (Array.isArray(body.tenants) ? body.tenants : []).slice(0, 8).map(tenant).filter((t): t is ReportedTenant => !!t)
+    : []
+  if (occupancy === 'leased' && tenants.length === 0) {
+    return NextResponse.json({ error: 'The unit is rented — please give us at least the tenant’s name.' }, { status: 400 })
+  }
+
   const a = (body.access ?? {}) as Record<string, unknown>
   await mergeEsignPayload(docId, {
-    occupants, contacts,
+    occupants, contacts, occupancy, tenants,
+    ...(language ? { language } : {}),
     access: { keyHolder: str(a.keyHolder), keyHolderPhone: str(a.keyHolderPhone), mayEnter: !!a.mayEnter },
     assistance: { needed: !!((body.assistance ?? {}) as Record<string, unknown>).needed },
     certification: EMERGENCY_CERTIFICATION,
   })
-  return NextResponse.json({ ok: true, savedContacts: contacts.length, savedOccupants: occupants.length })
+  return NextResponse.json({ ok: true, savedContacts: contacts.length, savedOccupants: occupants.length, savedTenants: tenants.length })
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
