@@ -27,7 +27,9 @@ Detail in `docs/SESSION-HANDOFF.md` (top).
 
 - ✅ **`lib/application-esign-forms.ts`** — the one table saying which `doc_key`s are forms MAIA generates. Requesting one now **sends the form**; everything else still asks for an upload. Fixes a live defect where ticking "Rules Knowledge Acknowledgment" or "Pet Registration" emailed an **upload link for a document only MAIA can produce**.
 - ✅ **Emergency Contact List** (`emergency_contact_list`) — e-signed, one form that adapts for a non-resident owner, sent to every owner **and** every renter. Files under `emergency_contact`, stamps `unit.emergency`, one-year expiry.
-- ✅ Liability text on both variants, shown before signing as well as on the PDF, with a Ch. 718 savings clause. ⚠️ **Not attorney-reviewed.**
+- ✅ Liability text on both variants, shown before signing as well as on the PDF, with a Ch. 718 savings clause. ✅ **Approved for use by the user 2026-08-16** — the user's own approval, **not** an attorney's; don't conflate them.
+- ✅ One form per **unit** (co-owners joined, link to every address they hold), and non-unit accounts like MANXI's `Manager` excluded.
+- 🔴 **Open — tenant emails.** MANXI: 53 units rented, **2** tenants have an email on file. Owners are covered; tenants are not. Use the roster request to collect them.
 - ✅ Campaign UI on `/admin/compliance-outreach` — **dry-run preview of the exact recipient list**, then Confirm.
 - ✅ `"Updated Vehicle Information"` → `"Car Registration"`. ⚠️ **Migration needs applying by hand.**
 - ✅ **Closed:** the owner portal's three loose name/phone/email boxes are gone. `/owner/compliance/[token]` now shows the **signed list with a link to read it**, plus "Replace it — sign a new one" (user direction). A new one supersedes the last; the old copy stays on file, because a list somebody signed records what they said on that date. The legacy `emergencyContact` POST branch is kept so a link already in an inbox does not break, but nothing offers it.

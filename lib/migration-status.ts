@@ -3778,6 +3778,15 @@ NOTIFY pgrst, 'reload schema';`,
    AND label = 'Updated Vehicle Information';
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'vpci_signage_rental_rules',
+    label:       'VPCI: no For Sale sign, no short-term rentals, 20% rental cap',
+    description: "Three board rules for Venetian Park Condominium I, written as rules because the label is applicant-facing. All 'warn', not 'block': a sign is placed after move-in, short-term letting is a future act already stopped at intake by the 90-day minimum lease term, and the 20% cap needs a live count of rented units that occupancy data cannot yet support. The two-year hold before renting is NOT re-added — VPCI already carries it as no_rent_years_after_purchase = 2.",
+    filename:    '20260817_vpci_signage_rental_rules.sql',
+    artifact:    { type: 'column', table: 'association_application_rules', column: 'rule_key' },
+    sql: `-- See supabase/migrations/20260817_vpci_signage_rental_rules.sql for the full seed.
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

@@ -83,21 +83,44 @@ export async function emergencyContactRecipients(associationCode: string): Promi
   const recipients: Recipient[] = []
   const skipped: CampaignResult['skipped'] = []
 
+  // ONE form per UNIT, not one per owner row.
+  //
+  // A co-owned unit has a row per owner — 231 of 521 units portfolio-wide —
+  // and they usually share one mailbox. Emailing per row sent Andre AND Marcia
+  // Danford separate forms for the same unit, to the same address, asking for
+  // the same list. The unit is what has an emergency contact list, so the unit
+  // is what gets one: the owners' names are joined on it, and the link goes to
+  // every distinct address they hold. Any one of them can sign it, the same
+  // convention the board review round already uses.
+  const ownersByUnit = new Map<string, { names: string[]; emails: string[] }>()
   for (const o of owners ?? []) {
     const ref = String(o.account_number ?? '').trim() || String(o.unit_number ?? '').trim()
     if (!ref) continue
-    const tenant = tenantBy.get(ref) ?? null
+    // The owners table carries non-unit accounts — MANXI has one literally
+    // called "Manager". A unit reference always contains a number; an account
+    // with no digit anywhere in it is not a unit, and would otherwise be sent
+    // an emergency contact list for "Unit Manager". Association-generic: it
+    // holds for MANXI### and for VPCI's building-letter refs alike.
+    if (!/\d/.test(ref)) { skipped.push({ unitRef: ref, party: 'owner', reason: 'not a unit account' }); continue }
     const name = (o.entity_name as string | null)?.trim()
       || [o.first_name, o.last_name].map(x => String(x ?? '').trim()).filter(Boolean).join(' ')
-      || null
-    const to = emailsOf(o.emails)[0] ?? null
-    if (!to) { skipped.push({ unitRef: ref, party: 'owner', reason: 'no email on file' }); continue }
+      || ''
+    const cur = ownersByUnit.get(ref) ?? { names: [], emails: [] }
+    if (name && !cur.names.includes(name)) cur.names.push(name)
+    for (const e of emailsOf(o.emails)) if (!cur.emails.some(x => x.toLowerCase() === e.toLowerCase())) cur.emails.push(e)
+    ownersByUnit.set(ref, cur)
+  }
+
+  for (const [ref, own] of ownersByUnit) {
+    if (own.emails.length === 0) { skipped.push({ unitRef: ref, party: 'owner', reason: 'no email on file' }); continue }
+    const tenant = tenantBy.get(ref) ?? null
     recipients.push({
       unitRef: ref, party: 'owner',
       // A unit with a tenant record is rented out, so its owner is confirming
       // somebody else's household rather than their own.
       audience: tenant ? 'landlord' : 'resident',
-      name, email: to,
+      name: own.names.join(' & ') || null,
+      email: own.emails.join(', '),
       occupants: tenant?.occupants ?? [],
     })
   }
