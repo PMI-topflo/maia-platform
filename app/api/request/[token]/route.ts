@@ -28,11 +28,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const r = await loadRequest(token)
   if (!r) return NextResponse.json({ error: 'This link is invalid or has expired.' }, { status: 404 })
 
-  const [{ data: assoc }, { data: docs }, { data: roster }] = await Promise.all([
+  const [{ data: assoc }, { data: docs }, { data: roster }, { data: appRow }] = await Promise.all([
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', r.req.association_code).maybeSingle(),
     supabaseAdmin.from('application_documents').select('doc_key').eq('application_id', r.req.application_id),
     supabaseAdmin.from('application_stakeholders').select('name, email, phone, applicant_role, is_primary')
       .eq('application_id', r.req.application_id).eq('role', 'applicant').order('is_primary', { ascending: false }),
+    supabaseAdmin.from('listing_applications').select('application_type').eq('id', r.req.application_id).maybeSingle(),
   ])
   const legal = (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || r.req.association_code
   const unit = (r.req.unit_label as string | null) ?? null
@@ -53,6 +54,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     role: r.role, message: r.req.message ?? null,
     note: (r.role === 'owner' ? r.req.owner_note : r.req.tenant_note) as string | null ?? null,
     tenantName: people[0]?.name || null,
+    // The roster question is worded differently for an additional occupant:
+    // it is one named person, and what we need is THEIR OWN email.
+    applicationType: (appRow?.application_type as string | null) ?? null,
     people,
     items: r.mine.map(i => i.doc_key === 'tenant_contact_info'
       ? { doc_key: i.doc_key, label: i.label, kind: 'contact', uploaded: contactDone }

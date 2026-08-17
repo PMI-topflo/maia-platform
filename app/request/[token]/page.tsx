@@ -8,7 +8,7 @@ import { OCCUPANT_ROLES, applicantRoleLabel } from '@/lib/applicant-roles'
 
 interface Item { doc_key: string; label: string; uploaded: boolean; kind?: 'contact' | 'file' }
 interface Person { name: string; email: string; phone: string; role: string }
-interface Data { associationName: string; propertyAddress: string | null; unit: string | null; role: string; message: string | null; note?: string | null; tenantName?: string | null; people?: Person[]; items: Item[] }
+interface Data { associationName: string; propertyAddress: string | null; unit: string | null; role: string; message: string | null; note?: string | null; tenantName?: string | null; people?: Person[]; applicationType?: string | null; items: Item[] }
 
 export default function RequestUpload({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
@@ -44,7 +44,7 @@ export default function RequestUpload({ params }: { params: Promise<{ token: str
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {d.items.map(it => it.kind === 'contact'
-              ? <RosterRow key={it.doc_key} token={token} item={it} people={d.people ?? []} onDone={load} />
+              ? <RosterRow key={it.doc_key} token={token} item={it} people={d.people ?? []} applicationType={d.applicationType ?? null} onDone={load} />
               : <ItemRow key={it.doc_key} token={token} item={it} onDone={load} />)}
           </div>
         )}
@@ -59,7 +59,10 @@ export default function RequestUpload({ params }: { params: Promise<{ token: str
 // name + email + phone. This is what lets us email the tenants directly for
 // the documents only they can provide, so it has to accept a whole household,
 // not one address.
-function RosterRow({ token, item, people, onDone }: { token: string; item: Item; people: Person[]; onDone: () => void }) {
+function RosterRow({ token, item, people, applicationType, onDone }: { token: string; item: Item; people: Person[]; applicationType: string | null; onDone: () => void }) {
+  // One named person, and the point is THEIR OWN address.
+  const occupantOnly = applicationType === 'additional_occupant'
+  const personName = (people[0]?.name ?? '').trim() || null
   const blank = (): Person => ({ name: '', email: '', phone: '', role: 'tenant' })
   const [rows, setRows] = useState<Person[]>(people.length ? people : [blank()])
   const [busy, setBusy] = useState(false)
@@ -89,8 +92,22 @@ function RosterRow({ token, item, people, onDone }: { token: string; item: Item;
         </>
       ) : (
         <>
+          {/* On an ADDITIONAL OCCUPANT application this is one named person and
+              the point is their OWN address. An occupant's paperwork came back
+              carrying the tenant's email, which is exactly the collision this
+              wording has to prevent: email is identity here — it is what the
+              one-time code and the e-signature are tied to. */}
           <div style={{ font: '12.5px system-ui', color: '#6b7280', margin: '0 0 12px' }}>
-            Please list <strong>everyone who will live in the unit</strong> — their full name, email and phone. We email each person directly for the documents only they can provide (ID, income, and so on), so we need a real address for each adult.
+            {occupantOnly ? (
+              <>
+                Please give us <strong>{personName ? `${personName}'s` : "the additional occupant's"} own email and phone number</strong> — their own, not yours and not the current tenant&apos;s.
+                We email them directly for the documents only they can provide, and their email is what their one-time code and their signature are tied to, so a shared address would record their signature against somebody else&apos;s mailbox.
+              </>
+            ) : (
+              <>
+                Please list <strong>everyone who will live in the unit</strong> — their full name, email and phone. We email each person directly for the documents only they can provide (ID, income, and so on), so we need a real address for each adult.
+              </>
+            )}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {rows.map((p, i) => (

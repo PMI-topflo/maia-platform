@@ -207,6 +207,52 @@ async function pdfHasTextLayer(buf: Buffer): Promise<boolean> {
 }
 
 /**
+ * Does this PDF draw anything at all — any text, any image, on any page?
+ *
+ * Pulling page 36 out of a 60-page background-check report and getting a white
+ * sheet is the failure this catches. It filed silently: the row went green,
+ * the name looked right, and the blank was only found by opening it. A staff
+ * member who does not open every page is left with an application approved on
+ * a document that is not there.
+ *
+ * Conservative on failure: returns FALSE ("assume it has content") so an
+ * unparseable PDF is never rejected on the strength of a guess.
+ */
+export async function pdfLooksBlank(buf: Buffer): Promise<boolean> {
+  try {
+    const pdfjs = await loadPdfjs()
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), isEvalSupported: false, standardFontDataUrl: STANDARD_FONT_DATA_URL }).promise
+    try {
+      // Every operator that puts pixels on the page. A scanned licence is an
+      // image and carries no text at all, so text alone is not the test.
+      const IMAGE_OPS = new Set<number>([
+        pdfjs.OPS.paintImageXObject, pdfjs.OPS.paintJpegXObject,
+        pdfjs.OPS.paintInlineImageXObject, pdfjs.OPS.paintImageMaskXObject,
+        pdfjs.OPS.paintImageXObjectRepeat, pdfjs.OPS.paintImageMaskXObjectRepeat,
+      ].filter(v => typeof v === 'number'))
+
+      for (let i = 1; i <= doc.numPages; i++) {
+        const page = await doc.getPage(i)
+        try {
+          const tc = await page.getTextContent()
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const text = tc.items.map((it: any) => ('str' in it ? it.str : '')).join('').trim()
+          if (text.length > 0) return false
+          const ops = await page.getOperatorList()
+          if ((ops.fnArray as number[]).some(fn => IMAGE_OPS.has(fn))) return false
+        } finally { page.cleanup() }
+      }
+      return true
+    } finally {
+      await doc.cleanup?.()
+      await doc.destroy?.()
+    }
+  } catch {
+    return false
+  }
+}
+
+/**
  * Rasterize a PDF buffer to one JPEG per page at the given pixel cap.
  * Returns the JPEGs with their pixel dimensions.
  */
