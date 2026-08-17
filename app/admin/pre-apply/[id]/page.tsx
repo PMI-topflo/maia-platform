@@ -38,6 +38,12 @@ interface Detail {
 }
 
 const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
+
+// Checklist items that are FORMS MAIA generates and the resident e-signs —
+// never something anybody can upload. Kept in step with the authoritative list
+// in lib/application-esign-forms.ts, which is what actually sends them; this
+// copy exists so the client bundle doesn't pull in the server-only module.
+const ESIGN_ITEM_KEYS = new Set(['governing_docs_ack', 'pet_registration', 'emergency_contact'])
 const fmt = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '—'
 
 export default function PreApplyDetail({ params }: { params: Promise<{ id: string }> }) {
@@ -1374,7 +1380,15 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone, p
       if (j.sentOwner) parts.push(`owner (${j.ownerEmail})`)
       if (j.sentTenant) parts.push(`tenant (${j.tenantEmail})`)
       const held = j.tenantHeld ? '\n\nThe tenant items are waiting on their contact details — MAIA emails them automatically as soon as the owner fills in the list.' : ''
-      alert(parts.length ? `Sent the request + upload link to ${parts.join(' and ')}.${held}${j.warnings?.length ? '\n\n' + j.warnings.join('\n') : ''}` : (j.warnings?.join('\n') || 'Nothing was sent.'))
+      // Forms MAIA generates went to the person who signs them, not through
+      // the upload link — say so, or it looks like nothing happened.
+      const forms = (j.formsSent ?? []) as { noun: string; name: string | null; email: string }[]
+      const formLine = forms.length
+        ? `\n\nSent for signature:\n${forms.map(f => `  · ${f.noun} → ${f.name ?? f.email}`).join('\n')}`
+        : ''
+      const uploadLine = parts.length ? `Sent the request + upload link to ${parts.join(' and ')}.` : ''
+      const summary = `${uploadLine}${formLine}${held}${j.warnings?.length ? '\n\n' + j.warnings.join('\n') : ''}`.trim()
+      alert(summary || 'Nothing was sent.')
       setOpen(false); onDone()
     } catch (e) { alert(`Could not send: ${(e as Error).message}`) } finally { setBusy(false) }
   }
@@ -1408,7 +1422,12 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone, p
             <span title={it.label} style={{ flex: 1, minWidth: 0, font: '600 13.5px system-ui', color: '#1f2937', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {it.label}{it.missing && <span style={{ font: '600 11px system-ui', color: '#b45309', marginLeft: 6 }}>missing</span>}
             </span>
-            <span style={{ display: 'inline-flex', border: '1px solid #d1d5db', borderRadius: 7, overflow: 'hidden', flexShrink: 0 }}>{seg(it.doc_key, 'owner', 'Owner')}{seg(it.doc_key, 'tenant', 'Tenant')}{seg(it.doc_key, 'both', 'Both')}</span>
+            {/* A form MAIA generates has no "who uploads it" — it goes to the
+                person who signs it. Showing the Owner/Tenant/Both control here
+                offered a choice that never had any effect. */}
+            {ESIGN_ITEM_KEYS.has(it.doc_key)
+              ? <span style={{ font: '600 11px system-ui', color: '#5b21b6', background: '#f3e8ff', borderRadius: 7, padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>✍️ MAIA sends it to sign</span>
+              : <span style={{ display: 'inline-flex', border: '1px solid #d1d5db', borderRadius: 7, overflow: 'hidden', flexShrink: 0 }}>{seg(it.doc_key, 'owner', 'Owner')}{seg(it.doc_key, 'tenant', 'Tenant')}{seg(it.doc_key, 'both', 'Both')}</span>}
           </div>
         ))}
       </div>

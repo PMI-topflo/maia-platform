@@ -1,22 +1,33 @@
-// POST /api/esign/[token]/fill   { pets?, vetName?, vetPhone?, questionnaire? }
-// The applicant fills a fillable e-sign form (the Animal Information &
-// Reasonable Accommodation Questionnaire) before signing. Saves the provided
+// POST /api/esign/[token]/fill
+//   animal form:    { pets?, vetName?, vetPhone?, questionnaire? }
+//   emergency list: { occupants?, contacts?, access?, assistance? }
+//
+// The signer fills a fillable e-sign form before signing. Saves the provided
 // fields into the document payload. Token is the auth; the form must be
 // fillable and not yet signed.
 //
 // TWO RULES ENFORCED HERE RATHER THAN IN THE UI:
-//  1. The questionnaire is whitelisted field by field. There is no field for a
-//     diagnosis, a condition, its severity, or medical records, so none can be
-//     persisted even if a client posts one.
-//  2. The certification text is DERIVED from the answers server-side, never
-//     taken from the client — it is the binding attestation the applicant
-//     signs, and a pet certification must never end up on an approved
-//     assistance-animal request (or vice versa).
+//  1. Every payload is whitelisted field by field. On the animal form there is
+//     no field for a diagnosis, a condition, its severity, or medical records,
+//     so none can be persisted even if a client posts one. On the emergency
+//     contact list the evacuation answer is a bare boolean for the same
+//     reason — there is nowhere to record why.
+//  2. The certification text is DERIVED server-side, never taken from the
+//     client — it is the binding attestation the signer signs, and a pet
+//     certification must never end up on an approved assistance-animal
+//     request (or vice versa).
+//
+// `audience` on the emergency form is deliberately NOT accepted from the
+// client: it decides whether the signed page says the signer is a resident or
+// a non-resident owner, and that is set when the form is created.
 
 import { NextResponse } from 'next/server'
 import { verifyEsignToken } from '@/lib/esign-token'
 import { getEsignDoc, roleSigned, mergeEsignPayload } from '@/lib/esign'
-import { isFillable, type Pet, type PetPayload } from '@/lib/esign-forms'
+import {
+  isFillable, EMERGENCY_CERTIFICATION,
+  type Pet, type PetPayload, type EmergencyContact, type EmergencyOccupant,
+} from '@/lib/esign-forms'
 import {
   certificationFor, effectiveBranch, missingAnswers,
   type AnimalQuestionnaire, type AnimalRequestType, type YesNo, type Tri,
@@ -84,6 +95,51 @@ function cleanQuestionnaire(raw: unknown): AnimalQuestionnaire | undefined {
   return out
 }
 
+// ── Emergency contact list ───────────────────────────────────────────
+// Whitelisted the same way. `assistance` is a bare boolean by design: the
+// signed page says the Association does not record the reason, so there must
+// be no field in which a reason could arrive.
+
+const person = (raw: unknown): EmergencyContact | null => {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  const name = str(o.name).trim()
+  if (!name) return null
+  return { name, relationship: str(o.relationship), phone: str(o.phone), email: str(o.email) }
+}
+
+const occupant = (raw: unknown): EmergencyOccupant | null => {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  const name = str(o.name).trim()
+  return name ? { name, note: str(o.note) } : null
+}
+
+async function fillEmergency(docId: string, body: Record<string, unknown>) {
+  const occupants = (Array.isArray(body.occupants) ? body.occupants : [])
+    .slice(0, 12).map(occupant).filter((o): o is EmergencyOccupant => !!o)
+  const contacts = (Array.isArray(body.contacts) ? body.contacts : [])
+    .slice(0, 4).map(person).filter((c): c is EmergencyContact => !!c)
+
+  // One reachable contact is the entire point of the form.
+  if (contacts.length === 0) {
+    return NextResponse.json({ error: 'Add at least one emergency contact.' }, { status: 400 })
+  }
+  const first = contacts[0]
+  if (!(first.phone ?? '').trim() && !(first.email ?? '').trim()) {
+    return NextResponse.json({ error: `Add a phone number or an email for ${first.name} — without one there is no way to reach them.` }, { status: 400 })
+  }
+
+  const a = (body.access ?? {}) as Record<string, unknown>
+  await mergeEsignPayload(docId, {
+    occupants, contacts,
+    access: { keyHolder: str(a.keyHolder), keyHolderPhone: str(a.keyHolderPhone), mayEnter: !!a.mayEnter },
+    assistance: { needed: !!((body.assistance ?? {}) as Record<string, unknown>).needed },
+    certification: EMERGENCY_CERTIFICATION,
+  })
+  return NextResponse.json({ ok: true, savedContacts: contacts.length, savedOccupants: occupants.length })
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
   const t = await verifyEsignToken(token)
@@ -95,6 +151,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   let body: { pets?: unknown[]; vetName?: unknown; vetPhone?: unknown; questionnaire?: unknown }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
+
+  if (doc.kind === 'emergency_contact_list') return fillEmergency(t.docId, body as Record<string, unknown>)
 
   const questionnaire = cleanQuestionnaire(body.questionnaire)
   const branch = effectiveBranch(questionnaire)

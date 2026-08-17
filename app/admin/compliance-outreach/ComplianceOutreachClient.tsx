@@ -72,6 +72,117 @@ export default function ComplianceOutreachClient() {
   )
 }
 
+// ── Emergency Contact List campaign ──────────────────────────────────
+// Every owner — rented out or not — and every renter. The two know different
+// things: the renter knows who sleeps in the unit tonight, the owner knows who
+// holds a key and is who the Association may reach about the unit itself.
+//
+// Preview first, always. This is a mass email to residents, so the recipient
+// list comes back before anything leaves; sending is a second, deliberate act.
+interface CampaignPreview {
+  recipients: { unitRef: string; party: string; audience: string; name: string | null; email: string }[]
+  skipped: { unitRef: string; party: string; reason: string }[]
+  sent: number
+  dryRun: boolean
+  errors: { unitRef: string; email: string; error: string }[]
+}
+
+function EmergencyContactCampaign({ code }: { code: string }) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState<null | 'preview' | 'send'>(null)
+  const [preview, setPreview] = useState<CampaignPreview | null>(null)
+  const [result, setResult] = useState<CampaignPreview | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function run(send: boolean) {
+    setBusy(send ? 'send' : 'preview'); setErr(null)
+    if (!send) { setResult(null); setPreview(null) }
+    try {
+      const r = send
+        ? await fetch('/api/admin/emergency-contacts/campaign', {
+            method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ assoc: code, confirm: true }),
+          })
+        : await fetch(`/api/admin/emergency-contacts/campaign?assoc=${encodeURIComponent(code)}`, { credentials: 'include' })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error ?? 'failed')
+      if (send) { setResult(d as CampaignPreview); setPreview(null) } else setPreview(d as CampaignPreview)
+    } catch (e) { setErr(e instanceof Error ? e.message : 'failed') } finally { setBusy(null) }
+  }
+
+  const owners = preview?.recipients.filter(r => r.party === 'owner').length ?? 0
+  const renters = preview?.recipients.filter(r => r.party === 'renter').length ?? 0
+
+  return (
+    <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Emergency Contact List</h3>
+          <p className="text-sm text-gray-500">
+            An e-signed form to every owner (rented out or not) and every renter — who to call if something happens at the unit.
+          </p>
+        </div>
+        <button onClick={() => { setOpen(o => !o); if (!open && !preview) run(false) }}
+          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+          {open ? 'Hide' : 'Set up a send'}
+        </button>
+      </div>
+
+      {open && (
+        <div className="mt-3 border-t border-gray-100 pt-3">
+          {err && <p className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</p>}
+
+          {busy === 'preview' && <p className="text-sm text-gray-500">Working out who would be written to…</p>}
+
+          {preview && (
+            <>
+              <p className="mb-2 text-sm text-gray-700">
+                <b>{preview.recipients.length}</b> {preview.recipients.length === 1 ? 'person' : 'people'} would be emailed —{' '}
+                {owners} owner{owners === 1 ? '' : 's'} and {renters} renter{renters === 1 ? '' : 's'}.
+                {preview.skipped.length > 0 && <span className="text-amber-700"> {preview.skipped.length} skipped for want of an email address.</span>}
+              </p>
+              <div className="mb-3 max-h-56 overflow-auto rounded border border-gray-200">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+                    <tr><th className="px-3 py-2 font-medium">Unit</th><th className="px-3 py-2 font-medium">Who</th><th className="px-3 py-2 font-medium">Name</th><th className="px-3 py-2 font-medium">Email</th></tr>
+                  </thead>
+                  <tbody>
+                    {preview.recipients.map((r, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="px-3 py-1.5 text-gray-700">{r.unitRef}</td>
+                        <td className="px-3 py-1.5 text-gray-500">{r.party === 'owner' ? (r.audience === 'landlord' ? 'Owner (rented out)' : 'Owner (resident)') : 'Renter'}</td>
+                        <td className="px-3 py-1.5 text-gray-700">{r.name ?? '—'}</td>
+                        <td className="px-3 py-1.5 text-gray-500">{r.email}</td>
+                      </tr>
+                    ))}
+                    {preview.recipients.length === 0 && <tr><td colSpan={4} className="px-3 py-5 text-center text-gray-400">Nobody has an email address on file.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button onClick={() => run(true)} disabled={!!busy || preview.recipients.length === 0}
+                  className="rounded bg-[#f26a1b] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#d85a10] disabled:opacity-50">
+                  {busy === 'send' ? 'Sending…' : `Confirm — email these ${preview.recipients.length}`}
+                </button>
+                <button onClick={() => run(false)} disabled={!!busy}
+                  className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">Refresh the list</button>
+                <span className="text-xs text-gray-500">Each person gets their own signing link. Nothing has been sent yet.</span>
+              </div>
+            </>
+          )}
+
+          {result && (
+            <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              <b>Sent {result.sent}</b> emergency contact form{result.sent === 1 ? '' : 's'}.
+              {result.errors.length > 0 && <span className="text-red-700"> {result.errors.length} could not be sent: {result.errors.slice(0, 3).map(e => `${e.unitRef} (${e.error})`).join(', ')}.</span>}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AssociationView({ code, onBack }: { code: string; onBack: () => void }) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [busy, setBusy] = useState<null | 'preview' | 'send'>(null)
@@ -141,6 +252,8 @@ function AssociationView({ code, onBack }: { code: string; onBack: () => void })
             : <><b>Sent {result.sent}</b> email{result.sent === 1 ? '' : 's'} · {result.eligible} were eligible · {result.needDocs} need documents.</>}
         </p>
       )}
+
+      <EmergencyContactCampaign code={code} />
 
       {!detail ? <Skeleton /> : (
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">

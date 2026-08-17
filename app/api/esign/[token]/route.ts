@@ -15,6 +15,15 @@ import { getFormDef, requiredRoles, isFillable } from '@/lib/esign-forms'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+/** Has the signer already given this form what it exists to collect? Per form,
+ *  because "filled" means different things: an animal form needs an animal, an
+ *  emergency contact list needs somebody to call. */
+function hasBeenFilled(kind: string, payload: Record<string, unknown>): boolean {
+  const arr = (k: string) => Array.isArray(payload[k]) ? (payload[k] as unknown[]).length > 0 : false
+  if (kind === 'emergency_contact_list') return arr('contacts')
+  return arr('pets')
+}
+
 export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
   const t = await verifyEsignToken(token)
@@ -35,8 +44,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     unitRef: doc.unit_ref,
     payload: doc.payload,
     fillable: isFillable(doc.kind),
-    // A fillable form still needs the applicant's data before signing.
-    needsFill: isFillable(doc.kind) && !(Array.isArray((doc.payload as { pets?: unknown[] }).pets) && (doc.payload as { pets?: unknown[] }).pets!.length > 0),
+    // A fillable form still needs the signer's data before signing. What counts
+    // as "filled" differs by form: the animal form is filled once it lists an
+    // animal, the emergency contact list once it names someone to call.
+    needsFill: isFillable(doc.kind) && !hasBeenFilled(doc.kind, doc.payload),
     signerName: me?.name ?? null,
     signerEmailMasked: maskEmail(roleEmail(doc, t.role)),
     signerPhoneMasked: rolePhone(doc, t.role) ? maskPhone(rolePhone(doc, t.role)) : null,

@@ -164,6 +164,18 @@ export async function recordEsignSignature(
     }).catch(() => null)
   }
 
+  // A completed Emergency Contact List satisfies the checklist item of the same
+  // name. It is normally sent as an association-wide campaign rather than as
+  // part of an application, so most of the time there is no application to file
+  // it against — fileEsignToApplication simply finds none and stops. When there
+  // IS one in process, staff should not be chasing a list already signed.
+  if (complete && doc.kind === 'emergency_contact_list' && doc.unit_ref) {
+    await fileEsignToApplication(id, {
+      docKey: 'emergency_contact', docLabel: 'Emergency Contact List (e-signed)',
+      filename: 'Emergency_Contact_List.pdf',
+    }).catch(() => null)
+  }
+
   return { ok: true, status, complete }
 }
 

@@ -2,11 +2,20 @@
 //   { items: [{ doc_key, label, recipient: 'owner'|'tenant'|'both' }], message? }
 // Create a document request and email the owner and/or tenant the standard MAIA
 // email with a secure upload link (per-recipient token). Staff-only.
+//
+// SOME ITEMS ARE NOT UPLOADS. The Rules Knowledge Acknowledgment, the Animal
+// Information form and the Emergency Contact List are documents MAIA GENERATES
+// and the resident e-signs. Ticking one used to send an upload link asking
+// somebody to upload a document that does not exist until we make it — there
+// was literally nothing for them to attach. Those items are now split out and
+// sent as the form itself; everything else still gets the upload link.
+// See lib/application-esign-forms.ts for the list.
 
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendDocumentRequestEmails, splitEmails } from '@/lib/document-request-email'
+import { isEsignItem, sendEsignFormsForItems, ESIGN_CHECKLIST_ITEMS } from '@/lib/application-esign-forms'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -27,6 +36,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return { doc_key: String(o.doc_key ?? '').trim(), label: String(o.label ?? '').trim(), recipient: (rec === 'tenant' || rec === 'both' ? rec : 'owner') as Recipient }
   }).filter(i => i.doc_key && i.label) : []
   if (items.length === 0) return NextResponse.json({ error: 'Select at least one document to request.' }, { status: 400 })
+
+  // Forms MAIA generates go out as the form; the rest as an upload request.
+  const formItems = items.filter(i => isEsignItem(i.doc_key))
+  const uploadItems = items.filter(i => !isEsignItem(i.doc_key))
 
   const { data: app } = await supabaseAdmin.from('listing_applications')
     .select('id, association_code, unit_label, application_type').eq('id', id).maybeSingle()
@@ -50,8 +63,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const tenantOverride = splitEmails(b.tenantEmail)
   const tenantEmails = tenantOverride.length ? tenantOverride : splitEmails((tenant?.tenant_email as string | null) || ((applicants ?? []).find(a => a.is_primary)?.email as string | null) || ((applicants ?? [])[0]?.email as string | null))
 
-  const ownerItems = items.filter(i => i.recipient === 'owner' || i.recipient === 'both')
-  const tenantItems = items.filter(i => i.recipient === 'tenant' || i.recipient === 'both')
+  const ownerItems = uploadItems.filter(i => i.recipient === 'owner' || i.recipient === 'both')
+  const tenantItems = uploadItems.filter(i => i.recipient === 'tenant' || i.recipient === 'both')
   const ownerToken = ownerItems.length && ownerEmails.length ? crypto.randomUUID() : null
   // No tenant address yet is NOT a dead end: if we're asking the owner for the
   // roster on this same request, the tenant half is HELD and goes out by itself
@@ -60,8 +73,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const askingForRoster = ownerItems.some(i => i.doc_key === 'tenant_contact_info')
   const tenantHeld = tenantItems.length > 0 && !tenantEmails.length && askingForRoster
 
+  // Send the generated forms first — they go straight to the person who signs
+  // them, not through the upload-request token.
+  const forms = formItems.length
+    ? await sendEsignFormsForItems(id, formItems.map(i => i.doc_key), `staff:${session.displayName}`)
+    : { sent: [], failed: [] }
+
+  // Nothing left to upload: no request row, and no email telling somebody to
+  // upload nothing.
+  if (uploadItems.length === 0) {
+    return NextResponse.json({
+      ok: true, requestId: null,
+      ownerEmail: null, tenantEmail: null, sentOwner: false, sentTenant: false, tenantHeld: false,
+      formsSent: forms.sent.map(f => ({ noun: ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey, name: f.name, email: f.email })),
+      warnings: forms.failed.map(f => `${ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey} was not sent — ${f.reason}.`),
+    })
+  }
+
   const { data: created, error } = await supabaseAdmin.from('document_requests').insert({
-    application_id: id, association_code: code, unit_label: unit, items,
+    application_id: id, association_code: code, unit_label: unit, items: uploadItems,
     message: (b.message ?? '').trim() || null, owner_token: ownerToken, tenant_token: tenantToken,
     owner_email: ownerEmails.join(', ') || null, tenant_email: tenantEmails.join(', ') || null, created_by: `staff:${session.displayName}`,
   }).select('id').single()
@@ -73,9 +103,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     ok: true, requestId: created.id,
     ownerEmail: ownerToken ? ownerEmails.join(', ') : null, tenantEmail: tenantToken ? tenantEmails.join(', ') : null,
     sentOwner, sentTenant, tenantHeld,
+    formsSent: forms.sent.map(f => ({ noun: ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey, name: f.name, email: f.email })),
     warnings: [
       ownerItems.length && !ownerEmails.length ? 'No owner email on file — owner items were not sent.' : null,
       tenantItems.length && !tenantEmails.length && !askingForRoster ? 'No tenant email on file — tenant items were not sent. Tick “Tenant names, emails & phone numbers” and send it to the owner to collect them.' : null,
+      ...forms.failed.map(f => `${ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey} was not sent — ${f.reason}.`),
     ].filter(Boolean),
   })
 }

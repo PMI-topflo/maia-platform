@@ -3766,6 +3766,18 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `-- See supabase/migrations/20260816_unit_owner_insurance.sql for the full seed.
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'car_registration_label',
+    label:       '"Updated Vehicle Information" → "Car Registration"',
+    description: 'Renames the one checklist row that still read "Updated Vehicle Information" (MANXI lease_renewal). The label promised a form to fill in; the doc_key has always been car_registration and what is collected is the registration document itself. Every other association and application type already said so. Scoped to the old label so a hand-edited one is never overwritten.',
+    filename:    '20260816_car_registration_label.sql',
+    artifact:    { type: 'column', table: 'association_intake_documents', column: 'label' },
+    sql: `UPDATE public.association_intake_documents
+   SET label = 'Car Registration', updated_at = now()
+ WHERE doc_key = 'car_registration'
+   AND label = 'Updated Vehicle Information';
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

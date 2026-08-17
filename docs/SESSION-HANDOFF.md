@@ -1,5 +1,31 @@
 # Session handoff — 2026-08-16 (latest)
 
+## Emergency Contact List, and the three checklist items that were forms all along
+
+**Two checklist items promised a form and delivered an upload box.**
+
+### The defect worth remembering
+The request-documents panel listed **"Rules Knowledge Acknowledgment (e-signed)"** and **"Pet Registration (e-signed)"** as ordinary tick boxes. Ticking one emailed the applicant a secure **upload** link — asking them to upload a document *only MAIA can produce*. There was nothing to attach. The two forms were reachable only from separate buttons further down the staff screen. Emergency Contact List would have joined them.
+
+`lib/application-esign-forms.ts` is now the single table: a `doc_key` either has an entry there, in which case requesting it **sends the form**, or it does not, in which case it asks for an upload. The panel shows **✍️ MAIA sends it to sign** instead of an Owner/Tenant/Both control that never had any effect on those rows.
+
+### Emergency Contact List (`emergency_contact_list`)
+- **One form that adapts** (user direction). A non-resident owner is confirming their **tenant's** household, so occupants arrive prefilled from the tenant record, reworded, and the signed page says "Unit owner (non-resident)". Contacts, key holder and entry permission are asked identically.
+- **Sent to every owner — rented out or not — and every renter.** They know different things: the renter knows who sleeps there tonight; the owner knows who holds a key and is who the Association may reach about the unit.
+- **Contact 2 is deliberately out-of-area** — a local emergency contact is evacuating in the same storm.
+- **"Help evacuating" is disability-adjacent** and built like the animal questionnaire: optional, one boolean, purpose printed on the signed page, and **no field anywhere for a reason** — the fill-route whitelist is the structural guarantee, not the wording.
+- **Liability text on both variants** (`EMERGENCY_LIABILITY`) — shown on screen *before* signing as well as on the PDF. Written with a **savings clause** for Ch. 718 and the governing documents, because an association cannot contract out of its statutory duties and a disclaimer that tries to is the kind a court strikes down whole. ⚠️ **Not attorney-reviewed — get sign-off before the first send.**
+- Signing files the PDF under `emergency_contact` and stamps `unit.emergency` with a **one-year** expiry.
+- **Campaign is DRY RUN by default** — `/admin/compliance-outreach` → *Emergency Contact List → Set up a send* previews the exact recipient list; nothing leaves until Confirm.
+
+### Car Registration
+`"Updated Vehicle Information"` → `"Car Registration"`. The label promised a form; the `doc_key` has always been `car_registration` and what is collected is the registration document. The other **7** rows for that key already said "Vehicle Registration" — only MANXI `lease_renewal` carried the old wording. ⚠️ **Migration `20260816_car_registration_label.sql` must be applied by hand in the SQL editor** (auto-mode blocks service-role writes to prod, and `CLAUDE.md` says migrations go there anyway).
+
+### Also generalised
+The fill route and `needsFill` were pet-specific. **"Filled" now means what each form exists to collect** — an animal for the animal form, somebody to call for the emergency list.
+
+---
+
 ## Applications dashboards — staff, board, on-site manager (branch `feat/applications-dashboards-2026-08-16`)
 
 The last item from the 2026-08-15/16 list. Three views, **one library**, because a board screen and an office screen that disagree about whether an application is late will get somebody acting on the wrong one.
