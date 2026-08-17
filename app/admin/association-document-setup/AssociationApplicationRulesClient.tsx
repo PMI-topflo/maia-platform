@@ -15,6 +15,9 @@ const KNOWN_RULES: Array<{ key: string; label: string; kind: 'boolean' | 'number
   { key: 'min_lease_days', label: 'Minimum lease term', kind: 'number', suffix: 'days' },
   { key: 'max_rentals_per_12mo', label: 'Max rentals per 12 months', kind: 'number', suffix: 'per year' },
   { key: 'no_rent_years_after_purchase', label: 'No renting for N years after purchase', kind: 'number', suffix: 'years' },
+  { key: 'no_short_term_rental', label: 'No short-term rentals (Airbnb, Vrbo and similar)', kind: 'boolean' },
+  { key: 'max_rented_pct', label: 'Max share of units leased at any one time', kind: 'number', suffix: '% of units' },
+  { key: 'no_for_sale_sign', label: 'No "For Sale" sign on the property', kind: 'boolean' },
 ]
 
 export default function AssociationApplicationRulesClient({ associations }: { associations: Array<{ association_code: string; association_name: string }> }) {

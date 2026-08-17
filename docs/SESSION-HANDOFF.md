@@ -1,4 +1,26 @@
-# Session handoff — 2026-08-16 (latest)
+# Session handoff — 2026-08-17
+
+## VPCI application rules — signage, short-term rentals, the 20% cap
+
+Three rules from the Venetian Park Condominium I board, in `20260817_vpci_signage_rental_rules.sql`. ⚠️ **Needs applying by hand in the SQL editor.**
+
+| `rule_key` | value | enforcement |
+|---|---|---|
+| `no_for_sale_sign` | true | warn |
+| `no_short_term_rental` | true | warn |
+| `max_rented_pct` | 20 | warn |
+
+**Written as rules, not as the questions they arrived as.** `label` is applicant-facing — `/api/pre-apply/[token]` serves it straight to the person filling in the application — so "Am I allowed to place a For Sale sign?" becomes the prohibition itself. Somebody reading a checklist needs to be told what the rule is, not asked what they were wondering.
+
+**All three are `warn`, not `block`,** and the distinction is this table's own: `block` means the server can refuse the application on it. None of these can be — a sign is placed after move-in; short-term letting is a future act, already stopped at intake by `min_lease_days = 90`; and the 20% cap needs a live count of rented units that occupancy data cannot yet support. Surfacing them and flagging for the board is honest; claiming enforcement that isn't there is not.
+
+**NOT re-added: "must own two years prior to rental."** VPCI already carries it as `no_rent_years_after_purchase = 2` (seeded 2026-07-05). A second row saying the same thing is how two rules start to disagree.
+
+All four keys are now in `KNOWN_RULES` so staff can edit them in Association document setup without the "custom rule" escape hatch.
+
+---
+
+# Session handoff — 2026-08-16
 
 ## Emergency Contact List, and the three checklist items that were forms all along
 
@@ -14,9 +36,22 @@ The request-documents panel listed **"Rules Knowledge Acknowledgment (e-signed)"
 - **Sent to every owner — rented out or not — and every renter.** They know different things: the renter knows who sleeps there tonight; the owner knows who holds a key and is who the Association may reach about the unit.
 - **Contact 2 is deliberately out-of-area** — a local emergency contact is evacuating in the same storm.
 - **"Help evacuating" is disability-adjacent** and built like the animal questionnaire: optional, one boolean, purpose printed on the signed page, and **no field anywhere for a reason** — the fill-route whitelist is the structural guarantee, not the wording.
-- **Liability text on both variants** (`EMERGENCY_LIABILITY`) — shown on screen *before* signing as well as on the PDF. Written with a **savings clause** for Ch. 718 and the governing documents, because an association cannot contract out of its statutory duties and a disclaimer that tries to is the kind a court strikes down whole. ⚠️ **Not attorney-reviewed — get sign-off before the first send.**
+- **Liability text on both variants** (`EMERGENCY_LIABILITY`) — shown on screen *before* signing as well as on the PDF. Written with a **savings clause** for Ch. 718 and the governing documents, because an association cannot contract out of its statutory duties and a disclaimer that tries to is the kind a court strikes down whole. ✅ **Approved for use by the user, 2026-08-16.** That is the user's own approval — it has **not** been reviewed by an attorney, and the two are not the same thing. Don't record it as legal sign-off.
+- **One form per UNIT, not per owner row.** A co-owned unit has a row per owner (231 of 521 portfolio-wide) usually sharing one mailbox — MANXI 103 was sending Andre *and* Marcia Danford separate forms to the same address. Names are joined on the form ("Andre Danford & Marcia Danford") and the link goes to every distinct address they hold; any one of them can sign it.
+- **Non-unit accounts are excluded.** MANXI's owners table has accounts literally named `Manager`, which were being sent a list for "Unit Manager". A unit reference always contains a digit — that test is association-generic and holds for VPCI's building-letter refs too.
 - Signing files the PDF under `emergency_contact` and stamps `unit.emergency` with a **one-year** expiry.
 - **Campaign is DRY RUN by default** — `/admin/compliance-outreach` → *Emergency Contact List → Set up a send* previews the exact recipient list; nothing leaves until Confirm.
+
+**Live preview numbers (2026-08-16, read-only against prod):**
+
+| | MANXI | VPCI |
+|---|---|---|
+| Recipients | **149** | **64** |
+| Owners (of which rented out) | 147 (53) | 60 (5) |
+| Renters | **2** | 4 |
+| Skipped | 2 non-unit accounts, 52 no tenant email | 1 no tenant email |
+
+⚠️ **Every unit's owner has an email; almost no TENANT does.** MANXI has 54 `unit_tenant_contacts` rows and **2** carry an email, so 51 of 53 rented units reach the owner only. That is the correct fallback — the owner gets the landlord variant and confirms the tenant's household — but the tenants themselves get nothing. **Collecting tenant emails is the highest-value follow-up**; the roster request (`tenant_contact_info`) is the tool for it.
 
 ### Car Registration
 `"Updated Vehicle Information"` → `"Car Registration"`. The label promised a form; the `doc_key` has always been `car_registration` and what is collected is the registration document. The other **7** rows for that key already said "Vehicle Registration" — only MANXI `lease_renewal` carried the old wording. ⚠️ **Migration `20260816_car_registration_label.sql` must be applied by hand in the SQL editor** (auto-mode blocks service-role writes to prod, and `CLAUDE.md` says migrations go there anyway).
