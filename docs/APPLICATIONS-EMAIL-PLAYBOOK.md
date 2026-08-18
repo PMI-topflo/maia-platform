@@ -51,9 +51,19 @@ Confirmed by reading the code, not assumed.
 
 3. Did they send a FILE?
    → Does the application/unit exist in MAIA yet?
-     No  → get it into MAIA first (see step 2), THEN file the document
-           (staff upload on the checklist row, or Scan Drive if it's already in the folder).
-     Yes → upload it directly onto the matching checklist row on /admin/pre-apply/[id].
+     No  → get it into MAIA first (see step 2). An attachment cannot be
+           self-served until the application exists to attach it to.
+     Yes → DEFAULT: don't file it by hand. Use the Gmail add-on's
+           "📨 Draft: ask them to upload" — it reads live checklist state,
+           creates a scoped self-serve upload link, and drafts the standard
+           reply (thank-you + link + everything still outstanding) into
+           Gmail's own reply box. Review it, delete the staff-only note at
+           the bottom if one is there, send it yourself.
+           Manual upload on the checklist row still exists and is right for
+           documents that did NOT arrive from the resident by email — a
+           Drive-scan import, a lease from the association's own files, a
+           board-generated letter. It is no longer the default for "a tenant
+           emailed me a PDF".
    → NEVER rely on @maia upapp to file the actual document. It only logs that
      an email arrived; it does not touch the attachment content.
 
@@ -75,7 +85,13 @@ Confirmed by reading the code, not assumed.
 *(Seeded from process rules confirmed this session. Each new real case adds an entry — question, the right channel, why, and the reply template.)*
 
 ### Q: An applicant's agent emails a signed lease. What do I do?
-Check whether the unit's application exists in MAIA (step 2 above). If yes, upload the lease directly onto the "Full Executed Lease" / equivalent row — do not just log it with `upapp` and assume it's filed. If no application exists yet, bring the unit in / create it, fix the type, then upload.
+Check whether the unit's application exists in MAIA (step 2 above). If it does, use the add-on's **"📨 Draft: ask them to upload"** rather than filing the lease yourself — it drafts the standard reply with a self-serve link scoped to whatever's still missing. If no application exists yet, bring the unit in / create it, fix the type, *then* the self-serve link has something to attach to.
+
+### Q: Why draft-and-review instead of just auto-sending the standard reply?
+Because "in the future an agent replies automatically" is a *later* step (user's own framing, 2026-08-18), not this one. The reply text is fully mechanical today — same shape every time, built from live checklist state — which is exactly what makes it safe to hand to an agent eventually. Until then a human reads it before it goes, the same caution applied to every other outbound decision this pipeline makes. The three form-backed items (Rules Ack / Pet Registration / Emergency Contact) are the one exception: those still send immediately on click, unchanged since v1 — that was never the "a human should judge this" concern, only the upload redirect was.
+
+### Q: The drafted reply has a line starting "[Staff note — remove before sending]". What is that?
+A form-backed item (Rules Ack, Pet Registration, Emergency Contact) that's still outstanding but **failed to send automatically** — most often because a co-applicant has no email on file yet ("every adult signs their own block"). Read the reason, fix what's blocking it (usually: add the missing person's email via the Applicants card), then send that form separately. Delete the note before the reply goes out — it's for staff, not the resident.
 
 ### Q: A tenant asks "what documents am I still missing?"
 Don't retype the checklist by hand. If they already have a live application, the request-docs email or the applicant's own token link (`/request/[token]` or `/apply` resume link) shows them exactly what's outstanding and lets them upload straight to it — that's the self-serve path, and it's the one that actually files things onto the checklist without staff re-keying anything.

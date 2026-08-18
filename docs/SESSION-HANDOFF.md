@@ -7,6 +7,20 @@ Two pieces, asked for together: stop the reply-by-email back-and-forth, and make
 ### `unit_pets` — pet data as rows, not JSON trapped in a PDF
 `20260818_unit_pets.sql`, needs applying by hand. Signing a Pet Registration now writes one row per animal (species, breed, vaccination date, photo path, service/ESA branch) via `applyPetRegistrationAnswers()` in `lib/esign.ts` — same completion hook as the emergency-contact write-through. **Supersede, never overwrite**: a fresh registration deactivates the unit's prior active rows and inserts the new set; the old rows stay on file. "Which units have a dog" and "whose rabies record expires next month" are now real queries instead of "open every signed PDF by hand."
 
+### The standard reply — redirect to self-serve, don't file by hand
+
+User direction, same day: staff shouldn't be filing tenant/owner email attachments by hand as the default — the reply should always redirect them to the self-serve upload link, in the same shape every time, "so we can build an agent to reply automatically" later. `lib/application-standard-reply.ts` + `POST /api/addon/applications/[id]/draft-reply`.
+
+Reuses the real `document_requests` row the admin panel creates (same table, same `/request/[token]` page) but does **not** call `sendDocumentRequestEmails` — the drafted reply *is* the email, a second automated one would duplicate it. Form-backed items (Rules Ack / Pet Registration / Emergency Contact) still send immediately, unchanged from v1 — only the upload redirect became draft-first.
+
+**Two real bugs the first live test caught, both fixed:**
+1. The reply listed `board_approval_letter` — `provided_by: 'landlord'` — as something owed *from the tenant*. Fixed with a role filter: a tenant-addressed reply only asks for `applicant`/`both` items, an owner-addressed one only `landlord`/`both`. Verified against MANXI 613: "Board Approval Letter" no longer appears once addressed to Mark.
+2. A form-send failure (Kimberly has no email yet, so Rules Ack can't reach her) disappeared silently — the item just sat in "still needed" with no explanation. Fixed: failures surface as a **`[Staff note — remove before sending]`** block naming the exact blocker, so it can't ship unnoticed.
+
+**Known, pre-existing limitation surfaced, not introduced:** `/api/request/[token]/upload` always files a per-applicant item to the *primary* applicant — it has no way to route "this one is specifically Kimberly's." The draft's `document_requests` row is deduped to one row per `doc_key` (matching the admin panel's own granularity) rather than exposing a link that silently can't deliver on the per-person distinction the email text describes.
+
+Gmail wiring reuses the **existing** `onComposeInsertDraft` mechanism byte-for-byte — same cache key (`'draft_' + threadId`), no new insert path. **📨 Draft: ask them to upload** is now the primary button on the Applications card.
+
 ### Gmail add-on — Applications, v1
 Extends the **existing, already-deployed** ticket add-on (`gmail-addon/Code.gs`) rather than building a second integration. Two new endpoints:
 - `GET /api/addon/applications` — matches the open email to an application (Gmail thread first via `application_communications`, then contact email), returns **live** `getReviewState()` output: totals, named missing items, refused items with reasons, due date, and which of the three form-backed items (`governing_docs_ack` / `pet_registration` / `emergency_contact`) are still `waiting`.

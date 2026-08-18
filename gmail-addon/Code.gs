@@ -127,7 +127,7 @@ function buildGmailCard_(e, forcedAssoc) {
   // both match is correct, not a bug.
   try {
     var appData = apiGet_('/api/addon/applications?gmailThreadId=' + encodeURIComponent(ctx.threadId) + '&email=' + encodeURIComponent(ctx.email));
-    if (appData && appData.matched) card.addSection(applicationSection_(appData.matched));
+    if (appData && appData.matched) card.addSection(applicationSection_(appData.matched, ctx));
   } catch (appErr) { /* non-fatal — the rest of the card still renders */ }
 
   // Guided create / link form (pre-filled from the suggestion). Pull the
@@ -238,8 +238,19 @@ var APPLICATION_FORM_LABEL_ = {
 // each of the three form-backed items still waiting. This is the section
 // that replaces "reply and ask, wait, repeat": whatever the sender claims
 // was already sent, this shows what MAIA actually has on file right now.
-function applicationSection_(a) {
+function applicationSection_(a, ctx) {
   var s = CardService.newCardSection().setHeader('🏠 Application — ' + (a.associationCode || '') + (a.unitLabel ? (' · Unit ' + a.unitLabel) : ''));
+
+  // THE primary action: the standard reply — thank them, redirect to the
+  // self-serve upload link, list what's outstanding — instead of staff
+  // filing the attachment by hand. Same shape every time, which is the
+  // point: a reply nobody customizes case-by-case is one an agent could
+  // eventually send without a human rewriting it. For now it only drafts;
+  // see draftApplicationReplyAction.
+  s.addWidget(CardService.newTextButton().setText('📨 Draft: ask them to upload')
+    .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+    .setOnClickAction(CardService.newAction().setFunctionName('draftApplicationReplyAction')
+      .setParameters({ applicationId: String(a.id), threadId: ctx.threadId || '', email: ctx.email || '', name: ctx.name || '' })));
 
   var statusLabel = { started: 'Collecting documents', submitted: 'Submitted', under_review: 'Under review', approved: 'Approved', declined: 'Declined' }[a.status] || a.status;
   s.addWidget(CardService.newDecoratedText()
@@ -598,6 +609,31 @@ function draftReplyAction(e) {
       '<i>To use it: hit Reply in Gmail, then “Insert Maia draft”. Or copy the text above.</i>'));
     card.addSection(s);
     return CardService.newActionResponseBuilder()
+      .setNavigation(CardService.newNavigation().pushCard(card.build())).build();
+  } catch (err) { return notify_(err); }
+}
+
+// The standard application reply. Stashes the draft under the SAME cache key
+// draftReplyAction uses ('draft_' + threadId) — onComposeInsertDraft below is
+// already generic over that key, so hitting Reply → "Insert Maia draft" picks
+// this up with no separate insert path to build or keep in sync.
+function draftApplicationReplyAction(e) {
+  var p = e.commonEventObject.parameters || {};
+  try {
+    var res = apiPost_('/api/addon/applications/' + encodeURIComponent(p.applicationId) + '/draft-reply', {
+      senderEmail: p.email || '', senderName: p.name || '',
+    });
+    var draft = res.draftText || '(no draft returned)';
+    CacheService.getUserCache().put('draft_' + (p.threadId || p.applicationId), draft, 1800);
+
+    var card = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Draft reply — ask them to upload'));
+    var s = CardService.newCardSection();
+    s.addWidget(CardService.newTextParagraph().setText(draft.replace(/\n/g, '<br>')));
+    s.addWidget(CardService.newTextParagraph().setText(
+      '<i>To use it: hit Reply in Gmail, then “Insert Maia draft”. Review the staff note at the bottom (if any) and delete it before sending — it is not meant for the resident.</i>'));
+    card.addSection(s);
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText(res.nothingOutstanding ? 'Nothing outstanding — drafted a plain thank-you.' : 'Draft ready.'))
       .setNavigation(CardService.newNavigation().pushCard(card.build())).build();
   } catch (err) { return notify_(err); }
 }
