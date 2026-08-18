@@ -21,6 +21,13 @@ Full detail in `docs/SESSION-HANDOFF.md` (top). Memory: [[board_document_review]
 - ✅ 5-day signature reminder cron (`/api/cron/board-review-reminders`, 7am ET) — only once the window is open, never to someone who already signed.
 - ✅ **Dashboards** for staff, board and on-site manager — see the section below.
 
+## 🟡 BUILT, PARTIALLY DEPLOYED — Gmail add-on v1 for applications + unit_pets (2026-08-18)
+
+Detail in `docs/SESSION-HANDOFF.md` (top). `unit_pets` migration + backend routes ready to ship normally. **`gmail-addon/Code.gs` needs a separate `clasp push`** — not part of the Vercel pipeline, updates a live tool staff use today for tickets, held for explicit go-ahead.
+- ✅ `unit_pets` — pet data as real queryable rows (species, breed, vaccination, service/ESA branch), written on every Pet Registration signing, supersede-not-overwrite.
+- ✅ `/api/addon/applications` + `/api/addon/applications/[id]/send-form` — live checklist state and one-click sends for the three form-backed items, from inside Gmail.
+- 🔴 v2, not built: AI-drafted status reply inserted into Gmail's compose box (same mechanism the ticket add-on already has via `onComposeInsertDraft`) — deliberately held back; a human should read the reply before it goes.
+
 ## ✅ BUILT — Emergency Contact List + the three e-sign checklist items (2026-08-16)
 
 Detail in `docs/SESSION-HANDOFF.md` (top).

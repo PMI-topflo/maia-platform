@@ -1,3 +1,25 @@
+# Session handoff — 2026-08-18
+
+## Gmail add-on v1 for applications, and pets become real rows
+
+Two pieces, asked for together: stop the reply-by-email back-and-forth, and make sure a "form" MAIA sends actually writes queryable data — not just a signed PDF nobody can query without opening it.
+
+### `unit_pets` — pet data as rows, not JSON trapped in a PDF
+`20260818_unit_pets.sql`, needs applying by hand. Signing a Pet Registration now writes one row per animal (species, breed, vaccination date, photo path, service/ESA branch) via `applyPetRegistrationAnswers()` in `lib/esign.ts` — same completion hook as the emergency-contact write-through. **Supersede, never overwrite**: a fresh registration deactivates the unit's prior active rows and inserts the new set; the old rows stay on file. "Which units have a dog" and "whose rabies record expires next month" are now real queries instead of "open every signed PDF by hand."
+
+### Gmail add-on — Applications, v1
+Extends the **existing, already-deployed** ticket add-on (`gmail-addon/Code.gs`) rather than building a second integration. Two new endpoints:
+- `GET /api/addon/applications` — matches the open email to an application (Gmail thread first via `application_communications`, then contact email), returns **live** `getReviewState()` output: totals, named missing items, refused items with reasons, due date, and which of the three form-backed items (`governing_docs_ack` / `pet_registration` / `emergency_contact`) are still `waiting`.
+- `POST /api/addon/applications/[id]/send-form` — thin wrapper over `sendEsignFormsForItems`, the exact function the admin request panel calls. No second way these three documents get created.
+
+**Real bug caught before shipping**: the first draft of `sendable` only looked at *required* checklist rows — silently hiding Pet Registration, since it's optional almost everywhere. That would have hidden the send button in precisely the case that motivated building it (an applicant claiming pets were "already handled" when they weren't). Fixed to check all rows, verified against the real application both ways.
+
+Verified end-to-end against a real production application (MANXI 613): matching resolved the correct application by contact email, `getReviewState()` returned the exact same totals as the admin screen, `sendable` correctly includes all three form types once optional items are counted.
+
+⚠️ **`Code.gs` is not deployed.** Unlike everything else this session, this doesn't go out through Vercel — it's a separate Google Apps Script project (`clasp push`), already authenticated on this machine and linked to the **live, currently-installed** ticket add-on. The backend routes are live; the new "🏠 Application" card section in Gmail is only live once `clasp push` runs. Held for explicit go-ahead since it updates a tool staff use daily for tickets right now.
+
+---
+
 # Session handoff — 2026-08-17
 
 ## VPCI application rules — signage, short-term rentals, the 20% cap
