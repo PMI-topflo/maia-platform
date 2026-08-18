@@ -123,6 +123,37 @@ export async function logApplicationCommunication(opts: {
   return { ok: true, applicationId: app.id, unitLabel: app.unitLabel }
 }
 
+/**
+ * Log something MAIA sent (or drafted) on the application's timeline —
+ * direction 'outbound', logged against an APPLICATION ID staff already have
+ * in hand, rather than resolved from a unit reference the way inbound email
+ * is. User direction, 2026-08-18: the standard reply must be part of the
+ * application's own record, the same as any other correspondence — "make
+ * sure that in the application we save all this communications."
+ *
+ * Called at DRAFT time, not send time: Gmail's compose-insert action has no
+ * hook for "the user actually pressed Send" to attach to, so this is the
+ * only point in the flow where MAIA is in the loop at all. The subject says
+ * "drafted", not "sent", so the record is honest about what is actually
+ * known to have happened.
+ */
+export async function logOutboundCommunication(opts: {
+  applicationId: string
+  associationCode: string
+  unitLabel: string | null
+  subject: string
+  body: string
+  toEmails?: string[]
+  loggedBy: string
+}): Promise<void> {
+  await supabaseAdmin.from('application_communications').insert({
+    application_id: opts.applicationId, association_code: opts.associationCode, unit_label: opts.unitLabel,
+    direction: 'outbound', subject: opts.subject, body: opts.body,
+    to_emails: opts.toEmails?.length ? opts.toEmails : null,
+    occurred_at: new Date().toISOString(), logged_by: opts.loggedBy,
+  }).then(() => null, () => null)
+}
+
 /** The confirmation MAIA emails back to the staff member who filed it. */
 export function buildLogReplyHtml(r: LogResult, ref: ApplicationRef, subject: string): string {
   const wrap = (inner: string) =>

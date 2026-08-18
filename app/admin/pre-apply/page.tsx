@@ -217,7 +217,7 @@ export default function PreApplyQueue() {
 
 const td: React.CSSProperties = { padding: '9px 12px', borderBottom: '1px solid #f3f4f6', color: '#374151', verticalAlign: 'top' }
 
-const PROVIDED_LABEL: Record<string, string> = { applicant: 'Applicant', landlord: 'Owner', agent: 'Agent' }
+const PROVIDED_LABEL: Record<string, string> = { applicant: 'Applicant', landlord: 'Owner', agent: 'Agent', both: 'Owner or Tenant', staff: 'Staff' }
 function ChecklistCard({ c }: { c: TypeChecklist }) {
   const req = c.items.filter(i => i.required).length
   return (

@@ -3787,6 +3787,20 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `-- See supabase/migrations/20260817_vpci_signage_rental_rules.sql for the full seed.
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'provided_by_staff',
+    label:       "Background/Credit Reports: staff-obtained, never asked of residents",
+    description: "provided_by='staff' — a fourth meaning: nobody external is ever asked for this item. Background / Credit Reports was provided_by='applicant', which let it leak into the self-serve upload link; it comes from Tenant Evaluation or Checkr, staff obtains and uploads it. Also widens the CHECK constraint to include 'both', already live in prod (3 rows) but missing from any committed migration.",
+    filename:    '20260818_provided_by_staff.sql',
+    artifact:    { type: 'column', table: 'association_intake_documents', column: 'provided_by' },
+    sql: `ALTER TABLE public.association_intake_documents DROP CONSTRAINT IF EXISTS chk_intake_provider;
+ALTER TABLE public.association_intake_documents
+  ADD CONSTRAINT chk_intake_provider CHECK (provided_by IN ('applicant','landlord','agent','both','staff'));
+UPDATE public.association_intake_documents
+   SET provided_by = 'staff', updated_at = now()
+ WHERE doc_key = 'background_credit' AND provided_by = 'applicant';
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

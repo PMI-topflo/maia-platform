@@ -11,7 +11,8 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import type { RoleVerification } from '@/lib/esign-verify'
-import { computeFormExpiry } from '@/lib/esign-forms'
+import { computeFormExpiry, getFormDef } from '@/lib/esign-forms'
+import { sendEmail } from '@/lib/gmail'
 
 export type EsignStatus = 'draft' | 'sent' | 'partially_signed' | 'completed' | 'void'
 
@@ -116,6 +117,25 @@ export async function recordEsignSignature(
   const now = new Date().toISOString()
   const after = await patchSigner(id, role, { signed_at: now, sig_name: name, sig_image: input.image, sig_ip: input.ip })
   if (!after) return { ok: false, error: 'Could not save your signature.' }
+
+  // A receipt to the person who JUST signed — not whoever signed last, not
+  // only once every signer is done. Before this, nobody who signed anything
+  // (any esign kind, not only the three built this week) was ever told their
+  // own signature was received; the only confirmation was the browser page
+  // they were already looking at, which tells them nothing once they close
+  // the tab. Generic across every esign kind — one place, not one per form.
+  const signer = after.signers.find(sg => sg.role === role)
+  if (signer?.email) {
+    const formLabel = getFormDef(doc.kind)?.label ?? doc.title ?? 'the document'
+    await sendEmail({
+      to: signer.email,
+      subject: `Signed — ${formLabel}${doc.unit_ref ? ` (Unit ${doc.unit_ref})` : ''}`,
+      html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
+        <p>Hello${signer.name ? ` ${signer.name}` : ''},</p>
+        <p>This confirms your signature on <strong>${formLabel}</strong>${doc.unit_ref ? ` for Unit ${doc.unit_ref}` : ''}, received ${new Date(now).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })} ET.</p>
+        <p style="color:#6b7280;font-size:12px">PMI Top Florida Properties</p></div>`,
+    }).catch(() => null)
+  }
 
   // Complete when every signer attached to the document has signed (supports a
   // variable number of signers, e.g. two board approvers).

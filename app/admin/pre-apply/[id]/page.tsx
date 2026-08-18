@@ -266,67 +266,20 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
 
       {/* What the applicant declared about themselves — vehicle and animal.
           These retire the matching checklist items, so staff need to see the
-          answer that did it rather than wondering why a row went N/A. */}
-      {(d.declarations?.vehicle || d.declarations?.animal) && (
-        <div style={{ border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: 10, padding: '12px 14px', margin: '12px 0' }}>
-          <div style={{ font: '700 12px system-ui', color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em' }}>Applicant declared</div>
-          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 6, fontSize: 13.5, color: '#374151' }}>
-            {d.declarations.vehicle && (
-              <span>🚗 Vehicle at the property: <strong>{d.declarations.vehicle.has ? 'Yes' : 'No'}</strong></span>
-            )}
-            {d.declarations.animal && (
-              <span>🐾 Animal in the unit: <strong>{d.declarations.animal.has ? 'Yes' : 'No'}</strong>
-                {d.declarations.animal.has && d.declarations.animal.kind && (
-                  <> · <strong>{d.declarations.animal.kind === 'pet' ? 'Pet' : d.declarations.animal.kind === 'service' ? 'Service animal' : d.declarations.animal.kind === 'unsure' ? 'Not sure yet' : 'Emotional support animal'}</strong></>
-                )}
-              </span>
-            )}
-          </div>
-          {d.declaredNa?.length > 0 && (
-            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
-              Retired by this answer: {d.declaredNa.join(', ')}. Override any single row with <em>Undo N/A</em> below.
-            </div>
-          )}
-
-          {d.petsProhibitedNotice && (
-            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '9px 11px', marginTop: 9, fontSize: 12.5, color: '#92400e', lineHeight: 1.5 }}>
-              ⚠ <strong>A pet was declared at an association that permits none.</strong> Contact the applicant. If the animal is
-              actually a service animal or an emotional support animal, have them change the answer — the pet rule does not
-              apply to either, and neither may be charged a pet fee or deposit or restricted by breed or size.
-            </div>
-          )}
-
-          {d.animalGuidance && (d.declarations.animal?.kind === 'service' || d.declarations.animal?.kind === 'esa') && (
-            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px', marginTop: 9 }}>
-              <div style={{ font: '700 13px system-ui', color: '#1f2a44' }}>{d.animalGuidance.heading} — reasonable accommodation</div>
-              <p style={{ fontSize: 12.5, color: '#4b5563', margin: '4px 0 0', lineHeight: 1.5 }}>{d.animalGuidance.intro}</p>
-              <div style={{ fontSize: 12.5, color: '#166534', marginTop: 8, fontWeight: 700 }}>May be requested</div>
-              <ul style={{ margin: '3px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#374151', lineHeight: 1.5 }}>
-                {d.animalGuidance.mayRequest.map((t, i) => <li key={i}>{t}</li>)}
-              </ul>
-              <div style={{ fontSize: 12.5, color: '#991b1b', marginTop: 8, fontWeight: 700 }}>Must never be requested</div>
-              <ul style={{ margin: '3px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#7f1d1d', lineHeight: 1.5 }}>
-                {d.animalGuidance.mustNotRequest.map((t, i) => <li key={i}>{t}</li>)}
-              </ul>
-              {d.animalGuidance.staffNote && (
-                <p style={{ fontSize: 12, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 7, padding: '8px 10px', margin: '9px 0 0', lineHeight: 1.5 }}>{d.animalGuidance.staffNote}</p>
-              )}
-              {d.assistanceAnimalDenialGrounds?.length > 0 && (
-                <>
-                  <div style={{ fontSize: 12.5, color: '#1f2a44', marginTop: 8, fontWeight: 700 }}>
-                    The only grounds for refusal — decide within about {d.assistanceAnimalDecisionDays} days of receiving the documentation
-                  </div>
-                  <ul style={{ margin: '3px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#374151', lineHeight: 1.5 }}>
-                    {d.assistanceAnimalDenialGrounds.map((t, i) => <li key={i}>{t}</li>)}
-                  </ul>
-                </>
-              )}
-              <p style={{ fontSize: 11.5, color: '#9ca3af', margin: '9px 0 0', lineHeight: 1.5 }}>
-                MAIA organises this request; it does not decide it. Record the decision on the board decision page below.
-              </p>
-            </div>
-          )}
-        </div>
+          answer that did it rather than wondering why a row went N/A.
+          ALWAYS shown when the checklist has a conditional item at all (not
+          only once answered) — the standard-reply draft now ASKS these two
+          questions by plain-text reply before requesting the related
+          document, and staff need somewhere to write the answer down once
+          the resident replies "yes" or "no" to an email, rather than by
+          clicking a link. */}
+      {d.checklist.some(c => c.condition_key === 'vehicle' || c.condition_key === 'pet' || c.condition_key === 'assistance_animal') && (
+        <DeclarationsCard
+          id={id} declarations={d.declarations} declaredNa={d.declaredNa}
+          petsProhibitedNotice={d.petsProhibitedNotice} animalGuidance={d.animalGuidance}
+          assistanceAnimalDenialGrounds={d.assistanceAnimalDenialGrounds} assistanceAnimalDecisionDays={d.assistanceAnimalDecisionDays}
+          onDone={load}
+        />
       )}
 
       {/* Checklist — with staff upload boxes so you can file a doc you got by email */}
@@ -1447,20 +1400,31 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone, p
             than its neighbours and knocking the Owner/Tenant/Both controls out
             of their column. The label truncates with the full text on hover
             instead; the controls never shrink. */}
-        {items.map((it, i) => (
-          <div key={it.doc_key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', height: 42, borderTop: i ? '1px solid #f3f4f6' : 'none' }}>
-            <input type="checkbox" checked={!!state[it.doc_key]?.on} onChange={e => setState(s => ({ ...s, [it.doc_key]: { ...s[it.doc_key], on: e.target.checked } }))} style={{ width: 16, height: 16, flexShrink: 0 }} />
+        {items.map((it, i) => {
+          // provided_by === 'staff' means nobody EXTERNAL is ever asked — the
+          // Background / Credit Reports lesson: it comes from Tenant
+          // Evaluation or Checkr, staff obtains and uploads it directly.
+          // There is no recipient to pick, so there is no checkbox either —
+          // ticking it and sending would have asked a resident for something
+          // they cannot produce.
+          const staffOnly = it.provided_by === 'staff'
+          return (
+          <div key={it.doc_key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', height: 42, borderTop: i ? '1px solid #f3f4f6' : 'none', opacity: staffOnly ? 0.7 : 1 }}>
+            <input type="checkbox" disabled={staffOnly} checked={!staffOnly && !!state[it.doc_key]?.on} onChange={e => setState(s => ({ ...s, [it.doc_key]: { ...s[it.doc_key], on: e.target.checked } }))} style={{ width: 16, height: 16, flexShrink: 0 }} />
             <span title={it.label} style={{ flex: 1, minWidth: 0, font: '600 13.5px system-ui', color: '#1f2937', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {it.label}{it.missing && <span style={{ font: '600 11px system-ui', color: '#b45309', marginLeft: 6 }}>missing</span>}
             </span>
             {/* A form MAIA generates has no "who uploads it" — it goes to the
                 person who signs it. Showing the Owner/Tenant/Both control here
                 offered a choice that never had any effect. */}
-            {ESIGN_ITEM_KEYS.has(it.doc_key)
+            {staffOnly
+              ? <span style={{ font: '600 11px system-ui', color: '#6b7280', background: '#f3f4f6', borderRadius: 7, padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>🗂️ Staff obtains this</span>
+              : ESIGN_ITEM_KEYS.has(it.doc_key)
               ? <span style={{ font: '600 11px system-ui', color: '#5b21b6', background: '#f3e8ff', borderRadius: 7, padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>✍️ MAIA sends it to sign</span>
               : <span style={{ display: 'inline-flex', border: '1px solid #d1d5db', borderRadius: 7, overflow: 'hidden', flexShrink: 0 }}>{seg(it.doc_key, 'owner', 'Owner')}{seg(it.doc_key, 'tenant', 'Tenant')}{seg(it.doc_key, 'both', 'Both')}</span>}
           </div>
-        ))}
+          )
+        })}
       </div>
       {/* Confirm the recipients — the owners record can carry several / wrong emails, so verify before sending. */}
       {(needOwner || needTenant) && (
@@ -1663,6 +1627,116 @@ function AgentsCard({ id, stakeholders, onDone }: { id: string; stakeholders: { 
       {row("Owner's agent", owner, setOwner)}
       {row("Applicant's agent", appl, setAppl)}
       {dirty && <button onClick={save} disabled={busy} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', marginTop: 8 }}>{busy ? 'Saving…' : 'Save agents'}</button>}
+    </div>
+  )
+}
+
+// Vehicle/animal declarations — editable, not just displayed. Before this,
+// staff could only SEE what an applicant declared through the self-serve
+// link; there was nowhere to record an answer that arrived by reply email
+// instead — which is exactly what the standard-reply draft now produces
+// (lib/application-standard-reply.ts asks "do you have a car?" in plain
+// text before ever requesting registration). One Yes/No control per
+// question, editable at any time — a later correction simply overwrites the
+// earlier answer, same as the applicant-facing version.
+function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, animalGuidance, assistanceAnimalDenialGrounds, assistanceAnimalDecisionDays, onDone }: {
+  id: string
+  declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null }
+  declaredNa: string[]
+  petsProhibitedNotice: boolean
+  animalGuidance: { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[]; staffNote: string } | null
+  assistanceAnimalDenialGrounds: string[]
+  assistanceAnimalDecisionDays: number
+  onDone: () => void
+}) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function set(body: { vehicle?: boolean; animal?: boolean; animalKind?: string }) {
+    setBusy(JSON.stringify(body)); setErr(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/declarations`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      onDone()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(null) }
+  }
+
+  const yn: React.CSSProperties = { font: '600 12px system-ui', padding: '5px 12px', borderRadius: 7, border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer' }
+  const ynOn = (c: string): React.CSSProperties => ({ ...yn, background: c, borderColor: c, color: '#fff' })
+
+  return (
+    <div style={{ border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: 10, padding: '12px 14px', margin: '12px 0' }}>
+      <div style={{ font: '700 12px system-ui', color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Vehicle & animal declaration</div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0' }}>
+        <span style={{ font: '13.5px system-ui', color: '#374151', width: 220 }}>🚗 Vehicle kept at the unit?</span>
+        <button style={declarations.vehicle?.has === true ? ynOn('#166534') : yn} disabled={!!busy} onClick={() => set({ vehicle: true })}>Yes</button>
+        <button style={declarations.vehicle?.has === false ? ynOn('#6b7280') : yn} disabled={!!busy} onClick={() => set({ vehicle: false })}>No</button>
+        {typeof declarations.vehicle?.has !== 'boolean' && <span style={{ font: '12px system-ui', color: '#b45309' }}>not answered yet</span>}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0' }}>
+        <span style={{ font: '13.5px system-ui', color: '#374151', width: 220 }}>🐾 Pet / service / support animal?</span>
+        <button style={declarations.animal?.has === true ? ynOn('#166534') : yn} disabled={!!busy} onClick={() => set({ animal: true, animalKind: declarations.animal?.kind ?? 'pet' })}>Yes</button>
+        <button style={declarations.animal?.has === false ? ynOn('#6b7280') : yn} disabled={!!busy} onClick={() => set({ animal: false })}>No</button>
+        {typeof declarations.animal?.has !== 'boolean' && <span style={{ font: '12px system-ui', color: '#b45309' }}>not answered yet</span>}
+      </div>
+
+      {declarations.animal?.has && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '4px 0 2px 230px' }}>
+          {(['pet', 'service', 'esa', 'unsure'] as const).map(k => (
+            <button key={k} style={declarations.animal?.kind === k ? ynOn('#5b21b6') : yn} disabled={!!busy} onClick={() => set({ animal: true, animalKind: k })}>
+              {k === 'pet' ? 'Pet' : k === 'service' ? 'Service animal' : k === 'esa' ? 'Emotional support' : 'Not sure yet'}
+            </button>
+          ))}
+        </div>
+      )}
+      {err && <p style={{ font: '12.5px system-ui', color: '#b91c1c', margin: '6px 0 0' }}>⚠ {err}</p>}
+
+      {declaredNa?.length > 0 && (
+        <div style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>
+          Retired by this answer: {declaredNa.join(', ')}. Override any single row with <em>Undo N/A</em> below.
+        </div>
+      )}
+
+      {petsProhibitedNotice && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '9px 11px', marginTop: 9, fontSize: 12.5, color: '#92400e', lineHeight: 1.5 }}>
+          ⚠ <strong>A pet was declared at an association that permits none.</strong> Contact the applicant. If the animal is
+          actually a service animal or an emotional support animal, have them change the answer — the pet rule does not
+          apply to either, and neither may be charged a pet fee or deposit or restricted by breed or size.
+        </div>
+      )}
+
+      {animalGuidance && (declarations.animal?.kind === 'service' || declarations.animal?.kind === 'esa') && (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px', marginTop: 9 }}>
+          <div style={{ font: '700 13px system-ui', color: '#1f2a44' }}>{animalGuidance.heading} — reasonable accommodation</div>
+          <p style={{ fontSize: 12.5, color: '#4b5563', margin: '4px 0 0', lineHeight: 1.5 }}>{animalGuidance.intro}</p>
+          <div style={{ fontSize: 12.5, color: '#166534', marginTop: 8, fontWeight: 700 }}>May be requested</div>
+          <ul style={{ margin: '3px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#374151', lineHeight: 1.5 }}>
+            {animalGuidance.mayRequest.map((t, i) => <li key={i}>{t}</li>)}
+          </ul>
+          <div style={{ fontSize: 12.5, color: '#991b1b', marginTop: 8, fontWeight: 700 }}>Must never be requested</div>
+          <ul style={{ margin: '3px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#7f1d1d', lineHeight: 1.5 }}>
+            {animalGuidance.mustNotRequest.map((t, i) => <li key={i}>{t}</li>)}
+          </ul>
+          {animalGuidance.staffNote && (
+            <p style={{ fontSize: 12, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 7, padding: '8px 10px', margin: '9px 0 0', lineHeight: 1.5 }}>{animalGuidance.staffNote}</p>
+          )}
+          {assistanceAnimalDenialGrounds?.length > 0 && (
+            <>
+              <div style={{ fontSize: 12.5, color: '#1f2a44', marginTop: 8, fontWeight: 700 }}>
+                The only grounds for refusal — decide within about {assistanceAnimalDecisionDays} days of receiving the documentation
+              </div>
+              <ul style={{ margin: '3px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#374151', lineHeight: 1.5 }}>
+                {assistanceAnimalDenialGrounds.map((t, i) => <li key={i}>{t}</li>)}
+              </ul>
+            </>
+          )}
+          <p style={{ fontSize: 11.5, color: '#9ca3af', margin: '9px 0 0', lineHeight: 1.5 }}>
+            MAIA organises this request; it does not decide it. Record the decision on the board decision page below.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
