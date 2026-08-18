@@ -109,48 +109,46 @@ function buildGmailCard_(e, forcedAssoc) {
   }
 
   // Association picker at the TOP — it applies to everything below (create,
-  // send-to-Maia). Pre-selected from the suggestion. Pick by name.
+  // send-to-Maia), and now also carries the Unit lookup (who is on this
+  // unit, by ANY persona — see lookupUnitAction). Pre-selected from the
+  // suggestion. Pick by name.
   var assocList = [];
   try { assocList = (apiGet_('/api/addon/associations').associations) || []; } catch (aErr) { assocList = []; }
   card.addSection(associationPickerSection_(assocList, suggest, forcedAssoc));
 
-  // Matched ticket (if any) + quick status actions.
-  if (data.matched) {
-    card.addSection(matchedSection_(data.matched));
-  }
-
-  // Matched APPLICATION (if any) — live checklist state, never a cached
-  // snapshot: every field on this card comes straight from getReviewState()
-  // on Maia's side, the same function the staff screen reads. A ticket and
-  // an application can both match the same email (a renter both has an open
-  // ticket AND a lease renewal in progress) — showing both sections when
-  // both match is correct, not a bug.
+  // 🏠 REPLY APPLICATIONS — moved to the top and left EXPANDED. This is the
+  // primary workflow now (user direction, 2026-08-18), not something to find
+  // after scrolling past tickets. Every field is a LIVE read of
+  // getReviewState() on Maia's side — never a cached snapshot.
+  //
+  // A real error here used to be silently swallowed and look IDENTICAL to
+  // "no application matched" — indistinguishable to staff, and exactly what
+  // caused a live bug to be mistaken for "this feature doesn't do anything."
+  // Now it renders visibly instead of vanishing.
   try {
     var appData = apiGet_('/api/addon/applications?gmailThreadId=' + encodeURIComponent(ctx.threadId) + '&email=' + encodeURIComponent(ctx.email));
     if (appData && appData.matched) card.addSection(applicationSection_(appData.matched, ctx));
-  } catch (appErr) { /* non-fatal — the rest of the card still renders */ }
-
-  // Guided create / link form (pre-filled from the suggestion). Pull the
-  // staff list so the creator can assign to anyone, not just themselves.
-  var staffList = [];
-  try { staffList = (apiGet_('/api/addon/staff').staff) || []; } catch (stErr) { staffList = []; }
-  card.addSection(createSection_(ctx, data, suggest, staffList));
-
-  // AI draft.
-  var draftSection = CardService.newCardSection().setHeader('✨ AI reply');
-  var draftBtn = CardService.newTextButton().setText('✨ Draft reply')
-    .setOnClickAction(CardService.newAction().setFunctionName('draftReplyAction')
-      .setParameters({ ticketId: data.matched ? String(data.matched.id) : '', threadId: ctx.threadId, email: ctx.email, subject: ctx.subject || '' }));
-  draftSection.addWidget(draftBtn);
-  card.addSection(draftSection);
-
-  // Recent history for this contact.
-  if (data.recent && data.recent.length) {
-    card.addSection(ticketsSection_(data.recent, '', '🕘 Recent for this contact', false, ctx));
+  } catch (appErr) {
+    var appErrSection = CardService.newCardSection().setHeader('🏠 Application');
+    appErrSection.addWidget(CardService.newTextParagraph().setText('⚠️ Could not check for a matching application: ' + (appErr && appErr.message ? appErr.message : String(appErr))));
+    card.addSection(appErrSection);
   }
 
-  // All company open items — pick a TKT-#### to "@maia append" this email to.
-  // Work orders first, then tickets, as separate sections.
+  // 🎫 MY TICKETS — matched/linked ticket, its own AI draft, and recent
+  // history for this contact, grouped under one collapsible header instead
+  // of three separate top-level sections.
+  card.addSection(myTicketsSection_(data, ctx));
+
+  // ➕ OPEN NEW TICKET / WORK ORDER — the guided create form. Collapsed by
+  // default now that Applications is the primary path; still one click away.
+  var staffList = [];
+  try { staffList = (apiGet_('/api/addon/staff').staff) || []; } catch (stErr) { staffList = []; }
+  var createSec = createSection_(ctx, data, suggest, staffList);
+  createSec.setCollapsible(true).setNumUncollapsibleWidgets(0);
+  card.addSection(createSec);
+
+  // 🏢 Company-wide open items — pick a TKT-#### to "@maia append" this
+  // email to. Work orders first, then tickets.
   try {
     var allOpen2 = (apiGet_('/api/addon/tickets?mine=0&status=open&limit=50').tickets) || [];
     var openWOs2 = allOpen2.filter(function (t) { return t.type === 'work_order'; });
@@ -169,56 +167,80 @@ function onSettings(e) { return settingsCard_(false); }
 
 // ---- card builders ----------------------------------------------------
 
+// One ticket/WO row, shared by every section that lists them (company-wide
+// lists here, and the "My tickets" group below) — extracted so the row
+// layout is defined exactly once.
+function ticketRowWidget_(t, linkCtx) {
+  var c = getConfig_();
+  var dot = ({ open: '🟢', pending: '🟡', waiting_external: '🔵', resolved: '⚪', closed: '⚫' })[t.status] || '⚪';
+  var kind = t.type === 'work_order' ? '🔧 WO' : '🎟️ Ticket';
+  var line = CardService.newDecoratedText()
+    .setTopLabel(dot + '  ' + t.ticket_number + '  ·  ' + (t.status || ''))
+    .setText((t.subject || '(no subject)'))
+    .setBottomLabel([kind, t.association_code || '', t.priority || ''].filter(Boolean).join('  ·  '))
+    .setWrapText(true)
+    .setOpenLink(CardService.newOpenLink().setUrl(c.apiBase + '/admin/tickets/' + t.id));
+  if (linkCtx && (linkCtx.threadId || linkCtx.messageId)) {
+    line.setButton(CardService.newTextButton().setText('🔗 Link')
+      .setOnClickAction(CardService.newAction().setFunctionName('linkEmailAction').setParameters({
+        ticketId:   String(t.id),
+        ticketNo:   t.ticket_number || '',
+        threadId:   linkCtx.threadId || '',
+        messageId:  linkCtx.messageId || '',
+        subject:    linkCtx.subject || '',
+        sender:     linkCtx.email || '',
+      })));
+  }
+  return line;
+}
+
 function ticketsSection_(tickets, emptyText, headerText, collapsible, linkCtx) {
   var s = CardService.newCardSection();
   if (headerText) s.setHeader(headerText);
   if (collapsible) s.setCollapsible(true).setNumUncollapsibleWidgets(3);
   if (!tickets.length) { s.addWidget(CardService.newTextParagraph().setText(emptyText || 'Nothing here.')); return s; }
-  var c = getConfig_();
-  var dot = function (status) {
-    return ({ open: '🟢', pending: '🟡', waiting_external: '🔵', resolved: '⚪', closed: '⚫' })[status] || '⚪';
-  };
-  tickets.forEach(function (t) {
-    var kind = t.type === 'work_order' ? '🔧 WO' : '🎟️ Ticket';
-    var line = CardService.newDecoratedText()
-      .setTopLabel(dot(t.status) + '  ' + t.ticket_number + '  ·  ' + (t.status || ''))
-      .setText((t.subject || '(no subject)'))
-      .setBottomLabel([kind, t.association_code || '', t.priority || ''].filter(Boolean).join('  ·  '))
-      .setWrapText(true)
-      .setOpenLink(CardService.newOpenLink().setUrl(c.apiBase + '/admin/tickets/' + t.id));
-    // When an email is open, offer a one-click "link this email here".
-    if (linkCtx && (linkCtx.threadId || linkCtx.messageId)) {
-      line.setButton(CardService.newTextButton().setText('🔗 Link')
-        .setOnClickAction(CardService.newAction().setFunctionName('linkEmailAction').setParameters({
-          ticketId:   String(t.id),
-          ticketNo:   t.ticket_number || '',
-          threadId:   linkCtx.threadId || '',
-          messageId:  linkCtx.messageId || '',
-          subject:    linkCtx.subject || '',
-          sender:     linkCtx.email || '',
-        })));
-    }
-    s.addWidget(line);
-  });
+  tickets.forEach(function (t) { s.addWidget(ticketRowWidget_(t, linkCtx)); });
   return s;
 }
 
-function matchedSection_(t) {
-  var s = CardService.newCardSection().setHeader('🔗 Linked ' + (t.type === 'work_order' ? 'work order' : 'ticket'));
-  s.addWidget(CardService.newDecoratedText()
-    .setTopLabel(t.ticket_number)
-    .setText(t.subject || '(no subject)')
-    .setBottomLabel('Status: ' + (t.status || '') + (t.assignee_email ? ('  ·  ' + t.assignee_email) : '  ·  unassigned'))
-    .setWrapText(true));
+// "🎫 My tickets" — the linked/matched ticket (with status control), the
+// ticket AI draft, and recent history for this contact, grouped under one
+// collapsible header instead of three separate top-level sections. The
+// draft button is explicitly labelled "(ticket)" — it used to just say
+// "Draft reply" with no way to tell it apart from the Application section's
+// own draft button below, and that exact ambiguity is what this whole
+// reorganisation was prompted by.
+function myTicketsSection_(data, ctx) {
+  var s = CardService.newCardSection().setHeader('🎫 My tickets for this email');
+  s.setCollapsible(true).setNumUncollapsibleWidgets(2);
 
-  var statusInput = CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
-    .setTitle('Set status').setFieldName('status');
-  ['open', 'pending', 'waiting_external', 'resolved', 'closed'].forEach(function (st) {
-    statusInput.addItem(st, st, st === t.status);
-  });
-  s.addWidget(statusInput);
-  s.addWidget(CardService.newTextButton().setText('Update status')
-    .setOnClickAction(CardService.newAction().setFunctionName('setStatusAction').setParameters({ ticketId: String(t.id) })));
+  if (data.matched) {
+    var t = data.matched;
+    s.addWidget(CardService.newDecoratedText()
+      .setTopLabel('🔗 Linked ' + (t.type === 'work_order' ? 'work order' : 'ticket') + '  ·  ' + t.ticket_number)
+      .setText(t.subject || '(no subject)')
+      .setBottomLabel('Status: ' + (t.status || '') + (t.assignee_email ? ('  ·  ' + t.assignee_email) : '  ·  unassigned'))
+      .setWrapText(true));
+    var statusInput = CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
+      .setTitle('Set status').setFieldName('status');
+    ['open', 'pending', 'waiting_external', 'resolved', 'closed'].forEach(function (st) {
+      statusInput.addItem(st, st, st === t.status);
+    });
+    s.addWidget(statusInput);
+    s.addWidget(CardService.newTextButton().setText('Update status')
+      .setOnClickAction(CardService.newAction().setFunctionName('setStatusAction').setParameters({ ticketId: String(t.id) })));
+  } else {
+    s.addWidget(CardService.newTextParagraph().setText('No ticket linked to this email yet.'));
+  }
+
+  s.addWidget(CardService.newTextButton().setText('✨ Draft reply (ticket)')
+    .setOnClickAction(CardService.newAction().setFunctionName('draftReplyAction')
+      .setParameters({ ticketId: data.matched ? String(data.matched.id) : '', threadId: ctx.threadId || '', email: ctx.email || '', subject: ctx.subject || '' })));
+
+  if (data.recent && data.recent.length) {
+    s.addWidget(CardService.newTextParagraph().setText('<b>Recent for this contact</b>'));
+    data.recent.forEach(function (t2) { s.addWidget(ticketRowWidget_(t2, ctx)); });
+  }
   return s;
 }
 
@@ -330,6 +352,20 @@ function associationPickerSection_(assocList, suggest, forcedAssoc) {
       .setText('<font color="#f26a1b"><b>@maia upload this invoice #' + selected + '</b></font>')
       .setBottomLabel('Use Forward (not Reply — Reply drops the PDF).')
       .setWrapText(true));
+  }
+
+  // Unit lookup — "who is on the other end of this email", as an explicit
+  // check rather than a guess. Automatic thread/email matching (the 🏠
+  // Application section above) covers the common case; this is the
+  // verification tool for when it's genuinely unclear whether the sender is
+  // the owner, the tenant, or an agent — the exact gap the playbook flags as
+  // having no automated answer. A plain text field, not onChange: Apps
+  // Script has no debounce, so firing a full card rebuild per keystroke
+  // would be unusable — an explicit button is the only reasonable trigger.
+  if (selected) {
+    s.addWidget(CardService.newTextInput().setFieldName('lookup_unit').setTitle('Unit number'));
+    s.addWidget(CardService.newTextButton().setText('🔍 Who is on this unit?')
+      .setOnClickAction(CardService.newAction().setFunctionName('lookupUnitAction').setParameters({ association_code: selected })));
   }
   return s;
 }
@@ -634,6 +670,65 @@ function draftApplicationReplyAction(e) {
     card.addSection(s);
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification().setText(res.nothingOutstanding ? 'Nothing outstanding — drafted a plain thank-you.' : 'Draft ready.'))
+      .setNavigation(CardService.newNavigation().pushCard(card.build())).build();
+  } catch (err) { return notify_(err); }
+}
+
+// Every persona tied to a unit, in one read — owner(s), tenant, and (if
+// there's an open application) its full roster plus any agents on it. Pushed
+// as its own card, same pattern as the other draft/lookup actions.
+function lookupUnitAction(e) {
+  var p = e.commonEventObject.parameters || {};
+  var f = e.commonEventObject.formInputs || {};
+  var assoc = p.association_code || '';
+  var unit = strInput_(f, 'lookup_unit');
+  if (!unit) return notify_({ message: 'Enter a unit number first.' });
+  try {
+    var r = apiGet_('/api/addon/unit-lookup?assoc=' + encodeURIComponent(assoc) + '&unit=' + encodeURIComponent(unit));
+    var card = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Unit ' + unit).setSubtitle(assoc));
+    var s = CardService.newCardSection();
+
+    s.addWidget(CardService.newTextParagraph().setText('<b>Owner' + (r.owners.length > 1 ? 's' : '') + '</b>'));
+    if (!r.owners.length) s.addWidget(CardService.newTextParagraph().setText('No owner on file.'));
+    r.owners.forEach(function (o) {
+      s.addWidget(CardService.newDecoratedText()
+        .setText(o.name || '(no name)')
+        .setBottomLabel([].concat(o.emails || [], o.phone ? [o.phone] : []).join('  ·  ') || 'no contact on file')
+        .setWrapText(true));
+    });
+
+    s.addWidget(CardService.newTextParagraph().setText('<b>Tenant</b>'));
+    if (r.tenant) {
+      s.addWidget(CardService.newDecoratedText()
+        .setText(r.tenant.name || '(no name)')
+        .setBottomLabel([r.tenant.email, r.tenant.phone].filter(Boolean).join('  ·  ') || 'no contact on file')
+        .setWrapText(true));
+    } else {
+      s.addWidget(CardService.newTextParagraph().setText('No tenant on file for this unit.'));
+    }
+
+    if (r.applicationId) {
+      s.addWidget(CardService.newTextParagraph().setText('<b>Open application</b> — ' + (r.applicationType || '') + '  ·  ' + (r.applicationStatus || '')));
+      (r.applicants || []).forEach(function (a) {
+        s.addWidget(CardService.newDecoratedText()
+          .setTopLabel(a.role || 'applicant')
+          .setText(a.name || '(no name)')
+          .setBottomLabel([a.email, a.phone].filter(Boolean).join('  ·  ') || 'no contact on file')
+          .setWrapText(true));
+      });
+      (r.agents || []).forEach(function (ag) {
+        s.addWidget(CardService.newDecoratedText()
+          .setTopLabel(ag.label)
+          .setText(ag.name || '(no name)')
+          .setBottomLabel([ag.email, ag.phone].filter(Boolean).join('  ·  ') || 'no contact on file')
+          .setWrapText(true));
+      });
+    } else {
+      s.addWidget(CardService.newTextParagraph().setText('No open application on this unit.'));
+    }
+
+    card.addSection(s);
+    return CardService.newActionResponseBuilder()
       .setNavigation(CardService.newNavigation().pushCard(card.build())).build();
   } catch (err) { return notify_(err); }
 }
