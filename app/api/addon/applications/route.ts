@@ -21,7 +21,7 @@ import { NextResponse } from 'next/server'
 import { addonStaffEmail } from '@/lib/addon-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getReviewState } from '@/lib/board-review'
-import { isEsignItem } from '@/lib/application-esign-forms'
+import { isEsignItem, ESIGN_CHECKLIST_ITEMS } from '@/lib/application-esign-forms'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,6 +40,32 @@ async function loadSummary(applicationId: string) {
   const applicants = (sh ?? []).map(s => String(s.name ?? '').trim()).filter(Boolean)
 
   const req = state.rows.filter(r => r.required)
+
+  // Per-signer status for whichever form-backed items have ALREADY been sent
+  // — "staff visibility per person" (user direction, 2026-08-18): a flat
+  // "waiting" tells staff nothing about a form that has gone out to two
+  // people where one signed and one is blocked. Only fetched for kinds with
+  // a document actually in flight, not for items still fully unsent.
+  const unit = (app.unit_label as string | null) ?? null
+  const inFlightKeys = [...new Set(state.rows.filter(r => isEsignItem(r.docKey) && r.state !== 'waiting').map(r => r.docKey))]
+  const inFlight: { docKey: string; noun: string; status: string; signers: { name: string | null; email: string | null; signed: boolean }[] }[] = []
+  if (unit && inFlightKeys.length) {
+    const kinds = inFlightKeys.map(k => ESIGN_CHECKLIST_ITEMS[k]?.kind).filter((k): k is string => !!k)
+    const { data: docs } = await supabaseAdmin.from('esign_documents')
+      .select('kind, status, signers, created_at').eq('association_code', app.association_code).eq('unit_ref', unit)
+      .in('kind', kinds).neq('status', 'void').order('created_at', { ascending: false })
+    for (const docKey of inFlightKeys) {
+      const kind = ESIGN_CHECKLIST_ITEMS[docKey]?.kind
+      const latest = (docs ?? []).find(d => d.kind === kind)
+      if (!latest) continue
+      const signers = (Array.isArray(latest.signers) ? latest.signers : []) as { name?: string | null; email?: string | null; signed_at?: string }[]
+      inFlight.push({
+        docKey, noun: ESIGN_CHECKLIST_ITEMS[docKey]?.noun ?? docKey, status: String(latest.status),
+        signers: signers.map(sg => ({ name: sg.name ?? null, email: sg.email ?? null, signed: !!sg.signed_at })),
+      })
+    }
+  }
+
   return {
     id: applicationId,
     associationCode: app.association_code, unitLabel: app.unit_label,
@@ -59,6 +85,7 @@ async function loadSummary(applicationId: string) {
     // button exists for — restricting it to required items would have hidden
     // it in precisely the situation that motivated building this.
     sendable: state.rows.filter(r => isEsignItem(r.docKey) && r.state === 'waiting').map(r => r.docKey),
+    inFlight,
     complete: state.complete,
     dueAt: state.dueAt,
   }

@@ -37,9 +37,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }).filter(i => i.doc_key && i.label) : []
   if (items.length === 0) return NextResponse.json({ error: 'Select at least one document to request.' }, { status: 400 })
 
+  // Server-side backstop: a doc_key marked provided_by='staff' (Background /
+  // Credit Reports — staff obtains it via Tenant Evaluation or Checkr, never
+  // the resident) must never go out as an ask, even if a stale client somehow
+  // ticks it. The UI already disables that checkbox; this is what makes it
+  // actually impossible rather than just discouraged.
+  const { data: staffOnlyRows } = await supabaseAdmin.from('association_intake_documents')
+    .select('doc_key').in('doc_key', items.map(i => i.doc_key)).eq('provided_by', 'staff')
+  const staffOnlyKeys = new Set((staffOnlyRows ?? []).map(r => String(r.doc_key)))
+  const askable = items.filter(i => !staffOnlyKeys.has(i.doc_key))
+
   // Forms MAIA generates go out as the form; the rest as an upload request.
-  const formItems = items.filter(i => isEsignItem(i.doc_key))
-  const uploadItems = items.filter(i => !isEsignItem(i.doc_key))
+  const formItems = askable.filter(i => isEsignItem(i.doc_key))
+  const uploadItems = askable.filter(i => !isEsignItem(i.doc_key))
 
   const { data: app } = await supabaseAdmin.from('listing_applications')
     .select('id, association_code, unit_label, application_type').eq('id', id).maybeSingle()

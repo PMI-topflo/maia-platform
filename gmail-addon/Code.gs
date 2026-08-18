@@ -295,6 +295,17 @@ function applicationSection_(a, ctx) {
     s.addWidget(CardService.newTextParagraph().setText('Board decision due by <b>' + a.dueAt.slice(0, 10) + '</b>'));
   }
 
+  // Per-signer status for anything already sent — "staff visibility per
+  // person" (user direction, 2026-08-18). A flat "waiting" said nothing
+  // about a Rules Ack sent to two people where one signed and one is
+  // blocked; this names each of them and whether THEY specifically signed.
+  (a.inFlight || []).forEach(function (f) {
+    var lines = (f.signers || []).map(function (sg) {
+      return (sg.signed ? '✓' : '○') + ' ' + (sg.name || sg.email || '(no name)') + (sg.signed ? '' : (sg.email ? '' : ' — no email on file'));
+    }).join('<br>');
+    s.addWidget(CardService.newTextParagraph().setText('<b>' + f.noun + '</b> (' + f.status + '):<br>' + (lines || 'no signers on file')));
+  });
+
   // One button per form-backed item still waiting. Sending is the SAME
   // sendEsignFormsForItems() the staff screen calls — there is no second way
   // these three documents get created.

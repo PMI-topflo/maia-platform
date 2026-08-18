@@ -157,7 +157,7 @@ function ChecklistCard({ c }: { c: TypeChecklist }) {
     </div>
   )
 }
-const PROVIDED_LABEL: Record<string, string> = { applicant: 'Applicant', landlord: 'Owner', agent: 'Agent' }
+const PROVIDED_LABEL: Record<string, string> = { applicant: 'Applicant', landlord: 'Owner', agent: 'Agent', both: 'Owner or Tenant', staff: 'Staff' }
 
 function AppDetail({ id, assoc, onChanged }: { id: string; assoc: string | null; onChanged: () => void }) {
   const [d, setD] = useState<Detail | null>(null)
