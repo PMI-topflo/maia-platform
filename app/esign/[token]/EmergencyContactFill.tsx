@@ -70,7 +70,15 @@ export function EmergencyContactFill({ token, payload, onFilled }: {
   const [occupants, setOccupants] = useState<EmergencyOccupantClient[]>(
     payload?.occupants?.length ? payload.occupants : [{ name: '', note: '' }],
   )
-  const [contacts, setContacts] = useState<Contact[]>([blank(), blank()])
+  // Seeded from the payload when staff already know who to call — a resident
+  // who told the office their contacts by email or phone shouldn't have to
+  // retype them here. This used to ignore payload.contacts entirely and
+  // always render two empty boxes, silently discarding any prefill.
+  const [contacts, setContacts] = useState<Contact[]>(
+    payload?.contacts?.length
+      ? payload.contacts.map(c => ({ name: c.name ?? '', relationship: c.relationship ?? '', phone: c.phone ?? '', email: c.email ?? '' }))
+      : [blank(), blank()],
+  )
   const [occupancy, setOccupancy] = useState<Occupancy | null>(payload?.occupancy ?? null)
   const [language, setLanguage] = useState<string>(payload?.language ?? 'en')
   const [tenants, setTenants] = useState<TenantRow[]>(
@@ -228,27 +236,43 @@ export function EmergencyContactFill({ token, payload, onFilled }: {
           style={{ font: '600 12.5px system-ui', color: '#374151', background: '#fff', border: '1px dashed #d1d5db', borderRadius: 8, padding: '7px 13px', cursor: 'pointer' }}>+ Add a person</button>
       </div>
 
-      {[0, 1].map(i => (
+      {/* Up to 4 (the server whitelist's own cap — see /api/esign/[token]/fill).
+          This used to be a fixed two-box layout with no way to add a third,
+          so a resident who named three people to call had no way to enter
+          all of them and the third was silently dropped. */}
+      {contacts.map((c, i) => (
         <div key={i} style={section}>
-          <div style={label}>
-            Emergency contact {i + 1}
-            {i === 0
-              ? <span style={{ color: '#b42318', fontWeight: 400 }}> · required</span>
-              : <span style={{ color: '#9ca3af', fontWeight: 400 }}> · optional</span>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+            <div style={label}>
+              Emergency contact {i + 1}
+              {i === 0
+                ? <span style={{ color: '#b42318', fontWeight: 400 }}> · required</span>
+                : <span style={{ color: '#9ca3af', fontWeight: 400 }}> · optional</span>}
+            </div>
+            {contacts.length > 2 && i > 0 && (
+              <button onClick={() => setContacts(cs => cs.filter((_, j) => j !== i))}
+                style={{ font: '600 12px system-ui', color: '#b42318', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Remove</button>
+            )}
           </div>
           <p style={hint}>
             {i === 0
               ? 'Someone who does not live in the unit.'
-              : 'Ideally someone outside South Florida — in a hurricane, local contacts are evacuating too.'}
+              : i === 1
+                ? 'Ideally someone outside South Florida — in a hurricane, local contacts are evacuating too.'
+                : 'Another person we can call.'}
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 8 }}>
-            <input value={contacts[i].name} onChange={e => updCon(i, { name: e.target.value })} placeholder="Full name" style={inp} />
-            <input value={contacts[i].relationship} onChange={e => updCon(i, { relationship: e.target.value })} placeholder="Relationship to you" style={inp} />
-            <input value={contacts[i].phone} onChange={e => updCon(i, { phone: e.target.value })} placeholder="Phone" style={inp} />
-            <input value={contacts[i].email} onChange={e => updCon(i, { email: e.target.value })} placeholder="Email" style={inp} />
+            <input value={c.name} onChange={e => updCon(i, { name: e.target.value })} placeholder="Full name" style={inp} />
+            <input value={c.relationship} onChange={e => updCon(i, { relationship: e.target.value })} placeholder="Relationship to you" style={inp} />
+            <input value={c.phone} onChange={e => updCon(i, { phone: e.target.value })} placeholder="Phone" style={inp} />
+            <input value={c.email} onChange={e => updCon(i, { email: e.target.value })} placeholder="Email" style={inp} />
           </div>
         </div>
       ))}
+      {contacts.length < 4 && (
+        <button onClick={() => setContacts(cs => [...cs, blank()])}
+          style={{ font: '600 12.5px system-ui', color: '#374151', background: '#fff', border: '1px dashed #d1d5db', borderRadius: 8, padding: '7px 13px', cursor: 'pointer', marginTop: 10 }}>+ Add another contact</button>
+      )}
 
       <div style={section}>
         <div style={label}>Access to the unit</div>

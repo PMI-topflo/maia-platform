@@ -44,6 +44,17 @@ export interface SendFormsResult {
   failed: { docKey: string; reason: string }[]
 }
 
+/** What staff already know before the form is even created — an applicant who
+ *  named their emergency contacts in the same email that asked "did you get my
+ *  documents" shouldn't be sent a blank form asking them to retype it. Keyed
+ *  by which form the answer belongs to; a docKey with no matching prefill here
+ *  just renders blank, same as before this existed. */
+export interface EsignPrefill {
+  emergency_contact?: {
+    contacts?: { name: string; relationship?: string; phone?: string; email?: string }[]
+  }
+}
+
 interface AppCtx {
   code: string
   unit: string | null
@@ -100,7 +111,7 @@ export async function esignItemBlocker(docKey: string, c: AppCtx): Promise<strin
 }
 
 /** Create + email one form. Returns what was sent, or throws with a reason. */
-async function createAndSend(docKey: string, c: AppCtx, createdBy: string): Promise<SentForm[]> {
+async function createAndSend(docKey: string, c: AppCtx, createdBy: string, prefill?: EsignPrefill): Promise<SentForm[]> {
   const spec = ESIGN_CHECKLIST_ITEMS[docKey]
   const lead = c.people[0]
   const unitLabel = c.unit ?? '—'
@@ -170,6 +181,7 @@ async function createAndSend(docKey: string, c: AppCtx, createdBy: string): Prom
         // their own household rather than confirming somebody else's.
         audience: 'resident',
         occupants: c.people.map(p => ({ name: p.name, note: 'Adult' })),
+        ...(prefill?.emergency_contact?.contacts?.length ? { contacts: prefill.emergency_contact.contacts } : {}),
         certification: EMERGENCY_CERTIFICATION,
       },
       signers: [{ role: 'resident', name: lead.name, email: lead.email, phone: lead.phone }],
@@ -209,7 +221,7 @@ function body(c: AppCtx, name: string | null, inner: string, link: string, cta: 
  * fail entirely because one association has no Rules PDF stored.
  */
 export async function sendEsignFormsForItems(
-  applicationId: string, docKeys: string[], createdBy: string,
+  applicationId: string, docKeys: string[], createdBy: string, prefill?: EsignPrefill,
 ): Promise<SendFormsResult> {
   const out: SendFormsResult = { sent: [], failed: [] }
   const keys = [...new Set(docKeys)].filter(isEsignItem)
@@ -225,7 +237,7 @@ export async function sendEsignFormsForItems(
     try {
       const blocked = await esignItemBlocker(k, c)
       if (blocked) { out.failed.push({ docKey: k, reason: blocked }); continue }
-      out.sent.push(...await createAndSend(k, c, createdBy))
+      out.sent.push(...await createAndSend(k, c, createdBy, prefill))
     } catch (e) {
       out.failed.push({ docKey: k, reason: e instanceof Error ? e.message : 'could not be sent' })
     }
