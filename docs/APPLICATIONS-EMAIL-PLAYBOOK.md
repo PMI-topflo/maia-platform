@@ -22,7 +22,7 @@ Confirmed by reading the code, not assumed.
 - Any attachment they send is not processed by this path at all.
 
 ### The only three ways a document actually lands on a checklist
-1. **Staff uploads it directly** on `/admin/pre-apply/[id]` — mirrors to Drive and files the row in one step.
+1. **Staff uploads it directly** on `/admin/pre-apply/[id]` — mirrors to Drive and files the row in one step. The Drive-mirror half can fail silently (best-effort, no error logged) even when the MAIA save succeeds — seen for real on MANXI 613, 2026-08-18: 5 documents saved and visible on the checklist, `drive_folder_id` still null, nothing in the Drive folder. If a document you know is filed in MAIA isn't showing up in Drive, open the application page — a **"📤 Send these documents to Drive"** button appears automatically whenever documents exist but no Drive folder is set yet (`/api/admin/pre-apply/[id]/mirror-drive`, safe to re-run).
 2. **It's already sitting in the unit's Drive folder** → staff runs **🔎 Scan Drive folder & save to MAIA**, which reads every file, classifies it by *content* (not filename), matches it to a checklist item, and can also pull the applicant roster off a lease it finds.
 3. **Staff picks it from Drive on one specific checklist row** ("From Drive" on that row) — same page-range extraction used for pulling one document out of a larger PDF (background-check report, etc).
 
@@ -92,6 +92,9 @@ Because "in the future an agent replies automatically" is a *later* step (user's
 
 ### Q: The drafted reply has a line starting "[Staff note — remove before sending]". What is that?
 A form-backed item (Rules Ack, Pet Registration, Emergency Contact) that's still outstanding but **failed to send automatically** — most often because a co-applicant has no email on file yet ("every adult signs their own block"). Read the reason, fix what's blocking it (usually: add the missing person's email via the Applicants card), then send that form separately. Delete the note before the reply goes out — it's for staff, not the resident.
+
+### Q: A tenant replies "yes I have a car" / "no pets" in the email body — do I mark that down somewhere?
+No — don't transcribe it, and the standard reply no longer asks the question in prose at all. The vehicle/animal yes-or-no are real Yes/No controls on the SAME self-serve `/request/[token]` link the standard reply already sends (`app/api/request/[token]/declare/route.ts`), so the resident answers there directly and it writes straight into `listing_applications.declarations` — no reply to read, nothing for staff to key in. Answering "yes" auto-reveals whatever that unlocks (e.g. Car Registration) on that same page immediately, or sends the Pet Registration form right away, without a second link. (User correction, 2026-08-18: "why is he replying to the questions by email? Why the card link don't make these questions and save in Maia?" — this replaced an earlier version that asked inline and made staff record the reply by hand.) The admin page's Declarations card still exists and is still editable — treat it as a fallback for an answer that arrived some other way, not the normal path.
 
 ### Q: A tenant asks "what documents am I still missing?"
 Don't retype the checklist by hand. If they already have a live application, the request-docs email or the applicant's own token link (`/request/[token]` or `/apply` resume link) shows them exactly what's outstanding and lets them upload straight to it — that's the self-serve path, and it's the one that actually files things onto the checklist without staff re-keying anything.

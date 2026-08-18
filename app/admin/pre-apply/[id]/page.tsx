@@ -268,11 +268,12 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           These retire the matching checklist items, so staff need to see the
           answer that did it rather than wondering why a row went N/A.
           ALWAYS shown when the checklist has a conditional item at all (not
-          only once answered) — the standard-reply draft now ASKS these two
-          questions by plain-text reply before requesting the related
-          document, and staff need somewhere to write the answer down once
-          the resident replies "yes" or "no" to an email, rather than by
-          clicking a link. */}
+          only once answered) — this stays editable here too as a fallback
+          (an answer that came in some other way than the resident's own
+          link), even though the normal path is now the resident answering
+          these as real Yes/No controls on their own /request/[token] link
+          (app/api/request/[token]/declare/route.ts) rather than replying to
+          an email in prose. */}
       {d.checklist.some(c => c.condition_key === 'vehicle' || c.condition_key === 'pet' || c.condition_key === 'assistance_animal') && (
         <DeclarationsCard
           id={id} declarations={d.declarations} declaredNa={d.declaredNa}

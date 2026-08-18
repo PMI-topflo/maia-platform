@@ -5,8 +5,12 @@
 
 import { use, useCallback, useEffect, useState } from 'react'
 import { OCCUPANT_ROLES, applicantRoleLabel } from '@/lib/applicant-roles'
+import { ANIMAL_KIND_LABEL, ANIMAL_KIND_BLURB, type AnimalKind } from '@/lib/animal-accommodation'
 
-interface Item { doc_key: string; label: string; uploaded: boolean; kind?: 'contact' | 'file' }
+interface Item {
+  doc_key: string; label: string; uploaded: boolean; kind?: 'contact' | 'file' | 'declare'
+  declareKey?: 'vehicle' | 'animal'; has?: boolean | null; animalKind?: AnimalKind | null
+}
 interface Person { name: string; email: string; phone: string; role: string }
 interface Data { associationName: string; propertyAddress: string | null; unit: string | null; role: string; message: string | null; note?: string | null; tenantName?: string | null; people?: Person[]; applicationType?: string | null; items: Item[] }
 
@@ -45,6 +49,8 @@ export default function RequestUpload({ params }: { params: Promise<{ token: str
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {d.items.map(it => it.kind === 'contact'
               ? <RosterRow key={it.doc_key} token={token} item={it} people={d.people ?? []} applicationType={d.applicationType ?? null} onDone={load} />
+              : it.kind === 'declare'
+              ? <DeclareRow key={it.doc_key} token={token} item={it} onDone={load} />
               : <ItemRow key={it.doc_key} token={token} item={it} onDone={load} />)}
           </div>
         )}
@@ -157,6 +163,80 @@ function MessageBox({ token, initial }: { token: string; initial: string }) {
         <button onClick={save} disabled={busy} style={{ cursor: busy ? 'default' : 'pointer', font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#1c2333', border: 'none', borderRadius: 8, padding: '8px 16px' }}>{busy ? 'Sending…' : 'Send message'}</button>
         {saved && <span style={{ font: '600 12.5px system-ui', color: '#166534' }}>✓ Sent — thank you</span>}
       </div>
+    </div>
+  )
+}
+
+// Vehicle/animal — answered as a real Yes/No control on this same link,
+// writing straight into listing_applications.declarations via
+// /api/request/[token]/declare. Before this, the question went out as plain
+// text in the email and a human had to read the reply and transcribe it.
+// User direction, 2026-08-18: "why is he replying to the questions by
+// email? Why the card link don't make these questions and save in Maia?"
+function DeclareRow({ token, item, onDone }: { token: string; item: Item; onDone: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function save(body: Record<string, unknown>, tag: string) {
+    setBusy(tag); setErr(null)
+    try {
+      const r = await fetch(`/api/request/${token}/declare`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      })
+      if (!r.ok) throw new Error((await r.json()).error || 'save failed')
+      onDone()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(null) }
+  }
+
+  const yn = (on: boolean, active: boolean): React.CSSProperties => ({
+    padding: '9px 20px', borderRadius: 9, font: '700 14px system-ui', cursor: 'pointer',
+    border: `1.5px solid ${active ? (on ? '#0f7a4d' : '#b45309') : '#d1d5db'}`,
+    background: active ? (on ? '#ecfdf5' : '#fffbeb') : '#fff',
+    color: active ? (on ? '#0f7a4d' : '#b45309') : '#374151',
+  })
+
+  const answered = item.uploaded
+  const isVehicle = item.declareKey === 'vehicle'
+
+  return (
+    <div style={{ border: '1px solid #e7e2d9', borderRadius: 10, padding: '14px 16px', background: answered ? '#f6faf7' : '#fff' }}>
+      <div style={{ font: '600 14.5px system-ui', color: '#1c2333', marginBottom: 10 }}>{item.label}</div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => save({ [item.declareKey!]: true }, 'y')} disabled={!!busy} style={yn(true, item.has === true)}>Yes</button>
+        <button onClick={() => save({ [item.declareKey!]: false }, 'n')} disabled={!!busy} style={yn(false, item.has === false)}>No</button>
+      </div>
+
+      {isVehicle && item.has === false && (
+        <p style={{ font: '600 12.5px system-ui', color: '#166534', margin: '10px 0 0' }}>✓ Got it — no vehicle registration will be requested.</p>
+      )}
+      {isVehicle && item.has === true && (
+        <p style={{ font: '12.5px system-ui', color: '#166534', margin: '10px 0 0' }}>✓ Thanks — we&apos;ll follow up for the vehicle registration.</p>
+      )}
+
+      {!isVehicle && item.has === false && (
+        <p style={{ font: '600 12.5px system-ui', color: '#166534', margin: '10px 0 0' }}>✓ Got it — no animal documents will be requested.</p>
+      )}
+
+      {!isVehicle && item.has === true && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ font: '600 13.5px system-ui', color: '#1c2333', marginBottom: 4 }}>What kind of animal?</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {(Object.keys(ANIMAL_KIND_LABEL) as AnimalKind[]).map(k => {
+              const on = item.animalKind === k
+              return (
+                <button key={k} onClick={() => save({ animal: true, animalKind: k }, k)} disabled={!!busy}
+                  style={{ textAlign: 'left', border: `1.5px solid ${on ? '#c0571a' : '#e2e5ec'}`, background: on ? '#fff7f0' : '#fff', borderRadius: 10, padding: '11px 13px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  <div style={{ font: '700 14px system-ui', color: '#1c2333' }}>{ANIMAL_KIND_LABEL[k]}</div>
+                  <div style={{ font: '12.5px system-ui', color: '#6b7280', marginTop: 2, lineHeight: 1.45 }}>{ANIMAL_KIND_BLURB[k]}</div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {err && <div style={{ font: '12.5px system-ui', color: '#b91c1c', marginTop: 8 }}>{err}</div>}
     </div>
   )
 }

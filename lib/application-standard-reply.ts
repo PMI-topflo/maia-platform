@@ -32,7 +32,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getReviewState } from '@/lib/board-review'
 import { isEsignItem, sendEsignFormsForItems, ESIGN_CHECKLIST_ITEMS, type SentForm } from '@/lib/application-esign-forms'
 import { splitEmails } from '@/lib/document-request-email'
-import { getIntakeChecklist, isApplicationType, parseDeclarations, pendingDeclarations } from '@/lib/intake-documents'
+import { getIntakeChecklist, isApplicationType, parseDeclarations, pendingDeclarations, providedByOkForRole } from '@/lib/intake-documents'
 import { logOutboundCommunication } from '@/lib/application-comm-log'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
@@ -42,8 +42,13 @@ export interface StandardReplyResult {
   /** Who the reply addresses this as — decides which document_requests slot
    *  (owner_token vs tenant_token) the upload link lives on. */
   recipientRole: 'owner' | 'tenant'
-  /** null when nothing needs uploading — e.g. everything outstanding is a
-   *  form MAIA already sent directly. */
+  /** null when there is nothing to put on a link at all — e.g. everything
+   *  outstanding is a form MAIA already sent directly. Non-null whenever
+   *  there's something to upload OR a pending vehicle/animal question — both
+   *  live as real controls on this SAME link, never asked inline by email
+   *  reply. User direction, 2026-08-18: "why is he replying to the questions
+   *  by email? Why the card link don't make these questions and save in
+   *  Maia?" */
   uploadLink: string | null
   uploadItems: string[]
   formsSent: SentForm[]
@@ -107,7 +112,7 @@ export async function draftStandardReply(opts: {
   // provided_by='staff' (Background / Credit Reports) is excluded from BOTH —
   // nobody external is ever asked; staff obtains it via Tenant Evaluation or Checkr.
   const recipientRole = await classifySender(code, unit, senderEmail)
-  const providedByOk = (pb: string) => recipientRole === 'owner' ? (pb === 'landlord' || pb === 'both') : (pb === 'applicant' || pb === 'both')
+  const providedByOk = (pb: string) => providedByOkForRole(recipientRole, pb)
 
   // ── Don't ask for a car, or an animal, before asking IF there is one ──
   // User direction: a tenant with no vehicle should never be asked for
@@ -153,20 +158,36 @@ export async function draftStandardReply(opts: {
     }
   }
 
-  // ── Upload items → a document_requests row, link only, NO email from here ──
+  // ── Upload items + decline questions → ONE document_requests row, link
+  // only, NO email from here ──
   //
   // One row per doc_key, not per applicant — /api/request/[token]/upload
   // always files a per-applicant item to the PRIMARY applicant, it has no way
   // to route "this one is specifically Kimberly's". Matching the admin Request
   // panel's own granularity here rather than asking through a link that can't
   // actually deliver the finer distinction the email text describes.
+  //
+  // The vehicle/animal questions are appended as SYNTHETIC items on this same
+  // row (doc_key '__declare_vehicle__' / '__declare_animal__') so the sender
+  // answers them as real Yes/No controls on /request/[token], the same page
+  // they're already uploading to — not by replying to this email in prose
+  // for a human to read and transcribe. See
+  // app/api/request/[token]/declare/route.ts, which resolves these doc_keys
+  // and writes straight into listing_applications.declarations.
+  const DECLARE_ITEM: Record<'vehicle' | 'animal', { doc_key: string; label: string }> = {
+    vehicle: { doc_key: '__declare_vehicle__', label: 'Do you keep a vehicle at the unit?' },
+    animal: { doc_key: '__declare_animal__', label: 'Do you have a pet, service animal, or emotional support animal in the unit?' },
+  }
   let uploadLink: string | null = null
   const uploadDocKeys = [...new Set(uploadRows.map(r => r.docKey))]
-  if (uploadDocKeys.length) {
-    const items = uploadDocKeys.map(k => {
-      const row = uploadRows.find(r => r.docKey === k)!
-      return { doc_key: k, label: row.label, recipient: recipientRole }
-    })
+  if (uploadDocKeys.length || declineQuestions.length) {
+    const items = [
+      ...uploadDocKeys.map(k => {
+        const row = uploadRows.find(r => r.docKey === k)!
+        return { doc_key: k, label: row.label, recipient: recipientRole }
+      }),
+      ...declineQuestions.map(q => ({ ...DECLARE_ITEM[q], recipient: recipientRole })),
+    ]
     const token = crypto.randomUUID()
     const { data: created, error } = await supabaseAdmin.from('document_requests').insert({
       application_id: applicationId, association_code: code, unit_label: unit, items,
@@ -188,11 +209,6 @@ export async function draftStandardReply(opts: {
   // gated items are NOT in this list at all — they're a question, not a request.
   const missingSummary = [...uploadRows, ...formRows].map(label)
 
-  const DECLARE_QUESTION: Record<'vehicle' | 'animal', string> = {
-    vehicle: 'Do you keep a vehicle at the unit? Just reply yes or no — if yes, we\'ll follow up for the registration.',
-    animal: 'Do you have a pet, service animal, or emotional support animal in the unit? Just reply yes or no — if yes, we\'ll send you the short form.',
-  }
-
   // Grouped into what to DO with each part, rather than one flat list mixing
   // "upload this", "we already emailed you a separate link for that", and
   // "we couldn't ask this yet" — the earlier flat version put "Updated
@@ -206,21 +222,25 @@ export async function draftStandardReply(opts: {
 
   if (uploadLink) {
     lines.push('')
-    lines.push('Please upload the following through your secure link, so everything is correctly filed on your application:')
+    // Wording depends on what's actually on the link — don't say "upload the
+    // following" when it's only a yes/no question, and don't say "a couple of
+    // quick questions" when it's only files.
+    if (uploadDocKeys.length && declineQuestions.length) {
+      lines.push('Please visit your secure link to upload the following and answer a couple of quick questions, so everything is correctly filed on your application:')
+    } else if (uploadDocKeys.length) {
+      lines.push('Please upload the following through your secure link, so everything is correctly filed on your application:')
+    } else {
+      lines.push('We also have a couple of quick questions for you — please answer them through your secure link:')
+    }
     lines.push(uploadLink)
     for (const m of uploadRows.map(label)) lines.push(`  • ${m}`)
+    for (const q of declineQuestions) lines.push(`  • ${DECLARE_ITEM[q].label}`)
   }
 
   if (forms.sent.length) {
     lines.push('')
     lines.push('We\'ve also sent separate links to your email to complete and sign — look for these in your inbox:')
     for (const f of forms.sent) lines.push(`  • ${ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey}`)
-  }
-
-  if (declineQuestions.length) {
-    lines.push('')
-    lines.push('Before we ask for anything further, a couple of quick questions:')
-    for (const q of declineQuestions) lines.push(`  • ${DECLARE_QUESTION[q]}`)
   }
 
   // Staff-only note: NOT sent to the resident. This is what stops a failed
