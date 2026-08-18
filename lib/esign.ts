@@ -162,6 +162,9 @@ export async function recordEsignSignature(
       docKey: 'pet_registration', docLabel: 'Pet Registration (e-signed)',
       filename: 'Pet_Registration.pdf',
     }).catch(() => null)
+    // The animals themselves as queryable rows, not just JSON inside the
+    // signed PDF — see applyPetRegistrationAnswers below for why this matters.
+    await applyPetRegistrationAnswers(id).catch(() => null)
   }
 
   // A completed Emergency Contact List satisfies the checklist item of the same
@@ -272,6 +275,51 @@ async function applyUnitSurveyAnswers(esignDocId: string): Promise<void> {
         .then(() => null, () => null)
     }
   }
+}
+
+/**
+ * Push a completed Pet Registration's animals into `unit_pets` as real rows.
+ *
+ * Without this, "does unit 613 have a dog" is a question nobody can answer
+ * without opening a signed PDF and reading it — the pet data existed, but
+ * only as JSON trapped inside one document. This is the same move as
+ * applyUnitSurveyAnswers above: the signed form stays the legal record; the
+ * content it captured also becomes something the rest of MAIA can query.
+ *
+ * SUPERSEDE, NEVER OVERWRITE: a fresh registration marks the unit's prior
+ * active rows inactive and inserts the new set fresh, rather than updating
+ * rows in place. A signed record of what was previously on file is worth
+ * keeping even after it's superseded — same convention as the emergency
+ * contact list's own re-signing.
+ */
+async function applyPetRegistrationAnswers(esignDocId: string): Promise<void> {
+  const doc = await getEsignDoc(esignDocId)
+  if (!doc?.unit_ref) return
+  const p = doc.payload as { pets?: { type?: string; name?: string; breed?: string; color?: string; weight?: string; age?: string; sex?: string; altered?: boolean; license?: string; rabiesDate?: string; vaccinationDoc?: { path: string } | null; photo?: { path: string } | null; serviceAnimal?: boolean }[]; questionnaire?: { requestType?: string } }
+  const pets = (p.pets ?? []).filter(a => (a.name ?? a.type ?? '').trim())
+  if (pets.length === 0) return
+
+  const assoc = doc.association_code, unit = doc.unit_ref, now = new Date().toISOString()
+  // The questionnaire branch, when this document went through it — a service
+  // animal or ESA is never subject to the association's ordinary pet rules,
+  // fees or limits, and a report over this table needs to tell them apart
+  // without re-reading the PDF.
+  const kind = p.questionnaire?.requestType === 'service' ? 'service'
+    : p.questionnaire?.requestType === 'esa' ? 'esa'
+    : p.questionnaire?.requestType === 'unsure' ? 'unsure' : 'pet'
+
+  await supabaseAdmin.from('unit_pets').update({ active: false, updated_at: now })
+    .eq('association_code', assoc).eq('unit_ref', unit).eq('active', true)
+    .then(() => null, () => null)
+
+  await supabaseAdmin.from('unit_pets').insert(pets.map(a => ({
+    association_code: assoc, unit_ref: unit, esign_document_id: esignDocId, kind,
+    animal_type: a.type || null, name: a.name || null, breed: a.breed || null, color: a.color || null,
+    weight: a.weight || null, age: a.age || null, sex: a.sex || null, altered: a.altered ?? null,
+    license_number: a.license || null, rabies_date: a.rabiesDate || null,
+    vaccination_doc_path: a.vaccinationDoc?.path || null, photo_path: a.photo?.path || null,
+    active: true,
+  }))).then(() => null, () => null)
 }
 
 async function fileEsignToApplication(

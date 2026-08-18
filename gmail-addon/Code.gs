@@ -119,6 +119,17 @@ function buildGmailCard_(e, forcedAssoc) {
     card.addSection(matchedSection_(data.matched));
   }
 
+  // Matched APPLICATION (if any) — live checklist state, never a cached
+  // snapshot: every field on this card comes straight from getReviewState()
+  // on Maia's side, the same function the staff screen reads. A ticket and
+  // an application can both match the same email (a renter both has an open
+  // ticket AND a lease renewal in progress) — showing both sections when
+  // both match is correct, not a bug.
+  try {
+    var appData = apiGet_('/api/addon/applications?gmailThreadId=' + encodeURIComponent(ctx.threadId) + '&email=' + encodeURIComponent(ctx.email));
+    if (appData && appData.matched) card.addSection(applicationSection_(appData.matched));
+  } catch (appErr) { /* non-fatal — the rest of the card still renders */ }
+
   // Guided create / link form (pre-filled from the suggestion). Pull the
   // staff list so the creator can assign to anyone, not just themselves.
   var staffList = [];
@@ -208,6 +219,62 @@ function matchedSection_(t) {
   s.addWidget(statusInput);
   s.addWidget(CardService.newTextButton().setText('Update status')
     .setOnClickAction(CardService.newAction().setFunctionName('setStatusAction').setParameters({ ticketId: String(t.id) })));
+  return s;
+}
+
+// Which of the three form-backed checklist items this is, and what to call
+// it — kept in step with lib/application-esign-forms.ts → ESIGN_CHECKLIST_ITEMS.
+// Presentation only; the backend is the actual source of truth for which
+// doc_keys are forms at all (isEsignItem), so a docKey missing from this map
+// still renders — just with its raw key instead of a friendly name.
+var APPLICATION_FORM_LABEL_ = {
+  governing_docs_ack: 'Rules Knowledge Acknowledgment',
+  pet_registration:   'Pet Registration',
+  emergency_contact:  'Emergency Contact List',
+};
+
+// The matched application: unit, applicants, what's approved vs still
+// outstanding, named — not just counted — and a one-click Send button for
+// each of the three form-backed items still waiting. This is the section
+// that replaces "reply and ask, wait, repeat": whatever the sender claims
+// was already sent, this shows what MAIA actually has on file right now.
+function applicationSection_(a) {
+  var s = CardService.newCardSection().setHeader('🏠 Application — ' + (a.associationCode || '') + (a.unitLabel ? (' · Unit ' + a.unitLabel) : ''));
+
+  var statusLabel = { started: 'Collecting documents', submitted: 'Submitted', under_review: 'Under review', approved: 'Approved', declined: 'Declined' }[a.status] || a.status;
+  s.addWidget(CardService.newDecoratedText()
+    .setTopLabel((a.applicants || []).join(', ') || 'Applicant')
+    .setText(statusLabel + '  ·  ' + (a.totals ? (a.totals.approved + '/' + a.totals.required + ' approved') : ''))
+    .setWrapText(true)
+    .setOpenLink(CardService.newOpenLink().setUrl(getConfig_().apiBase + '/admin/pre-apply/' + a.id)));
+
+  if (a.missing && a.missing.length) {
+    s.addWidget(CardService.newTextParagraph().setText(
+      '<b>Still outstanding:</b><br>' + a.missing.slice(0, 6).map(function (m) { return '• ' + m; }).join('<br>') +
+      (a.missing.length > 6 ? ('<br>+' + (a.missing.length - 6) + ' more') : '')));
+  }
+  if (a.refused && a.refused.length) {
+    s.addWidget(CardService.newTextParagraph().setText(
+      '<font color="#b42318"><b>Sent back:</b></font><br>' +
+      a.refused.map(function (r) { return '• ' + r.label + (r.reason ? (' — ' + r.reason) : ''); }).join('<br>')));
+  }
+  if (a.dueAt) {
+    s.addWidget(CardService.newTextParagraph().setText('Board decision due by <b>' + a.dueAt.slice(0, 10) + '</b>'));
+  }
+
+  // One button per form-backed item still waiting. Sending is the SAME
+  // sendEsignFormsForItems() the staff screen calls — there is no second way
+  // these three documents get created.
+  (a.sendable || []).forEach(function (docKey) {
+    var label = APPLICATION_FORM_LABEL_[docKey] || docKey;
+    s.addWidget(CardService.newTextButton().setText('📩 Send ' + label)
+      .setOnClickAction(CardService.newAction().setFunctionName('sendFormAction')
+        .setParameters({ applicationId: String(a.id), docKey: docKey, label: label })));
+  });
+  if (!a.sendable || !a.sendable.length) {
+    s.addWidget(CardService.newTextParagraph().setText('<i>No outstanding form-backed items to send.</i>'));
+  }
+
   return s;
 }
 
@@ -433,6 +500,22 @@ function setStatusAction(e) {
     apiPatch_('/api/addon/tickets/' + p.ticketId, { status: strInput_(f, 'status') });
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification().setText('Status updated.'))
+      .setNavigation(CardService.newNavigation().updateCard(onGmailMessage(e)))
+      .build();
+  } catch (err) { return notify_(err); }
+}
+
+// Send one of the three form-backed application items (Rules Ack / Pet
+// Registration / Emergency Contact List) without leaving Gmail. Re-renders
+// the card afterward so the button disappears once the item is no longer
+// outstanding — the same live-state read that built the card in the first
+// place, not a locally-guessed "it worked so hide the button" shortcut.
+function sendFormAction(e) {
+  var p = e.commonEventObject.parameters || {};
+  try {
+    apiPost_('/api/addon/applications/' + encodeURIComponent(p.applicationId) + '/send-form', { docKey: p.docKey });
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('✓ Sent ' + (p.label || p.docKey)))
       .setNavigation(CardService.newNavigation().updateCard(onGmailMessage(e)))
       .build();
   } catch (err) { return notify_(err); }
