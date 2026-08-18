@@ -4,12 +4,20 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { parseDeclarations } from '@/lib/intake-documents'
+import { getReviewState } from '@/lib/board-review'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 interface ReqItem { doc_key: string; label: string; recipient: 'owner' | 'tenant' | 'both' }
+
+// Synthetic doc_keys draftStandardReply appends when a vehicle/animal
+// declaration is unanswered — never a real checklist item, so they can't
+// collide with one. See app/api/request/[token]/declare/route.ts.
+const DECLARE_VEHICLE = '__declare_vehicle__'
+const DECLARE_ANIMAL = '__declare_animal__'
 
 export async function loadRequest(token: string) {
   if (!UUID.test(token)) return null
@@ -28,13 +36,25 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const r = await loadRequest(token)
   if (!r) return NextResponse.json({ error: 'This link is invalid or has expired.' }, { status: 404 })
 
-  const [{ data: assoc }, { data: docs }, { data: roster }, { data: appRow }] = await Promise.all([
+  const [{ data: assoc }, { data: docs }, { data: roster }, { data: appRow }, state] = await Promise.all([
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', r.req.association_code).maybeSingle(),
     supabaseAdmin.from('application_documents').select('doc_key').eq('application_id', r.req.application_id),
     supabaseAdmin.from('application_stakeholders').select('name, email, phone, applicant_role, is_primary')
       .eq('application_id', r.req.application_id).eq('role', 'applicant').order('is_primary', { ascending: false }),
-    supabaseAdmin.from('listing_applications').select('application_type').eq('id', r.req.application_id).maybeSingle(),
+    supabaseAdmin.from('listing_applications').select('application_type, declarations').eq('id', r.req.application_id).maybeSingle(),
+    getReviewState(r.req.application_id),
   ])
+  const declarations = parseDeclarations(appRow?.declarations)
+  // A file item can go stale on THIS row: it was appended when a declaration
+  // gate was still undecided (both animal paths kept open — see
+  // app/api/request/[token]/declare/route.ts), and the applicant's later,
+  // more specific answer retired it from the checklist for good — e.g.
+  // choosing "a pet" retires assistance_animal_documentation. The stored
+  // items array is never edited to remove it, so re-derive relevance from
+  // the SAME live checklist state every other screen reads, at render time,
+  // rather than trusting the snapshot. Still shown if already uploaded, so
+  // a completed upload never disappears out from under someone.
+  const stillRelevant = new Set((state?.rows ?? []).map(row => row.docKey))
   const legal = (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || r.req.association_code
   const unit = (r.req.unit_label as string | null) ?? null
   const address = [assoc?.principal_address, unit ? `Unit ${unit}` : null, [assoc?.city, [assoc?.state, assoc?.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ') || null
@@ -58,8 +78,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     // it is one named person, and what we need is THEIR OWN email.
     applicationType: (appRow?.application_type as string | null) ?? null,
     people,
-    items: r.mine.map(i => i.doc_key === 'tenant_contact_info'
-      ? { doc_key: i.doc_key, label: i.label, kind: 'contact', uploaded: contactDone }
-      : { doc_key: i.doc_key, label: i.label, kind: 'file', uploaded: have.has(i.doc_key) }),
+    items: r.mine.map(i => {
+      if (i.doc_key === 'tenant_contact_info') return { doc_key: i.doc_key, label: i.label, kind: 'contact' as const, uploaded: contactDone }
+      if (i.doc_key === DECLARE_VEHICLE) return { doc_key: i.doc_key, label: i.label, kind: 'declare' as const, declareKey: 'vehicle' as const, uploaded: typeof declarations.vehicle?.has === 'boolean', has: declarations.vehicle?.has ?? null }
+      if (i.doc_key === DECLARE_ANIMAL) return { doc_key: i.doc_key, label: i.label, kind: 'declare' as const, declareKey: 'animal' as const, uploaded: typeof declarations.animal?.has === 'boolean', has: declarations.animal?.has ?? null, animalKind: declarations.animal?.kind ?? null }
+      return { doc_key: i.doc_key, label: i.label, kind: 'file' as const, uploaded: have.has(i.doc_key) }
+    }).filter(it => it.kind !== 'file' || it.uploaded || stillRelevant.has(it.doc_key)),
   })
 }

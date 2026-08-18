@@ -651,9 +651,12 @@ function draftReplyAction(e) {
 
     var card = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Draft reply'));
     var s = CardService.newCardSection();
-    s.addWidget(CardService.newTextParagraph().setText(draft.replace(/\n/g, '<br>')));
+    // A real TextInput, not a TextParagraph — Apps Script Cards have no
+    // clipboard-write API, so a tap-to-select-and-copy input box is the
+    // standard idiom for "give me a copy button" in this UI.
+    s.addWidget(CardService.newTextInput().setFieldName('draft_text').setMultiline(true).setValue(draft));
     s.addWidget(CardService.newTextParagraph().setText(
-      '<i>To use it: hit Reply in Gmail, then “Insert Maia draft”. Or copy the text above.</i>'));
+      '<i>Tap the box above, select all, and copy — or hit Reply in Gmail, then “Insert Maia draft”.</i>'));
     card.addSection(s);
     return CardService.newActionResponseBuilder()
       .setNavigation(CardService.newNavigation().pushCard(card.build())).build();
@@ -675,9 +678,12 @@ function draftApplicationReplyAction(e) {
 
     var card = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Draft reply — ask them to upload'));
     var s = CardService.newCardSection();
-    s.addWidget(CardService.newTextParagraph().setText(draft.replace(/\n/g, '<br>')));
+    // Real TextInput, not TextParagraph — see draftReplyAction above. User
+    // direction, 2026-08-18: "why I don't have on the side card a copy
+    // button?" — this box IS the copy button (tap, select all, copy).
+    s.addWidget(CardService.newTextInput().setFieldName('draft_text').setMultiline(true).setValue(draft));
     s.addWidget(CardService.newTextParagraph().setText(
-      '<i>To use it: hit Reply in Gmail, then “Insert Maia draft”. Review the staff note at the bottom (if any) and delete it before sending — it is not meant for the resident.</i>'));
+      '<i>Tap the box above, select all, and copy — or hit Reply in Gmail, then “Insert Maia draft”. Review the staff note at the bottom (if any) and delete it before sending — it is not meant for the resident.</i>'));
     card.addSection(s);
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification().setText(res.nothingOutstanding ? 'Nothing outstanding — drafted a plain thank-you.' : 'Draft ready.'))

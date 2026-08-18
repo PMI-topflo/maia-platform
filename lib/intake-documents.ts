@@ -68,6 +68,18 @@ export function pendingDeclarations(docs: Pick<IntakeDoc, 'condition_key'>[], d:
   return out
 }
 
+/** Does provided_by mean THIS role is who this item is asked of? An
+ *  owner-facing ask accepts 'landlord' or 'both'; a tenant-facing ask accepts
+ *  'applicant' or 'both'. 'staff' (obtained internally, e.g. Background /
+ *  Credit Reports via Tenant Evaluation or Checkr) and 'agent' (a third
+ *  party neither of these roles addresses) are never OK for either — every
+ *  place that decides what to put in front of an owner or tenant reuses this
+ *  one check, so a role/provided_by combination is never re-decided by hand
+ *  in two places and drifting out of sync. */
+export function providedByOkForRole(role: 'owner' | 'tenant', providedBy: string): boolean {
+  return role === 'owner' ? (providedBy === 'landlord' || providedBy === 'both') : (providedBy === 'applicant' || providedBy === 'both')
+}
+
 /** The doc_keys that the applicant's declaration has ruled out — "I keep no
  *  vehicle" retires the vehicle documents. Returned as BARE doc_keys, which
  *  every completeness gate reads as "not applicable to anybody on this
