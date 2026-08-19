@@ -366,7 +366,10 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           Opening it above them pushed the very rows being ticked off-screen. */}
       {!decided && (
         <div style={{ marginTop: 16 }}>
-          <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail} onDone={load} preselect={requestFor} onPreselectHandled={() => setRequestFor(null)} />
+          <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail}
+            listingAgent={(d.stakeholders ?? []).find(s => s.role === 'listing_agent') ?? null}
+            applicantAgent={(d.stakeholders ?? []).find(s => s.role === 'applicant_agent') ?? null}
+            onDone={load} preselect={requestFor} onPreselectHandled={() => setRequestFor(null)} />
         </div>
       )}
 
@@ -1291,7 +1294,7 @@ function CreditScore({ id, stakeholderId, name, score, decided, onDone }: { id: 
 // Request specific documents from the owner and/or tenant — tick items, tag each
 // Owner / Tenant / Both, and MAIA emails each recipient their list + an upload
 // link (the standard PMI email). Uploads file straight back onto the application.
-function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone, preselect, onPreselectHandled }: { id: string; items: { doc_key: string; label: string; provided_by: string; missing: boolean }[]; ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null; onDone: () => void; preselect?: { doc_key: string; label: string } | null; onPreselectHandled?: () => void }) {
+function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAgent, applicantAgent, onDone, preselect, onPreselectHandled }: { id: string; items: { doc_key: string; label: string; provided_by: string; missing: boolean }[]; ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null; listingAgent?: { name: string | null; email: string | null } | null; applicantAgent?: { name: string | null; email: string | null } | null; onDone: () => void; preselect?: { doc_key: string; label: string } | null; onPreselectHandled?: () => void }) {
   const [open, setOpen] = useState(false)
   type Rec = 'owner' | 'tenant' | 'both'
   const [state, setState] = useState<Record<string, { on: boolean; rec: Rec }>>(() =>
@@ -1432,15 +1435,31 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, onDone, p
         <div style={{ marginTop: 10, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10 }}>
           <div style={{ font: '600 11.5px system-ui', color: '#92400e', marginBottom: 6 }}>⚠ Verify who this goes to — remove any wrong address (owner records can mix several contacts). Separate multiple with commas.</div>
           {needOwner && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
-              <span style={{ font: '600 11px system-ui', color: '#6b7280', width: 96 }}>Owner{ownerName ? ` (${ownerName})` : ''}</span>
-              <input value={ownerTo} onChange={e => setOwnerTo(e.target.value)} placeholder="owner@example.com" style={{ flex: '1 1 240px', minWidth: 200, font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6 }} />
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ font: '600 11px system-ui', color: '#6b7280', width: 96 }}>Owner{ownerName ? ` (${ownerName})` : ''}</span>
+                <input value={ownerTo} onChange={e => setOwnerTo(e.target.value)} placeholder="owner@example.com" style={{ flex: '1 1 240px', minWidth: 200, font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6 }} />
+              </div>
+              {/* There's no separate "Agent" recipient to pick — an item asked
+                  of the Owner already CCs the listing agent on the SAME email
+                  (lib/document-request-email.ts), so this is the only place
+                  staff can see he'll get it at all. User question, 2026-08-19:
+                  "I don't have the option or I don't see if he will receive
+                  the email." */}
+              {listingAgent?.email && (
+                <div style={{ font: '11.5px system-ui', color: '#1e40af', marginTop: 4, marginLeft: 104 }}>🔗 CC&apos;d: {listingAgent.name ? `${listingAgent.name} (listing agent)` : 'listing agent'} — {listingAgent.email}</div>
+              )}
             </div>
           )}
           {needTenant && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ font: '600 11px system-ui', color: '#6b7280', width: 96 }}>Tenant</span>
-              <input value={tenantTo} onChange={e => setTenantTo(e.target.value)} placeholder={askingRoster ? 'leave blank — the owner is being asked for this' : 'tenant@example.com'} style={{ flex: '1 1 240px', minWidth: 200, font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6 }} />
+            <div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ font: '600 11px system-ui', color: '#6b7280', width: 96 }}>Tenant</span>
+                <input value={tenantTo} onChange={e => setTenantTo(e.target.value)} placeholder={askingRoster ? 'leave blank — the owner is being asked for this' : 'tenant@example.com'} style={{ flex: '1 1 240px', minWidth: 200, font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6 }} />
+              </div>
+              {applicantAgent?.email && (
+                <div style={{ font: '11.5px system-ui', color: '#1e40af', marginTop: 4, marginLeft: 104 }}>🔗 CC&apos;d: {applicantAgent.name ? `${applicantAgent.name} (applicant's agent)` : "applicant's agent"} — {applicantAgent.email}</div>
+              )}
             </div>
           )}
           {needTenant && !tenantTo.includes('@') && askingRoster && (
