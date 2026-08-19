@@ -5,7 +5,6 @@
 // per-application audit + dual approval + staff document upload.
 
 import { useEffect, useState } from 'react'
-import ApplicationsDashboard from '@/components/ApplicationsDashboard'
 
 interface App {
   id: string; associationCode: string; type: string; unit: string | null; status: string
@@ -106,12 +105,6 @@ export default function PreApplyQueue() {
           )}
         </div>
       )}
-
-      {/* Whose turn it is, before anything else. The table below still answers
-          "which applications exist"; this answers "which ones need somebody". */}
-      <div style={{ marginTop: 18 }}>
-        <ApplicationsDashboard endpoint="/api/admin/pre-apply/dashboard" role="staff" />
-      </div>
 
       <StaffCreate />
       <LinkGenerator />
@@ -348,6 +341,12 @@ function LinkGenerator() {
   const [assoc, setAssoc] = useState('MANXI')
   const [unit, setUnit] = useState('')
   const [lang, setLang] = useState('')
+  const [assocList, setAssocList] = useState<{ code: string; name: string }[]>([])
+  useEffect(() => {
+    fetch('/api/associations').then(r => r.json())
+      .then((rows: { association_code: string; association_name: string }[]) => setAssocList(rows.map(r => ({ code: r.association_code, name: r.association_name }))))
+      .catch(() => setAssocList([]))
+  }, [])
   const [copied, setCopied] = useState(false)
   const [owner, setOwner] = useState<{ name: string | null; emails: string[]; phone: string | null }[] | null>(null)
   const [ownerBusy, setOwnerBusy] = useState(false)
@@ -388,7 +387,10 @@ function LinkGenerator() {
     <div style={{ margin: '14px 0 20px', padding: 14, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }}>
       <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>Generate an application link (reply by email)</div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <input value={assoc} onChange={e => setAssoc(e.target.value)} placeholder="Association" style={{ ...s, width: 100 }} />
+        <input value={assoc} onChange={e => setAssoc(e.target.value.toUpperCase())} placeholder="Association" list="assoc-codes" style={{ ...s, width: 100 }} />
+        <datalist id="assoc-codes">
+          {assocList.map(a => <option key={a.code} value={a.code}>{a.name}</option>)}
+        </datalist>
         <input value={unit} onChange={e => setUnit(e.target.value)} placeholder="Unit (e.g. 103)" style={{ ...s, width: 130 }} />
         <select value={lang} onChange={e => setLang(e.target.value)} style={s}>{LANGS.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}</select>
         <input readOnly value={link} onFocus={e => e.currentTarget.select()} style={{ ...s, flex: 1, minWidth: 220, fontFamily: 'ui-monospace, monospace', fontSize: 12, color: '#374151' }} />
