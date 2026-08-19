@@ -15,6 +15,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { assertClaudeBudget } from '@/lib/anthropic-guard'
 import { addonStaffEmail } from '@/lib/addon-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { saveDraftView } from '@/lib/addon-draft-views'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -88,7 +89,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       .map(b => b.text)
       .join('')
       .trim()
-    return NextResponse.json({ draftText })
+    const viewToken = await saveDraftView(draftText)
+    return NextResponse.json({ draftText, viewToken })
   } catch (err) {
     return NextResponse.json({ error: `draft failed: ${(err as Error).message}` }, { status: 502 })
   }

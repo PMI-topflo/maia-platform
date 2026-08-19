@@ -651,12 +651,17 @@ function draftReplyAction(e) {
 
     var card = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Draft reply'));
     var s = CardService.newCardSection();
-    // A real TextInput, not a TextParagraph — Apps Script Cards have no
-    // clipboard-write API, so a tap-to-select-and-copy input box is the
-    // standard idiom for "give me a copy button" in this UI.
+    // Card UI has no clipboard-write API — a tap-to-select-and-copy TextInput
+    // wasn't discoverable enough (asked twice), so the REAL copy button is a
+    // link to an actual webpage (normal browser JS, full navigator.clipboard).
+    // The TextInput stays too, as a quick preview and a fallback.
+    if (res.viewToken) {
+      s.addWidget(CardService.newTextButton().setText('📋 Open to copy')
+        .setOpenLink(CardService.newOpenLink().setUrl(getConfig_().apiBase + '/addon/draft/' + res.viewToken)));
+    }
     s.addWidget(CardService.newTextInput().setFieldName('draft_text').setMultiline(true).setValue(draft));
     s.addWidget(CardService.newTextParagraph().setText(
-      '<i>Tap the box above, select all, and copy — or hit Reply in Gmail, then “Insert Maia draft”.</i>'));
+      '<i>Or hit Reply in Gmail, then “Insert Maia draft”.</i>'));
     card.addSection(s);
     return CardService.newActionResponseBuilder()
       .setNavigation(CardService.newNavigation().pushCard(card.build())).build();
@@ -678,12 +683,17 @@ function draftApplicationReplyAction(e) {
 
     var card = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Draft reply — ask them to upload'));
     var s = CardService.newCardSection();
-    // Real TextInput, not TextParagraph — see draftReplyAction above. User
-    // direction, 2026-08-18: "why I don't have on the side card a copy
-    // button?" — this box IS the copy button (tap, select all, copy).
+    // See draftReplyAction above — a real webpage with a real Copy button,
+    // not just a select-it-yourself TextInput. User direction, 2026-08-18 AND
+    // 2026-08-19 (asked twice): "why I don't have on the side card a copy
+    // button?" / "there was not COPY button."
+    if (res.viewToken) {
+      s.addWidget(CardService.newTextButton().setText('📋 Open to copy')
+        .setOpenLink(CardService.newOpenLink().setUrl(getConfig_().apiBase + '/addon/draft/' + res.viewToken)));
+    }
     s.addWidget(CardService.newTextInput().setFieldName('draft_text').setMultiline(true).setValue(draft));
     s.addWidget(CardService.newTextParagraph().setText(
-      '<i>Tap the box above, select all, and copy — or hit Reply in Gmail, then “Insert Maia draft”. Review the staff note at the bottom (if any) and delete it before sending — it is not meant for the resident.</i>'));
+      '<i>Or hit Reply in Gmail, then “Insert Maia draft”. Review the staff note at the bottom (if any) and delete it before sending — it is not meant for the resident.</i>'));
     card.addSection(s);
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification().setText(res.nothingOutstanding ? 'Nothing outstanding — drafted a plain thank-you.' : 'Draft ready.'))

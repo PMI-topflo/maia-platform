@@ -10,6 +10,7 @@ import { ANIMAL_KIND_LABEL, ANIMAL_KIND_BLURB, type AnimalKind } from '@/lib/ani
 interface Item {
   doc_key: string; label: string; uploaded: boolean; kind?: 'contact' | 'file' | 'declare'
   declareKey?: 'vehicle' | 'animal'; has?: boolean | null; animalKind?: AnimalKind | null
+  exampleUrl?: string | null
 }
 interface Person { name: string; email: string; phone: string; role: string }
 interface Data { associationName: string; propertyAddress: string | null; unit: string | null; role: string; message: string | null; note?: string | null; tenantName?: string | null; people?: Person[]; applicationType?: string | null; items: Item[] }
@@ -260,6 +261,12 @@ function ItemRow({ token, item, onDone }: { token: string; item: Item; onDone: (
       <div style={{ flex: 1 }}>
         <div style={{ font: '600 14.5px system-ui', color: '#1c2333' }}>{item.label}</div>
         {item.uploaded ? <div style={{ font: '600 12.5px system-ui', color: '#166534' }}>✓ Received</div> : err ? <div style={{ font: '12.5px system-ui', color: '#b91c1c' }}>{err}</div> : null}
+        {/* A blank form to fill out, sign, and get notarized before uploading
+            back here — Tenant Affidavit and similar items have nowhere else
+            this link would show one. User direction, 2026-08-19. */}
+        {item.exampleUrl && !item.uploaded && (
+          <a href={item.exampleUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 4, font: '600 12px system-ui', color: '#2563eb', textDecoration: 'none' }}>⬇ Download blank form</a>
+        )}
       </div>
       <input id={inputId} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" style={{ display: 'none' }} onChange={e => onFile(e.target.files?.[0] ?? null)} />
       <label htmlFor={inputId} style={{ cursor: busy ? 'default' : 'pointer', font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : item.uploaded ? '#6b7280' : '#c0571a', borderRadius: 9, padding: '9px 16px' }}>

@@ -4,7 +4,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { parseDeclarations } from '@/lib/intake-documents'
+import { parseDeclarations, getIntakeChecklist, isApplicationType, signTemplateUrls } from '@/lib/intake-documents'
 import { getReviewState } from '@/lib/board-review'
 
 export const runtime = 'nodejs'
@@ -69,6 +69,17 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   // know about somebody at all.
   const contactDone = people.length > 0 && people.every(p => p.name && p.email && p.phone)
 
+  // A blank example form (Tenant Affidavit, etc) to download before filling
+  // it out — the same template_path the admin Request panel and the request
+  // EMAIL already link to, now on the page itself. User direction,
+  // 2026-08-19: "the linked card should have a button to download the Tenant
+  // Affidavit." Keyed by doc_key, signed fresh so the link never expires on
+  // someone who opens this page days after the email.
+  const type = String(appRow?.application_type ?? '')
+  const checklist = isApplicationType(type) ? await getIntakeChecklist(r.req.association_code, type) : []
+  const templateByKey = new Map(checklist.map(c => [c.doc_key, c.template_path]))
+  const templateUrlByPath = await signTemplateUrls(checklist.filter(c => r.mine.some(i => i.doc_key === c.doc_key)))
+
   return NextResponse.json({
     associationName: legal, propertyAddress: address, unit,
     role: r.role, message: r.req.message ?? null,
@@ -82,7 +93,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
       if (i.doc_key === 'tenant_contact_info') return { doc_key: i.doc_key, label: i.label, kind: 'contact' as const, uploaded: contactDone }
       if (i.doc_key === DECLARE_VEHICLE) return { doc_key: i.doc_key, label: i.label, kind: 'declare' as const, declareKey: 'vehicle' as const, uploaded: typeof declarations.vehicle?.has === 'boolean', has: declarations.vehicle?.has ?? null }
       if (i.doc_key === DECLARE_ANIMAL) return { doc_key: i.doc_key, label: i.label, kind: 'declare' as const, declareKey: 'animal' as const, uploaded: typeof declarations.animal?.has === 'boolean', has: declarations.animal?.has ?? null, animalKind: declarations.animal?.kind ?? null }
-      return { doc_key: i.doc_key, label: i.label, kind: 'file' as const, uploaded: have.has(i.doc_key) }
+      const path = templateByKey.get(i.doc_key)
+      const exampleUrl = path ? templateUrlByPath.get(path) ?? null : null
+      return { doc_key: i.doc_key, label: i.label, kind: 'file' as const, uploaded: have.has(i.doc_key), exampleUrl }
     }).filter(it => it.kind !== 'file' || it.uploaded || stillRelevant.has(it.doc_key)),
   })
 }
