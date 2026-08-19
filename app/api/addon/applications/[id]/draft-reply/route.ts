@@ -17,6 +17,7 @@
 import { NextResponse } from 'next/server'
 import { addonStaffEmail } from '@/lib/addon-token'
 import { draftStandardReply } from '@/lib/application-standard-reply'
+import { saveDraftView } from '@/lib/addon-draft-views'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -36,5 +37,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     createdBy: `staff:${staff}`,
   })
   if ('error' in result) return NextResponse.json({ error: result.error }, { status: 404 })
-  return NextResponse.json(result)
+  const viewToken = await saveDraftView(result.draftText)
+  return NextResponse.json({ ...result, viewToken })
 }

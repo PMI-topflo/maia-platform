@@ -3801,6 +3801,25 @@ UPDATE public.association_intake_documents
  WHERE doc_key = 'background_credit' AND provided_by = 'applicant';
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'addon_draft_views',
+    label:       'Gmail add-on: real Copy button for a drafted reply',
+    description: "New table addon_draft_views — the Card UI has no clipboard-write API, so the prior 'tap the box and select it yourself' workaround wasn't discoverable enough (asked twice). The add-on now opens a real webpage (app/addon/draft/[token]) with a genuine Copy button backed by navigator.clipboard; this table is the handoff between the server-rendered card and that page. Token-gated like every other public link in this app (/request/[token], /esign/[token]) — the uuid id is the credential, no login, no expiry column.",
+    filename:    '20260819_addon_draft_views.sql',
+    artifact:    { type: 'table', table: 'addon_draft_views' },
+    sql: `CREATE TABLE IF NOT EXISTS public.addon_draft_views (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  draft_text       text NOT NULL,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.addon_draft_views
+  TO anon, authenticated, service_role;
+ALTER TABLE public.addon_draft_views ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_addon_draft_views" ON public.addon_draft_views;
+CREATE POLICY "service_role_all_addon_draft_views"
+  ON public.addon_draft_views FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
