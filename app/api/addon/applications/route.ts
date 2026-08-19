@@ -109,8 +109,14 @@ export async function GET(req: Request) {
   }
 
   if (!applicationId && email) {
+    // ANY stakeholder role, not just 'applicant' — an agent or owner emailing
+    // about an application they're on is exactly what this lookup should
+    // catch. Found live, 2026-08-19: Jay Lin (role 'listing_agent') on a real
+    // open lease-renewal application, sender email on file and everything,
+    // never matched because this used to require role='applicant' — the
+    // sidebar silently showed nothing instead of the application section.
     const { data: sh } = await supabaseAdmin.from('application_stakeholders')
-      .select('application_id').eq('role', 'applicant').ilike('email', email).limit(30)
+      .select('application_id').ilike('email', email).limit(30)
     const ids = [...new Set((sh ?? []).map(r => String(r.application_id)))]
     if (ids.length) {
       const { data: apps } = await supabaseAdmin.from('listing_applications')
