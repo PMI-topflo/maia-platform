@@ -1,8 +1,18 @@
-// POST /api/admin/pre-apply/[id]/upload   (multipart: file, doc_key, doc_label)
-// Staff upload a document they received (e.g. by email) directly into an
-// in-process application — it's recorded against the application AND mirrored
-// into the unit's "On Going Applications" Drive folder (NOT Official; Official
-// only happens on board approval, via the approval-move engine). Staff-only.
+// POST /api/admin/pre-apply/[id]/upload   { doc_key, doc_label, storage_path, filename, mime_type, stakeholder_id?, allow_multiple? }
+// Finalizes a document the browser already PUT directly to Supabase Storage
+// via a signed URL from /api/admin/pre-apply/[id]/upload-url — it's recorded
+// against the application AND mirrored into the unit's "On Going Applications"
+// Drive folder (NOT Official; Official only happens on board approval, via the
+// approval-move engine). Staff-only.
+//
+// Used to receive the raw file as multipart form data directly on this route —
+// Vercel's Node function body-size limit rejected large PDFs (a signed lease,
+// a purchase agreement) before this handler ever ran, and the client's
+// `await r.json()` then threw on Vercel's own plain-text rejection body
+// ("Unexpected token 'R', "Request En"..."). Found live, 2026-08-19, MANXI
+// 303's Purchase Agreement. The file is already in storage by the time this
+// runs, so it's downloaded here (an outgoing fetch, no incoming-body limit)
+// for the same scan + Drive-mirror steps as before.
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
@@ -16,9 +26,6 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
-const MAX_BYTES = 25 * 1024 * 1024
-const ALLOWED = /\.(pdf|jpe?g|png|heic|webp)$/i
-
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const session = await requireStaffSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -28,25 +35,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     .select('id, listing_id, association_code, unit_label, submitted_at').eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'application not found' }, { status: 404 })
 
-  let form: FormData
-  try { form = await req.formData() } catch { return NextResponse.json({ error: 'invalid form' }, { status: 400 }) }
-  const file = form.get('file')
-  const docKey = String(form.get('doc_key') ?? '').trim()
-  const docLabel = String(form.get('doc_label') ?? '').trim() || docKey || 'Document'
-  const stakeholderId = String(form.get('stakeholder_id') ?? '').trim() || null
-  const allowMultiple = String(form.get('allow_multiple') ?? '') === '1'
-  if (!(file instanceof File) || file.size === 0) return NextResponse.json({ error: 'no file' }, { status: 400 })
+  let b: { doc_key?: string; doc_label?: string; storage_path?: string; filename?: string; mime_type?: string; stakeholder_id?: string; allow_multiple?: boolean }
+  try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
+  const docKey = String(b.doc_key ?? '').trim()
+  const docLabel = String(b.doc_label ?? '').trim() || docKey || 'Document'
+  const storagePath = String(b.storage_path ?? '').trim()
+  const filename = String(b.filename ?? 'upload')
+  const mimeType = String(b.mime_type ?? '') || 'application/pdf'
+  const stakeholderId = String(b.stakeholder_id ?? '').trim() || null
+  const allowMultiple = !!b.allow_multiple
   if (!docKey) return NextResponse.json({ error: 'doc_key required' }, { status: 400 })
-  if (!ALLOWED.test(file.name)) return NextResponse.json({ error: 'file must be a PDF or image' }, { status: 400 })
-  const buf = Buffer.from(await file.arrayBuffer())
-  if (buf.byteLength > MAX_BYTES) return NextResponse.json({ error: 'file over 25 MB' }, { status: 400 })
+  if (!storagePath || !storagePath.startsWith(`intake/${id}/`)) return NextResponse.json({ error: 'invalid storage_path' }, { status: 400 })
 
-  // Store in the private application-docs bucket, keyed like the applicant path.
-  const safe = file.name.replace(/[^\w.\-]+/g, '_').slice(-80)
-  const keySafe = docKey.replace(/[^\w-]+/g, '_')
-  const path = `intake/${id}/${keySafe}/${crypto.randomUUID()}_${safe}`
-  const up = await supabaseAdmin.storage.from(INTAKE_BUCKET).upload(path, buf, { contentType: file.type || 'application/pdf', upsert: true })
-  if (up.error) return NextResponse.json({ error: `upload failed: ${up.error.message}` }, { status: 500 })
+  const { data: blob, error: dlErr } = await supabaseAdmin.storage.from(INTAKE_BUCKET).download(storagePath)
+  if (dlErr || !blob) return NextResponse.json({ error: `Could not read the uploaded file: ${dlErr?.message ?? 'not found'}` }, { status: 500 })
+  const buf = Buffer.from(await blob.arrayBuffer())
 
   // Replace any prior upload for this checklist item — scoped to the applicant
   // for per-person items. Multi-file items (e.g. 2 years of tax returns) APPEND.
@@ -57,7 +60,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // Read the document so its expiration is captured on upload — the Drive scan
   // did this but a direct upload didn't, so anything uploaded by hand had no
   // expiry to track (and no YYYY_MM_Type filing name). Best-effort.
-  const scan = await quickDocScan(buf, file.type || 'application/pdf').catch(() => ({ label: 'other', expiration: null as string | null }))
+  const scan = await quickDocScan(buf, mimeType).catch(() => ({ label: 'other', expiration: null as string | null }))
   let personName: string | null = null
   if (stakeholderId) {
     const { data: shRow } = await supabaseAdmin.from('application_stakeholders').select('name').eq('id', stakeholderId).maybeSingle()
@@ -65,10 +68,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
   const { error: insErr } = await supabaseAdmin.from('application_documents').insert({
     application_id: id, listing_id: app.listing_id, kind: 'other', doc_key: docKey, doc_label: docLabel,
-    storage_path: path, filename: file.name, mime_type: file.type || 'application/pdf', uploaded_by_role: 'staff',
+    storage_path: storagePath, filename, mime_type: mimeType, uploaded_by_role: 'staff',
     stakeholder_id: stakeholderId,
     expiration_date: scan.expiration,
-    suggested_name: suggestedIntakeName({ docKey, filename: file.name, personName }),
+    suggested_name: suggestedIntakeName({ docKey, filename, personName }),
   })
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
 
@@ -77,7 +80,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     .select('name').eq('application_id', id).eq('is_primary', true).maybeSingle()
   const drive = await mirrorFileToOngoing({
     unitLabel: String(app.unit_label ?? id.slice(0, 8)), applicantName: (sh?.name as string | null) ?? null,
-    label: docLabel, filename: file.name, mime: file.type || 'application/pdf', buffer: buf,
+    label: docLabel, filename, mime: mimeType, buffer: buf,
     associationCode: String(app.association_code),
   })
   if (drive.ok && drive.folderUrl) {

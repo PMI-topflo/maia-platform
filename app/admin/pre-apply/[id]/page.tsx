@@ -55,14 +55,22 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   const [tax, setTax] = useState<{ kind: string; confidence: number; verdict: string } | null>(null)
   const [taxBusy, setTaxBusy] = useState(false)
   const [driveFiles, setDriveFiles] = useState<{ fileId: string; name: string; mimeType: string }[] | null>(null)
+  const [driveFilesErr, setDriveFilesErr] = useState<string | null>(null)
   const [activeApplicant, setActiveApplicant] = useState<string | null>(null)
   // "Request it" on a row opens the request panel with that item preselected —
   // staff still choose WHO it goes to.
   const [requestFor, setRequestFor] = useState<{ doc_key: string; label: string } | null>(null)
 
   const loadDriveFiles = useCallback(async () => {
+    setDriveFilesErr(null)
+    // The route always answers 200 — a genuine Drive failure comes back as
+    // {files: [], error: "..."}, not a non-OK status. This used to read only
+    // .files, so a Drive error looked identical to a folder that's simply
+    // empty. User report, 2026-08-19: "From Drive" felt "silent."
     const r = await fetch(`/api/admin/pre-apply/${id}/drive-files`, { credentials: 'include' })
-    const j = await r.json(); setDriveFiles(Array.isArray(j.files) ? j.files : [])
+    const j = await r.json()
+    setDriveFiles(Array.isArray(j.files) ? j.files : [])
+    if (j.error) setDriveFilesErr(String(j.error))
   }, [id])
 
   async function runTaxCheck() {
@@ -312,7 +320,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '2px 0 6px' }}>Shared documents</div>
       <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         {sharedItems.map((c, i) => (
-          <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, null)} extraDocs={docsFor(c.doc_key, null).slice(1)} na={naFor(c.doc_key, null)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} assoc={d.associationCode} appType={d.type} hasExample={!!c.template_path}
+          <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, null)} extraDocs={docsFor(c.doc_key, null).slice(1)} na={naFor(c.doc_key, null)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} driveFilesErr={driveFilesErr} loadDriveFiles={loadDriveFiles} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} assoc={d.associationCode} appType={d.type} hasExample={!!c.template_path}
                         review={reviewFor(c.doc_key, null)} scopeKey={scopeKeyOf(c.doc_key, null)} onRequest={(k, l) => setRequestFor({ doc_key: k, label: l })} />
         ))}
         {d.documents.filter(doc => !doc.stakeholderId && !d.checklist.some(c => c.doc_key === doc.doc_key)).map(doc => (
@@ -352,7 +360,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                 <CreditScore id={id} stakeholderId={a.id} name={a.name} score={a.creditScore} decided={decided} onDone={load} />
                 {/* Active applicant's documents */}
                 {perApplicantItems.map((c, i) => (
-                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={docsFor(c.doc_key, a.id).slice(1)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} assoc={d.associationCode} appType={d.type} hasExample={!!c.template_path}
+                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={docsFor(c.doc_key, a.id).slice(1)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} driveFilesErr={driveFilesErr} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} assoc={d.associationCode} appType={d.type} hasExample={!!c.template_path}
                         review={reviewFor(c.doc_key, a.id)} scopeKey={scopeKeyOf(c.doc_key, a.id)} onRequest={(k, l) => setRequestFor({ doc_key: k, label: l })} />
                 ))}
               </div>
@@ -735,7 +743,7 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
 // One checklist row: the doc (if any) with an INLINE preview box, the suggested
 // YYYY_MM_Type rename, an editable expiration date to approve, Ignore, and the
 // upload/replace control.
-function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, driveFiles, loadDriveFiles, stakeholderId, applicants, checklist, assoc, appType, hasExample, review, scopeKey, onRequest }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string; allow_multiple?: boolean }; doc: Doc | undefined; extraDocs?: Doc[]; checklist?: { doc_key: string; label: string }[]; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[]; assoc?: string; appType?: string; hasExample?: boolean;
+function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, driveFiles, driveFilesErr, loadDriveFiles, stakeholderId, applicants, checklist, assoc, appType, hasExample, review, scopeKey, onRequest }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string; allow_multiple?: boolean }; doc: Doc | undefined; extraDocs?: Doc[]; checklist?: { doc_key: string; label: string }[]; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; driveFilesErr?: string | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[]; assoc?: string; appType?: string; hasExample?: boolean;
   review?: { state: 'waiting' | 'received' | 'approved' | 'refused'; decision: { by: string; role: string; at: string; reason: string | null } | null } | null;
   scopeKey?: string; onRequest?: (docKey: string, label: string) => void }) {
   const allowMultiple = !!c.allow_multiple
@@ -743,11 +751,23 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
   const [picking, setPicking] = useState(false)
   const [keepName, setKeepName] = useState(false)
   const [pagesFor, setPagesFor] = useState<Record<string, string>>({})
-  async function openPicker() { setPicking(true); if (!driveFiles) await loadDriveFiles() }
+  const [assignErr, setAssignErr] = useState<string | null>(null)
+  async function openPicker() { setPicking(true); setAssignErr(null); if (!driveFiles) await loadDriveFiles() }
   async function assign(fileId: string, name: string, mimeType: string) {
-    setBusy('assign')
-    try { await fetch(`/api/admin/pre-apply/${id}/assign-drive`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, doc_label: c.label, fileId, fileName: name, mimeType, pages: pagesFor[fileId] || '', keepName, stakeholder_id: stakeholderId, allow_multiple: allowMultiple }) }); setPicking(false); onDone() }
-    catch { /* */ } finally { setBusy(null) }
+    setBusy('assign'); setAssignErr(null)
+    // Used to ignore the response entirely — a server-side error (bad page
+    // range, a Drive read failure) closed the picker and called onDone() as
+    // if it had worked, with nothing to show for it. User report, 2026-08-19:
+    // "From Drive" felt "silent."
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/assign-drive`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, doc_label: c.label, fileId, fileName: name, mimeType, pages: pagesFor[fileId] || '', keepName, stakeholder_id: stakeholderId, allow_multiple: allowMultiple }) })
+      const j = await r.json().catch(() => ({}))
+      // Some failures here (an unreadable page range, a Drive read error)
+      // deliberately answer 200 with an error field rather than a non-OK
+      // status — check both, not just r.ok.
+      if (!r.ok || j.error) throw new Error(j.error || 'Could not assign this file.')
+      setPicking(false); onDone()
+    } catch (e) { setAssignErr((e as Error).message) } finally { setBusy(null) }
   }
   const [exp, setExp] = useState(doc?.expirationDate ?? '')
   const [savedExp, setSavedExp] = useState(doc?.expirationDate ?? '')
@@ -984,8 +1004,10 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
           <label style={{ font: '12px system-ui', color: '#374151', display: 'inline-flex', gap: 5, alignItems: 'center', cursor: 'pointer', marginBottom: 6 }}>
             <input type="checkbox" checked={keepName} onChange={e => setKeepName(e.target.checked)} /> Keep the original file name (don&apos;t auto-rename)
           </label>
+          {driveFilesErr && <div style={{ font: '12px system-ui', color: '#b91c1c', marginBottom: 6 }}>⚠ Could not read the Drive folder: {driveFilesErr}</div>}
+          {assignErr && <div style={{ font: '12px system-ui', color: '#b91c1c', marginBottom: 6 }}>⚠ {assignErr}</div>}
           {!driveFiles ? <div style={{ font: '12px system-ui', color: '#6b7280' }}>Reading Drive folder…</div>
-            : driveFiles.length === 0 ? <div style={{ font: '12px system-ui', color: '#9ca3af' }}>No files in the Drive folder.</div>
+            : driveFiles.length === 0 ? <div style={{ font: '12px system-ui', color: '#9ca3af' }}>{driveFilesErr ? 'Could not list files — see the error above.' : 'No files in the Drive folder.'}</div>
             : <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5 }}>
                 {driveFiles.map(ff => {
                   const isPdf = ff.mimeType.includes('pdf')
@@ -1084,11 +1106,20 @@ function StaffUpload({ id, docKey, docLabel, uploaded, onDone, stakeholderId, al
     if (!file) return
     setBusy(true); setMsg(null)
     try {
-      const fd = new FormData()
-      fd.append('file', file); fd.append('doc_key', docKey); fd.append('doc_label', docLabel)
-      if (stakeholderId) fd.append('stakeholder_id', stakeholderId)
-      if (allowMultiple || mode === 'add') fd.append('allow_multiple', '1')
-      const r = await fetch(`/api/admin/pre-apply/${id}/upload`, { method: 'POST', credentials: 'include', body: fd })
+      // Signed-URL upload — straight from the browser to Storage, not through
+      // this Vercel function — so a large signed lease or purchase agreement
+      // never hits the platform's request-body limit. See upload-url/route.ts.
+      const u = await fetch(`/api/admin/pre-apply/${id}/upload-url`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: docKey, filename: file.name }) })
+      const uj = await u.json(); if (!u.ok) throw new Error(uj.error || 'could not start upload')
+      const put = await fetch(uj.signedUrl, { method: 'PUT', body: file, headers: { 'content-type': file.type || 'application/octet-stream' } })
+      if (!put.ok) throw new Error('upload to storage failed')
+      const r = await fetch(`/api/admin/pre-apply/${id}/upload`, {
+        method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          doc_key: docKey, doc_label: docLabel, storage_path: uj.path, filename: file.name, mime_type: file.type,
+          stakeholder_id: stakeholderId || undefined, allow_multiple: allowMultiple || mode === 'add' || undefined,
+        }),
+      })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'upload failed')
       if (j?.drive && !j.drive.ok) setMsg(`Filed · Drive copy pending: ${j.drive.error}`)
       onDone()
