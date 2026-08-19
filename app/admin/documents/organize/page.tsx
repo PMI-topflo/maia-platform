@@ -11,6 +11,7 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../../components/AdminNav'
 import OrganizeClient from './OrganizeClient'
+import DuplicateOngoingFolders from './DuplicateOngoingFolders'
 
 export const metadata = { title: 'Organize Drive files — PMI Top Florida' }
 export const dynamic = 'force-dynamic'
@@ -30,6 +31,7 @@ export default async function OrganizePage() {
         </div>
         <p className="mb-5 text-sm text-gray-500">Scan a Drive folder, preview each file, and rename it to <span className="font-mono">YYYY_MM_Type</span>. Nothing changes until you click Apply.</p>
         <OrganizeClient />
+        <DuplicateOngoingFolders />
       </main>
     </div>
   )
