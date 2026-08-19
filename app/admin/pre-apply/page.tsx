@@ -36,6 +36,7 @@ export default function PreApplyQueue() {
   const [drive, setDrive] = useState<DriveUnit[] | null>(null)
   const [driveErr, setDriveErr] = useState<string | null>(null)
   const [importing, setImporting] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const [showRef, setShowRef] = useState(false)
   const [refAssoc, setRefAssoc] = useState('')
   const [refData, setRefData] = useState<TypeChecklist[] | null>(null)
@@ -71,6 +72,20 @@ export default function PreApplyQueue() {
   }
 
   const count = (k: string) => (apps ?? []).filter(a => a.status === k).length
+
+  // Only ever offered for a bare-shell application (0 docs, per the row's own
+  // Docs count) — the endpoint independently re-checks every table an
+  // application can hold data in and refuses if any of them are non-empty, so
+  // this can't remove something that turns out to have anything in it.
+  async function deleteApp(a: App) {
+    if (!confirm(`Delete this empty application (${a.associationCode} · Unit ${a.unit ?? '—'})? This also trashes its Drive folder, if any. This cannot be undone from here.`)) return
+    setDeleting(a.id)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${a.id}`, { method: 'DELETE', credentials: 'include' })
+      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed')
+      setApps(prev => (prev ?? []).filter(x => x.id !== a.id))
+    } catch (e) { alert(`Could not delete: ${(e as Error).message}`) } finally { setDeleting(null) }
+  }
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', padding: 24, fontFamily: 'system-ui' }}>
@@ -150,7 +165,7 @@ export default function PreApplyQueue() {
         <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 12 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead><tr style={{ background: '#f9fafb', textAlign: 'left' }}>
-              {['Applicant', 'Assoc', 'Unit', 'Type', 'Docs', 'Signed', 'Started', 'Stage', 'Drive'].map(h => <th key={h} style={{ padding: '10px 12px', color: '#6b7280', fontWeight: 600, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>)}
+              {['Applicant', 'Assoc', 'Unit', 'Type', 'Docs', 'Signed', 'Started', 'Stage', 'Drive', ''].map(h => <th key={h} style={{ padding: '10px 12px', color: '#6b7280', fontWeight: 600, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>)}
             </tr></thead>
             <tbody>
               {apps.filter(a => !filter || a.status === filter).map(a => {
@@ -166,6 +181,15 @@ export default function PreApplyQueue() {
                     <td style={{ ...td, whiteSpace: 'nowrap' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{fmt(a.startedAt)}</td>
                     <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}><span style={{ font: '600 11px system-ui', color: st.c, background: st.b, borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap' }}>{st.label}</span></td>
                     <td style={td}>{a.driveFolderUrl ? <a href={a.driveFolderUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none' }}>📁</a> : <span style={{ color: '#d1d5db' }}>—</span>}</td>
+                    <td style={td}>
+                      {a.docCount === 0 && (
+                        <button onClick={e => { e.stopPropagation(); deleteApp(a) }} disabled={deleting === a.id}
+                          title="Delete this empty application"
+                          style={{ cursor: deleting === a.id ? 'default' : 'pointer', font: '600 11px system-ui', color: '#b91c1c', background: 'none', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 8px' }}>
+                          {deleting === a.id ? '…' : '🗑 Delete'}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 )
               })}

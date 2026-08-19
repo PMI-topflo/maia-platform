@@ -198,3 +198,59 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (b.action === 'approve') await handoffOnApproval(id, String(patch.approved_by_role ?? 'staff'))
   return NextResponse.json({ ok: true, status: patch.status })
 }
+
+// DELETE /api/admin/pre-apply/[id]
+// Removes a bare-shell application — one with nothing in it. User direction,
+// 2026-08-19: several units got imported via "Bring into MAIA" with an empty
+// Drive folder behind them and never went anywhere (MANXI 605: created by
+// staff, zero documents, zero stakeholders, zero communications, six hours
+// later still empty). There was no way to remove one short of a direct
+// database delete — this is that button, with the safety built into the
+// endpoint itself rather than trusted to the UI: it independently re-checks
+// every table an application can hold data in and refuses if ANY of them are
+// non-empty, the same checklist docs/APPLICATIONS-EMAIL-PLAYBOOK.md already
+// documents for judging a duplicate application "a bare shell." A stakeholder
+// who signed or verified email also blocks deletion even if this endpoint's
+// own check missed something, because listing_applications.status alone is
+// never trusted here — the actual child rows are.
+//
+// Best-effort trashes (not permanently deletes) the linked Drive folder too,
+// so one click clears both sides — never blocks the MAIA-side delete on a
+// Drive failure, since prod-only Drive creds don't exist in every environment
+// this could run in.
+export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const session = await requireStaffSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { id } = await ctx.params
+
+  const { data: app } = await supabaseAdmin.from('listing_applications').select('id, listing_id, drive_folder_id').eq('id', id).maybeSingle()
+  if (!app) return NextResponse.json({ error: 'application not found' }, { status: 404 })
+
+  const [docs, stakeholders, comms, reqs, reviews] = await Promise.all([
+    supabaseAdmin.from('application_documents').select('id', { count: 'exact', head: true }).eq('application_id', id),
+    supabaseAdmin.from('application_stakeholders').select('id', { count: 'exact', head: true }).eq('application_id', id),
+    supabaseAdmin.from('application_communications').select('id', { count: 'exact', head: true }).eq('application_id', id),
+    supabaseAdmin.from('document_requests').select('id', { count: 'exact', head: true }).eq('application_id', id),
+    supabaseAdmin.from('application_document_reviews').select('id', { count: 'exact', head: true }).eq('application_id', id),
+  ])
+  const counts = { documents: docs.count ?? 0, stakeholders: stakeholders.count ?? 0, communications: comms.count ?? 0, requests: reqs.count ?? 0, reviews: reviews.count ?? 0 }
+  const nonEmpty = Object.entries(counts).filter(([, n]) => n > 0)
+  if (nonEmpty.length) {
+    return NextResponse.json({ error: `Not empty — has ${nonEmpty.map(([k, n]) => `${n} ${k}`).join(', ')}. Only a bare-shell application can be deleted this way.` }, { status: 409 })
+  }
+
+  let driveTrashed = false, driveError: string | null = null
+  if (app.drive_folder_id) {
+    try {
+      const { getDrive } = await import('@/lib/drive-invoice-mirror')
+      await getDrive().files.update({ fileId: String(app.drive_folder_id), requestBody: { trashed: true }, supportsAllDrives: true })
+      driveTrashed = true
+    } catch (err) { driveError = err instanceof Error ? err.message : String(err) }
+  }
+
+  const { error: delAppErr } = await supabaseAdmin.from('listing_applications').delete().eq('id', id)
+  if (delAppErr) return NextResponse.json({ error: delAppErr.message }, { status: 500 })
+  if (app.listing_id) await supabaseAdmin.from('unit_listings').delete().eq('id', app.listing_id)
+
+  return NextResponse.json({ ok: true, driveTrashed, driveError })
+}
