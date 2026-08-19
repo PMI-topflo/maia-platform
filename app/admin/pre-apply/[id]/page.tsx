@@ -1315,6 +1315,19 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAg
     setOwnerTo(cur => cur.trim() ? cur : next)
   }, [ownerEmails])
   const [tenantTo, setTenantTo] = useState(tenantEmail ?? '')
+  // Same staleness the ownerTo effect above already fixes, just never applied
+  // here — a tenant email that arrives after the panel's first render (e.g.
+  // staff adds the applicant's email in the Applicants card while this panel
+  // is already open) left this box empty, looking like it was never saved.
+  // User report, 2026-08-19: "the second card is missing the tenant info as
+  // not saved" — it WAS saved; this box just never re-read it.
+  const tenantSeed = useRef(tenantEmail ?? '')
+  useEffect(() => {
+    const next = tenantEmail ?? ''
+    if (tenantSeed.current === next) return
+    tenantSeed.current = next
+    setTenantTo(cur => cur.trim() ? cur : next)
+  }, [tenantEmail])
   const [busy, setBusy] = useState(false)
 
   // "Request it" on a document row brings you here with that item ticked, so
