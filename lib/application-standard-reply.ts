@@ -29,11 +29,11 @@
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { getReviewState } from '@/lib/board-review'
-import { isEsignItem, sendEsignFormsForItems, ESIGN_CHECKLIST_ITEMS, type SentForm } from '@/lib/application-esign-forms'
+import { sendEsignFormsForItems, ESIGN_CHECKLIST_ITEMS, type SentForm } from '@/lib/application-esign-forms'
 import { splitEmails } from '@/lib/document-request-email'
-import { getIntakeChecklist, isApplicationType, parseDeclarations, pendingDeclarations, providedByOkForRole } from '@/lib/intake-documents'
+import { providedByOkForRole } from '@/lib/intake-documents'
 import { logOutboundCommunication } from '@/lib/application-comm-log'
+import { getOutstandingSummary } from '@/lib/application-outstanding-summary'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 
@@ -89,18 +89,9 @@ export async function draftStandardReply(opts: {
 }): Promise<StandardReplyResult | { error: string }> {
   const { applicationId, senderEmail, senderName, createdBy } = opts
 
-  const [{ data: app }, state] = await Promise.all([
-    supabaseAdmin.from('listing_applications').select('id, association_code, unit_label, application_type, declarations').eq('id', applicationId).maybeSingle(),
-    getReviewState(applicationId),
-  ])
-  if (!app || !state) return { error: 'application not found' }
-  const code = String(app.association_code), unit = (app.unit_label as string | null) ?? null
-
-  // Deliberately over ALL rows, not just required ones — the pet-registration
-  // lesson from this same week: an optional item the sender claims is "already
-  // handled" and plainly isn't is exactly what this reply exists to catch.
-  const outstanding = state.rows.filter(r => r.state === 'waiting' || r.state === 'refused')
-  const label = (r: (typeof outstanding)[number]) => r.perApplicantName ? `${r.label} — ${r.perApplicantName}` : r.label
+  const summary = await getOutstandingSummary(applicationId)
+  if ('error' in summary) return summary
+  const code = summary.associationCode, unit = summary.unitLabel
 
   // Recipient role decides which recipientRole below is computed from — and
   // it ALSO decides what this specific reply is allowed to ask this specific
@@ -118,31 +109,14 @@ export async function draftStandardReply(opts: {
   // User direction: a tenant with no vehicle should never be asked for
   // registration, and a family with no animal should never be sent the pet
   // form — that's presumptuous, and the board should see the yes/no itself,
-  // not just its absence. The gate (declarations.vehicle / declarations.animal)
-  // already existed for the /apply flow; this is the first thing that also
-  // asks it on applications that were staff-created and never went through
-  // that flow. docKeyCondition is read from the CHECKLIST, not hardcoded, so
-  // a future association with a differently-gated item is covered for free.
-  const type = String(app.application_type ?? '')
-  const checklist = isApplicationType(type) ? await getIntakeChecklist(code, type) : []
-  const declarations = parseDeclarations(app.declarations)
-  const pending = pendingDeclarations(checklist, declarations)
-  const docKeyCondition = new Map(checklist.map(c => [c.doc_key, c.condition_key]))
-  const gatedUnanswered = (docKey: string): 'vehicle' | 'animal' | null => {
-    const ck = docKeyCondition.get(docKey)
-    if (ck === 'vehicle' && pending.includes('vehicle')) return 'vehicle'
-    if ((ck === 'pet' || ck === 'assistance_animal') && pending.includes('animal')) return 'animal'
-    return null
-  }
-
-  const uploadRows = outstanding.filter(r => !isEsignItem(r.docKey) && providedByOk(r.providedBy) && !gatedUnanswered(r.docKey))
+  // not just its absence. gatedBy is computed in getOutstandingSummary from
+  // the CHECKLIST's own condition_key, not hardcoded, so a future association
+  // with a differently-gated item is covered for free.
+  const uploadRows = summary.rows.filter(r => !r.isEsignItem && providedByOk(r.providedBy) && !r.gatedBy)
   // Forms are unaffected by the role filter — they already always go to the
   // applicant roster regardless of who is currently emailing (sendEsignFormsForItems).
-  const formRows = outstanding.filter(r => isEsignItem(r.docKey) && !gatedUnanswered(r.docKey))
-  // What to ASK ABOUT, not request — named once each even if multiple doc_keys
-  // share the same gate (car_registration alone triggers 'vehicle'; pet_registration
-  // AND assistance_animal_documentation both roll under 'animal').
-  const declineQuestions: ('vehicle' | 'animal')[] = [...new Set(outstanding.map(r => gatedUnanswered(r.docKey)).filter((x): x is 'vehicle' | 'animal' => !!x))]
+  const formRows = summary.rows.filter(r => r.isEsignItem && !r.gatedBy)
+  const declineQuestions = summary.declineQuestions
 
   if (uploadRows.length === 0 && formRows.length === 0 && declineQuestions.length === 0) {
     const draftText = `Hello${senderName ? ` ${senderName}` : ''},\n\nThank you for reaching out. Everything required on your application is already on file — nothing further is needed from you at this time.\n\nWe'll be in touch as soon as there's an update.\n\nThank you,\nPMI Top Florida Properties`
@@ -207,7 +181,7 @@ export async function draftStandardReply(opts: {
   // listed here too (it is still genuinely outstanding), just with the reason
   // surfaced separately below rather than silently disappearing. Declaration-
   // gated items are NOT in this list at all — they're a question, not a request.
-  const missingSummary = [...uploadRows, ...formRows].map(label)
+  const missingSummary = [...uploadRows, ...formRows].map(r => r.label)
 
   // Grouped into what to DO with each part, rather than one flat list mixing
   // "upload this", "we already emailed you a separate link for that", and
@@ -233,7 +207,7 @@ export async function draftStandardReply(opts: {
       lines.push('We also have a couple of quick questions for you — please answer them through your secure link:')
     }
     lines.push(uploadLink)
-    for (const m of uploadRows.map(label)) lines.push(`  • ${m}`)
+    for (const m of uploadRows.map(r => r.label)) lines.push(`  • ${m}`)
     for (const q of declineQuestions) lines.push(`  • ${DECLARE_ITEM[q].label}`)
   }
 
@@ -272,7 +246,7 @@ export async function draftStandardReply(opts: {
   })
 
   return {
-    applicationId, recipientRole, uploadLink, uploadItems: uploadRows.map(label),
+    applicationId, recipientRole, uploadLink, uploadItems: uploadRows.map(r => r.label),
     formsSent: forms.sent, formsFailed: forms.failed, missingSummary, declineQuestions, nothingOutstanding: false,
     draftText,
   }

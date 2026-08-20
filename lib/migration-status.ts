@@ -3820,6 +3820,33 @@ CREATE POLICY "service_role_all_addon_draft_views"
   ON public.addon_draft_views FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'application_reminder_approvals',
+    label:       '3-day missing-docs reminder, PMI + Jonathan approve-once',
+    description: "New table application_reminder_approvals — the collective reminder that emails EVERY stakeholder (applicant + owner + any agent on file) what's still missing on their application, every 3 days, instead of only replying to whoever last emailed. Gated behind a one-time approval: the first cycle drafts and emails PMI + Jonathan a link to approve; once approved, every later cycle auto-sends with no further approval needed. One row per actual cycle (audit trail), read by app/api/cron/missing-docs-reminders to decide what to do next for each application.",
+    filename:    '20260820_application_reminder_approvals.sql',
+    artifact:    { type: 'table', table: 'application_reminder_approvals' },
+    sql: `CREATE TABLE IF NOT EXISTS public.application_reminder_approvals (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id   uuid NOT NULL REFERENCES public.listing_applications(id) ON DELETE CASCADE,
+  status           text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'declined')),
+  missing_summary  jsonb NOT NULL DEFAULT '[]'::jsonb,
+  recipients       jsonb NOT NULL DEFAULT '[]'::jsonb,
+  sent_to          jsonb,
+  decided_by       text,
+  decided_at       timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS application_reminder_approvals_app_idx
+  ON public.application_reminder_approvals (application_id, created_at DESC);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.application_reminder_approvals
+  TO anon, authenticated, service_role;
+ALTER TABLE public.application_reminder_approvals ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_application_reminder_approvals" ON public.application_reminder_approvals;
+CREATE POLICY "service_role_all_application_reminder_approvals"
+  ON public.application_reminder_approvals FOR ALL TO service_role USING (true);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
