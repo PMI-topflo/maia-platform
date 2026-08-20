@@ -39,9 +39,10 @@ export interface EsignDoc {
   status: EsignStatus
   compliance_item: string | null
   created_at: string
+  application_id: string | null
 }
 
-const COLS = 'id, kind, association_code, unit_ref, title, payload, signers, status, compliance_item, created_at'
+const COLS = 'id, kind, association_code, unit_ref, title, payload, signers, status, compliance_item, created_at, application_id'
 
 export async function getEsignDoc(id: string): Promise<EsignDoc | null> {
   const { data } = await supabaseAdmin.from('esign_documents').select(COLS).eq('id', id).maybeSingle()
@@ -393,10 +394,16 @@ async function fileBoardApprovalLetter(esignDocId: string): Promise<void> {
   if (!el) return
   const pdf = Buffer.from(await renderToBuffer(el))
 
-  // The most recent in-process (or just-approved) application for this unit.
-  const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('id, listing_id').eq('association_code', fresh.association_code).eq('unit_label', fresh.unit_ref)
-    .in('status', ['started', 'submitted', 'under_review', 'approval_sent', 'approved']).order('created_at', { ascending: false }).limit(1).maybeSingle()
+  // The letter's own application_id, when set (every letter createBoardDecisionLetter
+  // creates going forward), is authoritative — no ambiguity even if the unit has
+  // two in-process applications at once (e.g. a lease application and a later
+  // additional-occupant one). Older rows without it fall back to the previous
+  // association_code + unit_ref + status-filtered lookup.
+  const app = fresh.application_id
+    ? await supabaseAdmin.from('listing_applications').select('id, listing_id').eq('id', fresh.application_id).maybeSingle().then(r => r.data)
+    : await supabaseAdmin.from('listing_applications')
+        .select('id, listing_id').eq('association_code', fresh.association_code).eq('unit_label', fresh.unit_ref)
+        .in('status', ['started', 'submitted', 'under_review', 'approval_sent', 'approved']).order('created_at', { ascending: false }).limit(1).maybeSingle().then(r => r.data)
   if (!app) return
 
   const path = `intake/${app.id}/board_approval_letter/${crypto.randomUUID()}.pdf`

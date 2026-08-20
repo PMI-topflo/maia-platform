@@ -100,7 +100,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { data: round, error } = await supabaseAdmin.from('document_review_rounds').insert({
     application_id: id, association_code: code, unit_label: (app.unit_label as string | null) ?? null,
     token: crypto.randomUUID(), recipients: picked, note: String(b.note ?? '').trim() || null,
-    started_by: `staff:${session.displayName}`,
+    started_by: `staff:${session.displayName}`, purpose: 'document_review',
   }).select('id, token').single()
   if (error || !round) return NextResponse.json({ error: `Could not start the review: ${error?.message ?? 'unknown'}` }, { status: 500 })
 

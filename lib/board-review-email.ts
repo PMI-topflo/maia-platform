@@ -24,6 +24,14 @@ export const OFFICE_EMAILS = (process.env.BOARD_REVIEW_OFFICE_EMAILS
   ?? 'PMI@topfloridaproperties.com,jonathan@topfloridaproperties.com')
   .split(',').map(s => s.trim()).filter(e => e.includes('@'))
 
+/** CC'd on every email MAIA sends TO the board — the review round, the
+ *  signature reminder, and the initial signer invitation (decision-page/send)
+ *  — so staff can watch what's actually going out and adjust the system if
+ *  something looks wrong, now that these go out automatically. User
+ *  direction, 2026-08-20. */
+export const BOARD_EMAIL_CC = (process.env.BOARD_EMAIL_CC ?? 'PMI@topfloridaproperties.com')
+  .split(',').map(s => s.trim()).filter(e => e.includes('@'))
+
 const TYPE_LABEL: Record<string, string> = {
   lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease Renewal', additional_occupant: 'Additional Occupant',
 }
@@ -88,7 +96,7 @@ export async function sendReviewRound(roundId: string): Promise<{ sent: boolean;
     footerReason: `You're receiving this as an approver for ${c.legal}.`,
   })
 
-  await sendEmail({ to, replyTo: SUPPORT, subject: `Documents to review — ${c.unit ? `Unit ${c.unit}` : c.legal} (${c.typeLabel})`, html })
+  await sendEmail({ to, cc: BOARD_EMAIL_CC, replyTo: SUPPORT, subject: `Documents to review — ${c.unit ? `Unit ${c.unit}` : c.legal} (${c.typeLabel})`, html })
   await supabaseAdmin.from('document_review_rounds').update({ updated_at: new Date().toISOString() }).eq('id', roundId)
   return { sent: true, to }
 }
@@ -146,7 +154,7 @@ export async function sendSignatureReminder(roundId: string): Promise<{ sent: bo
   const daysLeft = state.dueAt ? Math.ceil((new Date(state.dueAt).getTime() - Date.now()) / 86400000) : null
 
   await sendEmail({
-    to, replyTo: SUPPORT,
+    to, cc: BOARD_EMAIL_CC, replyTo: SUPPORT,
     subject: `Still needs your signature — ${c.unit ? `Unit ${c.unit}` : c.legal}`,
     html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.55">
       <p>Every document for <strong>${esc(c.address ?? c.legal)}</strong> has been reviewed and approved. The approval letter is waiting for your signature.</p>

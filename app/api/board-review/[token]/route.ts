@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getReviewState, syncBoardWindow, boardWindowSentence, REVIEWER_ROLE_LABEL, type ReviewerRole } from '@/lib/board-review'
 import { notifyOfficeOfReviewResponse } from '@/lib/board-review-email'
+import { advanceToApprovalSent } from '@/lib/board-decision-letter'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -101,6 +102,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const { opened, state } = await syncBoardWindow(round.application_id)
+
+  // under_review → approval_sent, fully automatic: create + send the board
+  // decision letter the instant the checklist just became complete — fires
+  // the same way here as it does from the staff side.
+  if (opened) await advanceToApprovalSent(round.application_id)
 
   // PMI + Jonathan hear about every response as it happens — not a digest at
   // the end, so a refusal reaches the office the hour it is raised.
