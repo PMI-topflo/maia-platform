@@ -8,9 +8,11 @@ import { useEffect, useState } from 'react'
 
 interface App {
   id: string; associationCode: string; type: string; unit: string | null; status: string
-  submittedAt: string | null; startedAt: string | null; driveFolderUrl: string | null
+  submittedAt: string | null; startedAt: string | null; reviewedAt: string | null; driveFolderUrl: string | null
   applicant: { name: string | null; email: string | null } | null; docCount: number; signed: boolean
+  lastRequestedAt: string | null
 }
+const isDecided = (status: string) => status === 'approved' || status === 'declined'
 interface ChecklistItem { label: string; provided_by: string; required: boolean; notarized: boolean; exampleUrl: string | null }
 interface TypeChecklist { type: string; label: string; blurb: string; items: ChecklistItem[] }
 const TYPE_ORDER = ['lease', 'lease_renewal', 'purchase', 'additional_occupant']
@@ -168,7 +170,13 @@ export default function PreApplyQueue() {
               {['Applicant', 'Assoc', 'Unit', 'Type', 'Docs', 'Signed', 'Started', 'Stage', 'Drive', ''].map(h => <th key={h} style={{ padding: '10px 12px', color: '#6b7280', fontWeight: 600, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {apps.filter(a => !filter || a.status === filter).map(a => {
+              {apps.filter(a => !filter || a.status === filter)
+                // Decided (approved/declined) applications sink to the end —
+                // staff report, 2026-08-20: "Put the approved in the final
+                // of the list." Array.sort is stable, so within each group
+                // the API's own order (startedAt desc) is unchanged.
+                .slice().sort((a, b) => Number(isDecided(a.status)) - Number(isDecided(b.status)))
+                .map(a => {
                 const st = STAGES.find(s => s.key === a.status) ?? { label: a.status, c: '#374151', b: '#f3f4f6' }
                 return (
                   <tr key={a.id} style={{ cursor: 'pointer' }}>
@@ -179,7 +187,24 @@ export default function PreApplyQueue() {
                     <td style={{ ...td, textAlign: 'center' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{a.docCount}</td>
                     <td style={{ ...td, textAlign: 'center' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{a.signed ? '✓' : '—'}</td>
                     <td style={{ ...td, whiteSpace: 'nowrap' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{fmt(a.startedAt)}</td>
-                    <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}><span style={{ font: '600 11px system-ui', color: st.c, background: st.b, borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap' }}>{st.label}</span></td>
+                    <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>
+                      <span style={{ font: '600 11px system-ui', color: st.c, background: st.b, borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap' }}>{st.label}</span>
+                      {/* Decision date under the pill — was invisible before,
+                          so an approved/declined row gave no sense of when.
+                          Staff report: "with a date that was approved under
+                          the green APPROVED text." */}
+                      {isDecided(a.status) && a.reviewedAt && <div style={{ font: '11px system-ui', color: '#9ca3af', marginTop: 3, whiteSpace: 'nowrap' }}>{fmt(a.reviewedAt)}</div>}
+                      {/* When docs were last requested — the state machine
+                          itself never changes on a request (document_requests
+                          doesn't touch listing_applications.status), so
+                          "Submitted — awaiting audit" looks identical whether
+                          nobody has looked at it yet or staff already asked
+                          for more and are waiting on the applicant. Staff
+                          report, 2026-08-20: "shouldn't change from audit to
+                          Collecting Documents or Documents Requested and also
+                          below the last date?" */}
+                      {!isDecided(a.status) && a.lastRequestedAt && <div style={{ font: '11px system-ui', color: '#b45309', marginTop: 3, whiteSpace: 'nowrap' }}>📨 requested {fmt(a.lastRequestedAt)}</div>}
+                    </td>
                     <td style={td}>{a.driveFolderUrl ? <a href={a.driveFolderUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none' }}>📁</a> : <span style={{ color: '#d1d5db' }}>—</span>}</td>
                     <td style={td}>
                       {a.docCount === 0 && (
