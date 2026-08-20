@@ -37,7 +37,12 @@ const TYPE_TAG: Record<string, string> = {
 const KEEPER_DOC_KEYS = new Set([
   'signed_lease', 'property_insurance', 'certificate_of_use', 'board_decision_page',
   'tenant_affidavit', 'landlord_tenant_agreement', 'board_approval_letter',
-  'purchase_agreement', 'deed', 'ownership', 'governing_docs_ack', 'hoa_estoppel',
+  // 'purchase_agreement' is the older collaborative-leasing DocumentKind; the
+  // intake-checklist upload for a purchase application actually saves under
+  // 'signed_purchase' (supabase/migrations/20260805_association_intake_documents.sql)
+  // — without it here, a purchase application's own signed agreement was
+  // silently skipped when filing to Official.
+  'purchase_agreement', 'signed_purchase', 'deed', 'ownership', 'governing_docs_ack', 'hoa_estoppel',
   'occupant_affidavit', 'lease_addendum',   // additional-occupant applications
 ])
 

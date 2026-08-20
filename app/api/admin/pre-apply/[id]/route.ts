@@ -188,7 +188,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     case 'audit':   patch.audited_by = who; patch.audited_at = now; patch.status = 'under_review'; break
     case 'approve': patch.status = 'approved';  patch.reviewed_by = who; patch.reviewed_at = now; patch.approved_by_role = ['onsite_manager', 'board', 'staff'].includes(String(b.by_role)) ? b.by_role : 'staff'; patch.review_note = b.note?.trim() || null; break
     case 'decline': patch.status = 'declined';  patch.reviewed_by = who; patch.reviewed_at = now; patch.review_note = b.note?.trim() || null; break
-    case 'request': patch.status = 'submitted'; patch.review_note = b.note?.trim() || null; break
+    case 'request': patch.status = 'submitted'; if (b.note?.trim()) patch.review_note = b.note.trim(); break
     default: return NextResponse.json({ error: 'invalid action' }, { status: 400 })
   }
 
