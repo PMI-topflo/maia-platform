@@ -127,7 +127,7 @@ function buildGmailCard_(e, forcedAssoc) {
   // Now it renders visibly instead of vanishing.
   try {
     var appData = apiGet_('/api/addon/applications?gmailThreadId=' + encodeURIComponent(ctx.threadId) + '&email=' + encodeURIComponent(ctx.email));
-    if (appData && appData.matched) card.addSection(applicationSection_(appData.matched, ctx));
+    if (appData && appData.matched) applicationSection_(appData.matched, ctx).forEach(function (sec) { card.addSection(sec); });
   } catch (appErr) {
     var appErrSection = CardService.newCardSection().setHeader('🏠 Application');
     appErrSection.addWidget(CardService.newTextParagraph().setText('⚠️ Could not check for a matching application: ' + (appErr && appErr.message ? appErr.message : String(appErr))));
@@ -319,7 +319,29 @@ function applicationSection_(a, ctx) {
     s.addWidget(CardService.newTextParagraph().setText('<i>No outstanding form-backed items to send.</i>'));
   }
 
-  return s;
+  // Recent history — every prior drafted request + filed correspondence,
+  // right in the sidebar instead of only on the admin page. User direction,
+  // 2026-08-19: "I want all previous request and communications in a list
+  // under like a box HISTORY." One DecoratedText row per entry (icon + date
+  // + subject) rather than a single wall of text — CardService's version of
+  // "beautifully formatted," which is as far as a sidebar card can go; the
+  // application link above still opens the full timeline (document
+  // decisions, signed approval letters) for anything this compact list
+  // doesn't carry.
+  if (a.history && a.history.length) {
+    var hist = CardService.newCardSection().setHeader('📜 Recent history').setCollapsible(true).setNumUncollapsibleWidgets(2);
+    a.history.forEach(function (h) {
+      var icon = h.direction === 'inbound' ? '📥' : h.direction === 'note' ? '📝' : '📤';
+      var date = (h.occurredAt || '').slice(0, 10);
+      hist.addWidget(CardService.newDecoratedText()
+        .setTopLabel(date + (h.toEmails && h.toEmails.length ? ('  ·  ' + h.toEmails.join(', ')) : ''))
+        .setText(icon + ' ' + h.subject)
+        .setWrapText(true));
+    });
+    return [s, hist];
+  }
+
+  return [s];
 }
 
 // "✨ Maia suggests" — what the email looks like + which association.
