@@ -31,7 +31,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const { token } = await ctx.params
   const r = await resolveToken(token)
   if (!r) return NextResponse.json({ error: 'This link has expired or is invalid.' }, { status: 401 })
-  if (!r.stakeholder.isPrimary) return NextResponse.json({ error: 'Only the person who started the application can add collaborators.' }, { status: 403 })
+  // The lead always can; so can the owner — they need a way to add their own
+  // agent even though they didn't start the application.
+  if (!r.stakeholder.isPrimary && r.stakeholder.role !== 'owner') {
+    return NextResponse.json({ error: 'Only the person who started the application, or the owner, can add collaborators.' }, { status: 403 })
+  }
 
   const intake = await getIntake(r.applicationId)
   if (!intake) return NextResponse.json({ error: 'Not found.' }, { status: 404 })

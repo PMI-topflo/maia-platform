@@ -58,7 +58,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
       isPrimary: me.isPrimary, status: me.status, emailVerified: !!me.emailVerifiedAt,
       emailMasked: maskEmail(me.email), signed: !!me.signedAt,
     },
-    canAddCollaborators: me.isPrimary,
+    // The lead always can; so can the owner — they didn't start the
+    // application but still need a way to add their own agent (Rule 2).
+    canAddCollaborators: me.isPrimary || me.role === 'owner',
     submitted: !!intake.submittedAt,
     providerLabels: PROVIDED_BY_LABEL,
     // Every checklist item, flagged "mine" (this stakeholder provides it) + uploaded

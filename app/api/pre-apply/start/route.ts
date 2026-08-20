@@ -5,7 +5,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { createIntake, carryOverApprovedDocs, isStakeholderRole, roleLabel } from '@/lib/preapply'
+import { createIntake, carryOverApprovedDocs, addStakeholders, isStakeholderRole, roleLabel } from '@/lib/preapply'
 import { signPreApplyToken } from '@/lib/preapply-token'
 import { isApplicationType } from '@/lib/intake-documents'
 import { sendEmail } from '@/lib/gmail'
@@ -13,32 +13,57 @@ import { sendEmail } from '@/lib/gmail'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const SUPPORT_EMAIL = 'support@topfloridaproperties.com'
 const TYPE_WORD: Record<string, string> = { lease: 'rental', purchase: 'purchase', lease_renewal: 'lease-renewal', additional_occupant: 'additional-occupant' }
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
 
-// When someone who is NOT the unit owner starts an application, email the unit
-// owner so they know (and can flag it if they don't recognize it). Best-effort.
-async function notifyUnitOwnerOfNewApplication(opts: { associationCode: string; unitLabel: string | null; type: string; leadName: string; leadRole: string }) {
+// When someone who is NOT the unit owner starts an application, add the owner
+// as a real stakeholder (so they get their own secure link, the same way any
+// other collaborator does) and email them — both the FYI and, now, a way to
+// actually act: fill in their own part and add their own agent if they have
+// one. Previously this was FYI-only with no link at all — the owner had no
+// way to answer "do you have an agent?" short of calling the office.
+// User direction, 2026-08-20 (Rule 2): "send to the owner also to fill if he
+// has an agent." Best-effort; never blocks the applicant.
+async function notifyUnitOwnerOfNewApplication(opts: { applicationId: string; associationCode: string; unitLabel: string | null; type: string; leadName: string; leadRole: string }) {
   const unit = (opts.unitLabel ?? '').trim()
   if (!unit) return
   const [{ data: owners }, { data: a }] = await Promise.all([
-    supabaseAdmin.from('owners').select('emails, status').eq('association_code', opts.associationCode).eq('unit_number', unit).or('status.neq.previous,status.is.null'),
+    supabaseAdmin.from('owners').select('first_name, last_name, entity_name, emails, status').eq('association_code', opts.associationCode).eq('unit_number', unit).or('status.neq.previous,status.is.null'),
     supabaseAdmin.from('associations').select('association_name, legal_name').eq('association_code', opts.associationCode).maybeSingle(),
   ])
-  const emails = [...new Set((owners ?? []).flatMap(o => String(o.emails ?? '').split(',')).map(s => s.trim()).filter(e => e.includes('@')))]
+  const emails = [...new Set((owners ?? []).flatMap(o => String(o.emails ?? '').split(',')).map(s => s.trim().toLowerCase()).filter(e => e.includes('@')))]
   if (emails.length === 0) return
   const assocName = (a?.legal_name as string | null) || (a?.association_name as string | null) || opts.associationCode
   const word = TYPE_WORD[opts.type] ?? 'new'
+  const ownerName = (owners ?? [])
+    .map(o => (o.entity_name as string | null)?.trim() || `${o.first_name ?? ''} ${o.last_name ?? ''}`.trim())
+    .find(Boolean) || 'Owner'
+
+  // One stakeholder row (the first owner email) gets the actionable link — the
+  // same email-verification/OTP flow every other collaborator uses. Any
+  // additional co-owner emails on file are BCC'd on the same notice, matching
+  // how this office already treats co-owned units elsewhere.
+  const [primaryEmail, ...ccEmails] = emails
+  let link: string | null = null
+  const created = await addStakeholders(opts.applicationId, [{ name: ownerName, email: primaryEmail, role: 'owner' }], opts.leadRole)
+  if (created[0]) {
+    const t = await signPreApplyToken(opts.applicationId, created[0].id)
+    link = `${APP}/pre-apply/${encodeURIComponent(opts.associationCode)}?t=${encodeURIComponent(t)}`
+  }
+
   await sendEmail({
-    to: emails,
+    to: [primaryEmail], cc: ccEmails.length ? ccEmails : undefined,
     replyTo: SUPPORT_EMAIL,
     subject: `A new ${word} application was started for your unit — ${assocName} Unit ${unit}`,
     html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6;max-width:520px;margin:0 auto">
       <p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#f26a1b;font-weight:700;margin:0 0 4px">PMI Top Florida Properties</p>
       <h2 style="margin:0 0 8px;color:#1f2a44">A new application was started for your unit</h2>
       <p>A new <strong>${esc(word)}</strong> application was just started for your unit — <strong>${esc(assocName)}, Unit ${esc(unit)}</strong> — by <strong>${esc(opts.leadName)}</strong> (${esc(roleLabel(opts.leadRole))}).</p>
-      <p>If you started this, or you recognize it — for example your tenant, buyer, or agent is applying — <strong>no action is needed</strong>.</p>
+      ${link ? `<p>If you have your own agent handling this, or anything of your own to upload, you can add them or fill your part here:</p>
+      <p style="text-align:center;margin:20px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;font-weight:700;padding:13px 26px;border-radius:10px;display:inline-block">Open my part of the application →</a></p>` : ''}
+      <p>If you started this, or you recognize it — for example your tenant, buyer, or agent is applying — no other action is needed.</p>
       <p style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;color:#92400e">⚠ If you do <strong>not</strong> recognize this application, please reply to <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a> right away so we can look into it.</p>
       <p style="color:#9aa0ab;font-size:12px">PMI Top Florida Properties · Managing agent for ${esc(assocName)}</p>
     </div>`,
@@ -102,7 +127,7 @@ export async function POST(req: Request) {
   // blocks the applicant). Owners starting their own application skip this.
   if (role !== 'owner') {
     void notifyUnitOwnerOfNewApplication({
-      associationCode: code, unitLabel: String(b.unit ?? '').trim() || null, type, leadName: name, leadRole: role,
+      applicationId: created.applicationId, associationCode: code, unitLabel: String(b.unit ?? '').trim() || null, type, leadName: name, leadRole: role,
     }).catch(() => null)
   }
 
