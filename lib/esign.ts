@@ -161,8 +161,23 @@ export async function recordEsignSignature(
   // A fully-signed Board Decision IS the approval letter — file it against the
   // unit's in-process application so the "Board Approval Letter" checklist item
   // is satisfied automatically (best-effort; never blocks signing).
+  //
+  // approval_sent -> approved, fully automatic: the same signing completion
+  // that files the letter also runs the actual Drive-filing/archiving
+  // (lib/board-approve.ts, previously dry-run-gated behind a manual staff
+  // click) and the screening-provider handoff (lib/application-handoff.ts,
+  // previously only reachable from the manual PATCH approve action). User
+  // direction, 2026-08-20: "Move forward, I want all fully automatic."
   if (complete && doc.kind === 'board_decision' && doc.unit_ref) {
-    await fileBoardApprovalLetter(id).catch(() => null)
+    const filedApplicationId = await fileBoardApprovalLetter(id).catch(() => null)
+    if (filedApplicationId) {
+      const { runBoardApprove } = await import('@/lib/board-approve')
+      const outcome = await runBoardApprove(filedApplicationId).catch(e => ({ error: e instanceof Error ? e.message : String(e) }))
+      if (!('error' in outcome)) {
+        const { handoffOnApproval } = await import('@/lib/application-handoff')
+        await handoffOnApproval(filedApplicationId, 'board').catch(() => null)
+      }
+    }
   }
 
   // A fully-signed Rules Knowledge Acknowledgment satisfies the checklist item
@@ -385,13 +400,13 @@ async function fileEsignToApplication(
   })
 }
 
-async function fileBoardApprovalLetter(esignDocId: string): Promise<void> {
+async function fileBoardApprovalLetter(esignDocId: string): Promise<string | null> {
   const fresh = await getEsignDoc(esignDocId)
-  if (!fresh || !fresh.unit_ref) return
+  if (!fresh || !fresh.unit_ref) return null
   const { renderToBuffer } = await import('@react-pdf/renderer')
   const { renderFormPdf } = await import('@/lib/esign-forms')
   const el = renderFormPdf(fresh)
-  if (!el) return
+  if (!el) return null
   const pdf = Buffer.from(await renderToBuffer(el))
 
   // The letter's own application_id, when set (every letter createBoardDecisionLetter
@@ -404,11 +419,11 @@ async function fileBoardApprovalLetter(esignDocId: string): Promise<void> {
     : await supabaseAdmin.from('listing_applications')
         .select('id, listing_id').eq('association_code', fresh.association_code).eq('unit_label', fresh.unit_ref)
         .in('status', ['started', 'submitted', 'under_review', 'approval_sent', 'approved']).order('created_at', { ascending: false }).limit(1).maybeSingle().then(r => r.data)
-  if (!app) return
+  if (!app) return null
 
   const path = `intake/${app.id}/board_approval_letter/${crypto.randomUUID()}.pdf`
   const up = await supabaseAdmin.storage.from('application-docs').upload(path, pdf, { contentType: 'application/pdf', upsert: true })
-  if (up.error) return
+  if (up.error) return null
   await supabaseAdmin.from('application_documents').delete().eq('application_id', app.id).eq('doc_key', 'board_approval_letter').is('stakeholder_id', null)
   await supabaseAdmin.from('application_documents').insert({
     application_id: app.id, listing_id: app.listing_id, kind: 'other', doc_key: 'board_approval_letter', doc_label: 'Board Approval Letter',
@@ -420,4 +435,6 @@ async function fileBoardApprovalLetter(esignDocId: string): Promise<void> {
   // on-site manager, PMI) — all BCC'd. Best-effort; never blocks the filing.
   const { distributeApprovalLetter } = await import('@/lib/approval-distribution')
   await distributeApprovalLetter({ doc: fresh, applicationId: String(app.id), pdf }).catch(() => null)
+
+  return String(app.id)
 }
