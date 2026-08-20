@@ -3847,6 +3847,21 @@ CREATE POLICY "service_role_all_application_reminder_approvals"
   ON public.application_reminder_approvals FOR ALL TO service_role USING (true);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'board_decision_automation_columns',
+    label:       'under_review -> approval_sent automation: purpose + application_id',
+    description: "Two additive columns backing the automatic under_review -> approval_sent transition. document_review_rounds.purpose distinguishes the OLD manual per-document review round from the NEW automatic signature-reminder round, so 'pick the newest round for this application' logic (the reminder cron) can't confuse the two. esign_documents.application_id closes a real race in lib/esign.ts's board-letter lookup: resolving a board_decision letter back to an application via association_code + unit_ref + a status-filtered query breaks once a unit can have two in-process applications (e.g. a lease application and a later additional-occupant one) — this column lets new letters skip that lookup entirely. Both nullable/defaulted; existing rows are unaffected.",
+    filename:    '20260820_board_decision_automation_columns.sql',
+    artifact:    { type: 'column', table: 'document_review_rounds', column: 'purpose' },
+    sql: `ALTER TABLE public.document_review_rounds
+  ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'document_review'
+    CHECK (purpose IN ('document_review', 'signature_reminder'));
+ALTER TABLE public.esign_documents
+  ADD COLUMN IF NOT EXISTS application_id uuid REFERENCES public.listing_applications(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS esign_documents_application_id_idx
+  ON public.esign_documents (application_id);
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

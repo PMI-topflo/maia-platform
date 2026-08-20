@@ -15,6 +15,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { getReviewState, syncBoardWindow } from '@/lib/board-review'
 import { notifyOfficeOfReviewResponse } from '@/lib/board-review-email'
+import { advanceToApprovalSent } from '@/lib/board-decision-letter'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -63,6 +64,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // lib/board-review.ts) — shared by this route and the board's own
   // decision route, so it fires the same way whichever side completes it.
   const { opened, state: after } = await syncBoardWindow(id)
+
+  // under_review → approval_sent, fully automatic: create + send the board
+  // decision letter the instant the checklist just became complete.
+  if (opened) await advanceToApprovalSent(id)
 
   // Staff decisions go to the office log too, so the record of who decided
   // what is one stream rather than two.

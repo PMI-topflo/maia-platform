@@ -283,3 +283,9 @@ export function boardWindowSentence(days = 30): string {
 }
 
 export const REVIEW_REMINDER_DAYS = 5
+
+/** Cadence for the AUTOMATIC signature-reminder round (PR6) — a separate,
+ *  shorter cadence than the old manual round's REVIEW_REMINDER_DAYS above,
+ *  per user direction, 2026-08-20 (Rule 4): "a reminder every 3 days to the
+ *  board member that didn't sign." */
+export const SIGNATURE_REMINDER_DAYS = 3
