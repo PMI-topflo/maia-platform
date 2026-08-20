@@ -254,7 +254,20 @@ export async function syncBoardWindow(applicationId: string): Promise<{ opened: 
   const now = new Date().toISOString()
 
   if (state.complete && !state.windowOpenedAt) {
-    await supabaseAdmin.from('listing_applications').update({ board_window_opened_at: now, updated_at: now }).eq('id', applicationId)
+    // submitted → under_review, automatic — every required document is now
+    // individually approved, whether that was completed by staff or by a
+    // board member (both paths call this same function, so it fires the
+    // same way either way). User direction, 2026-08-20. Scoped to
+    // 'submitted' only: an application that reaches complete again later
+    // (e.g. a refused document gets corrected after approval/decline) is
+    // never moved backward from here — the fallback update below still
+    // opens the window itself in that case, just without touching status.
+    const { data: flipped } = await supabaseAdmin.from('listing_applications')
+      .update({ board_window_opened_at: now, updated_at: now, status: 'under_review' })
+      .eq('id', applicationId).eq('status', 'submitted').select('id')
+    if (!flipped?.length) {
+      await supabaseAdmin.from('listing_applications').update({ board_window_opened_at: now, updated_at: now }).eq('id', applicationId)
+    }
     return { opened: true, closed: false, state: { ...state, windowOpenedAt: now, dueAt: new Date(Date.now() + state.windowDays * 86400000).toISOString() } }
   }
   if (!state.complete && state.windowOpenedAt) {
