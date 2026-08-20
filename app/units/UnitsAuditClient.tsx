@@ -146,7 +146,7 @@ function ApplicationsBanner({ assoc }: { assoc?: string }) {
     const q = assoc ? `?assoc=${encodeURIComponent(assoc)}` : ''
     fetch(`/api/units/pre-apply${q}`, { credentials: 'include' }).then(r => r.ok ? r.json() : null).then(d => {
       if (!d?.applications) return
-      setCount({ total: d.applications.length, pending: d.applications.filter((a: { status: string }) => a.status === 'submitted' || a.status === 'under_review').length })
+      setCount({ total: d.applications.length, pending: d.applications.filter((a: { status: string }) => a.status === 'submitted' || a.status === 'under_review' || a.status === 'approval_sent').length })
     }).catch(() => {})
   }, [assoc])
   if (!count || count.total === 0) return null

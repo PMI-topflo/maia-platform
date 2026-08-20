@@ -214,8 +214,8 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
   const { associationCode = null, includeDecided = true, submittedOnly = false, limit = 300 } = opts
 
   const statuses = includeDecided
-    ? ['started', 'submitted', 'under_review', 'approved', 'declined']
-    : ['started', 'submitted', 'under_review']
+    ? ['started', 'submitted', 'under_review', 'approval_sent', 'approved', 'declined']
+    : ['started', 'submitted', 'under_review', 'approval_sent']
 
   let q = supabaseAdmin.from('listing_applications')
     .select('id, association_code, application_type, unit_label, status, created_at, submitted_at, reviewed_at, drive_folder_url')

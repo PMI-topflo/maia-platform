@@ -1,7 +1,7 @@
 // GET /api/admin/pre-apply  → the Applications command center: every open
-// application (started / submitted / under_review) plus recently decided ones,
-// with applicant, unit, type, stage, document count, and the On Going Drive
-// folder. Staff-only.
+// application (started / submitted / under_review / approval_sent) plus
+// recently decided ones, with applicant, unit, type, stage, document count,
+// and the On Going Drive folder. Staff-only.
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
@@ -15,7 +15,7 @@ export async function GET() {
 
   const { data: apps } = await supabaseAdmin.from('listing_applications')
     .select('id, association_code, application_type, unit_label, status, submitted_at, created_at, reviewed_at, drive_folder_url, rules_ack')
-    .in('status', ['started', 'submitted', 'under_review', 'approved', 'declined'])
+    .in('status', ['started', 'submitted', 'under_review', 'approval_sent', 'approved', 'declined'])
     .order('created_at', { ascending: false })
     .limit(300)
 

@@ -81,7 +81,7 @@ export async function GET(req: Request) {
     const { data: apps } = await supabaseAdmin.from('listing_applications')
       .select('id, application_type, status, submitted_at, created_at, drive_folder_url, unit_label')
       .eq('association_code', auth.assoc)
-      .in('status', ['started', 'submitted', 'under_review', 'approved'])   // incl. approved so the board sees the filed docs
+      .in('status', ['started', 'submitted', 'under_review', 'approval_sent', 'approved'])   // incl. approved so the board sees the filed docs
       .order('created_at', { ascending: false })
     const norm = (v: string) => v.trim().toLowerCase().replace(/^unit\s+/, '')
     const match = (apps ?? []).find(a => {
