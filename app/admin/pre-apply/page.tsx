@@ -23,9 +23,9 @@ const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleString('en-US', 
 // Pipeline stages, in order, with their color.
 const STAGES: { key: string; label: string; c: string; b: string }[] = [
   { key: 'started',      label: 'Collecting documents',    c: '#854d0e', b: '#fef9c3' },
-  { key: 'submitted',    label: 'Submitted — awaiting audit', c: '#1e40af', b: '#dbeafe' },
-  { key: 'under_review', label: 'Under review',            c: '#5b21b6', b: '#ede9fe' },
-  { key: 'approval_sent', label: 'Approval letter sent',   c: '#9a3412', b: '#ffedd5' },
+  { key: 'submitted',    label: 'Submitted — documents under review', c: '#1e40af', b: '#dbeafe' },
+  { key: 'under_review', label: 'Documents approved — creating letter', c: '#5b21b6', b: '#ede9fe' },
+  { key: 'approval_sent', label: 'Letter sent — awaiting signatures', c: '#9a3412', b: '#ffedd5' },
   { key: 'approved',     label: 'Approved',                c: '#166534', b: '#dcfce7' },
   { key: 'declined',     label: 'Declined',                c: '#991b1b', b: '#fee2e2' },
 ]

@@ -135,11 +135,25 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
   const now = new Date().toISOString()
   const who = `staff:${session.displayName}`
-  const patch: Record<string, unknown> = { updated_at: now }
 
+  // 'approve' runs the real thing (Drive filing/archiving + screening
+  // handoff), not just a status flip — PR7 made runBoardApprove the single
+  // path that reaches 'approved', so a manual trigger here (a genuine
+  // fallback if the automatic esign-completion run needs a retry) must go
+  // through the exact same function rather than a shortcut that would leave
+  // the unit's Drive folder never filed while the DB says approved.
+  if (b.action === 'approve') {
+    const { runBoardApprove } = await import('@/lib/board-approve')
+    const byRole = ['onsite_manager', 'board', 'staff'].includes(String(b.by_role)) ? (b.by_role as 'onsite_manager' | 'board' | 'staff') : 'staff'
+    const outcome = await runBoardApprove(id, { approvedByRole: byRole })
+    if ('error' in outcome) return NextResponse.json({ error: outcome.error }, { status: 400 })
+    await handoffOnApproval(id, byRole)
+    return NextResponse.json({ ok: true, status: 'approved' })
+  }
+
+  const patch: Record<string, unknown> = { updated_at: now }
   switch (b.action) {
     case 'audit':   patch.audited_by = who; patch.audited_at = now; patch.status = 'under_review'; break
-    case 'approve': patch.status = 'approved';  patch.reviewed_by = who; patch.reviewed_at = now; patch.approved_by_role = ['onsite_manager', 'board', 'staff'].includes(String(b.by_role)) ? b.by_role : 'staff'; patch.review_note = b.note?.trim() || null; break
     case 'decline': patch.status = 'declined';  patch.reviewed_by = who; patch.reviewed_at = now; patch.review_note = b.note?.trim() || null; break
     case 'request': patch.status = 'submitted'; if (b.note?.trim()) patch.review_note = b.note.trim(); break
     default: return NextResponse.json({ error: 'invalid action' }, { status: 400 })
@@ -148,7 +162,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const { error } = await supabaseAdmin.from('listing_applications').update(patch).eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  if (b.action === 'approve') await handoffOnApproval(id, String(patch.approved_by_role ?? 'staff'))
   return NextResponse.json({ ok: true, status: patch.status })
 }
 

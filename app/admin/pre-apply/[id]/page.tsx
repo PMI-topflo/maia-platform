@@ -161,7 +161,6 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   // "extra" and must not flag the application as non-compliant.
   const checklistKeys = new Set(d.checklist.map(c => c.doc_key))
   const expiredDocs = d.documents.filter(x => x.doc_key && checklistKeys.has(x.doc_key) && x.expirationDate && !x.noExpiration && new Date(x.expirationDate) < new Date())
-  const audited = !!d.audit.auditedAt
   const decided = d.status === 'approved' || d.status === 'declined'
   const hasLease = d.documents.some(x => x.doc_key === 'signed_lease')
   const reqCount = d.checklist.filter(c => c.required).length
@@ -170,7 +169,10 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
     { label: 'Lease & type', done: hasLease, meta: hasLease ? 'read' : 'scan the lease' },
     { label: 'Applicants', done: applicants.length > 0, meta: applicants.length ? `${applicants.length} · roles set` : 'read from lease' },
     { label: 'Documents', done: missingCount === 0, meta: `${reqCount - missingCount} of ${reqCount} required` },
-    { label: 'Review & approve', done: decided, meta: audited ? 'letter → board' : 'audit first' },
+    { label: 'Review & approve', done: decided, meta:
+      d.status === 'approval_sent' ? 'letter sent — awaiting signatures'
+      : d.review?.complete ? 'documents approved — letter next'
+      : 'documents under review' },
   ]
 
   return (
@@ -447,20 +449,26 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 13 }}>
+          {/* Everything from here forward is automatic — every required
+              document approved creates + sends the board decision letter;
+              every signer signing it files to Official/Archive and marks
+              approved (see the panels below). Decline is the one place a
+              real decision remains for staff to make by hand. */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 13, alignItems: 'center' }}>
             {(d.review.totals.waiting > 0 || d.review.totals.refused > 0) && (
               <button disabled={busy} onClick={() => setRequestFor({ doc_key: '__outstanding__', label: 'outstanding' })} style={btn('#b45309')}>
                 📨 Request the {d.review.totals.waiting + d.review.totals.refused} outstanding
               </button>
             )}
             <BoardReviewSender id={id} onDone={load} />
-            {audited && d.review.complete && <>
-              <button disabled={busy} onClick={() => act('approve', 'onsite_manager')} style={btn('#059669')}>Approve — on-site manager</button>
-              <button disabled={busy} onClick={() => act('approve', 'board')} style={btn('#059669')}>Approve — board</button>
-            </>}
-            {!audited && <button disabled={busy} onClick={() => act('audit')} style={btn('#2563eb')}>Mark audited (PMI/Jonathan)</button>}
-            <button disabled={busy} onClick={() => { if (!note.trim()) { alert('Add a note explaining why.'); return } act('decline') }} style={btn('#b91c1c')}>Decline the application</button>
+            <span style={{ flex: 1 }} />
+            <button disabled={busy} onClick={() => { if (!note.trim()) { alert('Add a note explaining why.'); return } act('decline') }} style={btn('#b91c1c')}>⛔ Decline the application</button>
           </div>
+          <p style={{ fontSize: 12.5, color: '#6b7280', marginTop: 10 }}>
+            {d.review.complete
+              ? 'Every document is approved — MAIA creates and sends the board decision letter automatically. Once signed, it files to Official/Archive and marks this approved.'
+              : 'Once every document is approved, MAIA automatically creates and sends the board decision letter, then files to Official/Archive and marks this approved as soon as it’s signed. No manual step needed unless you’re declining.'}
+          </p>
           <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Note — required to decline the whole application. To send one document back, use Refuse on its row instead." style={{ width: '100%', boxSizing: 'border-box', minHeight: 46, padding: 10, border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, marginTop: 10 }} />
           <p style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 8 }}>
             On approval this hands off to{' '}
@@ -644,6 +652,7 @@ function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
     <div style={{ marginTop: 18, padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }}>
       <div style={{ fontWeight: 700, fontSize: 15, color: '#1f2a44' }}>Board Decision Page (approval letter)</div>
       <div style={{ fontSize: 12.5, color: '#6b7280', margin: '4px 0 6px' }}>{pf?.propertyAddress ?? `Unit ${unit ?? '—'}`}</div>
+      <div style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 10px' }}>Created and sent to the board automatically the instant every document is approved. Use the form below only to create a <strong>custom</strong> letter — different signers, or approval with conditions.</div>
       {pf && (
         <div style={{ fontSize: 12, color: '#374151', marginBottom: 10 }}>
           Requires <strong>{pf.requiredSignatures}</strong> signature{pf.requiredSignatures === 1 ? '' : 's'} — sent to:
@@ -1202,8 +1211,8 @@ function BoardApprove({ id, onDone }: { id: string; onDone: () => void }) {
 
   return (
     <div style={{ marginTop: 18, border: '1px solid #bbf7d0', background: '#f0fdf4', borderRadius: 12, padding: 16 }}>
-      <div style={{ font: '700 15px system-ui', color: '#166534' }}>🏛 Board approved</div>
-      <div style={{ font: '400 13px system-ui', color: '#3f6212', margin: '4px 0 12px' }}>MAIA copies the <strong>documents you saved above</strong> (the keepers — Lease, HO-6, Certificate of Use, Board Approval, Decision Page, Affidavit, Agreement) into the unit’s <strong>Official</strong> folder using their approved names — one per item, no duplicates — then moves the whole application folder into <strong>OLD/Archive</strong>. Preview first — nothing moves until you confirm.</div>
+      <div style={{ font: '700 15px system-ui', color: '#166534' }}>🏛 Filing to Official &amp; Archive</div>
+      <div style={{ font: '400 13px system-ui', color: '#3f6212', margin: '4px 0 12px' }}>Happens automatically the instant every signer has signed the approval letter below — MAIA copies the <strong>documents you saved above</strong> (the keepers — Lease, HO-6, Certificate of Use, Board Approval, Decision Page, Affidavit, Agreement) into the unit’s <strong>Official</strong> folder using their approved names, then moves the whole application folder into <strong>OLD/Archive</strong> and marks the application approved. This panel is a preview, or a manual re-run if the automatic filing needs a retry — it still requires a fully-signed letter before it will actually file anything.</div>
       {err && <p style={{ color: '#b91c1c', font: '13px system-ui' }}>⚠ {err}</p>}
       {result ? (
         <p style={{ font: '600 13px system-ui', color: '#166534' }}>✓ Done — {result.copiedToOfficial} copied to Official · {result.movedToArchive} moved to Archive{result.errors.length ? ` · ${result.errors.length} issue(s): ${result.errors.join('; ')}` : ''}</p>
@@ -1221,7 +1230,7 @@ function BoardApprove({ id, onDone }: { id: string; onDone: () => void }) {
           </div>
         </div>
       ) : (
-        <button onClick={preview} disabled={busy === 'plan'} style={btn('#166534')}>{busy === 'plan' ? 'Scanning files…' : 'Board approved — preview the filing'}</button>
+        <button onClick={preview} disabled={busy === 'plan'} style={btn('#166534')}>{busy === 'plan' ? 'Scanning files…' : '👁 Preview the Official/Archive filing'}</button>
       )}
     </div>
   )
@@ -2033,7 +2042,7 @@ function RefileOfficial({ id, onDone }: { id: string; onDone: () => void }) {
 }
 
 function StatusPill({ status }: { status: string }) {
-  const map: Record<string, { c: string; b: string }> = { submitted: { c: '#92400e', b: '#ffedd5' }, under_review: { c: '#1d4ed8', b: '#dbeafe' }, approved: { c: '#166534', b: '#dcfce7' }, declined: { c: '#991b1b', b: '#fee2e2' } }
+  const map: Record<string, { c: string; b: string }> = { submitted: { c: '#92400e', b: '#ffedd5' }, under_review: { c: '#1d4ed8', b: '#dbeafe' }, approval_sent: { c: '#9a3412', b: '#ffedd5' }, approved: { c: '#166534', b: '#dcfce7' }, declined: { c: '#991b1b', b: '#fee2e2' } }
   const s = map[status] ?? { c: '#374151', b: '#f3f4f6' }
   return <span style={{ font: '700 12px system-ui', color: s.c, background: s.b, borderRadius: 8, padding: '4px 12px' }}>{status.replace('_', ' ')}</span>
 }

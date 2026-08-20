@@ -101,7 +101,7 @@ export interface BoardApproveResult {
 }
 export type BoardApproveOutcome = BoardApprovePreview | BoardApproveResult | { error: string }
 
-export async function runBoardApprove(applicationId: string, opts: { dryRun?: boolean } = {}): Promise<BoardApproveOutcome> {
+export async function runBoardApprove(applicationId: string, opts: { dryRun?: boolean; approvedByRole?: 'onsite_manager' | 'board' | 'staff' } = {}): Promise<BoardApproveOutcome> {
   const { data: app } = await supabaseAdmin.from('listing_applications')
     .select('id, association_code, unit_label, application_type, status, drive_folder_id').eq('id', applicationId).maybeSingle()
   if (!app) return { error: 'application not found' }
@@ -109,6 +109,28 @@ export async function runBoardApprove(applicationId: string, opts: { dryRun?: bo
   // reaches here already approved (e.g. re-triggered) is a no-op, not a
   // second archive run against an already-emptied On Going folder.
   if (!opts.dryRun && app.status === 'approved') return { error: 'already approved' }
+
+  // The board's signature IS the decision (see lib/esign.ts's completion
+  // hook, the normal way this function is reached). A manual EXECUTE must
+  // require the same thing — otherwise this button lets staff file to
+  // Official and archive the folder before the board has actually signed
+  // anything, which defeats the point of the automatic, signature-driven
+  // trigger. Preview (dryRun) is unaffected — it's read-only and useful to
+  // sanity-check before the board has signed.
+  if (!opts.dryRun) {
+    const unitLabel = String(app.unit_label ?? '')
+    const { data: letter } = await supabaseAdmin.from('esign_documents')
+      .select('status').eq('kind', 'board_decision')
+      .eq('application_id', applicationId)
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
+    const fallbackLetter = letter ? null : (await supabaseAdmin.from('esign_documents')
+      .select('status').eq('kind', 'board_decision').eq('association_code', String(app.association_code)).eq('unit_ref', unitLabel)
+      .neq('status', 'void').order('created_at', { ascending: false }).limit(1).maybeSingle()).data
+    const current = letter ?? fallbackLetter
+    if (!current || current.status !== 'completed') {
+      return { error: 'The board decision letter has not been fully signed yet — nothing to file until every signer has signed.' }
+    }
+  }
 
   const unitRef = await resolveUnitRef(String(app.association_code), app.unit_label as string | null)
   const assocFolders = await resolveAssocDriveFolders(String(app.association_code))
@@ -183,7 +205,7 @@ export async function runBoardApprove(applicationId: string, opts: { dryRun?: bo
   await fileUnitRecords(applicationId, String(app.association_code), unitRef, kind, keepers, done.errors)
 
   await supabaseAdmin.from('listing_applications').update({
-    status: 'approved', reviewed_at: new Date().toISOString(), approved_by_role: 'board', updated_at: new Date().toISOString(),
+    status: 'approved', reviewed_at: new Date().toISOString(), approved_by_role: opts.approvedByRole ?? 'board', updated_at: new Date().toISOString(),
   }).eq('id', applicationId)
 
   return { ok: true, dryRun: false, unitRef, copiedToOfficial: done.copiedToOfficial, movedToArchive: done.movedToArchive, errors: done.errors }
