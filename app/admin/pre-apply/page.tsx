@@ -29,15 +29,10 @@ const STAGES: { key: string; label: string; c: string; b: string }[] = [
   { key: 'declined',     label: 'Declined',                c: '#991b1b', b: '#fee2e2' },
 ]
 
-interface DriveUnit { folderName: string; unitRef: string | null; unitNumber: string | null; url: string; applicationId: string | null; applicationStatus: string | null }
-
 export default function PreApplyQueue() {
   const [apps, setApps] = useState<App[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [filter, setFilter] = useState<string | null>(null)
-  const [drive, setDrive] = useState<DriveUnit[] | null>(null)
-  const [driveErr, setDriveErr] = useState<string | null>(null)
-  const [importing, setImporting] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [showRef, setShowRef] = useState(false)
   const [refAssoc, setRefAssoc] = useState('')
@@ -52,26 +47,11 @@ export default function PreApplyQueue() {
       .then(d => setRefData(d.checklists)).catch(e => setRefErr(String(e.message ?? e)))
   }
 
-  const loadDrive = () => fetch('/api/admin/pre-apply/ongoing-drive', { credentials: 'include' })
-    .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j })
-    .then(d => { setDrive(d.units); if (d.error) setDriveErr(d.error) }).catch(e => setDriveErr(String(e.message ?? e)))
-
   useEffect(() => {
     fetch('/api/admin/pre-apply', { credentials: 'include' })
       .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j })
       .then(d => setApps(d.applications)).catch(e => setErr(String(e.message ?? e)))
-    loadDrive()
   }, [])
-
-  async function bringIntoMaia(u: DriveUnit) {
-    if (!u.unitRef) return
-    setImporting(u.folderName)
-    try {
-      const r = await fetch('/api/admin/pre-apply/ongoing-drive/import', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ unitRef: u.unitRef, folderId: u.url.split('/').pop(), folderUrl: u.url }) })
-      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
-      window.location.href = `/admin/pre-apply/${j.applicationId}`
-    } catch (e) { alert(`Could not bring into MAIA: ${(e as Error).message}`); setImporting(null) }
-  }
 
   const count = (k: string) => (apps ?? []).filter(a => a.status === k).length
 
@@ -222,37 +202,6 @@ export default function PreApplyQueue() {
           </table>
         </div>
       )}
-
-      {/* Units that physically have a folder in the On Going Applications Drive
-          folder — many pre-date the in-app pipeline (no DB record yet). */}
-      <div style={{ marginTop: 28 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 2px' }}>On Going Applications — Drive folder{drive ? ` (${drive.length})` : ''}</h2>
-        <p style={{ color: '#6b7280', fontSize: 13, margin: '0 0 10px' }}>Unit folders already in the &quot;On Going Applications&quot; Google Drive folder. Ones not yet tracked in MAIA are marked — open the folder or start an application to bring them in.</p>
-        {driveErr && <p style={{ color: '#b45309', fontSize: 13 }}>⚠ Could not read the Drive folder: {driveErr}</p>}
-        {!drive && !driveErr ? <p style={{ color: '#9ca3af', fontSize: 13 }}>Reading Drive…</p> : drive && drive.length === 0 ? <p style={{ color: '#9ca3af', fontSize: 13 }}>No unit folders in the On Going Applications folder.</p> : drive && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
-            {drive.map(u => (
-              <div key={u.folderName} style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 12px', background: '#fff' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6 }}>
-                  <span style={{ fontWeight: 700, fontSize: 14 }}>{u.unitRef || u.folderName}</span>
-                  {u.applicationId
-                    ? <span style={{ font: '600 10px system-ui', color: '#166534', background: '#dcfce7', borderRadius: 6, padding: '2px 7px' }}>in MAIA</span>
-                    : <span style={{ font: '600 10px system-ui', color: '#92400e', background: '#fef9c3', borderRadius: 6, padding: '2px 7px' }}>Drive only</span>}
-                </div>
-                <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
-                  <a href={u.url} target="_blank" rel="noreferrer" style={{ font: '600 12px system-ui', color: '#2563eb', textDecoration: 'none' }}>📁 Folder</a>
-                  {u.applicationId
-                    ? <a href={`/admin/pre-apply/${u.applicationId}`} style={{ font: '600 12px system-ui', color: '#9a3412', textDecoration: 'none' }}>Open application →</a>
-                    : <button onClick={() => bringIntoMaia(u)} disabled={importing === u.folderName || !u.unitRef}
-                        style={{ font: '600 12px system-ui', color: '#fff', background: importing === u.folderName ? '#c9ccd3' : '#f26a1b', border: 'none', borderRadius: 7, padding: '4px 10px', cursor: importing === u.folderName ? 'default' : 'pointer' }}>
-                        {importing === u.folderName ? 'Bringing in…' : 'Bring into MAIA'}
-                      </button>}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   )
 }
@@ -294,6 +243,20 @@ function ChecklistCard({ c }: { c: TypeChecklist }) {
 // into existence when the applicant used a link.
 //
 // No email is sent — staff are recording something that already happened.
+//
+// Hardened, 2026-08-20: this used to let staff open a completely bare shell
+// (no email, no phone, no document) — the exact hole "Bring into MAIA" fell
+// into (MANXI 605: empty, unreachable, sat for six hours). Now the lead
+// applicant's email + phone are required, and the type's required document is
+// collected right here, so the application reaches Submitted the moment
+// staff finish this form instead of sitting as an untracked shell.
+const REQUIRED_DOC: Record<string, { docKey: string; label: string }> = {
+  lease: { docKey: 'signed_lease', label: 'Signed lease' },
+  lease_renewal: { docKey: 'signed_lease', label: 'Signed lease' },
+  purchase: { docKey: 'signed_purchase', label: 'Signed purchase agreement' },
+  additional_occupant: { docKey: 'lease_addendum', label: 'Lease addendum' },
+}
+
 function StaffCreate() {
   const TYPES = [
     { key: 'lease', label: 'Lease / Rental' }, { key: 'purchase', label: 'Purchase' },
@@ -305,28 +268,82 @@ function StaffCreate() {
   const [type, setType] = useState('lease')
   const [people, setPeople] = useState([{ name: '', email: '', phone: '' }])
   const [note, setNote] = useState('')
+  const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+
+  // Additional occupant: does the unit's current lease already name them? If
+  // so, no fresh document is required — otherwise fall back to a Lease
+  // Addendum upload. Re-checked whenever the unit or the lead name changes.
+  const [occCheck, setOccCheck] = useState<{ checked: boolean; found: boolean } | null>(null)
+  const [occBusy, setOccBusy] = useState(false)
 
   const upd = (i: number, patch: Partial<{ name: string; email: string; phone: string }>) =>
     setPeople(ps => ps.map((p, j) => j === i ? { ...p, ...patch } : p))
 
-  async function create(force?: boolean) {
+  useEffect(() => {
+    setOccCheck(null)
+    if (type !== 'additional_occupant') return
+    const a = assoc.trim().toUpperCase(), u = unit.trim(), name = people[0]?.name.trim()
+    if (!a || !u || !name) return
+    setOccBusy(true)
+    const t = setTimeout(() => {
+      fetch(`/api/admin/pre-apply/occupant-lease-check?assoc=${encodeURIComponent(a)}&unit=${encodeURIComponent(u)}&name=${encodeURIComponent(name)}`, { credentials: 'include' })
+        .then(r => r.json()).then(d => setOccCheck(d)).catch(() => setOccCheck({ checked: false, found: false })).finally(() => setOccBusy(false))
+    }, 500)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, assoc, unit, people[0]?.name])
+
+  const required = REQUIRED_DOC[type]
+  const needsUpload = type !== 'additional_occupant' || occCheck?.found !== true
+
+  async function create() {
     if (!unit.trim()) { setMsg('Enter the unit.'); return }
-    if (!people.some(p => p.name.trim())) { setMsg('Add at least one applicant name.'); return }
+    if (!people[0]?.name.trim()) { setMsg('Add the applicant name.'); return }
+    if (!people[0]?.email.trim().includes('@')) { setMsg("Enter the lead applicant's email."); return }
+    if (!people[0]?.phone.trim()) { setMsg("Enter the lead applicant's phone."); return }
+    if (needsUpload && !file) { setMsg(`Upload the ${required.label.toLowerCase()}.`); return }
     setBusy(true); setMsg(null)
     try {
-      const r = await fetch('/api/admin/pre-apply/create', {
+      const doCreate = (force: boolean) => fetch('/api/admin/pre-apply/create', {
         method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ associationCode: assoc, unit: unit.trim(), applicationType: type, applicants: people, note, ...(force ? { force: true } : {}) }),
       })
-      const j = await r.json()
+      let r = await doCreate(false)
+      let j = await r.json()
       if (r.status === 409 && j.needsConfirm) {
-        if (confirm(`${j.error}\n\nStart another anyway?`)) return void create(true)
-        setMsg(null); return
+        if (!confirm(`${j.error}\n\nStart another anyway?`)) { setBusy(false); return }
+        r = await doCreate(true); j = await r.json()
       }
       if (!r.ok) throw new Error(j.error || 'failed')
-      window.location.href = `/admin/pre-apply/${j.applicationId}`
+      const applicationId = j.applicationId as string
+
+      if (file) {
+        const upUrl = await fetch(`/api/admin/pre-apply/${applicationId}/upload-url`, {
+          method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ doc_key: required.docKey, filename: file.name }),
+        })
+        const upJ = await upUrl.json(); if (!upUrl.ok) throw new Error(upJ.error || 'could not prepare the upload')
+        const put = await fetch(upJ.signedUrl, { method: 'PUT', body: file, headers: { 'content-type': file.type || 'application/octet-stream' } })
+        if (!put.ok) throw new Error('the upload failed')
+        const fin = await fetch(`/api/admin/pre-apply/${applicationId}/upload`, {
+          method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ doc_key: required.docKey, doc_label: required.label, storage_path: upJ.path, filename: file.name, mime_type: file.type }),
+        })
+        const finJ = await fin.json(); if (!fin.ok) throw new Error(finJ.error || 'could not save the upload')
+      }
+
+      // Everything the type requires is now on file — move straight to Submitted
+      // instead of leaving it as an untracked 'started' shell. No note here:
+      // the create step already wrote "Opened by {staff}" as the review_note,
+      // and the PATCH handler only overwrites it when a note is actually given.
+      await fetch(`/api/admin/pre-apply/${applicationId}`, {
+        method: 'PATCH', credentials: 'include', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'request' }),
+      }).catch(() => null)
+
+      window.location.href = `/admin/pre-apply/${applicationId}`
     } catch (e) { setMsg(`Could not create: ${(e as Error).message}`) } finally { setBusy(false) }
   }
 
@@ -336,7 +353,7 @@ function StaffCreate() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <div>
           <span style={{ font: '700 14px system-ui', color: '#1f2a44' }}>Open an application</span>
-          <span style={{ font: '13px system-ui', color: '#6b7280' }}> — with its Drive folder, for documents that came by email</span>
+          <span style={{ font: '13px system-ui', color: '#6b7280' }}> — the same way an agent or tenant does, for documents that came by email</span>
         </div>
         <button onClick={() => setOpen(o => !o)} style={{ font: '600 13px system-ui', color: '#fff', background: open ? '#6b7280' : '#1f2a44', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer' }}>
           {open ? 'Cancel' : '+ New application'}
@@ -348,7 +365,7 @@ function StaffCreate() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <input value={assoc} onChange={e => setAssoc(e.target.value.toUpperCase())} placeholder="Association" style={{ ...inp, width: 110 }} />
             <input value={unit} onChange={e => setUnit(e.target.value)} placeholder="Unit e.g. 1003" style={{ ...inp, width: 130 }} />
-            <select value={type} onChange={e => setType(e.target.value)} style={{ ...inp, cursor: 'pointer' }}>
+            <select value={type} onChange={e => { setType(e.target.value); setFile(null) }} style={{ ...inp, cursor: 'pointer' }}>
               {TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
             </select>
           </div>
@@ -356,18 +373,34 @@ function StaffCreate() {
           {people.map((p, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <input value={p.name} onChange={e => upd(i, { name: e.target.value })} placeholder={i === 0 ? 'Applicant name' : 'Also on the application'} style={{ ...inp, width: 210, fontWeight: i === 0 ? 600 : 400 }} />
-              <input value={p.email} onChange={e => upd(i, { email: e.target.value })} placeholder="email (optional)" style={{ ...inp, width: 210 }} />
-              <input value={p.phone} onChange={e => upd(i, { phone: e.target.value })} placeholder="phone (optional)" style={{ ...inp, width: 140 }} />
+              <input value={p.email} onChange={e => upd(i, { email: e.target.value })} placeholder={i === 0 ? 'email (required)' : 'email (optional)'} style={{ ...inp, width: 210 }} />
+              <input value={p.phone} onChange={e => upd(i, { phone: e.target.value })} placeholder={i === 0 ? 'phone (required)' : 'phone (optional)'} style={{ ...inp, width: 140 }} />
               {people.length > 1 && <button onClick={() => setPeople(ps => ps.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: '#9ca3af', cursor: 'pointer', font: '700 15px system-ui' }}>×</button>}
             </div>
           ))}
           <button onClick={() => setPeople(ps => [...ps, { name: '', email: '', phone: '' }])} style={{ alignSelf: 'flex-start', font: '600 12px system-ui', color: '#374151', background: '#fff', border: '1px dashed #d1d5db', borderRadius: 7, padding: '6px 12px', cursor: 'pointer' }}>+ Add another person</button>
 
+          {type === 'additional_occupant' && (
+            <div style={{ font: '12.5px system-ui', color: occCheck?.found ? '#166534' : '#92400e' }}>
+              {occBusy ? 'Checking the current lease on this unit…'
+                : occCheck?.found ? '✓ Found on the current lease — no extra document needed.'
+                : occCheck ? 'Not found on the current lease — upload a Lease Addendum below.'
+                : 'Enter the unit and the occupant’s name to check the current lease.'}
+            </div>
+          )}
+
+          {needsUpload && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <label style={{ font: '600 12.5px system-ui', color: '#374151' }}>{required.label}:</label>
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" onChange={e => setFile(e.target.files?.[0] ?? null)} style={{ font: '13px system-ui' }} />
+            </div>
+          )}
+
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note — e.g. documents received by email from the owner" style={{ ...inp, width: '100%', boxSizing: 'border-box' }} />
 
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <button onClick={() => create()} disabled={busy} style={{ font: '600 13px system-ui', color: '#fff', background: busy ? '#9ca3af' : '#166534', border: 'none', borderRadius: 8, padding: '9px 16px', cursor: busy ? 'default' : 'pointer' }}>
-              {busy ? 'Creating…' : 'Create + open its folder'}
+              {busy ? 'Creating…' : 'Create + submit'}
             </button>
             <span style={{ font: '12px system-ui', color: '#9ca3af' }}>The applicant is not emailed — send them a link separately if you need to.</span>
           </div>

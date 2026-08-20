@@ -20,6 +20,8 @@
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { INTAKE_BUCKET } from '@/lib/preapply'
+import { extractLeaseDetails } from '@/lib/lease-extract'
 
 export const norm = (e: unknown) => String(e ?? '').trim().toLowerCase()
 
@@ -125,4 +127,50 @@ export async function getCurrentLease(associationCode: string, unitLabel: string
     approvedApplicationId: src ? String(src.id) : null,
     documents,
   }
+}
+
+// Does the current lease on file already name this occupant? Backs the
+// additional-occupant creation flow: if MAIA can read them off the existing
+// lease, no separate document is required; otherwise staff add them to the
+// roster and request a Lease Addendum instead. User direction, 2026-08-20:
+// "if Maia cannot identify [them] on the first lease uploaded of the main
+// applicant, just let him add the co-applicant and request an addendum."
+//
+// `checked: false` means MAIA could not read a lease at all (none on file, or
+// the read failed) — callers should treat that the same as "not found",
+// conservative-on-failure like the rest of this codebase's document handling.
+// Word-set match, not a raw substring: a lease naming "PHUONG M BUI" should
+// still match staff typing "Phuong Bui" (no middle initial) without matching
+// an unrelated person who merely shares a first name.
+function nameWords(s: string): string[] {
+  return norm(s).replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(w => w.length > 1)
+}
+
+export async function checkOccupantInCurrentLease(
+  associationCode: string, unitLabel: string | null, occupantName: string,
+): Promise<{ checked: boolean; found: boolean }> {
+  const targetWords = nameWords(occupantName)
+  if (!targetWords.length) return { checked: false, found: false }
+
+  const lease = await getCurrentLease(associationCode, unitLabel)
+  if (!lease?.approvedApplicationId) return { checked: false, found: false }
+  const docKey = lease.documents.find(d => d.docKey === 'signed_lease')
+    ?? lease.documents.find(d => d.docKey === 'landlord_tenant_agreement')
+  if (!docKey) return { checked: false, found: false }
+
+  try {
+    const { data: doc } = await supabaseAdmin.from('application_documents')
+      .select('storage_path, mime_type').eq('application_id', lease.approvedApplicationId).eq('doc_key', docKey.docKey).maybeSingle()
+    if (!doc?.storage_path) return { checked: false, found: false }
+    const { data: blob } = await supabaseAdmin.storage.from(INTAKE_BUCKET).download(String(doc.storage_path))
+    if (!blob) return { checked: false, found: false }
+    const buf = Buffer.from(await blob.arrayBuffer())
+    const details = await extractLeaseDetails(buf, (doc.mime_type as string | null) ?? null)
+    if (!details.tenantNames.length) return { checked: false, found: false }
+    const found = details.tenantNames.some(n => {
+      const leaseWords = new Set(nameWords(n))
+      return targetWords.every(w => leaseWords.has(w))
+    })
+    return { checked: true, found }
+  } catch { return { checked: false, found: false } }
 }

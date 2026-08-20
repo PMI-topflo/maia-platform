@@ -58,6 +58,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Add at least one applicant — an application with no name cannot be chased or approved.' }, { status: 400 })
   }
 
+  // A 'started' application must be chaseable from the moment it exists — user
+  // direction, 2026-08-20: "started cannot exist until applicant places his
+  // phone and email." Staff-created applications used to allow both blank,
+  // which is exactly what let MANXI 605 sit untouched for six hours with no
+  // way to reach anyone on it.
+  if (!people[0].email) return NextResponse.json({ error: "Enter the lead applicant's email." }, { status: 400 })
+  if (!people[0].phone) return NextResponse.json({ error: "Enter the lead applicant's phone." }, { status: 400 })
+
   // Don't quietly open a second application on a unit that already has one in
   // flight; staff almost always mean the existing one.
   const { data: existing } = await supabaseAdmin.from('listing_applications')
