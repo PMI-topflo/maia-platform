@@ -26,11 +26,22 @@ import { isEsignItem, ESIGN_CHECKLIST_ITEMS } from '@/lib/application-esign-form
 export const dynamic = 'force-dynamic'
 
 async function loadSummary(applicationId: string) {
-  const [{ data: app }, state] = await Promise.all([
+  const [{ data: app }, state, { data: comms }] = await Promise.all([
     supabaseAdmin.from('listing_applications')
       .select('id, association_code, unit_label, application_type, status')
       .eq('id', applicationId).maybeSingle(),
     getReviewState(applicationId),
+    // Prior requests + filed correspondence, right in the sidebar — user
+    // direction, 2026-08-19: "I want all previous request and
+    // communications in a list under like a box HISTORY." Same table both
+    // logOutboundCommunication (drafted requests) and
+    // logApplicationCommunication (forwarded/filed email) write to. Not the
+    // full multi-source timeline the admin page's Communication History
+    // shows (document decisions, signed approval letters) — that stays a
+    // click away via the application link already in this card.
+    supabaseAdmin.from('application_communications')
+      .select('direction, subject, occurred_at, to_emails')
+      .eq('application_id', applicationId).order('occurred_at', { ascending: false }).limit(6),
   ])
   if (!app || !state) return null
 
@@ -88,6 +99,10 @@ async function loadSummary(applicationId: string) {
     inFlight,
     complete: state.complete,
     dueAt: state.dueAt,
+    history: (comms ?? []).map(c => ({
+      direction: c.direction as string, subject: (c.subject as string | null) ?? '(no subject)',
+      occurredAt: c.occurred_at as string, toEmails: (c.to_emails as string[] | null) ?? [],
+    })),
   }
 }
 
