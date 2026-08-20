@@ -752,7 +752,13 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
   const [keepName, setKeepName] = useState(false)
   const [pagesFor, setPagesFor] = useState<Record<string, string>>({})
   const [assignErr, setAssignErr] = useState<string | null>(null)
-  async function openPicker() { setPicking(true); setAssignErr(null); if (!driveFiles) await loadDriveFiles() }
+  // Always refetch, not just on first open — driveFiles is shared across every
+  // item's picker on this page, so once it loaded for ANY item it stayed
+  // frozen for the rest of the session. A file placed in Drive after that
+  // first fetch (staff's own report: "letter is in the drive but I don't have
+  // the option to choose") never appeared no matter how many times the picker
+  // was reopened.
+  async function openPicker() { setPicking(true); setAssignErr(null); await loadDriveFiles() }
   async function assign(fileId: string, name: string, mimeType: string) {
     setBusy('assign'); setAssignErr(null)
     // Used to ignore the response entirely — a server-side error (bad page
@@ -999,7 +1005,10 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
         <div style={{ marginTop: 8, border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 8, padding: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <span style={{ font: '600 12px system-ui', color: '#1e40af' }}>Pick a file for &quot;{c.label}&quot; — optionally pull just a page range (e.g. a W-2 inside a big report):</span>
-            <button onClick={() => setPicking(false)} style={{ ...link, color: '#6b7280', fontSize: 12 }}>Close</button>
+            <span style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
+              <button onClick={loadDriveFiles} style={{ ...link, color: '#2563eb', fontSize: 12 }}>🔄 Refresh</button>
+              <button onClick={() => setPicking(false)} style={{ ...link, color: '#6b7280', fontSize: 12 }}>Close</button>
+            </span>
           </div>
           <label style={{ font: '12px system-ui', color: '#374151', display: 'inline-flex', gap: 5, alignItems: 'center', cursor: 'pointer', marginBottom: 6 }}>
             <input type="checkbox" checked={keepName} onChange={e => setKeepName(e.target.checked)} /> Keep the original file name (don&apos;t auto-rename)
