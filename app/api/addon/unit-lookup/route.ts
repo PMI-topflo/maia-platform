@@ -53,7 +53,7 @@ export async function GET(req: Request) {
 
   // The most recent OPEN application, so a decided one from a prior tenancy
   // doesn't surface a stale roster as if it were current.
-  const openApp = (apps ?? []).find(a => ['started', 'submitted', 'under_review'].includes(String(a.status))) ?? null
+  const openApp = (apps ?? []).find(a => ['started', 'submitted', 'under_review', 'approval_sent'].includes(String(a.status))) ?? null
 
   let applicants: { name: string | null; email: string | null; phone: string | null; role: string | null }[] = []
   let agents: { label: string; name: string | null; email: string | null; phone: string | null }[] = []

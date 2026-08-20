@@ -139,7 +139,7 @@ export async function GET(req: Request) {
       // An open application is a stronger match than a decided one — a
       // renter emailing about "my application" almost never means one from
       // two associations ago that's already approved.
-      applicationId = (apps ?? []).find(a => ['started', 'submitted', 'under_review'].includes(String(a.status)))?.id as string | undefined
+      applicationId = (apps ?? []).find(a => ['started', 'submitted', 'under_review', 'approval_sent'].includes(String(a.status)))?.id as string | undefined
         ?? (apps ?? [])[0]?.id as string | undefined ?? null
     }
   }

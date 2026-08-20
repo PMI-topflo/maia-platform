@@ -154,7 +154,7 @@ async function mirrorAgreementToOnGoing(p: LeasePacketRow): Promise<void> {
     if (!digits) return
     const { data: apps } = await supabaseAdmin.from('listing_applications')
       .select('id, listing_id, association_code, unit_label, drive_folder_id')
-      .eq('association_code', p.association_code).in('status', ['started', 'submitted', 'under_review'])
+      .eq('association_code', p.association_code).in('status', ['started', 'submitted', 'under_review', 'approval_sent'])
       .order('created_at', { ascending: false })
     const app = (apps ?? []).find(a => String(a.unit_label ?? '').replace(/\D/g, '') === digits)
     if (!app) return

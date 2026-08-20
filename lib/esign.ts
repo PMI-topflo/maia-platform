@@ -363,7 +363,7 @@ async function fileEsignToApplication(
 
   const { data: app } = await supabaseAdmin.from('listing_applications')
     .select('id, listing_id').eq('association_code', fresh.association_code).eq('unit_label', fresh.unit_ref)
-    .in('status', ['started', 'submitted', 'under_review', 'approved']).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    .in('status', ['started', 'submitted', 'under_review', 'approval_sent', 'approved']).order('created_at', { ascending: false }).limit(1).maybeSingle()
   if (!app) return
 
   const path = `intake/${app.id}/${opts.docKey}/${crypto.randomUUID()}.pdf`
@@ -396,7 +396,7 @@ async function fileBoardApprovalLetter(esignDocId: string): Promise<void> {
   // The most recent in-process (or just-approved) application for this unit.
   const { data: app } = await supabaseAdmin.from('listing_applications')
     .select('id, listing_id').eq('association_code', fresh.association_code).eq('unit_label', fresh.unit_ref)
-    .in('status', ['started', 'submitted', 'under_review', 'approved']).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    .in('status', ['started', 'submitted', 'under_review', 'approval_sent', 'approved']).order('created_at', { ascending: false }).limit(1).maybeSingle()
   if (!app) return
 
   const path = `intake/${app.id}/board_approval_letter/${crypto.randomUUID()}.pdf`
