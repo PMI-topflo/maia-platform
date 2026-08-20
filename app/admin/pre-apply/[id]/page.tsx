@@ -810,6 +810,19 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
     try { await fetch(`/api/admin/pre-apply/${id}/doc/${doc!.id}`, { method: 'DELETE', credentials: 'include' }); onDone() }
     catch { /* */ } finally { setBusy(null) }
   }
+  const [combineErr, setCombineErr] = useState<string | null>(null)
+  // Every separately-uploaded page of the same item (a tax return scanned as
+  // a dozen JPEGs) merged into one PDF, in the order they were added. User
+  // direction, 2026-08-19: "how can I make Maia append all of them?"
+  async function combine() {
+    if (!confirm(`Combine all ${(extraDocs?.length ?? 0) + 1} files for "${c.label}" into one PDF? The individual files are replaced by the combined one.`)) return
+    setBusy('combine'); setCombineErr(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/doc/combine`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: c.doc_key, stakeholder_id: stakeholderId }) })
+      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'Could not combine these files.')
+      onDone()
+    } catch (e) { setCombineErr((e as Error).message) } finally { setBusy(null) }
+  }
   // Attach an EXAMPLE of this document, once, for the whole association. Every
   // future request email for this item then carries it automatically — the
   // answer to "please send me an example of this document you want".
@@ -998,6 +1011,14 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
               </span>
             </div>
           ))}
+          {!decided && (
+            <div>
+              <button onClick={combine} disabled={busy === 'combine'} style={{ ...link, color: '#5b21b6', fontSize: 12 }}>
+                {busy === 'combine' ? 'Combining…' : `🔗 Combine these ${extraDocs.length + 1} files into one PDF`}
+              </button>
+              {combineErr && <div style={{ font: '11.5px system-ui', color: '#b91c1c', marginTop: 3 }}>⚠ {combineErr}</div>}
+            </div>
+          )}
         </div>
       )}
 
@@ -1409,7 +1430,7 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAg
   async function send() {
     if (needOwner && !ownerTo.includes('@')) { alert('Enter an owner email (verify it — the owners record can carry several).'); return }
     if (needTenant && !tenantTo.includes('@') && !askingRoster) {
-      alert('There is no tenant email on file.\n\nTick "Tenant names, emails & phone numbers" and send it to the owner — MAIA will email the tenants their items automatically as soon as the owner fills the list in.')
+      alert('There is no applicant email on file.\n\nTick the roster item and send it to the owner — MAIA will email the applicant their items automatically as soon as the owner fills the list in.')
       return
     }
     setBusy(true)
@@ -1419,8 +1440,8 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAg
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
       const parts: string[] = []
       if (j.sentOwner) parts.push(`owner (${j.ownerEmail})`)
-      if (j.sentTenant) parts.push(`tenant (${j.tenantEmail})`)
-      const held = j.tenantHeld ? '\n\nThe tenant items are waiting on their contact details — MAIA emails them automatically as soon as the owner fills in the list.' : ''
+      if (j.sentTenant) parts.push(`applicant (${j.tenantEmail})`)
+      const held = j.tenantHeld ? '\n\nThe applicant’s items are waiting on their contact details — MAIA emails them automatically as soon as the owner fills in the list.' : ''
       // Forms MAIA generates went to the person who signs them, not through
       // the upload link — say so, or it looks like nothing happened.
       const forms = (j.formsSent ?? []) as { noun: string; name: string | null; email: string }[]
@@ -1440,7 +1461,7 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAg
 
   if (!open) return (
     <div style={{ margin: '0 0 12px' }}>
-      <button onClick={() => setOpen(true)} style={{ ...btn('#c05a1c'), padding: '8px 14px' }}>📩 Request documents from owner / tenant</button>
+      <button onClick={() => setOpen(true)} style={{ ...btn('#c05a1c'), padding: '8px 14px' }}>📩 Request documents from owner / applicant</button>
     </div>
   )
   return (
@@ -1478,7 +1499,12 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAg
               ? <span style={{ font: '600 11px system-ui', color: '#6b7280', background: '#f3f4f6', borderRadius: 7, padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>🗂️ Staff obtains this</span>
               : ESIGN_ITEM_KEYS.has(it.doc_key)
               ? <span style={{ font: '600 11px system-ui', color: '#5b21b6', background: '#f3e8ff', borderRadius: 7, padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>✍️ MAIA sends it to sign</span>
-              : <span style={{ display: 'inline-flex', border: '1px solid #d1d5db', borderRadius: 7, overflow: 'hidden', flexShrink: 0 }}>{seg(it.doc_key, 'owner', 'Owner')}{seg(it.doc_key, 'tenant', 'Tenant')}{seg(it.doc_key, 'both', 'Both')}</span>}
+              // "Applicant" not "Tenant" — this control is shared by every
+              // application type, and "Tenant" is simply wrong on a Purchase
+              // (there's a buyer, not a tenant). User report, 2026-08-19:
+              // "when is a purchase the list is still coming as tenant,
+              // should be buyer or change to a fix name as Applicant."
+              : <span style={{ display: 'inline-flex', border: '1px solid #d1d5db', borderRadius: 7, overflow: 'hidden', flexShrink: 0 }}>{seg(it.doc_key, 'owner', 'Owner')}{seg(it.doc_key, 'tenant', 'Applicant')}{seg(it.doc_key, 'both', 'Both')}</span>}
           </div>
           )
         })}
@@ -1507,8 +1533,8 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAg
           {needTenant && (
             <div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ font: '600 11px system-ui', color: '#6b7280', width: 96 }}>Tenant</span>
-                <input value={tenantTo} onChange={e => setTenantTo(e.target.value)} placeholder={askingRoster ? 'leave blank — the owner is being asked for this' : 'tenant@example.com'} style={{ flex: '1 1 240px', minWidth: 200, font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6 }} />
+                <span style={{ font: '600 11px system-ui', color: '#6b7280', width: 96 }}>Applicant</span>
+                <input value={tenantTo} onChange={e => setTenantTo(e.target.value)} placeholder={askingRoster ? 'leave blank — the owner is being asked for this' : 'applicant@example.com'} style={{ flex: '1 1 240px', minWidth: 200, font: '13px system-ui', padding: '6px 9px', border: '1px solid #d1d5db', borderRadius: 6 }} />
               </div>
               {applicantAgent?.email && (
                 <div style={{ font: '11.5px system-ui', color: '#1e40af', marginTop: 4, marginLeft: 104 }}>🔗 CC&apos;d: {applicantAgent.name ? `${applicantAgent.name} (applicant's agent)` : "applicant's agent"} — {applicantAgent.email}</div>
@@ -1516,7 +1542,7 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAg
             </div>
           )}
           {needTenant && !tenantTo.includes('@') && askingRoster && (
-            <div style={{ font: '11.5px system-ui', color: '#166534', marginTop: 6 }}>✓ No tenant address needed right now — the owner is being asked for the names, emails and phones, and MAIA emails the tenants their items automatically once that comes back.</div>
+            <div style={{ font: '11.5px system-ui', color: '#166534', marginTop: 6 }}>✓ No applicant address needed right now — the owner is being asked for the names, emails and phones, and MAIA emails the applicants their items automatically once that comes back.</div>
           )}
         </div>
       )}
