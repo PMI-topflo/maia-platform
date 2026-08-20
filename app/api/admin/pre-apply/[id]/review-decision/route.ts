@@ -58,6 +58,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }, { onConflict: 'application_id,scope_key' })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // submitted → under_review happens automatically inside syncBoardWindow
+  // the instant every required document is individually approved (see
+  // lib/board-review.ts) — shared by this route and the board's own
+  // decision route, so it fires the same way whichever side completes it.
   const { opened, state: after } = await syncBoardWindow(id)
 
   // Staff decisions go to the office log too, so the record of who decided
