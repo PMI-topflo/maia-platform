@@ -378,6 +378,48 @@ export async function imageToPdf(buf: Buffer, opts: { targetBytes?: number } = {
 }
 
 /**
+ * Combine several files — a mix of images and/or PDFs — into ONE multi-page
+ * PDF, in the given order. Used for a multi-file checklist item (e.g. tax
+ * returns scanned as a dozen separate JPEG pages) that staff want filed as
+ * one document instead of a pile of individual rows. User direction,
+ * 2026-08-19: "I [have] multiple pages of the same file (tax return) how
+ * can I make Maia append all of them?"
+ *
+ * An image becomes one page sized to the image (EXIF-rotated). An existing
+ * PDF has every one of its pages copied in, in order — so combining two
+ * already-multi-page PDFs works too, not just single images. Skips any
+ * input that fails to decode rather than aborting the whole combine, so one
+ * corrupt page doesn't lose the rest.
+ */
+export async function combineToPdf(files: { buffer: Buffer; mimeType: string | null }[]): Promise<Buffer> {
+  const out = await PDFDocument.create()
+  for (const f of files) {
+    const ct = (f.mimeType ?? '').toLowerCase()
+    const isPdf = ct.includes('pdf') || f.buffer.subarray(0, 5).toString('latin1') === '%PDF-'
+    try {
+      if (isPdf) {
+        const src = await PDFDocument.load(f.buffer, { ignoreEncryption: true })
+        const pages = await out.copyPages(src, src.getPageIndices())
+        for (const p of pages) out.addPage(p)
+      } else {
+        // Normalize to JPEG first — pdf-lib only embeds JPG/PNG, and this
+        // also bakes in EXIF rotation (a sideways phone photo would
+        // otherwise land sideways in the combined PDF).
+        const jpeg = await sharp(f.buffer).rotate().jpeg({ quality: 85, mozjpeg: true }).toBuffer()
+        const dims = await sharp(jpeg).metadata()
+        const img = await out.embedJpg(jpeg)
+        const width = dims.width ?? img.width
+        const height = dims.height ?? img.height
+        const page = out.addPage([width, height])
+        page.drawImage(img, { x: 0, y: 0, width, height })
+      }
+    } catch { /* one bad page shouldn't lose the rest */ }
+  }
+  const bytes = await out.save()
+  return Buffer.from(bytes)
+}
+
+/**
  * Normalize a PDF to <= targetBytes when it exceeds the budget. Returns
  * the original buffer untouched if it's already small enough, if it's not
  * a PDF, or if anything in the pipeline fails.
