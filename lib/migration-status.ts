@@ -3886,6 +3886,17 @@ NOTIFY pgrst, 'reload schema';`,
  WHERE association_code = 'MANXI' AND application_type = 'lease_renewal' AND doc_key = 'board_approval_letter';
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'retire_board_approval_letter_new_lease',
+    label:       'Retire MANXI new-lease "Board Approval Letter" checklist item',
+    description: "Deactivates board_approval_letter on MANXI's NEW lease checklist (application_type='lease'). User report, 2026-08-21: MANXI 912 (Querline Pinckney's first lease, owner Carmen Robinson) had MAIA request a \"Board Approval Letter\" from the owner — nonsensical on a brand-new tenancy, since there is no PRIOR board decision to reference at all (unlike lease_renewal, relabeled the same day, where \"last year's letter\" is a real thing). Checked every board_approval_letter document ever filed on a MANXI `lease` application (3, across 6): every one was uploaded_by_role='drive-scan' on an application already approved — MAIA's own Drive scan picking up THIS application's own signed decision letter (lib/esign.ts files it under this exact doc_key on signing) after the fact, never an owner responding to the intake ask. Never once genuinely fulfilled as an owner-supplied document. Soft-deactivated (active=false), same mechanism as landlord_email and pet_esa_documents. NOT touched: lease_renewal (relabeled, not retired), purchase, additional_occupant — same pattern likely applies, left for a follow-up since this report was specifically new-lease.",
+    filename:    '20260821_retire_board_approval_letter_new_lease.sql',
+    artifact:    { type: 'column', table: 'association_intake_documents', column: 'active' },
+    sql: `UPDATE public.association_intake_documents
+   SET active = false, updated_at = now()
+ WHERE association_code = 'MANXI' AND application_type = 'lease' AND doc_key = 'board_approval_letter';
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
