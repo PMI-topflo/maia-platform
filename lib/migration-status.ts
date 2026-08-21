@@ -3897,6 +3897,19 @@ NOTIFY pgrst, 'reload schema';`,
  WHERE association_code = 'MANXI' AND application_type = 'lease' AND doc_key = 'board_approval_letter';
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'retire_board_approval_letter_purchase_ao',
+    label:       'Retire MANXI purchase/additional-occupant "Board Approval Letter" checklist item',
+    description: "Same fix as retire_board_approval_letter_new_lease, extended to MANXI's purchase and additional_occupant checklists per direct user request the same day. Checked both before retiring: purchase (3 applications) had one board_approval_letter document ever filed, uploaded_by_role='esign' — MAIA's own automatic filing of THIS application's signed board decision letter (lib/esign.ts), not an owner responding to the intake ask; additional_occupant (1 application) had zero ever filed. Neither type has ever had this item genuinely fulfilled by a landlord. Soft-deactivated (active=false), same mechanism as the lease, landlord_email and pet_esa_documents retirements. NOT touched: lease_renewal, which keeps its relabel (\"Copy of Last Year's Approval Letter\") — a prior year's letter is a real thing there.",
+    filename:    '20260821_retire_board_approval_letter_purchase_ao.sql',
+    artifact:    { type: 'column', table: 'association_intake_documents', column: 'active' },
+    sql: `UPDATE public.association_intake_documents
+   SET active = false, updated_at = now()
+ WHERE association_code = 'MANXI'
+   AND application_type IN ('purchase', 'additional_occupant')
+   AND doc_key = 'board_approval_letter';
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
