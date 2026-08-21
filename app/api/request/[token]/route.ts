@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { parseDeclarations, getIntakeChecklist, isApplicationType, signTemplateUrls } from '@/lib/intake-documents'
 import { getReviewState } from '@/lib/board-review'
+import { findUnitLeasePacket } from '@/lib/lease-packet'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -36,13 +37,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const r = await loadRequest(token)
   if (!r) return NextResponse.json({ error: 'This link is invalid or has expired.' }, { status: 404 })
 
-  const [{ data: assoc }, { data: docs }, { data: roster }, { data: appRow }, state] = await Promise.all([
+  const unitLabelForPacket = (r.req.unit_label as string | null) ?? null
+  const [{ data: assoc }, { data: docs }, { data: roster }, { data: appRow }, state, packet] = await Promise.all([
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', r.req.association_code).maybeSingle(),
     supabaseAdmin.from('application_documents').select('doc_key').eq('application_id', r.req.application_id),
     supabaseAdmin.from('application_stakeholders').select('name, email, phone, applicant_role, is_primary')
       .eq('application_id', r.req.application_id).eq('role', 'applicant').order('is_primary', { ascending: false }),
     supabaseAdmin.from('listing_applications').select('application_type, declarations').eq('id', r.req.application_id).maybeSingle(),
     getReviewState(r.req.application_id),
+    unitLabelForPacket ? findUnitLeasePacket(r.req.association_code, unitLabelForPacket) : Promise.resolve(null),
   ])
   const declarations = parseDeclarations(appRow?.declarations)
   // A file item can go stale on THIS row: it was appended when a declaration
@@ -89,17 +92,26 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     // it is one named person, and what we need is THEIR OWN email.
     applicationType: (appRow?.application_type as string | null) ?? null,
     people,
-    // landlord_tenant_agreement is never an upload — MAIA sends its own
-    // e-signed packet for it (lib/lease-packet.ts, request-docs/route.ts).
-    // Filtered defensively here too (not just at request-creation time) so
-    // an OLDER document_requests row, saved before this doc_key was
-    // excluded there, doesn't keep showing an Upload button nobody could
-    // ever satisfy. Still shown if a file somehow already exists for it, so
-    // a genuinely-completed item never disappears.
-    items: r.mine.filter(i => i.doc_key !== 'landlord_tenant_agreement' || have.has(i.doc_key)).map(i => {
+    items: r.mine.map(i => {
       if (i.doc_key === 'tenant_contact_info') return { doc_key: i.doc_key, label: i.label, kind: 'contact' as const, uploaded: contactDone }
       if (i.doc_key === DECLARE_VEHICLE) return { doc_key: i.doc_key, label: i.label, kind: 'declare' as const, declareKey: 'vehicle' as const, uploaded: typeof declarations.vehicle?.has === 'boolean', has: declarations.vehicle?.has ?? null }
       if (i.doc_key === DECLARE_ANIMAL) return { doc_key: i.doc_key, label: i.label, kind: 'declare' as const, declareKey: 'animal' as const, uploaded: typeof declarations.animal?.has === 'boolean', has: declarations.animal?.has ?? null, animalKind: declarations.animal?.kind ?? null }
+      // landlord_tenant_agreement is never an upload — MAIA sends its own
+      // e-signed packet for it (lib/lease-packet.ts, request-docs/route.ts).
+      // User direction, 2026-08-21: keep it ON the card as something still
+      // outstanding, with a button to push the signing links, instead of
+      // just disappearing — a silent removal reads as "nothing left to do"
+      // when the agreement genuinely isn't signed yet.
+      if (i.doc_key === 'landlord_tenant_agreement') {
+        const mySignedAt = r.role === 'owner' ? packet?.ownerSignedAt : packet?.tenantSignedAt
+        const otherSignedAt = r.role === 'owner' ? packet?.tenantSignedAt : packet?.ownerSignedAt
+        return {
+          doc_key: i.doc_key, label: i.label, kind: 'esign_packet' as const,
+          uploaded: packet?.status === 'completed',
+          packetStatus: (packet?.status ?? 'not_sent') as 'not_sent' | 'sent' | 'partially_signed' | 'completed',
+          mySigned: !!mySignedAt, otherSigned: !!otherSignedAt,
+        }
+      }
       const path = templateByKey.get(i.doc_key)
       const exampleUrl = path ? templateUrlByPath.get(path) ?? null : null
       return { doc_key: i.doc_key, label: i.label, kind: 'file' as const, uploaded: have.has(i.doc_key), exampleUrl }

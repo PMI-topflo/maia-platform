@@ -121,6 +121,27 @@ export async function sendLeasePacket(
   return { ok: true, packetId: String(created.id), sent, skipped }
 }
 
+/** The most recent non-void packet for a unit, if any — same bare-unit /
+ *  account_number two-way match sendLeasePacket uses. Lets a caller show
+ *  "not sent yet" vs "sent, waiting on X" vs "signed" without creating a
+ *  new packet just to check. */
+export async function findUnitLeasePacket(associationCode: string, account: string): Promise<
+  { id: string; status: 'sent' | 'partially_signed' | 'completed' | 'void'; ownerSignedAt: string | null; tenantSignedAt: string | null } | null
+> {
+  const accountGuess = `${associationCode}${account}`.toUpperCase()
+  const { data } = await supabaseAdmin.from('lease_packets')
+    .select('id, status, owner_signed_at, tenant_signed_at')
+    .eq('association_code', associationCode)
+    .or(`unit_ref.eq.${account},unit_ref.eq.${accountGuess}`)
+    .neq('status', 'void')
+    .order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (!data) return null
+  return {
+    id: String(data.id), status: data.status as 'sent' | 'partially_signed' | 'completed' | 'void',
+    ownerSignedAt: (data.owner_signed_at as string | null) ?? null, tenantSignedAt: (data.tenant_signed_at as string | null) ?? null,
+  }
+}
+
 export interface LeasePacketRow {
   id: string
   association_code: string

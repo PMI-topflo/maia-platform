@@ -8,9 +8,10 @@ import { OCCUPANT_ROLES, applicantRoleLabel } from '@/lib/applicant-roles'
 import { ANIMAL_KIND_LABEL, ANIMAL_KIND_BLURB, type AnimalKind } from '@/lib/animal-accommodation'
 
 interface Item {
-  doc_key: string; label: string; uploaded: boolean; kind?: 'contact' | 'file' | 'declare'
+  doc_key: string; label: string; uploaded: boolean; kind?: 'contact' | 'file' | 'declare' | 'esign_packet'
   declareKey?: 'vehicle' | 'animal'; has?: boolean | null; animalKind?: AnimalKind | null
   exampleUrl?: string | null
+  packetStatus?: 'not_sent' | 'sent' | 'partially_signed' | 'completed'; mySigned?: boolean; otherSigned?: boolean
 }
 interface Person { name: string; email: string; phone: string; role: string }
 interface Data { associationName: string; propertyAddress: string | null; unit: string | null; role: string; message: string | null; note?: string | null; tenantName?: string | null; people?: Person[]; applicationType?: string | null; items: Item[] }
@@ -52,6 +53,8 @@ export default function RequestUpload({ params }: { params: Promise<{ token: str
               ? <RosterRow key={it.doc_key} token={token} item={it} people={d.people ?? []} applicationType={d.applicationType ?? null} onDone={load} />
               : it.kind === 'declare'
               ? <DeclareRow key={it.doc_key} token={token} item={it} onDone={load} />
+              : it.kind === 'esign_packet'
+              ? <EsignPacketRow key={it.doc_key} token={token} item={it} role={d.role} onDone={load} />
               : <ItemRow key={it.doc_key} token={token} item={it} onDone={load} />)}
           </div>
         )}
@@ -238,6 +241,47 @@ function DeclareRow({ token, item, onDone }: { token: string; item: Item; onDone
       )}
 
       {err && <div style={{ font: '12.5px system-ui', color: '#b91c1c', marginTop: 8 }}>{err}</div>}
+    </div>
+  )
+}
+
+// The Landlord-Tenant Agreement is MAIA's own e-signed packet (owner + tenant
+// both sign) — never a file to upload. User direction, 2026-08-21: keep it
+// listed as outstanding until it's actually signed, with a button to push
+// the signing links, rather than removing it from the card once nobody can
+// satisfy it as an upload.
+function EsignPacketRow({ token, item, role, onDone }: { token: string; item: Item; role: string; onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function send() {
+    setBusy(true); setErr(null)
+    try {
+      const r = await fetch(`/api/request/${token}/lease-packet`, { method: 'POST' })
+      if (!r.ok) throw new Error((await r.json()).error || 'failed')
+      onDone()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+
+  const status = item.packetStatus ?? 'not_sent'
+  const statusLine =
+    status === 'completed' ? '✓ Signed — thank you'
+    : status === 'not_sent' ? null
+    : item.mySigned ? `Sent — waiting on the ${role === 'owner' ? 'tenant' : 'owner'} to sign`
+    : 'Sent — check your inbox (or spam) for the link to sign';
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, border: '1px solid #e7e2d9', borderRadius: 10, padding: '12px 14px', background: status === 'completed' ? '#f6faf7' : '#fff' }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ font: '600 14.5px system-ui', color: '#1c2333' }}>{item.label}</div>
+        {statusLine && <div style={{ font: `600 12.5px system-ui`, color: status === 'completed' ? '#166534' : '#b45309' }}>{statusLine}</div>}
+        {err && <div style={{ font: '12.5px system-ui', color: '#b91c1c' }}>{err}</div>}
+      </div>
+      {status === 'not_sent' && (
+        <button onClick={send} disabled={busy} style={{ cursor: busy ? 'default' : 'pointer', font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#c0571a', border: 'none', borderRadius: 9, padding: '9px 16px' }}>
+          {busy ? 'Sending…' : 'Send to sign'}
+        </button>
+      )}
     </div>
   )
 }

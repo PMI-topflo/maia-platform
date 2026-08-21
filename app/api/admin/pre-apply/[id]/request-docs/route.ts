@@ -16,7 +16,7 @@ import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendDocumentRequestEmails, splitEmails } from '@/lib/document-request-email'
 import { isEsignItem, sendEsignFormsForItems, ESIGN_CHECKLIST_ITEMS } from '@/lib/application-esign-forms'
-import { sendLeasePacket } from '@/lib/lease-packet'
+import { sendLeasePacket, findUnitLeasePacket } from '@/lib/lease-packet'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -79,14 +79,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // from — passed through as the packet's tenant override so a brand-new
   // lease's tenant (known to `application_stakeholders`, not yet synced to
   // `unit_tenant_contacts`) actually gets invited, not just the owner.
+  // Checked against an existing packet first — the applicant/owner's own
+  // /request/[token] card can trigger the same send, so staff re-requesting
+  // it here must not double-invite.
   const primaryApplicant = (applicants ?? []).find(a => a.is_primary) ?? (applicants ?? [])[0]
-  const packet = packetItems.length && unit
+  const existingPacket = packetItems.length && unit ? await findUnitLeasePacket(code, unit) : null
+  const packet = packetItems.length && unit && !existingPacket
     ? await sendLeasePacket(code, unit, `staff:${session.displayName}`, {
         name: (primaryApplicant?.name as string | null) ?? null,
         email: (primaryApplicant?.email as string | null) ?? null,
         phone: (primaryApplicant?.phone as string | null) ?? null,
       })
-    : null
+    : existingPacket ? { ok: false as const, error: 'Already sent — check the unit\'s lease packet status.' } : null
 
   // Owner emails: a staff override wins; else EVERY email on the matched owner
   // record (owners often carry several — don't silently pick just the first).
