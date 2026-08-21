@@ -1,3 +1,53 @@
+# Session handoff — 2026-08-20
+
+## Applications pipeline made FULLY AUTOMATIC end-to-end (8 PRs, #723–#730, all merged) + two live bugs fixed (#731, #732)
+
+User's final instruction after a 5-rule design conversation held one-at-a-time over several turns: **"Move forward, I want all Fully automatic."** Status flow is now `started → submitted → under_review → approval_sent (NEW) → approved | declined`, and every arrow past the first now fires on real state, not a staff click.
+
+### The finding that shaped the whole design
+`application_document_reviews` is a **single shared population** — staff and board decisions write the SAME row (unique on `application_id, scope_key`). `getReviewState().complete` has no idea who decided. So once staff finish approving every document, having the board separately "review" the identical set again would be redundant — **the board's real decision point is signing the approval letter**, not a second document pass. This is why PR6 skips straight from "documents complete" to "letter created and sent," with no intermediate board document-review step in the automatic path (the old manual per-document round stays as a staff escape hatch only).
+
+### PR1 — retire "Bring into MAIA", harden staff creation
+Confirmed root cause of empty-shell applications (MANXI 605 and its kind): the "Bring into MAIA" button hardcoded `assoc='MANXI'`, created zero `application_stakeholders` rows, and set `status:'submitted'` directly, bypassing `createIntake()` entirely. **Deleted.** Staff's "+ New application" form now requires the lead applicant's email+phone AND the type's required document upload (signed lease / purchase agreement — additional-occupant checks the unit's current lease for the occupant's name first, falling back to a Lease Addendum only if not found). Also fixed, found while touching the same code: `board-approve`'s `KEEPER_DOC_KEYS` never included `signed_purchase` (only the older, unrelated `purchase_agreement` key) — a purchase application's own signed agreement was silently dropped from the Official folder on approval.
+
+### PR2 — owner gets a real link
+`notifyUnitOwnerOfNewApplication` used to be FYI-only, no link at all. Now mints a real owner-role `application_stakeholders` token (reusing the exact collaborator-invite machinery multi-collaboration already has) so the owner can add their own agent or fill their part — same `canAddCollaborators` gate extended from lead-only to lead-or-owner.
+
+### PR3 — 3-day missing-docs reminder to ALL stakeholders
+New `application_reminder_approvals` table (migration applied) + `lib/application-reminder.ts` + `app/api/cron/missing-docs-reminders`. First cycle drafts and emails PMI+Jonathan an approve link (`/reminder-approval/[token]`) instead of sending anything; **once approved, every later cycle auto-sends with no re-asking** ("approve once" — explicit user direction). Stops once nothing's missing (re-checked every cycle). Extracted `lib/application-outstanding-summary.ts` out of `lib/application-standard-reply.ts` so the single-recipient draft and this collective reminder share one "what's missing" computation.
+
+### PR4 — `submitted → under_review`, automatic
+Centralized in `lib/board-review.ts`'s `syncBoardWindow` (not duplicated in its two callers — staff `review-decision` route and the board's own decision route both already call it) — the instant `state.complete` becomes true, status flips, scoped to currently-`submitted` only so a later re-completion (e.g. a correction after decline) never moves an already-decided application backward.
+
+### PR5 — introduce `approval_sent` everywhere, INERT
+Deliberately zero-behavior-change PR before PR6's real wiring — added the new status to every `.in('status', [...])` allow-list across the codebase. **Must-fix caught here, not optional**: `lib/esign.ts`'s two status-filtered application lookups would have silently stopped finding an application the instant it could sit in `approval_sent` between letter-creation and full signature — fixed in the same PR the new status was introduced, before anything could produce it.
+
+### PR6 — `under_review → approval_sent`, automatic — first real external blast radius
+New `lib/board-decision-letter.ts` — the single place letter-creation + signer-invitation-sending now lives; the EXISTING manual "Create & send" button now calls into this same lib too, so a staff-created letter and an auto-created one can never diverge. **Per explicit user direction given at this point in the session**: every email MAIA sends to the board (review round, signature reminder, signer invite) now CCs the office — `BOARD_EMAIL_CC` in `lib/board-review-email.ts`, defaults to `PMI@topfloridaproperties.com` — "so I can follow up and adjust the system if needed" now that these fire automatically. Migration added `document_review_rounds.purpose` (splits the OLD manual per-document round from the NEW automatic signature-reminder round — the reminder cron now runs two passes on two different cadences, 5-day old / 3-day new, so "pick the newest round" can never confuse them) and `esign_documents.application_id` (closes a real race: the old association+unit+status lookup could resolve to the WRONG application once a unit has two in-process applications at once — demonstrated live during verification, the old lookup really did pick the wrong one).
+
+### PR7 — `approval_sent → approved`, automatic — highest blast radius
+`lib/board-approve.ts`'s `runBoardApprove` — the Drive-filing/archiving code is an **unchanged, byte-for-byte extraction** of the already-proven manual button (only when it's called changed, not what it does), now also called automatically from `lib/esign.ts`'s signing-completion hook. `lib/application-handoff.ts`'s `handoffOnApproval` (the screening-provider handoff) is wired in too — confirmed it previously only ever fired from the manual PATCH `approve` action, never from the Drive-filing button. **Deliberately did not run a live test against real Drive folders** (Official/Archive are real, shared folders staff use daily) — verified everything else exhaustively against disposable test data instead. User's call after being shown this tradeoff explicitly: **"merge it, let it run."**
+
+### PR8 — UI pass, and a real gap found while cleaning up
+Found while removing now-redundant manual buttons: the OLD "Approve — board/on-site manager" buttons (PATCH `action='approve'`) **never ran the Drive-filing pipeline at all**, before or after PR7 — clicking them would mark an application approved while its Drive folder was never archived. **Fixed at the API level**, not just hidden in the UI: the PATCH `approve` action now calls `runBoardApprove` itself. Mirror-image gap also closed: `runBoardApprove`'s real (non-preview) run now **requires a fully-signed letter** before it will file anything — previously nothing stopped staff from clicking through preview→execute before the board had signed. "Mark audited" removed from the UI (superseded by PR4, and it never checked completeness — a real footgun once superseded). Decline stays the one clear, deliberate manual fork.
+
+### Two more, same session, real production blockers
+- **#731 — staff couldn't create an application when documents arrived from the owner, not the tenant.** Real case: MANXI 110, a lease renewal for Susie Bell forwarded by owner Monica Blumenfeld with no tenant contact info in the email at all. `lib/preapply.ts` gained `backfillPrimaryContactFromLease` (extracts the tenant's own email/phone off the signed lease itself, same `extractLeaseDetails` the self-serve auto-roster path already uses — takes only the FIRST address when a multi-tenant lease returns a comma-joined pair, found live) and `loopInOwnerForMissingContact` (adds the unit's real owner as a stakeholder + emails them the same collaborative link, when extraction doesn't apply or comes up empty). `create/route.ts`'s hard block now only fires when neither lifeline exists.
+- **#732 — the public widget had no path to `/pre-apply` at all** for Tenant/Buyer personas. Root cause: `app/widget/page.tsx` (the external iframe embed on third-party association sites) never passes `associationCode` — only `FloatingWidget` (mounted on the 25 in-app association portal pages) does. New `apply` phase in `components/MaiaWidget.tsx`, reusing the same `AddressSearch` component agent/vendor already use to resolve the association when it isn't already known, translated into all 7 widget languages. **Verified live in the browser** (fully public, no auth needed) in both contexts.
+
+### Verification discipline this session
+Staff OTP login needs Gmail creds not configured locally, so nothing staff-facing could be click-tested directly. Every PR instead verified via disposable test applications created directly through `createIntake()`/`npx tsx` scripts against the REAL production Supabase project (same DB local dev points to) — always cleaned up after, confirmed via a follow-up query. The two public/unauthenticated pieces (the widget, `/pre-apply` itself) WERE click-tested live in the browser. Real Google Drive folders were deliberately never touched during verification.
+
+### ⏳ NEXT
+1. **Watch the first few real applications go through the automatic chain end-to-end** — nothing has run this live yet except the disposable test data above. First real `under_review → approval_sent` will send real board emails (CC'd to PMI now); first real `approval_sent → approved` will really archive a Drive folder.
+2. **Susie Bell / MANXI 110** — retry creating her lease renewal now that #731 is live; confirm the lease extraction actually found her contact info (or that Monica got the owner-completion email).
+3. Old manual "Mark audited" PATCH action and the old per-document board round are now vestigial escape hatches, intentionally left live (not deleted) per the "leave escape hatches" pattern — don't be surprised they still exist if grepping for them.
+4. Older, unchanged: Checkr key prefix still unverified (don't flip anyone to `maia_checkr`); Rentvine tenant-sync cron dead since 2026-06-17.
+
+Memory: [[application_pipeline_automation]], [[board_email_cc_preference]], [[staff_create_lease_contact_fallback]], [[widget_no_association_context]].
+
+---
+
 # Session handoff — 2026-08-18
 
 ## Gmail add-on v1 for applications, and pets become real rows
