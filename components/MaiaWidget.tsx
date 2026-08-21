@@ -10,6 +10,7 @@ import type { AddressResult } from '@/app/api/address-search/route'
 type Phase =
   | 'persona' | 'lookup' | 'notfound' | 'chat'
   | 'agent-form' | 'agent-sent' | 'vendor-form' | 'vendor-sent'
+  | 'apply'
 type Persona = 'homeowner' | 'tenant' | 'buyer' | 'agent' | 'vendor' | 'board' | 'title'
 type Lang = 'en' | 'es' | 'pt' | 'fr' | 'ht' | 'he' | 'ru'
 
@@ -61,6 +62,11 @@ const T: Record<Lang, Record<string, string>> = {
     submit: 'Send Inquiry', submitting: 'Sending…',
     agent_thanks:  "Inquiry sent! We'll follow up within one business day.",
     vendor_thanks: 'Inquiry sent! Check your email for ACH and COI forms.',
+    apply_title: 'Apply for a lease or purchase',
+    apply_sub: 'Tell us which community — we’ll open your secure application.',
+    apply_ready: 'Apply to {assoc}',
+    apply_cta: 'Start your application →',
+    apply_note: 'Opens in a new tab. No account or password needed.',
     start_over: 'Start over', optional: 'optional',
   },
   es: {
@@ -88,6 +94,11 @@ const T: Record<Lang, Record<string, string>> = {
     submit: 'Enviar Consulta', submitting: 'Enviando…',
     agent_thanks:  '¡Consulta enviada! Te contactaremos pronto.',
     vendor_thanks: '¡Consulta enviada! Revisa tu correo para los formularios.',
+    apply_title: 'Solicitar arrendamiento o compra',
+    apply_sub: 'Dinos tu comunidad — abriremos tu solicitud segura.',
+    apply_ready: 'Solicitar en {assoc}',
+    apply_cta: 'Comenzar tu solicitud →',
+    apply_note: 'Se abre en una pestaña nueva. No necesitas cuenta ni contraseña.',
     start_over: 'Comenzar de nuevo', optional: 'opcional',
   },
   pt: {
@@ -115,6 +126,11 @@ const T: Record<Lang, Record<string, string>> = {
     submit: 'Enviar Consulta', submitting: 'Enviando…',
     agent_thanks:  'Consulta enviada! Entraremos em contato em breve.',
     vendor_thanks: 'Consulta enviada! Verifique seu e-mail para os formulários.',
+    apply_title: 'Solicitar aluguel ou compra',
+    apply_sub: 'Diga-nos sua comunidade — abriremos sua solicitação segura.',
+    apply_ready: 'Solicitar em {assoc}',
+    apply_cta: 'Iniciar sua solicitação →',
+    apply_note: 'Abre em uma nova aba. Não precisa de conta ou senha.',
     start_over: 'Recomeçar', optional: 'opcional',
   },
   fr: {
@@ -142,6 +158,11 @@ const T: Record<Lang, Record<string, string>> = {
     submit: 'Envoyer la demande', submitting: 'Envoi…',
     agent_thanks:  'Demande envoyée! Nous vous contacterons bientôt.',
     vendor_thanks: 'Demande envoyée! Consultez votre e-mail pour les formulaires.',
+    apply_title: 'Faire une demande de location ou d’achat',
+    apply_sub: 'Indiquez-nous votre communauté — nous ouvrirons votre demande sécurisée.',
+    apply_ready: 'Postuler à {assoc}',
+    apply_cta: 'Commencer votre demande →',
+    apply_note: 'S’ouvre dans un nouvel onglet. Aucun compte ni mot de passe requis.',
     start_over: 'Recommencer', optional: 'optionnel',
   },
   ht: {
@@ -169,6 +190,11 @@ const T: Record<Lang, Record<string, string>> = {
     submit: 'Voye Demann', submitting: 'N ap voye…',
     agent_thanks:  'Demann voye! N ap kontakte w nan yon jou ouvrab.',
     vendor_thanks: 'Demann voye! Tcheke imèl ou pou fòm ACH ak COI yo.',
+    apply_title: 'Aplike pou lokasyon oswa acha',
+    apply_sub: 'Di nou ki kominote — n ap louvri aplikasyon sekirize ou.',
+    apply_ready: 'Aplike nan {assoc}',
+    apply_cta: 'Kòmanse aplikasyon ou →',
+    apply_note: 'Louvri nan yon nouvo onglè. Pa bezwen kont oswa modpas.',
     start_over: 'Rekòmanse', optional: 'opsyonèl',
   },
   he: {
@@ -196,6 +222,11 @@ const T: Record<Lang, Record<string, string>> = {
     submit: 'שלח פנייה', submitting: 'שולח…',
     agent_thanks:  'הפנייה נשלחה! ניצור איתך קשר תוך יום עסקים.',
     vendor_thanks: 'הפנייה נשלחה! בדוק את הדוא"ל שלך לטפסים.',
+    apply_title: 'הגשת בקשה לשכירות או רכישה',
+    apply_sub: 'ספרו לנו לאיזו קהילה — נפתח עבורכם את הבקשה המאובטחת.',
+    apply_ready: 'הגשת בקשה ל-{assoc}',
+    apply_cta: 'התחל את הבקשה שלך',
+    apply_note: 'נפתח בכרטיסייה חדשה. אין צורך בחשבון או סיסמה.',
     start_over: 'התחל מחדש', optional: 'אופציונלי',
   },
   ru: {
@@ -223,6 +254,11 @@ const T: Record<Lang, Record<string, string>> = {
     submit: 'Отправить запрос', submitting: 'Отправка…',
     agent_thanks:  'Запрос отправлен! Свяжемся в течение рабочего дня.',
     vendor_thanks: 'Запрос отправлен! Проверьте почту для форм.',
+    apply_title: 'Подать заявку на аренду или покупку',
+    apply_sub: 'Укажите ваше сообщество — мы откроем вашу защищённую заявку.',
+    apply_ready: 'Подать заявку в {assoc}',
+    apply_cta: 'Начать заявку →',
+    apply_note: 'Откроется в новой вкладке. Учётная запись и пароль не нужны.',
     start_over: 'Начать заново', optional: 'необязательно',
   },
 }
@@ -351,6 +387,8 @@ export default function MaiaWidget({ embedded = false, associationCode }: { embe
   const [vendorForm, setVendorForm] = useState({ companyName: '', contactName: '', email: '', phone: '', association: '' })
   const [agentAssoc,  setAgentAssoc]  = useState<AddressResult | null>(null)
   const [vendorAssoc, setVendorAssoc] = useState<AddressResult | null>(null)
+  const [applyAssoc,  setApplyAssoc]  = useState<AddressResult | null>(null)
+  const [applyLoading, setApplyLoading] = useState(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const t = T[lang]
@@ -422,10 +460,26 @@ export default function MaiaWidget({ embedded = false, associationCode }: { embe
     if (p === 'homeowner')  { setPhase('lookup');      return }
     if (p === 'agent')      { setPhase('agent-form');  return }
     if (p === 'vendor')     { setPhase('vendor-form'); return }
-    // Tenant/buyer/board/title go straight to chat — if the widget knows
-    // which association portal it's mounted on (see FloatingWidget), scope
-    // the conversation to it from the first message instead of answering
-    // with generic PMI-wide info.
+    if (p === 'tenant' || p === 'buyer') {
+      // A real, guaranteed path to /pre-apply — not dependent on the AI
+      // remembering to mention it mid-conversation. If the widget already
+      // knows which association it's mounted on (FloatingWidget, on one of
+      // the 25 association portal pages), skip straight to the button;
+      // otherwise (the external iframe embed) ask which community first,
+      // same AddressSearch the agent/vendor forms already use.
+      setPhase('apply')
+      if (associationCode) {
+        setApplyLoading(true)
+        fetch('/api/associations').then(r => r.json()).then((rows: { association_code: string; association_name: string }[]) => {
+          const hit = rows.find(r => r.association_code === associationCode)
+          if (hit) setApplyAssoc({ label: hit.association_name, sub: hit.association_code, association_code: hit.association_code, association_name: hit.association_name })
+        }).catch(() => null).finally(() => setApplyLoading(false))
+      }
+      return
+    }
+    // Board/title go straight to chat — if the widget knows which association
+    // portal it's mounted on (see FloatingWidget), scope the conversation to
+    // it from the first message instead of answering with generic PMI-wide info.
     startChat(p, undefined, associationCode)
   }
 
@@ -507,6 +561,7 @@ export default function MaiaWidget({ embedded = false, associationCode }: { embe
     if (['lookup', 'agent-form', 'vendor-form'].includes(phase)) { setPhase('persona'); setPersona(null) }
     else if (phase === 'notfound') setPhase('lookup')
     else if (phase === 'chat')     { setPhase('persona'); setPersona(null); setMsgs([]); setAssocCode(''); setAssocName('') }
+    else if (phase === 'apply')    { setPhase('persona'); setPersona(null); setApplyAssoc(null) }
   }
 
   const handleClose = () => {
@@ -670,6 +725,35 @@ export default function MaiaWidget({ embedded = false, associationCode }: { embe
     </div>
   )
 
+  const renderApply = () => {
+    const link = applyAssoc ? `/pre-apply/${encodeURIComponent(applyAssoc.association_code)}?lang=${lang}` : ''
+    return (
+      <div style={{ padding: '16px 14px' }}>
+        <div style={{ ...S.card, padding: '20px' }}>
+          <div style={S.cardTitle}>{t.apply_title}</div>
+          {!applyAssoc ? (
+            <>
+              <p style={{ fontSize: '0.85rem', color: 'var(--navy)', opacity: 0.75, margin: '4px 0 14px', lineHeight: 1.5 }}>{t.apply_sub}</p>
+              {applyLoading
+                ? <p style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>…</p>
+                : <AddressSearch label={t.assoc} selected={applyAssoc} onSelect={setApplyAssoc} dark={false} />}
+            </>
+          ) : (
+            <>
+              <p style={{ fontSize: '0.95rem', color: 'var(--navy)', fontWeight: 600, margin: '4px 0 6px', lineHeight: 1.4 }}>
+                {t.apply_ready.replace('{assoc}', applyAssoc.association_name)}
+              </p>
+              <a href={link} target="_blank" rel="noreferrer" style={{ ...S.btnGold, display: 'block', textAlign: 'center', textDecoration: 'none', marginTop: '10px', boxSizing: 'border-box' }}>
+                {t.apply_cta}
+              </a>
+              <p style={{ fontSize: '0.7rem', color: 'var(--navy)', opacity: 0.5, marginTop: '10px', lineHeight: 1.4 }}>{t.apply_note}</p>
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const renderSent = (msg: string) => (
     <div style={{ padding: '40px 16px', textAlign: 'center' }}>
       <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>✅</div>
@@ -688,10 +772,11 @@ export default function MaiaWidget({ embedded = false, associationCode }: { embe
       case 'agent-sent':  return renderSent(t.agent_thanks)
       case 'vendor-form': return renderVendorForm()
       case 'vendor-sent': return renderSent(t.vendor_thanks)
+      case 'apply':       return renderApply()
     }
   }
 
-  const isBackable = ['lookup', 'notfound', 'chat', 'agent-form', 'vendor-form'].includes(phase)
+  const isBackable = ['lookup', 'notfound', 'chat', 'agent-form', 'vendor-form', 'apply'].includes(phase)
 
   // ── Panel ──────────────────────────────────────────────────────────────────
 
