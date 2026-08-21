@@ -41,7 +41,12 @@ export async function getReminderRecipients(applicationId: string): Promise<Remi
     .map(s => ({ stakeholderId: String(s.id), name: (s.name as string | null) ?? null, email: String(s.email), role: String(s.role) }))
 }
 
-function missingLines(summary: OutstandingSummary): string[] {
+/** Exported so the approval page (app/api/reminder-approval/[token]) can show
+ *  the SAME live list it would actually send, rather than the frozen snapshot
+ *  taken when the reminder was first drafted — a checklist item retired (or
+ *  added) between draft and review must never leave the page showing
+ *  something the real send would no longer ask for. */
+export function missingLines(summary: OutstandingSummary): string[] {
   return [
     ...summary.rows.filter(r => !r.gatedBy).map(r => r.label),
     ...summary.declineQuestions.map(q => q === 'vehicle'

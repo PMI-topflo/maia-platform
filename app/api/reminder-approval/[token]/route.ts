@@ -11,7 +11,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getOutstandingSummary } from '@/lib/application-outstanding-summary'
-import { getReminderRecipients, sendMissingDocsReminder } from '@/lib/application-reminder'
+import { getReminderRecipients, sendMissingDocsReminder, missingLines } from '@/lib/application-reminder'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -25,9 +25,16 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const { data: app } = await supabaseAdmin.from('listing_applications')
     .select('association_code, unit_label').eq('id', row.application_id).maybeSingle()
 
+  // Live, not the frozen snapshot taken when this was first drafted — the
+  // same computation Approve would actually send. Falls back to that
+  // snapshot only if the live read fails (e.g. the application is gone),
+  // so a broken link still shows something instead of an empty page.
+  const live = await getOutstandingSummary(String(row.application_id))
+  const missingSummary = !('error' in live) ? missingLines(live) : (row.missing_summary ?? [])
+
   return NextResponse.json({
     status: row.status,
-    missingSummary: row.missing_summary ?? [],
+    missingSummary,
     recipients: row.recipients ?? [],
     sentTo: row.sent_to ?? [],
     decidedAt: row.decided_at,
