@@ -63,8 +63,28 @@ export async function POST(req: Request) {
   // phone and email." Staff-created applications used to allow both blank,
   // which is exactly what let MANXI 605 sit untouched for six hours with no
   // way to reach anyone on it.
-  if (!people[0].email) return NextResponse.json({ error: "Enter the lead applicant's email." }, { status: 400 })
-  if (!people[0].phone) return NextResponse.json({ error: "Enter the lead applicant's phone." }, { status: 400 })
+  //
+  // Real case, 2026-08-20 (MANXI 110): a lease renewal forwarded by the
+  // OWNER, tenant's own contact info not in the email at all. Two lifelines
+  // before this is genuinely unreachable: (1) for lease/lease_renewal, the
+  // signed lease about to be uploaded very likely has the tenant's own
+  // email/phone printed on it — extracted right after upload (see
+  // backfillPrimaryContactFromLease in the upload route), or (2) the unit's
+  // owner is on file and can be looped in to complete it (loopInOwnerForMissingContact,
+  // same fallback). Only block outright when NEITHER applies.
+  if (!people[0].email || !people[0].phone) {
+    const extractable = type === 'lease' || type === 'lease_renewal'
+    let hasOwner = false
+    if (!extractable) {
+      const { data: ownerRows } = await supabaseAdmin.from('owners')
+        .select('emails, status').eq('association_code', code).or(`unit_number.eq.${unit},account_number.eq.${code}${unit}`)
+      hasOwner = (ownerRows ?? []).some(o => (o.status ?? null) !== 'previous' && String(o.emails ?? '').split(',').some(e => e.trim().includes('@')))
+    }
+    if (!extractable && !hasOwner) {
+      if (!people[0].email) return NextResponse.json({ error: "Enter the lead applicant's email." }, { status: 400 })
+      if (!people[0].phone) return NextResponse.json({ error: "Enter the lead applicant's phone." }, { status: 400 })
+    }
+  }
 
   // Don't quietly open a second application on a unit that already has one in
   // flight; staff almost always mean the existing one.

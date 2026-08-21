@@ -17,7 +17,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
-import { INTAKE_BUCKET, autoRosterFromLease } from '@/lib/preapply'
+import { INTAKE_BUCKET, autoRosterFromLease, backfillPrimaryContactFromLease, loopInOwnerForMissingContact } from '@/lib/preapply'
 import { mirrorFileToOngoing } from '@/lib/drive-application-mirror'
 import { quickDocScan } from '@/lib/quick-doc-classify'
 import { suggestedIntakeName } from '@/lib/intake-naming'
@@ -87,8 +87,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     await supabaseAdmin.from('listing_applications').update({ drive_folder_id: drive.folderId, drive_folder_url: drive.folderUrl, updated_at: new Date().toISOString() }).eq('id', id)
   }
 
-  // A freshly-uploaded lease seeds the applicant roster (best-effort).
-  if (docKey === 'signed_lease' && !stakeholderId) await autoRosterFromLease(id)
+  // A freshly-uploaded lease seeds the applicant roster (best-effort), and —
+  // if the primary applicant was created with a name only, no contact info in
+  // hand — fills their email/phone from the lease itself if it's printed
+  // there. If that still comes up empty, loop in the unit's owner as a last
+  // resort so the application doesn't sit unreachable.
+  if (docKey === 'signed_lease' && !stakeholderId) {
+    await autoRosterFromLease(id)
+    const filled = await backfillPrimaryContactFromLease(id)
+    if (!filled) {
+      const { data: primary } = await supabaseAdmin.from('application_stakeholders')
+        .select('email, phone').eq('application_id', id).eq('role', 'applicant').eq('is_primary', true).maybeSingle()
+      if (primary && !primary.email && !primary.phone) await loopInOwnerForMissingContact(id)
+    }
+  }
 
   return NextResponse.json({ ok: true, drive })
 }

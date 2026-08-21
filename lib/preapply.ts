@@ -17,11 +17,20 @@
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { verifyPreApplyToken } from '@/lib/preapply-token'
+import { verifyPreApplyToken, signPreApplyToken } from '@/lib/preapply-token'
 import { extractLeaseDetails } from '@/lib/lease-extract'
 import type { ApplicationType, ProvidedBy } from '@/lib/intake-documents'
 import { quickDocScan } from '@/lib/quick-doc-classify'
 import { suggestedIntakeName } from '@/lib/intake-naming'
+import { sendEmail } from '@/lib/gmail'
+
+const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
+const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
+// Local, not imported from lib/document-request-email.ts — that file already
+// imports INTAKE_BUCKET from here, and a mutual top-level import between the
+// two is a real circular-init hazard not worth risking for one one-liner.
+const splitEmails = (raw: string | null | undefined) =>
+  [...new Set((raw ?? '').split(',').map(s => s.trim()).filter(e => e.includes('@')))]
 
 export const INTAKE_BUCKET = 'application-docs'
 
@@ -49,6 +58,86 @@ export async function autoRosterFromLease(applicationId: string): Promise<number
     })))
     return names.length
   } catch { return 0 }
+}
+
+// When staff open an application from a lease that arrived by email — no
+// tenant contact info in hand, only their name (the case that used to hard-
+// block creation: 2026-08-20, MANXI unit 110, a lease renewal forwarded by
+// the owner) — the signed lease itself very likely has the tenant's own
+// email/phone printed on it. Fill in the PRIMARY applicant's still-blank
+// fields from the same extraction autoRosterFromLease already uses. Only
+// touches fields that are actually blank; never overwrites anything staff or
+// the applicant already entered. Returns true if anything was filled in.
+export async function backfillPrimaryContactFromLease(applicationId: string): Promise<boolean> {
+  try {
+    const { data: primary } = await supabaseAdmin.from('application_stakeholders')
+      .select('id, email, phone').eq('application_id', applicationId).eq('role', 'applicant').eq('is_primary', true).maybeSingle()
+    if (!primary || (primary.email && primary.phone)) return false
+    const { data: lease } = await supabaseAdmin.from('application_documents')
+      .select('storage_path, mime_type').eq('application_id', applicationId).eq('doc_key', 'signed_lease').maybeSingle()
+    if (!lease?.storage_path) return false
+    const { data: blob } = await supabaseAdmin.storage.from(INTAKE_BUCKET).download(String(lease.storage_path))
+    if (!blob) return false
+    const d = await extractLeaseDetails(Buffer.from(await blob.arrayBuffer()), (lease.mime_type as string | null) ?? null)
+    // A multi-tenant lease can come back with both tenants' addresses joined
+    // into the one tenantEmail/tenantPhone string — this is filling in ONE
+    // stakeholder's single-value fields, so take only the first.
+    const first = (v: string | null) => v?.split(',')[0]?.trim() || null
+    const patch: Record<string, unknown> = {}
+    if (!primary.email && first(d.tenantEmail)) patch.email = first(d.tenantEmail)
+    if (!primary.phone && first(d.tenantPhone)) patch.phone = first(d.tenantPhone)
+    if (!Object.keys(patch).length) return false
+    await supabaseAdmin.from('application_stakeholders').update(patch).eq('id', primary.id)
+    return true
+  } catch { return false }
+}
+
+// Last resort when the primary applicant STILL has no email after the lease
+// extraction attempt (a scanned/handwritten lease, or a type extraction
+// doesn't cover) — loop in the unit's owner, who staff already has an
+// address for (they're often the one who sent the documents in the first
+// place). Adds them as a real 'owner' stakeholder and emails them the same
+// secure link the rest of the collaborative flow uses, so they can add the
+// tenant's contact info themselves. Best-effort; never throws.
+export async function loopInOwnerForMissingContact(applicationId: string): Promise<boolean> {
+  try {
+    const { data: app } = await supabaseAdmin.from('listing_applications')
+      .select('association_code, unit_label, application_type').eq('id', applicationId).maybeSingle()
+    if (!app?.unit_label) return false
+    const code = String(app.association_code), unit = String(app.unit_label)
+
+    const { data: primary } = await supabaseAdmin.from('application_stakeholders')
+      .select('name').eq('application_id', applicationId).eq('role', 'applicant').eq('is_primary', true).maybeSingle()
+    const applicantName = (primary?.name as string | null)?.trim() || 'the applicant'
+
+    const { data: owners } = await supabaseAdmin.from('owners')
+      .select('first_name, last_name, entity_name, emails, status').eq('association_code', code)
+      .or(`unit_number.eq.${unit},account_number.eq.${code}${unit}`).or('status.neq.previous,status.is.null')
+    const ownerName = (owners ?? [])
+      .map(o => (o.entity_name as string | null)?.trim() || `${o.first_name ?? ''} ${o.last_name ?? ''}`.trim())
+      .find(Boolean) || 'Owner'
+    const emails = [...new Set((owners ?? []).flatMap(o => splitEmails(o.emails as string | null)))]
+    if (!emails.length) return false
+    const [primaryEmail, ...ccEmails] = emails
+
+    const created = await addStakeholders(applicationId, [{ name: ownerName, email: primaryEmail, role: 'owner' }], 'staff')
+    if (!created[0]) return false
+    const t = await signPreApplyToken(applicationId, created[0].id)
+    const link = `${APP}/pre-apply/${encodeURIComponent(code)}?t=${encodeURIComponent(t)}`
+
+    await sendEmail({
+      to: [primaryEmail], cc: ccEmails.length ? ccEmails : undefined,
+      subject: `Action needed: ${applicantName}'s contact info — ${code} Unit ${unit}`,
+      html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6;max-width:520px;margin:0 auto">
+        <p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#f26a1b;font-weight:700;margin:0 0 4px">PMI Top Florida Properties</p>
+        <h2 style="margin:0 0 8px;color:#1f2a44">We need ${esc(applicantName)}'s contact info</h2>
+        <p>Thank you for the documents for Unit ${esc(unit)}. We don't have an email or phone on file for <strong>${esc(applicantName)}</strong> yet — we need it to move the application forward and to send them anything further we need.</p>
+        <p style="text-align:center;margin:20px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;font-weight:700;padding:13px 26px;border-radius:10px;display:inline-block">Add their contact info →</a></p>
+        <p style="color:#9ca3af;font-size:12px">If you already have this on hand, just reply to this email instead.</p>
+      </div>`,
+    }).catch(() => null)
+    return true
+  } catch { return false }
 }
 
 // ── Personas ─────────────────────────────────────────────────────────
