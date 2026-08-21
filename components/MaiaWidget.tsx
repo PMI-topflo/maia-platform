@@ -356,9 +356,27 @@ const S = {
   } as React.CSSProperties,
 }
 
+// Same "@maia upapp <ACCOUNT>" tag app/admin/pre-apply/[id]'s
+// CommunicationsLog and the /request/[token] card already show — a third
+// place to find it, this time inside the chat panel itself.
+function UpappHintBar({ code, unit }: { code: string; unit: string }) {
+  const [copied, setCopied] = useState(false)
+  const cmd = `@maia upapp ${code}${unit}`
+  async function copy() {
+    try { await navigator.clipboard.writeText(cmd); setCopied(true); setTimeout(() => setCopied(false), 1800) } catch { /* clipboard unavailable */ }
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 10px', background: 'rgba(255,255,255,.04)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+      <span style={{ fontSize: '0.62rem', color: 'rgba(255,255,255,.5)', flexShrink: 0 }}>Forward email → file here:</span>
+      <code style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--gold)' }}>{cmd}</code>
+      <button onClick={copy} style={{ flexShrink: 0, background: 'none', border: '1px solid rgba(255,255,255,.15)', borderRadius: '2px', color: copied ? 'var(--gold)' : 'rgba(255,255,255,.6)', fontSize: '0.6rem', padding: '3px 7px', cursor: 'pointer' }}>{copied ? '✓' : 'Copy'}</button>
+    </div>
+  )
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function MaiaWidget({ embedded = false, associationCode }: { embedded?: boolean; associationCode?: string }) {
+export default function MaiaWidget({ embedded = false, associationCode, upappHint }: { embedded?: boolean; associationCode?: string; upappHint?: { code: string; unit: string } | null }) {
   const router = useRouter()
 
   const [open,       setOpen]       = useState(false)
@@ -844,6 +862,14 @@ export default function MaiaWidget({ embedded = false, associationCode }: { embe
           ✕
         </button>
       </div>
+
+      {/* Forward-to-file shortcut for the application the staff member is
+          currently looking at (set via the "maia:upapp-hint" event from
+          app/admin/pre-apply/[id]/page.tsx — this widget has no page context
+          of its own). Pinned above the body so it's visible in both the
+          persona picker and mid-chat, not buried at the end of a
+          conversation. User direction, 2026-08-21. */}
+      {upappHint && <UpappHintBar code={upappHint.code} unit={upappHint.unit} />}
 
       {/* ── Animated body ── */}
       <div

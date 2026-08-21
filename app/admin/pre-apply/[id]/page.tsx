@@ -92,6 +92,19 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   }, [id])
   useEffect(load, [load])
 
+  // Tells the globally-mounted MAIA widget (components/FloatingWidget.tsx)
+  // which application this page is on, so it can surface the "@maia upapp
+  // <ACCOUNT>" forward-to-file shortcut without a second fetch of its own —
+  // this page already has the association code and unit. Cleared on unmount
+  // so it doesn't survive onto whatever page comes next. User direction,
+  // 2026-08-21.
+  useEffect(() => {
+    if (d?.associationCode && d?.unit) {
+      window.dispatchEvent(new CustomEvent('maia:upapp-hint', { detail: { code: d.associationCode, unit: d.unit } }))
+    }
+    return () => { window.dispatchEvent(new CustomEvent('maia:upapp-hint', { detail: null })) }
+  }, [d?.associationCode, d?.unit])
+
   async function act(action: string, by_role?: string) {
     if ((action === 'decline' || action === 'request') && !note.trim()) { alert('Add a note explaining what’s needed.'); return }
     setBusy(true)
