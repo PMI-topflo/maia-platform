@@ -1,9 +1,29 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-08-16**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-08-20**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
+
+---
+
+## ✅ LIVE — applications pipeline is FULLY AUTOMATIC end-to-end (8 PRs #723–#730 + #731/#732, merged 2026-08-20)
+
+Full detail in `docs/SESSION-HANDOFF.md` (top). Memory: [[application_pipeline_automation]]. **Supersedes the manual-click parts of the per-document board review section immediately below** — the review mechanics (four document states, refusal-requires-reason, etc.) are all still exactly as described there; what changed is that nobody has to click anything to move an application forward anymore.
+
+Status flow: `started → submitted → under_review → approval_sent (NEW) → approved | declined`. Every arrow past the first is now automatic:
+- ✅ **`submitted → under_review`** — the instant every required document is individually approved (`lib/board-review.ts`'s `syncBoardWindow`, shared by both the staff and board decision routes so it can't fire differently depending on who completes it).
+- ✅ **`under_review → approval_sent`** — same instant: `lib/board-decision-letter.ts` creates the board decision letter with default signers and emails whoever isn't already signed. Every board-facing email now CCs `PMI@topfloridaproperties.com` (`BOARD_EMAIL_CC`).
+- ✅ **`approval_sent → approved`** — the instant every signer signs: `lib/board-approve.ts`'s `runBoardApprove` files keeper documents to Official, archives the On-Going folder, then `lib/application-handoff.ts` triggers the screening handoff. Requires a fully-signed letter (added in PR8 — closes a gap where the old manual button could file before the board ever signed).
+- ✅ "Bring into MAIA" **retired** — was the confirmed root cause of empty-shell applications (MANXI 605). Staff creation hardened to require contact info + the required document, with a lease-extraction-or-owner-completion fallback for the case where documents arrive from the owner instead of the tenant (real case: MANXI 110, Susie Bell — see #731 below).
+- ✅ 3-day missing-docs reminder to **every** stakeholder (not just whoever last emailed), gated behind a one-time PMI+Jonathan approval — `/reminder-approval/[token]`, `app/api/cron/missing-docs-reminders`.
+- ✅ Real gap found + fixed in the same pass (PR8): the old manual "Approve" buttons bypassed Drive filing entirely — fixed at the API level, not just the UI.
+- ✅ **#731** — staff can create an application from an owner-forwarded lease with no tenant contact info; MAIA extracts it from the lease PDF or loops in the owner.
+- ✅ **#732** — the public widget's Tenant/Buyer personas now have a real, guaranteed path to `/pre-apply` (previously freeform-chat-only with no reliable association context on the external iframe embed).
+
+⚠️ **Not yet exercised on a real application** — every PR verified against disposable test data (created + cleaned up via direct scripts against the real prod DB) and, for the two public-facing pieces, live in the browser. The Drive-filing code itself is unchanged from the already-proven manual button, but the AUTOMATIC trigger of it has not yet fired on a real approval. Watch the first few real applications go through end-to-end.
+
+The old manual per-document board round and the manual "Mark audited" PATCH action are now vestigial staff escape hatches — intentionally left live, not deleted, not surfaced as primary UI anymore.
 
 ---
 
@@ -360,6 +380,7 @@ See the full entry under "Development backlog" below (kept there since it starte
 (Detail in memory: `roadmap_reconciliation_2026_06_30.md`, `owner_self_service_decisions.md`, `screening_provider_pivot.md`, `voice_plan.md`.)
 
 ## Suggested priority
+0. ⚠️ **Watch the first real application go through the fully-automatic pipeline** (see the top section, 2026-08-20) — `submitted → under_review → approval_sent → approved` with no manual clicks. Every board email now CCs PMI. Confirm Susie Bell / MANXI 110 (#731) went through cleanly.
 1. 🟡 **In-Maia application process, association by association** — VPCI in progress (mockup + PDF built, pending your sign-off), 22 real associations to go. Ownership-date backfill for the eligibility rules is the current bottleneck (manual, BCPA lookups).
 2. ✅ **Checkr integration** — deployed to production 2026-07-06/07 (see section near the top of this doc). Stripe confirmed LIVE 2026-07-13. Next: run one real end-to-end test application to confirm the live-mode path, get Checkr production account authorization.
 3. 🔴 **Final combined application PDF package → Google Drive** — all documents + Checkr reports + signed rules ack + signed approval letter, one download. Needs: target Drive folder/organization, and whether the approval letter becomes a real signed PDF. Upload mechanism already known (`lib/drive-invoice-mirror.ts` pattern).
