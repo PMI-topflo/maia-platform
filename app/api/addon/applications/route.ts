@@ -144,6 +144,32 @@ export async function GET(req: Request) {
     }
   }
 
+  // Owner fallback — an owner forwarding a tenant's documents is a stakeholder
+  // lookup miss just as often as a match: the person is known to MAIA via the
+  // `owners` table (synced from CINC) but was never explicitly ADDED as an
+  // `application_stakeholders` row on this particular application. Found live,
+  // 2026-08-20: MANXI 912's owner (Carmen Robinson, jk.robin17@gmail.com)
+  // emailed in about the unit's lease application and the sidebar showed
+  // nothing — she was never a stakeholder row, only ever in `owners`. Resolve
+  // by email -> unit -> an open application on that unit, same precedence as
+  // the stakeholder path above (open beats decided).
+  if (!applicationId && email) {
+    const { data: ownerRows } = await supabaseAdmin.from('owners')
+      .select('association_code, unit_number, account_number')
+      .ilike('emails', `%${email}%`).or('status.neq.previous,status.is.null').limit(10)
+    for (const o of (ownerRows ?? [])) {
+      const code = String(o.association_code ?? '')
+      const unit = String(o.unit_number ?? '')
+      if (!code || !unit) continue
+      const { data: apps } = await supabaseAdmin.from('listing_applications')
+        .select('id, status, created_at').eq('association_code', code).eq('unit_label', unit)
+        .order('created_at', { ascending: false })
+      const hit = (apps ?? []).find(a => ['started', 'submitted', 'under_review', 'approval_sent'].includes(String(a.status)))
+        ?? (apps ?? [])[0]
+      if (hit) { applicationId = String(hit.id); break }
+    }
+  }
+
   if (!applicationId) return NextResponse.json({ matched: null })
 
   const summary = await loadSummary(applicationId)

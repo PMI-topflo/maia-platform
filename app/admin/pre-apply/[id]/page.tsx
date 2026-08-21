@@ -121,15 +121,27 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
     (d.review?.rows ?? []).find(r => r.scopeKey === (sid ? `${docKey}#${sid}` : docKey)) ?? null
   const scopeKeyOf = (docKey: string, sid: string | null) => sid ? `${docKey}#${sid}` : docKey
   const naFor = (docKey: string, sid: string | null) => naSet.has(docKey) || (!!sid && naSet.has(`${docKey}#${sid}`))
+  // A document row existing is not the same as it being SATISFIED — a refused
+  // document still has a row (it's on file, just sent back), so "no row" alone
+  // undercounted what's actually outstanding. Real case, 2026-08-20: MANXI 912's
+  // Property Insurance was refused ("this is the renters insurance, we need the
+  // property insurance from the owner") but never showed as missing here, so it
+  // never got pre-ticked in the request panel and the refusal reason never went
+  // back out to the owner.
+  const isRefused = (docKey: string, sid: string | null) => reviewFor(docKey, sid)?.state === 'refused'
+  const notSatisfied = (docKey: string, sid: string | null) => (!docFor(docKey, sid) || isRefused(docKey, sid)) && !naFor(docKey, sid)
   // Missing required: shared items + each applicant's per-person items (minus N/A).
   const missing = [
-    ...sharedItems.filter(c => c.required && !docFor(c.doc_key, null) && !naFor(c.doc_key, null)),
-    ...(applicants.length ? perApplicantItems.flatMap(c => c.required ? applicants.filter(a => !docFor(c.doc_key, a.id) && !naFor(c.doc_key, a.id)).map(a => ({ label: `${c.label} — ${a.name ?? 'applicant'}` })) : []) : perApplicantItems.filter(c => c.required).map(c => ({ label: c.label }))),
+    ...sharedItems.filter(c => c.required && notSatisfied(c.doc_key, null)),
+    ...(applicants.length ? perApplicantItems.flatMap(c => c.required ? applicants.filter(a => notSatisfied(c.doc_key, a.id)).map(a => ({ label: `${c.label} — ${a.name ?? 'applicant'}` })) : []) : perApplicantItems.filter(c => c.required).map(c => ({ label: c.label }))),
   ]
   // What staff can request from owner/tenant (one row per checklist item).
   const isMissing = (c: Detail['checklist'][number]) => c.per_applicant
-    ? (applicants.length === 0 || applicants.some(a => !docFor(c.doc_key, a.id) && !naFor(c.doc_key, a.id)))
-    : (!docFor(c.doc_key, null) && !naFor(c.doc_key, null))
+    ? (applicants.length === 0 || applicants.some(a => notSatisfied(c.doc_key, a.id)))
+    : notSatisfied(c.doc_key, null)
+  const isAnyRefused = (c: Detail['checklist'][number]) => c.per_applicant
+    ? applicants.some(a => isRefused(c.doc_key, a.id))
+    : isRefused(c.doc_key, null)
   // Ask the OWNER who is moving in. This must be offerable when the roster is
   // EMPTY — that's the case that needs it most. It used to require an applicant
   // to already exist, so on a unit with nobody on the roster the one item that
@@ -152,8 +164,8 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
     return 'Tenant names, emails & phone numbers'
   })()
   const requestItems = [
-    { doc_key: 'tenant_contact_info', label: rosterLabel, provided_by: 'landlord', missing: rosterMissing },
-    ...d.checklist.map(c => ({ doc_key: c.doc_key, label: c.label, provided_by: c.provided_by, missing: c.required && isMissing(c) })),
+    { doc_key: 'tenant_contact_info', label: rosterLabel, provided_by: 'landlord', missing: rosterMissing, refused: false },
+    ...d.checklist.map(c => ({ doc_key: c.doc_key, label: c.label, provided_by: c.provided_by, missing: c.required && isMissing(c), refused: isAnyRefused(c) })),
   ]
   // Only documents that belong to THIS application's checklist can raise the
   // expired alarm. Files the Drive scan pulled in that aren't part of this
@@ -316,6 +328,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
       {!decided && <RulesAckSender id={id} />}
       {!decided && <PetRegSender id={id} />}
+      {!decided && <TenantEvalSender id={id} />}
       <CommunicationsLog id={id} unit={d.unit} associationCode={d.associationCode} />
 
       {/* Shared documents — one for the whole unit / application. */}
@@ -342,7 +355,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           ) : (() => {
             const activeId = applicants.some(a => a.id === activeApplicant) ? activeApplicant! : applicants[0].id
             const a = applicants.find(x => x.id === activeId)!
-            const missingCount = (sid: string) => perApplicantItems.filter(c => c.required && !docFor(c.doc_key, sid) && !naFor(c.doc_key, sid)).length
+            const missingCount = (sid: string) => perApplicantItems.filter(c => c.required && notSatisfied(c.doc_key, sid)).length
             return (
               <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
                 {/* Applicant tabs */}
@@ -559,6 +572,49 @@ interface PetRegInfo {
   blockers: string[]
   existing: { id: string; status: string; createdAt: string; signers: { role: string; name?: string | null; signed_at?: string }[] } | null
 }
+function TenantEvalSender({ id }: { id: string }) {
+  interface Info { recipients: { name: string | null; email: string | null }[]; skipped: string[]; propertyCode: string | null; blockers: string[] }
+  const [info, setInfo] = useState<Info | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState<{ sent: string[]; failed: string[] } | null>(null)
+  const load = useCallback(() => { fetch(`/api/admin/pre-apply/${id}/tenant-evaluation`, { credentials: 'include' }).then(r => r.json()).then(setInfo).catch(() => setInfo(null)) }, [id])
+  useEffect(load, [load])
+  // No guide configured for this association at all — nothing useful to
+  // offer, so the card doesn't take up space saying so on every application.
+  if (!info || (info.blockers.length === 1 && info.blockers[0].startsWith('No Tenant Evaluation guide'))) return null
+
+  async function send() {
+    setBusy(true); setSent(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/tenant-evaluation`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setSent({ sent: j.sent, failed: j.failed }); load()
+    } catch (e) { alert(`Could not send: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ margin: '4px 0 14px', border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 10, padding: 12 }}>
+      <div style={{ font: '700 13px system-ui', color: '#1e40af', marginBottom: 4 }}>🔎 Background / Credit Reports — ask them to apply <span style={{ font: '400 11.5px system-ui', color: '#9ca3af' }}>· via Tenant Evaluation</span></div>
+      {info.blockers.length > 0 && !info.recipients.length ? (
+        <div style={{ font: '12.5px system-ui', color: '#92400e' }}>{info.blockers.map((b, i) => <div key={i}>⚠ {b}</div>)}</div>
+      ) : (
+        <>
+          <div style={{ font: '12.5px system-ui', color: '#4b5563', marginBottom: 8 }}>
+            Emails {info.recipients.map(r => r.name ?? r.email).join(', ')} the step-by-step guide (property code {info.propertyCode}) to create their own Tenant Evaluation account and submit their background check — this is separate from uploading the finished report below.
+            {info.skipped.length > 0 && <> Not sent to {info.skipped.join(', ')} — no email on file.</>}
+          </div>
+          <button onClick={send} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#1d4ed8', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
+            {busy ? 'Sending…' : `🔎 Send Tenant Evaluation guide (${info.recipients.length})`}
+          </button>
+        </>
+      )}
+      {sent && <div style={{ marginTop: 6, font: '12px system-ui', color: sent.sent.length ? '#166534' : '#b91c1c' }}>
+        {sent.sent.length > 0 && `✓ Sent to ${sent.sent.join(', ')}`}{sent.failed.length > 0 && ` · could not send to ${sent.failed.join(', ')}`}
+      </div>}
+    </div>
+  )
+}
+
 function PetRegSender({ id }: { id: string }) {
   const [info, setInfo] = useState<PetRegInfo | null>(null)
   const [busy, setBusy] = useState(false)
@@ -1364,7 +1420,7 @@ function CreditScore({ id, stakeholderId, name, score, decided, onDone }: { id: 
 // Request specific documents from the owner and/or tenant — tick items, tag each
 // Owner / Tenant / Both, and MAIA emails each recipient their list + an upload
 // link (the standard PMI email). Uploads file straight back onto the application.
-function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAgent, applicantAgent, onDone, preselect, onPreselectHandled }: { id: string; items: { doc_key: string; label: string; provided_by: string; missing: boolean }[]; ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null; listingAgent?: { name: string | null; email: string | null } | null; applicantAgent?: { name: string | null; email: string | null } | null; onDone: () => void; preselect?: { doc_key: string; label: string } | null; onPreselectHandled?: () => void }) {
+function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAgent, applicantAgent, onDone, preselect, onPreselectHandled }: { id: string; items: { doc_key: string; label: string; provided_by: string; missing: boolean; refused: boolean }[]; ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null; listingAgent?: { name: string | null; email: string | null } | null; applicantAgent?: { name: string | null; email: string | null } | null; onDone: () => void; preselect?: { doc_key: string; label: string } | null; onPreselectHandled?: () => void }) {
   const [open, setOpen] = useState(false)
   type Rec = 'owner' | 'tenant' | 'both'
   const [state, setState] = useState<Record<string, { on: boolean; rec: Rec }>>(() =>
@@ -1499,7 +1555,7 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAg
           <div key={it.doc_key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', height: 42, borderTop: i ? '1px solid #f3f4f6' : 'none', opacity: staffOnly ? 0.7 : 1 }}>
             <input type="checkbox" disabled={staffOnly} checked={!staffOnly && !!state[it.doc_key]?.on} onChange={e => setState(s => ({ ...s, [it.doc_key]: { ...s[it.doc_key], on: e.target.checked } }))} style={{ width: 16, height: 16, flexShrink: 0 }} />
             <span title={it.label} style={{ flex: 1, minWidth: 0, font: '600 13.5px system-ui', color: '#1f2937', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {it.label}{it.missing && <span style={{ font: '600 11px system-ui', color: '#b45309', marginLeft: 6 }}>missing</span>}
+              {it.label}{it.refused && <span style={{ font: '600 11px system-ui', color: '#b42318', marginLeft: 6 }}>refused</span>}{it.missing && !it.refused && <span style={{ font: '600 11px system-ui', color: '#b45309', marginLeft: 6 }}>missing</span>}
             </span>
             {/* A form MAIA generates has no "who uploads it" — it goes to the
                 person who signs it. Showing the Owner/Tenant/Both control here
