@@ -123,7 +123,7 @@ export async function sendDocumentRequestEmails(requestId: string, opts?: { only
 
   if (opts?.only !== 'tenant' && ownerToken && ownerEmails.length && ownerItems.length) {
     await sendEmail({ to: ownerEmails, cc: ownerAgentCc.length ? ownerAgentCc : undefined, replyTo: SUPPORT, subject,
-      html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
+      html: renderMaiaEmail({ associationName: legal, associationCode: code, unit, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
         items: ownerItems.map(i => decorate(i, i.recipient === 'both' ? 'You + Tenant' : 'You')), onFile,
         alsoRequested: tenantItems.length ? { who: 'the tenant', items: tenantItems.map(i => i.label) } : null,
         ctaUrl: `${APP}/request/${ownerToken}`, footerReason: `You're receiving this as the owner of ${unit ? `Unit ${unit}` : 'this unit'}.` }),
@@ -132,7 +132,7 @@ export async function sendDocumentRequestEmails(requestId: string, opts?: { only
 
   if (opts?.only !== 'owner' && tenantToken && tenantEmails.length && tenantItems.length) {
     await sendEmail({ to: tenantEmails, cc: tenantAgentCc.length ? tenantAgentCc : undefined, replyTo: SUPPORT, subject,
-      html: renderMaiaEmail({ associationName: legal, associationCode: code, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
+      html: renderMaiaEmail({ associationName: legal, associationCode: code, unit, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
         items: tenantItems.map(i => decorate(i, i.recipient === 'both' ? 'You + Owner' : 'You')), onFile,
         alsoRequested: ownerItems.length ? { who: 'the owner', items: ownerItems.map(i => i.label) } : null,
         ctaUrl: `${APP}/request/${tenantToken}`, footerReason: `You're receiving this because you're on the application for ${unit ? `Unit ${unit}` : 'this unit'}.` }),

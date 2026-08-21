@@ -14,6 +14,11 @@ const SUPPORT = 'support@topfloridaproperties.com'
 export interface MaiaEmailCtx {
   associationName: string                 // legal name, e.g. "The Manors of Inverrary XI Association, Inc."
   associationCode?: string | null
+  /** Bare unit number (NOT the full address) — with associationCode, builds
+   *  the "@maia upapp <ACCOUNT>" forward-to-file shortcut in the footer.
+   *  Same tag app/admin/pre-apply/[id]'s CommunicationsLog and the
+   *  /request/[token] card already show — one more place to find it. */
+  unit?: string | null
   propertyAddress: string | null          // full unit address
   applicantNames: string[]
   applicationType?: string | null         // human label, e.g. "Lease Renewal"
@@ -80,6 +85,10 @@ export function renderMaiaEmail(c: MaiaEmailCtx): string {
         <b style="color:#3f4756">PMI Top Florida Properties</b> — for ${esc(c.associationName)}.<br>
         Questions? Reply to this email or contact <a href="mailto:${SUPPORT}" style="color:#c0571a">${SUPPORT}</a>.${c.footerReason ? `<br>${esc(c.footerReason)}` : ''}
       </div>
+      ${c.associationCode && c.unit ? `<div style="margin-top:14px;border:1px solid #e7e2d9;border-radius:10px;background:#faf8f4;padding:12px 14px;font-size:12px;color:#3f4756;line-height:1.5">
+        Prefer to just forward an email instead? Send it to <b>maia@pmitop.com</b> with this line in the body, and it's filed automatically:<br>
+        <code style="display:inline-block;margin-top:6px;background:#eef2ff;color:#3730a3;padding:6px 10px;border-radius:6px;font:600 12px ui-monospace,monospace">@maia upapp ${esc(c.associationCode)}${esc(c.unit)}</code>
+      </div>` : ''}
     </div>
   </div>`
 }

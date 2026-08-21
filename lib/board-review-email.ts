@@ -80,7 +80,7 @@ export async function sendReviewRound(roundId: string): Promise<{ sent: boolean;
 
   const link = `${APP}/board-review/${round.token}`
   const html = renderMaiaEmail({
-    associationName: c.legal, associationCode: c.code, propertyAddress: c.address,
+    associationName: c.legal, associationCode: c.code, unit: c.unit, propertyAddress: c.address,
     applicantNames: c.applicants, applicationType: c.typeLabel,
     heading: `Documents to review — ${c.unit ? `Unit ${c.unit}` : c.legal}`,
     intro: `${(round.note as string | null)?.trim() || `${c.applicants.join(' and ') || 'The applicant'} applied for a ${c.typeLabel.toLowerCase()}. Please review each document below and approve it, or refuse it with a short reason the applicant will read.`}\n\nAny one of you can settle a document — a board member or the on-site manager. ${boardWindowSentence(state.windowDays)}`,

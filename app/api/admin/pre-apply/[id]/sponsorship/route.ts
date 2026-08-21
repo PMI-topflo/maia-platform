@@ -82,7 +82,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       to: [String(c.lease.tenantEmail)], replyTo: SUPPORT,
       subject: `Adding an occupant to your unit — ${c.unit ? `Unit ${c.unit}` : c.legal}`,
       html: renderMaiaEmail({
-        associationName: c.legal, associationCode: c.code, propertyAddress: c.address,
+        associationName: c.legal, associationCode: c.code, unit: c.unit, propertyAddress: c.address,
         applicantNames: [c.occupantName], applicationType: 'Additional Occupant',
         heading: 'Please confirm this occupant',
         intro: `${c.occupantName} has been put forward as an additional occupant of your unit. Before the Board reviews it, we need you to confirm you are asking for them to be added — and to give us their OWN email address and phone number.\n\nTheir email must be different from yours: MAIA sends them their own forms to sign, and a signature has to be verified against the signer's own mailbox.`,
