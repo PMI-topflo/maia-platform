@@ -16,6 +16,7 @@ import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendDocumentRequestEmails, splitEmails } from '@/lib/document-request-email'
 import { isEsignItem, sendEsignFormsForItems, ESIGN_CHECKLIST_ITEMS } from '@/lib/application-esign-forms'
+import { sendLeasePacket } from '@/lib/lease-packet'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -47,9 +48,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const staffOnlyKeys = new Set((staffOnlyRows ?? []).map(r => String(r.doc_key)))
   const askable = items.filter(i => !staffOnlyKeys.has(i.doc_key))
 
-  // Forms MAIA generates go out as the form; the rest as an upload request.
+  // Forms MAIA generates go out as the form; the Landlord–Tenant Agreement is
+  // its OWN e-signed packet (owner + tenant both sign, lib/lease-packet.ts —
+  // a unit-level record, not the generic single-kind esign_documents flow the
+  // other forms use); everything else goes out as an upload request.
+  //
+  // landlord_tenant_agreement used to fall into `uploadItems` by default
+  // (isEsignItem() only ever covered the generic-form 3), which sent owners
+  // and tenants an "upload this" link for a document nobody could ever
+  // produce a file for — found live, 2026-08-21, MANXI 912: asked three
+  // times across three separate requests since 2026-08-19, never once
+  // fulfillable.
   const formItems = askable.filter(i => isEsignItem(i.doc_key))
-  const uploadItems = askable.filter(i => !isEsignItem(i.doc_key))
+  const packetItems = askable.filter(i => i.doc_key === 'landlord_tenant_agreement')
+  const uploadItems = askable.filter(i => !isEsignItem(i.doc_key) && i.doc_key !== 'landlord_tenant_agreement')
 
   const { data: app } = await supabaseAdmin.from('listing_applications')
     .select('id, association_code, unit_label, application_type').eq('id', id).maybeSingle()
@@ -58,10 +70,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const unit = (app.unit_label as string | null) ?? null
 
   const [{ data: applicants }, { data: owners }, { data: tenant }] = await Promise.all([
-    supabaseAdmin.from('application_stakeholders').select('email, is_primary').eq('application_id', id).eq('role', 'applicant').order('is_primary', { ascending: false }),
+    supabaseAdmin.from('application_stakeholders').select('name, email, phone, is_primary').eq('application_id', id).eq('role', 'applicant').order('is_primary', { ascending: false }),
     supabaseAdmin.from('owners').select('emails, unit_number, account_number, status').eq('association_code', code).or('status.neq.previous,status.is.null'),
     supabaseAdmin.from('unit_tenant_contacts').select('tenant_email').eq('association_code', code).eq('unit_ref', unit ?? '').maybeSingle(),
   ])
+
+  // Same source the request panel already resolves the tenant's upload link
+  // from — passed through as the packet's tenant override so a brand-new
+  // lease's tenant (known to `application_stakeholders`, not yet synced to
+  // `unit_tenant_contacts`) actually gets invited, not just the owner.
+  const primaryApplicant = (applicants ?? []).find(a => a.is_primary) ?? (applicants ?? [])[0]
+  const packet = packetItems.length && unit
+    ? await sendLeasePacket(code, unit, `staff:${session.displayName}`, {
+        name: (primaryApplicant?.name as string | null) ?? null,
+        email: (primaryApplicant?.email as string | null) ?? null,
+        phone: (primaryApplicant?.phone as string | null) ?? null,
+      })
+    : null
 
   // Owner emails: a staff override wins; else EVERY email on the matched owner
   // record (owners often carry several — don't silently pick just the first).
@@ -91,12 +116,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   // Nothing left to upload: no request row, and no email telling somebody to
   // upload nothing.
+  const packetWarning = packet && !packet.ok ? [`Landlord–Tenant Agreement was not sent — ${packet.error}.`]
+    : packet && packet.skipped.length ? packet.skipped.map(s => `Landlord–Tenant Agreement: ${s}.`)
+    : []
+
   if (uploadItems.length === 0) {
     return NextResponse.json({
       ok: true, requestId: null,
       ownerEmail: null, tenantEmail: null, sentOwner: false, sentTenant: false, tenantHeld: false,
       formsSent: forms.sent.map(f => ({ noun: ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey, name: f.name, email: f.email })),
-      warnings: forms.failed.map(f => `${ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey} was not sent — ${f.reason}.`),
+      packetSent: packet && packet.ok ? packet.sent : [],
+      warnings: [...forms.failed.map(f => `${ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey} was not sent — ${f.reason}.`), ...packetWarning],
     })
   }
 
@@ -114,10 +144,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     ownerEmail: ownerToken ? ownerEmails.join(', ') : null, tenantEmail: tenantToken ? tenantEmails.join(', ') : null,
     sentOwner, sentTenant, tenantHeld,
     formsSent: forms.sent.map(f => ({ noun: ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey, name: f.name, email: f.email })),
+    packetSent: packet && packet.ok ? packet.sent : [],
     warnings: [
       ownerItems.length && !ownerEmails.length ? 'No owner email on file — owner items were not sent.' : null,
       tenantItems.length && !tenantEmails.length && !askingForRoster ? 'No tenant email on file — tenant items were not sent. Tick “Tenant names, emails & phone numbers” and send it to the owner to collect them.' : null,
       ...forms.failed.map(f => `${ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey} was not sent — ${f.reason}.`),
+      ...packetWarning,
     ].filter(Boolean),
   })
 }

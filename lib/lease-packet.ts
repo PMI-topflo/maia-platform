@@ -9,9 +9,117 @@
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { sendEmail } from '@/lib/gmail'
 import type { LeasePacketAgreementProps } from '@/lib/lease-packet-pdf'
-import type { LeasePacketRole } from '@/lib/lease-packet-token'
+import { signLeasePacketToken, type LeasePacketRole } from '@/lib/lease-packet-token'
 import type { RoleVerification } from '@/lib/lease-packet-verify'
+
+const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
+const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
+const firstEmail = (e: string | null) => (e ?? '').split(/[,;\s]+/).map(s => s.trim()).find(x => x.includes('@')) ?? null
+const firstNonEmpty = (...vals: (string | null | undefined)[]) => vals.map(v => (v ?? '').trim()).find(Boolean) ?? null
+
+function composeAddress(a: { street: string | null; unit: string | null; city: string | null; state: string | null; zip: string | null }): string | null {
+  const street = (a.street ?? '').trim()
+  const unit = (a.unit ?? '').trim()
+  const line1 = [street, unit && !new RegExp(`\\b(unit|apt|#)\\s*${unit}\\b`, 'i').test(street) ? `Unit ${unit}` : '']
+    .filter(Boolean).join(', ')
+  const cityState = [(a.city ?? '').trim(), [(a.state ?? '').trim(), (a.zip ?? '').trim()].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+  const full = [line1, cityState].filter(Boolean).join(', ')
+  return full.trim() ? full : null
+}
+
+function inviteHtml(role: LeasePacketRole, opts: { name: string | null; legal: string; unit: string; link: string }): { subject: string; html: string } {
+  const who = role === 'owner' ? 'Unit Owner / Landlord' : 'Tenant'
+  const subject = `Please e-sign the Landlord–Tenant Agreement — Unit ${opts.unit}`
+  const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
+    <p>Hello${opts.name ? ` ${esc(opts.name)}` : ''},</p>
+    <p>${esc(opts.legal)} requires the Landlord–Tenant Acknowledgment &amp; Agreement to be signed for <strong>Unit ${esc(opts.unit)}</strong>. You are signing as the <strong>${who}</strong>.</p>
+    <p>Please review the full document and sign electronically — it only takes a minute:</p>
+    <p style="margin:22px 0"><a href="${opts.link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Review &amp; e-sign →</a></p>
+    <p style="color:#6b7280;font-size:12px">No account needed. This link is specific to you.</p>
+    <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p>
+  </div>`
+  return { subject, html }
+}
+
+/** Create a lease packet for a leased unit and email the owner AND the
+ *  tenant their login-free e-signature links for the Landlord–Tenant
+ *  Agreement. Extracted from app/api/units/lease-packet/send/route.ts (the
+ *  units-portal "Send" button) so a second caller — the applications
+ *  request-docs flow, which used to wrongly ask for this as an UPLOAD (see
+ *  lib/application-esign-forms.ts) — triggers the exact same send instead
+ *  of a parallel, possibly-diverging one. Reads the owner/tenant off
+ *  `owners` / `unit_tenant_contacts`, same as the units-portal button — the
+ *  packet is a unit-level record, not an application-level one. */
+export async function sendLeasePacket(
+  associationCode: string, account: string, createdBy: string,
+  // A brand-new lease's tenant is often on `application_stakeholders` (the
+  // roster the applicant filled in) well before `unit_tenant_contacts` has
+  // ever heard of them — that table tracks an ESTABLISHED tenancy, synced
+  // separately. Without this override the packet would silently find only
+  // the owner and never invite the tenant. Owner intentionally has no such
+  // override: `owners` is the one authoritative source for who owns a unit,
+  // application context or not.
+  tenantOverride?: { name?: string | null; email?: string | null; phone?: string | null } | null,
+): Promise<
+  { ok: true; packetId: string; sent: string[]; skipped: string[] } | { ok: false; error: string }
+> {
+  // `account` may arrive as the bare unit number (an application only ever
+  // knows unit_label) or the true account_number (what the units portal
+  // passes) — VPCI-style accounts carry a building letter unit_label alone
+  // can't reproduce, so this can't just concatenate associationCode+unit and
+  // call it done. Match either form against owners; unit_tenant_contacts'
+  // own unit_ref has shown up in both shapes too (confirmed live: MANXI 912
+  // stores it as the full account number), so the same two-way match applies
+  // there.
+  const accountGuess = `${associationCode}${account}`.toUpperCase()
+  const [{ data: owner }, { data: tenant }, { data: assoc }] = await Promise.all([
+    supabaseAdmin.from('owners').select('first_name, last_name, entity_name, emails, phone, phone_e164, unit_number')
+      .eq('association_code', associationCode)
+      .or(`unit_number.eq.${account},account_number.eq.${account},account_number.eq.${accountGuess}`)
+      .or('status.neq.previous,status.is.null').maybeSingle(),
+    supabaseAdmin.from('unit_tenant_contacts').select('tenant_name, tenant_email, tenant_phone, lease_start, lease_end')
+      .eq('association_code', associationCode).or(`unit_ref.eq.${account},unit_ref.eq.${accountGuess}`).maybeSingle(),
+    supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', associationCode).maybeSingle(),
+  ])
+
+  const legal = (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || associationCode
+  const ownerName = (owner?.entity_name as string | null) || [owner?.first_name, owner?.last_name].filter(Boolean).join(' ').trim() || null
+  const ownerEmail = firstEmail((owner?.emails as string | null) ?? null)
+  const ownerMobile = firstNonEmpty((owner?.phone as string | null), (owner?.phone_e164 as string | null))
+  const tenantName = firstNonEmpty(tenantOverride?.name, tenant?.tenant_name as string | null)
+  const tenantEmail = firstEmail(tenantOverride?.email ?? (tenant?.tenant_email as string | null) ?? null)
+  const tenantMobile = firstNonEmpty(tenantOverride?.phone, tenant?.tenant_phone as string | null)
+  const unitLabel = (owner?.unit_number as string | null) || account
+  const propertyAddress = composeAddress({
+    street: (assoc?.principal_address as string | null) ?? null, unit: unitLabel,
+    city: (assoc?.city as string | null) ?? null, state: (assoc?.state as string | null) ?? null, zip: (assoc?.zip as string | null) ?? null,
+  })
+
+  if (!ownerEmail && !tenantEmail) return { ok: false, error: 'No owner or tenant email on file — add one first.' }
+
+  const { data: created, error } = await supabaseAdmin.from('lease_packets').insert({
+    association_code: associationCode, unit_ref: account, unit_number: unitLabel,
+    association_legal_name: legal, owner_name: ownerName, owner_email: ownerEmail, owner_mobile: ownerMobile,
+    tenant_name: tenantName, tenant_email: tenantEmail, tenant_mobile: tenantMobile,
+    property_address: propertyAddress,
+    lease_start: (tenant?.lease_start as string | null) ?? null, lease_end: (tenant?.lease_end as string | null) ?? null,
+    effective_date: new Date().toISOString().slice(0, 10), status: 'sent', created_by: createdBy,
+  }).select('id').single()
+  if (error || !created) return { ok: false, error: `Could not create packet: ${error?.message ?? 'unknown'}` }
+
+  const sent: string[] = [], skipped: string[] = []
+  for (const [role, name, email] of [['owner', ownerName, ownerEmail], ['tenant', tenantName, tenantEmail]] as [LeasePacketRole, string | null, string | null][]) {
+    if (!email) { skipped.push(`${role} (no email)`); continue }
+    const link = `${APP}/lease-packet/${await signLeasePacketToken(created.id, role)}`
+    const { subject, html } = inviteHtml(role, { name, legal, unit: unitLabel, link })
+    try { await sendEmail({ to: email, subject, html }); sent.push(`${role} → ${email}`) }
+    catch (e) { skipped.push(`${role} (send failed: ${e instanceof Error ? e.message : 'error'})`) }
+  }
+
+  return { ok: true, packetId: String(created.id), sent, skipped }
+}
 
 export interface LeasePacketRow {
   id: string

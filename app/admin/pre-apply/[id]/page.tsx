@@ -43,7 +43,11 @@ const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase
 // never something anybody can upload. Kept in step with the authoritative list
 // in lib/application-esign-forms.ts, which is what actually sends them; this
 // copy exists so the client bundle doesn't pull in the server-only module.
-const ESIGN_ITEM_KEYS = new Set(['governing_docs_ack', 'pet_registration', 'emergency_contact'])
+// landlord_tenant_agreement is its OWN e-signed packet (lib/lease-packet.ts,
+// owner + tenant both sign), not the generic single-kind form the other
+// three use — but staff-facing, it's the same story: MAIA sends it, there
+// is no upload button, no Owner/Tenant/Both to pick.
+const ESIGN_ITEM_KEYS = new Set(['governing_docs_ack', 'pet_registration', 'emergency_contact', 'landlord_tenant_agreement'])
 const fmt = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '—'
 
 export default function PreApplyDetail({ params }: { params: Promise<{ id: string }> }) {
@@ -1513,8 +1517,10 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAg
       const formLine = forms.length
         ? `\n\nSent for signature:\n${forms.map(f => `  · ${f.noun} → ${f.name ?? f.email}`).join('\n')}`
         : ''
+      const packetSent = (j.packetSent ?? []) as string[]
+      const packetLine = packetSent.length ? `\n\nLandlord–Tenant Agreement — sent to sign:\n${packetSent.map(s => `  · ${s}`).join('\n')}` : ''
       const uploadLine = parts.length ? `Sent the request + upload link to ${parts.join(' and ')}.` : ''
-      const summary = `${uploadLine}${formLine}${held}${j.warnings?.length ? '\n\n' + j.warnings.join('\n') : ''}`.trim()
+      const summary = `${uploadLine}${formLine}${packetLine}${held}${j.warnings?.length ? '\n\n' + j.warnings.join('\n') : ''}`.trim()
       alert(summary || 'Nothing was sent.')
       setOpen(false); onDone()
     } catch (e) { alert(`Could not send: ${(e as Error).message}`) } finally { setBusy(false) }

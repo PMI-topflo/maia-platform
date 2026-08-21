@@ -89,7 +89,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     // it is one named person, and what we need is THEIR OWN email.
     applicationType: (appRow?.application_type as string | null) ?? null,
     people,
-    items: r.mine.map(i => {
+    // landlord_tenant_agreement is never an upload — MAIA sends its own
+    // e-signed packet for it (lib/lease-packet.ts, request-docs/route.ts).
+    // Filtered defensively here too (not just at request-creation time) so
+    // an OLDER document_requests row, saved before this doc_key was
+    // excluded there, doesn't keep showing an Upload button nobody could
+    // ever satisfy. Still shown if a file somehow already exists for it, so
+    // a genuinely-completed item never disappears.
+    items: r.mine.filter(i => i.doc_key !== 'landlord_tenant_agreement' || have.has(i.doc_key)).map(i => {
       if (i.doc_key === 'tenant_contact_info') return { doc_key: i.doc_key, label: i.label, kind: 'contact' as const, uploaded: contactDone }
       if (i.doc_key === DECLARE_VEHICLE) return { doc_key: i.doc_key, label: i.label, kind: 'declare' as const, declareKey: 'vehicle' as const, uploaded: typeof declarations.vehicle?.has === 'boolean', has: declarations.vehicle?.has ?? null }
       if (i.doc_key === DECLARE_ANIMAL) return { doc_key: i.doc_key, label: i.label, kind: 'declare' as const, declareKey: 'animal' as const, uploaded: typeof declarations.animal?.has === 'boolean', has: declarations.animal?.has ?? null, animalKind: declarations.animal?.kind ?? null }
