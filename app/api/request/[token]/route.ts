@@ -84,7 +84,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const templateUrlByPath = await signTemplateUrls(checklist.filter(c => r.mine.some(i => i.doc_key === c.doc_key)))
 
   return NextResponse.json({
-    associationName: legal, propertyAddress: address, unit,
+    associationName: legal, associationCode: r.req.association_code, propertyAddress: address, unit,
     role: r.role, message: r.req.message ?? null,
     note: (r.role === 'owner' ? r.req.owner_note : r.req.tenant_note) as string | null ?? null,
     tenantName: people[0]?.name || null,
