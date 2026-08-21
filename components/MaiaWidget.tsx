@@ -14,11 +14,19 @@ type Phase =
 type Persona = 'homeowner' | 'tenant' | 'buyer' | 'agent' | 'vendor' | 'board' | 'title'
 type Lang = 'en' | 'es' | 'pt' | 'fr' | 'ht' | 'he' | 'ru'
 
+interface QuickLinkResult { draftText: string; uploadLink: string | null; nothingOutstanding: boolean }
 interface Msg {
   id: string
   role: 'user' | 'assistant'
   content: string
   feedback?: 'positive' | 'negative'
+  /** Staff typed an association + unit — instead of a normal AI reply, this
+   *  message offers a "Create a link" button (draftStandardReply, the same
+   *  function the Gmail add-on's draft-reply already calls). User direction,
+   *  2026-08-21: "when I say the name of the association and number in the
+   *  widget, a button - create a link - I will copy and paste in the email
+   *  response." Staff-only: gated on sessionUser.persona === 'staff'. */
+  quickLink?: { code: string; unit: string; status: 'idle' | 'busy' | 'done' | 'error'; result?: QuickLinkResult; error?: string }
 }
 
 
@@ -356,6 +364,73 @@ const S = {
   } as React.CSSProperties,
 }
 
+// Staff typing just "MANXI 303" or "Manors XI unit 303" — short, deliberate,
+// association + unit and nothing else — triggers the quick-link button
+// instead of a normal AI reply. Guarded on message LENGTH (not just
+// content) so a genuine question that happens to mention an association
+// and a number ("how many days left on the 30-day window for MANXI?")
+// doesn't misfire into a button when an actual answer was wanted.
+function detectQuickLink(text: string, assocs: { code: string; name: string }[]): { code: string; unit: string } | null {
+  const trimmed = text.trim()
+  if (!trimmed || trimmed.length > 40 || !assocs.length) return null
+  const numMatch = trimmed.match(/(?:unit|apt|#)?\s*#?(\d{1,6})\s*$/i) ?? trimmed.match(/\b(\d{1,6})\b/)
+  if (!numMatch) return null
+  const unit = numMatch[1]
+  for (const a of assocs) {
+    if (new RegExp(`\\b${a.code}\\b`, 'i').test(trimmed)) return { code: a.code, unit }
+  }
+  const lower = trimmed.toLowerCase()
+  const STOP = new Set(['condominium', 'association', 'the', 'unit', 'apt'])
+  for (const a of assocs) {
+    const words = a.name.split(/\W+/).filter(w => w.length >= 5 && !STOP.has(w.toLowerCase()))
+    if (words.some(w => lower.includes(w.toLowerCase()))) return { code: a.code, unit }
+  }
+  return null
+}
+
+// The button (and result) offered when detectQuickLink recognizes a staff
+// message as "association + unit". Calls
+// /api/admin/pre-apply/quick-link -> draftStandardReply() under the hood —
+// the same function the Gmail add-on's draft-reply button already uses.
+// Nothing is emailed; the draft text (with the upload link inside it) is
+// shown for staff to copy into their own reply. User direction, 2026-08-21.
+function QuickLinkPanel({ quickLink, onCreate }: {
+  quickLink: { code: string; unit: string; status: 'idle' | 'busy' | 'done' | 'error'; result?: QuickLinkResult; error?: string }
+  onCreate: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+  async function copy(text: string) {
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1800) } catch { /* clipboard unavailable */ }
+  }
+  if (quickLink.status === 'idle') {
+    return (
+      <button onClick={onCreate} style={{ marginTop: '4px', cursor: 'pointer', background: 'var(--gold)', border: 'none', borderRadius: '6px', color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: '0.78rem', padding: '7px 14px' }}>
+        📨 Create a link
+      </button>
+    )
+  }
+  if (quickLink.status === 'busy') {
+    return <div style={{ marginTop: '4px', fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>Working…</div>
+  }
+  if (quickLink.status === 'error') {
+    return <div style={{ marginTop: '4px', fontSize: '0.75rem', color: '#b91c1c' }}>{quickLink.error}</div>
+  }
+  const r = quickLink.result
+  if (!r) return null
+  if (r.nothingOutstanding) {
+    return <div style={{ marginTop: '4px', fontSize: '0.78rem', color: 'var(--muted)' }}>Nothing outstanding — everything required is already on file.</div>
+  }
+  return (
+    <div style={{ marginTop: '6px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--card)', padding: '9px 10px', maxWidth: '86%' }}>
+      <div style={{ fontSize: '0.62rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '.04em' }}>Ready to paste into your reply</div>
+      <div style={{ fontSize: '0.78rem', color: 'var(--navy)', whiteSpace: 'pre-wrap', lineHeight: 1.5, maxHeight: '160px', overflowY: 'auto' }}>{r.draftText}</div>
+      <button onClick={() => copy(r.draftText)} style={{ marginTop: '7px', cursor: 'pointer', background: copied ? '#166534' : 'var(--gold)', border: 'none', borderRadius: '6px', color: '#fff', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: '0.75rem', padding: '6px 13px' }}>
+        {copied ? '✓ Copied' : 'Copy'}
+      </button>
+    </div>
+  )
+}
+
 // Same "@maia upapp <ACCOUNT>" tag app/admin/pre-apply/[id]'s
 // CommunicationsLog and the /request/[token] card already show — a third
 // place to find it, this time inside the chat panel itself.
@@ -444,6 +519,18 @@ export default function MaiaWidget({ embedded = false, associationCode, upappHin
     return () => { live = false }
   }, [])
 
+  // Staff-only: known association codes, so a typed message like "Manors XI
+  // 303" or "MANXI 303" can be recognized and offered a "Create a link"
+  // button instead of going through the AI chat loop. Fetched once staff
+  // is confirmed logged in — never for residents.
+  const [staffAssocs, setStaffAssocs] = useState<{ code: string; name: string }[]>([])
+  useEffect(() => {
+    if (sessionUser?.persona !== 'staff') return
+    fetch('/api/associations').then(r => r.ok ? r.json() : [])
+      .then((rows: { association_code: string; association_name: string }[]) => setStaffAssocs(rows.map(r => ({ code: r.association_code, name: r.association_name }))))
+      .catch(() => setStaffAssocs([]))
+  }, [sessionUser?.persona])
+
   // When a signed-in user opens the widget, jump straight into a personalized
   // chat instead of the persona picker. Guarded on phase so it never re-greets
   // mid-conversation.
@@ -530,6 +617,21 @@ export default function MaiaWidget({ embedded = false, associationCode, upappHin
     if (!input.trim() || loading) return
     const userMsg: Msg = { id: crypto.randomUUID(), role: 'user', content: input.trim() }
     const next = [...msgs, userMsg]
+
+    // Staff-only shortcut: "MANXI 303" gets a button, not an AI answer — no
+    // /api/chat call at all, so it's instant and free. See detectQuickLink.
+    if (sessionUser?.persona === 'staff') {
+      const hit = detectQuickLink(input, staffAssocs)
+      if (hit) {
+        setMsgs([...next, {
+          id: crypto.randomUUID(), role: 'assistant',
+          content: `${hit.code} Unit ${hit.unit}`, quickLink: { code: hit.code, unit: hit.unit, status: 'idle' },
+        }])
+        setInput('')
+        return
+      }
+    }
+
     setMsgs(next); setInput(''); setLoading(true)
     try {
       const res  = await fetch('/api/chat', {
@@ -545,6 +647,23 @@ export default function MaiaWidget({ embedded = false, associationCode, upappHin
     } catch {
       setMsgs(p => [...p, { id: crypto.randomUUID(), role: 'assistant', content: 'Something went wrong. Please contact us at maia@pmitop.com.' }])
     } finally { setLoading(false) }
+  }
+
+  const createQuickLink = async (msgId: string) => {
+    setMsgs(p => p.map(m => m.id === msgId && m.quickLink ? { ...m, quickLink: { ...m.quickLink, status: 'busy' } } : m))
+    const msg = msgs.find(m => m.id === msgId)
+    if (!msg?.quickLink) return
+    try {
+      const res = await fetch('/api/admin/pre-apply/quick-link', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ associationCode: msg.quickLink.code, unit: msg.quickLink.unit }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'failed')
+      setMsgs(p => p.map(m => m.id === msgId && m.quickLink ? { ...m, quickLink: { ...m.quickLink, status: 'done', result: data } } : m))
+    } catch (e) {
+      setMsgs(p => p.map(m => m.id === msgId && m.quickLink ? { ...m, quickLink: { ...m.quickLink, status: 'error', error: (e as Error).message } } : m))
+    }
   }
 
   const handleFeedback = (msgId: string, type: 'positive' | 'negative') => {
@@ -683,7 +802,8 @@ export default function MaiaWidget({ embedded = false, associationCode, upappHin
             }}>
               {msg.content}
             </div>
-            {msg.role === 'assistant' && !msg.feedback && (
+            {msg.quickLink && <QuickLinkPanel quickLink={msg.quickLink} onCreate={() => createQuickLink(msg.id)} />}
+            {msg.role === 'assistant' && !msg.quickLink && !msg.feedback && (
               <div style={{ display: 'flex', gap: '3px', marginTop: '3px' }}>
                 {(['positive', 'negative'] as const).map(fb => (
                   <button key={fb} onClick={() => handleFeedback(msg.id, fb)}
