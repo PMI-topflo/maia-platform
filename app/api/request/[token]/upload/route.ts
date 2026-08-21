@@ -29,6 +29,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   try { form = await req.formData() } catch { return NextResponse.json({ error: 'invalid form' }, { status: 400 }) }
   const file = form.get('file')
   const docKey = String(form.get('doc_key') ?? '').trim()
+  // Explicit "+ Add another page" click (as opposed to the default "Replace" —
+  // uploading a corrected file). Independent of the checklist item's own
+  // allow_multiple config, which governs a DIFFERENT case (genuinely separate
+  // files, e.g. two years of tax returns) — this is one document that arrived
+  // as several page photos, real case: a tenant's own note on their request,
+  // "I have more paper to upload", and another (MANXI 303) resorting to
+  // emailing 9 separate page scans because the upload button only ever
+  // replaced. Staff already have "Combine" on their screen to merge the
+  // resulting pages into one PDF.
+  const append = String(form.get('append') ?? '') === '1'
   const item = r.mine.find(i => i.doc_key === docKey)
   if (!item) return NextResponse.json({ error: 'That document is not part of this request.' }, { status: 400 })
   if (!(file instanceof File) || file.size === 0) return NextResponse.json({ error: 'no file' }, { status: 400 })
@@ -55,7 +65,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const up = await supabaseAdmin.storage.from(INTAKE_BUCKET).upload(path, buf, { contentType: file.type || 'application/pdf', upsert: true })
   if (up.error) return NextResponse.json({ error: `Upload failed: ${up.error.message}` }, { status: 500 })
 
-  if (!cfg?.allow_multiple) {
+  if (!cfg?.allow_multiple && !append) {
     const del = supabaseAdmin.from('application_documents').delete().eq('application_id', appId).eq('doc_key', docKey)
     await (stakeholderId ? del.eq('stakeholder_id', stakeholderId) : del.is('stakeholder_id', null))
   }

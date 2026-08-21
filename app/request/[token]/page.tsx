@@ -10,7 +10,7 @@ import { ANIMAL_KIND_LABEL, ANIMAL_KIND_BLURB, type AnimalKind } from '@/lib/ani
 interface Item {
   doc_key: string; label: string; uploaded: boolean; kind?: 'contact' | 'file' | 'declare' | 'esign_packet'
   declareKey?: 'vehicle' | 'animal'; has?: boolean | null; animalKind?: AnimalKind | null
-  exampleUrl?: string | null
+  exampleUrl?: string | null; pageCount?: number
   packetStatus?: 'not_sent' | 'sent' | 'partially_signed' | 'completed'; mySigned?: boolean; otherSigned?: boolean
 }
 interface Person { name: string; email: string; phone: string; role: string }
@@ -313,35 +313,57 @@ function EsignPacketRow({ token, item, role, onDone }: { token: string; item: It
 }
 
 function ItemRow({ token, item, onDone }: { token: string; item: Item; onDone: () => void }) {
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<'replace' | 'add' | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const inputId = `f-${item.doc_key}`
-  async function onFile(file: File | null) {
+  const addInputId = `fa-${item.doc_key}`
+  async function onFile(file: File | null, append: boolean) {
     if (!file) return
-    setBusy(true); setErr(null)
+    setBusy(append ? 'add' : 'replace'); setErr(null)
     try {
       const fd = new FormData(); fd.append('doc_key', item.doc_key); fd.append('file', file)
+      if (append) fd.append('append', '1')
       const r = await fetch(`/api/request/${token}/upload`, { method: 'POST', body: fd })
       if (!r.ok) throw new Error((await r.json()).error || 'upload failed')
       onDone()
-    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(null) }
   }
+  const pages = item.pageCount ?? (item.uploaded ? 1 : 0)
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, border: '1px solid #e7e2d9', borderRadius: 10, padding: '12px 14px', background: item.uploaded ? '#f6faf7' : '#fff' }}>
-      <div style={{ flex: 1 }}>
-        <div style={{ font: '600 14.5px system-ui', color: '#1c2333' }}>{item.label}</div>
-        {item.uploaded ? <div style={{ font: '600 12.5px system-ui', color: '#166534' }}>✓ Received</div> : err ? <div style={{ font: '12.5px system-ui', color: '#b91c1c' }}>{err}</div> : null}
-        {/* A blank form to fill out, sign, and get notarized before uploading
-            back here — Tenant Affidavit and similar items have nowhere else
-            this link would show one. User direction, 2026-08-19. */}
-        {item.exampleUrl && !item.uploaded && (
-          <a href={item.exampleUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 4, font: '600 12px system-ui', color: '#2563eb', textDecoration: 'none' }}>⬇ Download blank form</a>
-        )}
+    <div style={{ border: '1px solid #e7e2d9', borderRadius: 10, padding: '12px 14px', background: item.uploaded ? '#f6faf7' : '#fff' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ font: '600 14.5px system-ui', color: '#1c2333' }}>{item.label}</div>
+          {item.uploaded ? <div style={{ font: '600 12.5px system-ui', color: '#166534' }}>✓ Received{pages > 1 ? ` — ${pages} pages on file` : ''}</div> : err ? <div style={{ font: '12.5px system-ui', color: '#b91c1c' }}>{err}</div> : null}
+          {/* A blank form to fill out, sign, and get notarized before uploading
+              back here — Tenant Affidavit and similar items have nowhere else
+              this link would show one. User direction, 2026-08-19. */}
+          {item.exampleUrl && !item.uploaded && (
+            <a href={item.exampleUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 4, font: '600 12px system-ui', color: '#2563eb', textDecoration: 'none' }}>⬇ Download blank form</a>
+          )}
+        </div>
+        <input id={inputId} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" style={{ display: 'none' }} onChange={e => onFile(e.target.files?.[0] ?? null, false)} />
+        <label htmlFor={inputId} style={{ cursor: busy ? 'default' : 'pointer', font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : item.uploaded ? '#6b7280' : '#c0571a', borderRadius: 9, padding: '9px 16px', whiteSpace: 'nowrap' }}>
+          {busy === 'replace' ? 'Uploading…' : item.uploaded ? 'Replace' : 'Upload'}
+        </label>
       </div>
-      <input id={inputId} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" style={{ display: 'none' }} onChange={e => onFile(e.target.files?.[0] ?? null)} />
-      <label htmlFor={inputId} style={{ cursor: busy ? 'default' : 'pointer', font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : item.uploaded ? '#6b7280' : '#c0571a', borderRadius: 9, padding: '9px 16px' }}>
-        {busy ? 'Uploading…' : item.uploaded ? 'Replace' : 'Upload'}
-      </label>
+      {/* One document that arrived as several page photos is a different need
+          from "I uploaded the wrong file" (Replace) — real cases: a tenant's
+          own note asking where to add more pages, and another emailing 9
+          separate page scans instead because the button only ever replaced.
+          Only offered once something's on file — there's nothing to add a
+          page TO yet otherwise. User direction, 2026-08-21. */}
+      {item.uploaded && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #e0dbd0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <input id={addInputId} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" style={{ display: 'none' }} onChange={e => onFile(e.target.files?.[0] ?? null, true)} />
+          <label htmlFor={addInputId} style={{ cursor: busy ? 'default' : 'pointer', font: '700 12.5px system-ui', color: '#c0571a', background: '#fff7f0', border: '1px dashed #e8b48b', borderRadius: 9, padding: '7px 13px', whiteSpace: 'nowrap' }}>
+            {busy === 'add' ? 'Uploading…' : '+ Add another page'}
+          </label>
+          <span style={{ font: '700 11px system-ui', color: '#b91c1c', lineHeight: 1.4, textTransform: 'uppercase' }}>
+            Make sure that the pages are from the same document. Your file will be rejected if there is a confusion, and your application may be denied or delayed.
+          </span>
+        </div>
+      )}
     </div>
   )
 }

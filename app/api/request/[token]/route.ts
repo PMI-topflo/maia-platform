@@ -40,7 +40,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const unitLabelForPacket = (r.req.unit_label as string | null) ?? null
   const [{ data: assoc }, { data: docs }, { data: roster }, { data: appRow }, state, packet] = await Promise.all([
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', r.req.association_code).maybeSingle(),
-    supabaseAdmin.from('application_documents').select('doc_key').eq('application_id', r.req.application_id),
+    supabaseAdmin.from('application_documents').select('id, doc_key').eq('application_id', r.req.application_id),
     supabaseAdmin.from('application_stakeholders').select('name, email, phone, applicant_role, is_primary')
       .eq('application_id', r.req.application_id).eq('role', 'applicant').order('is_primary', { ascending: false }),
     supabaseAdmin.from('listing_applications').select('application_type, declarations').eq('id', r.req.application_id).maybeSingle(),
@@ -62,6 +62,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const unit = (r.req.unit_label as string | null) ?? null
   const address = [assoc?.principal_address, unit ? `Unit ${unit}` : null, [assoc?.city, [assoc?.state, assoc?.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ') || null
   const have = new Set((docs ?? []).map(d => String(d.doc_key)))
+  // How many pages already on file per item — lets the card offer "+ Add
+  // another page" once something's uploaded, instead of just "Replace".
+  const pageCountByKey = new Map<string, number>()
+  for (const d of docs ?? []) { const k = String(d.doc_key); pageCountByKey.set(k, (pageCountByKey.get(k) ?? 0) + 1) }
   // Prefill what we already know so the owner corrects a list instead of
   // retyping it — and so a partly-filled roster is visibly partly filled.
   const people = (roster ?? []).map(p => ({
@@ -114,7 +118,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
       }
       const path = templateByKey.get(i.doc_key)
       const exampleUrl = path ? templateUrlByPath.get(path) ?? null : null
-      return { doc_key: i.doc_key, label: i.label, kind: 'file' as const, uploaded: have.has(i.doc_key), exampleUrl }
+      return { doc_key: i.doc_key, label: i.label, kind: 'file' as const, uploaded: have.has(i.doc_key), exampleUrl, pageCount: pageCountByKey.get(i.doc_key) ?? 0 }
     }).filter(it => it.kind !== 'file' || it.uploaded || stillRelevant.has(it.doc_key)),
   })
 }
