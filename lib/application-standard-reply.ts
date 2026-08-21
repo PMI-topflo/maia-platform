@@ -117,8 +117,18 @@ export async function draftStandardReply(opts: {
   // applicant roster regardless of who is currently emailing (sendEsignFormsForItems).
   const formRows = summary.rows.filter(r => r.isEsignItem && !r.gatedBy)
   const declineQuestions = summary.declineQuestions
+  // provided_by='agent' can't become an "ask THIS person to upload" row for
+  // either role — it's a third party neither owner nor tenant addresses — but
+  // it must not just vanish either. Real bug, 2026-08-21 (MANXI 303, Wilner
+  // Florestan): his Condominium Rider was refused ("please ask your agent to
+  // provide"), and because that's the ONLY outstanding item, the draft told
+  // HIM "everything required... is already on file — nothing further is
+  // needed" — exactly backwards. He's the one who needs to know to chase his
+  // agent; excluding the item from what he's asked to DO is right, excluding
+  // it from what he's TOLD was the bug.
+  const agentRows = summary.rows.filter(r => !r.isEsignItem && r.providedBy === 'agent' && !r.gatedBy)
 
-  if (uploadRows.length === 0 && formRows.length === 0 && declineQuestions.length === 0) {
+  if (uploadRows.length === 0 && formRows.length === 0 && declineQuestions.length === 0 && agentRows.length === 0) {
     const draftText = `Hello${senderName ? ` ${senderName}` : ''},\n\nThank you for reaching out. Everything required on your application is already on file — nothing further is needed from you at this time.\n\nWe'll be in touch as soon as there's an update.\n\nThank you,\nPMI Top Florida Properties`
     await logOutboundCommunication({
       applicationId, associationCode: code, unitLabel: unit,
@@ -181,7 +191,7 @@ export async function draftStandardReply(opts: {
   // listed here too (it is still genuinely outstanding), just with the reason
   // surfaced separately below rather than silently disappearing. Declaration-
   // gated items are NOT in this list at all — they're a question, not a request.
-  const missingSummary = [...uploadRows, ...formRows].map(r => r.label)
+  const missingSummary = [...uploadRows, ...formRows, ...agentRows].map(r => r.label)
 
   // Grouped into what to DO with each part, rather than one flat list mixing
   // "upload this", "we already emailed you a separate link for that", and
@@ -217,6 +227,15 @@ export async function draftStandardReply(opts: {
     for (const f of forms.sent) lines.push(`  • ${ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey}`)
   }
 
+  // provided_by='agent' items: told, not asked — there's no link to give
+  // THIS recipient for something only their agent can supply, but they still
+  // need to know it's still outstanding and whose court it's in.
+  if (agentRows.length) {
+    lines.push('')
+    lines.push('Your agent still needs to provide the following — please follow up with them directly:')
+    for (const r of agentRows) lines.push(`  • ${r.label}${r.refusedReason ? ` — ${r.refusedReason}` : ''}`)
+  }
+
   // Staff-only note: NOT sent to the resident. This is what stops a failed
   // form-send from vanishing silently — the previous version listed the item
   // as "still needed" with zero indication anything had gone wrong sending it.
@@ -227,8 +246,14 @@ export async function draftStandardReply(opts: {
     for (const f of forms.failed) lines.push(`  • ${ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey} — ${f.reason}`)
   }
 
-  lines.push('')
-  lines.push('No account or password is needed — the link above is specific to you.')
+  // Only true when there actually IS a link above — an agent-only outstanding
+  // item produces no uploadLink at all, and this sentence pointing at
+  // nothing was the same class of bug as the "nothing outstanding" one
+  // above: technically unreachable before agentRows existed, real once it did.
+  if (uploadLink) {
+    lines.push('')
+    lines.push('No account or password is needed — the link above is specific to you.')
+  }
   lines.push('')
   lines.push('Thank you,')
   lines.push('PMI Top Florida Properties')

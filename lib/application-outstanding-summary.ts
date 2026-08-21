@@ -27,6 +27,11 @@ export interface OutstandingRow {
   /** Non-null when this item can't be asked for yet because the applicant
    *  hasn't answered the vehicle/animal yes-no question it depends on. */
   gatedBy: 'vehicle' | 'animal' | null
+  /** Why it was sent back, when the state is 'refused' — the actionable part
+   *  of "still outstanding" for anyone who has to go DO something about it
+   *  (e.g. an agent-provided item: the applicant can't fix it themselves,
+   *  but knowing WHY tells them what to relay). */
+  refusedReason: string | null
 }
 
 export interface OutstandingSummary {
@@ -74,6 +79,7 @@ export async function getOutstandingSummary(applicationId: string): Promise<Outs
     docKey: r.docKey, label: r.perApplicantName ? `${r.label} — ${r.perApplicantName}` : r.label,
     providedBy: r.providedBy, perApplicantName: r.perApplicantName ?? null,
     isEsignItem: isEsignItem(r.docKey), gatedBy: gatedUnanswered(r.docKey),
+    refusedReason: r.state === 'refused' ? (r.decision?.reason ?? null) : null,
   }))
   const declineQuestions = [...new Set(rows.map(r => r.gatedBy).filter((x): x is 'vehicle' | 'animal' => !!x))]
   const nothingOutstanding = rows.every(r => !!r.gatedBy) && declineQuestions.length === 0
