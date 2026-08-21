@@ -3862,6 +3862,17 @@ CREATE INDEX IF NOT EXISTS esign_documents_application_id_idx
   ON public.esign_documents (application_id);
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'retire_landlord_email_item',
+    label:       'Retire MANXI lease "Landlord\'s Email" checklist item',
+    description: "Deactivates the landlord_email checklist row on MANXI's lease checklist (user direction, 2026-08-20, surfaced by a real missing-document report on unit 912). Seeded 2026-08-05 as a REQUIRED, applicant-provided item configured like an uploadable document, but its content is just an email address — no physical file could ever satisfy it, and MAIA already has the real owner's email on file in `owners` whenever one exists. Every MANXI lease application was permanently missing this one item. Soft-deactivated (active = false) — same mechanism already used to retire the ad-hoc pet_esa_documents item; getIntakeChecklist() and the RLS public-read policy both filter on active = true.",
+    filename:    '20260820_retire_landlord_email_item.sql',
+    artifact:    { type: 'column', table: 'association_intake_documents', column: 'active' },
+    sql: `UPDATE public.association_intake_documents
+   SET active = false, updated_at = now()
+ WHERE association_code = 'MANXI' AND application_type = 'lease' AND doc_key = 'landlord_email';
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
