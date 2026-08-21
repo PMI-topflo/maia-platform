@@ -3910,6 +3910,17 @@ NOTIFY pgrst, 'reload schema';`,
    AND doc_key = 'board_approval_letter';
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'fix_stale_under_review_status',
+    label:       'Fix MANXI 801/901: status stuck at under_review via the old "Mark audited" footgun',
+    description: "User report, 2026-08-21: \"check all stages status, I think that they are not matching with what was developed... 901, I just sent a message for additional info/documents, why is in Documents approved - creating letter?\" Checked every open application's live document-review state against its status column; MANXI 801 (0 of 16 required docs ever decided) and MANXI 901 (3 of 7 decided, 4 waiting) both had status='under_review' despite never actually being complete — set via the old, since-retired \"Mark audited\" button (superseded by PR4's real automatic transition, 2026-08-20; PR8's own notes already flagged it as a footgun that never checked completeness). Reverted both to 'submitted', matching their real document state, so the automatic pipeline can correctly re-advance each once genuinely complete.",
+    filename:    '20260821_fix_stale_under_review_status.sql',
+    artifact:    { type: 'column', table: 'listing_applications', column: 'status' },
+    sql: `UPDATE public.listing_applications
+   SET status = 'submitted', updated_at = now()
+ WHERE id IN ('e210870d-9658-4f5e-89ef-505e5d4eba98', 'e9da3aca-bcae-4eff-9452-3f75cc315750')
+   AND status = 'under_review';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

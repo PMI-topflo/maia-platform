@@ -70,6 +70,9 @@ export interface DashboardRow {
   unit: string | null
   type: string
   status: string
+  createdAt: string
+  submittedAt: string | null
+  reviewedAt: string | null
   applicants: string[]
   driveFolderUrl: string | null
 
@@ -326,7 +329,9 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
 
     rows.push({
       id, associationCode: code, associationName: assocBy.get(code) ?? code, unit,
-      type: String(a.application_type ?? ''), status, applicants,
+      type: String(a.application_type ?? ''), status, createdAt,
+      submittedAt: (a.submitted_at as string | null) ?? null,
+      reviewedAt: (a.reviewed_at as string | null) ?? null, applicants,
       driveFolderUrl: (a.drive_folder_url as string | null) ?? null,
       stage, owner: STAGE_OWNER[stage], detail, outstanding: outstanding.slice(0, 4),
       sinceAt, waitingDays,

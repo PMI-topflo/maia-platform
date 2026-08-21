@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 
 interface App {
   id: string; associationCode: string; type: string; unit: string | null; status: string
+  stage: string; chipKey: string; stageLabel: string; detail: string
   submittedAt: string | null; startedAt: string | null; reviewedAt: string | null; driveFolderUrl: string | null
   applicant: { name: string | null; email: string | null } | null; docCount: number; signed: boolean
   lastRequestedAt: string | null
@@ -20,15 +21,30 @@ const TYPE_ORDER = ['lease', 'lease_renewal', 'purchase', 'additional_occupant']
 const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
 const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '—'
 
-// Pipeline stages, in order, with their color.
-const STAGES: { key: string; label: string; c: string; b: string }[] = [
-  { key: 'started',      label: 'Collecting documents',    c: '#854d0e', b: '#fef9c3' },
-  { key: 'submitted',    label: 'Submitted — documents under review', c: '#1e40af', b: '#dbeafe' },
-  { key: 'under_review', label: 'Documents approved — creating letter', c: '#5b21b6', b: '#ede9fe' },
-  { key: 'approval_sent', label: 'Letter sent — awaiting signatures', c: '#9a3412', b: '#ffedd5' },
-  { key: 'approved',     label: 'Approved',                c: '#166534', b: '#dcfce7' },
-  { key: 'declined',     label: 'Declined',                c: '#991b1b', b: '#fee2e2' },
-]
+// Chip colors keyed by the API's `chipKey` — the real live document-review
+// stage from lib/application-dashboard.ts (decideStage()), with 'decided'
+// split back into 'approved'/'declined' for the visual distinction staff
+// still need. NOT the raw `status` column anymore — that's what let MANXI
+// 801 and 901 sit mislabeled "Documents approved — creating letter" for ten
+// days despite genuinely being nowhere near complete (found live, 2026-08-21;
+// see app/api/admin/pre-apply/route.ts). Order here is display order for the
+// summary chips.
+// Not imported from lib/application-dashboard.ts — that module pulls in
+// supabaseAdmin (service-role key) at module scope, unsafe to bundle into a
+// 'use client' page. Labels duplicated here match STAGE_LABEL there exactly;
+// the API is the single source of truth for WHICH stage each row is in
+// (chipKey/stageLabel) — this is presentation only.
+const STAGE_META: Record<string, { label: string; c: string; b: string }> = {
+  refused:    { label: 'Sent back — awaiting a replacement', c: '#991b1b', b: '#fee2e2' },
+  applicant:  { label: 'Collecting documents',               c: '#854d0e', b: '#fef9c3' },
+  not_sent:   { label: 'Ready to send to the board',         c: '#1e40af', b: '#dbeafe' },
+  review:     { label: 'With the board to review',           c: '#1e40af', b: '#dbeafe' },
+  letter:     { label: 'Documents approved — creating letter', c: '#5b21b6', b: '#ede9fe' },
+  signature:  { label: 'Letter sent — awaiting signatures',  c: '#9a3412', b: '#ffedd5' },
+  approved:   { label: 'Approved',                           c: '#166534', b: '#dcfce7' },
+  declined:   { label: 'Declined',                           c: '#991b1b', b: '#fee2e2' },
+}
+const STAGE_ORDER = ['refused', 'applicant', 'not_sent', 'review', 'letter', 'signature', 'approved', 'declined']
 
 export default function PreApplyQueue() {
   const [apps, setApps] = useState<App[] | null>(null)
@@ -54,7 +70,7 @@ export default function PreApplyQueue() {
       .then(d => setApps(d.applications)).catch(e => setErr(String(e.message ?? e)))
   }, [])
 
-  const count = (k: string) => (apps ?? []).filter(a => a.status === k).length
+  const count = (k: string) => (apps ?? []).filter(a => a.chipKey === k).length
 
   // Only ever offered for a bare-shell application (0 docs, per the row's own
   // Docs count) — the endpoint independently re-checks every table an
@@ -110,12 +126,15 @@ export default function PreApplyQueue() {
       {/* Stage summary chips (click to filter) */}
       {apps && apps.length > 0 && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '14px 0 18px' }}>
-          {STAGES.map(s => (
-            <button key={s.key} onClick={() => setFilter(filter === s.key ? null : s.key)}
-              style={{ cursor: 'pointer', border: filter === s.key ? `2px solid ${s.c}` : '1px solid #e5e7eb', background: s.b, color: s.c, borderRadius: 10, padding: '6px 12px', font: '600 13px system-ui' }}>
-              {s.label} · {count(s.key)}
-            </button>
-          ))}
+          {STAGE_ORDER.map(key => {
+            const s = STAGE_META[key]
+            return (
+              <button key={key} onClick={() => setFilter(filter === key ? null : key)}
+                style={{ cursor: 'pointer', border: filter === key ? `2px solid ${s.c}` : '1px solid #e5e7eb', background: s.b, color: s.c, borderRadius: 10, padding: '6px 12px', font: '600 13px system-ui' }}>
+                {s.label} · {count(key)}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -151,14 +170,14 @@ export default function PreApplyQueue() {
               {['Applicant', 'Assoc', 'Unit', 'Type', 'Docs', 'Signed', 'Started', 'Stage', 'Drive', ''].map(h => <th key={h} style={{ padding: '10px 12px', color: '#6b7280', fontWeight: 600, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {apps.filter(a => !filter || a.status === filter)
+              {apps.filter(a => !filter || a.chipKey === filter)
                 // Decided (approved/declined) applications sink to the end —
                 // staff report, 2026-08-20: "Put the approved in the final
                 // of the list." Array.sort is stable, so within each group
                 // the API's own order (startedAt desc) is unchanged.
                 .slice().sort((a, b) => Number(isDecided(a.status)) - Number(isDecided(b.status)))
                 .map(a => {
-                const st = STAGES.find(s => s.key === a.status) ?? { label: a.status, c: '#374151', b: '#f3f4f6' }
+                const st = STAGE_META[a.chipKey] ?? { label: a.stageLabel, c: '#374151', b: '#f3f4f6' }
                 return (
                   <tr key={a.id} style={{ cursor: 'pointer' }}>
                     <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}><div style={{ fontWeight: 600, color: '#1d4ed8' }}>{a.applicant?.name || '—'}</div><div style={{ color: '#9ca3af', fontSize: 12 }}>{a.applicant?.email}</div></td>
@@ -169,7 +188,12 @@ export default function PreApplyQueue() {
                     <td style={{ ...td, textAlign: 'center' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{a.signed ? '✓' : '—'}</td>
                     <td style={{ ...td, whiteSpace: 'nowrap' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{fmt(a.startedAt)}</td>
                     <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>
-                      <span style={{ font: '600 11px system-ui', color: st.c, background: st.b, borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap' }}>{st.label}</span>
+                      <span style={{ font: '600 11px system-ui', color: st.c, background: st.b, borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap' }}>{a.stageLabel}</span>
+                      {/* What's actually outstanding, live — this is the whole
+                          point of computing stage from real document state
+                          instead of the status column: it can SAY what's
+                          missing, not just report a status word. */}
+                      {!isDecided(a.status) && a.detail && <div style={{ font: '11px system-ui', color: '#6b7280', marginTop: 3, maxWidth: 260 }}>{a.detail}</div>}
                       {/* Decision date under the pill — was invisible before,
                           so an approved/declined row gave no sense of when.
                           Staff report: "with a date that was approved under
