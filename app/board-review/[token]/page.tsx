@@ -79,6 +79,32 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
     } catch (e) { setErr((e as Error).message) } finally { setBusy(null) }
   }
 
+  // The reviewer's OVERALL verdict — separate from each document's own
+  // Approve/Refuse. "Send Back" always needs the note open first (same
+  // two-step as a per-document refuse); "Approve" only needs it when
+  // everything isn't already decided. User direction, 2026-08-22.
+  const [finalNoteOpen, setFinalNoteOpen] = useState(false)
+  const [finalNote, setFinalNote] = useState('')
+  const [finalBusy, setFinalBusy] = useState(false)
+  const [finalMsg, setFinalMsg] = useState<string | null>(null)
+
+  async function finalize(action: 'approve' | 'send_back') {
+    if (!me) { setErr('Please tell us who you are first.'); return }
+    if (action === 'send_back' && !finalNoteOpen) { setFinalNoteOpen(true); return }
+    if (action === 'send_back' && finalNote.trim().length < 4) { setErr('Say briefly what needs to change — the office reads this.'); return }
+    setFinalBusy(true); setErr(null); setFinalMsg(null)
+    try {
+      const r = await fetch(`/api/board-review/${token}/finalize`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, reviewer: me, note: finalNote.trim() }),
+      })
+      const d = await r.json(); if (!r.ok) throw new Error(d.error ?? 'Could not save')
+      if (action === 'send_back') { setFinalMsg('Sent back — the office has been emailed.'); setFinalNoteOpen(false); setFinalNote('') }
+      else setFinalMsg(d.alreadySent ? 'The approval letter was already created and sent for signature.' : 'Approved — the approval letter has been created and sent for signature.')
+      load()
+    } catch (e) { setErr((e as Error).message) } finally { setFinalBusy(false) }
+  }
+
   if (err && !info) return <div style={wrap}><h2 style={{ color: '#b42318' }}>⚠ {err}</h2></div>
   if (!info) return <div style={wrap}><p style={{ color: '#7c8496' }}>Loading…</p></div>
 
@@ -123,8 +149,20 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
       <div style={card}>
         {info.rows.map((row, i) => {
           const waiting = row.state === 'waiting'
-          const flag = row.state === 'approved' ? '🟢' : row.state === 'refused' ? '🔴' : waiting ? '⚪' : '🟠'
-          const bg = row.state === 'approved' ? '#eef8f2' : row.state === 'refused' ? '#fdf2f0' : undefined
+          // A document staff already approved/refused while pre-checking
+          // incoming files is not the same as a BOARD member (or the on-site
+          // manager) having actually looked at it. Real case, 2026-08-22
+          // (MANXI 303): every document was staff pre-audited before this
+          // round even existed, and the page showed the board a screen that
+          // was already "done" — green buttons, "Approved by" — with nothing
+          // left for them to actually decide. Until a reviewer picked from
+          // "Who is reviewing?" makes their OWN call on a row, it renders as
+          // if undecided; clicking Approve/Refuse here overwrites the staff
+          // decision with a real, attributed board one (same upsert either way).
+          const boardDecided = !!row.decision && row.decision.role !== 'staff'
+          const flag = !boardDecided ? (waiting ? '⚪' : '🟠')
+            : row.state === 'approved' ? '🟢' : row.state === 'refused' ? '🔴' : '🟠'
+          const bg = boardDecided ? (row.state === 'approved' ? '#eef8f2' : row.state === 'refused' ? '#fdf2f0' : undefined) : undefined
           return (
             <div key={row.scopeKey} style={{
               padding: '13px 16px', borderTop: i ? '1px solid #f1ede6' : undefined, background: bg,
@@ -148,8 +186,8 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
                       <button onClick={() => setOpen(open === row.scopeKey ? null : row.scopeKey)} style={btn('view', false)}>
                         {open === row.scopeKey ? '✕ Close' : '👁 View'}
                       </button>
-                      <button disabled={busy === row.scopeKey} onClick={() => decide(row, 'approved')} style={btn('ok', row.state === 'approved')}>Approve</button>
-                      <button disabled={busy === row.scopeKey} onClick={() => decide(row, 'refused')} style={btn('no', row.state === 'refused')}>Refuse</button>
+                      <button disabled={busy === row.scopeKey} onClick={() => decide(row, 'approved')} style={btn('ok', boardDecided && row.state === 'approved')}>Approve</button>
+                      <button disabled={busy === row.scopeKey} onClick={() => decide(row, 'refused')} style={btn('no', boardDecided && row.state === 'refused')}>Refuse</button>
                     </>
                   )}
                   <span style={{ fontSize: 19, width: 22, textAlign: 'center' }}>{flag}</span>
@@ -165,7 +203,9 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
 
               {row.decision && (
                 <div style={{ marginTop: 7, fontSize: 13, color: '#4a5265' }}>
-                  {row.state === 'approved' ? '🟢' : '🔴'} <strong>{row.state === 'approved' ? 'Approved' : 'Refused'} by {row.decision.by}</strong>
+                  {!boardDecided
+                    ? <><span>🔎</span> <strong>AI Pre-Audited by Maia</strong></>
+                    : <>{row.state === 'approved' ? '🟢' : '🔴'} <strong>{row.state === 'approved' ? 'Approved' : 'Refused'} by {row.decision.by}</strong></>}
                   {' · '}<span style={{ color: '#7c8496', fontVariantNumeric: 'tabular-nums' }}>{fmt(row.decision.at)}</span>
                   {row.decision.reason && (
                     <div style={{ marginTop: 5, borderLeft: '3px solid #b42318', paddingLeft: 9, color: '#16202f' }}>“{row.decision.reason}”</div>
@@ -206,6 +246,42 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
                   : `${t.required - t.decided} still to review.`}
           </div>
         </div>
+      </div>
+
+      {/* The reviewer's overall verdict — separate from each document's own
+          Approve/Refuse above. User direction, 2026-08-22: "Send Back or
+          Approve — send back opens a text for them to fill and send me
+          back an email with the items not approved and the text - or if
+          approved generates and send already the approval letter for
+          signature." */}
+      <div style={{ ...card, marginTop: 14, padding: '15px 17px' }}>
+        <div style={{ font: '600 13px system-ui', marginBottom: 10 }}>Your overall decision</div>
+        {finalMsg ? (
+          <p style={{ font: '600 14px system-ui', color: '#0f7a4d', margin: 0 }}>✓ {finalMsg}</p>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button disabled={finalBusy} onClick={() => finalize('send_back')}
+                style={{ font: '600 13.5px system-ui', borderRadius: 8, padding: '10px 16px', cursor: finalBusy ? 'default' : 'pointer', border: '1px solid #b42318', background: '#fff', color: '#b42318' }}>
+                Send Back
+              </button>
+              <button disabled={finalBusy || !info.complete} onClick={() => finalize('approve')}
+                title={!info.complete ? 'Decide every document above first' : undefined}
+                style={{ font: '600 13.5px system-ui', borderRadius: 8, padding: '10px 16px', cursor: finalBusy || !info.complete ? 'default' : 'pointer', border: 'none', background: info.complete ? '#0f7a4d' : '#c9ccd3', color: '#fff' }}>
+                {finalBusy ? 'Working…' : 'Approve'}
+              </button>
+            </div>
+            {!info.complete && <p style={{ font: '12.5px system-ui', color: '#7c8496', margin: '8px 0 0' }}>Approve becomes available once every document above is decided.</p>}
+            {finalNoteOpen && (
+              <div style={{ marginTop: 10 }}>
+                <textarea value={finalNote} onChange={e => setFinalNote(e.target.value)} autoFocus
+                  placeholder="What needs to change? This goes straight to the office, along with anything currently refused."
+                  style={{ width: '100%', boxSizing: 'border-box', font: '14px system-ui', color: '#16202f', border: '1px solid #b42318', borderRadius: 8, padding: '9px 11px', minHeight: 70, resize: 'vertical' }} />
+                <div style={{ font: '12px system-ui', color: '#7c8496', marginTop: 4 }}>Press <b>Send Back</b> again to send it.</div>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       <p style={{ color: '#9aa0ab', fontSize: 12, marginTop: 20, textAlign: 'center' }}>

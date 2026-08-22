@@ -86,13 +86,20 @@ export async function sendReviewRound(roundId: string): Promise<{ sent: boolean;
     intro: `${(round.note as string | null)?.trim() || `${c.applicants.join(' and ') || 'The applicant'} applied for a ${c.typeLabel.toLowerCase()}. Please review each document below and approve it, or refuse it with a short reason the applicant will read.`}\n\nAny one of you can settle a document — a board member or the on-site manager. ${boardWindowSentence(state.windowDays)}`,
     items: ready.map(r => ({
       label: r.perApplicantName ? `${r.label} — ${r.perApplicantName}` : r.label,
-      whoFor: r.state === 'approved' ? 'Approved' : r.state === 'refused' ? 'Refused' : 'To review',
+      // A document staff already pre-checked reads as a real board decision if
+      // it just says "Approved" — the board hasn't weighed in on it yet. Real
+      // case, 2026-08-22 (MANXI 303): every item was staff-approved before this
+      // round ever went out, and the email told the board nothing was actually
+      // theirs to do.
+      whoFor: r.decision?.role === 'staff' ? 'AI Pre-Audited'
+        : r.state === 'approved' ? 'Approved' : r.state === 'refused' ? 'Refused' : 'To review',
     })),
     onFile: waiting.map(r => ({
       label: r.perApplicantName ? `${r.label} — ${r.perApplicantName}` : r.label,
       note: 'not uploaded yet — nothing to review', expired: false,
     })),
     ctaUrl: link,
+    ctaLabel: 'Check files and give the final approval →',
     footerReason: `You're receiving this as an approver for ${c.legal}.`,
   })
 
@@ -125,6 +132,38 @@ export async function notifyOfficeOfReviewResponse(o: {
       ${o.reason ? `<div style="border-left:3px solid #b42318;background:#fdf2f0;padding:10px 13px;margin:12px 0"><em>“${esc(o.reason)}”</em></div>` : ''}
       <p style="color:#6b7280">${esc(c.typeLabel)} · ${esc(c.address ?? c.legal)}<br>${esc(progress)}</p>
       ${o.windowOpened ? `<p style="background:#eef8f2;border:1px solid #cdeedd;border-radius:8px;padding:11px 13px;color:#166534"><strong>All documents are now approved.</strong> The ${state.windowDays}-day board window opened ${fmtET(state.windowOpenedAt ?? new Date().toISOString())}${state.dueAt ? ` — a decision is due ${fmtET(state.dueAt)}` : ''}.</p>` : ''}
+      <p style="margin-top:18px"><a href="${APP}/admin/pre-apply/${o.applicationId}" style="color:#f26a1b;font-weight:600;text-decoration:none">Open the application →</a></p>
+      <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p></div>`,
+  })
+}
+
+/** The reviewer's OVERALL verdict on the whole application — not one
+ *  document — via "Send Back" at the bottom of /board-review/[token]. User
+ *  direction, 2026-08-22: "send back opens a text for them to fill and send
+ *  me back an email with the items not approved and the text." Distinct
+ *  from notifyOfficeOfReviewResponse, which fires per-document as decisions
+ *  happen; this is the reviewer stepping back and saying "here's my overall
+ *  concern" in their own words. */
+export async function notifyOfficeOfSendBack(o: {
+  applicationId: string; reviewerName: string; reviewerRole: ReviewerRole; note: string
+}): Promise<void> {
+  if (!OFFICE_EMAILS.length) return
+  const c = await context(o.applicationId)
+  const state = await getReviewState(o.applicationId)
+  if (!c || !state) return
+
+  const refused = state.rows.filter(r => r.state === 'refused')
+  const who = `${esc(o.reviewerName)} (${REVIEWER_ROLE_LABEL[o.reviewerRole]})`
+
+  await sendEmail({
+    to: OFFICE_EMAILS, cc: BOARD_EMAIL_CC, replyTo: SUPPORT,
+    subject: `Sent back by ${o.reviewerName} — ${c.unit ? `Unit ${c.unit}` : c.legal}`,
+    html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.55">
+      <p><strong>${who}</strong> sent the application back instead of approving it.</p>
+      <div style="border-left:3px solid #b42318;background:#fdf2f0;padding:10px 13px;margin:12px 0"><em>“${esc(o.note)}”</em></div>
+      ${refused.length ? `<p style="color:#6b7280;margin-bottom:4px">Items not approved:</p>
+        <ul style="margin:0 0 12px;padding-left:18px;color:#16202f">${refused.map(r => `<li>${esc(r.perApplicantName ? `${r.label} — ${r.perApplicantName}` : r.label)}${r.decision?.reason ? ` — <em>${esc(r.decision.reason)}</em>` : ''}</li>`).join('')}</ul>` : ''}
+      <p style="color:#6b7280">${esc(c.typeLabel)} · ${esc(c.address ?? c.legal)}</p>
       <p style="margin-top:18px"><a href="${APP}/admin/pre-apply/${o.applicationId}" style="color:#f26a1b;font-weight:600;text-decoration:none">Open the application →</a></p>
       <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p></div>`,
   })
