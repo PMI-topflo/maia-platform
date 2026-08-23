@@ -282,6 +282,12 @@ const REQUIRED_DOC: Record<string, { docKey: string; label: string }> = {
   additional_occupant: { docKey: 'lease_addendum', label: 'Lease addendum' },
 }
 
+const OCC_LABEL: Record<string, string> = { owner_occupied: 'Owner-occupied', leased: 'Leased', vacant: 'Vacant' }
+interface UnitOption {
+  unit: string; accountNumber: string; ownerName: string | null
+  occupancy: 'owner_occupied' | 'leased' | 'vacant' | null; occupancyKnown: boolean; tenantName: string | null
+}
+
 function StaffCreate() {
   const TYPES = [
     { key: 'lease', label: 'Lease / Rental' }, { key: 'purchase', label: 'Purchase' },
@@ -291,6 +297,26 @@ function StaffCreate() {
   const [assoc, setAssoc] = useState('MANXI')
   const [unit, setUnit] = useState('')
   const [type, setType] = useState('lease')
+  const [assocList, setAssocList] = useState<{ code: string; name: string }[]>([])
+  useEffect(() => {
+    fetch('/api/associations').then(r => r.json())
+      .then((rows: { association_code: string; association_name: string }[]) => setAssocList(rows.map(r => ({ code: r.association_code, name: r.association_name }))))
+      .catch(() => setAssocList([]))
+  }, [])
+  // The unit list for the selected association — owner + a best-known
+  // occupancy status per unit, so staff pick a real unit instead of
+  // free-typing one and see who's there before opening the application.
+  const [unitList, setUnitList] = useState<UnitOption[]>([])
+  const [unitsLoading, setUnitsLoading] = useState(false)
+  useEffect(() => {
+    const a = assoc.trim().toUpperCase()
+    setUnit(''); setUnitList([])
+    if (!a) return
+    setUnitsLoading(true)
+    fetch(`/api/admin/pre-apply/units?assoc=${encodeURIComponent(a)}`, { credentials: 'include' })
+      .then(r => r.json()).then(d => setUnitList(d.units ?? [])).catch(() => setUnitList([])).finally(() => setUnitsLoading(false))
+  }, [assoc])
+  const selectedUnit = unitList.find(u => u.unit === unit) ?? null
   const [people, setPeople] = useState([{ name: '', email: '', phone: '' }])
   const [note, setNote] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -388,12 +414,30 @@ function StaffCreate() {
       {open && (
         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <input value={assoc} onChange={e => setAssoc(e.target.value.toUpperCase())} placeholder="Association" style={{ ...inp, width: 110 }} />
-            <input value={unit} onChange={e => setUnit(e.target.value)} placeholder="Unit e.g. 1003" style={{ ...inp, width: 130 }} />
+            <select value={assoc} onChange={e => setAssoc(e.target.value)} style={{ ...inp, minWidth: 110, cursor: 'pointer' }}>
+              {!assocList.some(a => a.code === assoc) && <option value={assoc}>{assoc}</option>}
+              {assocList.map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+            </select>
+            <select value={unit} onChange={e => setUnit(e.target.value)} disabled={unitsLoading || !unitList.length} style={{ ...inp, minWidth: 150, cursor: unitsLoading ? 'default' : 'pointer' }}>
+              <option value="">{unitsLoading ? 'Loading units…' : unitList.length ? 'Select a unit…' : 'No units on file'}</option>
+              {unitList.map(u => <option key={u.accountNumber} value={u.unit}>{u.unit}</option>)}
+            </select>
             <select value={type} onChange={e => { setType(e.target.value); setFile(null) }} style={{ ...inp, cursor: 'pointer' }}>
               {TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
             </select>
           </div>
+          {selectedUnit && (
+            <div style={{ font: '12.5px system-ui', color: '#374151', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 10px' }}>
+              Owner: <strong>{selectedUnit.ownerName ?? '—'}</strong>
+              {' · '}
+              {selectedUnit.occupancy
+                ? <strong style={{ color: selectedUnit.occupancy === 'leased' ? '#5b21b6' : selectedUnit.occupancy === 'vacant' ? '#6b7280' : '#166534' }}>
+                    {OCC_LABEL[selectedUnit.occupancy]}{!selectedUnit.occupancyKnown ? ' (tenant on file — not explicitly marked)' : ''}
+                  </strong>
+                : <span style={{ color: '#9ca3af' }}>Occupancy not on file</span>}
+              {selectedUnit.tenantName && selectedUnit.occupancy === 'leased' && <> · Tenant: <strong>{selectedUnit.tenantName}</strong></>}
+            </div>
+          )}
 
           {people.map((p, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
