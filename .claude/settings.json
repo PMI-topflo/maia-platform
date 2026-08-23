@@ -1,0 +1,11 @@
+{
+  "autoMode": {
+    "soft_deny": [
+      "$defaults",
+      "Never apply a database migration (via exec_migration, a direct npx tsx script, or otherwise) without first checking lib/migration-status.ts for an existing registered entry for it",
+      "Always confirm with the user before sending a real email to a resident, owner, or board member",
+      "Never send a real SMS or WhatsApp message to a resident, owner, or board member without confirming with the user first",
+      "Never modify or delete a Supabase Storage bucket's configuration (e.g. allowedMimeTypes) without confirming with the user first"
+    ]
+  }
+}
