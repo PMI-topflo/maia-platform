@@ -1,7 +1,5 @@
 import { getAssociations } from '../actions'
-import AssociationDocumentSetupClient from './AssociationDocumentSetupClient'
-import AssociationApplicationRulesClient from './AssociationApplicationRulesClient'
-import AssociationSetupTabs from './AssociationSetupTabs'
+import AssociationSetupClient from './AssociationSetupClient'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../components/AdminNav'
 
@@ -24,10 +22,7 @@ export default async function AssociationDocumentSetupPage() {
           </p>
         </div>
 
-        <AssociationSetupTabs
-          documentSetup={<AssociationDocumentSetupClient associations={associations} />}
-          applicationRules={<AssociationApplicationRulesClient associations={associations} />}
-        />
+        <AssociationSetupClient associations={associations} />
       </main>
     </div>
   )

@@ -72,8 +72,7 @@ function AssociationQuestions({ assoc, questions, onSaved }: { assoc: string; qu
   )
 }
 
-export default function AssociationDocumentSetupClient({ associations }: { associations: Array<{ association_code: string; association_name: string }> }) {
-  const [assoc, setAssoc] = useState('')
+export default function AssociationDocumentSetupBody({ assoc }: { assoc: string }) {
   const [reqs, setReqs] = useState<Requirement[] | null>(null)
   const [questions, setQuestions] = useState<AssocQuestions[] | null>(null)
   const [label, setLabel] = useState('')
@@ -138,75 +137,66 @@ export default function AssociationDocumentSetupClient({ associations }: { assoc
 
   return (
     <div className="space-y-4">
-      <select value={assoc} onChange={e => setAssoc(e.target.value)} className={inputCls + ' w-full'}>
-        <option value="">Select an association…</option>
-        {associations.map(a => <option key={a.association_code} value={a.association_code}>{a.association_name} ({a.association_code})</option>)}
-      </select>
+      <AssociationQuestions assoc={assoc} questions={questions} onSaved={loadQuestions} />
 
-      {assoc && (
-        <>
-          <AssociationQuestions assoc={assoc} questions={questions} onSaved={loadQuestions} />
+      <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
+        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Add a document requirement for {assoc}</div>
+        <div className="flex flex-wrap gap-2">
+          <input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. City of Lauderhill Certificate of Use"
+            className={inputCls + ' flex-1 min-w-[240px]'} />
+          <button onClick={add} disabled={busy} className="rounded bg-[#f26a1b] px-4 py-2 text-sm font-semibold text-white hover:bg-[#d85a10] disabled:opacity-50">
+            Add
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {SECTIONS.map(s => (
+            <button key={s.key ?? 'always'} type="button" onClick={() => setOccFilter(s.key)}
+              className={`rounded-full px-3 py-1 text-xs font-medium border ${occFilter === s.key ? 'bg-[#1f2a44] text-white border-[#1f2a44]' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}>
+              {s.title}
+            </button>
+          ))}
+        </div>
+      </div>
 
-          <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Add a document requirement for {assoc}</div>
-            <div className="flex flex-wrap gap-2">
-              <input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. City of Lauderhill Certificate of Use"
-                className={inputCls + ' flex-1 min-w-[240px]'} />
-              <button onClick={add} disabled={busy} className="rounded bg-[#f26a1b] px-4 py-2 text-sm font-semibold text-white hover:bg-[#d85a10] disabled:opacity-50">
-                Add
-              </button>
+      {msg && <div className={`rounded border px-3 py-2 text-sm ${msg.kind === 'ok' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>{msg.text}</div>}
+
+      {SECTIONS.map(s => {
+        const items = bySection.get(s.key) ?? []
+        return (
+          <div key={s.key ?? 'always'} className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+            <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200">
+              <div className="text-sm font-semibold text-gray-800">{s.title} <span className="font-normal text-gray-400">({items.length})</span></div>
+              <div className="text-xs text-gray-400">{s.blurb}</div>
             </div>
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {SECTIONS.map(s => (
-                <button key={s.key ?? 'always'} type="button" onClick={() => setOccFilter(s.key)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium border ${occFilter === s.key ? 'bg-[#1f2a44] text-white border-[#1f2a44]' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}>
-                  {s.title}
-                </button>
-              ))}
-            </div>
+            {items.length === 0 ? (
+              <div className="px-4 py-4 text-center text-sm text-gray-400">Nothing here yet.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <tbody className="divide-y divide-gray-100">
+                  {items.map(r => (
+                    <tr key={r.id} className="align-top">
+                      <td className="px-4 py-2.5 text-gray-800">{r.label}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${r.active ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500'}`}>
+                          {r.active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => toggleActive(r)} disabled={busy} className="text-xs text-gray-500 hover:underline">
+                            {r.active ? 'Deactivate' : 'Reactivate'}
+                          </button>
+                          <button onClick={() => remove(r)} disabled={busy} className="text-xs text-red-500 hover:underline">Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
-
-          {msg && <div className={`rounded border px-3 py-2 text-sm ${msg.kind === 'ok' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>{msg.text}</div>}
-
-          {SECTIONS.map(s => {
-            const items = bySection.get(s.key) ?? []
-            return (
-              <div key={s.key ?? 'always'} className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-                <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200">
-                  <div className="text-sm font-semibold text-gray-800">{s.title} <span className="font-normal text-gray-400">({items.length})</span></div>
-                  <div className="text-xs text-gray-400">{s.blurb}</div>
-                </div>
-                {items.length === 0 ? (
-                  <div className="px-4 py-4 text-center text-sm text-gray-400">Nothing here yet.</div>
-                ) : (
-                  <table className="w-full text-sm">
-                    <tbody className="divide-y divide-gray-100">
-                      {items.map(r => (
-                        <tr key={r.id} className="align-top">
-                          <td className="px-4 py-2.5 text-gray-800">{r.label}</td>
-                          <td className="px-4 py-2.5">
-                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${r.active ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500'}`}>
-                              {r.active ? 'Active' : 'Inactive'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5 text-right">
-                            <div className="flex justify-end gap-2">
-                              <button onClick={() => toggleActive(r)} disabled={busy} className="text-xs text-gray-500 hover:underline">
-                                {r.active ? 'Deactivate' : 'Reactivate'}
-                              </button>
-                              <button onClick={() => remove(r)} disabled={busy} className="text-xs text-red-500 hover:underline">Delete</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            )
-          })}
-        </>
-      )}
+        )
+      })}
     </div>
   )
 }
