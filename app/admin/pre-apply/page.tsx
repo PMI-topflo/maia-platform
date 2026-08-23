@@ -498,6 +498,21 @@ function LinkGenerator() {
       .then((rows: { association_code: string; association_name: string }[]) => setAssocList(rows.map(r => ({ code: r.association_code, name: r.association_name }))))
       .catch(() => setAssocList([]))
   }, [])
+  // Account-number picker, same source as StaffCreate's unit picker — user
+  // direction: "I don't want the unit number, I want the account number
+  // combo." The dropdown shows/searches by account number (e.g. MANXI613);
+  // the underlying `unit` state stays the bare unit number, since that's
+  // what the pre-apply link, owner-lookup and send-invite already expect.
+  const [unitList, setUnitList] = useState<UnitOption[]>([])
+  const [unitsLoading, setUnitsLoading] = useState(false)
+  useEffect(() => {
+    const a = assoc.trim().toUpperCase()
+    setUnit(''); setUnitList([])
+    if (!a) return
+    setUnitsLoading(true)
+    fetch(`/api/admin/pre-apply/units?assoc=${encodeURIComponent(a)}`, { credentials: 'include' })
+      .then(r => r.json()).then(d => setUnitList(d.units ?? [])).catch(() => setUnitList([])).finally(() => setUnitsLoading(false))
+  }, [assoc])
   const [copied, setCopied] = useState(false)
   const [owner, setOwner] = useState<{ name: string | null; emails: string[]; phone: string | null }[] | null>(null)
   const [ownerBusy, setOwnerBusy] = useState(false)
@@ -546,7 +561,10 @@ function LinkGenerator() {
           {!assocList.some(a => a.code === assoc) && <option value={assoc}>{assoc}</option>}
           {assocList.map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
         </select>
-        <input value={unit} onChange={e => setUnit(e.target.value)} placeholder="Unit (e.g. 103)" style={{ ...s, width: 130 }} />
+        <select value={unit} onChange={e => setUnit(e.target.value)} disabled={unitsLoading || !unitList.length} style={{ ...s, minWidth: 170, cursor: unitsLoading ? 'default' : 'pointer' }}>
+          <option value="">{unitsLoading ? 'Loading accounts…' : unitList.length ? 'Select an account…' : 'No units on file'}</option>
+          {unitList.map(u => <option key={u.accountNumber} value={u.unit}>{u.accountNumber}{u.ownerName ? ` — ${u.ownerName}` : ''}</option>)}
+        </select>
         <select value={lang} onChange={e => setLang(e.target.value)} style={s}>{LANGS.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}</select>
         <input readOnly value={link} onFocus={e => e.currentTarget.select()} style={{ ...s, flex: 1, minWidth: 220, fontFamily: 'ui-monospace, monospace', fontSize: 12, color: '#374151' }} />
         <button onClick={copy} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', background: copied ? '#059669' : '#f26a1b', color: '#fff', font: '600 13px system-ui' }}>{copied ? '✓ Copied' : 'Copy'}</button>
