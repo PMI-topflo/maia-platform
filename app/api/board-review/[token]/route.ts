@@ -41,17 +41,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const round = await loadRound(token)
   if (!round) return NextResponse.json({ error: 'This link has expired or is invalid.' }, { status: 401 })
 
-  const [state, { data: assoc }, { data: app }, { data: people }, { data: existingLetter }] = await Promise.all([
+  const [state, { data: assoc }, { data: app }, { data: people }] = await Promise.all([
     getReviewState(round.application_id),
     supabaseAdmin.from('associations').select('legal_name, association_name, requires_interview_lease, requires_interview_purchase').eq('association_code', round.association_code).maybeSingle(),
     supabaseAdmin.from('listing_applications').select('application_type, interview_completed_at').eq('id', round.application_id).maybeSingle(),
     supabaseAdmin.from('application_stakeholders').select('name').eq('application_id', round.application_id).eq('role', 'applicant').order('is_primary', { ascending: false }),
-    // A letter that already exists (e.g. created before this requirement was
-    // configured, like MANXI 303) makes the interview question moot — Approve
-    // would just report "already sent" either way, so don't show the
-    // interview-specific button label for a case it can no longer apply to.
-    supabaseAdmin.from('esign_documents').select('id').eq('kind', 'board_decision').eq('association_code', round.association_code)
-      .eq('unit_ref', round.unit_label ?? '').neq('status', 'void').limit(1).maybeSingle(),
   ])
   if (!state) return NextResponse.json({ error: 'This application could not be found.' }, { status: 404 })
 
@@ -59,10 +53,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   // Whether the OVERALL "Approve" action on this round will actually send the
   // letter, or instead request the board/buyer interview some associations
   // require first (lib/board-decision-letter.ts) — the reviewer needs to know
-  // which one their click will do before they click it.
-  const interviewRequired = !existingLetter && (appType === 'purchase' ? !!assoc?.requires_interview_purchase
+  // which one their click will do before they click it. Based purely on
+  // interview_completed_at, matching advanceToApprovalSent's own check
+  // exactly — even an application whose letter already went out (e.g. MANXI
+  // 303, created before this requirement existed) still shows this until
+  // staff mark the interview held, since the interview itself is still a
+  // real, unmet requirement either way.
+  const interviewRequired = appType === 'purchase' ? !!assoc?.requires_interview_purchase
     : appType === 'lease' ? !!assoc?.requires_interview_lease
-    : false)
+    : false
 
   return NextResponse.json({
     associationName: (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || round.association_code,

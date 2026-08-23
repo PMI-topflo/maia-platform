@@ -270,10 +270,10 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
               <button disabled={finalBusy || !info.complete} onClick={() => finalize('approve')}
                 title={!info.complete ? 'Decide every document above first' : info.interviewPending ? 'This association requires an interview before the approval letter — clicking this introduces the applicant to the board by email to schedule one.' : undefined}
                 style={{ font: '600 13.5px system-ui', borderRadius: 8, padding: '10px 16px', cursor: finalBusy || !info.complete ? 'default' : 'pointer', border: 'none', background: !info.complete ? '#c9ccd3' : info.interviewPending ? '#b45309' : '#0f7a4d', color: '#fff' }}>
-                {finalBusy ? 'Working…' : info.interviewPending ? 'Ready to Schedule Interview' : 'Approve'}
+                {finalBusy ? 'Working…' : info.interviewPending ? 'Documents Approved — Request an Interview' : 'Approve'}
               </button>
             </div>
-            {!info.complete && <p style={{ font: '12.5px system-ui', color: '#7c8496', margin: '8px 0 0' }}>{info.interviewPending ? 'Ready to Schedule Interview becomes available' : 'Approve becomes available'} once every document above is decided.</p>}
+            {!info.complete && <p style={{ font: '12.5px system-ui', color: '#7c8496', margin: '8px 0 0' }}>{info.interviewPending ? 'Documents Approved — Request an Interview becomes available' : 'Approve becomes available'} once every document above is decided.</p>}
             {info.complete && info.interviewPending && <p style={{ font: '12.5px system-ui', color: '#92400e', margin: '8px 0 0' }}>This association requires a board interview before the approval letter — this button introduces the applicant to the board by email instead of sending the letter.</p>}
             {finalNoteOpen && (
               <div style={{ marginTop: 10 }}>

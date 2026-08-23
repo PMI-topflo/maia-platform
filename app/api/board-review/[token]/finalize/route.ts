@@ -10,9 +10,12 @@
 //
 // 'approve': the letter this action would create is the SAME one the
 // automatic pipeline already creates the instant every document is approved
-// (lib/board-decision-letter.ts) — checked for an existing one first so a
-// reviewer clicking this on an application that's already past that point
-// (like MANXI 303 itself) gets told it's already out, not a duplicate letter.
+// (lib/board-decision-letter.ts). If the association requires an interview
+// for this application type and it hasn't been held yet, this requests it
+// instead — even for an application whose letter already exists (see the
+// interview check below); otherwise, checked for an existing letter first so
+// a reviewer clicking this on an application already past that point gets
+// told it's already out, not a duplicate letter.
 // 'send_back': lib/board-review-email.ts's notifyOfficeOfSendBack — the
 // reviewer's own note plus whatever is currently refused, straight to the
 // office (OFFICE_EMAILS).
@@ -61,20 +64,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!state) return NextResponse.json({ error: 'This application could not be found.' }, { status: 404 })
   if (!state.complete) return NextResponse.json({ error: 'Not everything is approved yet — decide each document first.' }, { status: 400 })
 
-  const { data: existing } = await supabaseAdmin.from('esign_documents')
-    .select('id, status').eq('kind', 'board_decision').eq('association_code', round.associationCode).eq('unit_ref', round.unitLabel ?? '')
-    .neq('status', 'void').order('created_at', { ascending: false }).limit(1).maybeSingle()
-  if (existing) return NextResponse.json({ ok: true, alreadySent: true, letterStatus: existing.status })
-
   // Some associations require a board/buyer interview before the letter goes
-  // out (e.g. MANXI, purchases). advanceToApprovalSent already holds the
-  // letter for this case — check first so this reviewer's click gets an
-  // accurate response instead of implying a letter that wasn't actually sent.
+  // out (e.g. MANXI, purchases). Checked BEFORE the existing-letter lookup
+  // below, on purpose: user feedback on the real MANXI 303 page — its letter
+  // was auto-created before this requirement existed, and the interview
+  // itself is still a real, unmet requirement regardless of that letter, so
+  // clicking this now correctly requests the interview rather than reporting
+  // "already sent" and stopping there. advanceToApprovalSent holds the
+  // letter for this case (a NEW letter is never created while an interview
+  // is outstanding — it returns before reaching that code at all).
   const c = await loadDecisionContext(round.applicationId)
   if (c?.interviewRequired && !c.interviewCompletedAt) {
     await advanceToApprovalSent(round.applicationId)
     return NextResponse.json({ ok: true, alreadySent: false, interviewRequested: true })
   }
+
+  const { data: existing } = await supabaseAdmin.from('esign_documents')
+    .select('id, status').eq('kind', 'board_decision').eq('association_code', round.associationCode).eq('unit_ref', round.unitLabel ?? '')
+    .neq('status', 'void').order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (existing) return NextResponse.json({ ok: true, alreadySent: true, letterStatus: existing.status })
 
   await advanceToApprovalSent(round.applicationId)
   return NextResponse.json({ ok: true, alreadySent: false })
