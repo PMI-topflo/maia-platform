@@ -1,9 +1,29 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-08-20**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-08-22**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
+
+---
+
+## ✅ LIVE — real-usage bug sweep on the automatic pipeline, 16 commits (2026-08-20 evening → 2026-08-22)
+
+Full detail in `docs/SESSION-HANDOFF.md` (top). Not a new feature — PMI ran real applications through the pipeline above and reported problems live; almost every one was a cached/derived value drifting from its live source, fixed at the shared-function level so the same class of bug can't recur in a sibling caller.
+
+- ✅ **`board_approval_letter` checklist item retired** for `lease` / `purchase` / `additional_occupant` (nonsensical — no prior board decision exists to reference on a first-time tenancy) and **relabeled** for `lease_renewal` → "Copy of Last Year's Approval Letter" (a real, sometimes-available document there). `landlord_email` also retired (asked for an email address as if it were an uploadable file).
+- ✅ Refused documents now correctly pre-tick in "Request the missing documents" (were previously indistinguishable from "never uploaded"); refusal reason travels with the re-request.
+- ✅ Daily "Applications to review" digest, 7am ET (`lib/application-review-digest.ts`, reuses `getApplicationDashboard()`).
+- ✅ Reminder-approval page and the Applications LIST page both now read live document/review state instead of a stale snapshot or an independent status→label mapping — the list page in particular could show "Documents approved — creating letter" on an application that had just been sent a new document request.
+- ✅ **Landlord-Tenant Agreement** — was asked as a dead-end upload; now routes to MAIA's own e-signed packet (`lib/lease-packet.ts`) while staying visible on the checklist (with a "Send to sign" action) until actually signed, rather than disappearing once wired to e-sign.
+- ✅ **"@maia upapp <ACCOUNT>" forward-to-file hint** now shown in 3 places: the public request card, the actual text of every resident-facing email, and the MAIA chat widget (staff persona, via a cross-component event since the widget has no application context on `/admin/pre-apply/[id]`).
+- ✅ **"+ Add another page"** on the applicant upload card — real cases of tenants emailing separate page scans because the upload button only ever replaced.
+- ✅ **Widget "Create a link"** — staff persona, short "MANXI 303"-style message → button that drafts the standard missing-docs reply via the same function the Gmail add-on uses.
+- ✅ **`draftStandardReply()` fix** — agent-provided items (e.g. a Condo Rider only the applicant's real-estate agent can supply) were silently excluded from the reply text entirely, not just from what the recipient is asked to do — could tell an applicant "nothing outstanding" while their agent still owed something.
+- ✅ **Board-review page** (the OLD manual per-document round, still a live staff escape hatch): staff/on-site pre-checks now read "AI Pre-Audited by Maia" instead of "Approved" until a real board member decides; new overall **Send Back** / **Approve** buttons distinct from the per-document controls.
+- ✅ **`quickDocScanDetailed` switched from Haiku to Sonnet** — real vehicle-registration photo, Haiku deterministically misread it as "certificate of use" with an invented date (6/6 wrong runs across two image variants); Sonnet got it right 3/3 with the same prompt. Drives compliance dates, so accuracy outranks the extra per-document cost. `quickDocKind` (lower-stakes Drive-folder matching) stays Haiku.
+- ✅ Not in git: Supabase Storage `application-docs` bucket was missing `image/heic`/`image/webp` from its MIME allowlist — real upload failures for HEIC photos despite app code claiming support.
+- 🔴 **Open, flagged as NEXT**: other real car-registration documents scanned before the Sonnet switch may carry wrong or blank expirations — no error-vs-empty distinction is stored, so this needs a spot-check pass, not a query.
 
 ---
 

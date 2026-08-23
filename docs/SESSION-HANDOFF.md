@@ -1,3 +1,62 @@
+# Session handoff — 2026-08-22
+
+## A stream of real-usage bug reports from live staff testing (2026-08-20 evening → 2026-08-22), 16 commits
+
+No single feature this round — PMI actively used the automatic pipeline (shipped 2026-08-20) on real applications and reported problems as they hit them. Pattern worth naming: almost every bug here is the same shape — **a cached/derived value drifted from the live source of truth**, or **a checklist item asked for something that could never actually be supplied**. Fix each at the shared-function level, not the caller, since most of these functions have 2-3 callers (Gmail add-on, admin screen, widget, emails) that must not be able to disagree.
+
+### Checklist cleanup — "Board Approval Letter" retired/relabeled per type (`666b526`, `a9e5812`, `1cacb6b`)
+Real reports on MANXI 110 (Susie Bell renewal) and MANXI 912 (Querline Pinckney's first lease): MAIA was asking owners for a "Board Approval Letter" that could never be genuinely supplied. Checked actual usage history before touching each: every `board_approval_letter` document ever filed on `lease`/`purchase` was `uploaded_by_role: 'drive-scan'` or `'esign'` — MAIA's own scan of the application's OWN signed decision letter after the fact, never a real owner response. **Retired** (soft `active=false`) for `lease`, `purchase`, `additional_occupant`. **Relabeled**, not retired, for `lease_renewal` → "Copy of Last Year's Approval Letter" — a prior year's letter is a real, sometimes-available document there.
+
+### Same evening, more retirements and fixes from MANXI 912 (`845c443`, `385cf76`)
+- `landlord_email` — required item asking for an email address as if it were an uploadable document. Retired; MAIA already has the real owner email in `owners` whenever one exists.
+- `isMissing()` on the staff review screen only checked "does a document row exist" — a **refused** document still has one, so it never got pre-ticked for re-request and its refusal reason never reached the owner. Now treats refused as outstanding too, with its own badge.
+- Gmail add-on's Application card matched only by thread or by an `application_stakeholders` email — an owner known only via the `owners` table (not yet an explicit stakeholder on this application) matched nothing. Added an owners-table fallback.
+- New "Send Tenant Evaluation guide" button — applicants had no self-serve way to start their own background check.
+
+### Daily "Applications to review" digest (`ec8dbb3`)
+User direction: "I need to receive daily the list of applications that I need to review... with a direct link." `lib/application-review-digest.ts` reuses `getApplicationDashboard()` (not a re-derivation) for two sections — `not_sent` (documents on file, nobody's decided them yet — the one recurring task the automatic pipeline never removed) and `refused`. 7am ET, every day. `APPLICATIONS_REVIEW_RECIPIENTS`.
+
+### Two more "cached snapshot disagreed with live state" bugs (`ada5202`, `43f6b2d`)
+- The reminder-approval page (`/reminder-approval/[token]`) still listed a checklist item **hours after it was retired**, because GET read a JSON blob written once at draft time and never refreshed, while POST already recomputed live. GET now calls `getOutstandingSummary()` live too.
+- **The bigger one**: "why is [MANXI] 901 in 'Documents approved — creating letter' right after I just requested more documents?" The Applications LIST page had its own independent status→label mapping and never used `decideStage()` — the same live computation the staff/board/on-site dashboards already share. Found 2 real mismatches (801: 0/16 docs ever decided; 901: 3/7 decided, 4 waiting) both stuck via the old, since-retired "Mark audited" button clicked back on Aug 11/12, before the completeness gate existed. Data fixed (`20260821_fix_stale_under_review_status.sql`), and the list page now calls `getApplicationDashboard()` like everything else — can't drift again. Bonus: `refused` is now its own visible stage, which the old status-only view had no way to show.
+
+### Landlord-Tenant Agreement — was asked as an upload, corrected twice (`e8dbac9` → `7d57e44`)
+First pass found the real bug — the applicant-facing card showed an "Upload" button for a document that was actually MAIA's own e-signed packet (`lib/lease-packet.ts`), never fulfillable by upload, confirmed via 3 real prior requests that never got satisfied — and fixed it by routing to `sendLeasePacket()`. **First fix removed the item from the missing-list entirely once wired to e-sign; user redirected: "I want the card to have all is missing and a button to push the e-signed form if needed, not remove completely."** Rebuilt as a status-aware `esign_packet` item kind that stays visible until actually signed, with its own "Send to sign" button the owner/tenant can trigger themselves (`findUnitLeasePacket()`, new public route `/api/request/[token]/lease-packet`).
+
+### "@maia upapp <ACCOUNT>" forward-to-file hint, rolled out to 3 places (`ec152f6`, `a0addf3`, `d186672`)
+Staff already had this shortcut on the admin screen. User asked for it everywhere a resident might act: the public `/request/[token]` card footer, the actual text of every resident-facing email (`renderMaiaEmail()` in `lib/maia-email.ts` — one shared change, not one per email type), and the MAIA chat widget itself (pinned bar, driven by a `maia:upapp-hint` window event the admin page dispatches since the widget has no application context on `/admin/pre-apply/[id]`).
+
+### "+ Add another page" (`6a32b90`)
+Real cases: a tenant note ("I have more paper to upload"), and MANXI 303's Wilner Florestan emailing 9 separate page scans to `support@` because the upload button only ever replaced. The backend's append path already existed (gated per-`doc_key` for genuinely separate files like 2 years of tax returns) but was never exposed to the UI independent of that config. New explicit `append` flag works on any item. Required warning text per user direction: pages must be from the same document or the file gets rejected and the application risks denial/delay.
+
+### MAIA widget: "Create a link" for staff (`20a3d1c`) → surfaced a real drafting bug (`a61005c`)
+User direction: saying a short "MANXI 303"-style message in the widget (staff persona only, length-gated so a real question can't misfire) now shows a **Create a link** button that calls the same `draftStandardReply()` the Gmail add-on already uses. Building this **surfaced a real bug**, live on MANXI 303 (Wilner Florestan, purchase): his agent-provided Condo Rider was refused, but `draftStandardReply()` told **him** "nothing outstanding" — agent items were excluded from what he's asked to DO (correct) but that also excluded them from what he's TOLD (wrong). Fixed at the shared-function level: agent items now get their own draft paragraph with the refusal reason, `refusedReason` added to `OutstandingRow`.
+
+### Board-review page overhaul — AI Pre-Audited, Send Back / Approve (`68c72fe`)
+User pushed the first complete purchase application to the board and gave detailed feedback on the resulting email + page. **Important context surfaced before building**: this is the OLD manual "document review round" (superseded for the automatic pipeline, but intentionally left live as a staff escape hatch) — the user confirmed "apply all my feedback to this page anyway."
+- Email/page previously labeled staff/on-site pre-checks as "Approved" — now "AI Pre-Audited by Maia" until an actual board member decides; buttons stay neutral white until then, verified against MANXI 303's real 8-row round (all currently `decision.role: 'staff'`).
+- Email CTA "Upload your documents →" → "Check files and give the final approval →" (wrong audience for a board reader).
+- New overall **Send Back** / **Approve** buttons (`/api/board-review/[token]/finalize`) — Send Back opens a note, emails the office with the note + current refusals; Approve checks for an existing signed-letter-in-flight first (MANXI 303 already had one, auto-sent 2:21am) so it reports "already sent" instead of duplicating.
+
+### Two more real bugs, reported together (`11a00aa`, `b90d2f6`)
+Unit 613: staff approved Car Registration in the main checklist, but the "Request the missing documents" panel below still showed it ticked/"missing". Root cause: that panel's checkbox `state` seeds from the checklist **once on mount** via a lazy `useState` initializer, and the panel stays mounted (just hidden) across the page's live reloads — so it never re-synced. Fixed with a `useEffect` that follows any row the user hasn't manually touched. Same report also caught `/api/request/[token]/upload` (the owner/tenant "request a specific document" link) never calling `quickDocScan` at all, unlike every other upload path — wired in.
+
+Then: "I added the expiration manually and I did push the button to scan and it didn't work before adding manually." **Downloaded the actual stored photo and ran it directly through the scan** — a Florida vehicle registration clearly reading "Expires Midnight Mon 3/8/2027." Haiku, even after a prompt fix and at temperature 0, deterministically misclassified it as "certificate of use" and invented a date not printed anywhere (3/3 identical wrong runs). Sonnet, same prompt, same image, got the correct label and date (2027-03-08) 3/3. Switched `quickDocScanDetailed` from Haiku to Sonnet — accuracy matters more than one extra Sonnet call per document. Also tightened `SCAN_PROMPT` (explicit vehicle-registration-vs-certificate-of-use disambiguation, explicit MONTH/DAY/YEAR guidance — the staff member who hand-entered the date made the identical 3/8→Aug 3 mistake the model did). `quickDocKind` (Drive-folder name matching, lower stakes) left on Haiku. Corrected unit 613's `expiration_date` in prod from the wrong 2027-08-03 to 2027-03-08.
+
+### Not in git — infra/data fixes made directly
+- **Supabase Storage `application-docs` bucket** was missing `image/heic`/`image/webp` from its MIME allowlist despite app code (`ALLOWED` regex) claiming support — root cause of a real MANXI 613 tenant upload failure ("The string did not match the expected pattern") trying to upload a HEIC car-registration photo. Fixed via `updateBucket`; verified live; test artifacts cleaned up.
+- **Susie Bell / MANXI 110** lease renewal actually created for real (was blocked until `#731` landed) — confirmed the lease-extraction fallback worked; owner Monica Blumenfeld was emailed.
+
+### ⏳ NEXT
+1. **Spot-check more real car-registration documents across the portfolio**, not just unit 613 — Haiku's misread was systematic (wrong on 6/6 runs across two image variants before the Sonnet switch), so other units scanned before this fix may be carrying wrong or blank expirations. There is no error-vs-empty distinction stored on the document row itself, only what `quickDocScanDetailed` returns live today.
+2. **`gmail-addon/Code.gs` still not deployed** (carried over — see 2026-08-18 entry below). Unrelated to this round's work but still owed.
+3. Watch the first REAL board-review "Send Back" / "Approve" click on the old manual round — `finalize` route is verified against production data read-only, not yet click-tested end-to-end by a real board member.
+4. Older, unchanged: Checkr key prefix still unverified; Rentvine tenant-sync cron dead since 2026-06-17.
+
+Memory: [[application_pipeline_automation]], [[board_email_cc_preference]].
+
+---
+
 # Session handoff — 2026-08-20
 
 ## Applications pipeline made FULLY AUTOMATIC end-to-end (8 PRs, #723–#730, all merged) + two live bugs fixed (#731, #732)
