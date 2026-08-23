@@ -494,10 +494,14 @@ function LinkGenerator() {
     <div style={{ margin: '14px 0 20px', padding: 14, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }}>
       <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>Generate an application link (reply by email)</div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <input value={assoc} onChange={e => setAssoc(e.target.value.toUpperCase())} placeholder="Association" list="assoc-codes" style={{ ...s, width: 100 }} />
-        <datalist id="assoc-codes">
-          {assocList.map(a => <option key={a.code} value={a.code}>{a.name}</option>)}
-        </datalist>
+        <select value={assoc} onChange={e => setAssoc(e.target.value)} style={{ ...s, minWidth: 100 }}>
+          {/* A native <datalist> filters its popup by the current text, so once
+              the field already held a code (defaults to MANXI) opening it only
+              ever showed that one match — looked like the other associations
+              had disappeared. A real <select> always lists every option. */}
+          {!assocList.some(a => a.code === assoc) && <option value={assoc}>{assoc}</option>}
+          {assocList.map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+        </select>
         <input value={unit} onChange={e => setUnit(e.target.value)} placeholder="Unit (e.g. 103)" style={{ ...s, width: 130 }} />
         <select value={lang} onChange={e => setLang(e.target.value)} style={s}>{LANGS.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}</select>
         <input readOnly value={link} onFocus={e => e.currentTarget.select()} style={{ ...s, flex: 1, minWidth: 220, fontFamily: 'ui-monospace, monospace', fontSize: 12, color: '#374151' }} />
