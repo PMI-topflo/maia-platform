@@ -213,6 +213,30 @@ export function isAllowedSender(email: string): boolean {
   return ALLOWED_DOMAINS.some(d => email.toLowerCase().endsWith(d))
 }
 
+// Everything before the first quoted-reply/forward marker — i.e. what the
+// sender actually typed, not boilerplate echoed back from the message they're
+// replying to. Needed because every resident-facing MAIA email now ends with
+// a "Prefer to just forward an email instead? ... @maia upapp <ACCOUNT>"
+// footer (lib/maia-email.ts) — a normal client-quoted reply reproduces that
+// exact "@maia" text, which used to be a reliable signal nobody could type by
+// accident. Real incident, MANXI 1002 (2026-08-22): an owner replied "That's
+// a renewal lease, please follow up with Ron" to a document-request email;
+// the quoted footer's "@maia upapp MANXI1002" alone made mentionsMaia true,
+// and the freeform AI auto-replied to an external, unmonitored sender with
+// "someone from our team will pick this up from here" — nobody was actually
+// notified. Scoped to the mentionsMaia check only; every other detector below
+// still reads the full body, since forwarded/quoted content is exactly what
+// they're meant to extract from.
+function stripQuotedReply(body: string): string {
+  const markers = [/-{2,}\s*(original|forwarded) message\s*-{2,}/i, /^\s*on .{1,120} wrote:\s*$/im, /^\s*from:\s.+$/im]
+  let cut = body.length
+  for (const m of markers) {
+    const at = body.search(m)
+    if (at >= 0 && at < cut) cut = at
+  }
+  return body.slice(0, cut)
+}
+
 function detectTrigger(body: string): string | null {
   // Normalize whitespace so "@maia\nupdate db" matches "@maia update db"
   const lower = body.toLowerCase().replace(/\s+/g, ' ')
@@ -2311,18 +2335,21 @@ export async function processEmailCommand(messageId: string): Promise<void> {
       .replace(/@maia\s+pmi\s+ai\s+agent\b/gi, '@maia')   // display-name chip
       .replace(/@maia\s*<[^>\n]*>/gi, '@maia')             // address chip "@maia <maia@pmitop.com>"
 
-    const bodyNorm     = parsed.body.toLowerCase().replace(/\s+/g, ' ')
     const subjectNorm  = parsed.subject.toLowerCase()
     // Subject: match either "@maia" or "Maia" by name (most customers
     // don't know the @ syntax — natural greetings like "Hi Maia" should
     // route to the AI handler).
     //
-    // Body: only match "@maia" literally. Plain "Maia" mentions are too
-    // permissive — quoted MAIA signatures from previous replies in a
-    // thread will match and cause loops. Customers writing "Hi Maia," in
+    // Body: only match "@maia" literally, and only in what the sender
+    // actually typed (stripQuotedReply) — not the quoted copy of our own
+    // email being replied to, which now always contains "@maia upapp
+    // <ACCOUNT>" in its footer. Plain "Maia" mentions are too permissive on
+    // their own either way — quoted MAIA signatures from previous replies in
+    // a thread would match and cause loops. Customers writing "Hi Maia," in
     // the body still trigger via the recipient address (maia@pmitop.com)
     // and via the subject — which is where the greeting usually shows up.
-    const mentionsMaia = /\bmaia\b/.test(subjectNorm) || bodyNorm.includes('@maia')
+    const freshBodyNorm = stripQuotedReply(parsed.body).toLowerCase().replace(/\s+/g, ' ')
+    const mentionsMaia = /\bmaia\b/.test(subjectNorm) || freshBodyNorm.includes('@maia')
     const allowed      = isAllowedSender(parsed.senderEmail)
 
     // Determine trigger: explicit phrase > subject keyword (authorized).
