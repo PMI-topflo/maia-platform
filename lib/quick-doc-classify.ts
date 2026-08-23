@@ -11,6 +11,16 @@ import Anthropic from '@anthropic-ai/sdk'
 import { assertClaudeBudget } from '@/lib/anthropic-guard'
 
 const HAIKU = 'claude-haiku-4-5-20251001'
+// The expiration read (quickDocScanDetailed) gets Sonnet, not Haiku. Real
+// case, MANXI 613's car registration: on the same photo, at temperature 0,
+// Haiku deterministically misread "FLORIDA VEHICLE REGISTRATION" as
+// "certificate of use" and invented an expiration date not printed anywhere
+// on the document (3 straight identical wrong runs), while Sonnet read the
+// correct label and the correct date ("Expires Midnight Mon 3/8/2027" →
+// 2027-03-08) 3/3 with the same prompt. This scan drives compliance dates,
+// so accuracy matters more than the extra cost/latency of one Sonnet call
+// per document. quickDocKind (Drive-folder matching, lower stakes) stays Haiku.
+const SCAN_MODEL = 'claude-sonnet-4-5-20250929'
 
 const LABELS = [
   'lease agreement', 'landlord-tenant agreement', 'drivers license or photo id',
@@ -32,8 +42,8 @@ function mediaTypeFor(ct: string | null): 'image/jpeg' | 'image/png' | 'image/we
 
 const SCAN_PROMPT = `You are reading a single document for a condo leasing file. Return ONLY JSON:
 {"label":"<one label>","expiration":"<YYYY-MM-DD or null>"}
-- "label": the ONE best match from this list: ${LABELS.join(', ')} (use "other" if none fit).
-- "expiration": ANY expiration / valid-through / "EXP" date printed on the document, in YYYY-MM-DD. Look hard for it: a driver's license or state ID "EXP" date, a vehicle registration expiration, an insurance policy expiration/period-end, a certificate-of-use expiry, or a lease end date. If the document genuinely has no expiration (e.g. a deed, an affidavit, a tax return), return null.`
+- "label": the ONE best match from this list: ${LABELS.join(', ')} (use "other" if none fit). A document titled "FLORIDA VEHICLE REGISTRATION" or similar, with a plate/tag number, VIN, and vehicle year/make, is "vehicle registration" — NOT "certificate of use" (that label is a municipal rental/occupancy certificate, a DMV document is never one).
+- "expiration": ANY expiration / valid-through / "EXP" date printed on the document, in YYYY-MM-DD. Look hard for it: a driver's license or state ID "EXP" date, a vehicle registration "Expires" date, an insurance policy expiration/period-end, a certificate-of-use expiry, or a lease end date. Dates are printed American-style, MONTH/DAY/YEAR — e.g. a Florida registration showing "Expires Midnight Mon 3/8/2027" means March 8 2027 → "2027-03-08", NOT August 3. Read every digit carefully; do not guess or invent a date that is not actually printed. If the document genuinely has no expiration (e.g. a deed, an affidavit, a tax return), return null.`
 
 export interface DocScan { label: string; expiration: string | null }
 /** A scan that also says whether it actually READ the document. `ok: false`
@@ -63,7 +73,7 @@ export async function quickDocScanDetailed(buf: Buffer, contentType: string | nu
     await assertClaudeBudget('quick-doc-scan')
     const anthropic = new Anthropic()
     const msg = await anthropic.messages.create({
-      model: HAIKU, max_tokens: 80,
+      model: SCAN_MODEL, max_tokens: 120, temperature: 0,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       messages: [{ role: 'user', content: [block as any, { type: 'text', text: SCAN_PROMPT }] }],
     })
