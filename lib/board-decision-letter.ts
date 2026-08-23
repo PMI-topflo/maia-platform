@@ -43,29 +43,36 @@ export interface DecisionContext {
   legal: string
   propertyAddress: string | null
   applicant: string | null
+  applicantEmails: string[]
   required: number
   board: { name: string | null; email: string | null; role: string | null; signature_image: string | null }[]
   occupants: string[]
   leaseStart: string | null
   leaseEnd: string | null
+  interviewRequired: boolean
+  interviewRequestedAt: string | null
+  interviewCompletedAt: string | null
 }
 
 export async function loadDecisionContext(applicationId: string): Promise<DecisionContext | null> {
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('association_code, application_type, unit_label').eq('id', applicationId).maybeSingle()
+    .select('association_code, application_type, unit_label, interview_requested_at, interview_completed_at').eq('id', applicationId).maybeSingle()
   if (!app) return null
   const code = String(app.association_code)
+  const type = String(app.application_type)
   const [{ data: assoc }, { data: sh }, { data: members }, { data: cfg }, { data: tenant }] = await Promise.all([
-    supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', code).maybeSingle(),
-    supabaseAdmin.from('application_stakeholders').select('name, is_primary').eq('application_id', applicationId).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
+    supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip, requires_interview_lease, requires_interview_purchase').eq('association_code', code).maybeSingle(),
+    supabaseAdmin.from('application_stakeholders').select('name, email, is_primary').eq('application_id', applicationId).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('association_board_members').select('name, email, role, signature_image').eq('association_code', code).eq('active', true),
     supabaseAdmin.from('association_config').select('required_signatures').eq('association_code', code).maybeSingle(),
     supabaseAdmin.from('unit_tenant_contacts').select('occupants, lease_start, lease_end').eq('association_code', code).eq('unit_ref', app.unit_label ?? '').maybeSingle(),
   ])
   const legal = (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || code
   const addr = [assoc?.principal_address, app.unit_label ? `Unit ${app.unit_label}` : null, [assoc?.city, [assoc?.state, assoc?.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ')
-  const applicantNames = ((sh ?? []) as { name: string | null }[]).map(s => String(s.name ?? '').trim()).filter(Boolean)
+  const applicantRows = (sh ?? []) as { name: string | null; email: string | null }[]
+  const applicantNames = applicantRows.map(s => String(s.name ?? '').trim()).filter(Boolean)
   const applicant = applicantNames[0] ?? null
+  const applicantEmails = [...new Set(applicantRows.map(s => String(s.email ?? '').trim()).filter(e => e.includes('@')))]
   const tenantOcc = Array.isArray(tenant?.occupants) ? (tenant!.occupants as Array<{ name?: string } | string>).map(o => typeof o === 'string' ? o : o?.name).filter(Boolean) as string[] : []
   const occ = tenantOcc.length ? tenantOcc : applicantNames
   const required = Math.max(1, (cfg?.required_signatures as number | null) ?? 1)
@@ -83,11 +90,52 @@ export async function loadDecisionContext(applicationId: string): Promise<Decisi
       }
     }
   }
+  const interviewRequired = type === 'purchase' ? !!assoc?.requires_interview_purchase
+    : type === 'lease' ? !!assoc?.requires_interview_lease
+    : false
   return {
-    applicationId, unitLabel: (app.unit_label as string | null) ?? null, applicationType: String(app.application_type),
-    code, legal, propertyAddress: addr || null, applicant, required, board: ordered,
-    occupants: occ, leaseStart, leaseEnd,
+    applicationId, unitLabel: (app.unit_label as string | null) ?? null, applicationType: type,
+    code, legal, propertyAddress: addr || null, applicant, applicantEmails, required, board: ordered,
+    occupants: occ, leaseStart, leaseEnd, interviewRequired,
+    interviewRequestedAt: (app.interview_requested_at as string | null) ?? null,
+    interviewCompletedAt: (app.interview_completed_at as string | null) ?? null,
   }
+}
+
+/** Introduce the buyer/tenant and the board by email, board CC'd, and let
+ *  them coordinate a time themselves — MAIA's role here is the
+ *  introduction, not scheduling. Marks interview_requested_at so this only
+ *  goes out once no matter how many times advanceToApprovalSent retriggers
+ *  (staff decision, board decision, and the manual board-review Approve
+ *  button all call it). User direction, 2026-08-23: "an email needs to be
+ *  sent to the tenant with the board in copy for them introducing each
+ *  other and telling them to schedule at their own convenience." */
+async function requestInterview(c: DecisionContext): Promise<void> {
+  if (c.interviewRequestedAt) return
+  if (!c.applicantEmails.length) return
+  const boardCc = c.board.map(m => m.email).filter((e): e is string => !!e && e.includes('@'))
+  const typeLabel = c.applicationType === 'purchase' ? 'purchase' : 'lease'
+  const who = c.applicant ? esc(c.applicant) : 'there'
+  await sendEmail({
+    to: c.applicantEmails, cc: boardCc.length ? boardCc : BOARD_EMAIL_CC,
+    subject: `Time to schedule your board interview — ${c.propertyAddress ?? (c.unitLabel ? `Unit ${c.unitLabel}` : c.legal)}`,
+    html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6;max-width:560px">
+      <p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#f26a1b;font-weight:700;margin:0 0 4px">PMI Top Florida Properties</p>
+      <h2 style="margin:0 0 8px;color:#1f2a44">One more step before the approval letter</h2>
+      <p>Hello ${who}, your documents for the ${esc(typeLabel)} at <strong>${esc(c.propertyAddress ?? (c.unitLabel ? `Unit ${c.unitLabel}` : c.legal))}</strong> are complete and approved. Before ${esc(c.legal)} can issue the final approval letter, its board requires a short interview with you.</p>
+      <p>This email introduces you to the board (copied above) so you can coordinate directly — please reply-all to find a time that works at your convenience.</p>
+      <p style="color:#9aa0ab;font-size:12px">Once the interview is complete, PMI Top Florida Properties will release the signed approval letter.</p>
+    </div>`,
+  }).catch(() => null)
+  await supabaseAdmin.from('listing_applications').update({ interview_requested_at: new Date().toISOString() }).eq('id', c.applicationId)
+}
+
+/** Staff mark the interview as held, then retry the normal advance —
+ *  clears the gate in loadDecisionContext's next read so the real letter
+ *  goes out exactly as it would have without the requirement. */
+export async function markInterviewCompleteAndAdvance(applicationId: string): Promise<void> {
+  await supabaseAdmin.from('listing_applications').update({ interview_completed_at: new Date().toISOString() }).eq('id', applicationId)
+  await advanceToApprovalSent(applicationId)
 }
 
 export interface LetterSigner { role: string; name: string | null; email: string | null }
@@ -189,6 +237,19 @@ export async function advanceToApprovalSent(applicationId: string): Promise<void
   try {
     const c = await loadDecisionContext(applicationId)
     if (!c) return
+
+    // Some associations require a board/buyer interview before the approval
+    // letter goes out (MANXI, purchases — user direction, 2026-08-23: "MANORS
+    // REQUIRES AN INTERVIEW BEFORE RELEASING THE APPROVAL LETTER ON
+    // PURCHASES"). Every document is decided and the board has hit Approve,
+    // but the letter itself waits until staff mark the interview held
+    // (markInterviewCompleteAndAdvance) — status stays at under_review in the
+    // meantime, same as any other application still missing a step.
+    if (c.interviewRequired && !c.interviewCompletedAt) {
+      await requestInterview(c)
+      return
+    }
+
     const defaultSigners = c.board.slice(0, c.required).map(m => ({ name: m.name, email: m.email }))
     const created = await createBoardDecisionLetter(c, { signers: defaultSigners, createdBy: 'auto' })
     if ('error' in created) return

@@ -100,6 +100,7 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
       })
       const d = await r.json(); if (!r.ok) throw new Error(d.error ?? 'Could not save')
       if (action === 'send_back') { setFinalMsg('Sent back — the office has been emailed.'); setFinalNoteOpen(false); setFinalNote('') }
+      else if (d.interviewRequested) setFinalMsg('Approved — this association requires an interview before the letter can go out. The buyer/tenant has been introduced to the board by email to schedule one; the approval letter follows once that’s done.')
       else setFinalMsg(d.alreadySent ? 'The approval letter was already created and sent for signature.' : 'Approved — the approval letter has been created and sent for signature.')
       load()
     } catch (e) { setErr((e as Error).message) } finally { setFinalBusy(false) }

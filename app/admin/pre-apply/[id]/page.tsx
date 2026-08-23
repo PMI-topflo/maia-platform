@@ -444,6 +444,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {/* Board approval — files keepers to Official + archives the folder */}
       {!decided && <BoardApprove id={id} onDone={load} />}
       {d.status === 'approved' && <RefileOfficial id={id} onDone={load} />}
+      {!decided && <InterviewGate id={id} onDone={load} />}
 
       {/* Board approval letter (Decision Page) — available after PMI's review so
           you can generate it, view it, and send it to the board for signatures. */}
@@ -1305,6 +1306,46 @@ function BoardApprove({ id, onDone }: { id: string; onDone: () => void }) {
       ) : (
         <button onClick={preview} disabled={busy === 'plan'} style={btn('#166534')}>{busy === 'plan' ? 'Scanning files…' : '👁 Preview the Official/Archive filing'}</button>
       )}
+    </div>
+  )
+}
+
+// Only renders when the association requires an interview for this
+// application's type (e.g. MANXI, purchases) — checked server-side by
+// /interview's GET, so this component doesn't need to know the type itself.
+// Every document can be fully approved and the board can hit its own Approve
+// button, but lib/board-decision-letter.ts's advanceToApprovalSent holds the
+// real letter until staff mark the interview held here. User direction,
+// 2026-08-23.
+function InterviewGate({ id, onDone }: { id: string; onDone: () => void }) {
+  const [state, setState] = useState<{ required: boolean; requestedAt: string | null; completedAt: string | null } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const load = () => { fetch(`/api/admin/pre-apply/${id}/interview`, { credentials: 'include' }).then(r => r.json()).then(setState).catch(() => null) }
+  useEffect(load, [id])
+
+  async function complete() {
+    if (!confirm('Mark the interview as held? This will release the approval letter (or send it for signatures) right away.')) return
+    setBusy(true); setErr(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/interview`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'complete' }) })
+      if (!r.ok) throw new Error((await r.json())?.error ?? 'failed')
+      load(); onDone()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+
+  if (!state?.required || state.completedAt) return null
+  return (
+    <div style={{ marginTop: 18, border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 12, padding: 16 }}>
+      <div style={{ font: '700 15px system-ui', color: '#92400e' }}>🎤 Board interview required before the approval letter</div>
+      <div style={{ font: '400 13px system-ui', color: '#78350f', margin: '4px 0 12px' }}>
+        {state.requestedAt
+          ? <>An introduction email (buyer/tenant + board CC&apos;d) went out {fmt(state.requestedAt)} so they can schedule directly. The approval letter won&apos;t be created until you confirm the interview happened.</>
+          : <>Documents are complete, but this association requires an interview before the letter goes out. It will be requested automatically the next time everything is approved.</>}
+      </div>
+      {err && <p style={{ color: '#b91c1c', font: '13px system-ui' }}>⚠ {err}</p>}
+      <button onClick={complete} disabled={busy} style={btn('#92400e')}>{busy ? 'Working…' : '✓ Mark interview completed → send approval letter'}</button>
     </div>
   )
 }

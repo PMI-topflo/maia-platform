@@ -3932,6 +3932,24 @@ NOTIFY pgrst, 'reload schema';`,
  WHERE association_code = 'MANXI' AND application_type = 'lease_renewal' AND doc_key = 'tenant_affidavit';
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'interview_requirement',
+    label:       'Per-association interview requirement (lease/purchase) + gate the auto approval letter',
+    description: "User direction, 2026-08-23: \"MANORS REQUIRES AN INTERVIEW BEFORE RELEASING THE APPROVAL LETTER ON PURCHASES\" — when the board hits the final Approve button, a purchase at an association requiring it must schedule a buyer/board interview instead of immediately generating the letter. associations.requires_interview_lease/requires_interview_purchase (same per-association-boolean pattern as pets_allowed, one flag per type since MANXI only requires it for purchases). listing_applications.interview_requested_at/interview_completed_at let lib/board-decision-letter.ts's advanceToApprovalSent() gate letter creation exactly once (requested_at guards against re-sending the introduction email on every retrigger from any of its 3 call sites) and let staff mark it done to release the real letter. Seeds MANXI requires_interview_purchase=true; every other association/flag defaults false.",
+    filename:    '20260823_interview_requirement.sql',
+    artifact:    { type: 'column', table: 'associations', column: 'requires_interview_purchase' },
+    sql: `ALTER TABLE public.associations
+  ADD COLUMN IF NOT EXISTS requires_interview_lease boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS requires_interview_purchase boolean NOT NULL DEFAULT false;
+
+ALTER TABLE public.listing_applications
+  ADD COLUMN IF NOT EXISTS interview_requested_at timestamptz,
+  ADD COLUMN IF NOT EXISTS interview_completed_at timestamptz;
+
+UPDATE public.associations SET requires_interview_purchase = true WHERE association_code = 'MANXI';
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

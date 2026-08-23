@@ -21,7 +21,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getReviewState, type ReviewerRole } from '@/lib/board-review'
 import { notifyOfficeOfSendBack } from '@/lib/board-review-email'
-import { advanceToApprovalSent } from '@/lib/board-decision-letter'
+import { advanceToApprovalSent, loadDecisionContext } from '@/lib/board-decision-letter'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -65,6 +65,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     .select('id, status').eq('kind', 'board_decision').eq('association_code', round.associationCode).eq('unit_ref', round.unitLabel ?? '')
     .neq('status', 'void').order('created_at', { ascending: false }).limit(1).maybeSingle()
   if (existing) return NextResponse.json({ ok: true, alreadySent: true, letterStatus: existing.status })
+
+  // Some associations require a board/buyer interview before the letter goes
+  // out (e.g. MANXI, purchases). advanceToApprovalSent already holds the
+  // letter for this case — check first so this reviewer's click gets an
+  // accurate response instead of implying a letter that wasn't actually sent.
+  const c = await loadDecisionContext(round.applicationId)
+  if (c?.interviewRequired && !c.interviewCompletedAt) {
+    await advanceToApprovalSent(round.applicationId)
+    return NextResponse.json({ ok: true, alreadySent: false, interviewRequested: true })
+  }
 
   await advanceToApprovalSent(round.applicationId)
   return NextResponse.json({ ok: true, alreadySent: false })
