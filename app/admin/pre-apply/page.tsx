@@ -434,7 +434,7 @@ function StaffCreate() {
                 ? <strong style={{ color: selectedUnit.occupancy === 'leased' ? '#5b21b6' : selectedUnit.occupancy === 'vacant' ? '#6b7280' : '#166534' }}>
                     {OCC_LABEL[selectedUnit.occupancy]}{!selectedUnit.occupancyKnown ? ' (tenant on file — not explicitly marked)' : ''}
                   </strong>
-                : <span style={{ color: '#9ca3af' }}>Occupancy not on file</span>}
+                : <span style={{ color: '#9ca3af' }}>Occupancy: Unknown</span>}
               {selectedUnit.tenantName && selectedUnit.occupancy === 'leased' && <> · Tenant: <strong>{selectedUnit.tenantName}</strong></>}
             </div>
           )}
