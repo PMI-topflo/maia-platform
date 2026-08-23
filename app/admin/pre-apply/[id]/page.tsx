@@ -1445,6 +1445,33 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAg
     // send time — renter's insurance can come from either the tenant or the
     // owner, so it defaults to asking both rather than guessing one.
     Object.fromEntries(items.map(it => [it.doc_key, { on: it.missing, rec: (it.provided_by === 'both' ? 'both' : it.provided_by === 'landlord' ? 'owner' : 'tenant') as Rec }])))
+  // `state` only seeds from `items` once, on mount — but this panel stays
+  // mounted (just hidden) while the rest of the page keeps reloading live
+  // review data, so approving/refusing a document elsewhere on the page
+  // never re-synced its checkbox here. Real case, unit 613: staff approved
+  // Car Registration in the main checklist and it still showed ticked +
+  // "missing" in this panel. Only auto-follow a row the user hasn't touched
+  // by hand since the last sync (checkbox still matches the old missing
+  // value) so a manual tick/untick is never silently overridden.
+  const missingRef = useRef<Record<string, boolean>>(Object.fromEntries(items.map(it => [it.doc_key, it.missing])))
+  useEffect(() => {
+    setState(st => {
+      let changed = false
+      const next = { ...st }
+      for (const it of items) {
+        const rec = (it.provided_by === 'both' ? 'both' : it.provided_by === 'landlord' ? 'owner' : 'tenant') as Rec
+        const cur = next[it.doc_key]
+        if (!cur) { next[it.doc_key] = { on: it.missing, rec }; changed = true; continue }
+        const prevMissing = missingRef.current[it.doc_key]
+        if (prevMissing !== undefined && prevMissing !== it.missing && cur.on === prevMissing) {
+          next[it.doc_key] = { ...cur, on: it.missing }
+          changed = true
+        }
+      }
+      missingRef.current = Object.fromEntries(items.map(it => [it.doc_key, it.missing]))
+      return changed ? next : st
+    })
+  }, [items])
   const [msg, setMsg] = useState('')
   const [ownerTo, setOwnerTo] = useState(ownerEmails ?? '')
   // Seeded once, so an owner address that arrives (or is corrected) after the

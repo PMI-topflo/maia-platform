@@ -9,6 +9,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { INTAKE_BUCKET } from '@/lib/preapply'
 import { mirrorFileToOngoing } from '@/lib/drive-application-mirror'
 import { sendEmail } from '@/lib/gmail'
+import { quickDocScan } from '@/lib/quick-doc-classify'
 import { loadRequest } from '../route'
 
 export const runtime = 'nodejs'
@@ -69,9 +70,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     const del = supabaseAdmin.from('application_documents').delete().eq('application_id', appId).eq('doc_key', docKey)
     await (stakeholderId ? del.eq('stakeholder_id', stakeholderId) : del.is('stakeholder_id', null))
   }
+  // Read the document for its expiration date, same as the applicant intake
+  // link (lib/preapply.ts recordIntakeDoc) — this route is a separate upload
+  // path (owner/tenant re-uploading a specifically requested item) and was
+  // never wired to the scan, so anything filed through it landed with no
+  // expiration even though the checklist item (e.g. car registration) expects
+  // one. Best-effort: a failed read must never lose the upload.
+  let expiration: string | null = null
+  try { expiration = (await quickDocScan(buf, file.type || 'application/pdf')).expiration } catch { /* keep the document even if the scan fails */ }
   const { error: insErr } = await supabaseAdmin.from('application_documents').insert({
     application_id: appId, listing_id: app.listing_id, kind: 'other', doc_key: docKey, doc_label: item.label,
     storage_path: path, filename: file.name, mime_type: file.type || 'application/pdf', uploaded_by_role: `request:${r.role}`, stakeholder_id: stakeholderId,
+    expiration_date: expiration,
   })
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
 
