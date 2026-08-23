@@ -418,9 +418,9 @@ function StaffCreate() {
               {!assocList.some(a => a.code === assoc) && <option value={assoc}>{assoc}</option>}
               {assocList.map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
             </select>
-            <select value={unit} onChange={e => setUnit(e.target.value)} disabled={unitsLoading || !unitList.length} style={{ ...inp, minWidth: 150, cursor: unitsLoading ? 'default' : 'pointer' }}>
-              <option value="">{unitsLoading ? 'Loading units…' : unitList.length ? 'Select a unit…' : 'No units on file'}</option>
-              {unitList.map(u => <option key={u.accountNumber} value={u.unit}>{u.unit}</option>)}
+            <select value={unit} onChange={e => setUnit(e.target.value)} disabled={unitsLoading || !unitList.length} style={{ ...inp, minWidth: 170, cursor: unitsLoading ? 'default' : 'pointer' }}>
+              <option value="">{unitsLoading ? 'Loading accounts…' : unitList.length ? 'Select an account…' : 'No units on file'}</option>
+              {unitList.map(u => <option key={u.accountNumber} value={u.unit}>{u.accountNumber}{u.ownerName ? ` — ${u.ownerName}` : ''}</option>)}
             </select>
             <select value={type} onChange={e => { setType(e.target.value); setFile(null) }} style={{ ...inp, cursor: 'pointer' }}>
               {TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
