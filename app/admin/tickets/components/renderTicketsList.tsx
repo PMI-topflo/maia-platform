@@ -47,11 +47,11 @@ export async function renderTicketsList(
   // opt out of the 12-month window — user direction 2026-08-24: "All"
   // should mean all time, not "last 12 months, unfiltered by status."
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function applyCommonFilters(q: any, opts?: { skipDate?: boolean }): any {
+  function applyCommonFilters(q: any, opts?: { skipDate?: boolean; skipArchived?: boolean }): any {
     if (!opts?.skipDate) q = q.gte('created_at', sinceIso)
     if (typeFilter)  q = q.eq('type',                 typeFilter)
     if (sp.wo_type)  q = q.eq('work_order_type_name', sp.wo_type)
-    if (sp.archived !== '1') q = q.is('archived_at', null)
+    if (!opts?.skipArchived && sp.archived !== '1') q = q.is('archived_at', null)
     if (sp.priority)    q = q.eq('priority',         sp.priority)
     if (sp.channel)     q = q.eq('channel_origin',   sp.channel)
     if (sp.association) q = q.eq('association_code', sp.association)
@@ -64,13 +64,19 @@ export async function renderTicketsList(
     return q
   }
 
-  const isAllTimeTab = sp.status === 'all'
+  const isAllTimeTab   = sp.status === 'all'
+  // User direction, 2026-08-24: archived work orders should still show up
+  // (and count) under the Resolved tab without needing "Show archived"
+  // checked — archiving is for keeping old history out of the *active*
+  // views (Open/Pending/Waiting/default), not for hiding completed work
+  // from its own completed-work log.
+  const isResolvedTab  = sp.status === 'resolved'
 
   let query = applyCommonFilters(
     supabaseAdmin
       .from('tickets')
       .select('id, ticket_number, type, status, priority, channel_origin, association_code, persona, contact_name, contact_email, contact_phone, subject, summary, assignee_email, due_at, gmail_thread_id, work_order_type_name, ticket_category, cinc_workorder_id, archived_at, created_at, updated_at'),
-    { skipDate: isAllTimeTab },
+    { skipDate: isAllTimeTab, skipArchived: isResolvedTab },
   ).order('updated_at', { ascending: false }).limit(200)
 
   if (sp.status && sp.status !== 'all') {
@@ -113,8 +119,15 @@ export async function renderTicketsList(
     supabaseAdmin.from('tickets').select('id', { count: 'exact', head: true }),
     { skipDate: true },
   )
+  // Same reasoning as isResolvedTab above: the Resolved tab's own badge
+  // count must include archived rows too, regardless of which tab is
+  // currently selected or whether "Show archived" is checked.
+  const resolvedCountQuery = applyCommonFilters(
+    supabaseAdmin.from('tickets').select('id', { count: 'exact', head: true }).eq('status', 'resolved'),
+    { skipArchived: true },
+  )
 
-  const [{ data: tickets }, { data: associations }, { data: counts }, staff, { data: woTypeRows }, { count: allTimeCount }] = await Promise.all([
+  const [{ data: tickets }, { data: associations }, { data: counts }, staff, { data: woTypeRows }, { count: allTimeCount }, { count: resolvedCount }] = await Promise.all([
     query,
     supabaseAdmin
       .from('associations')
@@ -125,6 +138,7 @@ export async function renderTicketsList(
     fetchStaffList(),
     woTypesQuery,
     allTimeCountQuery,
+    resolvedCountQuery,
   ])
 
   const woTypes = Array.from(new Set(
@@ -145,6 +159,9 @@ export async function renderTicketsList(
   // Override with the true all-time total — the loop above only saw the
   // 12-month-scoped counts query.
   countsByStatus.all = allTimeCount ?? 0
+  // Override with the archived-inclusive total — the loop above only saw
+  // the default-excludes-archived counts query.
+  countsByStatus.resolved = resolvedCount ?? 0
 
   const rows: TicketRow[] = ((tickets ?? []) as TicketRow[]).map(t => ({
     id:                   t.id,
