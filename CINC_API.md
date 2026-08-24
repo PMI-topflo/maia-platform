@@ -627,13 +627,55 @@ OwnerAddress flag, mailing-address selection) **out of the per-address
 record** and into a separate **Contacts** module on the
 Homeowner / Homeowner Information screen.
 
-> **PERSONAS NOTE (Fabio, 2026-05-29):** CINC's `propertyContactTypes`
-> introduces a subset of contact types — fewer than MAIA's persona
-> model. MAIA tracks owner / tenant / board / agent / vendor; CINC's
-> v2 module focuses on property-level contacts (owner-marked or not)
-> with mailing-address selection. When CINC ships the v2 module we
-> may want to bridge MAIA personas → CINC contact types where they
-> overlap, but the two models aren't 1:1.
+> **PERSONAS — CONFIRMED (2026-08-23), from CINC's real Contacts and
+> Consent Learning Guide + FAQ + Data Exceptions guide (not the 12/19
+> endpoint doc — separate training material set):**
+>
+> Persona is a **per-contact, system-fixed field with exactly 3 real
+> values: `Owner`, `Tenant`, `Previous Tenant` — or blank (no persona
+> assigned)**. Confirmed by two independent CINC documents (a training
+> slide AND the Learning Guide's own field table), so this is settled,
+> not a guess: **there is no "Previous Owner" persona.** Controls
+> collections eligibility and which correspondence/portal features a
+> contact sees. Cannot be extended — unlike **Contact Type**, which is
+> a *separate*, fully-configurable field (`System > Drop Down
+> Options`, e.g. "General Contact", "Tenant", or anything staff add)
+> that controls statement/coupon eligibility instead.
+>
+> **Board membership is a TAG, not a Persona or Contact Type.** A
+> contact can carry `Persona: Owner` + tag `Board Member`
+> simultaneously — confirmed in the Data Exceptions guide's own
+> screenshot (`Persona: Owner`, `Tags: Primary Contact, Board Member`
+> on the same row). So MAIA's `board` role maps to CINC's Board Member
+> tag, orthogonal to Persona, not competing with it.
+>
+> **"Previous Owner" is a real, CONFIRMED-EXISTING CINC concept —
+> just not a Persona.** It's the `Status` field on the homeowner
+> RECORD itself (Homeowners > Homeowner Listing, `Status: Owner` /
+> `Status: Previous Owner` — visible in the classic dropdown on the
+> Primary Homeowner Information page, screenshotted in the Data
+> Exceptions guide), a pre-existing field that predates Contacts &
+> Consent and isn't in the C&C endpoint doc's list of what's moving to
+> Contacts (Names/Email/Phone/BillingTypeID/OwnerAddress — Status
+> isn't on that list). This is almost certainly what backs v1's
+> `isCurrentOwner`/`OwnerNumber`. **Still unconfirmed: does the v2
+> property endpoint still expose this Status field in some form?** The
+> 2026-07-15 Swagger check found no `isCurrentOwner`/`OwnerNumber` on
+> `PropertyInformationV2Vm` under those exact names — but that check
+> may have been looking for the wrong field name/shape now that we
+> know Status is conceptually separate from the Contacts move. Worth
+> re-checking Swagger for a `Status` or similar field once this is
+> revisited.
+>
+> **MAIA persona mapping (once wired):**
+> | CINC Persona/field | MAIA equivalent |
+> |---|---|
+> | `Persona: Owner` | `owners` row (any status) |
+> | `Persona: Tenant` | active tenant record |
+> | `Persona: Previous Tenant` | tenant record `status='previous'`/`'expired'` |
+> | `Status: Previous Owner` (record-level, not Persona) | `owners.status='previous'` |
+> | Tag: Board Member | `association_board_members` |
+> | blank Persona / Contact Type | agent / vendor / unit_manager / building_manager — CINC's Contacts model has no room for these as Personas; if PMI wants them distinguishable in CINC too, they'd need their own **Contact Type** (configurable), not Persona |
 
 ### Tenant status
 
