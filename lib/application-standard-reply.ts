@@ -64,13 +64,43 @@ export interface StandardReplyResult {
   nothingOutstanding: boolean
 }
 
+interface StakeholderRow {
+  name:      string | null
+  email:     string | null
+  role:      string
+  isPrimary: boolean
+}
+
+async function loadStakeholders(applicationId: string): Promise<StakeholderRow[]> {
+  const { data } = await supabaseAdmin.from('application_stakeholders')
+    .select('name, email, role, is_primary').eq('application_id', applicationId)
+  return (data ?? []).map(s => ({
+    name: (s.name as string | null) ?? null, email: (s.email as string | null) ?? null,
+    role: String(s.role), isPrimary: !!s.is_primary,
+  }))
+}
+
 /** Is this email address the owner of record for the unit, or an applicant
- *  already on the roster? Decides which document_requests slot to use. Falls
- *  back to 'tenant' when it matches neither — an applicant reaching out
- *  about their own missing documents is the overwhelmingly common case, and
- *  defaulting there (rather than refusing) keeps the draft available; staff
- *  reviewing it before send is the actual safety net, not this guess. */
-async function classifySender(associationCode: string, unit: string | null, email: string): Promise<'owner' | 'tenant'> {
+ *  already on the roster? Decides which document_requests slot to use, and
+ *  which outstanding items are addressed to THIS person vs relayed via them.
+ *
+ *  Checks application_stakeholders (scoped to this specific application)
+ *  first — real bug, 2026-08-24 (MANXI 110, Monica Blumenfeld): the
+ *  association-wide `owners` roster query below didn't match her email for
+ *  that unit, so this silently fell through to the 'tenant' default and let
+ *  applicant-only items (vehicle, pet, last year's approval letter) get
+ *  addressed to her directly as if she were the applicant — she's the
+ *  owner, relaying documents for her actual tenant, Susie Bell. Falling
+ *  back to the roster, then to 'tenant', when NEITHER resolves keeps the
+ *  draft available for staff to review rather than refusing outright. */
+async function classifySender(associationCode: string, unit: string | null, email: string, stakeholders: StakeholderRow[]): Promise<'owner' | 'tenant'> {
+  const lower = email.toLowerCase()
+  const match = stakeholders.find(s => s.email?.toLowerCase() === lower)
+  if (match?.role === 'owner') return 'owner'
+  if (match?.role === 'applicant') return 'tenant'
+  // match is undefined, or an agent role — application_stakeholders has no
+  // "agent" bucket for this function's owner/tenant vocabulary, so agent
+  // senders fall through to the same legacy roster check as before.
   if (unit) {
     const { data: owners } = await supabaseAdmin.from('owners')
       .select('emails').eq('association_code', associationCode)
@@ -102,8 +132,21 @@ export async function draftStandardReply(opts: {
   // function does not address, and belong in a request scoped to the agent.
   // provided_by='staff' (Background / Credit Reports) is excluded from BOTH —
   // nobody external is ever asked; staff obtains it via Tenant Evaluation or Checkr.
-  const recipientRole = await classifySender(code, unit, senderEmail)
+  const stakeholders = await loadStakeholders(applicationId)
+  const recipientRole = await classifySender(code, unit, senderEmail, stakeholders)
   const providedByOk = (pb: string) => providedByOkForRole(recipientRole, pb)
+
+  // Who's on the OTHER side of this application from whoever's emailing —
+  // used both to relay items that are theirs to supply (below) and to
+  // correct the forms-sent phrasing (forms always go to the applicant
+  // roster regardless of who's writing in). is_primary preferred, else the
+  // first stakeholder row of that role.
+  const theirLabel: 'owner' | 'tenant' = recipientRole === 'owner' ? 'tenant' : 'owner'
+  const theirStakeholderRole = theirLabel === 'tenant' ? 'applicant' : 'owner'
+  const theirStakeholder = stakeholders.find(s => s.role === theirStakeholderRole && s.isPrimary)
+                         ?? stakeholders.find(s => s.role === theirStakeholderRole)
+  const theirName = theirStakeholder?.name ?? null
+  const theirWho = theirName ? `your ${theirLabel}, ${theirName},` : `your ${theirLabel}`
 
   // ── Don't ask for a car, or an animal, before asking IF there is one ──
   // User direction: a tenant with no vehicle should never be asked for
@@ -116,7 +159,24 @@ export async function draftStandardReply(opts: {
   // Forms are unaffected by the role filter — they already always go to the
   // applicant roster regardless of who is currently emailing (sendEsignFormsForItems).
   const formRows = summary.rows.filter(r => r.isEsignItem && !r.gatedBy)
-  const declineQuestions = summary.declineQuestions
+  // Real bug, 2026-08-24 (MANXI 110, Monica Blumenfeld): a vehicle/animal
+  // question isn't the emailer's to answer just because they're the one
+  // writing in — it's about who OCCUPIES the unit, i.e. whichever role the
+  // document it gates actually belongs to (car_registration/pet_registration
+  // are provided_by='applicant' — the tenant's). The old code stamped every
+  // decline question with recipientRole unconditionally, so an owner
+  // relaying documents got asked "do you keep a vehicle at the unit?" about
+  // a unit she doesn't live in. Falls back to recipientRole (old behavior)
+  // when the gated item's provided_by is 'both'/'staff'/'agent' or missing
+  // — genuinely ambiguous, not worth guessing wrong on.
+  const declineQuestionRole = (q: 'vehicle' | 'animal'): 'owner' | 'tenant' => {
+    const gatedRow = summary.rows.find(r => r.gatedBy === q)
+    if (gatedRow?.providedBy === 'applicant') return 'tenant'
+    if (gatedRow?.providedBy === 'landlord') return 'owner'
+    return recipientRole
+  }
+  const myDeclineQuestions    = summary.declineQuestions.filter(q => declineQuestionRole(q) === recipientRole)
+  const theirDeclineQuestions = summary.declineQuestions.filter(q => declineQuestionRole(q) !== recipientRole)
   // provided_by='agent' can't become an "ask THIS person to upload" row for
   // either role — it's a third party neither owner nor tenant addresses — but
   // it must not just vanish either. Real bug, 2026-08-21 (MANXI 303, Wilner
@@ -127,8 +187,20 @@ export async function draftStandardReply(opts: {
   // agent; excluding the item from what he's asked to DO is right, excluding
   // it from what he's TOLD was the bug.
   const agentRows = summary.rows.filter(r => !r.isEsignItem && r.providedBy === 'agent' && !r.gatedBy)
+  // Items that belong to the OTHER human party on this application — e.g.
+  // an owner emailing in while applicant-only items (vehicle, pet, last
+  // year's approval letter) are still outstanding. Same "don't just vanish"
+  // reasoning as agentRows above, generalized: these get relayed through
+  // the SAME link (below) rather than silently dropped or wrongly asked of
+  // the sender directly. 'both' items are already covered by uploadRows —
+  // providedByOk accepts 'both' for either role — so this is exactly the
+  // complement: applicant-only when the sender is the owner, landlord-only
+  // when the sender is the applicant.
+  const theirRows = summary.rows.filter(r =>
+    !r.isEsignItem && !r.gatedBy && (r.providedBy === 'applicant' || r.providedBy === 'landlord') && !providedByOk(r.providedBy)
+  )
 
-  if (uploadRows.length === 0 && formRows.length === 0 && declineQuestions.length === 0 && agentRows.length === 0) {
+  if (uploadRows.length === 0 && formRows.length === 0 && summary.declineQuestions.length === 0 && agentRows.length === 0 && theirRows.length === 0) {
     const draftText = `Hello${senderName ? ` ${senderName}` : ''},\n\nThank you for reaching out. Everything required on your application is already on file — nothing further is needed from you at this time.\n\nWe'll be in touch as soon as there's an update.\n\nThank you,\nPMI Top Florida Properties`
     await logOutboundCommunication({
       applicationId, associationCode: code, unitLabel: unit,
@@ -164,13 +236,24 @@ export async function draftStandardReply(opts: {
   }
   let uploadLink: string | null = null
   const uploadDocKeys = [...new Set(uploadRows.map(r => r.docKey))]
-  if (uploadDocKeys.length || declineQuestions.length) {
+  // theirRows ride on the SAME link/token as uploadRows — one link the
+  // sender can use themselves and/or forward, matching how staff actually
+  // handle this case rather than issuing a second link nobody asked for.
+  const theirDocKeys = [...new Set(theirRows.map(r => r.docKey))]
+  const hasMine = uploadDocKeys.length > 0 || myDeclineQuestions.length > 0
+  const hasTheirs = theirDocKeys.length > 0 || theirDeclineQuestions.length > 0
+  if (uploadDocKeys.length || theirDocKeys.length || summary.declineQuestions.length) {
     const items = [
       ...uploadDocKeys.map(k => {
         const row = uploadRows.find(r => r.docKey === k)!
         return { doc_key: k, label: row.label, recipient: recipientRole }
       }),
-      ...declineQuestions.map(q => ({ ...DECLARE_ITEM[q], recipient: recipientRole })),
+      ...theirDocKeys.map(k => {
+        const row = theirRows.find(r => r.docKey === k)!
+        return { doc_key: k, label: row.label, recipient: theirLabel }
+      }),
+      ...myDeclineQuestions.map(q => ({ ...DECLARE_ITEM[q], recipient: recipientRole })),
+      ...theirDeclineQuestions.map(q => ({ ...DECLARE_ITEM[q], recipient: theirLabel })),
     ]
     const token = crypto.randomUUID()
     const { data: created, error } = await supabaseAdmin.from('document_requests').insert({
@@ -191,7 +274,7 @@ export async function draftStandardReply(opts: {
   // listed here too (it is still genuinely outstanding), just with the reason
   // surfaced separately below rather than silently disappearing. Declaration-
   // gated items are NOT in this list at all — they're a question, not a request.
-  const missingSummary = [...uploadRows, ...formRows, ...agentRows].map(r => r.label)
+  const missingSummary = [...uploadRows, ...theirRows, ...formRows, ...agentRows].map(r => r.label)
 
   // Grouped into what to DO with each part, rather than one flat list mixing
   // "upload this", "we already emailed you a separate link for that", and
@@ -205,25 +288,55 @@ export async function draftStandardReply(opts: {
   lines.push('Thank you for sending your documents.')
 
   if (uploadLink) {
+    // hasMine/hasTheirs split the same link's items by whose responsibility
+    // they are — the sender's own, vs the other party's (relayed). Each
+    // decline question is attributed via declineQuestionRole (above) to
+    // whichever role its gated document actually belongs to, not just
+    // stamped with whoever's emailing — real bug, 2026-08-24 (MANXI 110):
+    // an owner relaying documents was asked "do you keep a vehicle at the
+    // unit?" about a unit she doesn't live in, because the old code had
+    // only one phrasing — "please visit YOUR secure link" — addressed to
+    // the owner as if every outstanding item were hers.
     lines.push('')
-    // Wording depends on what's actually on the link — don't say "upload the
-    // following" when it's only a yes/no question, and don't say "a couple of
-    // quick questions" when it's only files.
-    if (uploadDocKeys.length && declineQuestions.length) {
-      lines.push('Please visit your secure link to upload the following and answer a couple of quick questions, so everything is correctly filed on your application:')
-    } else if (uploadDocKeys.length) {
-      lines.push('Please upload the following through your secure link, so everything is correctly filed on your application:')
-    } else {
-      lines.push('We also have a couple of quick questions for you — please answer them through your secure link:')
+    if (hasMine) {
+      // Wording depends on what's actually on the link — don't say "upload
+      // the following" when it's only a yes/no question, and don't say "a
+      // couple of quick questions" when it's only files.
+      if (uploadDocKeys.length && myDeclineQuestions.length) {
+        lines.push('Please visit your secure link to upload the following and answer a couple of quick questions, so everything is correctly filed on your application:')
+      } else if (uploadDocKeys.length) {
+        lines.push('Please upload the following through your secure link, so everything is correctly filed on your application:')
+      } else {
+        lines.push('We also have a couple of quick questions for you — please answer them through your secure link:')
+      }
+      lines.push(uploadLink)
+      for (const m of uploadRows.map(r => r.label)) lines.push(`  • ${m}`)
+      for (const q of myDeclineQuestions) lines.push(`  • ${DECLARE_ITEM[q].label}`)
     }
-    lines.push(uploadLink)
-    for (const m of uploadRows.map(r => r.label)) lines.push(`  • ${m}`)
-    for (const q of declineQuestions) lines.push(`  • ${DECLARE_ITEM[q].label}`)
+
+    if (hasTheirs) {
+      if (hasMine) lines.push('')
+      const action = theirDocKeys.length && theirDeclineQuestions.length
+        ? 'upload the following and answer a few questions'
+        : theirDocKeys.length ? 'upload the following' : 'answer a few questions'
+      lines.push(`Please ask ${theirWho} to ${hasMine ? 'use the same link above to' : 'visit the secure link below to'} ${action}, so everything is correctly filed on the application:`)
+      if (!hasMine) lines.push(uploadLink)
+      for (const m of theirRows.map(r => r.label)) lines.push(`  • ${m}`)
+      for (const q of theirDeclineQuestions) lines.push(`  • ${DECLARE_ITEM[q].label}`)
+    }
   }
 
   if (forms.sent.length) {
     lines.push('')
-    lines.push('We\'ve also sent separate links to your email to complete and sign — look for these in your inbox:')
+    if (recipientRole === 'owner') {
+      // Real bug, 2026-08-24 (MANXI 110): forms always go to the applicant
+      // roster regardless of who's emailing (sendEsignFormsForItems, below)
+      // — telling an owner-sender to "look in your inbox" pointed her at
+      // links that were never sent to her.
+      lines.push(`We've also sent separate links directly to ${theirName ? `${theirName}'s` : "your tenant's"} email to complete and sign — please have them check their inbox for:`)
+    } else {
+      lines.push('We\'ve also sent separate links to your email to complete and sign — look for these in your inbox:')
+    }
     for (const f of forms.sent) lines.push(`  • ${ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey}`)
   }
 
@@ -252,7 +365,17 @@ export async function draftStandardReply(opts: {
   // above: technically unreachable before agentRows existed, real once it did.
   if (uploadLink) {
     lines.push('')
-    lines.push('No account or password is needed — the link above is specific to you.')
+    // "specific to you" only reads correctly when the sender themself has
+    // something on the link and nobody else does — a pure relay (theirs
+    // only) means it's really specific to the person being asked to use
+    // it, not "you"; a mixed link (both) is shared with whoever the sender
+    // is relaying to, so "specific to you" alone would undercut the "ask
+    // them to use the same link" instruction just given above.
+    lines.push(
+      hasMine && hasTheirs ? 'No account or password is needed — the link above is specific to this application, so it\'s fine to share.' :
+      hasMine ? 'No account or password is needed — the link above is specific to you.' :
+      'No account or password is needed to use the link.'
+    )
   }
   lines.push('')
   lines.push('Thank you,')
@@ -272,7 +395,7 @@ export async function draftStandardReply(opts: {
 
   return {
     applicationId, recipientRole, uploadLink, uploadItems: uploadRows.map(r => r.label),
-    formsSent: forms.sent, formsFailed: forms.failed, missingSummary, declineQuestions, nothingOutstanding: false,
+    formsSent: forms.sent, formsFailed: forms.failed, missingSummary, declineQuestions: summary.declineQuestions, nothingOutstanding: false,
     draftText,
   }
 }
