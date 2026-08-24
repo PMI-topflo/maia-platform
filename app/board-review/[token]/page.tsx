@@ -22,6 +22,7 @@ interface Info {
   associationName: string; unitLabel: string | null; applicationType: string | null
   applicants: string[]; note: string | null
   reviewers: { name: string; role: string }[]
+  verifiedReviewers: string[]
   roleLabels: Record<string, string>
   windowSentence: string
   interviewPending: boolean
@@ -58,8 +59,45 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
   }, [token])
   useEffect(load, [load])
 
+  // Identity check — required before deciding anything. verified comes from
+  // the server (info.verifiedReviewers), not local state, so it survives a
+  // reload and correctly resets when the 30-day window lapses. Real gap,
+  // 2026-08-24: the round's link used to be the only capability — anyone
+  // holding it could self-report as any named reviewer with zero check.
+  const verified = !!me && !!info?.verifiedReviewers.includes(me.name)
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpCode, setOtpCode] = useState('')
+  const [otpBusy, setOtpBusy] = useState(false)
+  const [otpMsg, setOtpMsg] = useState<string | null>(null)
+
+  useEffect(() => { setOtpSent(false); setOtpCode(''); setOtpMsg(null) }, [me?.name])
+
+  async function sendOtp() {
+    if (!me) return
+    setOtpBusy(true); setOtpMsg(null)
+    try {
+      const r = await fetch(`/api/board-review/${token}/send-otp`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: me.name }),
+      })
+      const d = await r.json(); if (!r.ok) throw new Error(d.error ?? 'Could not send')
+      setOtpSent(true); setOtpMsg(`Code sent to ${d.sentTo}.`)
+    } catch (e) { setOtpMsg((e as Error).message) } finally { setOtpBusy(false) }
+  }
+  async function verifyOtp() {
+    if (!me) return
+    setOtpBusy(true); setOtpMsg(null)
+    try {
+      const r = await fetch(`/api/board-review/${token}/verify-otp`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: me.name, code: otpCode }),
+      })
+      const d = await r.json(); if (!r.ok) throw new Error(d.error ?? 'Could not verify')
+      load()
+    } catch (e) { setOtpMsg((e as Error).message) } finally { setOtpBusy(false) }
+  }
+
   async function decide(row: Row, decision: 'approved' | 'refused') {
     if (!me) { setErr('Please tell us who you are first.'); return }
+    if (!verified) { setErr('Please verify your identity first.'); return }
     const reason = (why[row.scopeKey] ?? '').trim()
     if (decision === 'refused' && reason.length < 4) {
       // First click OPENS the box rather than scolding — the reason is the
@@ -91,6 +129,7 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
 
   async function finalize(action: 'approve' | 'send_back') {
     if (!me) { setErr('Please tell us who you are first.'); return }
+    if (!verified) { setErr('Please verify your identity first.'); return }
     if (action === 'send_back' && !finalNoteOpen) { setFinalNoteOpen(true); return }
     if (action === 'send_back' && finalNote.trim().length < 4) { setErr('Say briefly what needs to change — the office reads this.'); return }
     setFinalBusy(true); setErr(null); setFinalMsg(null)
@@ -146,6 +185,34 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
         {!me && <p style={{ fontSize: 12.5, color: '#b45309', margin: '10px 0 0' }}>Pick your name — every approval is recorded against it.</p>}
       </div>
 
+      {/* Identity check — required once per round before deciding anything.
+          Real gap, 2026-08-24: the link used to be the only capability;
+          anyone holding it could self-report as any reviewer above. */}
+      {me && !verified && (
+        <div style={{ ...card, padding: 16, marginBottom: 18, borderColor: '#f26a1b' }}>
+          <div style={{ font: '600 13px system-ui', marginBottom: 4 }}>Verify it&apos;s you, {me.name}</div>
+          <p style={{ fontSize: 12.5, color: '#6b7280', margin: '0 0 10px' }}>We&apos;ll email a one-time code to your address on file. Once verified, you won&apos;t need to do this again on this round for 30 days.</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button onClick={sendOtp} disabled={otpBusy}
+              style={{ font: '600 13px system-ui', borderRadius: 8, padding: '9px 14px', cursor: otpBusy ? 'default' : 'pointer', border: 'none', color: '#fff', background: otpBusy ? '#9ca3af' : '#2563eb' }}>
+              {otpSent ? 'Resend code' : 'Send code'}
+            </button>
+            {otpSent && (
+              <>
+                <input value={otpCode} onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="6-digit code" inputMode="numeric"
+                  style={{ width: 120, padding: '9px 11px', fontSize: 14, border: '1px solid #d1d5db', borderRadius: 8, letterSpacing: 2 }} />
+                <button onClick={verifyOtp} disabled={otpBusy || otpCode.length < 4}
+                  style={{ font: '600 13px system-ui', borderRadius: 8, padding: '9px 14px', cursor: (otpBusy || otpCode.length < 4) ? 'default' : 'pointer', border: 'none', color: '#fff', background: (otpBusy || otpCode.length < 4) ? '#9ca3af' : '#0f7a4d' }}>
+                  Verify
+                </button>
+              </>
+            )}
+          </div>
+          {otpMsg && <p style={{ fontSize: 12.5, color: otpMsg.startsWith('Code sent') ? '#166534' : '#b91c1c', margin: '8px 0 0' }}>{otpMsg}</p>}
+        </div>
+      )}
+
       {err && <p style={{ color: '#b42318', fontSize: 14, background: '#fdf2f0', border: '1px solid #f3c9c3', borderRadius: 8, padding: '10px 12px' }}>⚠ {err}</p>}
 
       <div style={card}>
@@ -188,8 +255,8 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
                       <button onClick={() => setOpen(open === row.scopeKey ? null : row.scopeKey)} style={btn('view', false)}>
                         {open === row.scopeKey ? '✕ Close' : '👁 View'}
                       </button>
-                      <button disabled={busy === row.scopeKey} onClick={() => decide(row, 'approved')} style={btn('ok', boardDecided && row.state === 'approved')}>Approve</button>
-                      <button disabled={busy === row.scopeKey} onClick={() => decide(row, 'refused')} style={btn('no', boardDecided && row.state === 'refused')}>Refuse</button>
+                      <button disabled={busy === row.scopeKey || !verified} title={!verified ? 'Verify your identity above first' : undefined} onClick={() => decide(row, 'approved')} style={btn('ok', boardDecided && row.state === 'approved')}>Approve</button>
+                      <button disabled={busy === row.scopeKey || !verified} title={!verified ? 'Verify your identity above first' : undefined} onClick={() => decide(row, 'refused')} style={btn('no', boardDecided && row.state === 'refused')}>Refuse</button>
                     </>
                   )}
                   <span style={{ fontSize: 19, width: 22, textAlign: 'center' }}>{flag}</span>
@@ -263,13 +330,13 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
         ) : (
           <>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button disabled={finalBusy} onClick={() => finalize('send_back')}
-                style={{ font: '600 13.5px system-ui', borderRadius: 8, padding: '10px 16px', cursor: finalBusy ? 'default' : 'pointer', border: '1px solid #b42318', background: '#fff', color: '#b42318' }}>
+              <button disabled={finalBusy || !verified} title={!verified ? 'Verify your identity above first' : undefined} onClick={() => finalize('send_back')}
+                style={{ font: '600 13.5px system-ui', borderRadius: 8, padding: '10px 16px', cursor: (finalBusy || !verified) ? 'default' : 'pointer', border: '1px solid #b42318', background: '#fff', color: '#b42318' }}>
                 Send Back
               </button>
-              <button disabled={finalBusy || !info.complete} onClick={() => finalize('approve')}
-                title={!info.complete ? 'Decide every document above first' : info.interviewPending ? 'This association requires an interview before the approval letter — clicking this introduces the applicant to the board by email to schedule one.' : undefined}
-                style={{ font: '600 13.5px system-ui', borderRadius: 8, padding: '10px 16px', cursor: finalBusy || !info.complete ? 'default' : 'pointer', border: 'none', background: !info.complete ? '#c9ccd3' : info.interviewPending ? '#b45309' : '#0f7a4d', color: '#fff' }}>
+              <button disabled={finalBusy || !info.complete || !verified} onClick={() => finalize('approve')}
+                title={!verified ? 'Verify your identity above first' : !info.complete ? 'Decide every document above first' : info.interviewPending ? 'This association requires an interview before the approval letter — clicking this introduces the applicant to the board by email to schedule one.' : undefined}
+                style={{ font: '600 13.5px system-ui', borderRadius: 8, padding: '10px 16px', cursor: (finalBusy || !info.complete || !verified) ? 'default' : 'pointer', border: 'none', background: (!info.complete || !verified) ? '#c9ccd3' : info.interviewPending ? '#b45309' : '#0f7a4d', color: '#fff' }}>
                 {finalBusy ? 'Working…' : info.interviewPending ? 'Documents Approved — Request an Interview' : 'Approve'}
               </button>
             </div>

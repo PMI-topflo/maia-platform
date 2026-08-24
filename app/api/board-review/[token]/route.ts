@@ -14,6 +14,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getReviewState, syncBoardWindow, boardWindowSentence, REVIEWER_ROLE_LABEL, type ReviewerRole } from '@/lib/board-review'
 import { notifyOfficeOfReviewResponse } from '@/lib/board-review-email'
 import { advanceToApprovalSent } from '@/lib/board-decision-letter'
+import { isReviewerVerified, type ReviewerVerifications } from '@/lib/board-review-verify'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -21,11 +22,12 @@ export const dynamic = 'force-dynamic'
 interface Round {
   id: string; application_id: string; association_code: string; unit_label: string | null
   recipients: { name?: string; email?: string; role?: string }[]; note: string | null
+  reviewer_verifications: ReviewerVerifications
 }
 
 async function loadRound(token: string): Promise<Round | null> {
   const { data } = await supabaseAdmin.from('document_review_rounds')
-    .select('id, application_id, association_code, unit_label, recipients, note')
+    .select('id, application_id, association_code, unit_label, recipients, note, reviewer_verifications')
     .eq('token', token).maybeSingle()
   if (!data) return null
   return {
@@ -33,6 +35,7 @@ async function loadRound(token: string): Promise<Round | null> {
     association_code: String(data.association_code), unit_label: (data.unit_label as string | null) ?? null,
     recipients: Array.isArray(data.recipients) ? data.recipients as Round['recipients'] : [],
     note: (data.note as string | null) ?? null,
+    reviewer_verifications: (data.reviewer_verifications as ReviewerVerifications | null) ?? {},
   }
 }
 
@@ -72,6 +75,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     // Who this link was sent to — the reviewer picks which of them they are,
     // so a decision is always attributed to a named person.
     reviewers: round.recipients.filter(r => r.name).map(r => ({ name: String(r.name), role: (r.role ?? 'board') as ReviewerRole })),
+    // Names (as originally cased in recipients) currently verified for this
+    // round — lets the client skip straight past the OTP step on a return
+    // visit within the 30-day window instead of always showing it.
+    verifiedReviewers: round.recipients
+      .filter(r => r.name && isReviewerVerified(round.reviewer_verifications, r.name))
+      .map(r => String(r.name)),
     roleLabels: REVIEWER_ROLE_LABEL,
     windowSentence: boardWindowSentence(state.windowDays),
     interviewPending: interviewRequired && !app?.interview_completed_at,
@@ -94,6 +103,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const reviewerRole = ((b.reviewer as { role?: string } | undefined)?.role ?? 'board') as ReviewerRole
   if (!scopeKey || !decision) return NextResponse.json({ error: 'scopeKey and decision are required' }, { status: 400 })
   if (!reviewerName) return NextResponse.json({ error: 'Tell us who you are before deciding.' }, { status: 400 })
+  // Server-side identity gate — the client also hides these controls until
+  // verified, but this is the real enforcement point. Real gap, 2026-08-24:
+  // the round's token used to be the ONLY capability, so anyone holding the
+  // link could self-report as any named reviewer with zero identity check.
+  if (!isReviewerVerified(round.reviewer_verifications, reviewerName)) {
+    return NextResponse.json({ error: 'Please verify your identity with the code we sent before deciding.' }, { status: 401 })
+  }
   // A refusal without a reason is the "your application is incomplete" email
   // that started all of this — the applicant must be told what to fix.
   if (decision === 'refused' && reason.length < 4) {

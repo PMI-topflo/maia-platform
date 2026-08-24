@@ -25,17 +25,19 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getReviewState, type ReviewerRole } from '@/lib/board-review'
 import { notifyOfficeOfSendBack } from '@/lib/board-review-email'
 import { advanceToApprovalSent, loadDecisionContext } from '@/lib/board-decision-letter'
+import { isReviewerVerified, type ReviewerVerifications } from '@/lib/board-review-verify'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 async function loadRound(token: string) {
   const { data } = await supabaseAdmin.from('document_review_rounds')
-    .select('id, application_id, association_code, unit_label').eq('token', token).maybeSingle()
+    .select('id, application_id, association_code, unit_label, reviewer_verifications').eq('token', token).maybeSingle()
   if (!data) return null
   return {
     applicationId: String(data.application_id), associationCode: String(data.association_code),
     unitLabel: (data.unit_label as string | null) ?? null,
+    reviewerVerifications: (data.reviewer_verifications as ReviewerVerifications | null) ?? {},
   }
 }
 
@@ -52,6 +54,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const note = String(b.note ?? '').trim().slice(0, 4000)
   if (!action) return NextResponse.json({ error: 'action must be approve or send_back' }, { status: 400 })
   if (!reviewerName) return NextResponse.json({ error: 'Tell us who you are before deciding.' }, { status: 400 })
+  if (!isReviewerVerified(round.reviewerVerifications, reviewerName)) {
+    return NextResponse.json({ error: 'Please verify your identity with the code we sent before deciding.' }, { status: 401 })
+  }
 
   if (action === 'send_back') {
     if (note.length < 4) return NextResponse.json({ error: 'Say briefly what needs to change — this goes straight to the office.' }, { status: 400 })

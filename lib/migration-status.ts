@@ -3992,6 +3992,15 @@ ALTER TABLE public.tickets
     sql: `ALTER TABLE public.association_board_members
   ADD COLUMN IF NOT EXISTS email_locked boolean NOT NULL DEFAULT false;`,
   },
+  {
+    key:         'board_review_otp',
+    label:       'Board review: identity verification before deciding',
+    description: "User direction, 2026-08-24: \"the page link for the board to choose who are they and approve the documents, should have an initial 2FA verification.\" Previously the round's token WAS the only capability (explicit in the old code comment) — anyone holding the /board-review/[token] link could self-report as any named reviewer from a dropdown and approve/refuse real documents with zero identity check. reviewer_verifications (jsonb, {name: {email, verifiedAt}}) tracks which named reviewer has completed an email OTP challenge and when, checked server-side on every decide/finalize call. Valid 30 days per reviewer per round (REVIEWER_VERIFICATION_DAYS in lib/board-review-verify.ts) so a board member working through a round over a few days doesn't re-verify every visit — matches the existing 30-day session-cookie convention (lib/session.ts) and the owner-ledger '1x OTP then request' precedent.",
+    filename:    '20260824_board_review_otp.sql',
+    artifact:    { type: 'column', table: 'document_review_rounds', column: 'reviewer_verifications' },
+    sql: `ALTER TABLE public.document_review_rounds
+  ADD COLUMN IF NOT EXISTS reviewer_verifications jsonb NOT NULL DEFAULT '{}'::jsonb;`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
