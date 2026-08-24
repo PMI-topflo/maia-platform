@@ -31,6 +31,14 @@ export async function renderTicketsList(
 ) {
   const typeFilter = sp.type ?? (defaultType === 'all' ? undefined : defaultType)
 
+  // User direction, 2026-08-24: scope this list to the last 12 months —
+  // years of resolved/closed history was inflating counts (and the list)
+  // with tickets nobody's acting on anymore. Applied uniformly (all
+  // statuses) via created_at, same as every other filter here.
+  const twelveMonthsAgo = new Date()
+  twelveMonthsAgo.setUTCFullYear(twelveMonthsAgo.getUTCFullYear() - 1)
+  const sinceIso = twelveMonthsAgo.toISOString()
+
   // Every filter EXCEPT status — shared by the list query and the tab-count
   // query below, so the counts on Pending/Waiting/Resolved/Closed always
   // describe the same slice of tickets the list itself is showing. Applied
@@ -38,6 +46,7 @@ export async function renderTicketsList(
   // own independent chain.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function applyCommonFilters(q: any): any {
+    q = q.gte('created_at', sinceIso)
     if (typeFilter)  q = q.eq('type',                 typeFilter)
     if (sp.wo_type)  q = q.eq('work_order_type_name', sp.wo_type)
     if (sp.archived !== '1') q = q.is('archived_at', null)
@@ -112,10 +121,11 @@ export async function renderTicketsList(
   )).sort()
 
   const countsByStatus: Record<string, number> = {
-    open_any: 0, open: 0, pending: 0, waiting_external: 0, resolved: 0, closed: 0,
+    open_any: 0, open: 0, pending: 0, waiting_external: 0, resolved: 0, closed: 0, all: 0,
   }
   for (const t of (counts ?? []) as Array<{ status: string }>) {
     countsByStatus[t.status] = (countsByStatus[t.status] ?? 0) + 1
+    countsByStatus.all += 1
     if (t.status === 'open' || t.status === 'pending' || t.status === 'waiting_external') {
       countsByStatus.open_any += 1
     }
@@ -161,6 +171,7 @@ export async function renderTicketsList(
           associations={associations ?? []}
           staff={staff}
           countsByStatus={countsByStatus}
+          sinceLabel={twelveMonthsAgo.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}
           baseHref={'/admin/tickets'}
           showWorkOrderColumns={defaultType === 'work_order'}
           lockTypeTo={defaultType === 'all' ? null : defaultType}

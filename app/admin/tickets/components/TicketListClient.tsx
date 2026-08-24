@@ -65,6 +65,7 @@ interface Props {
   associations:          Association[]
   staff:                 StaffMember[]
   countsByStatus:        Record<string, number>
+  sinceLabel:            string
   baseHref:              string
   showWorkOrderColumns:  boolean
   lockTypeTo:            'ticket' | 'work_order' | null
@@ -182,7 +183,7 @@ export default function TicketListClient(props: Props) {
         <div>
           <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {props.rows.length} shown · {props.countsByStatus.open_any ?? 0} open
+            {props.rows.length} shown · {props.countsByStatus.open_any ?? 0} open · since {props.sinceLabel}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -238,8 +239,8 @@ export default function TicketListClient(props: Props) {
               ].join(' ')}
             >
               {tab.label}
-              {count !== undefined && count > 0 && (
-                <span className={`ml-1.5 text-xs ${active ? 'text-[#f26a1b]' : 'text-gray-400'}`}>
+              {count !== undefined && (
+                <span className={`ml-1.5 text-xs ${count === 0 ? 'text-gray-300' : active ? 'text-[#f26a1b]' : 'text-gray-400'}`}>
                   {count}
                 </span>
               )}
