@@ -11,7 +11,7 @@ import { isValidTicketCategory } from '@/lib/ticket-categories'
 
 export const dynamic = 'force-dynamic'
 
-const VALID_STATUS:   TicketStatus[]   = ['open', 'pending', 'waiting_external', 'resolved', 'closed']
+const VALID_STATUS:   TicketStatus[]   = ['open', 'pending', 'waiting_external', 'resolved', 'canceled']
 const VALID_PRIORITY: TicketPriority[] = ['low', 'normal', 'high', 'urgent']
 const VALID_TYPE:     TicketType[]     = ['ticket', 'work_order']
 

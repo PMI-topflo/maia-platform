@@ -47,7 +47,7 @@ export interface StaffPerformanceRow {
   close_sample_size:          number
 }
 
-const CLOSED_LIKE = new Set(['resolved', 'closed'])
+const RESOLVED_LIKE = new Set(['resolved'])
 const RESPONSE_DIRECTIONS = new Set(['outbound', 'internal_note'])
 
 /**
@@ -118,7 +118,7 @@ export function aggregateStaffPerformance(input: {
     // ── Resolved / closed: earliest status_changed → resolved|closed
     if (ev.event_type === 'status_changed') {
       const to = typeof ev.payload?.to === 'string' ? ev.payload.to : ''
-      if (CLOSED_LIKE.has(to)) {
+      if (RESOLVED_LIKE.has(to)) {
         const set = resolvedTicketsByStaff.get(actor) ?? new Set()
         set.add(ev.ticket_id)
         resolvedTicketsByStaff.set(actor, set)

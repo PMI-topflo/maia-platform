@@ -127,7 +127,7 @@ export interface TicketDetailData {
   pager:            TicketPager | null
 }
 
-const STATUS_OPTIONS   = ['open', 'pending', 'waiting_external', 'resolved', 'closed']
+const STATUS_OPTIONS   = ['open', 'pending', 'waiting_external', 'resolved', 'canceled']
 const PRIORITY_OPTIONS = ['low', 'normal', 'high', 'urgent']
 
 const STATUS_STYLES: Record<string, string> = {
@@ -135,7 +135,7 @@ const STATUS_STYLES: Record<string, string> = {
   pending:          'bg-yellow-100 text-yellow-800',
   waiting_external: 'bg-blue-100 text-blue-800',
   resolved:         'bg-slate-100 text-slate-700',
-  closed:           'bg-gray-200 text-gray-600',
+  canceled:         'bg-rose-100 text-rose-700',
 }
 
 const PRIORITY_STYLES: Record<string, string> = {
@@ -426,7 +426,7 @@ export default function TicketDetailClient({ data }: { data: TicketDetailData })
   // Newest first — most recent activity is the most useful at-a-glance signal.
   ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
 
-  const overdue = ticket.due_at && new Date(ticket.due_at).getTime() < Date.now() && ticket.status !== 'resolved' && ticket.status !== 'closed'
+  const overdue = ticket.due_at && new Date(ticket.due_at).getTime() < Date.now() && ticket.status !== 'resolved' && ticket.status !== 'canceled'
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">

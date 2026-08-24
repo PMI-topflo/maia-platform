@@ -675,12 +675,12 @@ export async function POST(
         // Downpayment / partial — record it but leave the WO open for the balance.
         await appendMessage(woTicket.id as number, { direction: 'internal_note', channel: 'internal', from_addr: 'maia',
           body: `💵 Partial / downpayment paid — ${invLabel} pushed to CINC (invoice ${cincInvoiceId}). Work order stays OPEN for the balance.` }).catch(() => null)
-      } else if (woTicket && woTicket.status !== 'closed') {
-        await updateTicket(woTicket.id as number, { status: 'closed' }, pushedBy ?? 'maia')
+      } else if (woTicket && woTicket.status !== 'resolved') {
+        await updateTicket(woTicket.id as number, { status: 'resolved' }, pushedBy ?? 'maia')
         // Mark PAID (payment lifecycle, orthogonal to work status).
         await supabaseAdmin.from('tickets').update({ payment_state: 'paid', paid_at: new Date().toISOString() }).eq('id', woTicket.id as number).then(() => null, () => null)
         await appendMessage(woTicket.id as number, { direction: 'internal_note', channel: 'internal', from_addr: 'maia',
-          body: `✅ Closed — PAID. ${invLabel} pushed to CINC (invoice ${cincInvoiceId}).` }).catch(() => null)
+          body: `✅ Resolved — PAID. ${invLabel} pushed to CINC (invoice ${cincInvoiceId}).` }).catch(() => null)
       }
     } catch (err) { console.warn(`[invoice-push] WO close/partial failed: ${(err as Error).message}`) }
   }

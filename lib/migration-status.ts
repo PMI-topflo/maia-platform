@@ -3950,6 +3950,48 @@ UPDATE public.associations SET requires_interview_purchase = true WHERE associat
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'tickets_canceled_status',
+    label:       'Tickets/work orders: new "canceled" status',
+    description: "User direction, 2026-08-24: add a Canceled/Not Approved tab for tickets and work orders that were called off before completion (board/owner declined, association canceled the request, vendor never proceeded, etc.). Previously staff had to overload 'closed' for this, which lost the distinction in reporting. tickets.status CHECK constraint gains 'canceled'; a dedicated canceled_at column (parallel to resolved_at) keeps cancellations out of resolve-time metrics in lib/reports/association-stats.ts and lib/staff-performance.ts (both key off resolved_at / the resolved|closed pair specifically, untouched by this change).",
+    filename:    '20260824_tickets_canceled_status.sql',
+    artifact:    { type: 'column', table: 'tickets', column: 'canceled_at' },
+    sql: `ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS canceled_at timestamptz;
+
+ALTER TABLE public.tickets
+  DROP CONSTRAINT IF EXISTS chk_tickets_status;
+
+ALTER TABLE public.tickets
+  ADD CONSTRAINT chk_tickets_status
+  CHECK (status IN ('open', 'pending', 'waiting_external', 'resolved', 'closed', 'canceled'));`,
+  },
+  {
+    key:         'tickets_merge_closed_into_resolved',
+    label:       'Tickets/work orders: merge "closed" into "resolved"',
+    description: "User direction, 2026-08-24: \"merge Resolved and Closed as Resolved.\" The two statuses were functionally identical everywhere in the codebase (both stamped resolved_at, both excluded from overdue/open-count logic, and CINC itself doesn't distinguish them per the comment in lib/integrations/cinc.ts) — having both as separate tabs/options just added confusion. Backfills every existing status='closed' ticket to 'resolved', then drops 'closed' from the CHECK constraint so it can't be set again. Also fixed a related pre-existing bug while touching this: lib/integrations/cinc-inbound.ts's mapCincStatus() used to fold CINC's cancel-ish statuses into 'closed' too — now correctly maps them to the dedicated 'canceled' status added earlier the same day.",
+    filename:    '20260824b_tickets_merge_closed_into_resolved.sql',
+    artifact:    { type: 'column', table: 'tickets', column: 'canceled_at' },
+    sql: `UPDATE public.tickets
+   SET status = 'resolved', updated_at = now()
+ WHERE status = 'closed';
+
+ALTER TABLE public.tickets
+  DROP CONSTRAINT IF EXISTS chk_tickets_status;
+
+ALTER TABLE public.tickets
+  ADD CONSTRAINT chk_tickets_status
+  CHECK (status IN ('open', 'pending', 'waiting_external', 'resolved', 'canceled'));`,
+  },
+  {
+    key:         'board_member_email_locked',
+    label:       'Board members: email_locked flag',
+    description: "User report, 2026-08-24 (MANXI, Angelique Philips / CINC #1093): the CINC↔MAIA sync page proposed overwriting her working Gmail address (used to e-sign approval letters) with a Yahoo address she has trouble with, sourced from CINC's board record. Probed CINC's raw boardMembers response directly for BoardMemberId 1093 — confirmed CINC only exposes a single Email field for board members (no secondary email anywhere in the response), so there's no second CINC value to read instead; CINC's one value is simply wrong for this contact. email_locked lets staff mark a board member's email as MAIA-authoritative so lib/cinc-sync.ts's diff stops proposing to overwrite it on every future sync. Set true for Angelique Philips (MANXI) as part of this fix.",
+    filename:    '20260824_board_member_email_locked.sql',
+    artifact:    { type: 'column', table: 'association_board_members', column: 'email_locked' },
+    sql: `ALTER TABLE public.association_board_members
+  ADD COLUMN IF NOT EXISTS email_locked boolean NOT NULL DEFAULT false;`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

@@ -444,7 +444,7 @@ export async function getAssociationStats(
   const resolveDurationsHours: number[] = []
   for (const t of ticketsBundle.windowed) {
     stats.tickets.opened += 1
-    const isResolvedStatus = t.status === 'resolved' || t.status === 'closed'
+    const isResolvedStatus = t.status === 'resolved'
     const resolvedTs = t.resolved_at ?? (isResolvedStatus ? t.updated_at ?? null : null)
     if (resolvedTs) {
       stats.tickets.resolved += 1

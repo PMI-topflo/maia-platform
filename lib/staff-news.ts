@@ -57,7 +57,7 @@ export function recentWhatsNew(nowIso: string, days = 7): WhatsNewItem[] {
 const LATE_AGE_HOURS: Record<string, number> = { urgent: 24, high: 72, normal: 168, low: 336 }
 
 const OPEN_STATUSES     = ['open', 'pending', 'waiting_external']
-const RESOLVED_STATUSES = ['resolved', 'closed']
+const RESOLVED_STATUSES = ['resolved']
 
 export interface NewsMetrics {
   ticketsOpened:   number

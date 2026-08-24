@@ -206,7 +206,7 @@ async function handleCincTicketUpdateStatus(ticketId: number): Promise<void> {
   if (!t.cinc_workorder_id) return  // not yet mirrored upstream
 
   const statusId = await cinc.findCincStatusIdForTicketStatus(
-    t.status as 'open' | 'pending' | 'waiting_external' | 'resolved' | 'closed',
+    t.status as 'open' | 'pending' | 'waiting_external' | 'resolved' | 'canceled',
   )
 
   await cinc.updateWorkOrderStatus({

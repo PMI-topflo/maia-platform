@@ -563,7 +563,7 @@ export async function updateWorkOrderStatus(
  *  ids again — so we never hard-fail just because CINC's tenant config
  *  doesn't include our keyword. */
 export async function findCincStatusIdForTicketStatus(
-  ticketStatus: 'open' | 'pending' | 'waiting_external' | 'resolved' | 'closed',
+  ticketStatus: 'open' | 'pending' | 'waiting_external' | 'resolved' | 'canceled',
 ): Promise<number> {
   const statuses = await listWorkOrderStatuses()
   if (statuses.length === 0) throw new CincApiError('CINC returned no work order statuses')
@@ -584,14 +584,17 @@ export async function findCincStatusIdForTicketStatus(
     case 'open':             id = find(0, ['open']);                                  break
     case 'pending':          id = find(0, ['pending']);                               break
     case 'waiting_external': id = find(0, ['awaiting', 'waiting', 'vendor', 'external', 'quote']); break
-    // CINC tenants in our footprint don't distinguish "resolved" from
-    // "closed" — both map to the single completed status ("Closed").
+    // MAIA merged "resolved"/"closed" into one status (2026-08-24) — CINC's
+    // own status list still calls its completed status "Closed", so we
+    // still match on that text here, just no longer as a separate MAIA case.
     case 'resolved':         id = find(1, ['closed', 'complete', 'resolved', 'done']); break
-    case 'closed':           id = find(1, ['closed', 'cancel']);                       break
+    // Prefer a dedicated "Canceled" CINC status if the tenant has one;
+    // fall back to whatever "closed"-like status matched above.
+    case 'canceled':         id = find(1, ['cancel', 'not approved', 'declined', 'rejected']) ?? find(1, ['closed']); break
   }
 
   if (id === undefined) {
-    const wantCompleted: 0 | 1 = (ticketStatus === 'resolved' || ticketStatus === 'closed') ? 1 : 0
+    const wantCompleted: 0 | 1 = (ticketStatus === 'resolved' || ticketStatus === 'canceled') ? 1 : 0
     id = pickSettable(statuses.filter(s => s.IsCompleted === wantCompleted))
   }
   if (id === undefined) {

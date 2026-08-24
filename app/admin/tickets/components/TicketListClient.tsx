@@ -78,7 +78,7 @@ const STATUS_TABS: Array<{ key: string; label: string }> = [
   { key: 'pending',          label: 'Pending'   },
   { key: 'waiting_external', label: 'Waiting'   },
   { key: 'resolved',         label: 'Resolved'  },
-  { key: 'closed',           label: 'Closed'    },
+  { key: 'canceled',         label: 'Canceled/Not Approved' },
   { key: 'all',              label: 'All'       },
 ]
 
@@ -97,7 +97,7 @@ const STATUS_STYLES: Record<string, string> = {
   pending:          'bg-yellow-100 text-yellow-800',
   waiting_external: 'bg-blue-100 text-blue-800',
   resolved:         'bg-slate-100 text-slate-700',
-  closed:           'bg-gray-200 text-gray-600',
+  canceled:         'bg-rose-100 text-rose-700',
 }
 
 const CHANNEL_ICONS: Record<string, string> = {
@@ -123,7 +123,7 @@ function fmtRelative(iso: string): string {
 
 function isOverdue(iso: string | null, status: string): boolean {
   if (!iso) return false
-  if (status === 'resolved' || status === 'closed') return false
+  if (status === 'resolved' || status === 'canceled') return false
   return new Date(iso).getTime() < Date.now()
 }
 
@@ -183,7 +183,8 @@ export default function TicketListClient(props: Props) {
         <div>
           <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {props.rows.length} shown · {props.countsByStatus.open_any ?? 0} open · since {props.sinceLabel}
+            {props.rows.length} shown · {props.countsByStatus.open_any ?? 0} open ·{' '}
+            {(props.activeFilters.status || 'open_any') === 'all' ? 'all time' : `since ${props.sinceLabel}`}
           </p>
         </div>
         <div className="flex items-center gap-3">

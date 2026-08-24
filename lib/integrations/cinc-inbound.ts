@@ -63,10 +63,13 @@ function parseCincTimestamp(raw: string | undefined | null): string | null {
 
 /** CINC status string → our TicketStatus. Best-effort string match;
  *  unknown statuses default to 'open' so we don't silently drop them. */
-function mapCincStatus(cincStatus: string | undefined): 'open' | 'pending' | 'waiting_external' | 'resolved' | 'closed' {
+function mapCincStatus(cincStatus: string | undefined): 'open' | 'pending' | 'waiting_external' | 'resolved' | 'canceled' {
   const s = (cincStatus ?? '').toLowerCase()
-  if (s.includes('closed')   || s.includes('cancel'))     return 'closed'
-  if (s.includes('complete') || s.includes('resolved'))   return 'resolved'
+  // Checked before the closed/complete branch: CINC's "cancel"-ish
+  // statuses map to MAIA's dedicated 'canceled', not 'resolved' — these
+  // used to be conflated (both fell into the now-retired 'closed').
+  if (s.includes('cancel'))                                return 'canceled'
+  if (s.includes('closed')   || s.includes('complete') || s.includes('resolved')) return 'resolved'
   if (s.includes('pending')  || s.includes('hold'))       return 'pending'
   if (s.includes('vendor')   || s.includes('waiting'))    return 'waiting_external'
   return 'open'
@@ -136,11 +139,11 @@ async function upsertWorkOrder(wo: CincWorkOrder): Promise<UpsertCounts> {
     // the outbox row hadn't drained yet.
     const patch: Record<string, unknown> = {}
     // Status: same source-of-truth reasoning as work_order_type above — never
-    // let an inbound refresh DOWNGRADE a MAIA-resolved/closed WO back to a
+    // let an inbound refresh DOWNGRADE a MAIA-resolved/canceled WO back to a
     // non-terminal CINC status. CINC routinely lags (staff resolve it here and
     // the outbox is still draining), and stomping it reverted resolved WOs to
     // pending. CINC may still ADVANCE status (e.g. → resolved), just not regress.
-    const terminal = (s: string) => s === 'resolved' || s === 'closed'
+    const terminal = (s: string) => s === 'resolved' || s === 'canceled'
     if (existing.status !== status && !(terminal(existing.status) && !terminal(status))) patch.status = status
     if ((existing.subject ?? '')      !== subject)                                  patch.subject              = subject
     if ((existing.summary ?? '')      !== description.slice(0, 500))                patch.summary              = description.slice(0, 500)
@@ -308,7 +311,7 @@ export async function syncCincInbound(): Promise<SyncResult> {
     .from('tickets')
     .select('id, cinc_workorder_id')
     .not('cinc_workorder_id', 'is', null)
-    .not('status', 'in', '("resolved","closed")')
+    .not('status', 'in', '("resolved","closed","canceled")')
     .limit(200)
   if (openErr) errors.push(`open-tickets lookup: ${openErr.message}`)
 

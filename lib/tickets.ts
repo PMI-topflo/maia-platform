@@ -23,7 +23,7 @@ import { supabaseAdmin } from './supabase-admin'
 import { translateToEnglish } from './translate'
 
 export type TicketType     = 'ticket' | 'work_order'
-export type TicketStatus   = 'open' | 'pending' | 'waiting_external' | 'resolved' | 'closed'
+export type TicketStatus   = 'open' | 'pending' | 'waiting_external' | 'resolved' | 'canceled'
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent'
 export type TicketChannel  = 'email' | 'whatsapp' | 'sms' | 'web' | 'phone' | 'internal'
 export type MessageDirection = 'inbound' | 'outbound' | 'internal_note'
@@ -45,6 +45,7 @@ export interface Ticket {
   assignee_email:         string | null
   due_at:                 string | null
   resolved_at:            string | null
+  canceled_at:            string | null
   gmail_thread_id:        string | null
   rentvine_workorder_id:  string | null
   cinc_workorder_id:      string | null
@@ -303,10 +304,15 @@ export async function updateTicket(
 
   const update: Record<string, unknown> = { ...patch }
   const nowIso = new Date().toISOString()
-  const justCompleted = (patch.status === 'resolved' || patch.status === 'closed')
-                     && (prev?.status !== 'resolved' && prev?.status !== 'closed')
-  if (patch.status === 'resolved' || patch.status === 'closed') {
+  const justCompleted = patch.status === 'resolved' && prev?.status !== 'resolved'
+  if (patch.status === 'resolved') {
     update.resolved_at = nowIso
+  }
+  // Separate from resolved_at — canceled work never completed, so it
+  // shouldn't feed resolve-time metrics (association-stats.ts /
+  // staff-performance.ts both key off resolved_at, not this column).
+  if (patch.status === 'canceled' && prev?.status !== 'canceled') {
+    update.canceled_at = nowIso
   }
 
   const { data, error } = await supabaseAdmin

@@ -118,7 +118,7 @@ export interface MonthlyReportData {
 }
 
 /** Closed = resolved or closed. */
-const CLOSED_STATUSES = ['resolved', 'closed']
+const RESOLVED_STATUSES = ['resolved']
 
 /** First instant of `month` (YYYY-MM) and of the month after it. */
 function monthWindow(month: string): { start: string; end: string } {
@@ -195,7 +195,7 @@ export async function gatherMonthlyReportData(
     let q = supabaseAdmin
       .from('tickets')
       .select('type, association_code, created_by_maia')
-      .in('status', CLOSED_STATUSES)
+      .in('status', RESOLVED_STATUSES)
       .gte('resolved_at', start).lt('resolved_at', end)
       .range(from, to)
     if (code) q = q.eq('association_code', code)

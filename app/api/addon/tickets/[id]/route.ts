@@ -15,7 +15,7 @@ import { updateTicket, type UpdateTicketPatch, type TicketStatus, type TicketPri
 
 export const dynamic = 'force-dynamic'
 
-const STATUSES: TicketStatus[]     = ['open', 'pending', 'waiting_external', 'resolved', 'closed']
+const STATUSES: TicketStatus[]     = ['open', 'pending', 'waiting_external', 'resolved', 'canceled']
 const PRIORITIES: TicketPriority[] = ['low', 'normal', 'high', 'urgent']
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
