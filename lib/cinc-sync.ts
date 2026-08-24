@@ -529,9 +529,9 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
   // ── Board side ────────────────────────────────────────────────────
   const { data: maiaBoardRaw } = await supabaseAdmin
     .from('association_board_members')
-    .select('id, cinc_board_member_id, name, email, role, active')
+    .select('id, cinc_board_member_id, name, email, role, active, email_locked')
     .eq('association_code', code)
-  const maiaBoardRows = (maiaBoardRaw ?? []) as Array<{ id: string; cinc_board_member_id: number | null; name: string | null; email: string | null; role: string | null; active: boolean | null }>
+  const maiaBoardRows = (maiaBoardRaw ?? []) as Array<{ id: string; cinc_board_member_id: number | null; name: string | null; email: string | null; role: string | null; active: boolean | null; email_locked: boolean | null }>
 
   const boardByCincId = new Map<number, typeof maiaBoardRows[number]>()
   const boardByName   = new Map<string, typeof maiaBoardRows[number]>()
@@ -579,7 +579,13 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
       if (norm(cincSnap.role) && norm(cincSnap.role).toLowerCase() !== norm(existing.role).toLowerCase()) {
         changes.role = { current: existing.role ?? null, proposed: cincSnap.role ?? null }
       }
-      if (norm(cincSnap.email) && norm(cincSnap.email).toLowerCase() !== norm(existing.email).toLowerCase()) {
+      // Real incident, 2026-08-24 (MANXI #1093): CINC's board record held
+      // a stale email that would have broken the board member's ability
+      // to receive/e-sign approval letters had it been applied. CINC's
+      // board-members endpoint exposes exactly one Email field — there's
+      // no secondary value to prefer instead — so once staff marks a
+      // board member's email as locked, stop proposing to overwrite it.
+      if (!existing.email_locked && norm(cincSnap.email) && norm(cincSnap.email).toLowerCase() !== norm(existing.email).toLowerCase()) {
         changes.email = { current: existing.email ?? null, proposed: cincSnap.email ?? null }
       }
       const hasChanges = Object.keys(changes).length > 0

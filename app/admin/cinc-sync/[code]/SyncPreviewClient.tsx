@@ -97,6 +97,30 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
   const [showMatched, setShowMatched] = useState(true)
   const [applying, setApplying] = useState(false)
   const [result,   setResult]   = useState<ApplyResult | null>(null)
+  // Real incident, 2026-08-24: CINC's board-member email is sometimes
+  // stale/wrong (confirmed for MANXI #1093 — CINC only carries one
+  // Email field, no secondary to fall back to). "Keep MAIA email" marks
+  // that board member's email as MAIA-authoritative so this diff stops
+  // proposing to overwrite it on every future sync.
+  const [lockingEmail, setLockingEmail] = useState<string | null>(null)
+
+  async function lockEmail(abmId: string) {
+    setLockingEmail(abmId)
+    try {
+      const res = await fetch(`/api/admin/board-members/${abmId}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ email_locked: true }),
+      })
+      if (!res.ok) throw new Error((await res.json())?.error ?? 'lock failed')
+      const fresh = await fetch(`/api/admin/cinc-sync/${assocCode}/preview`).then(r => r.json())
+      setPreview(fresh)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLockingEmail(null)
+    }
+  }
 
   // Inline-edit modal state. Populated when staff clicks "Edit" on a
   // MAIA owner row. Lives at this level (not per-row) because there's
@@ -399,16 +423,29 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
               {cmp.changes && (
                 <tr>
                   <td colSpan={5} className="px-3 pb-3 pt-0 align-top">
-                    <div className="ml-12 text-[11px] text-gray-500">
-                      Will change:{' '}
-                      {Object.entries(cmp.changes).map(([f, d], i) => (
-                        <span key={f} className="mr-3">
-                          {i > 0 && '· '}
-                          <span className="font-mono text-gray-600">{f}</span>{' '}
-                          <s className="text-red-500">{d.current ?? '∅'}</s>{' → '}
-                          <strong className="text-green-700">{d.proposed ?? '∅'}</strong>
-                        </span>
-                      ))}
+                    <div className="ml-12 text-[11px] text-gray-500 flex items-center gap-3">
+                      <span>
+                        Will change:{' '}
+                        {Object.entries(cmp.changes).map(([f, d], i) => (
+                          <span key={f} className="mr-3">
+                            {i > 0 && '· '}
+                            <span className="font-mono text-gray-600">{f}</span>{' '}
+                            <s className="text-red-500">{d.current ?? '∅'}</s>{' → '}
+                            <strong className="text-green-700">{d.proposed ?? '∅'}</strong>
+                          </span>
+                        ))}
+                      </span>
+                      {cmp.changes.email && cmp.abm_id != null && (
+                        <button
+                          type="button"
+                          onClick={() => lockEmail(cmp.abm_id as string)}
+                          disabled={lockingEmail === cmp.abm_id}
+                          className="shrink-0 text-[10px] px-2 py-0.5 rounded border border-gray-300 text-gray-600 hover:border-[#f26a1b] hover:text-[#f26a1b] disabled:opacity-50"
+                          title="Keep MAIA's current email — stop CINC from proposing to overwrite it"
+                        >
+                          {lockingEmail === cmp.abm_id ? 'Locking…' : '🔒 Keep MAIA email'}
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

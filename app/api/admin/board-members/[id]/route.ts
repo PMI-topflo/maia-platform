@@ -23,6 +23,7 @@ export async function PATCH(
     'substitute_name',
     'substitute_email',
     'substitute_active',
+    'email_locked',
   ];
 
   const patch: Record<string, unknown> = {};
