@@ -28,6 +28,7 @@ import { isSignatureOrLogoImage, dedupeAttachments } from '@/lib/email-attachmen
 import { normalizeUpload } from '@/lib/pdf-normalize'
 import { isValidTicketCategory } from '@/lib/ticket-categories'
 import { detectApplicationLogTrigger, logApplicationCommunication, buildLogReplyHtml } from '@/lib/application-comm-log'
+import { detectApplicationGuideTrigger, replyWithApplicationGuide } from '@/lib/application-guide-request'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -2432,6 +2433,21 @@ export async function processEmailCommand(messageId: string): Promise<void> {
       // to the freeform handler so they get a real reply (the prompt
       // will explain what's missing).
       console.warn(`[MAIA] invoice trigger from ${parsed.senderEmail} but no PDF/image attached — falling through`)
+    }
+
+    // "@maia guide" / "@maia application guide" / "@maia requirements" — a
+    // downloadable requirements PDF, sent to whoever asked. Deliberately NOT
+    // gated on `allowed`: an agent or applicant emailing in (not just staff)
+    // should be able to ask for this before they've even started. Returns
+    // early, same as the invoice and upapp branches, so the message doesn't
+    // also become a ticket or run through the record-extraction pipeline.
+    const guideReq = detectApplicationGuideTrigger(parsed.body)
+    if (guideReq) {
+      await replyWithApplicationGuide({
+        req: guideReq, senderEmail: parsed.senderEmail, senderName: parsed.senderName,
+        subject: parsed.subject, rfcMessageId: parsed.rfcMessageId,
+      })
+      return
     }
 
     // File correspondence against an application: "@maia upapp MANXI103" (or

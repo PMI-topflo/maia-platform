@@ -9,6 +9,8 @@ import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { renderMaiaEmail } from '@/lib/maia-email'
+import { buildApplicationGuideData } from '@/lib/application-guide-data'
+import { ApplicationGuidePdf } from '@/lib/application-guide-pdf'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -46,16 +48,38 @@ export async function POST(req: Request, ctx?: unknown) {
   ].filter(e => e.toLowerCase() !== email.toLowerCase())
   const ccUniq = [...new Set(cc)]
 
+  // Best-effort: attach the live Application Guide PDF when one exists for
+  // this association (MANXI only for now — buildApplicationGuideData
+  // returns null otherwise), so the requirements arrive the moment the
+  // applicant/agent gets their link, not after they've already started.
+  // Never blocks the invite itself — a PDF-render failure just means no
+  // attachment, not a failed send.
+  let guideAttachment: { filename: string; content: string } | undefined
+  const guideUrl = `${APP}/apply/${encodeURIComponent(assoc)}/guide`
+  try {
+    const guideData = await buildApplicationGuideData(assoc)
+    if (guideData) {
+      const { renderToBuffer } = await import('@react-pdf/renderer')
+      const pdf = await renderToBuffer(ApplicationGuidePdf({ data: guideData }))
+      guideAttachment = { filename: `${assoc} Application Guide.pdf`, content: pdf.toString('base64') }
+    }
+  } catch (err) {
+    console.error('[send-invite] guide PDF failed, sending without it:', err instanceof Error ? err.message : err)
+  }
+
   await sendEmail({
     to: [email], cc: ccUniq.length ? ccUniq : undefined, replyTo: SUPPORT,
     subject: `Start your application — ${legal}${unit ? `, Unit ${unit}` : ''}`,
+    attachments: guideAttachment ? [guideAttachment] : undefined,
     html: renderMaiaEmail({
       associationName: legal, associationCode: assoc, propertyAddress: address, applicantNames: name ? [name] : [],
       heading: 'Start your application',
-      intro: `Hello${name ? ` ${name}` : ''} — you can complete your application right here. Click below to start; it takes a few minutes and needs no login.`,
+      intro: `Hello${name ? ` ${name}` : ''} — you can complete your application right here. Click below to start; it takes a few minutes and needs no login.${
+        guideAttachment ? ' We\'ve also attached the Application Guide — every rule, fee, and required document, before you begin.' : ` Before you begin, see everything you'll need at ${guideUrl}.`
+      }`,
       ctaUrl: link, ctaLabel: 'Start my application →',
       footerReason: `You're receiving this to complete your application${unit ? ` for Unit ${unit}` : ''}.`,
     }),
   })
-  return NextResponse.json({ ok: true, sentTo: email, cc: ccUniq })
+  return NextResponse.json({ ok: true, sentTo: email, cc: ccUniq, guideAttached: !!guideAttachment })
 }

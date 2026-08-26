@@ -28,6 +28,7 @@ import { sendEmail } from '@/lib/gmail'
 import { signVendorUploadToken } from '@/lib/vendor-upload-token'
 import { classifyMessageIntent, VALID_INTENTS, type MaiaIntent } from '@/lib/intent-classifier'
 import { signCrewToken } from '@/lib/crew-token'
+import { guideAvailable } from '@/lib/application-guide-data'
 
 function getSupabase() {
   const env = process.env;
@@ -2444,9 +2445,32 @@ async function continueLedgerFlow(ctx: CallerContext, state: ConversationState, 
 // NOT payment ("how to pay"). Used only to rescue a 'general' misclassification.
 const LEDGER_TERMS = /\b(ledger|statement|balance|owe|account\s+(summary|history|activity|statement)|saldo|balan[çc]o|extrato|extracto|estado\s+de\s+cuenta|demonstrativo|solde|relev[ée]|cu[aá]nto\s+debo|quanto.{0,6}devo|combien\s+je\s+dois)\b/i
 
+// "application guide" / "requirements to apply" / "how to apply" / "before
+// applying", EN/ES/PT — see the Application Guide shortcut in
+// getMaiaIntelligentResponse.
+const GUIDE_TERMS = /\b(application\s+guide|requirements?\s+to\s+apply|how\s+to\s+apply|before\s+apply(?:ing)?|apply(?:ing)?\s+requirements?|gu[ií]a\s+de\s+solicitud|requisitos\s+para\s+aplicar|c[oó]mo\s+aplicar|guia\s+de\s+inscri[cç][aã]o|requisitos\s+para\s+se\s+inscrever|como\s+se\s+inscrever)\b/i
+
 async function getMaiaIntelligentResponse(ctx: CallerContext, message: string, forced?: { intent: MaiaIntent; summary: string }): Promise<string> {
   const langName = LANGUAGE_NAMES[ctx.language] ?? 'English'
   const msg      = message.toLowerCase()
+
+  // Application Guide request — deterministic keyword shortcut, checked
+  // BEFORE intent classification (same reasoning as the emergency regex
+  // backstop below: this is unambiguous enough not to need an LLM call, and
+  // skipping straight to a link is faster than round-tripping through the
+  // generic 'documents' intent). Only intercepts when the resident's own
+  // association is known AND has a guide (MANXI only for now, see
+  // guideAvailable()) — for anyone else this simply falls through to the
+  // normal flow instead of telling them "not available," since they may not
+  // even have meant the application guide.
+  if (GUIDE_TERMS.test(msg) && ctx.associationId && guideAvailable(ctx.associationId)) {
+    const guideUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'}/apply/${ctx.associationId}/guide`
+    return translate(ctx.language, {
+      en: `📋 Here's the ${ctx.associationId} Application Guide — eligibility rules, fees, and the full document checklist: ${guideUrl} 🌸`,
+      es: `📋 Aquí está la Guía de Solicitud de ${ctx.associationId} — reglas, tarifas y la lista completa de documentos: ${guideUrl} 🌸`,
+      pt: `📋 Aqui está o Guia de Inscrição de ${ctx.associationId} — regras, taxas e a lista completa de documentos: ${guideUrl} 🌸`,
+    })
+  }
 
   // Intent is LLM-decided (see classifyIntent) so keyword collisions no longer
   // misroute messages. `summary` carries what the person actually wants for
