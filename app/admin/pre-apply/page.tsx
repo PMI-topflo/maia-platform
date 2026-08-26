@@ -22,6 +22,10 @@ interface AppRule { association_code: string; rule_key: string; value: unknown; 
 interface AssocQuestions { association_code: string; pets_allowed: boolean | null; requires_interview_lease: boolean; requires_interview_purchase: boolean }
 
 const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
+
+// Associations with a real Application Guide (lib/application-guide-data.ts
+// → GUIDE_CONTENT). Add a code here the same day it's added there.
+const GUIDE_ASSOCIATIONS = new Set(['MANXI'])
 const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '—'
 
 // Chip colors keyed by the API's `chipKey` — the real live document-review
@@ -123,11 +127,23 @@ export default function PreApplyQueue() {
         <div style={{ margin: '12px 0 4px', border: '1px solid #e5e7eb', borderRadius: 12, background: '#fafafa', padding: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
             <div style={{ font: '700 11px system-ui', letterSpacing: '.06em', textTransform: 'uppercase', color: '#6b7280' }}>Pre-Application Compliance · required documents by type</div>
-            {assocOptions.length > 0 && (
-              <select value={refAssoc} onChange={e => loadRef(e.target.value)} style={{ font: '600 13px system-ui', padding: '5px 8px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#374151' }}>
-                {assocOptions.map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
-            )}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {/* Same live PDF the public /apply/[assoc]/guide page and the invite
+                  email attach — GUIDE_ASSOCIATIONS mirrors GUIDE_CONTENT in
+                  lib/application-guide-data.ts (MANXI-only for now; that lib is
+                  server-only, so this client component can't import it directly). */}
+              {GUIDE_ASSOCIATIONS.has(refAssoc.toUpperCase()) && (
+                <a href={`/api/apply/application-guide/${refAssoc.toUpperCase()}`} target="_blank" rel="noreferrer"
+                  style={{ font: '600 12.5px system-ui', color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '5px 10px', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                  📄 Download PDF Guide
+                </a>
+              )}
+              {assocOptions.length > 0 && (
+                <select value={refAssoc} onChange={e => loadRef(e.target.value)} style={{ font: '600 13px system-ui', padding: '5px 8px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#374151' }}>
+                  {assocOptions.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              )}
+            </div>
           </div>
           <p style={{ fontSize: 12.5, color: '#9ca3af', margin: '0 0 12px' }}>What MAIA requests from applicants for each type of application at {refAssoc || '…'}. Edit these in Association document setup.</p>
           {refErr && <p style={{ color: '#b45309', fontSize: 13 }}>⚠ {refErr}</p>}
