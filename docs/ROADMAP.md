@@ -25,12 +25,14 @@ Full gap analysis of MANXI's real 2023 paper application against live MAIA data,
 - Real staff panel shipped: `/admin/pre-apply` "Required documents" section now shows a stat strip + Eligibility & Restrictions list (block/warn pills) sourced from `association_application_rules`/`association_questions`, above the existing checklist (commit `df2394c`, deployed, 0 runtime errors).
 - Two Artifact previews built and approved ("It's perfect"): applicant-facing [Application Guide](https://claude.ai/code/artifact/404b0907-c649-4725-a821-9e79414b162a) (rules/process/fees/checklist/post-approval, real live fee amounts — $150/adult, $150/married-couple-with-cert, not $300), and staff-facing [New Forms Preview](https://claude.ai/code/artifact/5d928f04-0ec0-4716-b35f-9b8ee398b02d) (Maintenance Assessment + Military Service Member e-sign form mockups + Master Association welcome package with real logo).
 
-**Not yet built (real code, not just previewed):**
-- 🔴 Two new e-sign forms for real: Maintenance Assessment Acknowledgment (purchase-only) and Military Service Member Disclosure (all types) — need `ESIGN_CHECKLIST_ITEMS` entries, `/esign/[token]` fill components (mirror `PetRegistrationFill.tsx`), wiring into `sendEsignFormsForItems`, real `association_intake_documents` rows.
+**Shipped since (2026-08-26):**
+- ✅ Both real bugs fixed (commit `d72e1de`): `getRelatedOccupantApplications()` shows Lease Addendum filings on the parent lease's audit view (reverse of `getCurrentLease()`); staff "Open an application" form gained a "Minor (no background check)" checkbox that sets `applicant_role='minor_dependent'` at creation instead of hardcoding `adult_occupant`.
+- ✅ Both new e-sign forms built for real (commit `6d0c456`): Maintenance Assessment Acknowledgment (purchase-only, best-effort pulls the current quarterly assessment from CINC's homeowner ledger, never fabricates a figure) and Military Service Member Disclosure (all types, fillable single yes/no question). Registered through the full e-sign engine (`ESIGN_CHECKLIST_ITEMS`, `lib/esign-forms.tsx` REGISTRY, `recordEsignSignature`'s completion filing, the fillable-form dispatch in both the page and its API route, the staff panel's `ESIGN_ITEM_KEYS`). `association_intake_documents` rows live for MANXI. Detail: [[manxi_new_esign_forms]] memory.
+- ⚠️ New Forms Preview artifact's stale "Checklist rows: 50" stat was checked 2026-08-26 and found already correct (48) — the earlier tag-cleanup edit had in fact been republished; no action needed.
+
+**Still not built:**
 - 🔴 Delinquency-check emails for `no_lease_if_delinquent` — live CINC delinquency check at application-open time (reuse [[cinc_collections_detection_fix]]'s signal, don't build a second one), owner-balance email, applicant-restriction-warning email. **Not built — no send has happened.**
 - 🔴 Master Association welcome-package PDF attachment on approval — attach the 4 real original PDFs (gate barcode/club ID/proximity card/elevator pass) alongside the approval email as separate attachments, rewrite the congratulations email body to describe what's attached.
-- 🔴 Two real bugs found, not fixed: (a) `additional_occupant` applications have no DB link back to the parent lease, so Lease Addendum docs don't surface when viewing the original lease; (b) background-check requirement isn't age-gated — `application_stakeholders.applicant_role='minor_dependent'` already exists and is already wired into `lib/board-review.ts`'s gating, but additional-occupant creation hardcodes everyone to `adult_occupant`.
-- ⚠️ New Forms Preview artifact has a stale stat ("Checklist rows: 50", should be 48) pending a republish after a tag-cleanup edit.
 
 ---
 
