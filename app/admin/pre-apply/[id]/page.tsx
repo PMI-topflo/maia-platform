@@ -48,7 +48,7 @@ const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase
 // owner + tenant both sign), not the generic single-kind form the other
 // three use — but staff-facing, it's the same story: MAIA sends it, there
 // is no upload button, no Owner/Tenant/Both to pick.
-const ESIGN_ITEM_KEYS = new Set(['governing_docs_ack', 'pet_registration', 'emergency_contact', 'landlord_tenant_agreement'])
+const ESIGN_ITEM_KEYS = new Set(['governing_docs_ack', 'pet_registration', 'emergency_contact', 'landlord_tenant_agreement', 'maintenance_assessment_ack', 'military_service_disclosure'])
 const fmt = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '—'
 
 export default function PreApplyDetail({ params }: { params: Promise<{ id: string }> }) {

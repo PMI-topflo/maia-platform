@@ -9,6 +9,7 @@ import { use, useCallback, useEffect, useState } from 'react'
 import { SignaturePad } from '@/components/SignatureEvidence'
 import { PetRegistrationFill, PetSummary, type PetPayloadClient } from './PetRegistrationFill'
 import { EmergencyContactFill, EmergencySummary, type EmergencyPayloadClient } from './EmergencyContactFill'
+import { MilitaryDisclosureFill } from './MilitaryDisclosureFill'
 
 interface Info {
   kind: string
@@ -115,6 +116,8 @@ export default function EsignPage({ params }: { params: Promise<{ token: string 
       <p style={{ color: '#6b7280', fontSize: 14, margin: '0 0 14px' }}>Unit {info.unitRef ?? '—'} · answer a few questions, then you&apos;ll review &amp; e-sign.</p>
       {info.kind === 'emergency_contact_list'
         ? <EmergencyContactFill token={token} payload={info.payload as EmergencyPayloadClient | null} onFilled={load} />
+        : info.kind === 'military_service_disclosure'
+        ? <MilitaryDisclosureFill token={token} onFilled={load} />
         : <PetRegistrationFill token={token} petLimit={info.payload?.petLimit ?? 2} onFilled={load} />}
     </div>
   )

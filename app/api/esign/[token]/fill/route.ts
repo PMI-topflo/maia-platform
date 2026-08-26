@@ -169,6 +169,23 @@ async function fillEmergency(docId: string, body: Record<string, unknown>) {
   return NextResponse.json({ ok: true, savedContacts: contacts.length, savedOccupants: occupants.length, savedTenants: tenants.length })
 }
 
+// ── Military Service Member Disclosure ───────────────────────────────
+// One yes/no answer. Written into payload.details (not just isServiceMember)
+// so the generic details[] summary on the review/sign step shows it with no
+// kind-specific rendering code — see app/esign/[token]/page.tsx.
+async function fillMilitaryDisclosure(docId: string, body: Record<string, unknown>) {
+  const answer = pick(body.isServiceMember, YN)
+  if (!answer) return NextResponse.json({ error: 'Please answer the question above.' }, { status: 400 })
+  const doc = await getEsignDoc(docId)
+  const baseDetails = ((doc?.payload as { details?: { label: string; value: string }[] } | undefined)?.details ?? [])
+    .filter(d => d.label !== 'Active-duty / reserve / National Guard member?')
+  await mergeEsignPayload(docId, {
+    isServiceMember: answer,
+    details: [...baseDetails, { label: 'Active-duty / reserve / National Guard member?', value: answer === 'yes' ? 'Yes' : 'No' }],
+  })
+  return NextResponse.json({ ok: true })
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
   const t = await verifyEsignToken(token)
@@ -178,10 +195,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!isFillable(doc.kind)) return NextResponse.json({ error: 'This form is not fillable.' }, { status: 400 })
   if (doc.status === 'void' || roleSigned(doc, t.role)) return NextResponse.json({ error: 'This document can no longer be edited.' }, { status: 400 })
 
-  let body: { pets?: unknown[]; vetName?: unknown; vetPhone?: unknown; questionnaire?: unknown }
+  let body: { pets?: unknown[]; vetName?: unknown; vetPhone?: unknown; questionnaire?: unknown; isServiceMember?: unknown }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
 
   if (doc.kind === 'emergency_contact_list') return fillEmergency(t.docId, body as Record<string, unknown>)
+  if (doc.kind === 'military_service_disclosure') return fillMilitaryDisclosure(t.docId, body as Record<string, unknown>)
 
   const questionnaire = cleanQuestionnaire(body.questionnaire)
   const branch = effectiveBranch(questionnaire)

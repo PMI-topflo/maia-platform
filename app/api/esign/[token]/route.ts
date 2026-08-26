@@ -21,6 +21,7 @@ export const dynamic = 'force-dynamic'
 function hasBeenFilled(kind: string, payload: Record<string, unknown>): boolean {
   const arr = (k: string) => Array.isArray(payload[k]) ? (payload[k] as unknown[]).length > 0 : false
   if (kind === 'emergency_contact_list') return arr('contacts')
+  if (kind === 'military_service_disclosure') return payload.isServiceMember === 'yes' || payload.isServiceMember === 'no'
   return arr('pets')
 }
 

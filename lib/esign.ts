@@ -219,6 +219,22 @@ export async function recordEsignSignature(
     await applyUnitSurveyAnswers(id).catch(() => null)
   }
 
+  // A completed Maintenance Assessment Acknowledgment / Military Service
+  // Member Disclosure satisfies the checklist item of the same name, same as
+  // every other MAIA-generated form.
+  if (complete && doc.kind === 'maintenance_assessment_ack' && doc.unit_ref) {
+    await fileEsignToApplication(id, {
+      docKey: 'maintenance_assessment_ack', docLabel: 'Maintenance Assessment Acknowledgment (e-signed)',
+      filename: 'Maintenance_Assessment_Acknowledgment.pdf',
+    }).catch(() => null)
+  }
+  if (complete && doc.kind === 'military_service_disclosure' && doc.unit_ref) {
+    await fileEsignToApplication(id, {
+      docKey: 'military_service_disclosure', docLabel: 'Military Service Member Disclosure (e-signed)',
+      filename: 'Military_Service_Disclosure.pdf',
+    }).catch(() => null)
+  }
+
   return { ok: true, status, complete }
 }
 

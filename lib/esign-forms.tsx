@@ -764,12 +764,97 @@ const rulesKnowledgeAck: EsignFormDef = {
   },
 }
 
+// ── Maintenance Assessment Acknowledgment ────────────────────────────
+// Purchase-only: a buyer acknowledges the unit's quarterly maintenance
+// assessment and due dates before closing. Same statement+details+signature
+// shape as the built-in reference form, but its own kind — fileEsignToApplication
+// dispatches by kind (see lib/esign.ts), so a purchase-specific document must
+// not share a kind with anything else that could be filed to a different
+// checklist item.
+const maintenanceAssessmentAck: EsignFormDef = {
+  kind: 'maintenance_assessment_ack',
+  label: 'Maintenance Assessment Acknowledgment',
+  roles: ['applicant'],
+  roleLabel: () => 'Buyer',
+  renderPdf: (doc) => {
+    const p = doc.payload as { associationLegalName?: string; statement?: string; details?: { label: string; value: string }[] }
+    return (
+      <Document>
+        <Page size="LETTER" style={s.page}>
+          <Text style={s.assoc}>{p.associationLegalName ?? doc.association_code}</Text>
+          <Text style={s.title}>Maintenance Assessment Acknowledgment</Text>
+          <View style={s.rule} />
+          {(p.details ?? []).map((d, i) => (
+            <View key={i} style={s.row}><Text style={s.rowKey}>{d.label}</Text><Text style={s.rowVal}>{d.value}</Text></View>
+          ))}
+          {p.statement ? <Text style={s.para}>{p.statement}</Text> : null}
+          <SignatureRow doc={doc} def={maintenanceAssessmentAck} />
+        </Page>
+      </Document>
+    )
+  },
+}
+
+// ── Military Service Member Disclosure ───────────────────────────────
+// All application types. One yes/no question, so it is FILLABLE (the answer
+// must come from the applicant, not be preset by staff) but has no separate
+// summary component — the answer is written into payload.details by the fill
+// route (see app/api/esign/[token]/fill/route.ts), so the generic details[]
+// summary in app/esign/[token]/page.tsx renders it with no kind-specific code.
+export interface MilitaryDisclosurePayload {
+  associationLegalName?: string
+  propertyAddress?: string
+  unit?: string
+  applicationType?: string
+  isServiceMember?: 'yes' | 'no' | null
+  details?: { label: string; value: string }[]
+}
+
+const MILITARY_QUESTION =
+  'Are you a member of the United States Armed Forces on active duty, and/or a member of the Florida National Guard or United States Reserve Forces?'
+
+const MILITARY_NOTICE =
+  'Section 83.682, Florida Statutes, and the federal Servicemembers Civil Relief Act give an active-duty service member certain rights to terminate a lease early upon receipt of permanent change of station or deployment orders. This disclosure does not affect approval of this application — it is collected so the Association’s records reflect these rights correctly if they ever apply.'
+
+const militaryServiceDisclosure: EsignFormDef = {
+  kind: 'military_service_disclosure',
+  label: 'Military Service Member Disclosure',
+  roles: ['applicant'],
+  roleLabel: () => 'Applicant',
+  fillable: true,
+  renderPdf: (doc) => {
+    const p = doc.payload as MilitaryDisclosurePayload
+    return (
+      <Document>
+        <Page size="LETTER" style={s.page}>
+          <Text style={s.assoc}>{p.associationLegalName ?? doc.association_code}</Text>
+          <Text style={s.title}>Military Service Member Disclosure</Text>
+          <View style={s.rule} />
+          {(p.details ?? []).map((d, i) => (
+            <View key={i} style={s.row}><Text style={s.rowKey}>{d.label}</Text><Text style={s.rowVal}>{d.value}</Text></View>
+          ))}
+          <Text style={s.sectionTitle}>Disclosure</Text>
+          <Text style={s.para}>{MILITARY_QUESTION}</Text>
+          <View style={s.notice} wrap={false}>
+            <Text style={s.noticeTitle}>Your rights under Florida and federal law</Text>
+            <Text style={s.noticeBody}>{MILITARY_NOTICE}</Text>
+          </View>
+          <Text style={{ ...s.para, marginTop: 10 }}>I certify the answer above is accurate.</Text>
+          <SignatureRow doc={doc} def={militaryServiceDisclosure} />
+        </Page>
+      </Document>
+    )
+  },
+}
+
 const REGISTRY: Record<string, EsignFormDef> = {
   [associationAcknowledgment.kind]: associationAcknowledgment,
   [petRegistration.kind]: petRegistration,
   [boardDecision.kind]: boardDecision,
   [rulesKnowledgeAck.kind]: rulesKnowledgeAck,
   [emergencyContactList.kind]: emergencyContactList,
+  [maintenanceAssessmentAck.kind]: maintenanceAssessmentAck,
+  [militaryServiceDisclosure.kind]: militaryServiceDisclosure,
 }
 
 export const PET_ACK = PET_ACK_DEFAULT

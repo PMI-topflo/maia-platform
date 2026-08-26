@@ -24,6 +24,7 @@ import { sendEmail } from '@/lib/gmail'
 import { rulesAckContentFor } from '@/lib/rules-ack-content'
 import { hasRulesPdf } from '@/lib/rules-ack-pdf'
 import { PET_ACK, EMERGENCY_CERTIFICATION } from '@/lib/esign-forms'
+import { getHomeownerLedger } from '@/lib/integrations/cinc'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const esc = (s: string) => String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
@@ -33,6 +34,8 @@ export const ESIGN_CHECKLIST_ITEMS: Record<string, { kind: string; noun: string 
   governing_docs_ack: { kind: 'rules_knowledge_ack', noun: 'Rules Knowledge Acknowledgment' },
   pet_registration:   { kind: 'pet_registration',    noun: 'Animal Information form' },
   emergency_contact:  { kind: 'emergency_contact_list', noun: 'Emergency Contact List' },
+  maintenance_assessment_ack: { kind: 'maintenance_assessment_ack', noun: 'Maintenance Assessment Acknowledgment' },
+  military_service_disclosure: { kind: 'military_service_disclosure', noun: 'Military Service Member Disclosure' },
 }
 
 export const isEsignItem = (docKey: string): boolean => docKey in ESIGN_CHECKLIST_ITEMS
@@ -108,6 +111,37 @@ export async function esignItemBlocker(docKey: string, c: AppCtx): Promise<strin
   // The rest are signed by the lead applicant alone.
   if (!c.people[0].email) return `no email for ${c.people[0].name}`
   return null
+}
+
+/** Best-effort: the unit's most recent quarterly-assessment charge from CINC's
+ *  ledger, so the Maintenance Assessment Acknowledgment shows a real figure
+ *  instead of a guess. Conservative on failure, same as the rest of this
+ *  codebase's document handling (see lib/occupant-sponsorship.ts) — on any
+ *  doubt (no owner on file, no matching ledger line, a network error) the
+ *  form simply omits the dollar amount and states the due dates only; it
+ *  never shows a wrong number. */
+async function currentQuarterlyAssessment(code: string, unit: string | null): Promise<{ amount: number; asOf: string } | null> {
+  if (!unit) return null
+  try {
+    const { data: owner } = await supabaseAdmin.from('owners')
+      .select('account_number').eq('association_code', code)
+      .or(`unit_number.eq.${unit},account_number.eq.${code}${unit}`)
+      .or('status.neq.previous,status.is.null').limit(1).maybeSingle()
+    const hoId = owner?.account_number as string | null
+    if (!hoId) return null
+    const today = new Date()
+    const from = new Date(today); from.setDate(from.getDate() - 120)
+    const rows = await getHomeownerLedger({
+      assocCode: code, hoId,
+      fromDate: from.toISOString().slice(0, 10), toDate: today.toISOString().slice(0, 10),
+    })
+    const assessments = rows
+      .filter(r => (r.Debit ?? 0) > 0 && /assess/i.test(`${r.Assessment ?? ''} ${r.Description ?? ''} ${r.TransactionTypeDescription ?? ''}`))
+      .sort((a, b) => new Date(b.Date ?? 0).getTime() - new Date(a.Date ?? 0).getTime())
+    const latest = assessments[0]
+    if (!latest?.Debit || !latest.Date) return null
+    return { amount: latest.Debit, asOf: new Date(latest.Date).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }) }
+  } catch { return null }
 }
 
 /** Create + email one form. Returns what was sent, or throws with a reason. */
@@ -196,6 +230,65 @@ async function createAndSend(docKey: string, c: AppCtx, createdBy: string, prefi
         <p><strong>${esc(c.legal)}</strong> keeps an emergency contact list for every unit — who to call if something happens at <strong>Unit ${esc(unitLabel)}</strong> and we cannot reach the people who live there.</p>
         <p>It takes about a minute: who lives in the unit, one or two people we can call, and whether anyone else holds a key.</p>`,
         link, 'Complete the emergency contact list'),
+    })
+    return [{ docKey, kind: spec.kind, name: lead.name, email: lead.email!, link }]
+  }
+
+  // ── Maintenance Assessment Acknowledgment (purchase-only) ─────────────
+  if (docKey === 'maintenance_assessment_ack') {
+    const assessment = await currentQuarterlyAssessment(c.code, c.unit)
+    const details: { label: string; value: string }[] = [
+      { label: 'Property', value: c.address ?? `Unit ${unitLabel}` },
+      { label: 'Buyer', value: lead.name },
+      { label: 'Due dates', value: 'Jan 1 · Apr 1 · Jul 1 · Oct 1 — considered late on the 5th' },
+    ]
+    if (assessment) {
+      details.push({ label: 'Current quarterly assessment', value: `$${assessment.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} (per the ledger, as of ${assessment.asOf})` })
+    }
+    const statement = `I acknowledge the due dates above${assessment ? ', and the current quarterly assessment amount shown,' : ''} and agree to pay the Association's maintenance assessments on schedule as a condition of my purchase. The Association does not bill this amount monthly, and the quarterly amount may change each year by Board action.`
+    const { data: created, error } = await supabaseAdmin.from('esign_documents').insert({
+      kind: spec.kind, association_code: c.code, unit_ref: c.unit,
+      title: `Maintenance Assessment Acknowledgment — Unit ${unitLabel}`,
+      payload: { associationLegalName: c.legal, statement, details },
+      signers: [{ role: 'applicant', name: lead.name, email: lead.email, phone: lead.phone }],
+      status: 'sent', created_by: createdBy,
+    }).select('id').single()
+    if (error || !created) throw new Error(error?.message ?? 'could not create it')
+    const link = `${APP}/esign/${await signEsignToken(String(created.id), 'applicant')}`
+    await sendEmail({
+      to: lead.email!,
+      subject: `Maintenance assessment acknowledgment — Unit ${unitLabel}`,
+      html: body(c, lead.name, `
+        <p><strong>${esc(c.legal)}</strong> asks every buyer to acknowledge the unit's quarterly maintenance assessment and due dates before closing.</p>`,
+        link, 'Review & e-sign'),
+    })
+    return [{ docKey, kind: spec.kind, name: lead.name, email: lead.email!, link }]
+  }
+
+  // ── Military Service Member Disclosure (every application type) ───────
+  if (docKey === 'military_service_disclosure') {
+    const { data: created, error } = await supabaseAdmin.from('esign_documents').insert({
+      kind: spec.kind, association_code: c.code, unit_ref: c.unit,
+      title: `Military Service Member Disclosure — Unit ${unitLabel}`,
+      payload: {
+        associationLegalName: c.legal, propertyAddress: c.address, unit: c.unit, applicationType: c.type,
+        isServiceMember: null,
+        details: [
+          { label: 'Property', value: c.address ?? `Unit ${unitLabel}` },
+          { label: 'Applicant', value: lead.name },
+        ],
+      },
+      signers: [{ role: 'applicant', name: lead.name, email: lead.email, phone: lead.phone }],
+      status: 'sent', created_by: createdBy,
+    }).select('id').single()
+    if (error || !created) throw new Error(error?.message ?? 'could not create it')
+    const link = `${APP}/esign/${await signEsignToken(String(created.id), 'applicant')}`
+    await sendEmail({
+      to: lead.email!,
+      subject: `Military service disclosure — Unit ${unitLabel}`,
+      html: body(c, lead.name, `
+        <p><strong>${esc(c.legal)}</strong> asks every applicant one short disclosure question required to complete the application.</p>`,
+        link, 'Answer & e-sign'),
     })
     return [{ docKey, kind: spec.kind, name: lead.name, email: lead.email!, link }]
   }
