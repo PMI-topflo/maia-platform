@@ -242,10 +242,8 @@ async function createAndSend(docKey: string, c: AppCtx, createdBy: string, prefi
       { label: 'Buyer', value: lead.name },
       { label: 'Due dates', value: 'Jan 1 · Apr 1 · Jul 1 · Oct 1 — considered late on the 5th' },
       // $25.00 per quarter — Amendment to Rule 56 (recorded 1997-05-22, Broward
-      // County O.R. Book 26543, Page 0575). A FLAT quarterly charge, not a
-      // monthly one — say so explicitly, since "$25 late fee" alone reads as
-      // monthly to anyone used to how most HOAs bill.
-      { label: 'Late fee', value: '$25.00 per quarter if not paid when due — not a monthly charge (Amendment to Rule 56, recorded 1997)' },
+      // County O.R. Book 26543, Page 0575).
+      { label: 'Late fee', value: '$25.00 per quarter if not paid when due (Amendment to Rule 56, recorded 1997)' },
     ]
     if (assessment) {
       details.push({ label: 'Current quarterly assessment', value: `$${assessment.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} (per the ledger, as of ${assessment.asOf})` })
