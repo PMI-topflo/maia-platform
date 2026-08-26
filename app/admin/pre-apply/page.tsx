@@ -382,7 +382,7 @@ function StaffCreate() {
       .then(r => r.json()).then(d => setUnitList(d.units ?? [])).catch(() => setUnitList([])).finally(() => setUnitsLoading(false))
   }, [assoc])
   const selectedUnit = unitList.find(u => u.unit === unit) ?? null
-  const [people, setPeople] = useState([{ name: '', email: '', phone: '' }])
+  const [people, setPeople] = useState([{ name: '', email: '', phone: '', isMinor: false }])
   const [note, setNote] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
@@ -394,7 +394,7 @@ function StaffCreate() {
   const [occCheck, setOccCheck] = useState<{ checked: boolean; found: boolean } | null>(null)
   const [occBusy, setOccBusy] = useState(false)
 
-  const upd = (i: number, patch: Partial<{ name: string; email: string; phone: string }>) =>
+  const upd = (i: number, patch: Partial<{ name: string; email: string; phone: string; isMinor: boolean }>) =>
     setPeople(ps => ps.map((p, j) => j === i ? { ...p, ...patch } : p))
 
   useEffect(() => {
@@ -509,10 +509,15 @@ function StaffCreate() {
               <input value={p.name} onChange={e => upd(i, { name: e.target.value })} placeholder={i === 0 ? 'Applicant name' : 'Also on the application'} style={{ ...inp, width: 210, fontWeight: i === 0 ? 600 : 400 }} />
               <input value={p.email} onChange={e => upd(i, { email: e.target.value })} placeholder={i === 0 ? 'email (required)' : 'email (optional)'} style={{ ...inp, width: 210 }} />
               <input value={p.phone} onChange={e => upd(i, { phone: e.target.value })} placeholder={i === 0 ? 'phone (required)' : 'phone (optional)'} style={{ ...inp, width: 140 }} />
+              {type === 'additional_occupant' && (
+                <label style={{ font: '12.5px system-ui', color: '#374151', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={p.isMinor} onChange={e => upd(i, { isMinor: e.target.checked })} /> Minor (no background check)
+                </label>
+              )}
               {people.length > 1 && <button onClick={() => setPeople(ps => ps.filter((_, j) => j !== i))} style={{ border: 'none', background: 'none', color: '#9ca3af', cursor: 'pointer', font: '700 15px system-ui' }}>×</button>}
             </div>
           ))}
-          <button onClick={() => setPeople(ps => [...ps, { name: '', email: '', phone: '' }])} style={{ alignSelf: 'flex-start', font: '600 12px system-ui', color: '#374151', background: '#fff', border: '1px dashed #d1d5db', borderRadius: 7, padding: '6px 12px', cursor: 'pointer' }}>+ Add another person</button>
+          <button onClick={() => setPeople(ps => [...ps, { name: '', email: '', phone: '', isMinor: false }])} style={{ alignSelf: 'flex-start', font: '600 12px system-ui', color: '#374151', background: '#fff', border: '1px dashed #d1d5db', borderRadius: 7, padding: '6px 12px', cursor: 'pointer' }}>+ Add another person</button>
 
           {type === 'additional_occupant' && (
             <div style={{ font: '12.5px system-ui', color: occCheck?.found ? '#166534' : '#92400e' }}>

@@ -13,7 +13,7 @@ import {
 } from '@/lib/animal-accommodation'
 import { roleLabel, roleSigns } from '@/lib/preapply'
 import { getReviewState } from '@/lib/board-review'
-import { getCurrentLease } from '@/lib/occupant-sponsorship'
+import { getCurrentLease, getRelatedOccupantApplications } from '@/lib/occupant-sponsorship'
 import { handoffOnApproval } from '@/lib/application-handoff'
 
 export const runtime = 'nodejs'
@@ -84,6 +84,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const currentLease = String(app.application_type) === 'additional_occupant'
     ? await getCurrentLease(code, unit || null)
     : null
+  // The reverse: viewing the original lease/purchase, show any Lease Addendum
+  // (additional_occupant) applications filed against this unit afterward —
+  // previously only visible from the occupant's own application.
+  const relatedOccupantApplications = ['lease', 'purchase', 'lease_renewal'].includes(String(app.application_type))
+    ? await getRelatedOccupantApplications(code, unit || null, id)
+    : []
   const petsAllowed = (assocRow?.pets_allowed as boolean | null) ?? null
   const declarations = parseDeclarations(app.declarations)
   const derivedNa = declaredNaKeys(checklist, declarations, { petsAllowed })
@@ -109,6 +115,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     audit: { auditedBy: app.audited_by, auditedAt: app.audited_at, reviewedBy: app.reviewed_by, reviewedAt: app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role },
     naItems,
     currentLease,
+    relatedOccupantApplications,
     review: review ? {
       rows: review.rows.map(r => ({ scopeKey: r.scopeKey, docKey: r.docKey, state: r.state, decision: r.decision, perApplicantName: r.perApplicantName })),
       totals: review.totals, complete: review.complete,

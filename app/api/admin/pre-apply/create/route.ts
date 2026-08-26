@@ -24,7 +24,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-interface InPerson { name?: unknown; email?: unknown; phone?: unknown }
+interface InPerson { name?: unknown; email?: unknown; phone?: unknown; isMinor?: unknown }
 
 export async function POST(req: Request) {
   const session = await requireStaffSession()
@@ -49,6 +49,7 @@ export async function POST(req: Request) {
       name: String(p.name ?? '').trim(),
       email: (() => { const e = String(p.email ?? '').trim(); return e.includes('@') ? e : null })(),
       phone: (() => { const v = String(p.phone ?? '').trim(); return v ? (normalizePhone(v) ?? v) : null })(),
+      isMinor: p.isMinor === true,
     }))
     .filter(p => p.name)
 
@@ -107,18 +108,27 @@ export async function POST(req: Request) {
 
   // createIntake leaves applicant_role null, which shows as a blank role on the
   // per-applicant tabs. Set it from what the application actually is.
-  const leadRole = type === 'additional_occupant' ? 'adult_occupant'
-    : type === 'purchase' ? 'primary_applicant' : 'tenant'
+  //
+  // 'minor_dependent' (staff-flagged via the "Minor" checkbox, additional-
+  // occupant only) is checked BEFORE the type defaults below — a minor is
+  // never adult_occupant regardless of type — so lib/board-review.ts's
+  // deriveReviewState() (which already excludes minor_dependent from
+  // per-applicant document gating) correctly skips the background-check
+  // requirement for them. There is no DOB/age field anywhere in this intake;
+  // this checkbox is the only signal.
+  const roleFor = (isMinor: boolean, position: 'lead' | 'other') => isMinor ? 'minor_dependent'
+    : type === 'additional_occupant' ? 'adult_occupant'
+    : type === 'purchase' ? (position === 'lead' ? 'primary_applicant' : 'co_applicant') : 'tenant'
+  const leadRole = roleFor(people[0].isMinor, 'lead')
   await supabaseAdmin.from('application_stakeholders')
     .update({ applicant_role: leadRole }).eq('id', created.stakeholderId)
 
   // Everyone else on the roster. Staff-added, so no invite is implied.
   if (people.length > 1) {
-    await supabaseAdmin.from('application_stakeholders').insert(people.slice(1).map((p, i) => ({
+    await supabaseAdmin.from('application_stakeholders').insert(people.slice(1).map(p => ({
       application_id: created.applicationId, role: 'applicant', name: p.name, email: p.email, phone: p.phone,
       is_primary: false, status: 'active', added_by_role: 'staff',
-      applicant_role: type === 'additional_occupant' ? 'adult_occupant'
-        : type === 'purchase' ? 'co_applicant' : 'tenant',
+      applicant_role: roleFor(p.isMinor, 'other'),
     })))
   }
 

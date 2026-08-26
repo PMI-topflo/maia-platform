@@ -129,6 +129,57 @@ export async function getCurrentLease(associationCode: string, unitLabel: string
   }
 }
 
+export interface RelatedOccupantApplication {
+  id: string
+  status: string
+  submittedAt: string | null
+  applicantName: string | null
+  documents: { docKey: string; label: string; url: string }[]
+}
+
+/** Additional-occupant applications filed against this unit — the reverse of
+ *  getCurrentLease(). Without this, a Lease Addendum filed after a lease was
+ *  approved only ever surfaced on the occupant's OWN application; staff
+ *  looking at the original lease had no way to see it. There is no FK linking
+ *  the two — same as getCurrentLease(), the unit (association_code +
+ *  unit_label) IS the link. */
+export async function getRelatedOccupantApplications(
+  associationCode: string, unitLabel: string | null, excludeApplicationId?: string,
+): Promise<RelatedOccupantApplication[]> {
+  const unit = (unitLabel ?? '').trim()
+  if (!unit) return []
+  const code = associationCode.toUpperCase()
+
+  const { data: apps } = await supabaseAdmin.from('listing_applications')
+    .select('id, status, submitted_at')
+    .eq('association_code', code).eq('unit_label', unit).eq('application_type', 'additional_occupant')
+    .order('submitted_at', { ascending: false })
+  const rows = (apps ?? []).filter(a => a.id !== excludeApplicationId)
+  if (!rows.length) return []
+
+  const ids = rows.map(a => a.id)
+  const [{ data: stakeholders }, { data: docs }] = await Promise.all([
+    supabaseAdmin.from('application_stakeholders')
+      .select('application_id, name').in('application_id', ids).eq('role', 'applicant').eq('is_primary', true),
+    supabaseAdmin.from('application_documents')
+      .select('id, application_id, doc_key, doc_label').in('application_id', ids),
+  ])
+  const nameByApp = new Map((stakeholders ?? []).map(s => [s.application_id as string, s.name as string | null]))
+  const docsByApp = new Map<string, RelatedOccupantApplication['documents']>()
+  for (const d of docs ?? []) {
+    if (!d.doc_key) continue
+    const list = docsByApp.get(d.application_id as string) ?? []
+    list.push({ docKey: String(d.doc_key), label: String(d.doc_label ?? d.doc_key), url: `/api/admin/pre-apply/${d.application_id}/doc/${d.id}` })
+    docsByApp.set(d.application_id as string, list)
+  }
+
+  return rows.map(a => ({
+    id: a.id as string, status: String(a.status), submittedAt: (a.submitted_at as string | null) ?? null,
+    applicantName: nameByApp.get(a.id as string) ?? null,
+    documents: docsByApp.get(a.id as string) ?? [],
+  }))
+}
+
 // Does the current lease on file already name this occupant? Backs the
 // additional-occupant creation flow: if MAIA can read them off the existing
 // lease, no separate document is required; otherwise staff add them to the

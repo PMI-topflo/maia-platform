@@ -21,6 +21,7 @@ interface Detail {
   audit: { auditedBy: string | null; auditedAt: string | null; reviewedBy: string | null; reviewedAt: string | null; note: string | null; approvedByRole: string | null }
   naItems: string[]
   currentLease: { tenantName: string | null; tenantEmail: string | null; tenantPhone: string | null; leaseStart: string | null; leaseEnd: string | null; approvedAt: string | null; approvedApplicationId: string | null; documents: { docKey: string; label: string; url: string }[] } | null
+  relatedOccupantApplications: { id: string; status: string; submittedAt: string | null; applicantName: string | null; documents: { docKey: string; label: string; url: string }[] }[]
   review: {
     rows: { scopeKey: string; docKey: string; state: 'waiting' | 'received' | 'approved' | 'refused'; decision: { by: string; role: string; at: string; reason: string | null } | null; perApplicantName: string | null }[]
     totals: { required: number; received: number; decided: number; approved: number; refused: number; waiting: number }
@@ -300,6 +301,30 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           <div style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 6 }}>
             Shown, not copied — these stay on the approved lease so there is only ever one of each.
           </div>
+        </div>
+      )}
+
+      {/* The reverse of the card above: additional-occupant applications
+          (e.g. a Lease Addendum) filed against THIS unit after this lease was
+          approved. Without this, staff reviewing the original lease had no
+          way to see a later occupant addition — it only ever showed up on
+          the occupant's own application. */}
+      {d.relatedOccupantApplications.length > 0 && (
+        <div style={{ border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: 10, padding: '12px 14px', margin: '12px 0' }}>
+          <div style={{ font: '700 12px system-ui', color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em' }}>Additional occupants filed on this unit</div>
+          {d.relatedOccupantApplications.map(o => (
+            <div key={o.id} style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', marginTop: 6, fontSize: 13.5, color: '#374151' }}>
+              <Link href={`/admin/pre-apply/${o.id}`} style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}>{o.applicantName ?? 'Additional occupant'}</Link>
+              <span style={{ fontSize: 11.5, color: '#6b7280' }}>{o.status} · {fmt(o.submittedAt)}</span>
+              {o.documents.length > 0 && (
+                <span style={{ fontSize: 12.5, color: '#374151' }}>
+                  {o.documents.map((x, i) => (
+                    <span key={x.docKey}>{i ? ' · ' : ''}<a href={x.url} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>{x.label}</a></span>
+                  ))}
+                </span>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
