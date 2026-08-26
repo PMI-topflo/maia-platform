@@ -18,6 +18,9 @@ interface ChecklistItem { label: string; provided_by: string; required: boolean;
 interface TypeChecklist { type: string; label: string; blurb: string; items: ChecklistItem[] }
 const TYPE_ORDER = ['lease', 'lease_renewal', 'purchase', 'additional_occupant']
 
+interface AppRule { association_code: string; rule_key: string; value: unknown; label: string; enforcement: 'block' | 'warn' }
+interface AssocQuestions { association_code: string; pets_allowed: boolean | null; requires_interview_lease: boolean; requires_interview_purchase: boolean }
+
 const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
 const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : '—'
 
@@ -55,6 +58,11 @@ export default function PreApplyQueue() {
   const [refAssoc, setRefAssoc] = useState('')
   const [refData, setRefData] = useState<TypeChecklist[] | null>(null)
   const [refErr, setRefErr] = useState<string | null>(null)
+  // Rules + questions cover every association at once (neither endpoint takes
+  // an assoc filter) — fetched once when the panel first opens, then filtered
+  // client-side per selected association, same as the setup page does.
+  const [allRules, setAllRules] = useState<AppRule[] | null>(null)
+  const [allQuestions, setAllQuestions] = useState<AssocQuestions[] | null>(null)
 
   const assocOptions = [...new Set((apps ?? []).map(a => a.associationCode))].sort()
   function loadRef(a: string) {
@@ -62,7 +70,18 @@ export default function PreApplyQueue() {
     fetch(`/api/admin/pre-apply/checklists?assoc=${encodeURIComponent(a)}`, { credentials: 'include' })
       .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j })
       .then(d => setRefData(d.checklists)).catch(e => setRefErr(String(e.message ?? e)))
+    if (!allRules) {
+      fetch('/api/admin/association-application-rules', { credentials: 'include' })
+        .then(r => r.json()).then(d => setAllRules(d.rules ?? [])).catch(() => setAllRules([]))
+    }
+    if (!allQuestions) {
+      fetch('/api/admin/association-questions', { credentials: 'include' })
+        .then(r => r.json()).then(d => setAllQuestions(d.associations ?? [])).catch(() => setAllQuestions([]))
+    }
   }
+  const rulesForAssoc = (allRules ?? []).filter(r => r.association_code === refAssoc)
+  const questionsForAssoc = (allQuestions ?? []).find(q => q.association_code === refAssoc) ?? null
+  const totalChecklistItems = (refData ?? []).reduce((n, c) => n + c.items.length, 0)
 
   useEffect(() => {
     fetch('/api/admin/pre-apply', { credentials: 'include' })
@@ -112,6 +131,43 @@ export default function PreApplyQueue() {
           </div>
           <p style={{ fontSize: 12.5, color: '#9ca3af', margin: '0 0 12px' }}>What MAIA requests from applicants for each type of application at {refAssoc || '…'}. Edit these in Association document setup.</p>
           {refErr && <p style={{ color: '#b45309', fontSize: 13 }}>⚠ {refErr}</p>}
+
+          {refData && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 14 }}>
+              <StatBox n={rulesForAssoc.length} l="Eligibility rules" />
+              <StatBox n={rulesForAssoc.filter(r => r.enforcement === 'block').length} l="Hard blocks" flag />
+              <StatBox n={refData.length} l="Application types" />
+              <StatBox n={totalChecklistItems} l="Checklist items" />
+            </div>
+          )}
+
+          {questionsForAssoc && (
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 14, fontSize: 12.5, color: '#4b5563' }}>
+              <span>Pet friendly: <b style={{ color: '#111827' }}>{questionsForAssoc.pets_allowed ? 'Yes' : 'No'}</b></span>
+              <span>Interview required — lease: <b style={{ color: '#111827' }}>{questionsForAssoc.requires_interview_lease ? 'Yes' : 'No'}</b></span>
+              <span>Interview required — purchase: <b style={{ color: '#111827' }}>{questionsForAssoc.requires_interview_purchase ? 'Yes' : 'No'}</b></span>
+            </div>
+          )}
+
+          {rulesForAssoc.length > 0 && (
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', background: '#fff', marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, padding: '10px 13px', borderBottom: '1px solid #f3f4f6' }}>
+                <span style={{ fontWeight: 700, fontSize: 15, color: '#111827' }}>Eligibility &amp; Restrictions</span>
+                <span style={{ font: '600 11px system-ui', color: '#9ca3af' }}>{rulesForAssoc.length} rules</span>
+              </div>
+              <ol style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                {rulesForAssoc.map((r, i) => (
+                  <li key={r.rule_key} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', padding: '8px 13px', borderTop: i ? '1px solid #f6f6f6' : 'none', fontSize: 13.5 }}>
+                    <span style={{ color: '#1f2937' }}>{r.label}</span>
+                    {r.enforcement === 'block'
+                      ? <span style={{ font: '700 10px system-ui', color: '#fff', background: '#c0392b', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>BLOCK</span>
+                      : <span style={{ font: '700 10px system-ui', color: '#a9782e', border: '1px solid #f2e9d8', background: '#f2e9d8', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>WARN</span>}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
           {!refData && !refErr ? <p style={{ color: '#9ca3af', fontSize: 13 }}>Loading…</p> : refData && refData.length === 0 ? <p style={{ color: '#9ca3af', fontSize: 13 }}>No checklist configured for {refAssoc}.</p> : refData && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[...refData].sort((a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type)).map(c => <ChecklistCard key={c.type} c={c} />)}
@@ -232,6 +288,15 @@ export default function PreApplyQueue() {
 }
 
 const td: React.CSSProperties = { padding: '9px 12px', borderBottom: '1px solid #f3f4f6', color: '#374151', verticalAlign: 'top' }
+
+function StatBox({ n, l, flag }: { n: number; l: string; flag?: boolean }) {
+  return (
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px', background: '#fff' }}>
+      <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 19, fontWeight: 600, color: flag && n > 0 ? '#c0392b' : '#111827' }}>{n}</div>
+      <div style={{ fontSize: 10.5, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.03em', marginTop: 2 }}>{l}</div>
+    </div>
+  )
+}
 
 const PROVIDED_LABEL: Record<string, string> = { applicant: 'Applicant', landlord: 'Owner', agent: 'Agent', both: 'Owner or Tenant', staff: 'Staff' }
 function ChecklistCard({ c }: { c: TypeChecklist }) {
