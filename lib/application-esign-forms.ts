@@ -241,11 +241,16 @@ async function createAndSend(docKey: string, c: AppCtx, createdBy: string, prefi
       { label: 'Property', value: c.address ?? `Unit ${unitLabel}` },
       { label: 'Buyer', value: lead.name },
       { label: 'Due dates', value: 'Jan 1 · Apr 1 · Jul 1 · Oct 1 — considered late on the 5th' },
+      // $25.00 per quarter — Amendment to Rule 56 (recorded 1997-05-22, Broward
+      // County O.R. Book 26543, Page 0575). A FLAT quarterly charge, not a
+      // monthly one — say so explicitly, since "$25 late fee" alone reads as
+      // monthly to anyone used to how most HOAs bill.
+      { label: 'Late fee', value: '$25.00 per quarter if not paid when due — not a monthly charge (Amendment to Rule 56, recorded 1997)' },
     ]
     if (assessment) {
       details.push({ label: 'Current quarterly assessment', value: `$${assessment.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} (per the ledger, as of ${assessment.asOf})` })
     }
-    const statement = `I acknowledge the due dates above${assessment ? ', and the current quarterly assessment amount shown,' : ''} and agree to pay the Association's maintenance assessments on schedule as a condition of my purchase. The Association does not bill this amount monthly, and the quarterly amount may change each year by Board action.`
+    const statement = `I acknowledge the due dates and late fee above${assessment ? ', and the current quarterly assessment amount shown,' : ''} and agree to pay the Association's maintenance assessments on schedule as a condition of my purchase. The Association does not bill this amount monthly, and the quarterly amount may change each year by Board action.`
     const { data: created, error } = await supabaseAdmin.from('esign_documents').insert({
       kind: spec.kind, association_code: c.code, unit_ref: c.unit,
       title: `Maintenance Assessment Acknowledgment — Unit ${unitLabel}`,
