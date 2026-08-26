@@ -1,9 +1,36 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-08-22**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-08-26**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
+
+---
+
+## ✅ LIVE — 5 shipped fixes, 2026-08-24 (commits `06b8039`→`d1105c4`)
+
+- **Ticket/work-order status model simplified** (`06b8039`) — added `canceled`, merged `closed` into `resolved` (all historical `closed` rows migrated, not just relabeled). 5 statuses total: `open`, `pending`, `waiting_external`, `resolved`, `canceled`. Don't re-add `closed`. Detail: [[tickets_status_model_simplified]] memory.
+- **Resolved tab always includes archived rows** (`486e588`) — `/admin/tickets` and `/admin/work-orders`; archiving now only declutters active-work views, doesn't hide completed-work history.
+- **CINC board-sync email lock** (`978d7bc`) — `association_board_members.email_locked` + "🔒 Keep MAIA email" button stops CINC-sourced stale emails from silently overwriting a working board-member address. Real incident (Angelique Philips/MANXI #1093). Detail: [[cinc_board_email_locked]] memory.
+- **Application standard-reply party attribution** (`b6532f3`) — `lib/application-standard-reply.ts` now routes outstanding items/vehicle-pet questions to whichever party (owner vs. tenant) actually owns them, instead of dumping everything on whoever emailed in. Real case: MANXI 110 (Monica Blumenfeld / Susie Bell). Detail: [[application_reply_party_attribution]] memory.
+- **Board-review OTP verification** (`d1105c4`) — `/board-review/[token]` closed a real gap: any link-holder could self-report as any reviewer and approve/refuse real documents with zero identity check. Now requires email OTP, enforced server-side on both the per-document and round-level decide endpoints. Detail: [[board_review_otp_verification]] memory.
+
+## 🟡 MANXI Application Guide project — 2026-08-25 → 08-26
+
+Full gap analysis of MANXI's real 2023 paper application against live MAIA data, driving DB fixes, two new preview artifacts, and one shipped staff panel. Full detail: [[manxi_application_guide_project]] memory.
+
+**Shipped:**
+- `association_application_rules`: MANXI now has 10 active rules (was 2) — trust-purchase ban, 2-year no-rent-after-purchase, max 1 rental/12mo, delinquency lease-block, occupancy-by-bedroom caps, no commercial/recreational vehicles, min income, credit-score advance-maintenance tiers. VPCI gained `no_trust_purchase`.
+- `association_intake_documents`: vehicle_insurance now required for purchase/lease_renewal (previously lease/additional_occupant only); tenant_affidavit deactivated for lease_renewal; landlord_tenant_agreement + tenant_affidavit required on new leases; background_credit required on lease/purchase/additional_occupant; legacy `board_decision_page` deactivated.
+- Real staff panel shipped: `/admin/pre-apply` "Required documents" section now shows a stat strip + Eligibility & Restrictions list (block/warn pills) sourced from `association_application_rules`/`association_questions`, above the existing checklist (commit `df2394c`, deployed, 0 runtime errors).
+- Two Artifact previews built and approved ("It's perfect"): applicant-facing [Application Guide](https://claude.ai/code/artifact/404b0907-c649-4725-a821-9e79414b162a) (rules/process/fees/checklist/post-approval, real live fee amounts — $150/adult, $150/married-couple-with-cert, not $300), and staff-facing [New Forms Preview](https://claude.ai/code/artifact/5d928f04-0ec0-4716-b35f-9b8ee398b02d) (Maintenance Assessment + Military Service Member e-sign form mockups + Master Association welcome package with real logo).
+
+**Not yet built (real code, not just previewed):**
+- 🔴 Two new e-sign forms for real: Maintenance Assessment Acknowledgment (purchase-only) and Military Service Member Disclosure (all types) — need `ESIGN_CHECKLIST_ITEMS` entries, `/esign/[token]` fill components (mirror `PetRegistrationFill.tsx`), wiring into `sendEsignFormsForItems`, real `association_intake_documents` rows.
+- 🔴 Delinquency-check emails for `no_lease_if_delinquent` — live CINC delinquency check at application-open time (reuse [[cinc_collections_detection_fix]]'s signal, don't build a second one), owner-balance email, applicant-restriction-warning email. **Not built — no send has happened.**
+- 🔴 Master Association welcome-package PDF attachment on approval — attach the 4 real original PDFs (gate barcode/club ID/proximity card/elevator pass) alongside the approval email as separate attachments, rewrite the congratulations email body to describe what's attached.
+- 🔴 Two real bugs found, not fixed: (a) `additional_occupant` applications have no DB link back to the parent lease, so Lease Addendum docs don't surface when viewing the original lease; (b) background-check requirement isn't age-gated — `application_stakeholders.applicant_role='minor_dependent'` already exists and is already wired into `lib/board-review.ts`'s gating, but additional-occupant creation hardcodes everyone to `adult_occupant`.
+- ⚠️ New Forms Preview artifact has a stale stat ("Checklist rows: 50", should be 48) pending a republish after a tag-cleanup edit.
 
 ---
 
