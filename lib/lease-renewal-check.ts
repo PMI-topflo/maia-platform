@@ -100,6 +100,19 @@ export function isSatisfied(c: LeaseRenewalCheck): { owner: boolean; tenant: boo
   return { owner: ownerDone, tenant: !!c.tenant_response }
 }
 
+/** True when the unit already has ANY non-terminal application in MAIA
+ *  (lease, purchase, lease_renewal, additional_occupant — not just a
+ *  renewal). Both reminder crons skip a unit that matches this: nagging an
+ *  owner/tenant to report their renewal status is pointless noise when
+ *  staff is already actively working an open application for that same
+ *  unit. User direction, 2026-08-27. */
+export async function hasOpenApplication(associationCode: string, unitLabel: string): Promise<boolean> {
+  const { data } = await supabaseAdmin.from('listing_applications')
+    .select('id').eq('association_code', associationCode.toUpperCase()).eq('unit_label', unitLabel)
+    .not('status', 'in', '("approved","declined","withdrawn")').limit(1)
+  return !!(data && data.length)
+}
+
 /** Ensure an in-flight lease_renewal application exists for this unit,
  *  reusing one already open rather than opening a duplicate — the owner and
  *  tenant can both trigger this independently (owner "I will renew", tenant

@@ -24,7 +24,7 @@ import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
-import { findOrCreateCheck, isSatisfied } from '@/lib/lease-renewal-check'
+import { findOrCreateCheck, isSatisfied, hasOpenApplication } from '@/lib/lease-renewal-check'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,9 +37,9 @@ const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;',
 const firstEmail = (e: string | null) => (e ?? '').split(/[,;\s]+/).map(s => s.trim()).find(x => x.includes('@')) ?? null
 const fmt = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }) }
 
-interface Row { unit: string; tenant: string; owner: string; end: string; daysAgo: number; ownerEmail: string | null; tenantEmail: string | null; tenantName: string | null }
+export interface Row { unit: string; tenant: string; owner: string; end: string; daysAgo: number; ownerEmail: string | null; tenantEmail: string | null; tenantName: string | null }
 
-function residentHtml(o: { name: string; unit: string; assoc: string; end: string; daysAgo: number; link: string }): string {
+export function residentHtml(o: { name: string; unit: string; assoc: string; end: string; daysAgo: number; link: string }): string {
   return `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
     <p>Dear ${o.name ? esc(o.name) : 'Resident'},</p>
     <p>Our records show the lease for <strong>Unit ${esc(o.unit)}</strong> at <strong>${esc(o.assoc)}</strong> ended on <strong>${fmt(o.end)}</strong> — <strong>${o.daysAgo} day${o.daysAgo !== 1 ? 's' : ''} ago</strong>.</p>
@@ -50,7 +50,7 @@ function residentHtml(o: { name: string; unit: string; assoc: string; end: strin
   </div>`
 }
 
-function digestHtml(assocName: string, rows: Row[]): string {
+export function digestHtml(assocName: string, rows: Row[]): string {
   const body = rows.map(r => `<tr>
     <td style="padding:5px 10px;border:1px solid #e5e7eb">${esc(r.unit)}</td>
     <td style="padding:5px 10px;border:1px solid #e5e7eb">${esc(r.tenant)}</td>
@@ -98,9 +98,13 @@ export async function GET(req: Request) {
     const rows: Row[] = []
     for (const l of leases) {
       const { data: o } = await supabaseAdmin.from('owners').select('first_name, last_name, entity_name, unit_number, emails').eq('association_code', assoc).eq('account_number', l.unit_ref).or('status.neq.previous,status.is.null').maybeSingle()
+      const unitLabel = (o?.unit_number as string | null) || l.unit_ref
+      // A unit already being actively worked (any non-terminal application)
+      // doesn't need the nag — staff already has it.
+      if (await hasOpenApplication(assoc, unitLabel)) continue
       const daysAgo = Math.max(0, Math.round((Date.now() - new Date(l.lease_end).getTime()) / 86_400_000))
       rows.push({
-        unit: (o?.unit_number as string | null) || l.unit_ref,
+        unit: unitLabel,
         tenant: (l.tenant_name as string | null) || '—',
         owner: (o?.entity_name as string | null) || [o?.first_name, o?.last_name].filter(Boolean).join(' ').trim() || '—',
         end: l.lease_end, daysAgo,

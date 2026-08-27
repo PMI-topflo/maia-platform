@@ -23,7 +23,7 @@ import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
-import { findOrCreateCheck, isSatisfied } from '@/lib/lease-renewal-check'
+import { findOrCreateCheck, isSatisfied, hasOpenApplication } from '@/lib/lease-renewal-check'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -43,7 +43,7 @@ function dayOffset(n: number): string {
   const d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10)
 }
 
-function internalHtml(o: { unit: string; assoc: string; tenant: string; owner: string; end: string; days: number }): string {
+export function internalHtml(o: { unit: string; assoc: string; tenant: string; owner: string; end: string; days: number }): string {
   return `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
     <p style="font-size:16px;font-weight:600;margin:0 0 10px">Lease expiring in ${o.days} days — Unit ${esc(o.unit)}</p>
     <table style="border-collapse:collapse;font-size:13px;margin:6px 0 14px">
@@ -56,7 +56,7 @@ function internalHtml(o: { unit: string; assoc: string; tenant: string; owner: s
     <p style="color:#6b7280;font-size:12px">Please coordinate renewal or move-out. — MAIA, PMI Top Florida Properties</p>
   </div>`
 }
-function residentHtml(o: { name: string; unit: string; assoc: string; end: string; days: number; link: string }): string {
+export function residentHtml(o: { name: string; unit: string; assoc: string; end: string; days: number; link: string }): string {
   return `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
     <p>Dear ${o.name ? esc(o.name) : 'Resident'},</p>
     <p>This is a reminder that the lease for <strong>Unit ${esc(o.unit)}</strong> at <strong>${esc(o.assoc)}</strong> is scheduled to expire on <strong>${fmt(o.end)}</strong> — in <strong>${o.days} days</strong>.</p>
@@ -98,6 +98,10 @@ export async function GET(req: Request) {
       const ownerEmail = firstEmail((owner?.emails as string | null) ?? null)
       const tenantEmail = firstEmail((l.tenant_email as string | null) ?? null)
       const tenantName = (l.tenant_name as string | null) ?? '—'
+
+      // A unit already being actively worked (any non-terminal application,
+      // not just a renewal) doesn't need the nag — staff already has it.
+      if (await hasOpenApplication(assoc, unit)) continue
 
       // Check-in row: same one across the 30-day and 7-day pass, so the link
       // in both emails is identical. Created (or refreshed with current
