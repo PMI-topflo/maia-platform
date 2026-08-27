@@ -94,6 +94,14 @@ export async function GET(req: Request) {
     const days = Math.round((new Date(end).getTime() - Date.now()) / 86_400_000)
     const isExpired = days < 0
 
+    // User caught it mid-run, 2026-08-27: units 60-337 days out are WAY
+    // outside the real 30/7-day cadence and shouldn't have been included —
+    // some already delivered before this was caught (can't be unsent).
+    // Scoped down to expired + <=30 days for the remainder of this
+    // catch-up; anything further out is left for the standing cron to
+    // reach naturally when it's actually due.
+    if (!isExpired && days > 30) { log.push(`SKIP (>30 days out, not due yet): ${unit} (${days}d)`); continue }
+
     const check = await findOrCreateCheck({
       associationCode: ASSOC, unitLabel: unit, leaseEnd: end,
       ownerEmail, tenantEmail, ownerName: ownerName === '—' ? null : ownerName, tenantName: tenantName === '—' ? null : tenantName,
