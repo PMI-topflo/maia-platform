@@ -234,7 +234,10 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {/* `name` is the LEAD applicant, which is what this editor renames. The
           others are named beside it so the line matches the roster. */}
       <MetaEditor id={id} name={d.applicant?.name ?? ''} others={applicants.slice(1).map(a => a.name).filter((n): n is string => !!n)} type={d.type} onDone={load} />
-      <ApplicantsCard id={id} applicants={(d.stakeholders ?? []).filter(s => s.role === 'applicant')} onDone={load} />
+      <ApplicantsCard id={id} applicants={(d.stakeholders ?? []).filter(s => s.role === 'applicant')} onDone={load}
+        ownerName={d.ownerName} ownerEmails={d.ownerEmails}
+        listingAgent={(d.stakeholders ?? []).find(s => s.role === 'listing_agent') ?? null}
+        applicantAgent={(d.stakeholders ?? []).find(s => s.role === 'applicant_agent') ?? null} />
       <AgentsCard id={id} stakeholders={d.stakeholders ?? []} onDone={load} />
 
       {/* Guided progress */}
@@ -1869,6 +1872,9 @@ function AgentsCard({ id, stakeholders, onDone }: { id: string; stakeholders: { 
   const [owner, setOwner] = useState<Agent>(of('listing_agent'))
   const [appl, setAppl] = useState<Agent>(of('applicant_agent'))
   const [busy, setBusy] = useState(false)
+  // Read-only until Edit is pressed — same reasoning as the Applicants card:
+  // these were live inputs the instant the card opened, with no confirm step.
+  const [editing, setEditing] = useState(false)
   const has = stakeholders.some(s => s.role === 'listing_agent' || s.role === 'applicant_agent')
   const dirty = JSON.stringify(owner) !== JSON.stringify(of('listing_agent')) || JSON.stringify(appl) !== JSON.stringify(of('applicant_agent'))
 
@@ -1876,8 +1882,15 @@ function AgentsCard({ id, stakeholders, onDone }: { id: string; stakeholders: { 
     setBusy(true)
     try {
       const r = await fetch(`/api/admin/pre-apply/${id}/agents`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ owner_agent: owner, applicant_agent: appl }) })
-      if (!r.ok) throw new Error((await r.json()).error || 'failed'); onDone()
+      if (!r.ok) throw new Error((await r.json()).error || 'failed')
+      setEditing(false)
+      onDone()
     } catch (e) { alert(`Could not save: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+  function cancelEdit() {
+    setOwner(of('listing_agent'))
+    setAppl(of('applicant_agent'))
+    setEditing(false)
   }
   const inp: React.CSSProperties = { font: '13px system-ui', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6 }
   const row = (label: string, a: Agent, set: (x: Agent) => void) => (
@@ -1894,15 +1907,35 @@ function AgentsCard({ id, stakeholders, onDone }: { id: string; stakeholders: { 
       <button onClick={() => setOpen(true)} style={{ font: '600 12.5px system-ui', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>👔 Agents (CC on requests){has ? ' ✓' : ''}</button>
     </p>
   )
+  const readOnlyRow = (label: string, a: Agent) => (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '5px 0', font: '13px system-ui' }}>
+      <span style={{ font: '600 11.5px system-ui', color: '#6b7280', width: 110 }}>{label}</span>
+      {a.name || a.email || a.phone
+        ? <span style={{ color: '#1f2937' }}>{[a.name, a.email, a.phone].filter(Boolean).join(' · ')}</span>
+        : <span style={{ color: '#9ca3af' }}>none on file</span>}
+    </div>
+  )
+
   return (
     <div style={{ margin: '8px 0 0', border: '1px solid #e5e7eb', borderRadius: 10, background: '#fafafa', padding: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
         <span style={{ font: '700 13px system-ui', color: '#1f2937' }}>Agents <span style={{ color: '#9ca3af', fontWeight: 400 }}>· copied on every request + communication for their side</span></span>
-        <button onClick={() => setOpen(false)} style={{ font: '600 12px system-ui', color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer' }}>Hide</button>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {!editing && <button onClick={() => setEditing(true)} style={{ font: '600 12px system-ui', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 7, padding: '5px 10px', cursor: 'pointer' }}>✏️ Edit</button>}
+          <button onClick={() => setOpen(false)} style={{ font: '600 12px system-ui', color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer' }}>Hide</button>
+        </span>
       </div>
-      {row("Owner's agent", owner, setOwner)}
-      {row("Applicant's agent", appl, setAppl)}
-      {dirty && <button onClick={save} disabled={busy} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', marginTop: 8 }}>{busy ? 'Saving…' : 'Save agents'}</button>}
+      {editing ? <>
+        {row("Owner's agent", owner, setOwner)}
+        {row("Applicant's agent", appl, setAppl)}
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          {dirty && <button onClick={save} disabled={busy} style={{ font: '600 12px system-ui', color: '#fff', background: '#166534', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer' }}>{busy ? 'Saving…' : 'Save agents'}</button>}
+          <button onClick={cancelEdit} disabled={busy} style={{ font: '600 12px system-ui', color: '#6b7280', background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 12px', cursor: busy ? 'default' : 'pointer' }}>Cancel</button>
+        </div>
+      </> : <>
+        {readOnlyRow("Owner's agent", owner)}
+        {readOnlyRow("Applicant's agent", appl)}
+      </>}
     </div>
   )
 }
@@ -2018,7 +2051,12 @@ function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, 
 }
 
 interface Person { name: string; role: string; email: string; phone: string }
-function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { name: string | null; applicantRole: string | null; email?: string | null; phone?: string | null }[]; onDone: () => void }) {
+function ApplicantsCard({ id, applicants, onDone, ownerName, ownerEmails, listingAgent, applicantAgent }: {
+  id: string; applicants: { name: string | null; applicantRole: string | null; email?: string | null; phone?: string | null }[]; onDone: () => void
+  ownerName?: string | null; ownerEmails?: string | null
+  listingAgent?: { name: string | null; email: string | null } | null
+  applicantAgent?: { name: string | null; email: string | null } | null
+}) {
   // Kept if they have a name OR an email OR a phone. It used to require a NAME,
   // so an occupant the owner submitted with only an email vanished from this
   // editor entirely: not shown, not editable, and — because the same seed feeds
@@ -2033,7 +2071,15 @@ function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { 
   const [msg, setMsg] = useState<string | null>(null)
   /** The last person removed, so it can be put back at the position it held. */
   const [removed, setRemoved] = useState<{ person: Person; at: number } | null>(null)
-  const [collapsed, setCollapsed] = useState(false)
+  // Hidden by default — staff open it deliberately, same as the Agents card.
+  // The collapsed summary below carries applicants + agents + owner, so
+  // nothing is actually lost by starting closed.
+  const [collapsed, setCollapsed] = useState(true)
+  // Read-only until Edit is pressed. Fields used to be live inputs the
+  // instant the card opened, so a stray click could change a name or email
+  // with nothing to undo it once Save was pressed. Cancel discards
+  // in-progress changes back to the last saved roster.
+  const [editing, setEditing] = useState(false)
   // The editor is seeded from props ONCE, so anything the server normalised on
   // save (a phone rewritten by normalizePhone, a role defaulted) stayed
   // different from what was typed — `dirty` never cleared, "Save applicants"
@@ -2073,18 +2119,36 @@ function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { 
       const r = await fetch(`/api/admin/pre-apply/${id}/applicants`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ applicants: people.map(p => ({ name: p.name, applicant_role: p.role, email: p.email, phone: p.phone })) }) })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
       setRemoved(null)
+      setEditing(false)
       onDone()
     } catch (e) { setMsg(`Could not save: ${(e as Error).message}`) } finally { setBusy(null) }
   }
+  function cancelEdit() {
+    setPeople(seed())
+    setRemoved(null)
+    setMsg(null)
+    setEditing(false)
+  }
   const upd = (i: number, patch: Partial<Person>) => setPeople(people.map((p, j) => j === i ? { ...p, ...patch } : p))
   const inpS: React.CSSProperties = { font: '13px system-ui', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6 }
+
+  const ownerLine = ownerName || ownerEmails ? `Owner: ${[ownerName, ownerEmails].filter(Boolean).join(' · ')}` : null
+  const agentBits = [
+    listingAgent?.name || listingAgent?.email ? `Owner's agent: ${[listingAgent.name, listingAgent.email].filter(Boolean).join(' · ')}` : null,
+    applicantAgent?.name || applicantAgent?.email ? `Applicant's agent: ${[applicantAgent.name, applicantAgent.email].filter(Boolean).join(' · ')}` : null,
+  ].filter(Boolean) as string[]
 
   return (
     <div style={{ margin: '10px 0 0', border: '1px solid #e5e7eb', borderRadius: 10, background: '#fafafa', padding: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: collapsed ? 0 : 8 }}>
         <span style={{ font: '700 13px system-ui', color: '#1f2937' }}>Applicants <span style={{ color: '#9ca3af', fontWeight: 400 }}>· role + contact + their own document tab</span></span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={readFromLease} disabled={!!busy} style={{ font: '600 12px system-ui', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 7, padding: '5px 10px', cursor: busy ? 'default' : 'pointer' }}>{busy === 'read' ? 'Reading…' : '📄 Read from lease'}</button>
+          {!collapsed && (editing
+            ? <button onClick={readFromLease} disabled={!!busy} style={{ font: '600 12px system-ui', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 7, padding: '5px 10px', cursor: busy ? 'default' : 'pointer' }}>{busy === 'read' ? 'Reading…' : '📄 Read from lease'}</button>
+            // Fields are read-only until Edit is pressed — a stray click in a
+            // name/email/phone box used to change it on the spot with nothing
+            // to confirm and no way back except reload.
+            : <button onClick={() => setEditing(true)} style={{ font: '600 12px system-ui', color: '#3730a3', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 7, padding: '5px 10px', cursor: 'pointer' }}>✏️ Edit</button>)}
           {/* The card had no way to collapse, so the only thing that looked
               like "close" was the per-person × — which deleted that person.
               Give the card its own Hide, as the Agents card has. */}
@@ -2092,12 +2156,20 @@ function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { 
         </span>
       </div>
       {collapsed && (
-        <div style={{ font: '12.5px system-ui', color: '#6b7280', marginTop: 6 }}>
-          {people.length === 0 ? 'No applicants listed.' : people.map(p => p.name || p.email || 'unnamed').join(' · ')}
-          {dirty && <span style={{ color: '#b45309', fontWeight: 600 }}> · unsaved changes</span>}
+        <div style={{ font: '12.5px system-ui', color: '#6b7280', marginTop: 6, lineHeight: 1.6 }}>
+          {/* Everyone on the application at a glance — applicants, the owner,
+              and both agents — so hiding this card loses no information;
+              staff previously had to open three different places (this card,
+              the Agents card, and the Request Documents form further down) to
+              see who was even involved. */}
+          <div>{people.length === 0 ? 'No applicants listed.' : people.map(p => `${p.name || 'unnamed'}${p.email ? ` <${p.email}>` : ' (no email)'}`).join(' · ')}
+            {dirty && <span style={{ color: '#b45309', fontWeight: 600 }}> · unsaved changes</span>}</div>
+          {ownerLine && <div>{ownerLine}</div>}
+          {agentBits.map((b, i) => <div key={i}>{b}</div>)}
+          {!ownerLine && agentBits.length === 0 && <div style={{ color: '#9ca3af' }}>No owner or agent contact on file.</div>}
         </div>
       )}
-      {!collapsed && <>
+      {!collapsed && (editing ? <>
 
       {/* Put back the person just removed. Nothing is written until Save, so the
           record is still intact — but that is impossible to know from a list
@@ -2173,11 +2245,27 @@ function ApplicantsCard({ id, applicants, onDone }: { id: string; applicants: { 
             cursor: canSave && !busy ? 'pointer' : 'default',
           }}>{busy === 'save' ? 'Saving…' : canSave ? `Save ${people.length} applicant${people.length === 1 ? '' : 's'}` : '✓ Saved'}</button>
         })()}
+        <button onClick={cancelEdit} disabled={!!busy} style={{ font: '600 12px system-ui', color: '#6b7280', background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 12px', cursor: busy ? 'default' : 'pointer' }}>Cancel</button>
         {people.length === 0 ? <span style={{ font: '12px system-ui', color: '#b42318' }}>Add at least one person before saving</span>
           : dirty ? <span style={{ font: '12px system-ui', color: '#b45309' }}>Unsaved changes</span>
-          : <span style={{ font: '12px system-ui', color: '#9ca3af' }}>{people.length} on file — edit any field to enable saving</span>}
+          : <span style={{ font: '12px system-ui', color: '#9ca3af' }}>{people.length} on file</span>}
       </div>
-      </>}
+      </> : <>
+      {/* Read-only view — the default whenever the card is open. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {people.length === 0
+          ? <span style={{ font: '13px system-ui', color: '#b45309' }}>No applicants yet — press Edit to read them from the lease or add them.</span>
+          : people.map((p, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '7px 10px', font: '13px system-ui' }}>
+              <span style={{ fontWeight: 600, color: '#1f2937' }}>{p.name || 'unnamed'}</span>
+              <span style={{ font: '600 11.5px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 999, padding: '2px 8px' }}>{applicantRoleLabel(p.role) || p.role}</span>
+              <span style={{ color: p.email ? '#374151' : '#b45309' }}>{p.email || 'no email'}</span>
+              {p.phone && <span style={{ color: '#6b7280' }}>{p.phone}</span>}
+            </div>
+          ))}
+      </div>
+      {primaryNoEmail && <p style={{ font: '12.5px system-ui', color: '#b45309', margin: '8px 0 0' }}>⚠ No email for the lead applicant — press Edit to add one, or read it from the lease.</p>}
+      </>)}
       {msg && <p style={{ font: '12.5px system-ui', color: '#6b7280', margin: '8px 0 0' }}>{msg}</p>}
     </div>
   )
