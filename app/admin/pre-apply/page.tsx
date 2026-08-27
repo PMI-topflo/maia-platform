@@ -404,6 +404,42 @@ function StaffCreate() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
+  // Read the lease the moment it's attached — the roster and lease term are
+  // already printed on it, so staff shouldn't have to retype what they're
+  // handing MAIA anyway. User direction, 2026-08-27 (a real owner-forwarded
+  // "fully executed lease" for a renewal). Only fills fields staff haven't
+  // already typed into; a genuine "enter it yourself" fallback if the file
+  // yields nothing.
+  const [extracting, setExtracting] = useState(false)
+  const [extractMsg, setExtractMsg] = useState<string | null>(null)
+  const [extractedLease, setExtractedLease] = useState<{ start: string | null; end: string | null } | null>(null)
+  async function onFileChange(f: File | null) {
+    setFile(f)
+    setExtractMsg(null)
+    setExtractedLease(null)
+    if (!f || (type !== 'lease' && type !== 'lease_renewal')) return
+    setExtracting(true)
+    try {
+      const fd = new FormData(); fd.append('file', f)
+      const r = await fetch('/api/admin/pre-apply/extract-lease', { method: 'POST', credentials: 'include', body: fd })
+      const j = await r.json()
+      if (!r.ok) throw new Error(j.error || 'failed')
+      const names: string[] = Array.isArray(j.tenantNames) ? j.tenantNames : []
+      setPeople(ps => {
+        const pristine = ps.every(p => !p.name.trim() && !p.email.trim() && !p.phone.trim())
+        if (!pristine) return ps
+        if (names.length) return names.map((n: string, i: number) => ({ name: n, email: i === 0 ? (j.tenantEmail ?? '') : '', phone: i === 0 ? (j.tenantPhone ?? '') : '', isMinor: false }))
+        if (j.tenantEmail || j.tenantPhone) return [{ name: '', email: j.tenantEmail ?? '', phone: j.tenantPhone ?? '', isMinor: false }]
+        return ps
+      })
+      if (j.leaseStart || j.leaseEnd) setExtractedLease({ start: j.leaseStart ?? null, end: j.leaseEnd ?? null })
+      const bits = [names.length ? `${names.length} tenant${names.length > 1 ? 's' : ''}` : null, j.tenantEmail ? 'email' : null, j.tenantPhone ? 'phone' : null, (j.leaseStart || j.leaseEnd) ? 'lease term' : null].filter(Boolean)
+      setExtractMsg(bits.length ? `📄 Read from the lease: ${bits.join(' + ')} — review below before creating.` : '📄 Read the file, but found no clear details — enter the roster below.')
+    } catch (e) {
+      setExtractMsg(`Could not read the lease automatically (${(e as Error).message}) — enter the roster below.`)
+    } finally { setExtracting(false) }
+  }
+
   // Additional occupant: does the unit's current lease already name them? If
   // so, no fresh document is required — otherwise fall back to a Lease
   // Addendum upload. Re-checked whenever the unit or the lead name changes.
@@ -430,11 +466,19 @@ function StaffCreate() {
   const required = REQUIRED_DOC[type]
   const needsUpload = type !== 'additional_occupant' || occCheck?.found !== true
 
+  // Lease / lease renewal: the server itself doesn't require email/phone up
+  // front for these two types — the signed lease about to be uploaded is
+  // read for the tenant's own contact info right after (extract-lease above
+  // pre-fills it before that even happens, when it's on the document).
+  const extractable = type === 'lease' || type === 'lease_renewal'
+
   async function create() {
     if (!unit.trim()) { setMsg('Enter the unit.'); return }
     if (!people[0]?.name.trim()) { setMsg('Add the applicant name.'); return }
-    if (!people[0]?.email.trim().includes('@')) { setMsg("Enter the lead applicant's email."); return }
-    if (!people[0]?.phone.trim()) { setMsg("Enter the lead applicant's phone."); return }
+    if (!extractable) {
+      if (!people[0]?.email.trim().includes('@')) { setMsg("Enter the lead applicant's email."); return }
+      if (!people[0]?.phone.trim()) { setMsg("Enter the lead applicant's phone."); return }
+    }
     if (needsUpload && !file) { setMsg(`Upload the ${required.label.toLowerCase()}.`); return }
     setBusy(true); setMsg(null)
     try {
@@ -503,7 +547,7 @@ function StaffCreate() {
               <option value="">{unitsLoading ? 'Loading accounts…' : unitList.length ? 'Select an account…' : 'No units on file'}</option>
               {unitList.map(u => <option key={u.accountNumber} value={u.unit}>{u.accountNumber}{u.ownerName ? ` — ${u.ownerName}` : ''}</option>)}
             </select>
-            <select value={type} onChange={e => { setType(e.target.value); setFile(null) }} style={{ ...inp, cursor: 'pointer' }}>
+            <select value={type} onChange={e => { setType(e.target.value); setFile(null); setExtractMsg(null); setExtractedLease(null) }} style={{ ...inp, cursor: 'pointer' }}>
               {TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
             </select>
           </div>
@@ -545,9 +589,19 @@ function StaffCreate() {
           )}
 
           {needsUpload && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <label style={{ font: '600 12.5px system-ui', color: '#374151' }}>{required.label}:</label>
-              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" onChange={e => setFile(e.target.files?.[0] ?? null)} style={{ font: '13px system-ui' }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <label style={{ font: '600 12.5px system-ui', color: '#374151' }}>{required.label}:</label>
+                <input type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" onChange={e => onFileChange(e.target.files?.[0] ?? null)} style={{ font: '13px system-ui' }} />
+                {/* Attaching a lease/renewal document reads it straight away — the
+                    roster and lease term are already printed on it, no need to
+                    retype what's about to be uploaded anyway. */}
+                {extracting && <span style={{ font: '12.5px system-ui', color: '#6b7280' }}>Reading the file…</span>}
+              </div>
+              {extractMsg && <div style={{ font: '12.5px system-ui', color: extractedLease || people.some(p => p.name) ? '#166534' : '#92400e' }}>{extractMsg}</div>}
+              {extractedLease && (extractedLease.start || extractedLease.end) && (
+                <div style={{ font: '12.5px system-ui', color: '#374151' }}>Lease term: <strong>{extractedLease.start ?? '?'}</strong> – <strong>{extractedLease.end ?? '?'}</strong></div>
+              )}
             </div>
           )}
 
