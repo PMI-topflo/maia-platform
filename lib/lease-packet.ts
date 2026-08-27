@@ -61,7 +61,14 @@ export async function sendLeasePacket(
   // the owner and never invite the tenant. Owner intentionally has no such
   // override: `owners` is the one authoritative source for who owns a unit,
   // application context or not.
-  tenantOverride?: { name?: string | null; email?: string | null; phone?: string | null } | null,
+  // leaseStart/leaseEnd: the CURRENT application's own term (listing_
+  // applications.lease_start/lease_end, set from the uploaded lease itself —
+  // see lib/preapply.ts's backfillPrimaryContactFromLease). Real bug,
+  // 2026-08-27, MANXI 706: without this override the packet fell back to
+  // unit_tenant_contacts, which is scoped to the UNIT and only refreshes on
+  // approval — it was still carrying the PREVIOUS tenant's dates while this
+  // application was in progress.
+  tenantOverride?: { name?: string | null; email?: string | null; phone?: string | null; leaseStart?: string | null; leaseEnd?: string | null } | null,
 ): Promise<
   { ok: true; packetId: string; sent: string[]; skipped: string[] } | { ok: false; error: string }
 > {
@@ -104,7 +111,8 @@ export async function sendLeasePacket(
     association_legal_name: legal, owner_name: ownerName, owner_email: ownerEmail, owner_mobile: ownerMobile,
     tenant_name: tenantName, tenant_email: tenantEmail, tenant_mobile: tenantMobile,
     property_address: propertyAddress,
-    lease_start: (tenant?.lease_start as string | null) ?? null, lease_end: (tenant?.lease_end as string | null) ?? null,
+    lease_start: firstNonEmpty(tenantOverride?.leaseStart, tenant?.lease_start as string | null),
+    lease_end: firstNonEmpty(tenantOverride?.leaseEnd, tenant?.lease_end as string | null),
     effective_date: new Date().toISOString().slice(0, 10), status: 'sent', created_by: createdBy,
   }).select('id').single()
   if (error || !created) return { ok: false, error: `Could not create packet: ${error?.message ?? 'unknown'}` }

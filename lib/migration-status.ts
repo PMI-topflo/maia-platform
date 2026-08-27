@@ -4001,6 +4001,16 @@ ALTER TABLE public.tickets
     sql: `ALTER TABLE public.document_review_rounds
   ADD COLUMN IF NOT EXISTS reviewer_verifications jsonb NOT NULL DEFAULT '{}'::jsonb;`,
   },
+  {
+    key:         'listing_applications_lease_dates',
+    label:       'Applications: lease_start / lease_end',
+    description: "Real bug, 2026-08-27 (MANXI unit 706, tenant Quentin Jamal Smith): the Landlord-Tenant Agreement e-sign packet showed the PREVIOUS tenant's lease term (2024-06-01 - 2025-05-31) instead of the real one (2026-08-21 - 2027-08-20, stated plainly on page 1 of the lease Quentin had just uploaded). Root cause: lib/lease-packet.ts's sendLeasePacket() only ever sourced lease_start/lease_end from unit_tenant_contacts, which is scoped to the UNIT and only refreshes when an application is approved — so it was still carrying the prior tenancy's dates. lib/lease-extract.ts already reads the correct term off the uploaded lease at intake (lib/preapply.ts's backfillPrimaryContactFromLease), but the dates were discarded, never saved anywhere. These columns give the CURRENT application its own place to hold its extracted term; sendLeasePacket's tenantOverride now prefers them over the unit-wide fallback, the same way it already prefers the roster's name/email/phone over unit_tenant_contacts.",
+    filename:    '20260827_listing_applications_lease_dates.sql',
+    artifact:    { type: 'column', table: 'listing_applications', column: 'lease_start' },
+    sql: `ALTER TABLE public.listing_applications
+  ADD COLUMN IF NOT EXISTS lease_start date,
+  ADD COLUMN IF NOT EXISTS lease_end date;`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

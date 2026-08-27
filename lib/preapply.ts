@@ -72,13 +72,30 @@ export async function backfillPrimaryContactFromLease(applicationId: string): Pr
   try {
     const { data: primary } = await supabaseAdmin.from('application_stakeholders')
       .select('id, email, phone').eq('application_id', applicationId).eq('role', 'applicant').eq('is_primary', true).maybeSingle()
-    if (!primary || (primary.email && primary.phone)) return false
     const { data: lease } = await supabaseAdmin.from('application_documents')
       .select('storage_path, mime_type').eq('application_id', applicationId).eq('doc_key', 'signed_lease').maybeSingle()
     if (!lease?.storage_path) return false
     const { data: blob } = await supabaseAdmin.storage.from(INTAKE_BUCKET).download(String(lease.storage_path))
     if (!blob) return false
     const d = await extractLeaseDetails(Buffer.from(await blob.arrayBuffer()), (lease.mime_type as string | null) ?? null)
+
+    // The application's OWN lease term, so the Landlord-Tenant Agreement
+    // packet (lib/lease-packet.ts) can use it instead of unit_tenant_contacts
+    // — that table is scoped to the unit and only refreshes on approval, so it
+    // still carries the PREVIOUS tenancy's dates for as long as this one is in
+    // progress. Real bug, 2026-08-27, MANXI 706: the packet showed a tenant
+    // dead a year before the one currently signing it. Always set when found
+    // (not "only if blank") — a re-uploaded/corrected lease should win.
+    if (d.leaseStart || d.leaseEnd) {
+      await supabaseAdmin.from('listing_applications')
+        .update({ lease_start: d.leaseStart, lease_end: d.leaseEnd }).eq('id', applicationId)
+    }
+
+    // Return value is scoped to CONTACT fill only, unchanged from before —
+    // upload/route.ts uses it to decide whether to loop in the owner as a
+    // last resort for missing contact info, which has nothing to do with
+    // whether lease dates were found above.
+    if (!primary || (primary.email && primary.phone)) return false
     // A multi-tenant lease can come back with both tenants' addresses joined
     // into the one tenantEmail/tenantPhone string — this is filling in ONE
     // stakeholder's single-value fields, so take only the first.

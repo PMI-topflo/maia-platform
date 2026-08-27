@@ -64,7 +64,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const uploadItems = askable.filter(i => !isEsignItem(i.doc_key) && i.doc_key !== 'landlord_tenant_agreement')
 
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('id, association_code, unit_label, application_type').eq('id', id).maybeSingle()
+    .select('id, association_code, unit_label, application_type, lease_start, lease_end').eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'not found' }, { status: 404 })
   const code = String(app.association_code)
   const unit = (app.unit_label as string | null) ?? null
@@ -99,6 +99,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         name: (primaryApplicant?.name as string | null) ?? null,
         email: (primaryApplicant?.email as string | null) ?? null,
         phone: (primaryApplicant?.phone as string | null) ?? null,
+        leaseStart: (app.lease_start as string | null) ?? null,
+        leaseEnd: (app.lease_end as string | null) ?? null,
       })
     : existingPacket ? { ok: false as const, error: 'Already sent — check the unit\'s lease packet status.' } : null
 
