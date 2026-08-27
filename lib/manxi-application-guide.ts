@@ -59,8 +59,16 @@ export interface GuideStep { title: string; body: string }
 
 export const MANXI_GUIDE_STEPS: GuideStep[] = [
   {
-    title: 'Submit & pay the application fee',
-    body: "Filed through MAIA's secure portal. This single fee covers processing and the background check — there is no separate charge for either: $150 per applicant, 18 years or older; $150 per married couple, total — not per person — when a marriage certificate is provided.",
+    // Corrected 2026-08-27: this used to describe a single MAIA-collected fee
+    // covering processing + the background check. That isn't real yet — MAIA
+    // collects nothing today; the applicant pays and completes the check
+    // directly on Tenant Evaluation's own site, using the property code MAIA
+    // gives them. Don't restore the "$150/$300, filed through MAIA's portal"
+    // framing until MAIA actually collects a payment for the new (listing_
+    // applications) flow — that logic exists only in the old, unused
+    // ApplicationForm.tsx / applications-table system today.
+    title: 'Submit the application',
+    body: 'Filed through MAIA\'s secure portal. Each applicant then completes the background/credit check directly on Tenant Evaluation\'s own site, using the property code MAIA provides — that check, and its fee, are handled entirely by Tenant Evaluation, not MAIA.',
   },
   {
     title: 'Upload the required documents',
