@@ -62,6 +62,10 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   const [driveFiles, setDriveFiles] = useState<{ fileId: string; name: string; mimeType: string }[] | null>(null)
   const [driveFilesErr, setDriveFilesErr] = useState<string | null>(null)
   const [activeApplicant, setActiveApplicant] = useState<string | null>(null)
+  // Bumped by MetaEditor's "✎ edit" so it can also expand the (separate,
+  // further-down) Applicants card straight into edit mode — see that card's
+  // openTrigger prop.
+  const [applicantsOpenTrigger, setApplicantsOpenTrigger] = useState(0)
   // "Request it" on a row opens the request panel with that item preselected —
   // staff still choose WHO it goes to.
   const [requestFor, setRequestFor] = useState<{ doc_key: string; label: string } | null>(null)
@@ -233,11 +237,12 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       <p style={{ fontSize: 13, color: '#374151', margin: '4px 0 0' }}>{d.applicant?.email}{d.applicant?.phone ? ` · ${d.applicant.phone}` : ''}</p>
       {/* `name` is the LEAD applicant, which is what this editor renames. The
           others are named beside it so the line matches the roster. */}
-      <MetaEditor id={id} name={d.applicant?.name ?? ''} others={applicants.slice(1).map(a => a.name).filter((n): n is string => !!n)} type={d.type} onDone={load} />
+      <MetaEditor id={id} name={d.applicant?.name ?? ''} others={applicants.slice(1).map(a => a.name).filter((n): n is string => !!n)} type={d.type} onDone={load} onEditAll={() => setApplicantsOpenTrigger(t => t + 1)} />
       <ApplicantsCard id={id} applicants={(d.stakeholders ?? []).filter(s => s.role === 'applicant')} onDone={load}
         ownerName={d.ownerName} ownerEmails={d.ownerEmails}
         listingAgent={(d.stakeholders ?? []).find(s => s.role === 'listing_agent') ?? null}
-        applicantAgent={(d.stakeholders ?? []).find(s => s.role === 'applicant_agent') ?? null} />
+        applicantAgent={(d.stakeholders ?? []).find(s => s.role === 'applicant_agent') ?? null}
+        openTrigger={applicantsOpenTrigger} />
       <AgentsCard id={id} stakeholders={d.stakeholders ?? []} onDone={load} />
 
       {/* Guided progress */}
@@ -1385,7 +1390,7 @@ const APP_TYPES: { key: string; label: string }[] = [
   { key: 'lease', label: 'New lease' }, { key: 'lease_renewal', label: 'Lease renewal' },
   { key: 'purchase', label: 'Purchase' }, { key: 'additional_occupant', label: 'Additional occupant' },
 ]
-function MetaEditor({ id, name, others = [], type, onDone }: { id: string; name: string; others?: string[]; type: string; onDone: () => void }) {
+function MetaEditor({ id, name, others = [], type, onDone, onEditAll }: { id: string; name: string; others?: string[]; type: string; onDone: () => void; onEditAll?: () => void }) {
   const [editing, setEditing] = useState(false)
   const [nameV, setNameV] = useState(name)
   const [typeV, setTypeV] = useState(type)
@@ -1422,7 +1427,13 @@ function MetaEditor({ id, name, others = [], type, onDone }: { id: string; name:
       </span>
       <span style={{ color: '#9ca3af' }}>·</span>
       <span><strong>Type:</strong> {APP_TYPES.find(t => t.key === type)?.label ?? type}</span>
-      <button onClick={() => setEditing(true)} style={{ font: '600 12px system-ui', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>✎ edit</button>
+      {/* Used to only rename the lead applicant and change the type — staff
+          clicking this expecting to fix a co-applicant (e.g. a typo'd name)
+          found nothing here for them, since the real roster editor is the
+          separate Applicants card further down. This now also opens THAT
+          card, already in edit mode, so one click reaches everyone instead
+          of just the lead. User direction, 2026-08-27. */}
+      <button onClick={() => { setEditing(true); onEditAll?.() }} style={{ font: '600 12px system-ui', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>✎ edit</button>
     </p>
   )
   return (
@@ -2060,11 +2071,14 @@ function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, 
 }
 
 interface Person { name: string; role: string; email: string; phone: string }
-function ApplicantsCard({ id, applicants, onDone, ownerName, ownerEmails, listingAgent, applicantAgent }: {
+function ApplicantsCard({ id, applicants, onDone, ownerName, ownerEmails, listingAgent, applicantAgent, openTrigger }: {
   id: string; applicants: { name: string | null; applicantRole: string | null; email?: string | null; phone?: string | null }[]; onDone: () => void
   ownerName?: string | null; ownerEmails?: string | null
   listingAgent?: { name: string | null; email: string | null } | null
   applicantAgent?: { name: string | null; email: string | null } | null
+  /** Bumped by the top-of-page "✎ edit" (MetaEditor) so that button can also
+   *  expand this card straight into edit mode — see MetaEditor's onEditAll. */
+  openTrigger?: number
 }) {
   // Kept if they have a name OR an email OR a phone. It used to require a NAME,
   // so an occupant the owner submitted with only an email vanished from this
@@ -2105,6 +2119,12 @@ function ApplicantsCard({ id, applicants, onDone, ownerName, ownerEmails, listin
   }, [savedKey])
   const dirty = JSON.stringify(people) !== savedKey
   const primaryNoEmail = people.length > 0 && !people[0].email
+
+  useEffect(() => {
+    if (!openTrigger) return
+    setCollapsed(false)
+    setEditing(true)
+  }, [openTrigger])
 
   async function readFromLease() {
     setBusy('read'); setMsg(null)
