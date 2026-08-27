@@ -69,11 +69,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const code = String(app.association_code)
   const unit = (app.unit_label as string | null) ?? null
 
-  const [{ data: applicants }, { data: owners }, { data: tenant }] = await Promise.all([
+  const [{ data: applicants }, { data: owners }, { data: tenant }, { data: agentRows }] = await Promise.all([
     supabaseAdmin.from('application_stakeholders').select('name, email, phone, is_primary').eq('application_id', id).eq('role', 'applicant').order('is_primary', { ascending: false }),
     supabaseAdmin.from('owners').select('emails, unit_number, account_number, status').eq('association_code', code).or('status.neq.previous,status.is.null'),
     supabaseAdmin.from('unit_tenant_contacts').select('tenant_email').eq('association_code', code).eq('unit_ref', unit ?? '').maybeSingle(),
+    supabaseAdmin.from('application_stakeholders').select('role, email, phone').eq('application_id', id).in('role', ['applicant_agent', 'listing_agent']),
   ])
+  // The applicant's own agent is the right stand-in first (they represent
+  // THIS person specifically); the owner's agent only if there's no other
+  // choice — real case, MANXI 115: neither applicant had an email or phone
+  // on file, and the owner's agent was the only contact PMI had at all.
+  const applicantAgent = (agentRows ?? []).find(a => a.role === 'applicant_agent')
+  const listingAgent = (agentRows ?? []).find(a => a.role === 'listing_agent')
+  const agentFallbackEmail = splitEmails((applicantAgent?.email as string | null) ?? null).length
+    ? splitEmails(applicantAgent?.email as string | null)
+    : splitEmails((listingAgent?.email as string | null) ?? null)
 
   // Same source the request panel already resolves the tenant's upload link
   // from — passed through as the packet's tenant override so a brand-new
@@ -100,7 +110,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const ownerOverride = splitEmails(b.ownerEmail)
   const ownerEmails = ownerOverride.length ? ownerOverride : splitEmails(ownerRows.map(o => String(o.emails ?? '')).join(','))
   const tenantOverride = splitEmails(b.tenantEmail)
-  const tenantEmails = tenantOverride.length ? tenantOverride : splitEmails((tenant?.tenant_email as string | null) || ((applicants ?? []).find(a => a.is_primary)?.email as string | null) || ((applicants ?? [])[0]?.email as string | null))
+  const directTenantEmails = splitEmails((tenant?.tenant_email as string | null) || ((applicants ?? []).find(a => a.is_primary)?.email as string | null) || ((applicants ?? [])[0]?.email as string | null))
+  // Real case, MANXI 115: neither applicant on the lease renewal had an email
+  // on file at all, so the tenant-side link had nowhere to go — the only
+  // contact PMI had was the owner's agent, and staff ended up hand-typing his
+  // address into this same override box, which then addressed HIM the
+  // tenant-facing items meant for the actual renters. Falling back here
+  // (rather than leaving tenantEmails empty) means the tenant upload link
+  // still goes out — sendDocumentRequestEmails detects the fallback (by
+  // comparing against the same agent rows) and rewords the email to say it's
+  // going to the agent on the applicant's behalf, instead of pretending the
+  // agent IS the applicant.
+  const tenantEmails = tenantOverride.length ? tenantOverride : directTenantEmails.length ? directTenantEmails : agentFallbackEmail
 
   const ownerItems = uploadItems.filter(i => i.recipient === 'owner' || i.recipient === 'both')
   const tenantItems = uploadItems.filter(i => i.recipient === 'tenant' || i.recipient === 'both')

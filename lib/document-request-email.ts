@@ -117,8 +117,23 @@ export async function sendDocumentRequestEmails(requestId: string, opts?: { only
   const ownerToken = reqRow.owner_token as string | null
   const tenantToken = reqRow.tenant_token as string | null
 
+  // Neither applicant had an email on file (real case, MANXI 115) — the
+  // request-docs route fell back to an agent's address for tenantEmails
+  // rather than leaving the tenant side undeliverable. Detected here by
+  // comparing against the SAME agent rows just fetched, rather than a
+  // persisted flag, so this stays correct even if the roster or agents
+  // change between creation and a later resend. The wording below must be
+  // honest that this went to the agent, not the applicant — an email that
+  // reads "you're on the application" to someone who isn't would be worse
+  // than the tenant side never sending at all.
+  const tenantViaAgent = tenantEmails.length > 0 && tenantEmails.every(e => tenantAgentCc.includes(e) || ownerAgentCc.includes(e))
+
   const heading = `Documents needed for your ${typeLabel.toLowerCase()}`
+  const applicantLabel = applicantNames.join(' & ') || 'the applicant'
   const intro = (reqRow.message as string | null)?.trim() || `We're almost done with your ${typeLabel.toLowerCase()}. Please upload the items below — it takes about a minute and doesn't require a login.`
+  const tenantIntro = tenantViaAgent
+    ? `${applicantLabel} doesn't have an email on file, so this is going to you as their agent on record. Please forward it to them, or upload the items yourself if you have them.`
+    : intro
   const subject = `${heading} — ${unit ? `Unit ${unit}` : legal}`
 
   if (opts?.only !== 'tenant' && ownerToken && ownerEmails.length && ownerItems.length) {
@@ -131,11 +146,17 @@ export async function sendDocumentRequestEmails(requestId: string, opts?: { only
   }
 
   if (opts?.only !== 'owner' && tenantToken && tenantEmails.length && tenantItems.length) {
-    await sendEmail({ to: tenantEmails, cc: tenantAgentCc.length ? tenantAgentCc : undefined, replyTo: SUPPORT, subject,
-      html: renderMaiaEmail({ associationName: legal, associationCode: code, unit, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro,
+    // Don't CC the same agent we're already TO-ing — a duplicate of yourself
+    // in the CC line reads as a mistake, not a courtesy copy.
+    const tenantCc = tenantViaAgent ? undefined : (tenantAgentCc.length ? tenantAgentCc : undefined)
+    await sendEmail({ to: tenantEmails, cc: tenantCc, replyTo: SUPPORT, subject,
+      html: renderMaiaEmail({ associationName: legal, associationCode: code, unit, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro: tenantIntro,
         items: tenantItems.map(i => decorate(i, i.recipient === 'both' ? 'You + Owner' : 'You')), onFile,
         alsoRequested: ownerItems.length ? { who: 'the owner', items: ownerItems.map(i => i.label) } : null,
-        ctaUrl: `${APP}/request/${tenantToken}`, footerReason: `You're receiving this because you're on the application for ${unit ? `Unit ${unit}` : 'this unit'}.` }),
+        ctaUrl: `${APP}/request/${tenantToken}`,
+        footerReason: tenantViaAgent
+          ? `You're receiving this because ${applicantLabel} — who you're the agent on record for — has no email on file for ${unit ? `Unit ${unit}` : 'this unit'}.`
+          : `You're receiving this because you're on the application for ${unit ? `Unit ${unit}` : 'this unit'}.` }),
     }).then(() => { out.sentTenant = true }, () => null)
   }
 

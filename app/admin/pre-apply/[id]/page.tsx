@@ -13,7 +13,7 @@ interface Doc { id: string; doc_key: string | null; doc_label: string | null; fi
 interface Detail {
   id: string; associationCode: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
-  ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null
+  ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null; tenantEmailIsAgent: boolean
   stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; phone: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean; applicantRole: string | null; creditScore: number | null }[]
   rulesAck: { name?: string; at?: string } | null
   driveFolderUrl: string | null
@@ -434,7 +434,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           Opening it above them pushed the very rows being ticked off-screen. */}
       {!decided && (
         <div style={{ marginTop: 16 }}>
-          <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail}
+          <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail} tenantEmailIsAgent={d.tenantEmailIsAgent}
             listingAgent={(d.stakeholders ?? []).find(s => s.role === 'listing_agent') ?? null}
             applicantAgent={(d.stakeholders ?? []).find(s => s.role === 'applicant_agent') ?? null}
             onDone={load} preselect={requestFor} onPreselectHandled={() => setRequestFor(null)} />
@@ -1506,7 +1506,7 @@ function CreditScore({ id, stakeholderId, name, score, decided, onDone }: { id: 
 // Request specific documents from the owner and/or tenant — tick items, tag each
 // Owner / Tenant / Both, and MAIA emails each recipient their list + an upload
 // link (the standard PMI email). Uploads file straight back onto the application.
-function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAgent, applicantAgent, onDone, preselect, onPreselectHandled }: { id: string; items: { doc_key: string; label: string; provided_by: string; missing: boolean; refused: boolean }[]; ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null; listingAgent?: { name: string | null; email: string | null } | null; applicantAgent?: { name: string | null; email: string | null } | null; onDone: () => void; preselect?: { doc_key: string; label: string } | null; onPreselectHandled?: () => void }) {
+function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, tenantEmailIsAgent, listingAgent, applicantAgent, onDone, preselect, onPreselectHandled }: { id: string; items: { doc_key: string; label: string; provided_by: string; missing: boolean; refused: boolean }[]; ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null; tenantEmailIsAgent?: boolean; listingAgent?: { name: string | null; email: string | null } | null; applicantAgent?: { name: string | null; email: string | null } | null; onDone: () => void; preselect?: { doc_key: string; label: string } | null; onPreselectHandled?: () => void }) {
   const [open, setOpen] = useState(false)
   type Rec = 'owner' | 'tenant' | 'both'
   const [state, setState] = useState<Record<string, { on: boolean; rec: Rec }>>(() =>
@@ -1718,6 +1718,15 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, listingAg
               </div>
               {applicantAgent?.email && (
                 <div style={{ font: '11.5px system-ui', color: '#1e40af', marginTop: 4, marginLeft: 104 }}>🔗 CC&apos;d: {applicantAgent.name ? `${applicantAgent.name} (applicant's agent)` : "applicant's agent"} — {applicantAgent.email}</div>
+              )}
+              {/* Neither applicant has an email of their own — this box is
+                  pre-filled with whichever agent is on file so the tenant-side
+                  link still goes somewhere real; the email itself says it's
+                  going to the agent, not the applicant (see
+                  lib/document-request-email.ts). Staff should still replace
+                  this the moment a real applicant email is on hand. */}
+              {tenantEmailIsAgent && tenantTo && (
+                <div style={{ font: '11.5px system-ui', color: '#92400e', marginTop: 4, marginLeft: 104 }}>⚠ No applicant email on file — this is the agent&apos;s address. Replace it if you get the applicant&apos;s own.</div>
               )}
             </div>
           )}

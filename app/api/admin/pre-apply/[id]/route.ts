@@ -90,6 +90,16 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const relatedOccupantApplications = ['lease', 'purchase', 'lease_renewal'].includes(String(app.application_type))
     ? await getRelatedOccupantApplications(code, unit || null, id)
     : []
+  // Same fallback the Request Documents send path applies (see
+  // lib/document-request-email.ts) — shown here so the staff tenant-email box
+  // isn't blank just because it happens to be seeded from an agent's address
+  // rather than the applicant's own.
+  const applicantAgentEmail = (stakeholders ?? []).find(s => s.role === 'applicant_agent')?.email as string | null ?? null
+  const listingAgentEmail = (stakeholders ?? []).find(s => s.role === 'listing_agent')?.email as string | null ?? null
+  const directTenantEmail = (tenantRow?.tenant_email as string | null) || (sh?.email as string | null) || null
+  const tenantEmail = directTenantEmail || applicantAgentEmail || listingAgentEmail || null
+  const tenantEmailIsAgent = !directTenantEmail && !!tenantEmail
+
   const petsAllowed = (assocRow?.pets_allowed as boolean | null) ?? null
   const declarations = parseDeclarations(app.declarations)
   const derivedNa = declaredNaKeys(checklist, declarations, { petsAllowed })
@@ -101,7 +111,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     applicant: sh ? { name: sh.name, email: sh.email, phone: sh.phone } : null,
     ownerName: ownerNames.join(' & ') || null,
     ownerEmails: ownerEmails.join(', ') || null,
-    tenantEmail: (tenantRow?.tenant_email as string | null) || (sh?.email as string | null) || null,
+    tenantEmail, tenantEmailIsAgent,
     stakeholders: (stakeholders ?? []).map(s => ({
       id: s.id, role: s.role, roleLabel: roleLabel(String(s.role)), name: s.name, email: s.email, phone: s.phone,
       isPrimary: s.is_primary, status: s.status, signs: roleSigns(String(s.role)),
