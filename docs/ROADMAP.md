@@ -1,9 +1,21 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-08-26**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-08-27**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
+
+---
+
+## ✅ LIVE — Lease Renewal Check-In + real call-to-action on expiry reminders (2026-08-27)
+
+Full detail in `docs/SESSION-HANDOFF.md` (top). Memory: [[lease_renewal_checkin]].
+
+- ✅ Real bug fixed first: `sendLeasePacket()` was sourcing the lease term from unit-scoped `unit_tenant_contacts` (only refreshes on approval) instead of the current application's own extracted dates — showed a tenant the PREVIOUS tenant's term (MANXI 706, Quentin Jamal Smith). New `listing_applications.lease_start/lease_end` columns fix it at the data layer.
+- ✅ **Lease Renewal Check-In** — token-gated `/lease-renewal/[token]` page + `lease_renewal_checks` table + `lib/lease-renewal-check.ts`, replacing the "Lease expiring" reminder's dead-end mailto link with real tenant/owner options that open applications, generate upload links, or update occupancy + notify staff/board. Wired into both standing crons (`lease-renewal-alerts`, `expired-leases-digest`); both now stop nagging a party once answered and skip any unit with an open application (`hasOpenApplication()`).
+- ✅ Staff can now attach a lease at `/admin/pre-apply` creation time and have MAIA auto-read the tenant roster + lease term before the application exists (`extract-lease`/`extract-lease-url`) — fixed one real file-size bug in the same pass (signed Storage URL, not raw bytes through the function body — same class of bug already fixed once for MANXI 303's Purchase Agreement). See [[signed_url_upload_gotcha]].
+- ✅ Real MANXI 115 applicant-roster duplicate found + fixed (typo'd name defeated the exact-match dedupe between two independent roster-insert paths); the page's top "✎ edit" button now also opens the full Applicants roster card, not just the lead applicant's name.
+- 🟡 **Learned the hard way**: a bulk catch-up send hit MAIA's existing anti-runaway rate limiter and needed to be made resumable mid-run; separately over-included units far outside the real 30/7-day window before being caught and corrected. See [[bulk_email_rate_limit_discipline]] — any future bulk/catch-up send script should check this first.
 
 ---
 

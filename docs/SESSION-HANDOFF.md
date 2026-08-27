@@ -1,3 +1,28 @@
+# Session handoff — 2026-08-27
+
+## Lease-packet date bug fix, Lease Renewal Check-In feature, and two real pre-apply UX bugs
+
+### Lease-packet term bug — MANXI 706, Quentin Jamal Smith (`dca02c7`)
+Real complaint: a tenant about to e-sign the Landlord-Tenant Agreement saw the PREVIOUS tenant's 2024-2025 lease term instead of his own real 2026-08-21–2027-08-20 term (verified against the actual signed lease PDF, page 1 — ruled out a model misread before looking further). Root cause: `sendLeasePacket()` only ever sourced dates from `unit_tenant_contacts`, which is scoped to the UNIT and only refreshes on approval — so it still carried the prior tenancy's dates while a new application was in flight. `lib/lease-extract.ts` already read the correct term at intake (`backfillPrimaryContactFromLease`), the dates were just discarded, never saved. New `listing_applications.lease_start/lease_end` columns give the current application its own place to hold its term; `sendLeasePacket`'s `tenantOverride` now prefers them. Live packet + application corrected directly (verified unsigned first).
+
+### Lease Renewal Check-In — new feature (`22f38c7` → `65ea9e4`)
+User showed screenshots of the "Lease expiring in N days" reminder emails and asked what happens after they're sent — answer was "nothing, just a mailto link." Built a real call to action: token-gated `/lease-renewal/[token]` page (tenant: renew/vacate/vacated/already-signed/start-renewal-application; owner: occupancy toggle + renew/already-signed), backed by a new `lease_renewal_checks` table (one row per unit+lease_end, stable across both the 30-day and 7-day reminder windows) and `lib/lease-renewal-check.ts`. Each answer triggers the matching side effect — idempotent application-opening + full document-request push, a real signed-lease upload link, or occupancy update + owner/staff/board notify. Both standing crons (`lease-renewal-alerts`, `expired-leases-digest`) now link to it and stop nagging a party once they've answered. `hasOpenApplication()` — a permanent new rule — skips a unit already carrying any non-terminal application. Detail: [[lease_renewal_checkin]] memory.
+
+### MANXI catch-up send — real incident + two live corrections
+User asked to resend the check-in link to all MANXI units with expiring/expired leases, excluding board from internal recipients and skipping units with open applications. First live run hit MAIA's existing anti-runaway rate limiter (`lib/outbound-rate-limit.ts`) almost immediately — only 21 of ~68 attempted emails actually delivered, but the response reported full intended counts as if everything went out (`sendEmail` returns `{messageId:'blocked-by-...'}` rather than throwing, wasn't being checked). Made the endpoint resumable (checks `outbound_send_attempts` before each send). **Separately caught mid-run**: the catch-up's deliberate bypass of the standing 30/7-day exact-date match meant units 60-337 days out also got sent the "Lease expiring" reminder — 2 owners (Unit 402, Unit 304) already got one before this was caught; sent a correction email to both, scoped the remainder to expired + ≤30-days-out. Temp endpoint removed once done. Detail: [[bulk_email_rate_limit_discipline]] memory.
+
+### Two real `/admin/pre-apply` bugs, both live
+- **MANXI 115 duplicate applicant** ("Natasha Hall" + "Natasha Halll", one with no email, one with a typo'd name + real email) — root cause: `autoRosterFromLease`'s roster-add and the owner/tenant-facing roster form's own insert both write applicant rows independently, deduping only by exact email or exact name match; a typo defeated both. Fixed the live duplicate directly (merged into one correct row). Separately: the top "✎ edit" button (next to "Type: Lease renewal") only ever edited the lead applicant's name + type — the real roster editor is a different, separate, collapsed-by-default "Applicants" card further down. User asked for one click to reach both; the top button now also expands and opens that card into edit mode (`7ac2af5`).
+- **Lease auto-read at application creation** (`938edb3` → `f5ee5d4`) — user wanted to type just association+unit, attach the lease, and have MAIA pull the tenant roster + lease term off the document instead of retyping it. New `extract-lease`/`extract-lease-url` routes run the existing `lib/lease-extract.ts` reader before any application exists. First version pushed the raw file through the Vercel function body and hit the SAME "Request Entity Too Large" non-JSON-response bug already fixed once for real uploads (MANXI 303) — fixed the same way, signed Storage URL first. Detail: [[signed_url_upload_gotcha]] memory.
+
+### ⏳ NEXT
+1. Nothing outstanding from this session — all shipped work verified deployed with 0 runtime errors.
+2. Older, unchanged: Checkr key prefix still unverified; Rentvine tenant-sync cron dead since 2026-06-17.
+
+Memory: [[lease_renewal_checkin]], [[bulk_email_rate_limit_discipline]], [[signed_url_upload_gotcha]].
+
+---
+
 # Session handoff — 2026-08-22
 
 ## A stream of real-usage bug reports from live staff testing (2026-08-20 evening → 2026-08-22), 16 commits
