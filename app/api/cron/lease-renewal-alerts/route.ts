@@ -7,12 +7,23 @@
 // unit page + drive-organize populate). Two callers:
 //   • Vercel cron (Bearer CRON_SECRET) — sends.
 //   • Staff (session) — dry-run by default; ?send=1 to actually send.
+//
+// User direction, 2026-08-26 (screenshots of these exact reminder emails,
+// Unit 97M/Venetian Park I and Unit 802/MANXI): the resident-facing email had
+// no call to action beyond a mailto link. Each resident email now carries a
+// lease-renewal check-in link (app/lease-renewal/[token]/page.tsx,
+// lib/lease-renewal-check.ts) — one lease_renewal_checks row per unit+lease
+// end, created on the 30-day pass and reused on the 7-day pass so the link
+// stays the same. Once a party has answered, further reminders to THAT party
+// stop; once both have answered, the internal FYI stops too — "stop if
+// satisfied," per that same direction.
 
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
+import { findOrCreateCheck, isSatisfied } from '@/lib/lease-renewal-check'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -20,6 +31,7 @@ export const maxDuration = 300
 
 const PMI = process.env.STAFF_ALERT_EMAIL ?? 'PMI@topfloridaproperties.com'
 const AR  = process.env.LEASE_ALERT_CC ?? 'ar@topfloridaproperties.com'   // Jonathan / AR
+const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
 const firstEmail = (e: string | null) => (e ?? '').split(/[,;\s]+/).map(s => s.trim()).find(x => x.includes('@')) ?? null
 
@@ -44,12 +56,13 @@ function internalHtml(o: { unit: string; assoc: string; tenant: string; owner: s
     <p style="color:#6b7280;font-size:12px">Please coordinate renewal or move-out. — MAIA, PMI Top Florida Properties</p>
   </div>`
 }
-function residentHtml(o: { name: string; unit: string; assoc: string; end: string; days: number }): string {
+function residentHtml(o: { name: string; unit: string; assoc: string; end: string; days: number; link: string }): string {
   return `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
     <p>Dear ${o.name ? esc(o.name) : 'Resident'},</p>
     <p>This is a reminder that the lease for <strong>Unit ${esc(o.unit)}</strong> at <strong>${esc(o.assoc)}</strong> is scheduled to expire on <strong>${fmt(o.end)}</strong> — in <strong>${o.days} days</strong>.</p>
-    <p>Please contact us to arrange a renewal or move-out:</p>
-    <p style="margin:4px 0">✉ <a href="mailto:PMI@topfloridaproperties.com">PMI@topfloridaproperties.com</a> · ☎ (305) 900-5077</p>
+    <p>Please let us know what's happening so we can help:</p>
+    <p style="margin:10px 0"><a href="${o.link}" style="display:inline-block;background:#c0571a;color:#fff;text-decoration:none;font-weight:600;padding:11px 20px;border-radius:8px">Tell us what's next</a></p>
+    <p style="margin:4px 0">Or contact us directly — ✉ <a href="mailto:PMI@topfloridaproperties.com">PMI@topfloridaproperties.com</a> · ☎ (305) 900-5077</p>
     <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p>
   </div>`
 }
@@ -86,20 +99,32 @@ export async function GET(req: Request) {
       const tenantEmail = firstEmail((l.tenant_email as string | null) ?? null)
       const tenantName = (l.tenant_name as string | null) ?? '—'
 
+      // Check-in row: same one across the 30-day and 7-day pass, so the link
+      // in both emails is identical. Created (or refreshed with current
+      // addresses) even in dry-run — the row itself has no send side effect.
+      const check = await findOrCreateCheck({
+        associationCode: assoc, unitLabel: unit, leaseEnd: String(l.lease_end),
+        ownerEmail, tenantEmail, ownerName: ownerName === '—' ? null : ownerName, tenantName: tenantName === '—' ? null : tenantName,
+      })
+      const satisfied = check ? isSatisfied(check) : { owner: false, tenant: false }
+
       // Internal FYI recipients (deduped): PMI, AR/Jonathan, on-site managers, board.
-      const internal = [...new Set([PMI, AR,
+      // Skipped once BOTH parties have answered — nothing left to coordinate.
+      const internal = satisfied.owner && satisfied.tenant ? [] : [...new Set([PMI, AR,
         ...(mgrs ?? []).map(m => firstEmail(m.email as string | null)),
         ...(board ?? []).map(b => firstEmail(b.email as string | null))].filter((e): e is string => !!e))]
-      // Residents: owner + tenant.
-      const residents = [...new Set([ownerEmail, tenantEmail].filter((e): e is string => !!e))]
+      // Residents: owner + tenant, each dropped once THEY'VE answered.
+      const sendOwner = !satisfied.owner ? ownerEmail : null
+      const sendTenant = !satisfied.tenant ? tenantEmail : null
+      const residents = [...new Set([sendOwner, sendTenant].filter((e): e is string => !!e))]
 
       results.push({ unit, assoc: assocName, days: w.days, to: [...internal, ...residents] })
       if (dryRun) continue
 
       const subj = `Lease expiring in ${w.days} days — Unit ${unit}, ${assocName}`
       for (const to of internal) { try { await sendEmail({ to, subject: subj, html: internalHtml({ unit, assoc: assocName, tenant: tenantName, owner: ownerName, end: String(l.lease_end), days: w.days }) }) } catch { /* continue */ } }
-      if (ownerEmail) { try { await sendEmail({ to: ownerEmail, subject: `Lease renewal reminder — Unit ${unit}, ${assocName}`, html: residentHtml({ name: ownerName, unit, assoc: assocName, end: String(l.lease_end), days: w.days }) }) } catch { /* */ } }
-      if (tenantEmail) { try { await sendEmail({ to: tenantEmail, subject: `Lease renewal reminder — Unit ${unit}, ${assocName}`, html: residentHtml({ name: tenantName, unit, assoc: assocName, end: String(l.lease_end), days: w.days }) }) } catch { /* */ } }
+      if (sendOwner && check) { try { await sendEmail({ to: sendOwner, subject: `Lease renewal reminder — Unit ${unit}, ${assocName}`, html: residentHtml({ name: ownerName, unit, assoc: assocName, end: String(l.lease_end), days: w.days, link: `${APP}/lease-renewal/${check.owner_token}` }) }) } catch { /* */ } }
+      if (sendTenant && check) { try { await sendEmail({ to: sendTenant, subject: `Lease renewal reminder — Unit ${unit}, ${assocName}`, html: residentHtml({ name: tenantName, unit, assoc: assocName, end: String(l.lease_end), days: w.days, link: `${APP}/lease-renewal/${check.tenant_token}` }) }) } catch { /* */ } }
     }
   }
 

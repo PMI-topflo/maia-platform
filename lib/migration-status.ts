@@ -4011,6 +4011,43 @@ ALTER TABLE public.tickets
   ADD COLUMN IF NOT EXISTS lease_start date,
   ADD COLUMN IF NOT EXISTS lease_end date;`,
   },
+  {
+    key:         'lease_renewal_checks',
+    label:       'Lease Renewal Check-In table',
+    description: "User request, 2026-08-26: the \"Lease expiring in N days\" cron (app/api/cron/lease-renewal-alerts/route.ts) told the owner and tenant a lease was ending with no way to actually act on it — just a mailto link, screenshots shown for Unit 97M (Venetian Park I) and Unit 802 (MANXI). User specified a token-gated check-in link: tenant picks one of renew / vacate at term end / already vacated / already signed a new lease / needs to start a renewal application; owner reports occupancy (owner-occupied / leased / vacant) plus renew / already signed. lease_renewal_checks backs the page (app/lease-renewal/[token]/page.tsx) — one row per (association, unit, lease_end) so the SAME link is reused across both the 30-day and 7-day reminder rather than minting a new token each send. owner_token/tenant_token are separate so each party's link only ever lets them answer as themselves. application_id links to the listing_applications row opened when either party chooses renew/apply, resolved idempotently (lib/lease-renewal-check.ts checks for an existing non-terminal lease_renewal application on the unit before opening a new one).",
+    filename:    '20260827_lease_renewal_checks.sql',
+    artifact:    { type: 'table', table: 'lease_renewal_checks' },
+    sql: `CREATE TABLE IF NOT EXISTS public.lease_renewal_checks (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  association_code    text        NOT NULL,
+  unit_label          text        NOT NULL,
+  lease_end           date        NOT NULL,
+  owner_token         uuid        NOT NULL DEFAULT gen_random_uuid(),
+  tenant_token        uuid        NOT NULL DEFAULT gen_random_uuid(),
+  owner_email         text,
+  tenant_email        text,
+  owner_name          text,
+  tenant_name         text,
+  owner_occupancy     text,
+  owner_response      text,
+  owner_responded_at  timestamptz,
+  tenant_response     text,
+  tenant_responded_at timestamptz,
+  application_id      uuid        REFERENCES public.listing_applications(id),
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_lrc_owner_occupancy CHECK (owner_occupancy IS NULL OR owner_occupancy IN ('owner_occupied','leased','vacant')),
+  CONSTRAINT chk_lrc_owner_response  CHECK (owner_response  IS NULL OR owner_response  IN ('renew','signed')),
+  CONSTRAINT chk_lrc_tenant_response CHECK (tenant_response IS NULL OR tenant_response IN ('renew','vacating','vacated','signed','apply'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS lease_renewal_checks_uniq ON public.lease_renewal_checks (association_code, unit_label, lease_end);
+CREATE UNIQUE INDEX IF NOT EXISTS lease_renewal_checks_owner_token ON public.lease_renewal_checks (owner_token);
+CREATE UNIQUE INDEX IF NOT EXISTS lease_renewal_checks_tenant_token ON public.lease_renewal_checks (tenant_token);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.lease_renewal_checks TO anon, authenticated, service_role;
+ALTER TABLE public.lease_renewal_checks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_lease_renewal_checks" ON public.lease_renewal_checks;
+CREATE POLICY "service_role_all_lease_renewal_checks" ON public.lease_renewal_checks FOR ALL TO service_role USING (true);`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
