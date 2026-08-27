@@ -420,8 +420,16 @@ function StaffCreate() {
     if (!f || (type !== 'lease' && type !== 'lease_renewal')) return
     setExtracting(true)
     try {
-      const fd = new FormData(); fd.append('file', f)
-      const r = await fetch('/api/admin/pre-apply/extract-lease', { method: 'POST', credentials: 'include', body: fd })
+      // Straight to Storage via a signed URL, not through this function's
+      // body — a real signed lease routinely exceeds Vercel's request-body
+      // cap, which surfaces as a plain-text "Request Entity Too Large" page
+      // that a JSON parse then chokes on. Same fix already applied once to
+      // the real per-application upload (upload-url/route.ts, MANXI 303).
+      const urlR = await fetch('/api/admin/pre-apply/extract-lease-url', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filename: f.name }) })
+      const urlJ = await urlR.json(); if (!urlR.ok) throw new Error(urlJ.error || 'could not prepare the read')
+      const put = await fetch(urlJ.signedUrl, { method: 'PUT', body: f, headers: { 'content-type': f.type || 'application/octet-stream' } })
+      if (!put.ok) throw new Error('could not stage the file')
+      const r = await fetch('/api/admin/pre-apply/extract-lease', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ bucket: urlJ.bucket, path: urlJ.path }) })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'failed')
       const names: string[] = Array.isArray(j.tenantNames) ? j.tenantNames : []
