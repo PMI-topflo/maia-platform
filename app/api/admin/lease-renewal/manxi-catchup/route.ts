@@ -42,10 +42,41 @@ const PMI = process.env.STAFF_ALERT_EMAIL ?? 'PMI@topfloridaproperties.com'
 const AR = process.env.LEASE_ALERT_CC ?? 'ar@topfloridaproperties.com'
 const firstEmail = (e: string | null) => (e ?? '').split(/[,;\s]+/).map(s => s.trim()).find(x => x.includes('@')) ?? null
 
+// User direction, 2026-08-27: units 304 and 402 (216 and 230 days out at the
+// time) got a premature "Lease expiring" reminder before the >30-day skip
+// above was added — 304's owner even got it twice. Both units' leases run
+// well into 2027 (confirmed live: 304 → 2027-04-01, 402 → 2027-04-15), so a
+// short correction to just these two real owners, once, ?correct=1.
+const CORRECTIONS = [
+  { unit: '304', email: 'stpreuxj5@gmail.com', leaseEnd: 'April 1, 2027' },
+  { unit: '402', email: 'geraldinm17@gmail.com', leaseEnd: 'April 15, 2027' },
+]
+function correctionHtml(o: { unit: string; leaseEnd: string }): string {
+  return `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
+    <p>Dear Resident,</p>
+    <p>We sent you a lease renewal reminder earlier today for <strong>Unit ${o.unit}</strong> at <strong>The Manors of Inverrary XI Association, Inc.</strong> — please disregard the timing. That went out earlier than intended; your lease isn't actually due for renewal yet, it runs through <strong>${o.leaseEnd}</strong>.</p>
+    <p>No action needed right now. The link in that earlier email is still valid whenever you're ready to let us know your plans, but there's no rush.</p>
+    <p>Sorry for the confusion — feel free to reach out with any questions.</p>
+    <p style="margin:4px 0">✉ <a href="mailto:PMI@topfloridaproperties.com">PMI@topfloridaproperties.com</a> · ☎ (305) 900-5077</p>
+    <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p>
+  </div>`
+}
+
 export async function GET(req: Request) {
   const session = await requireStaffSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const sp = new URL(req.url).searchParams
+
+  if (sp.get('correct') === '1') {
+    const results = []
+    for (const c of CORRECTIONS) {
+      const subject = `Correction — Unit ${c.unit} lease renewal reminder, The Manors of Inverrary XI Association, Inc`
+      const r = await sendEmail({ to: c.email, subject, html: correctionHtml(c) })
+      results.push({ unit: c.unit, to: c.email, blocked: r.messageId?.startsWith('blocked-by-') ?? false })
+    }
+    return NextResponse.json({ ok: true, corrections: results })
+  }
+
   const dryRun = sp.get('send') !== '1'
 
   const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0)
