@@ -76,12 +76,17 @@ export async function buildManorsClubWelcomePackage(input: WelcomePackageInput):
   const src = await PDFDocument.load(input.sourcePdf)
 
   // ── Proximity Card / Recreational I.D. Pass Registration Form ──────
-  // Source pages 2-4 (0-indexed 1-3): registration + rules + indemnity.
+  // Source pages 1-4 (0-indexed 0-3): the branded "Welcome to the Manors of
+  // Inverrary!" cover (logo + overview of all amenity items) leads the
+  // packet, then registration + rules + indemnity. User caught the first
+  // cut missing the cover/logo — the Elevator/Gate Pass form (below)
+  // already carries its own logo printed directly on that page, so it
+  // doesn't need one prepended.
   const prox = await PDFDocument.create()
   const proxFont = await prox.embedFont(StandardFonts.Helvetica)
-  const proxPages = await prox.copyPages(src, [1, 2, 3])
+  const proxPages = await prox.copyPages(src, [0, 1, 2, 3])
   proxPages.forEach(p => prox.addPage(p))
-  const p1 = prox.getPage(0)
+  const p1 = prox.getPage(1)
 
   // "PRINT OWNER NAME(S):" ends x=186.4, y=717.
   drawFit(p1, input.ownerName, 190, 717, 340, proxFont)
