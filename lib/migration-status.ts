@@ -4049,6 +4049,15 @@ DROP POLICY IF EXISTS "service_role_all_lease_renewal_checks" ON public.lease_re
 CREATE POLICY "service_role_all_lease_renewal_checks" ON public.lease_renewal_checks FOR ALL TO service_role USING (true);`,
   },
   {
+    key:         'default_intake_checklist_template',
+    label:       'Default intake checklist for 17 non-MANXI associations',
+    description: "User direction, 2026-08-28: \"we will have them all created in the other associations as default so it will be easy to setup new associations.\" Seeds MANXI's checklist (minus the notarized-affidavit items, the Lauderhill-specific certificate, and MANXI/international-only items — see the migration file for the full exclusion list) as Optional-by-default rows across 17 associations. Excludes VPCI (already has its own real checklist), LCLUB/VPREC (master_hoa — the user's own 'besides the master' carve-out), and the 5 commercial_condo associations (residential paperwork doesn't fit a commercial unit, same line the 20260816 insurance seed already drew). Rules Knowledge Acknowledgment (governing_docs_ack) is required=true everywhere per the same day's standing policy, but the actual e-signed rules CONTENT per association (lib/manxi-rules-ack.ts is the existing pattern) still needs to be authored separately before that item is actually fulfillable.",
+    filename:    '20260828_default_intake_checklist_template.sql',
+    artifact:    { type: 'column', table: 'association_intake_documents', column: 'per_applicant' },
+    sql: `-- See supabase/migrations/20260828_default_intake_checklist_template.sql for the full seed.
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
     key:         'manxi_international_applicant_docs',
     label:       'MANXI: international-applicant checklist + advance-maintenance rule',
     description: "User direction, 2026-08-28: wire the already-built international-applicant package (foreign police clearance, CPA Financial Certification, notarized translation — lib/intl-cpa-guide-pdf.tsx) into MANXI's real purchase checklist, gated on a new condition_key='international' (widens the existing chk_intake_condition constraint from 20260815_vehicle_animal_declarations.sql). Also adds a standalone rule: since a U.S. credit score can't be pulled for an international buyer, they pay one year of quarterly maintenance in advance regardless of the existing credit-score bands.",
