@@ -277,7 +277,7 @@ Replaces the dead ApplyCheck integration (no public API). Real architecture: Bea
 
 **Still open:**
 - ✅ Stripe confirmed **LIVE (production mode)**, resolved 2026-07-13 — needs one real end-to-end test application to confirm the live-mode path works, not a config check.
-- Final combined PDF package (all documents + all Checkr reports + signed rules ack + signed approval letter) delivered to Google Drive — a working Drive-upload pattern already exists in the codebase (`lib/drive-invoice-mirror.ts`) so the mechanism is known, but needs: which Drive folder / organization scheme, and confirming the approval letter should become a real signed PDF (currently just template text on the board page).
+- ⛔ ~~Final combined PDF package delivered to Google Drive~~ — decided off, 2026-08-28 (duplicate of the same item lower in this doc — see "Suggested priority" #3 for why).
 - A "Flows" diagram for the application process (matching the existing click-to-popup style) — requested, not started.
 - Full Checkr production account authorization (test key works; going live needs Checkr's sign-off).
 
@@ -447,7 +447,7 @@ See the full entry under "Development backlog" below (kept there since it starte
 0. ⚠️ **Watch the first real application go through the fully-automatic pipeline** (see the top section, 2026-08-20) — `submitted → under_review → approval_sent → approved` with no manual clicks. Every board email now CCs PMI. Confirm Susie Bell / MANXI 110 (#731) went through cleanly.
 1. 🟡 **In-Maia application process, association by association** — VPCI in progress (mockup + PDF built, pending your sign-off), 22 real associations to go. Ownership-date backfill for the eligibility rules is the current bottleneck (manual, BCPA lookups).
 2. ✅ **Checkr integration** — deployed to production 2026-07-06/07 (see section near the top of this doc). Stripe confirmed LIVE 2026-07-13. Next: run one real end-to-end test application to confirm the live-mode path, get Checkr production account authorization.
-3. 🔴 **Final combined application PDF package → Google Drive** — all documents + Checkr reports + signed rules ack + signed approval letter, one download. Needs: target Drive folder/organization, and whether the approval letter becomes a real signed PDF. Upload mechanism already known (`lib/drive-invoice-mirror.ts` pattern).
+3. ⛔ ~~Final combined application PDF package → Google Drive~~ — **decided off, 2026-08-28**. Re-examined against [[drive_file_organization_system]] (design locked 2026-07-30): the real need is already covered by the existing per-unit Official/On Going/Archive Drive structure + one-click **Promote application** (copies renamed individual keeper docs to Official on approval, moves the full PII packet to Archive) — that system deliberately keeps documents as SEPARATE files, not merged, partly because a real bundle (background check report + every submitted doc + rules ack + approval letter) could easily run 50-100+ pages. No standalone "one combined PDF" feature needed.
 4. 🔴 **Flows diagram for the application process** — requested, matching the existing click-to-popup style, not started.
 5. ✅ **Pre-registration triage Phase 2 + unit occupancy control** — done (2026-07-04). Pending your action: try `/admin/unit-status`'s survey button for real (it dry-runs by default) and confirm the Send Occupancy & Insurance Survey copy reads right before the first live send to real owners.
 6. Continue the Flows diagrams series — `/apply` Tenant/Buyer Application next (see #4 above, same item).
