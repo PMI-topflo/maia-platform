@@ -23,6 +23,7 @@ import type { ApplicationType, ProvidedBy } from '@/lib/intake-documents'
 import { quickDocScan } from '@/lib/quick-doc-classify'
 import { suggestedIntakeName } from '@/lib/intake-naming'
 import { sendEmail } from '@/lib/gmail'
+import { notifyDelinquencyOnApplicationOpen } from '@/lib/application-delinquency-notice'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
@@ -230,6 +231,19 @@ export async function createIntake(input: {
     is_primary: true, status: 'started', added_by_role: input.role, started_at: new Date().toISOString(),
   }).select('id').single()
   if (se || !sh) return { error: `Could not start: ${se?.message ?? 'unknown'}` }
+
+  // User direction, 2026-08-27: warn, don't block, when the unit's owner has
+  // an open balance more than 30 days past due — the owner is told the
+  // application won't be approved until it's settled, the applicant is told
+  // to proceed at their own risk. Only for the ordinary tenant/buyer intake
+  // (role='applicant') — an owner or agent opening it themselves shouldn't
+  // get a notice about themselves. Best-effort, never blocks creation.
+  if (input.role === 'applicant' && input.unitLabel) {
+    await notifyDelinquencyOnApplicationOpen({
+      associationCode: assoc, unitLabel: input.unitLabel,
+      applicant: { name: input.applicant.name, email: input.applicant.email || null },
+    })
+  }
 
   return { applicationId: app.id, listingId: listing.id, stakeholderId: sh.id }
 }
