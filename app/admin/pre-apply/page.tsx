@@ -67,10 +67,17 @@ export default function PreApplyQueue() {
   // client-side per selected association, same as the setup page does.
   const [allRules, setAllRules] = useState<AppRule[] | null>(null)
   const [allQuestions, setAllQuestions] = useState<AssocQuestions[] | null>(null)
+  // Every active association, not just ones with an open application right
+  // now — staff review requirements for an association before it has any
+  // applications too (e.g. setting one up).
+  const [assocList, setAssocList] = useState<{ association_code: string; association_name: string }[]>([])
 
-  const assocOptions = [...new Set((apps ?? []).map(a => a.associationCode))].sort()
+  useEffect(() => {
+    fetch('/api/associations').then(r => r.json()).then(d => setAssocList(Array.isArray(d) ? d : [])).catch(() => setAssocList([]))
+  }, [])
+
   function loadRef(a: string) {
-    setRefAssoc(a); setRefData(null); setRefErr(null)
+    setRefAssoc(a); setShowRef(true); setRefData(null); setRefErr(null)
     fetch(`/api/admin/pre-apply/checklists?assoc=${encodeURIComponent(a)}`, { credentials: 'include' })
       .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j })
       .then(d => setRefData(d.checklists)).catch(e => setRefErr(String(e.message ?? e)))
@@ -111,41 +118,32 @@ export default function PreApplyQueue() {
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', padding: 24, fontFamily: 'system-ui' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Applications</h1>
-          <p style={{ color: '#6b7280', fontSize: 14, margin: '4px 0 0' }}>Every open application and its stage. Click one to review, upload documents you received, and approve.</p>
-        </div>
-        <button onClick={() => { const open = !showRef; setShowRef(open); if (open && !refData) loadRef(refAssoc || assocOptions[0] || 'MANXI') }}
-          style={{ padding: '9px 14px', borderRadius: 9, border: '1px solid #d1d5db', background: showRef ? '#eef2ff' : '#fff', color: '#3730a3', font: '600 13px system-ui', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-          📋 Required documents {showRef ? '▲' : '▼'}
-        </button>
+      <div>
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Applications</h1>
+        <p style={{ color: '#6b7280', fontSize: 14, margin: '4px 0 0' }}>Every open application and its stage. Click one to review, upload documents you received, and approve.</p>
       </div>
 
-      {/* Pre-Application Compliance reference — required documents per type, per association. */}
-      {showRef && (
-        <div style={{ margin: '12px 0 4px', border: '1px solid #e5e7eb', borderRadius: 12, background: '#fafafa', padding: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-            <div style={{ font: '700 11px system-ui', letterSpacing: '.06em', textTransform: 'uppercase', color: '#6b7280' }}>Pre-Application Compliance · required documents by type</div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              {/* Same live PDF the public /apply/[assoc]/guide page and the invite
-                  email attach — GUIDE_ASSOCIATIONS mirrors GUIDE_CONTENT in
-                  lib/application-guide-data.ts (MANXI-only for now; that lib is
-                  server-only, so this client component can't import it directly). */}
-              {GUIDE_ASSOCIATIONS.has(refAssoc.toUpperCase()) && (
-                <a href={`/api/apply/application-guide/${refAssoc.toUpperCase()}`} target="_blank" rel="noreferrer"
-                  style={{ font: '600 12.5px system-ui', color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '5px 10px', textDecoration: 'none', whiteSpace: 'nowrap' }}>
-                  📄 Download PDF Guide
-                </a>
-              )}
-              {assocOptions.length > 0 && (
-                <select value={refAssoc} onChange={e => loadRef(e.target.value)} style={{ font: '600 13px system-ui', padding: '5px 8px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#374151' }}>
-                  {assocOptions.map(a => <option key={a} value={a}>{a}</option>)}
-                </select>
-              )}
-            </div>
-          </div>
-          <p style={{ fontSize: 12.5, color: '#9ca3af', margin: '0 0 12px' }}>What MAIA requests from applicants for each type of application at {refAssoc || '…'}. Edit these in Association document setup.</p>
+      {/* Pre-Application Compliance reference — required documents per type, per association.
+          Gated on picking an association first (no default guess) — the
+          panel below only loads once refAssoc is a real, chosen value. */}
+      <div style={{ margin: '14px 0 4px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <label style={{ font: '600 12.5px system-ui', color: '#6b7280' }}>📋 Required documents for</label>
+        <select value={refAssoc} onChange={e => { const v = e.target.value; if (v) loadRef(v); else { setRefAssoc(''); setShowRef(false) } }}
+          style={{ font: '600 13px system-ui', padding: '6px 9px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#374151' }}>
+          <option value="">Choose an association…</option>
+          {assocList.map(a => <option key={a.association_code} value={a.association_code}>{a.association_name} ({a.association_code})</option>)}
+        </select>
+        {refAssoc && GUIDE_ASSOCIATIONS.has(refAssoc.toUpperCase()) && (
+          <a href={`/api/apply/application-guide/${refAssoc.toUpperCase()}`} target="_blank" rel="noreferrer"
+            style={{ font: '600 12.5px system-ui', color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '5px 10px', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+            📄 Download PDF Guide
+          </a>
+        )}
+      </div>
+
+      {showRef && refAssoc && (
+        <div style={{ margin: '8px 0 4px', border: '1px solid #e5e7eb', borderRadius: 12, background: '#fafafa', padding: 14 }}>
+          <p style={{ fontSize: 12.5, color: '#9ca3af', margin: '0 0 12px' }}>What MAIA requests from applicants for each type of application at {refAssoc}. Edit these in Association document setup.</p>
           {refErr && <p style={{ color: '#b45309', fontSize: 13 }}>⚠ {refErr}</p>}
 
           {refData && (
