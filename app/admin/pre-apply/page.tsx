@@ -397,6 +397,12 @@ function StaffCreate() {
   }, [assoc])
   const selectedUnit = unitList.find(u => u.unit === unit) ?? null
   const [people, setPeople] = useState([{ name: '', email: '', phone: '', isMinor: false }])
+  // Purchase-only: no U.S. credit score can be pulled without 2 years of U.S.
+  // tax returns, which is what unlocks the international-applicant checklist
+  // items (CPA certification, foreign police clearance) and the 1-year
+  // advance-maintenance rule. Unchecked (the default) assumes the standard
+  // path — staff only flips this when they actually know it applies.
+  const [notUsTaxpayer, setNotUsTaxpayer] = useState(false)
   const [note, setNote] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
@@ -490,7 +496,7 @@ function StaffCreate() {
     try {
       const doCreate = (force: boolean) => fetch('/api/admin/pre-apply/create', {
         method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ associationCode: assoc, unit: unit.trim(), applicationType: type, applicants: people, note, ...(force ? { force: true } : {}) }),
+        body: JSON.stringify({ associationCode: assoc, unit: unit.trim(), applicationType: type, applicants: people, note, ...(type === 'purchase' ? { usTaxReturns: !notUsTaxpayer } : {}), ...(force ? { force: true } : {}) }),
       })
       let r = await doCreate(false)
       let j = await r.json()
@@ -556,6 +562,12 @@ function StaffCreate() {
             <select value={type} onChange={e => { setType(e.target.value); setFile(null); setExtractMsg(null); setExtractedLease(null) }} style={{ ...inp, cursor: 'pointer' }}>
               {TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
             </select>
+            {type === 'purchase' && (
+              <label style={{ font: '12.5px system-ui', color: '#374151', display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                <input type="checkbox" checked={notUsTaxpayer} onChange={e => setNotUsTaxpayer(e.target.checked)} />
+                International applicant (no 2 years of U.S. tax returns)
+              </label>
+            )}
           </div>
           {selectedUnit && (
             <div style={{ font: '12.5px system-ui', color: '#374151', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 10px' }}>

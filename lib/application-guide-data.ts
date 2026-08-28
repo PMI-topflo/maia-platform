@@ -77,7 +77,7 @@ const GROUP_LABEL: Record<GuideRuleGroup['key'], string> = {
 
 const FROM_LABEL: Record<string, string> = { applicant: 'Applicant', landlord: 'Owner', agent: 'Agent', both: 'Both', staff: 'Staff' }
 
-const CONDITION_LABEL: Record<string, string> = { vehicle: 'if applic.', pet: 'if pet', assistance_animal: 'if ESA' }
+const CONDITION_LABEL: Record<string, string> = { vehicle: 'if applic.', pet: 'if pet', assistance_animal: 'if ESA', international: 'if intl.' }
 
 function cellFor(doc: IntakeDoc | undefined): string {
   if (!doc) return '—'

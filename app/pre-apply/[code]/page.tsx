@@ -73,7 +73,7 @@ const WELCOME_CSS = `
 
 interface ChecklistItem { id: string; doc_key: string; label: string; provided_by: 'applicant' | 'landlord' | 'agent'; required: boolean; note: string | null; uploaded: boolean; mine: boolean; requiresNotarization?: boolean; templateUrl?: string | null; conditionKey?: string | null }
 type AnimalKind = 'pet' | 'service' | 'esa' | 'unsure'
-interface Declarations { vehicle?: { has: boolean } | null; animal?: { has: boolean; kind?: AnimalKind | null } | null }
+interface Declarations { vehicle?: { has: boolean } | null; animal?: { has: boolean; kind?: AnimalKind | null } | null; taxReturns?: { has: boolean } | null }
 interface AnimalGuidance { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[] }
 interface Collaborator { id: string; name: string | null; email: string | null; role: string; roleLabel: string; isPrimary: boolean; status: string; signs: boolean; signed: boolean; emailVerified: boolean }
 interface Info {
@@ -82,7 +82,7 @@ interface Info {
   canAddCollaborators: boolean; submitted: boolean
   checklist: ChecklistItem[]; rules: { rule_key: string; label: string }[]; collaborators: Collaborator[]
   declarations: Declarations
-  pendingDeclarations: ('vehicle' | 'animal')[]
+  pendingDeclarations: ('vehicle' | 'animal' | 'taxReturns')[]
   petsAllowed: boolean | null
   petsProhibitedNotice: boolean
   animalKinds: { key: AnimalKind; label: string; blurb: string }[]
@@ -385,7 +385,7 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
         {info.me.roleLabel}{info.unitLabel ? ` · Unit ${info.unitLabel}` : ''} · {f.docsP}
       </p>
 
-      {answersGates && (info.pendingDeclarations.length > 0 || info.declarations.vehicle || info.declarations.animal) && (
+      {answersGates && (info.pendingDeclarations.length > 0 || info.declarations.vehicle || info.declarations.animal || info.declarations.taxReturns) && (
         <DeclarationCard token={token} info={info} onDone={load} />
       )}
 
@@ -523,6 +523,7 @@ function DeclarationCard({ token, info, onDone }: { token: string; info: Info; o
   const asks = new Set(info.checklist.map(c => c.conditionKey).filter(Boolean) as string[])
   const asksVehicle = info.pendingDeclarations.includes('vehicle') || !!d.vehicle
   const asksAnimal = info.pendingDeclarations.includes('animal') || !!d.animal
+  const asksTaxReturns = info.pendingDeclarations.includes('taxReturns') || !!d.taxReturns
 
   async function save(body: Record<string, unknown>, tag: string) {
     setBusy(tag); setErr(null)
@@ -559,6 +560,23 @@ function DeclarationCard({ token, info, onDone }: { token: string; info: Info; o
           </div>
           {d.vehicle?.has === false && (
             <p style={{ fontSize: 12.5, color: '#0f7a4d', margin: '8px 0 0' }}>✓ The vehicle registration and vehicle insurance will not be requested.</p>
+          )}
+        </div>
+      )}
+
+      {asksTaxReturns && (
+        <div style={{ marginBottom: asksAnimal ? 18 : 0 }}>
+          <p style={qStyle}>Do you have 2 years of U.S. tax returns?</p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => save({ usTaxReturns: true }, 't1')} disabled={!!busy} style={yn(true, d.taxReturns?.has === true)}>Yes</button>
+            <button onClick={() => save({ usTaxReturns: false }, 't0')} disabled={!!busy} style={yn(false, d.taxReturns?.has === false)}>No</button>
+          </div>
+          {d.taxReturns?.has === false && (
+            <p style={{ fontSize: 12.5, color: '#b45309', margin: '8px 0 0', lineHeight: 1.5 }}>
+              A U.S. credit score cannot be pulled without them, so you will also be asked for a foreign police
+              clearance certificate and a CPA Financial Certification, and you will need to pay one year of quarterly
+              maintenance in advance instead of the standard credit-score-based amount.
+            </p>
           )}
         </div>
       )}

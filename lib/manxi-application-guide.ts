@@ -44,6 +44,7 @@ export const MANXI_RULE_GROUPS: Record<string, 'all' | 'lease' | 'purchase'> = {
   max_rentals_per_12mo: 'purchase',
   min_annual_income: 'purchase',
   credit_score_advance_maintenance: 'purchase',
+  international_no_credit_advance_maintenance: 'purchase',
 }
 
 export interface GuideNote { group: 'all' | 'lease' | 'purchase'; text: string }

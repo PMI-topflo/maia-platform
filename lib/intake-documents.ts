@@ -51,6 +51,9 @@ export interface IntakeDoc {
 export interface Declarations {
   vehicle?: { has: boolean; at?: string } | null
   animal?: { has: boolean; kind?: AnimalKind | null; count?: number | null; at?: string } | null
+  /** Purchase-only: "Do you have 2 years of U.S. tax returns?" has=true is
+   *  the standard path; has=false is the international-applicant branch. */
+  taxReturns?: { has: boolean; at?: string } | null
 }
 
 export function parseDeclarations(raw: unknown): Declarations {
@@ -60,11 +63,12 @@ export function parseDeclarations(raw: unknown): Declarations {
 /** Whether the applicant has answered every gate the checklist actually asks.
  *  An item with no condition_key never needs an answer, so an association whose
  *  checklist has no conditional items never sees these questions at all. */
-export function pendingDeclarations(docs: Pick<IntakeDoc, 'condition_key'>[], d: Declarations): ('vehicle' | 'animal')[] {
+export function pendingDeclarations(docs: Pick<IntakeDoc, 'condition_key'>[], d: Declarations): ('vehicle' | 'animal' | 'taxReturns')[] {
   const keys = new Set(docs.map(x => x.condition_key).filter(Boolean) as string[])
-  const out: ('vehicle' | 'animal')[] = []
+  const out: ('vehicle' | 'animal' | 'taxReturns')[] = []
   if (keys.has('vehicle') && typeof d.vehicle?.has !== 'boolean') out.push('vehicle')
   if ((keys.has('pet') || keys.has('assistance_animal')) && typeof d.animal?.has !== 'boolean') out.push('animal')
+  if (keys.has('international') && typeof d.taxReturns?.has !== 'boolean') out.push('taxReturns')
   return out
 }
 
@@ -95,6 +99,8 @@ export function declaredNaKeys(
   const on = activeConditions(d, opts)
   const answered = (c: string) => c === 'vehicle'
     ? typeof d.vehicle?.has === 'boolean'
+    : c === 'international'
+    ? typeof d.taxReturns?.has === 'boolean'
     : typeof d.animal?.has === 'boolean'
   return docs
     .filter(x => x.condition_key && answered(x.condition_key) && !on.has(x.condition_key))

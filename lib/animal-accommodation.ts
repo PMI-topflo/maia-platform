@@ -60,11 +60,16 @@ export function activeConditions(
   d: {
     vehicle?: { has?: boolean } | null
     animal?: { has?: boolean; kind?: AnimalKind | null } | null
+    /** Purchase-only: "Do you have 2 years of U.S. tax returns?" has=false
+     *  is the international-applicant branch (no U.S. credit/tax history) —
+     *  opens the CPA-certification / police-clearance checklist items. */
+    taxReturns?: { has?: boolean } | null
   } | null | undefined,
   opts?: { petsAllowed?: boolean | null },
 ): Set<string> {
   const on = new Set<string>()
   if (d?.vehicle?.has) on.add('vehicle')
+  if (d?.taxReturns?.has === false) on.add('international')
   if (d?.animal?.has) {
     const kind = d.animal.kind ?? null
     const petsAllowed = opts?.petsAllowed !== false

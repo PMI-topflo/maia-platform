@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   const session = await requireStaffSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  let b: { associationCode?: unknown; unit?: unknown; applicationType?: unknown; applicants?: unknown; note?: unknown }
+  let b: { associationCode?: unknown; unit?: unknown; applicationType?: unknown; applicants?: unknown; note?: unknown; usTaxReturns?: unknown }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
 
   const code = String(b.associationCode ?? '').trim().toUpperCase()
@@ -105,6 +105,15 @@ export async function POST(req: Request) {
     applicant: { name: people[0].name, email: people[0].email ?? '', phone: people[0].phone },
   })
   if ('error' in created) return NextResponse.json({ error: created.error }, { status: 500 })
+
+  // Purchase-only international-applicant declaration, set by staff at
+  // creation time rather than left for the applicant to answer later —
+  // staff already know it from the documents in hand.
+  if (type === 'purchase' && typeof b.usTaxReturns === 'boolean') {
+    await supabaseAdmin.from('listing_applications')
+      .update({ declarations: { taxReturns: { has: b.usTaxReturns, at: new Date().toISOString() } } })
+      .eq('id', created.applicationId)
+  }
 
   // createIntake leaves applicant_role null, which shows as a blank role on the
   // per-applicant tabs. Set it from what the application actually is.

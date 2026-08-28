@@ -1,4 +1,4 @@
-// POST /api/pre-apply/[token]/declare   { vehicle?: boolean, animal?: boolean, animalKind?: 'pet'|'service'|'esa' }
+// POST /api/pre-apply/[token]/declare   { vehicle?: boolean, animal?: boolean, animalKind?: 'pet'|'service'|'esa', usTaxReturns?: boolean }
 //
 // The applicant answers the yes/no gates themselves. Before this existed, the
 // vehicle and pet items were unconditionally required, so an applicant with no
@@ -30,7 +30,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!intake) return NextResponse.json({ error: 'This application could not be found.' }, { status: 404 })
   if (intake.submittedAt) return NextResponse.json({ error: 'This application has already been submitted.' }, { status: 400 })
 
-  let b: { vehicle?: unknown; animal?: unknown; animalKind?: unknown }
+  let b: { vehicle?: unknown; animal?: unknown; animalKind?: unknown; usTaxReturns?: unknown }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
 
   const { data: app } = await supabaseAdmin.from('listing_applications')
@@ -41,6 +41,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const next: Declarations = { ...parseDeclarations(app.declarations) }
 
   if (typeof b.vehicle === 'boolean') next.vehicle = { has: b.vehicle, at: now }
+  if (typeof b.usTaxReturns === 'boolean') next.taxReturns = { has: b.usTaxReturns, at: now }
 
   if (typeof b.animal === 'boolean') {
     const kind = ANIMAL_KINDS.includes(b.animalKind as AnimalKind) ? b.animalKind as AnimalKind : null

@@ -4048,6 +4048,15 @@ ALTER TABLE public.lease_renewal_checks ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "service_role_all_lease_renewal_checks" ON public.lease_renewal_checks;
 CREATE POLICY "service_role_all_lease_renewal_checks" ON public.lease_renewal_checks FOR ALL TO service_role USING (true);`,
   },
+  {
+    key:         'manxi_international_applicant_docs',
+    label:       'MANXI: international-applicant checklist + advance-maintenance rule',
+    description: "User direction, 2026-08-28: wire the already-built international-applicant package (foreign police clearance, CPA Financial Certification, notarized translation — lib/intl-cpa-guide-pdf.tsx) into MANXI's real purchase checklist, gated on a new condition_key='international' (widens the existing chk_intake_condition constraint from 20260815_vehicle_animal_declarations.sql). Also adds a standalone rule: since a U.S. credit score can't be pulled for an international buyer, they pay one year of quarterly maintenance in advance regardless of the existing credit-score bands.",
+    filename:    '20260828_manxi_international_applicant_docs.sql',
+    artifact:    { type: 'column', table: 'association_intake_documents', column: 'condition_key' },
+    sql: `-- See supabase/migrations/20260828_manxi_international_applicant_docs.sql for the full seed.
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
