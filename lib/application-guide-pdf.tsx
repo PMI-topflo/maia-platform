@@ -55,7 +55,10 @@ const s = StyleSheet.create({
   tableRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: '#e5e7eb', paddingVertical: 3 },
   colDoc: { flex: 2.6, fontSize: 8.5 },
   colFrom: { flex: 0.9, fontSize: 8.5, color: MUTED },
-  colType: { flex: 0.75, fontSize: 8.5, textAlign: 'center' },
+  colTypeHead: { flex: 0.75, fontSize: 8.5, textAlign: 'center' },
+  colTypeWrap: { flex: 0.75, alignItems: 'center' },
+  colType: { fontSize: 8.5, textAlign: 'center' },
+  colTypeSub: { fontSize: 6, color: BLOCK, textAlign: 'center', marginTop: 1 },
   headText: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: NAVY, textTransform: 'uppercase' },
   legend: { fontSize: 7.5, color: MUTED, marginTop: 6, lineHeight: 1.5 },
 
@@ -80,12 +83,24 @@ function RuleRow({ text, enforcement }: { text: string; enforcement: 'block' | '
   )
 }
 
+// occupant_affidavit is only required for occupants 18 and over — minors
+// listed as additional occupants don't need one, so the Add'l Occ. column
+// carries a small red reminder of that carve-out (user direction, 2026-08-28).
+const OVER_18_NOTE_DOC_KEY = 'occupant_affidavit'
+
 function ChecklistRow({ row }: { row: GuideChecklistRow }) {
   return (
     <View style={s.tableRow} wrap={false}>
       <Text style={s.colDoc}>{pdfSafe(row.label)}</Text>
       <Text style={s.colFrom}>{row.from}</Text>
-      {TYPE_HEAD.map(t => <Text key={t.key} style={s.colType}>{row.cells[t.key]}</Text>)}
+      {TYPE_HEAD.map(t => (
+        <View key={t.key} style={s.colTypeWrap}>
+          <Text style={s.colType}>{row.cells[t.key]}</Text>
+          {t.key === 'additional_occupant' && row.docKey === OVER_18_NOTE_DOC_KEY && (
+            <Text style={s.colTypeSub}>(over 18yr.)</Text>
+          )}
+        </View>
+      ))}
     </View>
   )
 }
@@ -130,7 +145,7 @@ export function ApplicationGuidePdf({ data }: { data: ApplicationGuideData }) {
         <View style={s.tableHead} wrap={false}>
           <Text style={{ ...s.colDoc, ...s.headText }}>Document</Text>
           <Text style={{ ...s.colFrom, ...s.headText }}>From</Text>
-          {TYPE_HEAD.map(t => <Text key={t.key} style={{ ...s.colType, ...s.headText }}>{t.label}</Text>)}
+          {TYPE_HEAD.map(t => <Text key={t.key} style={{ ...s.colTypeHead, ...s.headText }}>{t.label}</Text>)}
         </View>
         {data.checklist.map((row, i) => <ChecklistRow key={i} row={row} />)}
         <Text style={s.legend}>Req = required · if applic. = only asked if you confirm it applies to you · Optional = helps your file, not required · — = not part of this application type</Text>

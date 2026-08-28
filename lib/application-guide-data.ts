@@ -31,6 +31,7 @@ export interface GuideRuleGroup {
 }
 
 export interface GuideChecklistRow {
+  docKey: string
   label: string
   from: string
   cells: Record<ApplicationType, string>
@@ -135,6 +136,7 @@ export async function buildApplicationGuideData(associationCodeRaw: string): Pro
     // (e.g. "Tenant Affidavit (signed & notarized by tenant and landlord)"),
     // confirmed by generating a real PDF and seeing "(Notarized) (Notarized)".
     return {
+      docKey: rep.doc_key,
       label: rep.label, from: FROM_LABEL[rep.provided_by] ?? rep.provided_by,
       cells: {
         lease: cellFor(byType.lease), lease_renewal: cellFor(byType.lease_renewal),
