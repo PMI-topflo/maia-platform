@@ -11,6 +11,21 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import type { EsignDoc } from '@/lib/esign'
+import { buildManorsClubWelcomePackage } from '@/lib/manors-club-welcome-package'
+
+// MANXI's master association (Manors Club Inc.) issues its own amenity
+// forms — MAIA doesn't manage them, so an approved MANXI applicant gets
+// those forms PRE-FILLED to print and present in person, alongside the
+// approval letter. User direction, 2026-08-28 (source: the real "Manors
+// Club Files.pdf" from Greg Rullo, Grant Property Management — the Club's
+// management company). MANXI-only; every other association is unaffected.
+const MANORS_CLUB_SOURCE_PDF_PATH = 'MANXI/manors-club-welcome-package/source.pdf'
+const MANORS_CLUB_BUILDING_ADDRESS = '4174 Inverrary Drive'
+const MANORS_CLUB_CONTACT = {
+  name: 'Greg Rullo, LCAM', company: 'Grant Property Management',
+  phone: '(954) 718-9903 ext. 512', email: 'greg@grantmgmt.com',
+  address: '7124 North Nob Hill Road, Tamarac, FL 33321',
+}
 
 const SUPPORT = 'support@topfloridaproperties.com'
 const NOTIFY = (process.env.UNIT_UPLOAD_NOTIFY_EMAILS ?? 'PMI@topfloridaproperties.com,ar@topfloridaproperties.com')
@@ -35,9 +50,9 @@ export async function distributeApprovalLetter(opts: { doc: EsignDoc; applicatio
   const code = String(doc.association_code), unit = String(doc.unit_ref ?? '')
 
   const [{ data: app }, { data: assoc }, { data: people }, { data: owners }, { data: mgrs }] = await Promise.all([
-    supabaseAdmin.from('listing_applications').select('application_type').eq('id', applicationId).maybeSingle(),
+    supabaseAdmin.from('listing_applications').select('application_type, lease_start, lease_end').eq('id', applicationId).maybeSingle(),
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', code).maybeSingle(),
-    supabaseAdmin.from('application_stakeholders').select('role, name, email, is_primary').eq('application_id', applicationId).order('is_primary', { ascending: false }),
+    supabaseAdmin.from('application_stakeholders').select('role, name, email, phone, is_primary').eq('application_id', applicationId).order('is_primary', { ascending: false }),
     supabaseAdmin.from('owners').select('first_name, last_name, entity_name, emails').eq('association_code', code).or(`unit_number.eq.${unit},account_number.eq.${code}${unit}`).or('status.neq.previous,status.is.null'),
     supabaseAdmin.from('building_managers').select('first_name, last_name, email').eq('association_code', code).eq('active', true),
   ])
@@ -51,6 +66,39 @@ export async function distributeApprovalLetter(opts: { doc: EsignDoc; applicatio
   const applicants = (people ?? []).filter(p => p.role === 'applicant')
   const applicantNames = applicants.map(p => String(p.name ?? '').trim()).filter(Boolean)
   const lead = applicantNames[0] ?? 'the applicant'
+
+  // MANXI only: pre-fill the master association's own real amenity forms
+  // (Proximity Card / Recreational I.D. Pass Registration, Elevator/Gate
+  // Pass) with what's already on file, so the approved resident has
+  // something to print and hand the Manors Club office in person — MAIA
+  // doesn't submit anything to them directly. Best-effort: any failure here
+  // (missing source PDF, a malformed field) must never block the approval
+  // letter itself from going out.
+  let manorsClub: { proximityCardForm: Uint8Array; elevatorGatePassForm: Uint8Array } | null = null
+  if (code === 'MANXI' && unit) {
+    try {
+      const primary = applicants.find(a => a.is_primary) ?? applicants[0]
+      const ownerRow = (owners ?? [])[0]
+      const ownerName = (String(ownerRow?.entity_name ?? '').trim() || `${ownerRow?.first_name ?? ''} ${ownerRow?.last_name ?? ''}`.trim()) || lead
+      const { data: srcBlob } = await supabaseAdmin.storage.from('application-docs').download(MANORS_CLUB_SOURCE_PDF_PATH)
+      if (srcBlob) {
+        const sourcePdf = Buffer.from(await srcBlob.arrayBuffer())
+        manorsClub = await buildManorsClubWelcomePackage({
+          sourcePdf,
+          ownerName,
+          unitAddress: `${MANORS_CLUB_BUILDING_ADDRESS}, Unit ${unit}`,
+          unitLabel: unit,
+          scenario: type === 'purchase' ? 'owner_occupant' : 'tenant',
+          residentNames: applicantNames,
+          leaseStart: (app?.lease_start as string | null) ?? null,
+          leaseEnd: (app?.lease_end as string | null) ?? null,
+          applicantName: (primary?.name as string | null) || lead,
+          applicantPhone: (primary?.phone as string | null) ?? null,
+          applicantEmail: (primary?.email as string | null) ?? null,
+        })
+      }
+    } catch { /* never block the letter over this */ }
+  }
 
   // Build the party list — each row is a person we're copying.
   const parties: Party[] = []
@@ -91,6 +139,18 @@ export async function distributeApprovalLetter(opts: { doc: EsignDoc; applicatio
       <div style="font:700 11.5px system-ui;text-transform:uppercase;letter-spacing:.06em;color:#8a8f9a;margin:0 0 8px">Everyone below has received a copy</div>
       <table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid #e7e2d9;border-radius:10px;overflow:hidden;margin:0 0 18px">${rows}</table>
       <p style="font-size:14.5px;color:#3f4756;margin:0 0 16px">No further action is needed from you — we&apos;ll complete the association&apos;s filing. If anything looks incorrect, just reply to this email.</p>
+      ${manorsClub ? `<div style="border:1px solid #e7e2d9;border-radius:10px;padding:14px 16px;margin:0 0 18px">
+        <div style="font:700 12.5px system-ui;color:#1c2333;margin:0 0 6px">🏊 Manors Club amenities — two forms attached, pre-filled</div>
+        <p style="font-size:13.5px;color:#3f4756;margin:0 0 8px;line-height:1.5">The Manors of Inverrary&apos;s recreational facilities (pool, gym, clubhouse) are managed by a separate entity, <b>Manors Club Inc.</b> — not PMI. We&apos;ve <b>pre-filled their own registration forms</b> with what&apos;s already on file; <b>print, sign, and bring them in person</b> along with a valid ID and the listed fee:</p>
+        <ul style="font-size:13.5px;color:#3f4756;margin:0 0 10px;padding-left:20px;line-height:1.6">
+          <li><b>Proximity Card / Recreational I.D. Pass Registration</b> (attached) — required for the pools, gym, and to reserve the pool deck or event hall. $10 first card, $25 each additional (cash).</li>
+          <li><b>Elevator/Gate Pass</b> (attached) — required for move-in; submit at least 3 business days ahead. $40 non-refundable (money order).</li>
+          <li><b>Front Gate Entry Barcode</b> (no form — bring a valid vehicle registration + driver&apos;s license + $5 cash).</li>
+          <li><b>Manors Club I.D. Card</b> (no form — bring a government-issued ID + $5 cash).</li>
+        </ul>
+        <p style="font-size:13.5px;color:#3f4756;margin:0 0 4px">Manors Club Management Office — open Mon–Fri, 8:00am–4:30pm.</p>
+        <p style="font-size:13px;color:#6b7280;margin:0">${esc(MANORS_CLUB_CONTACT.name)}, ${esc(MANORS_CLUB_CONTACT.company)} · ☎ ${esc(MANORS_CLUB_CONTACT.phone)} · ✉ <a href="mailto:${MANORS_CLUB_CONTACT.email}" style="color:#c0571a">${esc(MANORS_CLUB_CONTACT.email)}</a><br>${esc(MANORS_CLUB_CONTACT.address)}</p>
+      </div>` : ''}
       <div style="display:flex;gap:12px;background:#f8efe6;border-radius:10px;padding:14px 16px;margin:0 0 18px">
         <div style="font-size:22px;line-height:1">✦</div>
         <div style="font-size:13px;color:#3f4756"><b style="color:#c0571a">What is MAIA?</b> MAIA is PMI Top Florida Properties&apos; document assistant. It keeps your association paperwork organized and secure and flags anything expiring — so approvals move faster for you.</div>
@@ -108,7 +168,13 @@ export async function distributeApprovalLetter(opts: { doc: EsignDoc; applicatio
     to: [SUPPORT], bcc: uniq.map(p => p.email), replyTo: SUPPORT,
     subject: `✅ ${typeTitle} approved — ${unit ? `Unit ${unit}, ` : ''}${legal}`,
     html,
-    attachments: [{ filename: 'Board_Approval_Letter.pdf', content: pdf.toString('base64') }],
+    attachments: [
+      { filename: 'Board_Approval_Letter.pdf', content: pdf.toString('base64') },
+      ...(manorsClub ? [
+        { filename: 'Manors_Club_Proximity_Card_Registration.pdf', content: Buffer.from(manorsClub.proximityCardForm).toString('base64') },
+        { filename: 'Manors_Club_Elevator_Gate_Pass_Application.pdf', content: Buffer.from(manorsClub.elevatorGatePassForm).toString('base64') },
+      ] : []),
+    ],
   })
 
   // Register it on the letter so it shows in the application's communication
