@@ -24,7 +24,7 @@ import {
 } from '@/lib/manxi-application-guide'
 
 export interface GuideRuleGroup {
-  key: 'all' | 'lease' | 'purchase' | 'other'
+  key: 'all' | 'lease' | 'purchase' | 'international' | 'other'
   label: string
   rules: { text: string; enforcement: 'block' | 'warn' }[]
   notes: string[]
@@ -34,6 +34,7 @@ export interface GuideChecklistRow {
   docKey: string
   label: string
   from: string
+  note: string | null
   cells: Record<ApplicationType, string>
 }
 
@@ -44,6 +45,9 @@ export interface ApplicationGuideData {
   steps: GuideStep[]
   renewalNote: string
   checklist: GuideChecklistRow[]
+  /** Checklist rows with condition_key='international' — shown as their own
+   *  separate callout in §3 rather than interleaved into the main table. */
+  internationalChecklist: GuideChecklistRow[]
   afterApproval: GuideRegistration[]
   footer: string
   generatedAt: string
@@ -51,7 +55,7 @@ export interface ApplicationGuideData {
 
 interface GuideContent {
   masthead: GuideMasthead
-  ruleGroups: Record<string, 'all' | 'lease' | 'purchase'>
+  ruleGroups: Record<string, 'all' | 'lease' | 'purchase' | 'international'>
   notes: GuideNote[]
   steps: GuideStep[]
   renewalNote: string
@@ -72,7 +76,8 @@ export function guideAvailable(associationCode: string): boolean {
 }
 
 const GROUP_LABEL: Record<GuideRuleGroup['key'], string> = {
-  all: 'For all applicants', lease: 'For leases & lease renewals', purchase: 'For purchases', other: 'Other',
+  all: 'For all applicants', lease: 'For leases & lease renewals', purchase: 'For purchases',
+  international: 'For international applicants', other: 'Other',
 }
 
 const FROM_LABEL: Record<string, string> = { applicant: 'Applicant', landlord: 'Owner', agent: 'Agent', both: 'Both', staff: 'Staff' }
@@ -102,6 +107,7 @@ export async function buildApplicationGuideData(associationCodeRaw: string): Pro
     all: { key: 'all', label: GROUP_LABEL.all, rules: [], notes: [] },
     lease: { key: 'lease', label: GROUP_LABEL.lease, rules: [], notes: [] },
     purchase: { key: 'purchase', label: GROUP_LABEL.purchase, rules: [], notes: [] },
+    international: { key: 'international', label: GROUP_LABEL.international, rules: [], notes: [] },
     other: { key: 'other', label: GROUP_LABEL.other, rules: [], notes: [] },
   }
   for (const r of rules ?? []) {
@@ -109,7 +115,9 @@ export async function buildApplicationGuideData(associationCodeRaw: string): Pro
     groups[key].rules.push({ text: String(r.label ?? r.rule_key), enforcement: r.enforcement === 'block' ? 'block' : 'warn' })
   }
   for (const n of content.notes) groups[n.group].notes.push(n.text)
-  const ruleGroups = (['all', 'lease', 'purchase', 'other'] as const)
+  // 'international' sits after all/lease/purchase, before the catch-all 'other'
+  // — its own section rather than folded into "For purchases".
+  const ruleGroups = (['all', 'lease', 'purchase', 'international', 'other'] as const)
     .map(k => groups[k]).filter(g => g.rules.length > 0 || g.notes.length > 0)
 
   // One matrix row per doc_key — representative label/from taken from
@@ -129,25 +137,31 @@ export async function buildApplicationGuideData(associationCodeRaw: string): Pro
     const da = order.map(t => a[1][t]).find(Boolean), db = order.map(t => b[1][t]).find(Boolean)
     return (da?.sort_order ?? 0) - (db?.sort_order ?? 0)
   })
-  const checklist: GuideChecklistRow[] = sorted.map(([, byType]) => {
+  const checklist: GuideChecklistRow[] = []
+  const internationalChecklist: GuideChecklistRow[] = []
+  for (const [, byType] of sorted) {
     const rep = order.map(t => byType[t]).find(Boolean)!
     // requires_notarization is deliberately NOT appended here — every
     // checklist row that carries it already says so in its own label text
     // (e.g. "Tenant Affidavit (signed & notarized by tenant and landlord)"),
     // confirmed by generating a real PDF and seeing "(Notarized) (Notarized)".
-    return {
+    const row: GuideChecklistRow = {
       docKey: rep.doc_key,
-      label: rep.label, from: FROM_LABEL[rep.provided_by] ?? rep.provided_by,
+      label: rep.label, from: FROM_LABEL[rep.provided_by] ?? rep.provided_by, note: rep.note,
       cells: {
         lease: cellFor(byType.lease), lease_renewal: cellFor(byType.lease_renewal),
         purchase: cellFor(byType.purchase), additional_occupant: cellFor(byType.additional_occupant),
       },
     }
-  })
+    // condition_key='international' rows get their own separate callout in
+    // §3 (see application-guide-pdf.tsx) rather than sitting interleaved in
+    // the main table by sort_order.
+    ;(rep.condition_key === 'international' ? internationalChecklist : checklist).push(row)
+  }
 
   return {
     associationCode, masthead: content.masthead, ruleGroups, steps: content.steps,
-    renewalNote: content.renewalNote, checklist, afterApproval: content.afterApproval,
+    renewalNote: content.renewalNote, checklist, internationalChecklist, afterApproval: content.afterApproval,
     footer: content.footer, generatedAt: new Date().toISOString(),
   }
 }

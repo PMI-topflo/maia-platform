@@ -62,6 +62,13 @@ const s = StyleSheet.create({
   headText: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: NAVY, textTransform: 'uppercase' },
   legend: { fontSize: 7.5, color: MUTED, marginTop: 6, lineHeight: 1.5 },
 
+  intlBox: { borderWidth: 1, borderColor: '#c7d2fe', backgroundColor: '#eef2ff', borderRadius: 5, padding: 9, marginTop: 12 },
+  intlHead: { fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: NAVY, marginBottom: 2 },
+  intlSub: { fontSize: 8, color: MUTED, marginBottom: 6, lineHeight: 1.4 },
+  intlItem: { fontSize: 8.5, marginTop: 4, lineHeight: 1.4 },
+  intlLabel: { fontFamily: 'Helvetica-Bold', color: INK },
+  intlNote: { color: MUTED },
+
   regRow: { flexDirection: 'row', marginTop: 5, gap: 6 },
   regTitle: { fontSize: 9, fontFamily: 'Helvetica-Bold', color: NAVY },
   regBody: { fontSize: 9, color: INK, flex: 1 },
@@ -149,6 +156,19 @@ export function ApplicationGuidePdf({ data }: { data: ApplicationGuideData }) {
         </View>
         {data.checklist.map((row, i) => <ChecklistRow key={i} row={row} />)}
         <Text style={s.legend}>Req = required · if applic. = only asked if you confirm it applies to you · Optional = helps your file, not required · — = not part of this application type</Text>
+
+        {data.internationalChecklist.length > 0 && (
+          <View style={s.intlBox} wrap={false}>
+            <Text style={s.intlHead}>International Applicants — Purchase Only</Text>
+            <Text style={s.intlSub}>Asked in place of a U.S. credit score when the applicant is not a U.S. taxpayer with 2 years of U.S. tax returns — see §1.</Text>
+            {data.internationalChecklist.map((row, i) => (
+              <Text key={i} style={s.intlItem}>
+                <Text style={s.intlLabel}>{pdfSafe(row.label)}{row.cells.purchase === 'Optional' ? ' (optional)' : ''}</Text>
+                {row.note ? <Text style={s.intlNote}> — {pdfSafe(row.note)}</Text> : null}
+              </Text>
+            ))}
+          </View>
+        )}
 
         <View style={s.sectionHead}><Text style={s.sectionNum}>§4</Text><Text style={s.sectionTitle}>After Your Approval</Text></View>
         <Text style={s.sectionDek}>Not part of the application — separate, move-in-only registrations sent alongside your approval letter once you&apos;re already approved.</Text>

@@ -33,7 +33,7 @@ export const MANXI_GUIDE_MASTHEAD: GuideMasthead = {
 // rule_key → which §1 group it prints under. A live rule with no entry here
 // still prints, under "Other" — so a newly-added rule is never silently
 // dropped from the guide just because this map wasn't updated the same day.
-export const MANXI_RULE_GROUPS: Record<string, 'all' | 'lease' | 'purchase'> = {
+export const MANXI_RULE_GROUPS: Record<string, 'all' | 'lease' | 'purchase' | 'international'> = {
   no_pet: 'all',
   max_occupants_by_bedrooms: 'all',
   no_commercial_or_recreational_vehicles: 'all',
@@ -44,7 +44,7 @@ export const MANXI_RULE_GROUPS: Record<string, 'all' | 'lease' | 'purchase'> = {
   max_rentals_per_12mo: 'purchase',
   min_annual_income: 'purchase',
   credit_score_advance_maintenance: 'purchase',
-  international_no_credit_advance_maintenance: 'purchase',
+  international_no_credit_advance_maintenance: 'international',
 }
 
 export interface GuideNote { group: 'all' | 'lease' | 'purchase'; text: string }
