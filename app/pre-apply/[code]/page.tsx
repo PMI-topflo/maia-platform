@@ -13,6 +13,7 @@ import { use, useCallback, useEffect, useState } from 'react'
 import { SignaturePad } from '@/components/SignatureEvidence'
 import { preApplyStrings, preApplyFlow } from '@/lib/preapply-welcome-i18n'
 import { PORTAL_LANGS, PORTAL_LANG_LABEL, isRtl, normalizePortalLang, type PortalLang } from '@/lib/portal-i18n'
+import { INTL_DOCS_CONTENT, type IntlDocsLang } from '@/lib/intl-applicant-docs-content'
 
 const TYPE_DEFS = [
   { key: 'lease',                  icon: '🏠', tk: 't1t', dk: 't1d', fbt: 'Lease / Rental',        fbd: 'Renting the unit' },
@@ -566,7 +567,7 @@ function DeclarationCard({ token, info, onDone }: { token: string; info: Info; o
 
       {asksTaxReturns && (
         <div style={{ marginBottom: asksAnimal ? 18 : 0 }}>
-          <p style={qStyle}>Do you have 2 years of U.S. tax returns?</p>
+          <p style={qStyle}>Are you a U.S. taxpayer with at least 2 years of U.S. tax returns?</p>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => save({ usTaxReturns: true }, 't1')} disabled={!!busy} style={yn(true, d.taxReturns?.has === true)}>Yes</button>
             <button onClick={() => save({ usTaxReturns: false }, 't0')} disabled={!!busy} style={yn(false, d.taxReturns?.has === false)}>No</button>
@@ -693,6 +694,16 @@ function DocBox({ token, item, lang, onDone }: { token: string; item: ChecklistI
         <div style={{ marginTop: 8, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '9px 11px' }}>
           <a href={item.templateUrl} target="_blank" rel="noreferrer" style={{ font: '700 13px system-ui', color: '#b45309', textDecoration: 'none' }}>📥 {f.downloadForm}</a>
           <div style={{ font: '12px system-ui', color: '#92400e', marginTop: 4, lineHeight: 1.45 }}>{item.requiresNotarization ? f.notarizeSteps : f.printSignUpload}</div>
+        </div>
+      )}
+      {/* CPA Financial Certification has no Storage template file — it points to
+          the existing standalone CPA-requirements guide instead (same public,
+          multi-language PDF the older international /apply flow already used). */}
+      {item.doc_key === 'intl_cpa_certification' && (
+        <div style={{ marginTop: 8, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '9px 11px' }}>
+          <a href={`/api/apply/intl-cpa-guide?lang=${lang}`} target="_blank" rel="noreferrer" style={{ font: '700 13px system-ui', color: '#b45309', textDecoration: 'none' }}>
+            📥 {INTL_DOCS_CONTENT[(lang as IntlDocsLang) in INTL_DOCS_CONTENT ? (lang as IntlDocsLang) : 'en'].downloadCpaGuide}
+          </a>
         </div>
       )}
       <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

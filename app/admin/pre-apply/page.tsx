@@ -565,7 +565,7 @@ function StaffCreate() {
             {type === 'purchase' && (
               <label style={{ font: '12.5px system-ui', color: '#374151', display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
                 <input type="checkbox" checked={notUsTaxpayer} onChange={e => setNotUsTaxpayer(e.target.checked)} />
-                International applicant (no 2 years of U.S. tax returns)
+                International applicant (not a U.S. taxpayer with 2 years of U.S. tax returns)
               </label>
             )}
           </div>
