@@ -1,3 +1,43 @@
+# Session handoff — 2026-08-28/29
+
+## Application Guide polish, MANXI's international-applicant pipeline wired for real, and a default checklist template for 17 associations
+
+Continuation of the 2026-08-25/26 MANXI Application Guide project. Started as small edits to the live Guide PDF, grew into wiring an existing-but-orphaned feature into the real approval pipeline, then into a broad "make this repeatable for every association" ask.
+
+### Two small live-PDF fixes, verified by regenerating the actual PDF (`df9b09b`)
+User caught two things reviewing the live Guide: `property_insurance`/lease needed relabeling to "HO6 Property Insurance" (a plain data fix — the guide's §3 table is built live from `association_intake_documents`, so no code change was needed), and the small red "(over 18yr.)" note that used to sit under the Occupant Affidavit row in an earlier Artifact mockup had never actually made it into the real generator. Added it for real, gated on `doc_key === 'occupant_affidavit'` (threaded a new `docKey` field onto `GuideChecklistRow` to make that possible) — confirmed via pdfjs text-coordinate extraction on the live PDF that it lands 12pt directly under the row, not near the section header (a user report that turned out to be a stale cached download, not a real bug).
+
+### Required Documents panel no longer guesses (`a283b37`)
+User: the panel used to silently pick an association (first one with an open application, or MANXI) the instant it was opened. Now "Required documents for [choose an association]" — nothing loads until staff pick one — and the list now covers every active association via `/api/associations`, not just ones with a currently-open application, so it's usable while setting one up before its first application exists.
+
+### International-applicant package — existed, was orphaned, now actually wired in (`feafa79`, `96ce1b2`, `e308c16`, `d42cd2c`)
+The CPA Financial Certification / foreign police clearance / notarized translation package was built back during the 2026-07-06/07 Checkr integration (the international-applicant gap Checkr itself doesn't cover) — but it only ever lived in the OLDER standalone `/apply` self-serve form's "international" appType, never reflected in the checklist or rules that actually drive real MANXI purchase approvals through the newer staff-driven pre-apply pipeline. User: "Let's add to Manors the international applicant package we developed."
+
+Built a real purchase-only intake question — "Are you a U.S. taxpayer with at least 2 years of U.S. tax returns?" — by extending the EXISTING vehicle/pet/assistance_animal `condition_key` declaration pattern rather than inventing a second mechanism: `Declarations.taxReturns` on `listing_applications`, `activeConditions()`/`pendingDeclarations()`/`declaredNaKeys()` in `lib/intake-documents.ts` + `lib/animal-accommodation.ts` all extended to handle a new `international` condition. Asked on both the self-serve applicant intake (`app/pre-apply/[code]`) and staff's "Open an application" form. Answering "No" surfaces 3 new checklist rows (migration `20260828_manxi_international_applicant_docs.sql`, widened the `chk_intake_condition` check constraint) and a new rule: one year of maintenance in advance instead of the credit-score bands, since no U.S. credit score exists to check.
+
+**Iterated on user feedback across 3 rounds, each verified with a real preview before moving on:**
+1. First cut folded the new rule into "For purchases" and interleaved the 3 checklist items into the main table by sort_order. User: pull both out into their own dedicated sections. `GuideRuleGroup`/`MANXI_RULE_GROUPS` gained an `international` key (own §1 group, after all/lease/purchase); checklist rows with `condition_key='international'` now split into their own `internationalChecklist` array at data-assembly time and render as a separate callout box in §3, with each item's note visible (added `note` to `GuideChecklistRow`, previously dropped).
+2. Sent a live preview of the actual declaration-card UI (an Artifact reproducing the real component's exact copy/colors, not a fresh mockup). User: show the full card with ALL pending questions together (vehicle/tax/animal), not the tax one in isolation; reword the question to "Are you a U.S. taxpayer with at least 2 years of U.S. tax returns?"; the CPA Financial Certification checklist card needs an actual link to the CPA requirements guide it references. All three fixed — the guide link points to the existing `/api/apply/intl-cpa-guide?lang=`, localized to the applicant's language.
+3. User: the income-minimum rule line needs to state international applicants are held to the same figure, and the CPA guide itself needs to require an EXPLICIT meets/does-not-meet statement, not just the existing vague "appears financially capable" line. MANXI's `min_annual_income` rule label updated directly (data fix); a new bullet added to `lib/intl-applicant-docs-content.ts`'s `cpaBullets` in **all 7 languages** (en/es/pt/fr/ht/he/ru) — deliberately worded to reference "the Association's Application Guide" rather than hardcoding MANXI's own $42k/$52k figures, since that content module is shared across every association's international applicants, not MANXI-specific.
+
+Every round verified against a freshly regenerated live PDF (not just read code) before calling it done — `curl`'d straight from `localhost:3000` during dev, confirmed the exact text and its position, only then committed/pushed/confirmed 0 runtime errors on Vercel.
+
+### Default intake checklist template, seeded across 17 associations (`3e1db7e`)
+User: "Create to all default template like MANXI's existing ~20-row checklist minus the MANXI-specific stuff... we will have them all created in the other associations as default so it will be easy to setup new associations." Built the template from MANXI's real checklist minus the notarized-affidavit items, the Lauderhill-specific certificate, and the just-added international-only rows — 35 rows (Optional by default; Rules Knowledge Acknowledgment required, per the same day's earlier standing policy: "all associations besides the master require rules ack + contact info, everything else optional") across `lease`/`lease_renewal`/`purchase`/`additional_occupant`.
+
+**Scope decisions made and reported, not silently guessed**: seeded to every active association EXCEPT MANXI (the source), VPCI (already has its own real ~11-doc_key checklist from its 2026-08-14 onboarding — layering a generic template on top would collide), the 2 master associations LCLUB/VPREC (the user's own "besides the master" carve-out), and the 5 commercial condos (residential paperwork — driver's license, individual-buyer tax returns — doesn't fit a commercial unit; same line the 2026-08-16 property-insurance seed already drew). 17 associations, 595 rows total, verified by row count after applying.
+
+**Real gap flagged, not glossed over**: the Rules Acknowledgment checklist row is now required for these 17 associations, but the actual e-signed rules CONTENT per association (the text applicants sign — `lib/manxi-rules-ack.ts`/`lib/vpci-rules-ack.ts` are the only two that exist) hasn't been authored yet. The checklist item shows up; there's nothing to send until real governing-rules documents are provided per association. Separate follow-up, needs the user to supply source documents the way MANXI's and VPCI's were originally supplied.
+
+### ⏳ NEXT
+1. **Author rules-ack content for the 17 newly-templated associations** — needs real governing-documents/rules text per association from the user before the required checklist item can actually be fulfilled.
+2. Staff-side "Required documents" panel and the association setup UI already support toggling any of the new template rows on/off per association (`IntakeChecklistBox` at `/admin/cinc-sync/[code]`) — no new UI needed, just needs actual use.
+3. Older, unchanged: Checkr key prefix still unverified; Rentvine tenant-sync cron dead since 2026-06-17.
+
+Memory: [[manxi_application_guide_project]], [[manxi_application_guide_live_feature]].
+
+---
+
 # Session handoff — 2026-08-27
 
 ## Lease-packet date bug fix, Lease Renewal Check-In feature, and two real pre-apply UX bugs
