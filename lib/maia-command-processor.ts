@@ -27,7 +27,7 @@ import { saveWorkOrderAttachmentBytes, isImageFilename } from '@/lib/work-order-
 import { isSignatureOrLogoImage, dedupeAttachments } from '@/lib/email-attachment-filter'
 import { normalizeUpload } from '@/lib/pdf-normalize'
 import { isValidTicketCategory } from '@/lib/ticket-categories'
-import { detectApplicationLogTrigger, logApplicationCommunication, buildLogReplyHtml } from '@/lib/application-comm-log'
+import { detectApplicationLogTrigger, logApplicationCommunication, buildLogReplyHtml, isApplicationStakeholderEmail } from '@/lib/application-comm-log'
 import { detectApplicationGuideTrigger, replyWithApplicationGuide } from '@/lib/application-guide-request'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -2456,9 +2456,20 @@ export async function processEmailCommand(messageId: string): Promise<void> {
     // application's Communication history with the email's own date. Returns
     // early — like the invoice branch — so the forward doesn't also open a
     // ticket or get run through the record-extraction pipeline.
-    if (allowed) {
+    //
+    // Real gap, 2026-08-30: every resident-facing MAIA email carries this
+    // exact "@maia upapp <ACCOUNT>" line as a forward-instead-of-upload
+    // shortcut (lib/maia-email.ts's footer, shown to the tenant/owner
+    // themselves) — but this branch used to require `allowed`, which only
+    // recognizes PMI's own staff domains. A tenant following that literal
+    // instruction from their own address never reached this code at all.
+    // Now a non-staff sender can also use it, but only for an application
+    // they're actually a stakeholder on (isApplicationStakeholderEmail) — a
+    // stranger who guesses or reuses someone else's "MANXI103" tag can't
+    // file anything, and gets no reply confirming the application exists.
+    {
       const appRef = detectApplicationLogTrigger(parsed.body)
-      if (appRef) {
+      if (appRef && (allowed || await isApplicationStakeholderEmail(appRef, parsed.senderEmail))) {
         const result = await logApplicationCommunication({
           ref: appRef,
           subject: parsed.subject,

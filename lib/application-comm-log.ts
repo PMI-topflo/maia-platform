@@ -65,6 +65,22 @@ export async function resolveApplication(ref: ApplicationRef): Promise<{ id: str
   return { id: String(pick.id), unitLabel: (pick.unit_label as string | null) ?? null, status: String(pick.status) }
 }
 
+/** True if this email belongs to a real stakeholder (owner, tenant, agent) on
+ *  the application this ref resolves to — the trust check that lets a
+ *  resident use the "@maia upapp ..." forward shortcut on THEIR OWN
+ *  application, the same way isAllowedSender lets staff use it on any.
+ *  Compared in JS, not SQL ilike — an ilike pattern treats "_" as a
+ *  single-character wildcard, so "john_doe@x.com" would falsely match
+ *  "john.doe@x.com" via SQL wildcard, not via a real address match. */
+export async function isApplicationStakeholderEmail(ref: ApplicationRef, email: string): Promise<boolean> {
+  const target = email.trim().toLowerCase()
+  if (!target) return false
+  const app = await resolveApplication(ref)
+  if (!app) return false
+  const { data } = await supabaseAdmin.from('application_stakeholders').select('email').eq('application_id', app.id)
+  return (data ?? []).some(s => String(s.email ?? '').trim().toLowerCase() === target)
+}
+
 export interface LogResult {
   ok: boolean
   reason?: 'no-application' | 'empty-body' | 'error'
