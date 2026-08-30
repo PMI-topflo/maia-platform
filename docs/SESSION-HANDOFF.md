@@ -1,3 +1,36 @@
+# Session handoff — 2026-08-30
+
+## Never let two people open separate applications for one unit, an accidental-data-loss recovery, and the "@maia upapp" forward shortcut fixed for residents
+
+Direct continuation of the MANXI 802 incident (see 2026-08-28/29 below). Board forwarded a second real complaint — two people had applied for the same unit, and the previous fix hadn't addressed that yet.
+
+### Duplicate-application prevention, `/api/pre-apply/start` (`8fe38db`, `7cfa397`)
+User: "I still have 2 applications for unit 802 and also I see that 2 people applied for the same unit, we need to have a way to advise the second person that another application started... never let open 2 applications." The existing "resume instead of duplicate" check only caught the SAME email reopening the link — a genuinely different person (owner, second tenant, agent) still fell through to `createIntake()` and got a parallel application.
+
+`findOpenUnitApplication()` now checks for an already-open lease/lease_renewal/purchase application on the unit before creating anything. First cut (`8fe38db`): a self-identified owner whose email matches a real `owners.emails` record auto-joins the existing application; anyone else is blocked and staff notified. User's next question drove the second round: **"is it possible to open the initial card so the person identifies what persona he is... and just joins automatically?"** — extended (`7cfa397`) so agent/tenant/co-applicant roles ALSO auto-join directly (they already self-identified their role on the existing persona card, no extra step needed); only an *unverified* owner claim stays gated, since that's the one role with a real database check and real financial/legal stakes if false. User then asked why the owner check couldn't also widen to a phone-based verification instead of just blocking — `isVerifiedOwner()` now matches on `owners.phone` too (digits-only comparison, matching the codebase's existing E.164 convention), not just email. Every auto-join sends a staff+lead FYI email so a genuine mix-up (two unrelated people both trying to apply) is still visible and reversible after the fact.
+
+Verified end-to-end on a disposable test unit before pushing: agent and co-tenant both auto-joined the same application; an unverified owner claim still correctly blocked.
+
+### MANXI 802 cleanup — and a self-caught data-loss mistake, transparently disclosed
+Cleaned the real 4-way duplicate down to 1 application. **While merging the owner's 3 real documents onto the correct application, a raw `UPDATE application_documents SET application_id=...` without also updating `listing_id` left those rows pointing at a stale `listing_id`** — deleting that now-orphaned `unit_listings` row as part of shell cleanup cascade-deleted the 3 just-repointed documents. Caught immediately on a follow-up count check (11 not 14 documents). The underlying files were still safe in Supabase Storage (never deleted, only the DB rows referencing them were), confirmed via direct `storage.download()` on the exact paths (all 3 intact, real byte sizes) — re-filed correctly via `recordIntakeDoc()`, deliberately excluding `signed_lease` since the tenant's own legitimate upload was already correct there and re-inserting the owner's copy would have wrongly discarded it. Told the user directly, not glossed over.
+
+MANXI 1002's separate, pre-existing duplicate pair (predating all of this) cleaned the same day — this time deliberately not touching any `application_documents` rows at all (lesson from 802), since the real application already had a complete, correctly-processed document set. Platform-wide scan afterward confirmed zero other units carry more than one open primary-occupancy application.
+
+### Tenant checklist preview surfaced a real gap: "@maia upapp" never worked for the tenant it's shown to (`2a3a2eb`)
+User asked to see the full tenant document checklist + a preview of the actual email tenants receive (built as an Artifact from the REAL `renderMaiaEmail()`/`getIntakeChecklist()` output, not a mockup — MANXI lease: 14 items; lease_renewal: 13). Reviewing the rendered email, user asked about its "forward this email instead" footer (`@maia upapp <ACCOUNT>`) — checking the code revealed the footer is shown to every tenant/owner, but the branch that actually files a forwarded email (`lib/maia-command-processor.ts`) required `isAllowedSender`, which only recognizes PMI's own staff domains. A tenant following that exact instruction from their own address never reached the code; their forward silently fell through to a generic AI reply.
+
+New `isApplicationStakeholderEmail()` (`lib/application-comm-log.ts`) lets a non-staff sender through too, but only when their email matches a real stakeholder (owner/tenant/agent) on the SPECIFIC application the tag resolves to — a stranger guessing or reusing someone else's unit tag still gets nothing, no reply confirming an application exists. Compared in JS, not SQL `ilike` — `ilike` treats `_` as a wildcard and would have falsely matched `john_doe@x.com` against `john.doe@x.com`. Verified against real production data: a real stakeholder's email (as-stored and uppercased) resolves true; a random email and a nonexistent association/unit both resolve false.
+
+Also sent a real rendered preview of the Landlord–Tenant Agreement PDF (`lib/lease-packet-pdf.tsx`, blank/unsigned review copy) when asked what that checklist item actually is.
+
+### ⏳ NEXT
+1. Still awaiting Checkr's reply on the credit-report/eviction-history gap (carried over, see 2026-08-28/29 below).
+2. Older, unchanged: Checkr key prefix (test vs live) still unverified; Rentvine tenant-sync cron dead since 2026-06-17.
+
+Memory: [[duplicate_application_prevention]], [[manxi_802_data_loss_recovery]], [[maia_upapp_stakeholder_fix]].
+
+---
+
 # Session handoff — 2026-08-28/29
 
 ## Application Guide polish, MANXI's international-applicant pipeline wired for real, and a default checklist template for 17 associations
