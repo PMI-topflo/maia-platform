@@ -46,10 +46,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   }
   // Rules Knowledge Acknowledgment is only ever captured by the dedicated
   // sign block on this same page (POST .../submit); the Emergency Contact
-  // List and Military Service Member Disclosure are real e-signed forms too
+  // List, Military Service Member Disclosure, Pet Registration and
+  // Maintenance Assessment Acknowledgment are real e-signed forms too
   // (lib/application-esign-forms.ts) with a real signing link now attached
-  // by the GET route — none of the three are ever satisfied by a raw upload.
-  if (docKey === 'governing_docs_ack' || docKey === 'emergency_contact' || docKey === 'military_service_disclosure') {
+  // by the GET route — none of the five are ever satisfied by a raw upload.
+  const LIVE_ESIGN_KEYS = new Set(['governing_docs_ack', 'emergency_contact', 'military_service_disclosure', 'pet_registration', 'maintenance_assessment_ack'])
+  if (LIVE_ESIGN_KEYS.has(docKey)) {
     return NextResponse.json({ error: 'This item requires an e-signature, not an upload — use the "Sign now" link.' }, { status: 403 })
   }
 

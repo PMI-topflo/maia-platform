@@ -53,15 +53,18 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   // in the checklist too let an applicant "satisfy" it by uploading an
   // unrelated file instead of actually signing (real incident, MANXI 802,
   // 2026-08-29: an insurance PDF landed there).
-  // emergency_contact and military_service_disclosure are ALSO real e-signed
-  // forms (lib/application-esign-forms.ts), never a plain upload — same class
-  // of bug as governing_docs_ack above, just without a dedicated inline block
-  // on this page. Only ever provided_by='applicant', so excluded outright for
+  // emergency_contact, military_service_disclosure, pet_registration and
+  // maintenance_assessment_ack are ALSO real e-signed forms
+  // (lib/application-esign-forms.ts), never a plain upload — same class of
+  // bug as governing_docs_ack above, just without a dedicated inline block on
+  // this page. Every one of them is configured provided_by='applicant'
+  // (supabase/migrations/20260815_vehicle_animal_declarations.sql,
+  // 20260828_default_intake_checklist_template.sql), so excluded outright for
   // any other role viewing this checklist (nobody signs someone else's
-  // military-service disclosure or emergency contacts on their behalf); for
-  // the applicant themselves, a real signing link is attached below instead
-  // of leaving it as an uploadable slot.
-  const LIVE_ESIGN_KEYS = new Set(['emergency_contact', 'military_service_disclosure'])
+  // military-service disclosure, pet registration, or emergency contacts on
+  // their behalf); for the applicant themselves, a real signing link is
+  // attached below instead of leaving it as an uploadable slot.
+  const LIVE_ESIGN_KEYS = new Set(['emergency_contact', 'military_service_disclosure', 'pet_registration', 'maintenance_assessment_ack'])
   const visible = checklist.filter(d => {
     if (!applies(d.condition_key) || d.provided_by === 'staff' || d.doc_key === 'governing_docs_ack') return false
     if (LIVE_ESIGN_KEYS.has(d.doc_key) && d.provided_by !== myProvidedBy) return false
