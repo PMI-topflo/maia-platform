@@ -15,7 +15,13 @@ export const dynamic = 'force-dynamic'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const SUPPORT_EMAIL = 'support@topfloridaproperties.com'
+const NOTIFY = (process.env.UNIT_UPLOAD_NOTIFY_EMAILS ?? 'PMI@topfloridaproperties.com,ar@topfloridaproperties.com')
+  .split(',').map(s => s.trim()).filter(Boolean)
 const TYPE_WORD: Record<string, string> = { lease: 'rental', purchase: 'purchase', lease_renewal: 'lease-renewal', additional_occupant: 'additional-occupant' }
+// additional_occupant is deliberately excluded from the duplicate-unit check
+// below — it's expected to open alongside an existing approved lease/purchase,
+// not a rival application for the same occupancy.
+const PRIMARY_TYPES = ['lease', 'lease_renewal', 'purchase']
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
 
 // When someone who is NOT the unit owner starts an application, add the owner
@@ -70,6 +76,65 @@ async function notifyUnitOwnerOfNewApplication(opts: { applicationId: string; as
   })
 }
 
+// Real incident, MANXI Unit 802, 2026-08-29: a tenant and the unit's owner
+// each independently started their OWN separate lease_renewal application for
+// the same unit (the same-email "resume" check above only catches the SAME
+// person reopening the link — a genuinely different person on the same unit
+// still fell through to createIntake() and got a second, parallel
+// application). One real lease_renewal ended up needing 3 documents manually
+// moved off the other application and its stakeholder re-added by hand.
+//
+// "Never let open 2 applications" (user direction, 2026-08-30): before
+// creating anything, check whether the unit already has one of the three
+// primary-occupancy types in flight. If it does:
+//   - A self-identified OWNER whose email matches a real owners.emails record
+//     for this unit is trusted the same way notifyUnitOwnerOfNewApplication
+//     already trusts an owner (Rule 2, 2026-08-20) — added as a collaborator
+//     on the EXISTING application instead of a new one, no staff step needed.
+//   - Anyone else (agent, tenant, or an owner claim that doesn't match a real
+//     record) is NOT auto-trusted — MAIA cannot independently verify "I am
+//     this tenant's agent" the way it can cross-check an owner against
+//     owners.emails. Blocked, staff notified with who they say they are, told
+//     to expect a follow-up rather than silently spawning a second application.
+async function findOpenUnitApplication(associationCode: string, unitLabel: string, type: string) {
+  if (!PRIMARY_TYPES.includes(type)) return null
+  const { data } = await supabaseAdmin.from('listing_applications')
+    .select('id, application_type, created_at')
+    .eq('association_code', associationCode).eq('unit_label', unitLabel)
+    .in('application_type', PRIMARY_TYPES)
+    .not('status', 'in', '("approved","declined","withdrawn")')
+    .order('created_at', { ascending: true }).limit(1)
+  const existing = (data ?? [])[0]
+  if (!existing) return null
+  const { data: lead } = await supabaseAdmin.from('application_stakeholders')
+    .select('name, role').eq('application_id', existing.id).eq('is_primary', true).maybeSingle()
+  return { applicationId: String(existing.id), applicationType: String(existing.application_type), leadName: (lead?.name as string | null) ?? 'someone', leadRole: (lead?.role as string | null) ?? 'applicant' }
+}
+
+/** True if this email genuinely belongs to a real owner on file for the unit
+ *  — the same match notifyUnitOwnerOfNewApplication already trusts. */
+async function isVerifiedOwnerEmail(associationCode: string, unitLabel: string, email: string): Promise<boolean> {
+  const { data: owners } = await supabaseAdmin.from('owners')
+    .select('emails, status').eq('association_code', associationCode).eq('unit_number', unitLabel)
+    .or('status.neq.previous,status.is.null')
+  const target = email.trim().toLowerCase()
+  return (owners ?? []).some(o => String(o.emails ?? '').split(',').map(s => s.trim().toLowerCase()).includes(target))
+}
+
+async function notifyStaffOfBlockedDuplicate(opts: { associationCode: string; unitLabel: string; existingApplicationId: string; existingLeadName: string; existingLeadRole: string; newName: string; newEmail: string; newPhone: string | null; newRole: string }) {
+  if (!NOTIFY.length) return
+  await sendEmail({
+    to: NOTIFY,
+    subject: `⚠ Second applicant for ${opts.associationCode} Unit ${opts.unitLabel} — needs manual add`,
+    html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6">
+      <p><strong>${esc(opts.newName)}</strong> (${esc(roleLabel(opts.newRole))}, ${esc(opts.newEmail)}${opts.newPhone ? ` · ${esc(opts.newPhone)}` : ''}) tried to start a new application for
+      <strong>${esc(opts.associationCode)}, Unit ${esc(opts.unitLabel)}</strong> — but an application is already in progress there, started by <strong>${esc(opts.existingLeadName)}</strong> (${esc(roleLabel(opts.existingLeadRole))}).</p>
+      <p>MAIA did not create a second application. If ${esc(opts.newName)} genuinely belongs on this one (co-tenant, agent, etc.), add them as a collaborator from the existing application:</p>
+      <p><a href="${APP}/admin/pre-apply/${opts.existingApplicationId}">Open the existing application →</a></p>
+    </div>`,
+  }).catch(() => null)
+}
+
 export async function POST(req: Request) {
   let b: { code?: string; type?: string; role?: string; unit?: string; name?: string; email?: string; phone?: string }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
@@ -92,9 +157,8 @@ export async function POST(req: Request) {
   // than once (a second session, a re-read of the email, an abandoned first
   // try), and every open used to mint a NEW application — MANXI 1002 and 613
   // each ended up with two, one empty. If this same person already has an
-  // unsubmitted application for this unit, hand them back their existing one so
-  // their documents stay together. A DIFFERENT applicant on the same unit still
-  // gets their own application.
+  // unsubmitted application for this unit, hand them back their existing one
+  // so their documents stay together.
   if (unitLabel) {
     const { data: openApps } = await supabaseAdmin.from('listing_applications')
       .select('id').eq('association_code', code).eq('unit_label', unitLabel).eq('status', 'started')
@@ -106,6 +170,31 @@ export async function POST(req: Request) {
         const resumed = await signPreApplyToken(String(a.id), String(me.id))
         return NextResponse.json({ ok: true, token: resumed, resumed: true })
       }
+    }
+  }
+
+  // A genuinely DIFFERENT person on the same unit — never silently spawn a
+  // second application (see the block comment above findOpenUnitApplication).
+  if (unitLabel) {
+    const openUnitApp = await findOpenUnitApplication(code, unitLabel, type)
+    if (openUnitApp) {
+      if (role === 'owner' && await isVerifiedOwnerEmail(code, unitLabel, email)) {
+        const joined = await addStakeholders(openUnitApp.applicationId, [{ name, email, phone: String(b.phone ?? '').trim() || null, role: 'owner' }], 'self')
+        if (joined[0]) {
+          const token = await signPreApplyToken(openUnitApp.applicationId, joined[0].id)
+          return NextResponse.json({ ok: true, token, resumed: true })
+        }
+        // Already a stakeholder somehow (race) — fall through to the block
+        // message rather than error, safer than guessing which row is theirs.
+      }
+      await notifyStaffOfBlockedDuplicate({
+        associationCode: code, unitLabel, existingApplicationId: openUnitApp.applicationId,
+        existingLeadName: openUnitApp.leadName, existingLeadRole: openUnitApp.leadRole,
+        newName: name, newEmail: email, newPhone: String(b.phone ?? '').trim() || null, newRole: role,
+      })
+      return NextResponse.json({
+        error: `An application for this unit is already in progress — started by ${openUnitApp.leadName} (${roleLabel(openUnitApp.leadRole)}). We've notified our team so they can add you to it; you'll hear from us shortly. If this is urgent, contact ${SUPPORT_EMAIL}.`,
+      }, { status: 409 })
     }
   }
 
