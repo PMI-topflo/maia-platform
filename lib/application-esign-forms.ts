@@ -145,7 +145,7 @@ async function currentQuarterlyAssessment(code: string, unit: string | null): Pr
 }
 
 /** Create + email one form. Returns what was sent, or throws with a reason. */
-async function createAndSend(docKey: string, c: AppCtx, createdBy: string, prefill?: EsignPrefill): Promise<SentForm[]> {
+async function createAndSend(docKey: string, applicationId: string, c: AppCtx, createdBy: string, prefill?: EsignPrefill): Promise<SentForm[]> {
   const spec = ESIGN_CHECKLIST_ITEMS[docKey]
   const lead = c.people[0]
   const unitLabel = c.unit ?? '—'
@@ -163,7 +163,7 @@ async function createAndSend(docKey: string, c: AppCtx, createdBy: string, prefi
         associationLegalName: c.legal, propertyAddress: c.address, unit: c.unit,
         applicationType: c.type, applicants: c.people.map(p => p.name), ...content,
       },
-      signers, status: 'sent', created_by: createdBy,
+      signers, status: 'sent', created_by: createdBy, application_id: applicationId,
     }).select('id').single()
     if (error || !created) throw new Error(error?.message ?? 'could not create it')
 
@@ -189,7 +189,7 @@ async function createAndSend(docKey: string, c: AppCtx, createdBy: string, prefi
       title: `Animal Information — Unit ${unitLabel}`,
       payload: { associationLegalName: c.legal, petLimit: c.petLimit, rulesAck: PET_ACK },
       signers: [{ role: 'applicant', name: lead.name, email: lead.email, phone: lead.phone }],
-      status: 'sent', compliance_item: 'unit.pet', created_by: createdBy,
+      status: 'sent', compliance_item: 'unit.pet', created_by: createdBy, application_id: applicationId,
     }).select('id').single()
     if (error || !created) throw new Error(error?.message ?? 'could not create it')
     const link = `${APP}/esign/${await signEsignToken(String(created.id), 'applicant')}`
@@ -219,7 +219,7 @@ async function createAndSend(docKey: string, c: AppCtx, createdBy: string, prefi
         certification: EMERGENCY_CERTIFICATION,
       },
       signers: [{ role: 'resident', name: lead.name, email: lead.email, phone: lead.phone }],
-      status: 'sent', compliance_item: 'unit.emergency', created_by: createdBy,
+      status: 'sent', compliance_item: 'unit.emergency', created_by: createdBy, application_id: applicationId,
     }).select('id').single()
     if (error || !created) throw new Error(error?.message ?? 'could not create it')
     const link = `${APP}/esign/${await signEsignToken(String(created.id), 'resident')}`
@@ -254,7 +254,7 @@ async function createAndSend(docKey: string, c: AppCtx, createdBy: string, prefi
       title: `Maintenance Assessment Acknowledgment — Unit ${unitLabel}`,
       payload: { associationLegalName: c.legal, statement, details },
       signers: [{ role: 'applicant', name: lead.name, email: lead.email, phone: lead.phone }],
-      status: 'sent', created_by: createdBy,
+      status: 'sent', created_by: createdBy, application_id: applicationId,
     }).select('id').single()
     if (error || !created) throw new Error(error?.message ?? 'could not create it')
     const link = `${APP}/esign/${await signEsignToken(String(created.id), 'applicant')}`
@@ -282,7 +282,7 @@ async function createAndSend(docKey: string, c: AppCtx, createdBy: string, prefi
         ],
       },
       signers: [{ role: 'applicant', name: lead.name, email: lead.email, phone: lead.phone }],
-      status: 'sent', created_by: createdBy,
+      status: 'sent', created_by: createdBy, application_id: applicationId,
     }).select('id').single()
     if (error || !created) throw new Error(error?.message ?? 'could not create it')
     const link = `${APP}/esign/${await signEsignToken(String(created.id), 'applicant')}`
@@ -333,10 +333,41 @@ export async function sendEsignFormsForItems(
     try {
       const blocked = await esignItemBlocker(k, c)
       if (blocked) { out.failed.push({ docKey: k, reason: blocked }); continue }
-      out.sent.push(...await createAndSend(k, c, createdBy, prefill))
+      out.sent.push(...await createAndSend(k, applicationId, c, createdBy, prefill))
     } catch (e) {
       out.failed.push({ docKey: k, reason: e instanceof Error ? e.message : 'could not be sent' })
     }
   }
   return out
+}
+
+/** Self-serve intake (app/pre-apply/[code]) needs a link to hand the
+ *  applicant directly, in-page, right now — not just "an email went out."
+ *  Reuses an existing, still-open esign_documents row for this application +
+ *  kind instead of minting a new one (and re-emailing) every time the page
+ *  loads or is refreshed; only creates + sends once, the first time this
+ *  item is reached. Returns null for a docKey this engine doesn't send, or
+ *  when creation is genuinely blocked (e.g. no rules PDF on file yet) --
+ *  callers fall back to the item's own note/upload path in that case. */
+export async function getOrCreateEsignLink(
+  applicationId: string, docKey: string, createdBy: string, prefill?: EsignPrefill,
+): Promise<{ url: string; completed: boolean } | null> {
+  const spec = ESIGN_CHECKLIST_ITEMS[docKey]
+  if (!spec) return null
+
+  const { data: existing } = await supabaseAdmin.from('esign_documents')
+    .select('id, status, signers')
+    .eq('application_id', applicationId).eq('kind', spec.kind)
+    .order('created_at', { ascending: false }).limit(1).maybeSingle()
+
+  if (existing) {
+    const signers = (existing.signers ?? []) as { role: string }[]
+    const role = signers[0]?.role ?? 'applicant'
+    const url = `${APP}/esign/${await signEsignToken(String(existing.id), role)}`
+    return { url, completed: existing.status === 'completed' }
+  }
+
+  const result = await sendEsignFormsForItems(applicationId, [docKey], createdBy, prefill)
+  const sent = result.sent.find(s => s.docKey === docKey)
+  return sent ? { url: sent.link, completed: false } : null
 }

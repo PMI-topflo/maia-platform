@@ -72,7 +72,7 @@ const WELCOME_CSS = `
 .pa-ghost{width:100%;margin-top:12px;padding:11px;border:1.5px dashed #d1d5db;border-radius:10px;background:#fff;color:#374151;font-weight:600;font-size:14px;cursor:pointer;font-family:inherit}
 `
 
-interface ChecklistItem { id: string; doc_key: string; label: string; provided_by: 'applicant' | 'landlord' | 'agent'; required: boolean; note: string | null; uploaded: boolean; mine: boolean; requiresNotarization?: boolean; templateUrl?: string | null; conditionKey?: string | null }
+interface ChecklistItem { id: string; doc_key: string; label: string; provided_by: 'applicant' | 'landlord' | 'agent'; required: boolean; note: string | null; uploaded: boolean; mine: boolean; requiresNotarization?: boolean; templateUrl?: string | null; conditionKey?: string | null; esignUrl?: string | null }
 type AnimalKind = 'pet' | 'service' | 'esa' | 'unsure'
 interface Declarations { vehicle?: { has: boolean } | null; animal?: { has: boolean; kind?: AnimalKind | null } | null; taxReturns?: { has: boolean } | null }
 interface AnimalGuidance { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[] }
@@ -393,7 +393,9 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
         {myDocs.length === 0
           ? <p style={{ fontSize: 13, color: '#6b7280' }}>{f.noDocsForYou}</p>
-          : myDocs.map(d => <DocBox key={d.id} token={token} item={d} lang={lang} onDone={load} />)}
+          : myDocs.map(d => d.esignUrl
+              ? <EsignBox key={d.id} item={d} />
+              : <DocBox key={d.id} token={token} item={d} lang={lang} onDone={load} />)}
       </div>
 
       {otherDocs.length > 0 && (
@@ -656,6 +658,27 @@ function DeclarationCard({ token, info, onDone }: { token: string; info: Info; o
 
       {!asksVehicle && !asksAnimal && asks.size === 0 && null}
       {err && <p style={{ fontSize: 12.5, color: '#b91c1c', margin: '10px 0 0' }}>⚠ {err}</p>}
+    </div>
+  )
+}
+
+// A real e-signed form (emergency contact list, military service disclosure)
+// — never a raw upload. The link opens the actual signing page
+// (app/esign/[token]); "uploaded" only ever means the signature engine
+// itself recorded a completed signature, never a file dropped here.
+function EsignBox({ item }: { item: ChecklistItem }) {
+  return (
+    <div style={{ border: '1px solid #c7d2fe', background: '#eef2ff', borderRadius: 10, padding: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <div>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>{item.label}</span>
+          {item.note && <div style={{ fontSize: 12, color: '#6b7280' }}>{item.note}</div>}
+        </div>
+      </div>
+      <a href={item.esignUrl!} target="_blank" rel="noreferrer"
+        style={{ display: 'inline-block', marginTop: 8, padding: '9px 16px', borderRadius: 8, border: 'none', background: '#3730a3', color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+        📝 Sign now →
+      </a>
     </div>
   )
 }

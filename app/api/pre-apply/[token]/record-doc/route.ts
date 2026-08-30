@@ -45,9 +45,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     return NextResponse.json({ error: 'This document is provided by staff, not uploaded here.' }, { status: 403 })
   }
   // Rules Knowledge Acknowledgment is only ever captured by the dedicated
-  // sign block on this same page (POST .../submit) — never a raw upload.
-  if (docKey === 'governing_docs_ack') {
-    return NextResponse.json({ error: 'Sign the rules acknowledgment below instead of uploading a file.' }, { status: 403 })
+  // sign block on this same page (POST .../submit); the Emergency Contact
+  // List and Military Service Member Disclosure are real e-signed forms too
+  // (lib/application-esign-forms.ts) with a real signing link now attached
+  // by the GET route — none of the three are ever satisfied by a raw upload.
+  if (docKey === 'governing_docs_ack' || docKey === 'emergency_contact' || docKey === 'military_service_disclosure') {
+    return NextResponse.json({ error: 'This item requires an e-signature, not an upload — use the "Sign now" link.' }, { status: 403 })
   }
 
   const res = await recordIntakeDoc(r.applicationId, r.stakeholder.id, {

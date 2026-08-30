@@ -10,6 +10,7 @@ import { getIntake, resolveToken, listStakeholders, roleToProvidedBy, roleLabel,
 import { getIntakeChecklist, PROVIDED_BY_LABEL, parseDeclarations, pendingDeclarations } from '@/lib/intake-documents'
 import { activeConditions, declaredPetWhereProhibited, ANIMAL_KIND_LABEL, ANIMAL_KIND_BLURB, animalDocGuidance } from '@/lib/animal-accommodation'
 import { maskEmail } from '@/lib/esign-verify'
+import { getOrCreateEsignLink } from '@/lib/application-esign-forms'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,7 +53,20 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   // in the checklist too let an applicant "satisfy" it by uploading an
   // unrelated file instead of actually signing (real incident, MANXI 802,
   // 2026-08-29: an insurance PDF landed there).
-  const visible = checklist.filter(d => applies(d.condition_key) && d.provided_by !== 'staff' && d.doc_key !== 'governing_docs_ack')
+  // emergency_contact and military_service_disclosure are ALSO real e-signed
+  // forms (lib/application-esign-forms.ts), never a plain upload — same class
+  // of bug as governing_docs_ack above, just without a dedicated inline block
+  // on this page. Only ever provided_by='applicant', so excluded outright for
+  // any other role viewing this checklist (nobody signs someone else's
+  // military-service disclosure or emergency contacts on their behalf); for
+  // the applicant themselves, a real signing link is attached below instead
+  // of leaving it as an uploadable slot.
+  const LIVE_ESIGN_KEYS = new Set(['emergency_contact', 'military_service_disclosure'])
+  const visible = checklist.filter(d => {
+    if (!applies(d.condition_key) || d.provided_by === 'staff' || d.doc_key === 'governing_docs_ack') return false
+    if (LIVE_ESIGN_KEYS.has(d.doc_key) && d.provided_by !== myProvidedBy) return false
+    return true
+  })
 
   // Signed download URLs for any blank forms the applicant must print & notarize.
   const templateUrls = new Map<string, string>()
@@ -77,11 +91,20 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     submitted: !!intake.submittedAt,
     providerLabels: PROVIDED_BY_LABEL,
     // Every checklist item, flagged "mine" (this stakeholder provides it) + uploaded
-    checklist: visible.map(d => ({
-      id: d.id, doc_key: d.doc_key, label: d.label, provided_by: d.provided_by, required: d.required, note: d.note,
-      requiresNotarization: d.requires_notarization, templateUrl: templateUrls.get(d.doc_key) ?? null,
-      uploaded: uploaded.has(d.doc_key), mine: d.provided_by === myProvidedBy,
-      conditionKey: d.condition_key,
+    checklist: await Promise.all(visible.map(async d => {
+      const mine = d.provided_by === myProvidedBy
+      const alreadyDone = uploaded.has(d.doc_key)
+      // Mint (or reuse) the real signing link right here rather than leaving
+      // this as an uploadable slot — see the LIVE_ESIGN_KEYS note above.
+      const esign = mine && !alreadyDone && LIVE_ESIGN_KEYS.has(d.doc_key)
+        ? await getOrCreateEsignLink(r.applicationId, d.doc_key, `token:pre-apply/${token}`).catch(() => null)
+        : null
+      return {
+        id: d.id, doc_key: d.doc_key, label: d.label, provided_by: d.provided_by, required: d.required, note: d.note,
+        requiresNotarization: d.requires_notarization, templateUrl: templateUrls.get(d.doc_key) ?? null,
+        uploaded: alreadyDone || !!esign?.completed, mine, conditionKey: d.condition_key,
+        esignUrl: esign && !esign.completed ? esign.url : null,
+      }
     })),
     // The yes/no gates this association's checklist actually asks about, plus
     // whatever the applicant has answered so far.
