@@ -86,16 +86,14 @@ async function notifyUnitOwnerOfNewApplication(opts: { applicationId: string; as
 //
 // "Never let open 2 applications" (user direction, 2026-08-30): before
 // creating anything, check whether the unit already has one of the three
-// primary-occupancy types in flight. If it does:
-//   - A self-identified OWNER whose email matches a real owners.emails record
-//     for this unit is trusted the same way notifyUnitOwnerOfNewApplication
-//     already trusts an owner (Rule 2, 2026-08-20) — added as a collaborator
-//     on the EXISTING application instead of a new one, no staff step needed.
-//   - Anyone else (agent, tenant, or an owner claim that doesn't match a real
-//     record) is NOT auto-trusted — MAIA cannot independently verify "I am
-//     this tenant's agent" the way it can cross-check an owner against
-//     owners.emails. Blocked, staff notified with who they say they are, told
-//     to expect a follow-up rather than silently spawning a second application.
+// primary-occupancy types in flight. If it does, the second person joins
+// that SAME application as a collaborator instead of spawning a new one —
+// they already self-identified their role on the initial persona card, so
+// no extra step is needed. The one exception is a self-identified OWNER
+// whose email does NOT match a real owners.emails record for the unit: that
+// claim can't be verified the way every other role's self-identification
+// can just be trusted, and a false owner claim carries real financial/legal
+// stakes, so it stays blocked and routed to staff instead of auto-joining.
 async function findOpenUnitApplication(associationCode: string, unitLabel: string, type: string) {
   if (!PRIMARY_TYPES.includes(type)) return null
   const { data } = await supabaseAdmin.from('listing_applications')
@@ -107,30 +105,66 @@ async function findOpenUnitApplication(associationCode: string, unitLabel: strin
   const existing = (data ?? [])[0]
   if (!existing) return null
   const { data: lead } = await supabaseAdmin.from('application_stakeholders')
-    .select('name, role').eq('application_id', existing.id).eq('is_primary', true).maybeSingle()
-  return { applicationId: String(existing.id), applicationType: String(existing.application_type), leadName: (lead?.name as string | null) ?? 'someone', leadRole: (lead?.role as string | null) ?? 'applicant' }
+    .select('name, email, role').eq('application_id', existing.id).eq('is_primary', true).maybeSingle()
+  return {
+    applicationId: String(existing.id), applicationType: String(existing.application_type),
+    leadName: (lead?.name as string | null) ?? 'someone', leadRole: (lead?.role as string | null) ?? 'applicant',
+    leadEmail: (lead?.email as string | null) ?? null,
+  }
 }
 
-/** True if this email genuinely belongs to a real owner on file for the unit
- *  — the same match notifyUnitOwnerOfNewApplication already trusts. */
-async function isVerifiedOwnerEmail(associationCode: string, unitLabel: string, email: string): Promise<boolean> {
+const phoneDigits = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
+
+/** True if this email OR phone genuinely belongs to a real owner on file for
+ *  the unit — the same email match notifyUnitOwnerOfNewApplication already
+ *  trusts, widened to phone too (owners.phone, same field the lease-packet
+ *  contact flow already reads) so a real owner with a stale email on file
+ *  but an unchanged phone number still verifies instead of getting blocked.
+ *  A 2FA/OTP send here would only prove control of whatever email or phone
+ *  the person typed — it can't establish that value belongs to the unit's
+ *  real owner, which is exactly the fact this function exists to check. */
+async function isVerifiedOwner(associationCode: string, unitLabel: string, email: string, phone: string | null): Promise<boolean> {
   const { data: owners } = await supabaseAdmin.from('owners')
-    .select('emails, status').eq('association_code', associationCode).eq('unit_number', unitLabel)
+    .select('emails, phone, status').eq('association_code', associationCode).eq('unit_number', unitLabel)
     .or('status.neq.previous,status.is.null')
-  const target = email.trim().toLowerCase()
-  return (owners ?? []).some(o => String(o.emails ?? '').split(',').map(s => s.trim().toLowerCase()).includes(target))
+  const targetEmail = email.trim().toLowerCase()
+  const targetPhone = phoneDigits(phone)
+  return (owners ?? []).some(o =>
+    String(o.emails ?? '').split(',').map(s => s.trim().toLowerCase()).includes(targetEmail)
+    || (targetPhone.length >= 10 && phoneDigits(o.phone as string | null) === targetPhone))
 }
 
 async function notifyStaffOfBlockedDuplicate(opts: { associationCode: string; unitLabel: string; existingApplicationId: string; existingLeadName: string; existingLeadRole: string; newName: string; newEmail: string; newPhone: string | null; newRole: string }) {
   if (!NOTIFY.length) return
   await sendEmail({
     to: NOTIFY,
-    subject: `⚠ Second applicant for ${opts.associationCode} Unit ${opts.unitLabel} — needs manual add`,
+    subject: `⚠ Unverified owner claim for ${opts.associationCode} Unit ${opts.unitLabel} — needs manual review`,
     html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6">
-      <p><strong>${esc(opts.newName)}</strong> (${esc(roleLabel(opts.newRole))}, ${esc(opts.newEmail)}${opts.newPhone ? ` · ${esc(opts.newPhone)}` : ''}) tried to start a new application for
-      <strong>${esc(opts.associationCode)}, Unit ${esc(opts.unitLabel)}</strong> — but an application is already in progress there, started by <strong>${esc(opts.existingLeadName)}</strong> (${esc(roleLabel(opts.existingLeadRole))}).</p>
-      <p>MAIA did not create a second application. If ${esc(opts.newName)} genuinely belongs on this one (co-tenant, agent, etc.), add them as a collaborator from the existing application:</p>
+      <p><strong>${esc(opts.newName)}</strong> (${esc(opts.newEmail)}${opts.newPhone ? ` · ${esc(opts.newPhone)}` : ''}) tried to start a new application claiming to be the OWNER of
+      <strong>${esc(opts.associationCode)}, Unit ${esc(opts.unitLabel)}</strong> — but their email doesn't match any owner on file, and an application is already in progress there, started by <strong>${esc(opts.existingLeadName)}</strong> (${esc(roleLabel(opts.existingLeadRole))}).</p>
+      <p>MAIA did not create a second application or add them automatically, since ownership couldn't be verified. Review and add them by hand if this checks out:</p>
       <p><a href="${APP}/admin/pre-apply/${opts.existingApplicationId}">Open the existing application →</a></p>
+    </div>`,
+  }).catch(() => null)
+}
+
+/** FYI, not action-needed — a second person joined an already-open
+ *  application automatically instead of spawning a duplicate. Staff (and,
+ *  best-effort, the existing lead) see it happened and can separate them if
+ *  it turns out to be a genuine mix-up (e.g. two unrelated people both
+ *  trying to apply for the same unit) rather than a real co-applicant. */
+async function notifyOfAutoJoin(opts: { associationCode: string; unitLabel: string; existingApplicationId: string; existingLeadName: string; existingLeadEmail: string | null; existingLeadRole: string; newName: string; newEmail: string; newRole: string }) {
+  const recipients = [...NOTIFY]
+  if (opts.existingLeadEmail) recipients.push(opts.existingLeadEmail)
+  if (!recipients.length) return
+  await sendEmail({
+    to: recipients,
+    subject: `${opts.newName} joined the ${opts.associationCode} Unit ${opts.unitLabel} application`,
+    html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6">
+      <p><strong>${esc(opts.newName)}</strong> (${esc(roleLabel(opts.newRole))}, ${esc(opts.newEmail)}) identified themselves and joined the application already in progress for
+      <strong>${esc(opts.associationCode)}, Unit ${esc(opts.unitLabel)}</strong> — started by <strong>${esc(opts.existingLeadName)}</strong> (${esc(roleLabel(opts.existingLeadRole))}).</p>
+      <p>If this doesn't look right — for example, two unrelated people both trying to apply for the same unit — separate them here:</p>
+      <p><a href="${APP}/admin/pre-apply/${opts.existingApplicationId}">Open the application →</a></p>
     </div>`,
   }).catch(() => null)
 }
@@ -178,10 +212,16 @@ export async function POST(req: Request) {
   if (unitLabel) {
     const openUnitApp = await findOpenUnitApplication(code, unitLabel, type)
     if (openUnitApp) {
-      if (role === 'owner' && await isVerifiedOwnerEmail(code, unitLabel, email)) {
-        const joined = await addStakeholders(openUnitApp.applicationId, [{ name, email, phone: String(b.phone ?? '').trim() || null, role: 'owner' }], 'self')
+      const unverifiedOwnerClaim = role === 'owner' && !(await isVerifiedOwner(code, unitLabel, email, String(b.phone ?? '').trim() || null))
+      if (!unverifiedOwnerClaim) {
+        const joined = await addStakeholders(openUnitApp.applicationId, [{ name, email, phone: String(b.phone ?? '').trim() || null, role }], 'self')
         if (joined[0]) {
           const token = await signPreApplyToken(openUnitApp.applicationId, joined[0].id)
+          void notifyOfAutoJoin({
+            associationCode: code, unitLabel, existingApplicationId: openUnitApp.applicationId,
+            existingLeadName: openUnitApp.leadName, existingLeadEmail: openUnitApp.leadEmail, existingLeadRole: openUnitApp.leadRole,
+            newName: name, newEmail: email, newRole: role,
+          }).catch(() => null)
           return NextResponse.json({ ok: true, token, resumed: true })
         }
         // Already a stakeholder somehow (race) — fall through to the block
