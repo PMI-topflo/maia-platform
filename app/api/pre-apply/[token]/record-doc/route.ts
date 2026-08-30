@@ -32,6 +32,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!docKey || !path) return NextResponse.json({ error: 'doc_key and storage_path required' }, { status: 400 })
   if (!path.startsWith(`intake/${r.applicationId}/`)) return NextResponse.json({ error: 'path mismatch' }, { status: 400 })
 
+  // Real incident, MANXI 802, 2026-08-29: an applicant uploaded an unrelated
+  // person's background-check screenshot into `background_credit` — a
+  // provided_by='staff' item, pulled by staff themselves from a verified
+  // third-party source (Tenant Evaluation/Checkr), never something any
+  // self-serve party should be able to write. The GET route already stops
+  // showing these items, but this is the actual enforcement point — a stale
+  // page or a direct call must not bypass it.
+  const { data: docCfg } = await supabaseAdmin.from('association_intake_documents')
+    .select('provided_by').eq('association_code', intake.associationCode).eq('application_type', intake.type).eq('doc_key', docKey).maybeSingle()
+  if (docCfg?.provided_by === 'staff') {
+    return NextResponse.json({ error: 'This document is provided by staff, not uploaded here.' }, { status: 403 })
+  }
+  // Rules Knowledge Acknowledgment is only ever captured by the dedicated
+  // sign block on this same page (POST .../submit) — never a raw upload.
+  if (docKey === 'governing_docs_ack') {
+    return NextResponse.json({ error: 'Sign the rules acknowledgment below instead of uploading a file.' }, { status: 403 })
+  }
+
   const res = await recordIntakeDoc(r.applicationId, r.stakeholder.id, {
     doc_key: docKey, doc_label: String(b.doc_label ?? docKey), storage_path: path,
     filename: String(b.filename ?? 'upload'), mime_type: b.mime_type ?? null,

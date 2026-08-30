@@ -13,7 +13,7 @@ import { INTAKE_BUCKET } from '@/lib/preapply'
 import { activeConditions, type AnimalKind } from '@/lib/animal-accommodation'
 
 export type ApplicationType = 'lease' | 'purchase' | 'additional_occupant' | 'lease_renewal'
-export type ProvidedBy = 'applicant' | 'landlord' | 'agent'
+export type ProvidedBy = 'applicant' | 'landlord' | 'agent' | 'staff'
 
 export const APPLICATION_TYPES: { key: ApplicationType; label: string; blurb: string }[] = [
   { key: 'lease',               label: 'Lease / Rental',       blurb: 'A tenant renting the unit' },
@@ -21,7 +21,7 @@ export const APPLICATION_TYPES: { key: ApplicationType; label: string; blurb: st
   { key: 'lease_renewal',       label: 'Lease Renewal',        blurb: 'An existing tenant renewing' },
   { key: 'additional_occupant', label: 'Additional Occupant',  blurb: 'Adding an occupant to an existing lease' },
 ]
-export const PROVIDED_BY_LABEL: Record<ProvidedBy, string> = { applicant: 'Applicant', landlord: 'Landlord / Owner', agent: 'Agent' }
+export const PROVIDED_BY_LABEL: Record<ProvidedBy, string> = { applicant: 'Applicant', landlord: 'Landlord / Owner', agent: 'Agent', staff: 'Staff' }
 
 const APP_TYPE_KEYS = new Set<string>(APPLICATION_TYPES.map(t => t.key))
 export function isApplicationType(v: string): v is ApplicationType {

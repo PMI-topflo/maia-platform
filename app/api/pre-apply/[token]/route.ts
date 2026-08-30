@@ -39,7 +39,20 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const declarations = parseDeclarations(appRow?.declarations)
   const liveConditions = activeConditions(declarations, { petsAllowed })
   const applies = (c: string | null) => !c || liveConditions.has(c)
-  const visible = checklist.filter(d => applies(d.condition_key))
+  // provided_by='staff' items (e.g. Background/Credit Reports) are pulled by
+  // staff from a verified third-party source (Tenant Evaluation/Checkr) — they
+  // must never be shown as an uploadable slot to any self-serve party, even in
+  // the "other documents, upload if you have them" convenience section. A real
+  // incident (MANXI 802, 2026-08-29): an applicant uploaded an unrelated
+  // person's background-check screenshot into this slot because it rendered
+  // with the same interactive upload control as every other item.
+  // governing_docs_ack (Rules Knowledge Acknowledgment) is captured by the
+  // dedicated checkbox + typed name + SignaturePad block further down this
+  // same page (POST .../submit), never by a plain file upload — showing it
+  // in the checklist too let an applicant "satisfy" it by uploading an
+  // unrelated file instead of actually signing (real incident, MANXI 802,
+  // 2026-08-29: an insurance PDF landed there).
+  const visible = checklist.filter(d => applies(d.condition_key) && d.provided_by !== 'staff' && d.doc_key !== 'governing_docs_ack')
 
   // Signed download URLs for any blank forms the applicant must print & notarize.
   const templateUrls = new Map<string, string>()
