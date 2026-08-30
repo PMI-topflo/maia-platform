@@ -1,9 +1,17 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-08-29**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-08-30**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
+
+---
+
+## ✅ LIVE — self-serve intake no longer lets applicants fake staff/e-signed items (MANXI 802 incident, 2026-08-29/30)
+
+Real tenant complaint (MANXI Unit 802) traced to a platform-wide bug: the self-serve "other documents — upload if you have them" convenience section rendered `background_credit` (Background/Credit Reports, staff-only everywhere — confirmed the only `provided_by='staff'` doc_key on the platform) as an ordinary upload box, and separately let Rules Ack / Emergency Contact List / Military Service Member Disclosure / Pet Registration / Maintenance Assessment Acknowledgment — all real e-signed forms — be "satisfied" by uploading an unrelated file, since only Rules Ack had a dedicated in-page signing block. Fixed in 3 commits (`1b15202`, `e82403b`, `f6eb236`, the last two split across two sessions working the same incident, cross-verified before merging): staff-only items now excluded from the self-serve checklist entirely; all 5 e-sign registry items now get a real "Sign now →" link (`getOrCreateEsignLink()`, idempotent — no duplicate emails on refresh) instead of an upload box, enforced server-side too. Full detail in `docs/SESSION-HANDOFF.md`.
+
+Same session: re-verified the Checkr Test Environment still works end-to-end (both auto-complete and Hudson Green scenarios) and found a real gap — the `essential` package's structured report returns `credit_report: null` and `eviction_history: null`, contradicting what Checkr's own pricing conversation described it as including. Emailed `hello-tenant@checkr.com` with exact order/report IDs; **awaiting their reply** before any association can be flipped to `maia_checkr` (see the Checkr entry below, updated).
 
 ---
 
@@ -185,11 +193,15 @@ Detail in `docs/SESSION-HANDOFF.md` (top section) and memory [[venetian_i_onboar
 - ✅ **Closed (#698):** `rules_knowledge_ack` can be created and sent; MANXI now has content + stored packet + a `governing_docs_ack` item.
 - ✅ **Closed (#698):** rows restyled to the previewed design — one ✎ Edit, four flag states, expiration inside the drawer.
 
-## ⚠️ Checkr — integration proven, key mode unverified (2026-08-14)
+## ⚠️ Checkr — integration re-proven working, TWO blockers before going live (updated 2026-08-30)
 
-The integration is **live-verified end to end in production** (real sandbox orders from prod, real webhook deliveries, stored report PDFs, user completed the hosted consent flow). What is NOT verified is whether `CHECKR_API_KEY` is `ckr_sk_test_` or `ckr_sk_live_` — the Vercel vars are Sensitive (unreadable via UI or API) and unedited since Jul 6, when they were added with test values.
+The integration is **live-verified end to end in production** (real sandbox orders from prod, real webhook deliveries, stored report PDFs, user completed the hosted consent flow) — re-confirmed again 2026-08-30 via the Test Environment tab, both scenarios still work.
 
-**Do not set any association's `screening_provider` to `maia_checkr` until the prefix is confirmed live.** A sandbox key returns canned results for real people — worse than an error, because nothing looks wrong. Offered, not built: an admin diagnostic reporting only the key prefix.
+**Blocker 1 (known since 2026-08-14): key mode unverified.** Not verified whether `CHECKR_API_KEY` is `ckr_sk_test_` or `ckr_sk_live_` — the Vercel vars are Sensitive (unreadable via UI or API) and unedited since Jul 6, when they were added with test values.
+
+**Blocker 2 (new, 2026-08-30): the `essential` package is missing credit report + eviction history.** Pulled a completed test order's structured report (`GET /reports/{id}`, not just the PDF) — `credit_report` and `eviction_history` both come back `null`; only criminal history, sex offender registry, and global watchlist actually run. This contradicts what Checkr's own pricing conversation described Essential as including. Emailed `hello-tenant@checkr.com` with the exact order/report IDs and the full breakdown — **awaiting their reply**.
+
+**Do not set any association's `screening_provider` to `maia_checkr` until BOTH are resolved.** A sandbox key returns canned results for real people — worse than an error, because nothing looks wrong; a package silently missing credit/eviction data would leave the board deciding on an incomplete picture. Offered, not built: an admin diagnostic reporting only the key prefix.
 
 ## 🔴 Rentvine tenant sync — dead since 2026-06-17
 

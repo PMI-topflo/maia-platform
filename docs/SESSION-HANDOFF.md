@@ -29,12 +29,34 @@ User: "Create to all default template like MANXI's existing ~20-row checklist mi
 
 **Real gap flagged, not glossed over**: the Rules Acknowledgment checklist row is now required for these 17 associations, but the actual e-signed rules CONTENT per association (the text applicants sign — `lib/manxi-rules-ack.ts`/`lib/vpci-rules-ack.ts` are the only two that exist) hasn't been authored yet. The checklist item shows up; there's nothing to send until real governing-rules documents are provided per association. Separate follow-up, needs the user to supply source documents the way MANXI's and VPCI's were originally supplied.
 
+### Checkr re-verified end to end, and a real gap found + reported to Checkr
+User: "I want to use again the test environment before integrating." No staff session available locally, so re-ran the Test Environment's actual underlying path (`screening.createOrder()` → `screening_subjects` → report storage) directly against the real sandbox rather than clicking through `/admin/applications`. Both scenarios still work exactly as documented: **auto** completes in seconds with a real stored report PDF; **Hudson Green** goes `waiting_for_applicant`, emails a real hosted-consent link, and completes on its own after the sandbox processes it (~1-2 min later, confirmed by re-polling).
+
+**Real finding, not a MAIA bug**: pulled the structured report object (`GET /reports/{id}`, not just the PDF) and confirmed `credit_report` and `eviction_history` both come back `null` on the `essential` package — only criminal history, sex offender registry, and global watchlist run. This contradicts what Checkr's own pricing conversation described Essential as including. Emailed `hello-tenant@checkr.com` with the exact order/report IDs and the full null/populated breakdown, asking them to confirm whether the account's package is misconfigured or this is expected sandbox behavior. **Awaiting their reply** — this needs resolving before any association gets flipped to `maia_checkr` (on top of the already-known unconfirmed test-vs-live key mode).
+
+Also confirmed while investigating: `docs.checkr.com` is Checkr's **general employment** API, a different product from the **Tenant Screening** API (`checkr-tenant-api-docs.redocly.app`) this integration actually uses — same wrong-product confusion the original 2026-07-05 build hit once already. Flagged directly rather than acting on anything from the wrong docs set.
+
+### Real incident: MANXI 802, self-serve intake let an applicant "satisfy" staff- and e-signed items with random uploads (`1b15202`, `e82403b`, `f6eb236`)
+Board forwarded a tenant complaint ("the app won't work, I've already uploaded everything") with screenshots. Investigation found two separate things:
+
+**Not a bug**: her real application was complete and already submitted — she'd also accidentally started a second application under a typo'd email (`.hotmail.com` instead of `.gmail.com`) that got stuck after hitting the OTP resend rate limit. Replied to her (board CC'd) with an exact timeline pulled from real logs.
+
+**A real, platform-wide bug**, found reviewing her actual uploaded files: the self-serve checklist's "other documents — upload if you have them" convenience section rendered `background_credit` (Background/Credit Reports, `provided_by: 'staff'` — the ONLY staff-only doc_key platform-wide, confirmed by querying every association) as an ordinary upload box, and she uploaded what looks like a different person's background-check screenshot into it. The same page also let her "satisfy" the Rules Knowledge Acknowledgment, Emergency Contact List, and Military Service Member Disclosure — all real e-signed forms (`lib/application-esign-forms.ts`'s `ESIGN_CHECKLIST_ITEMS` registry) — by uploading unrelated files (an insurance PDF, a random phone-contact screenshot), because only Rules Ack had a dedicated in-page signing block; the other three fell back to the same generic upload control as everything else.
+
+Fixed in three commits, the last two done by a peer session working the same incident from the background-task chip, cross-verified before merging:
+1. `1b15202` — `GET /api/pre-apply/[token]` now excludes `provided_by='staff'` items and `governing_docs_ack` from the checklist entirely; `record-doc` rejects both server-side too (defense in depth against a stale page or a direct call).
+2. `e82403b` — new `getOrCreateEsignLink()` (`lib/application-esign-forms.ts`) mints (or reuses, idempotently — no duplicate emails on page refresh) a real signing link for Emergency Contact List and Military Service Member Disclosure, rendered as a distinct "Sign now →" card instead of an upload box. Needed `esign_documents.application_id` to actually be set on insert (the column existed for a different purpose and was silently never populated) to make the reuse lookup precise.
+3. `f6eb236` — same widening applied to `pet_registration` and `maintenance_assessment_ack`, the other two registry entries with the identical latent gap, explicitly flagged as not-yet-fixed in `e82403b`'s own commit message. Verified against a disposable TROP purchase test application (pets allowed there, unlike MANXI) — all 5 e-signed doc_keys correctly 403 on raw upload, `drivers_license` correctly still succeeds as a control.
+
+⚠️ **Two sessions worked this in parallel** (this one + a peer session that had started the earlier-spawned background-task chip) — cross-checked each other's diffs and cleanup SQL before either committed; no conflicts, but worth knowing this pattern is possible when a chip gets started separately from where it was suggested.
+
 ### ⏳ NEXT
 1. **Author rules-ack content for the 17 newly-templated associations** — needs real governing-documents/rules text per association from the user before the required checklist item can actually be fulfilled.
-2. Staff-side "Required documents" panel and the association setup UI already support toggling any of the new template rows on/off per association (`IntakeChecklistBox` at `/admin/cinc-sync/[code]`) — no new UI needed, just needs actual use.
-3. Older, unchanged: Checkr key prefix still unverified; Rentvine tenant-sync cron dead since 2026-06-17.
+2. **Awaiting Checkr's reply** on the credit-report/eviction-history gap on the `essential` package before flipping any association to `maia_checkr`.
+3. Staff-side "Required documents" panel and the association setup UI already support toggling any of the new template rows on/off per association (`IntakeChecklistBox` at `/admin/cinc-sync/[code]`) — no new UI needed, just needs actual use.
+4. Older, unchanged: Checkr key prefix (test vs live) still unverified; Rentvine tenant-sync cron dead since 2026-06-17.
 
-Memory: [[manxi_application_guide_project]], [[manxi_application_guide_live_feature]].
+Memory: [[manxi_application_guide_project]], [[manxi_application_guide_live_feature]], [[screening_provider_pivot]].
 
 ---
 
