@@ -117,6 +117,7 @@ export const checkrProvider: ScreeningProvider = {
     const json = await checkrFetch('/orders', 'POST', {
       order: {
         package: packageFor(),
+        ...(subject.addOnProducts?.length ? { add_on_products: subject.addOnProducts } : {}),
         property: {
           name: property.name ?? undefined,
           street: property.street,
