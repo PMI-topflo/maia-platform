@@ -860,6 +860,18 @@ function TestEnvironmentPanel() {
       });
       const data = await res.json();
       if (!res.ok) { setResult(`Error: ${data.error ?? 'unknown'}`); return; }
+      // Previously always showed "Created... Reloading" even when order
+      // creation itself failed silently (e.g. Checkr rejecting the order) --
+      // the application row got created, but no screening_subjects row
+      // ever appeared, with zero visible explanation. trigger-screening now
+      // returns the real per-subject error text; surface it here instead of
+      // reloading past it.
+      const triggerError = data.triggerResult?.error
+        ?? (Array.isArray(data.triggerResult?.errors) && data.triggerResult.errors.length ? data.triggerResult.errors.join(' | ') : null);
+      if (triggerError) {
+        setResult(`Created ${data.applicationId}, but order creation failed: ${triggerError}`);
+        return;
+      }
       setResult(`Created ${data.applicationId} — scenario: ${data.scenario}. Reloading…`);
       setTimeout(() => window.location.reload(), 1200);
     } catch (e) {
@@ -944,7 +956,7 @@ function TestEnvironmentPanel() {
           {busy ? 'Creating…' : 'Create & Trigger'}
         </button>
       </div>
-      {result && <p className="mt-3 text-xs text-gray-700">{result}</p>}
+      {result && <p className={`mt-3 text-xs ${result.includes('order creation failed') ? 'font-medium text-red-700' : 'text-gray-700'}`}>{result}</p>}
     </div>
   );
 }

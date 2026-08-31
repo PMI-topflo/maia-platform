@@ -87,7 +87,17 @@ export async function POST(req: NextRequest) {
 
   const succeeded = results.filter(r => r.status === 'fulfilled').length
   const failed = results.filter(r => r.status === 'rejected').length
-  for (const r of results) if (r.status === 'rejected') console.error('[trigger-screening] order creation failed:', r.reason)
+  // Real error text was previously only ever logged server-side (console.error
+  // below) -- the caller (create-test's UI) had no way to show a staff member
+  // WHY order creation failed, only that it did. Surfaced in the response so
+  // it's visible directly on the page instead of requiring Vercel log access.
+  const errors: string[] = []
+  for (const r of results) {
+    if (r.status === 'rejected') {
+      console.error('[trigger-screening] order creation failed:', r.reason)
+      errors.push(r.reason instanceof Error ? r.reason.message : String(r.reason))
+    }
+  }
 
   // Any subject we couldn't even create an order for is recorded as an error.
   if (failed > 0) {
@@ -99,5 +109,5 @@ export async function POST(req: NextRequest) {
   const aggregate = computeAggregateStatus((subjectRows ?? []).map(r => r.status as string))
   await supabase.from('applications').update({ screening_status: aggregate, screening_provider: screening.name }).eq('id', applicationId)
 
-  return NextResponse.json({ ok: true, subjects: subjects.length, succeeded, failed, status: aggregate })
+  return NextResponse.json({ ok: true, subjects: subjects.length, succeeded, failed, status: aggregate, ...(errors.length ? { errors } : {}) })
 }
