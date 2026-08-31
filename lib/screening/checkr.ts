@@ -27,6 +27,21 @@
 // and genuinely emails the applicant a hosted link, same as a real production
 // order would. Both are legitimate statuses, not a guess vs. a correction.
 //
+// ⚠ Test-mode "Canned Provider Scenarios" require an EXACT match on all
+// four of first_name/last_name/dob/ssn (per Checkr's own Testing guide,
+// checkr-tenant-api-docs.redocly.app/testing#canned-provider-scenarios,
+// and confirmed directly by Checkr support 2026-08-31). A partial match
+// (e.g. the right ssn, wrong name/dob) is treated as a miss and silently
+// falls through to "the clean scenario for every product" -- an inert,
+// mostly-empty result, NOT the real canned data for that ssn. This is the
+// likely actual cause of the 2026-08-30 finding that credit_report and
+// eviction_history came back null on a test order (see docs/ROADMAP.md) --
+// the test applicant used SSN 333-33-3333 (Norma Davies' real documented
+// SSN) with a generic name/dob that didn't match her tuple, not a real gap
+// in what the essential package returns. create-test/route.ts's default
+// scenario now uses the exact matching tuple; this needs a live re-run
+// (this environment has no Checkr credentials) to fully confirm.
+//
 // ⚠ There is no distinct "international" package. Checkr's own pricing page
 // (checkr.com/pricing/international, confirmed 2026-07-06) shows international
 // checks are à la carte per-country line items (e.g. Germany's criminal check
@@ -133,6 +148,13 @@ export const checkrProvider: ScreeningProvider = {
   async getReportPdf(reportId: string): Promise<Buffer> {
     if (!this.isConfigured()) throw new Error('CHECKR_API_KEY is not configured')
     return checkrFetchPdf(`/reports/${reportId}/pdf`)
+  },
+
+  /** Raw passthrough of GET /reports/{id} -- see the interface doc comment
+   *  in ./types.ts for why this isn't parsed into a typed shape yet. */
+  async getReport(reportId: string): Promise<Record<string, unknown>> {
+    if (!this.isConfigured()) throw new Error('CHECKR_API_KEY is not configured')
+    return checkrFetch(`/reports/${reportId}`, 'GET')
   },
 
   verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean {

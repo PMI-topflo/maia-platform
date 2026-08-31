@@ -80,7 +80,7 @@ export type Application = {
   is_test: boolean | null;
 };
 
-type ScreeningSubjectSummary = { name: string | null; status: string | null; report_url: string | null };
+type ScreeningSubjectSummary = { name: string | null; status: string | null; report_url: string | null; report_data: Record<string, unknown> | null };
 
 interface Props {
   applications: Application[];
@@ -683,6 +683,12 @@ function DetailPanel({
                       />
                     )}
                   </div>
+                  {s.report_data && (
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-gray-500 hover:text-[#f26a1b]">Raw report data (criminal/credit/income)</summary>
+                      <pre className="mt-1 max-h-64 overflow-auto rounded bg-gray-50 p-2 text-[10px] leading-tight text-gray-700">{JSON.stringify(s.report_data, null, 2)}</pre>
+                    </details>
+                  )}
                 </div>
               );
             })}
@@ -824,12 +830,19 @@ function DetailPanel({
 // Test Environment — creates a real application row against the real
 // Checkr sandbox, bypassing Stripe, so staff can watch the whole
 // pipeline (order -> webhook -> report PDF -> dashboard badges) without
-// a real applicant. Only two Checkr scenarios are real for the Tenant
-// API this integration uses -- see create-test/route.ts's header comment.
+// a real applicant. Four Checkr scenarios are real, documented canned
+// tuples for the Tenant API this integration uses -- see
+// create-test/route.ts's header comment.
 // ---------------------------------------------------------------------------
+const FIXED_NAME_SCENARIOS = {
+  hudson_green: 'Hudson Green',
+  credit_consider: 'Madelyn Webster',
+  income_verification: 'Ingrid Vance',
+} as const;
+
 function TestEnvironmentPanel() {
   const [appType, setAppType] = useState<'individual' | 'couple' | 'additionalResident' | 'commercial' | 'international'>('individual');
-  const [scenario, setScenario] = useState<'auto' | 'hudson_green'>('auto');
+  const [scenario, setScenario] = useState<'auto' | 'credit_consider' | 'income_verification' | 'hudson_green'>('auto');
   const [lang, setLang] = useState('en');
   const [customName, setCustomName] = useState('');
   const [customEmail, setCustomEmail] = useState('');
@@ -860,9 +873,12 @@ function TestEnvironmentPanel() {
     <div className="mb-6 rounded-lg border border-dashed border-[#f26a1b] bg-orange-50 p-5">
       <h3 className="text-sm font-semibold text-[#0d0d0d] mb-1">Create a test application</h3>
       <p className="text-xs text-gray-600 mb-4">
-        Creates a real application (marked as test, payment bypassed) and runs it through the real Checkr sandbox.
-        &ldquo;Hudson Green&rdquo; is the one documented tuple that emails a real applicant consent link instead of auto-completing —
-        unavailable for Commercial, since principals don&rsquo;t carry an SSN. Runs against Venetian Park Condominium I (VPCI).
+        Creates a real application (marked as test, payment bypassed) and runs it through the real Checkr sandbox, using
+        Checkr&rsquo;s documented Canned Provider Scenarios (exact name+DOB+SSN match required — a mismatch silently falls
+        through to an inert clean result, not the real canned data). &ldquo;Hudson Green&rdquo; emails a real applicant
+        consent link instead of auto-completing; &ldquo;Madelyn Webster&rdquo; verifies a populated, non-clear credit
+        report; &ldquo;Ingrid Vance&rdquo; verifies bank-sourced income data. All fixed-tuple scenarios are unavailable for
+        Commercial, since principals don&rsquo;t carry an SSN. Runs against Venetian Park Condominium I (VPCI).
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-xs text-gray-700">
@@ -878,8 +894,10 @@ function TestEnvironmentPanel() {
         <label className="text-xs text-gray-700">
           <div className="mb-1 font-medium">Checkr scenario</div>
           <select value={scenario} onChange={(e) => setScenario(e.target.value as typeof scenario)} disabled={appType === 'commercial'} className="rounded border border-gray-300 px-2 py-1.5 text-sm disabled:opacity-50">
-            <option value="auto">Quick auto-complete</option>
-            <option value="hudson_green">Hudson Green (real consent link)</option>
+            <option value="auto">Norma Davies — clean (clear/clear)</option>
+            <option value="credit_consider">Madelyn Webster — credit report: consider</option>
+            <option value="income_verification">Ingrid Vance — income verification</option>
+            <option value="hudson_green">Hudson Green — real consent link</option>
           </select>
         </label>
         <label className="text-xs text-gray-700">
@@ -895,12 +913,12 @@ function TestEnvironmentPanel() {
           </select>
         </label>
         <label className="text-xs text-gray-700">
-          <div className="mb-1 font-medium">Applicant name {scenario === 'hudson_green' && '(fixed)'}</div>
+          <div className="mb-1 font-medium">Applicant name {scenario in FIXED_NAME_SCENARIOS && '(fixed)'}</div>
           <input
             type="text"
-            value={scenario === 'hudson_green' ? 'Hudson Green' : customName}
+            value={scenario in FIXED_NAME_SCENARIOS ? FIXED_NAME_SCENARIOS[scenario as keyof typeof FIXED_NAME_SCENARIOS] : customName}
             onChange={(e) => setCustomName(e.target.value)}
-            disabled={scenario === 'hudson_green'}
+            disabled={scenario in FIXED_NAME_SCENARIOS}
             placeholder="Test Applicant"
             className="rounded border border-gray-300 px-2 py-1.5 text-sm disabled:opacity-50 disabled:bg-gray-100"
           />

@@ -7,16 +7,31 @@
 // pipeline (order -> webhook -> report PDF -> dashboard badges) without
 // waiting for a real applicant.
 //
-// Only two Checkr test-mode scenarios are real and known to work here --
-// confirmed live 2026-07-06 against the actual Tenant sandbox:
-//   'auto'         -- any other applicant data; auto-completes to
-//                     "pending" -> "completed" in seconds, generic clear
-//                     results, no email sent.
-//   'hudson_green' -- the exact documented canned tuple (first_name
-//                     Hudson, last_name Green, dob 1996-04-27, ssn
-//                     555-55-5555) that instead returns
-//                     "waiting_for_applicant" and genuinely emails a
-//                     hosted consent link, same as a real order would.
+// Test-mode scenarios, per Checkr's documented "Canned Provider Scenarios"
+// (checkr-tenant-api-docs.redocly.app/testing#canned-provider-scenarios,
+// confirmed directly by Checkr support 2026-08-31). A scenario only fires
+// on an EXACT match of first_name + last_name + dob + ssn together -- a
+// partial match (e.g. reusing a documented ssn with a different name/dob,
+// which the ORIGINAL version of this route did) is treated as a miss and
+// silently falls through to an inert "clean scenario for every product",
+// not the real canned data for that ssn. See lib/screening/checkr.ts's
+// file header for the fuller writeup of that bug.
+//   'auto'            -- the exact Norma Davies tuple: clear criminal
+//                        history, clear credit report. The documented
+//                        "golden path" clean result -- auto-completes to
+//                        "pending" -> "completed" in seconds, no email sent.
+//   'credit_consider' -- the exact Madelyn Webster tuple: clear criminal
+//                        history, credit report flagged "consider". Use
+//                        this to verify credit-report data actually comes
+//                        back populated and non-clear.
+//   'income_verification' -- the exact Ingrid Vance tuple (ssn
+//                        666-66-6666): returns bank-sourced income data
+//                        from three attached sample documents (paystub,
+//                        W-2, bank statement), all low document-risk.
+//   'hudson_green'     -- the exact documented canned tuple that instead
+//                        returns "waiting_for_applicant" and genuinely
+//                        emails a hosted consent link, same as a real
+//                        order would.
 // (Checkr's separate Workforce mock-candidate spreadsheet -- Nick Jonas,
 // Bruce Ralph Clark, etc. -- does NOT apply to the Tenant API this
 // integration uses; confirmed directly by Checkr 2026-07-06.)
@@ -31,13 +46,26 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 type AppType = 'individual' | 'couple' | 'additionalResident' | 'commercial' | 'international'
-type Scenario = 'auto' | 'hudson_green'
+type Scenario = 'auto' | 'credit_consider' | 'income_verification' | 'hudson_green'
 
 const HUDSON_GREEN = { firstName: 'Hudson', lastName: 'Green', dob: '1996-04-27', ssn: '555-55-5555' }
+const NORMA_DAVIES = { firstName: 'Norma', lastName: 'Davies', dob: '1996-04-27', ssn: '333-33-3333' }
+const MADELYN_WEBSTER = { firstName: 'Madelyn', lastName: 'Webster', dob: '1996-04-27', ssn: '222-22-2222' }
+const INGRID_VANCE = { firstName: 'Ingrid', lastName: 'Vance', dob: '1996-04-27', ssn: '666-66-6666' }
 const ASSOCIATION_NAME = 'Venetian Park Condominium I Association, Inc.'
 
+const FIXED_TUPLES: Partial<Record<Scenario, { firstName: string; lastName: string; dob: string; ssn: string }>> = {
+  hudson_green: HUDSON_GREEN,
+  auto: NORMA_DAVIES,
+  credit_consider: MADELYN_WEBSTER,
+  income_verification: INGRID_VANCE,
+}
+
 function genericApplicant(i: number) {
-  return { firstName: 'Test', lastName: `Applicant${i}`, email: 'PMI@topfloridaproperties.com', dob: '1985-06-15', ssn: '333-33-3333', unitApplying: '101' }
+  // Deliberately does NOT match any documented canned tuple -- used only
+  // for the second applicant on a couple, where a real scenario name is
+  // rarely needed. Returns the inert "clean scenario for every product".
+  return { firstName: 'Test', lastName: `Applicant${i}`, email: 'PMI@topfloridaproperties.com', dob: '1985-06-15', ssn: '999-99-9999', unitApplying: '101' }
 }
 
 export async function POST(req: Request) {
@@ -50,12 +78,17 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({})) as { appType?: AppType; scenario?: Scenario; lang?: string; customName?: string; customEmail?: string }
   const appType: AppType = body.appType ?? 'individual'
-  const scenario: Scenario = body.scenario === 'hudson_green' && appType !== 'commercial' ? 'hudson_green' : 'auto'
+  const requestedScenario = body.scenario && body.scenario in FIXED_TUPLES ? body.scenario : 'auto'
+  const scenario: Scenario = requestedScenario !== 'auto' && appType === 'commercial' ? 'auto' : requestedScenario
   const lang = body.lang ?? 'en'
   const customEmail = body.customEmail?.trim() || 'PMI@topfloridaproperties.com'
-  // Hudson Green's first/last name is a fixed tuple Checkr recognizes --
-  // only the email can be customized for that scenario. For 'auto', the
-  // whole name is free to override.
+  // Every fixed-tuple scenario's first/last name is exactly what Checkr's
+  // canned-scenario matcher requires -- only the email can be customized.
+  // For 'auto' specifically, a custom name is allowed to override, but it
+  // must NOT be paired with a documented canned ssn (that's the exact bug
+  // this file used to have) -- use an inert one instead, same as
+  // genericApplicant(), so an overridden name deliberately gets the clean
+  // "any other tuple" result rather than an accidental partial match.
   const [customFirst, ...customLastParts] = (body.customName?.trim() || '').split(/\s+/)
   const customLast = customLastParts.join(' ')
 
@@ -70,9 +103,9 @@ export async function POST(req: Request) {
   }
 
   function firstApplicant() {
-    if (scenario === 'hudson_green') return { ...HUDSON_GREEN, email: customEmail, unitApplying: '101' }
-    if (customFirst) return { firstName: customFirst, lastName: customLast || customFirst, email: customEmail, dob: '1985-06-15', ssn: '333-33-3333', unitApplying: '101' }
-    return { ...genericApplicant(1), email: customEmail }
+    if (scenario !== 'auto') return { ...FIXED_TUPLES[scenario]!, email: customEmail, unitApplying: '101' }
+    if (customFirst) return { firstName: customFirst, lastName: customLast || customFirst, email: customEmail, dob: '1985-06-15', ssn: '999-99-9999', unitApplying: '101' }
+    return { ...NORMA_DAVIES, email: customEmail, unitApplying: '101' }
   }
 
   if (appType === 'commercial') {

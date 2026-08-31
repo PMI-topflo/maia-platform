@@ -4078,6 +4078,15 @@ NOTIFY pgrst, 'reload schema';`,
    AND label = 'HO6 Property Insurance';
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'screening_report_data',
+    label:       'screening_subjects.report_data — raw structured Checkr report',
+    description: "Adds a jsonb column to hold the raw GET /reports/{id} body verbatim. Previously MAIA only ever stored the report PDF; there was no code path reading structured report content at all. Paired with a fix to create-test/route.ts's test-mode applicant data (see lib/screening/checkr.ts) — a partial name/dob/ssn match against Checkr's documented Canned Provider Scenarios silently falls through to an empty 'clean scenario', which is the likely real cause of the earlier credit_report/eviction_history-null finding, not a real product gap.",
+    filename:    '20260831_screening_report_data.sql',
+    artifact:    { type: 'column', table: 'screening_subjects', column: 'report_data' },
+    sql: `ALTER TABLE public.screening_subjects ADD COLUMN IF NOT EXISTS report_data jsonb;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
