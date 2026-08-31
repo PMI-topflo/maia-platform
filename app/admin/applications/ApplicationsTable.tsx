@@ -888,10 +888,9 @@ function TestEnvironmentPanel() {
         Creates a real application (marked as test, payment bypassed) and runs it through the real Checkr sandbox, using
         Checkr&rsquo;s documented Canned Provider Scenarios (exact name+DOB+SSN match required — a mismatch silently falls
         through to an inert clean result, not the real canned data). &ldquo;Hudson Green&rdquo; emails a real applicant
-        consent link instead of auto-completing; &ldquo;Madelyn Webster&rdquo; also requests
-        add_on_products: [&ldquo;credit_report&rdquo;,&ldquo;eviction_history&rdquo;] — either the data finally populates, or
-        Checkr rejects the order (their Orders API returns a validation error for an unknown/non-add-on slug), which
-        settles whether these need an account-level package change; &ldquo;Ingrid Vance&rdquo; verifies bank-sourced income
+        consent link instead of auto-completing; &ldquo;Madelyn Webster&rdquo; verifies criminal-history/watchlist matching
+        against a documented &ldquo;consider&rdquo; tuple (credit_report/eviction_history are confirmed NOT available on
+        this Checkr account — see docs/ROADMAP.md); &ldquo;Ingrid Vance&rdquo; verifies bank-sourced income
         data. All fixed-tuple scenarios are unavailable for
         Commercial, since principals don&rsquo;t carry an SSN. Runs against Venetian Park Condominium I (VPCI).
       </p>
@@ -910,7 +909,7 @@ function TestEnvironmentPanel() {
           <div className="mb-1 font-medium">Checkr scenario</div>
           <select value={scenario} onChange={(e) => setScenario(e.target.value as typeof scenario)} disabled={appType === 'commercial'} className="rounded border border-gray-300 px-2 py-1.5 text-sm disabled:opacity-50">
             <option value="auto">Norma Davies — clean (clear/clear)</option>
-            <option value="credit_consider">Madelyn Webster — credit report: consider</option>
+            <option value="credit_consider">Madelyn Webster — criminal/watchlist match test</option>
             <option value="income_verification">Ingrid Vance — income verification</option>
             <option value="hudson_green">Hudson Green — real consent link</option>
           </select>

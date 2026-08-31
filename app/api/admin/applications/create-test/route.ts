@@ -21,21 +21,23 @@
 //                        "golden path" clean result -- auto-completes to
 //                        "pending" -> "completed" in seconds, no email sent.
 //   'credit_consider' -- the exact Madelyn Webster tuple: clear criminal
-//                        history, credit report flagged "consider". Use
-//                        this to verify credit-report data actually comes
-//                        back populated and non-clear. Also requests
-//                        add_on_products: ["credit_report","eviction_history"]
-//                        -- a real live run on 2026-08-31 got credit_report/
-//                        eviction_history back null even on this exact
-//                        tuple, matching the docs.checkr.com "Essential"
-//                        package description contradicts the account's
-//                        actual configuration (see docs/ROADMAP.md).
-//                        Checkr's Orders docs say an unknown/non-add-on
-//                        slug in add_on_products returns a VALIDATION
-//                        ERROR, so this is a real, decisive test: either
-//                        Checkr rejects the order (proves these aren't
-//                        valid add-ons here) or the data finally populates
-//                        (proves this was the missing piece all along).
+//                        history, credit report flagged "consider" per
+//                        Checkr's documented canned scenarios. RESOLVED
+//                        2026-08-31: credit_report and eviction_history are
+//                        NOT available on this Checkr account at all --
+//                        confirmed by a real 422 from POST /orders when
+//                        this scenario briefly requested them via
+//                        add_on_products: {"errors":[{"code":"validation_error",
+//                        "detail":"Unknown add-on products: credit_report,
+//                        eviction_history","source":{"pointer":"/add_on_products"}}]}.
+//                        That's decisive and final -- not a package tier
+//                        this account has, and not purchasable as an
+//                        add-on either. See docs/ROADMAP.md for the full
+//                        writeup and the Checkr-support follow-up. This
+//                        scenario no longer requests them (that call would
+//                        just fail every time) -- still useful on its own
+//                        for verifying criminal-history/watchlist matching
+//                        against a documented "consider" tuple.
 //   'income_verification' -- the exact Ingrid Vance tuple (ssn
 //                        666-66-6666): returns bank-sourced income data
 //                        from three attached sample documents (paystub,
@@ -115,10 +117,15 @@ export async function POST(req: Request) {
   }
 
   function firstApplicant() {
-    if (scenario !== 'auto') {
-      const addOnProducts = scenario === 'credit_consider' ? ['credit_report', 'eviction_history'] : undefined
-      return { ...FIXED_TUPLES[scenario]!, email: customEmail, unitApplying: '101', ...(addOnProducts ? { addOnProducts } : {}) }
-    }
+    // credit_consider previously also requested add_on_products:
+    // ["credit_report","eviction_history"] as a live test -- Checkr's API
+    // conclusively rejected both with a 422 validation_error (2026-08-31,
+    // see this file's header comment), so that's no longer sent. The
+    // ScreeningSubject.addOnProducts plumbing itself (lib/screening/
+    // checkr.ts, app/api/trigger-screening/route.ts) stays in place --
+    // it's a real, working capability, just not useful for these two
+    // specific products on this account.
+    if (scenario !== 'auto') return { ...FIXED_TUPLES[scenario]!, email: customEmail, unitApplying: '101' }
     if (customFirst) return { firstName: customFirst, lastName: customLast || customFirst, email: customEmail, dob: '1985-06-15', ssn: '999-99-9999', unitApplying: '101' }
     return { ...NORMA_DAVIES, email: customEmail, unitApplying: '101' }
   }
