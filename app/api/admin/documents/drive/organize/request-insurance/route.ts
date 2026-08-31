@@ -1,7 +1,8 @@
 // POST /api/admin/documents/drive/organize/request-insurance
 //   { associationCode, unitRef, recommendation?, namedInsured? }
-// Email the unit OWNER (cc Jonathan/AR + PMI) to request a proper HO-6
-// declarations page, when the insurance on file is only a liability policy.
+// Email the unit OWNER (cc Jonathan/AR + PMI) to request a proper HO-6 (or
+// DP-3 Unit Owners equivalent) declarations page, when the insurance on
+// file is only a liability policy.
 // Staff-only.
 
 import { NextResponse } from 'next/server'
@@ -39,16 +40,16 @@ export async function POST(req: Request) {
   const ownerName = ownerRow?.entity_name || [ownerRow?.first_name, ownerRow?.last_name].filter(Boolean).join(' ') || 'Owner'
   const assocName = assoc?.association_name ?? association
   const rec = body.recommendation
-    || 'Please provide your HO-6 condominium unit-owner declarations page showing dwelling/building (Coverage A), personal property (Coverage C), and loss-assessment (Coverage F) coverage.'
+    || 'Please provide your HO-6 (or DP-3 "Unit Owners" form) condominium unit-owner declarations page showing dwelling/unit-owners coverage, personal property (Coverage C), and loss-assessment (Coverage F) coverage.'
 
   try {
     await sendEmail({
       to: ownerEmail, cc: CC,
-      subject: `Action needed: valid HO-6 insurance for unit ${unitRef} — ${assocName}`,
+      subject: `Action needed: valid HO-6/DP-3 insurance for unit ${unitRef} — ${assocName}`,
       html: `<p>Hello ${ownerName},</p>
              <p>Thank you for the insurance document you provided for your unit at <strong>${assocName}</strong> (unit ${unitRef})${body.namedInsured ? ` (named insured: ${body.namedInsured})` : ''}. On review, it is a <strong>liability-only policy</strong> and does not satisfy the condominium's requirement to insure the unit itself.</p>
              <p>${rec}</p>
-             <p>A valid <strong>HO-6</strong> declarations page should show, at minimum: building/dwelling (Coverage A) or improvements &amp; betterments, personal property, loss assessment, water damage, and personal liability — with the unit owner as the named insured.</p>
+             <p>A valid <strong>HO-6</strong> (or an equivalent Dwelling Fire <strong>DP-3 "Unit Owners"</strong> policy — e.g. one issued by Citizens) declarations page should show, at minimum: building/dwelling or unit-owners coverage, personal property, loss assessment, water damage, and personal liability — with the unit owner as the named insured.</p>
              <p>Please reply to this email with the correct declarations page at your earliest convenience.</p>
              <p style="color:#6b7280;font-size:13px">— ${assocName} management (PMI Top Florida Properties)</p>`,
     })

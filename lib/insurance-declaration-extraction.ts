@@ -73,7 +73,7 @@ function buildPrompt(): string {
 
 FIRST decide what KIND of document this is:
 - "association_master" — the NAMED INSURED is the association / HOA / condominium corporation itself (an "Inc"/"Association"/"Condominium Association"); it covers the COMMON elements / building structure / association liability.
-- "unit_owner" — an individual UNIT OWNER's policy: HO-6 / "HO6" / "Unit Owners" / "Condominium Unit-Owners" form; the named insured is a PERSON; coverages are dwelling / personal property / loss of use / personal liability / medical payments. THIS DOES NOT BELONG ON THE ASSOCIATION'S MASTER-INSURANCE SCREEN.
+- "unit_owner" — an individual UNIT OWNER's policy: HO-6 / "HO6" / "Unit Owners" / "Condominium Unit-Owners" form, INCLUDING a Dwelling Fire "DP-3 Unit Owners"/"Unit Owners Special Form" policy (e.g. issued by Citizens) — same category, different form name; the named insured is a PERSON; coverages are dwelling or "Condominium Unit Owners Coverage" / personal property / loss of use (or "Fair Rental Value") / personal liability / medical payments. THIS DOES NOT BELONG ON THE ASSOCIATION'S MASTER-INSURANCE SCREEN.
 - "other" — neither.
 
 THEN, only if it is "association_master", identify EVERY distinct coverage present and map each to one of these coverage keys:

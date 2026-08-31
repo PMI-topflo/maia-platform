@@ -38,7 +38,7 @@ function typeFromDetected(itemKey: string | null, category: string | null, docTy
   if (/approval/.test(hay)) return 'Approval'
   if (/certificate of use|lauderhill|cert.*use|business tax|\bbtr\b|rental license|use permit/.test(hay)) return 'LauderhillCert'
   if (/\bho-?4\b|renter/.test(hay)) return 'HO4'
-  if (/\bho-?6\b|\bho-?3\b/.test(hay)) return 'HO6'
+  if (/\bho-?6\b|\bho-?3\b|\bdp-?3\b/.test(hay)) return 'HO6'
   if (/affidavit/.test(hay)) return 'Affidavit'
   if (/lease|rental agreement|tenanc/.test(hay)) return 'Lease'
   if (/insurance|binder|policy|homeowner/.test(hay)) return 'HO6'

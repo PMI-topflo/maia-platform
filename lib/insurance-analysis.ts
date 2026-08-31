@@ -6,6 +6,12 @@
 //   • ho6            — condo UNIT-OWNER policy: dwelling/building (Cov A) +
 //                      improvements & betterments, personal property, loss
 //                      assessment, loss of use, water damage, liability.
+//                      Classified by COVERAGES, not the form name — a
+//                      Dwelling Fire "DP-3 Unit Owners" policy (Citizens
+//                      commonly issues these to Florida condo owners) with
+//                      Condominium Unit Owners Coverage + personal property
+//                      + Fair Rental Value + personal liability is a real
+//                      ho6-equivalent, not a mismatch.
 //   • ho4            — RENTER/tenant policy: tenant named insured + personal
 //                      property + loss of use + liability (NO building cover).
 //   • liability_only — a "Comprehensive Personal Liability" / landlord CPL
@@ -59,7 +65,7 @@ function mediaTypeFor(ct?: string | null): 'image/jpeg' | 'image/png' | 'image/w
 const PROMPT = `You are an insurance compliance reviewer for a Florida CONDOMINIUM. Read this policy/binder by its ACTUAL COVERAGES, not its title, and classify it.
 
 Definitions:
-- "ho6" = condo UNIT-OWNER policy: has building/dwelling coverage (Coverage A) or improvements & betterments, usually personal property, loss assessment, loss of use, water damage, and personal liability.
+- "ho6" = condo UNIT-OWNER policy: has building/dwelling coverage (Coverage A) or improvements & betterments (or, on a Dwelling Fire "DP-3 Unit Owners"/"Unit Owners Special Form" policy, "Condominium Unit Owners Coverage"), usually personal property, loss assessment, loss of use (or "Fair Rental Value"/"Additional Living Expense" on a DP-3), water damage, and personal liability. A DP-3 Unit Owners form with these coverages IS an ho6 — classify by coverage, never reject it for not being titled "HO-6".
 - "ho4" = RENTER/tenant policy: tenant is the named insured, has personal property (Coverage C), loss of use, personal liability — but NO building/dwelling coverage.
 - "liability_only" = a "Comprehensive Personal Liability" / landlord CPL policy: ONLY personal liability and medical payments, NO property/dwelling/contents/loss-of-use. Often the named insured is a company (LLC/Inc) renting the unit. This does NOT prove the unit is physically insured.
 - "other" = something else (flood, windstorm, master association policy, etc.).

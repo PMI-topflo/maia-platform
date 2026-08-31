@@ -67,7 +67,7 @@ const onFileSet = (recs: { item_key: string; status: string }[] | null) =>
  *  policy: an owner's real coverage sometimes differs, and that mismatch is
  *  itself the compliance signal worth surfacing. */
 export const INSURANCE_TYPE_OPTIONS: Record<string, string[]> = {
-  'unit.ho6': ['HO-6 (Condo/Co-op Unit Owners Policy)', 'HO-3 (Homeowners Policy)', 'Landlord/Rental Dwelling Policy', 'Umbrella/Other', 'None currently'],
+  'unit.ho6': ['HO-6 (Condo/Co-op Unit Owners Policy)', 'DP-3 (Dwelling Fire Unit Owners Policy)', 'HO-3 (Homeowners Policy)', 'Landlord/Rental Dwelling Policy', 'Umbrella/Other', 'None currently'],
   'unit.ho3': ['HO-3 (Homeowners Policy)', 'Landlord/Rental Dwelling Policy', 'Umbrella/Other', 'None currently'],
   'unit.commercial_property': ['Commercial Package Policy (CPP)', 'Business Owners Policy (BOP)', 'Separate Property + Liability', 'Umbrella/Other', 'None currently'],
   'unit.vacant_policy': ['Vacant Property Policy', 'None currently'],
