@@ -61,17 +61,17 @@ async function getData() {
   // Per-applicant Checkr status + report link -- applications.screening_report_url
   // only ever covers the single-subject case, so couples/commercial need
   // each subject's own row to show every applicant's report individually.
-  const subjectsByApplication: Record<string, { name: string | null; status: string | null; report_url: string | null }[]> = {};
+  const subjectsByApplication: Record<string, { name: string | null; status: string | null; report_url: string | null; report_data: Record<string, unknown> | null }[]> = {};
   const appIds = (applications ?? []).map((a) => a.id as string);
   if (appIds.length > 0) {
     const { data: subjects } = await supabase
       .from('screening_subjects')
-      .select('application_id, subject_index, name, status, report_url')
+      .select('application_id, subject_index, name, status, report_url, report_data')
       .in('application_id', appIds)
       .order('subject_index', { ascending: true });
     for (const s of (subjects ?? [])) {
       const key = s.application_id as string;
-      (subjectsByApplication[key] ??= []).push({ name: s.name, status: s.status, report_url: s.report_url });
+      (subjectsByApplication[key] ??= []).push({ name: s.name, status: s.status, report_url: s.report_url, report_data: s.report_data as Record<string, unknown> | null });
     }
   }
 

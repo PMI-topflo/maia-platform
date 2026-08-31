@@ -130,7 +130,7 @@ export const COMPLIANCE_TAXONOMY: ComplianceCategory[] = [
     ['ownership', 'Ownership Verification'], ['contact', 'Contact Information'], ['emergency', 'Emergency Contact', true],
     ['unit_manager', 'Unit Manager Info'], ['occupancy', 'Occupancy Registration'],
     ['tenant', 'Tenant Registration & Contact', true], ['vehicle', 'Vehicle Registration'], ['pet', 'Pet Registration'],
-    ['ho6', 'HO-6 Owners Insurance (condo)', true], ['ho3', 'HO-3 Homeowners Insurance (HOA)', true],
+    ['ho6', 'HO-6 / DP-3 Owners Insurance (condo)', true], ['ho3', 'HO-3 Homeowners Insurance (HOA)', true],
     ['ho4', 'HO-4 Renters Insurance (residential tenant)', true],
     ['cgl', 'Commercial General Liability + COI (commercial tenant)', true],
     ['commercial_property', 'Commercial Package / BOP (commercial owner)', true],

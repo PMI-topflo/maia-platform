@@ -25,7 +25,11 @@ async function ensureBucket(): Promise<void> {
 
 /** Fetches the PDF from Checkr, stores it, and links it onto the subject
  *  row (plus the application row, when it's the application's only
- *  subject -- applications.screening_report_url has room for one link). */
+ *  subject -- applications.screening_report_url has room for one link).
+ *  Also best-effort fetches the structured report body (credit/criminal/
+ *  eviction/income results, not just the rendered PDF) into report_data --
+ *  never fails the whole function over this, since the PDF is the
+ *  authoritative record staff/board already rely on. */
 export async function storeAndLinkReport(subject: { id: string; application_id: string }, reportId: string): Promise<void> {
   await ensureBucket()
   const pdf = await screening.getReportPdf(reportId)
@@ -38,8 +42,15 @@ export async function storeAndLinkReport(subject: { id: string; application_id: 
     .createSignedUrl(path, SIGNED_URL_TTL_SECONDS)
   if (signErr || !signed) throw new Error(`sign report pdf url: ${signErr?.message}`)
 
+  let reportData: Record<string, unknown> | null = null
+  try {
+    reportData = await screening.getReport(reportId)
+  } catch (e) {
+    console.error('[report-storage] getReport failed (PDF still stored):', e)
+  }
+
   await supabaseAdmin.from('screening_subjects')
-    .update({ checkr_report_id: reportId, report_url: signed.signedUrl })
+    .update({ checkr_report_id: reportId, report_url: signed.signedUrl, ...(reportData ? { report_data: reportData } : {}) })
     .eq('id', subject.id)
 
   const { count } = await supabaseAdmin.from('screening_subjects')

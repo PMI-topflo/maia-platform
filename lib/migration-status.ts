@@ -4066,6 +4066,27 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `-- See supabase/migrations/20260828_manxi_international_applicant_docs.sql for the full seed.
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'property_insurance_ho6_or_dp3_label',
+    label:       '"HO6 Property Insurance" → "HO6 Property Insurance or DP-3 (when rented)"',
+    description: 'User direction, 2026-08-31: a real Citizens Dwelling Fire DP-3 "Unit Owners" policy (MANXI unit 912) was filed under this item — DP-3 carries the same essential coverages as HO-6 and is a common substitute for a rented unit (this item only appears on lease/lease_renewal/additional_occupant). Relabels the checklist item to say so directly; doc_key and already-filed documents are unchanged. Scoped to rows whose label is still the exact current text, so a hand-edited label is never overwritten.',
+    filename:    '20260831_property_insurance_ho6_or_dp3_label.sql',
+    artifact:    { type: 'column', table: 'association_intake_documents', column: 'label' },
+    sql: `UPDATE public.association_intake_documents
+   SET label = 'HO6 Property Insurance or DP-3 (when rented)', updated_at = now()
+ WHERE doc_key = 'property_insurance'
+   AND label = 'HO6 Property Insurance';
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'screening_report_data',
+    label:       'screening_subjects.report_data — raw structured Checkr report',
+    description: "Adds a jsonb column to hold the raw GET /reports/{id} body verbatim. Previously MAIA only ever stored the report PDF; there was no code path reading structured report content at all. Paired with a fix to create-test/route.ts's test-mode applicant data (see lib/screening/checkr.ts) — a partial name/dob/ssn match against Checkr's documented Canned Provider Scenarios silently falls through to an empty 'clean scenario', which is the likely real cause of the earlier credit_report/eviction_history-null finding, not a real product gap.",
+    filename:    '20260831_screening_report_data.sql',
+    artifact:    { type: 'column', table: 'screening_subjects', column: 'report_data' },
+    sql: `ALTER TABLE public.screening_subjects ADD COLUMN IF NOT EXISTS report_data jsonb;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

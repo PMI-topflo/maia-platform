@@ -67,6 +67,14 @@ export interface ScreeningProvider {
   /** Downloads the finished report as a PDF (synchronous, single call --
    *  no polling). Can take up to ~60s to generate per Checkr's own docs. */
   getReportPdf(reportId: string): Promise<Buffer>
+  /** Fetches the structured report body (GET /reports/{id}) -- the actual
+   *  machine-readable result (criminal history, credit report, eviction
+   *  history, income verification, etc.), not just the rendered PDF. Raw
+   *  passthrough, not a typed/parsed shape -- the exact field names
+   *  haven't been confirmed against a real live response from this
+   *  environment (see lib/screening/checkr.ts's file header), so callers
+   *  should treat this as opaque JSON until that's done. */
+  getReport(reportId: string): Promise<Record<string, unknown>>
   /** True if the raw request body's signature matches the configured
    *  webhook secret. Verify BEFORE parsing/trusting the payload. */
   verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean
