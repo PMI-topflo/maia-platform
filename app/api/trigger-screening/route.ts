@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     city: assocRow.city, state: assocRow.state, zipcode: assocRow.zip,
   }
 
-  type Subject = { index: number; name: string; email?: string; dob?: string; ssn?: string; isCommercial: boolean; isInternational: boolean }
+  type Subject = { index: number; name: string; email?: string; dob?: string; ssn?: string; isCommercial: boolean; isInternational: boolean; addOnProducts?: string[] }
   const subjects: Subject[] = []
 
   if (app.app_type === 'commercial') {
@@ -58,10 +58,15 @@ export async function POST(req: NextRequest) {
     })
   } else {
     const isInternational = app.app_type === 'international';
-    (app.applicants || []).forEach((a: Record<string, string>, i: number) => {
+    // addOnProducts is only ever present on a create-test diagnostic
+    // applicant (see create-test/route.ts) -- real applicants never carry
+    // it, so this stays undefined for production orders.
+    (app.applicants || []).forEach((a: Record<string, unknown>, i: number) => {
       subjects.push({
         index: i, name: `${a.firstName} ${a.lastName}`.trim(),
-        email: a.email, dob: a.dob, ssn: a.ssn, isCommercial: false, isInternational,
+        email: a.email as string | undefined, dob: a.dob as string | undefined, ssn: a.ssn as string | undefined,
+        isCommercial: false, isInternational,
+        addOnProducts: Array.isArray(a.addOnProducts) ? a.addOnProducts as string[] : undefined,
       })
     })
   }

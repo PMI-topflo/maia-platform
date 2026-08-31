@@ -23,6 +23,15 @@ export interface ScreeningSubject {
   /** app_type === 'international' — routes to the international package
    *  instead of the domestic Essential one. Mutually exclusive with isCommercial. */
   isInternational: boolean
+  /** Extra add-on product slugs to run beyond what `package` bundles (e.g.
+   *  "identity_verification"). Per Checkr's Orders API docs, an unknown or
+   *  non-add-on slug returns a validation error -- so this doubles as a way
+   *  to test live whether a product is actually available as an add-on.
+   *  Undefined/empty for every real applicant today; only set by the
+   *  create-test route's diagnostic scenarios. Never set this for a real
+   *  applicant without confirming the add-on's cost with Checkr first --
+   *  add-ons are typically billed per-use. */
+  addOnProducts?: string[]
 }
 
 /** The unit being applied for — required on every Checkr order. */
