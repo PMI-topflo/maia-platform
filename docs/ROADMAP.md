@@ -1,9 +1,22 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-08-30**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-08-31**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
+
+---
+
+## ✅ LIVE — HO-6 / DP-3 unit-owner insurance acceptance (2026-08-31, PR #735)
+
+Real Citizens "Dwelling Fire DP-3 Unit Owners Special Form" policy (MANXI unit 912, Carmen Robinson) correctly flagged that MAIA's insurance validation/copy only ever named "HO-6" — a real risk of falsely rejecting a legitimate equivalent policy, since DP-3 is Citizens' common condo-unit-owner form (frequently the only option in South Florida's high-risk zones) and carries the same essential coverages (Condominium Unit Owners Coverage, personal property, personal liability).
+
+- `lib/document-validation.ts` — the AI upload gate's `insurance_ho6` spec (used by `app/api/units/documents/submit`, the actual path an owner uploads their unit insurance through) now explicitly accepts DP-3 and judges by coverages present, not the title on the declarations page. This was the one place a real false-rejection could have happened.
+- `lib/insurance-analysis.ts` / `lib/insurance-declaration-extraction.ts` — already coverage-based, not title-based; added explicit DP-3 examples to the prompts as a concrete anchor.
+- `lib/unit-required-docs.ts` + its duplicated client copy in `app/owner/compliance/[token]/OwnerComplianceClient.tsx` — added a DP-3 self-declare option (previously an owner with one had to mis-select "Other").
+- `lib/compliance-taxonomy.ts` — item label broadened to "HO-6 / DP-3" everywhere it's displayed.
+- The staff "request insurance" email (`app/api/admin/documents/drive/organize/request-insurance/route.ts`) no longer asks for "HO-6" as if it's the only acceptable form.
+- `supabase/migrations/20260831_property_insurance_ho6_or_dp3_label.sql` — relabels the one live MANXI/lease checklist row Carmen Robinson's document was already filed under, from "HO6 Property Insurance" to "HO6 Property Insurance or DP-3 (when rented)". **Applied by hand in the Supabase SQL editor and confirmed** (1 row, MANXI/lease — every other association's row was correctly left untouched, scoped to the exact old label text).
 
 ---
 
