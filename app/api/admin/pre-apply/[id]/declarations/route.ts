@@ -1,4 +1,4 @@
-// POST /api/admin/pre-apply/[id]/declarations   { vehicle?: boolean, animal?: boolean, animalKind?: 'pet'|'service'|'esa'|'unsure' }
+// POST /api/admin/pre-apply/[id]/declarations   { vehicle?: boolean, animal?: boolean, animalKind?: 'pet'|'service'|'esa'|'unsure', taxReturns?: boolean }
 //
 // Staff record the vehicle/animal declaration on behalf of an applicant who
 // answered by REPLY rather than through the self-serve link — e.g. the
@@ -27,7 +27,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await ctx.params
 
-  let b: { vehicle?: unknown; animal?: unknown; animalKind?: unknown }
+  let b: { vehicle?: unknown; animal?: unknown; animalKind?: unknown; taxReturns?: unknown }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
 
   const { data: app } = await supabaseAdmin.from('listing_applications')
@@ -42,7 +42,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const kind = ANIMAL_KINDS.includes(b.animalKind as AnimalKind) ? b.animalKind as AnimalKind : null
     next.animal = { has: b.animal, kind: b.animal ? kind : null, at: now }
   }
-  if (!('vehicle' in next) && !('animal' in next)) return NextResponse.json({ error: 'nothing to record' }, { status: 400 })
+  if (typeof b.taxReturns === 'boolean') next.taxReturns = { has: b.taxReturns, at: now }
+  if (!('vehicle' in next) && !('animal' in next) && !('taxReturns' in next)) return NextResponse.json({ error: 'nothing to record' }, { status: 400 })
 
   const { error } = await supabaseAdmin.from('listing_applications')
     .update({ declarations: next, updated_at: now }).eq('id', id)
