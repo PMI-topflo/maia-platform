@@ -9,7 +9,7 @@ import { use, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { APPLICANT_ROLES, applicantRoleLabel } from '@/lib/applicant-roles'
 
-interface Doc { id: string; doc_key: string | null; doc_label: string | null; filename: string; mime_type: string | null; url: string | null; suggestedName: string | null; expirationDate: string | null; noExpiration: boolean; bySource: string | null; stakeholderId: string | null }
+interface Doc { id: string; doc_key: string | null; doc_label: string | null; filename: string; mime_type: string | null; url: string | null; suggestedName: string | null; expirationDate: string | null; noExpiration: boolean; bySource: string | null; stakeholderId: string | null; createdAt: string | null }
 interface Detail {
   id: string; associationCode: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
@@ -1044,6 +1044,13 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
                 </>
               )}
               {doc.bySource === 'drive-scan' ? <span>· from Drive scan</span> : doc.bySource === 'esign' ? <span>· e-signed</span> : doc.bySource === 'drive-pick' ? <span>· picked from Drive</span> : null}
+              {/* Visible regardless of the review flag's color — the filename never
+                  changes between a first signature and a corrected resend (esign.ts
+                  always writes the same static filename), so this is the only way to
+                  see AT A GLANCE that a newer file landed since the last decision.
+                  User report, 2026-09-01 (MANXI 303): "any message like XXX uploaded
+                  again on XX/XX/XXXX." */}
+              {doc.createdAt && <span>· filed {fmt(doc.createdAt)}</span>}
             </div>
           )}
         </div>

@@ -54,6 +54,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     suggestedName: (d.suggested_name as string | null) ?? null, expirationDate: (d.expiration_date as string | null) ?? null,
     noExpiration: !!d.no_expiration, bySource: (d.uploaded_by_role as string | null) ?? null,
     stakeholderId: (d.stakeholder_id as string | null) ?? null, url: `/api/admin/pre-apply/${id}/doc/${d.id}`,
+    createdAt: (d.created_at as string | null) ?? null,
   }))
   const uploaded = new Set((docs ?? []).map(d => d.doc_key).filter(Boolean))
 
