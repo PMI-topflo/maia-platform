@@ -113,13 +113,22 @@ export async function esignItemBlocker(docKey: string, c: AppCtx): Promise<strin
   return null
 }
 
-/** Best-effort: the unit's most recent quarterly-assessment charge from CINC's
- *  ledger, so the Maintenance Assessment Acknowledgment shows a real figure
- *  instead of a guess. Conservative on failure, same as the rest of this
- *  codebase's document handling (see lib/occupant-sponsorship.ts) — on any
- *  doubt (no owner on file, no matching ledger line, a network error) the
- *  form simply omits the dollar amount and states the due dates only; it
- *  never shows a wrong number. */
+/** Best-effort: the unit's most recent REGULAR quarterly-assessment charge
+ *  from CINC's ledger, so the Maintenance Assessment Acknowledgment shows a
+ *  real figure instead of a guess. Conservative on failure, same as the rest
+ *  of this codebase's document handling (see lib/occupant-sponsorship.ts) —
+ *  on any doubt (no owner on file, no matching ledger line, a network error)
+ *  the form simply omits the dollar amount and states the due dates only; it
+ *  never shows a wrong number.
+ *
+ *  Real bug, 2026-09-01 (MANXI 303, Wilner Florestan): the old /assess/i
+ *  filter also matches a "Special Assessment" ledger line — CINC uses
+ *  "Assessment" in the transaction-type text for both. Whichever one posted
+ *  most recently won the date sort, so a special assessment (a one-time or
+ *  limited-term capital charge, NOT the recurring quarterly maintenance fee
+ *  this form is about) could silently stand in for it. Excluding anything
+ *  whose description also matches /special/i keeps only the regular,
+ *  recurring quarterly maintenance assessment this field is meant to show. */
 async function currentQuarterlyAssessment(code: string, unit: string | null): Promise<{ amount: number; asOf: string } | null> {
   if (!unit) return null
   try {
@@ -136,7 +145,11 @@ async function currentQuarterlyAssessment(code: string, unit: string | null): Pr
       fromDate: from.toISOString().slice(0, 10), toDate: today.toISOString().slice(0, 10),
     })
     const assessments = rows
-      .filter(r => (r.Debit ?? 0) > 0 && /assess/i.test(`${r.Assessment ?? ''} ${r.Description ?? ''} ${r.TransactionTypeDescription ?? ''}`))
+      .filter(r => {
+        if (!((r.Debit ?? 0) > 0)) return false
+        const text = `${r.Assessment ?? ''} ${r.Description ?? ''} ${r.TransactionTypeDescription ?? ''}`
+        return /assess/i.test(text) && !/special/i.test(text)
+      })
       .sort((a, b) => new Date(b.Date ?? 0).getTime() - new Date(a.Date ?? 0).getTime())
     const latest = assessments[0]
     if (!latest?.Debit || !latest.Date) return null
