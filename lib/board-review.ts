@@ -74,7 +74,7 @@ export interface ReviewInputs {
     board_window_days: number | null
   }
   checklist: IntakeDoc[]
-  docs: { id: string; doc_key: string; filename: string | null; stakeholder_id: string | null }[]
+  docs: { id: string; doc_key: string; filename: string | null; stakeholder_id: string | null; created_at: string }[]
   reviews: { scope_key: string; decision: string; reason: string | null; decided_by: string; decided_by_role: string; decided_at: string }[]
   /** Applicants, primary first. */
   people: { id: string; name: string | null; applicant_role: string | null }[]
@@ -92,7 +92,7 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
   const code = String(app.association_code ?? '')
   const [checklist, { data: docs }, { data: reviews }, { data: people }, { data: assoc }] = await Promise.all([
     isApplicationType(type) ? getIntakeChecklist(code, type) : Promise.resolve([] as IntakeDoc[]),
-    supabaseAdmin.from('application_documents').select('id, doc_key, filename, stakeholder_id').eq('application_id', applicationId),
+    supabaseAdmin.from('application_documents').select('id, doc_key, filename, stakeholder_id, created_at').eq('application_id', applicationId),
     supabaseAdmin.from('application_document_reviews').select('scope_key, decision, reason, decided_by, decided_by_role, decided_at').eq('application_id', applicationId),
     supabaseAdmin.from('application_stakeholders').select('id, name, applicant_role').eq('application_id', applicationId).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('associations').select('pets_allowed').eq('association_code', code).maybeSingle(),
@@ -105,7 +105,7 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
       board_window_days: (app.board_window_days as number | null) ?? null,
     },
     checklist,
-    docs: (docs ?? []).map(d => ({ id: String(d.id), doc_key: String(d.doc_key), filename: (d.filename as string | null) ?? null, stakeholder_id: d.stakeholder_id ? String(d.stakeholder_id) : null })),
+    docs: (docs ?? []).map(d => ({ id: String(d.id), doc_key: String(d.doc_key), filename: (d.filename as string | null) ?? null, stakeholder_id: d.stakeholder_id ? String(d.stakeholder_id) : null, created_at: String(d.created_at) })),
     reviews: (reviews ?? []).map(r => ({ scope_key: String(r.scope_key), decision: String(r.decision), reason: (r.reason as string | null) ?? null, decided_by: String(r.decided_by), decided_by_role: String(r.decided_by_role), decided_at: String(r.decided_at) })),
     people: (people ?? []).map(p => ({ id: String(p.id), name: (p.name as string | null) ?? null, applicant_role: (p.applicant_role as string | null) ?? null })),
     petsAllowed: (assoc?.pets_allowed as boolean | null) ?? null,
@@ -142,7 +142,19 @@ export function deriveReviewState({ app, checklist, docs, reviews, people, petsA
       const doc = t.sid
         ? docs.find(d => d.doc_key === c.doc_key && (d.stakeholder_id ?? '') === t.sid)
         : docs.find(d => d.doc_key === c.doc_key)
-      const rev = byScope.get(scopeKey)
+      const rawRev = byScope.get(scopeKey)
+      // A decision is scoped to the CHECKLIST ITEM (scopeKey), not to any one
+      // uploaded file — refiling a document (re-upload, Drive scan/pick, or a
+      // resent e-signed form) never itself touches application_document_reviews.
+      // Without this check a refused (or approved) verdict from the OLD file
+      // stayed stamped on a brand-new replacement forever, showing the same
+      // stale reason next to a document nobody had actually looked at yet.
+      // Real case, 2026-09-01 (MANXI 303, Wilner Florestan): the Maintenance
+      // Assessment Acknowledgment was resent after a dollar-figure bug fix; the
+      // freshly re-signed PDF landed under the same still-refused decision and
+      // never surfaced as something new to review. A decision only counts when
+      // it was made ON OR AFTER the current document's own created_at.
+      const rev = rawRev && doc && new Date(rawRev.decided_at) >= new Date(doc.created_at) ? rawRev : undefined
       const state: DocState = !doc ? 'waiting'
         : rev?.decision === 'approved' ? 'approved'
         : rev?.decision === 'refused' ? 'refused'
@@ -201,7 +213,7 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
 
   const codes = [...new Set(apps.map(a => String(a.association_code ?? '').toUpperCase()).filter(Boolean))]
   const [{ data: docs }, { data: reviews }, { data: people }, { data: assocs }, checklistsByCode] = await Promise.all([
-    supabaseAdmin.from('application_documents').select('id, application_id, doc_key, filename, stakeholder_id').in('application_id', ids),
+    supabaseAdmin.from('application_documents').select('id, application_id, doc_key, filename, stakeholder_id, created_at').in('application_id', ids),
     supabaseAdmin.from('application_document_reviews').select('application_id, scope_key, decision, reason, decided_by, decided_by_role, decided_at').in('application_id', ids),
     supabaseAdmin.from('application_stakeholders').select('id, application_id, name, applicant_role').eq('role', 'applicant').in('application_id', ids)
       .order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
@@ -233,7 +245,7 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
         board_window_days: (a.board_window_days as number | null) ?? null,
       },
       checklist,
-      docs: (docsBy.get(id) ?? []).map(d => ({ id: String(d.id), doc_key: String(d.doc_key), filename: (d.filename as string | null) ?? null, stakeholder_id: d.stakeholder_id ? String(d.stakeholder_id) : null })),
+      docs: (docsBy.get(id) ?? []).map(d => ({ id: String(d.id), doc_key: String(d.doc_key), filename: (d.filename as string | null) ?? null, stakeholder_id: d.stakeholder_id ? String(d.stakeholder_id) : null, created_at: String(d.created_at) })),
       reviews: (reviewsBy.get(id) ?? []).map(r => ({ scope_key: String(r.scope_key), decision: String(r.decision), reason: (r.reason as string | null) ?? null, decided_by: String(r.decided_by), decided_by_role: String(r.decided_by_role), decided_at: String(r.decided_at) })),
       people: (peopleBy.get(id) ?? []).map(p => ({ id: String(p.id), name: (p.name as string | null) ?? null, applicant_role: (p.applicant_role as string | null) ?? null })),
       petsAllowed: petsBy.get(code) ?? null,

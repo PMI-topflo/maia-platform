@@ -46,8 +46,8 @@ const state = (over: Partial<ReviewInputs> = {}) => deriveReviewState({
   docs: [], reviews: [], people: [ANNA], petsAllowed: true, ...over,
 })
 
-const file = (doc_key: string, stakeholder_id: string | null = null) =>
-  ({ id: `f-${doc_key}-${stakeholder_id ?? 'shared'}`, doc_key, filename: `${doc_key}.pdf`, stakeholder_id })
+const file = (doc_key: string, stakeholder_id: string | null = null, created_at = '2026-08-01T00:00:00.000Z') =>
+  ({ id: `f-${doc_key}-${stakeholder_id ?? 'shared'}`, doc_key, filename: `${doc_key}.pdf`, stakeholder_id, created_at })
 const review = (scope_key: string, decision: 'approved' | 'refused', reason: string | null = null) =>
   ({ scope_key, decision, reason, decided_by: 'Walter Giles', decided_by_role: 'board', decided_at: '2026-08-10T12:00:00.000Z' })
 
@@ -90,6 +90,28 @@ const refused = state({
 eq('a refusal decides the row', refused.totals.decided, 2)
 eq('a refusal blocks completion', refused.complete, false)
 eq('the refusal reason survives', refused.rows.find(r => r.docKey === 'signed_lease')?.decision?.reason, 'Unsigned by the landlord')
+
+// ── 5b. A document refiled AFTER a decision clears that stale decision ──
+// A decision is stamped on the CHECKLIST ITEM, not on any one uploaded file —
+// re-uploading, a Drive scan/pick, or a resent e-signed form never itself
+// touches application_document_reviews. Real case, 2026-09-01 (MANXI 303,
+// Wilner Florestan): a resent, corrected Maintenance Assessment
+// Acknowledgment landed under the OLD refusal and never surfaced as
+// something new to review. A decision only counts when it was made ON OR
+// AFTER the current document's own created_at.
+const refiledAfterRefusal = state({
+  docs: [file('signed_lease', null, '2026-08-15T00:00:00.000Z')],   // uploaded AFTER the refusal below
+  reviews: [review('signed_lease', 'refused', 'Unsigned by the landlord')],   // decided_at 2026-08-10
+})
+eq('a document refiled after a refusal clears it back to received', states(refiledAfterRefusal), ['drivers_license:waiting', 'signed_lease:received'])
+eq('the stale refusal reason does not carry over', refiledAfterRefusal.rows.find(r => r.docKey === 'signed_lease')?.decision, null)
+// A decision made AFTER the current document is still honored — approving or
+// re-refusing the new file must keep working exactly as before.
+const decidedAfterRefile = state({
+  docs: [file('signed_lease', null, '2026-08-01T00:00:00.000Z')],
+  reviews: [review('signed_lease', 'approved')],   // decided_at 2026-08-10, after the upload
+})
+eq('a decision made after the current document still applies', states(decidedAfterRefile), ['drivers_license:waiting', 'signed_lease:approved'])
 
 // ── 6. The 30-day window is opened+days, and days are configurable ───
 const open30 = state({
