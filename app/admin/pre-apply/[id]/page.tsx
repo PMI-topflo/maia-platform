@@ -27,7 +27,7 @@ interface Detail {
     totals: { required: number; received: number; decided: number; approved: number; refused: number; waiting: number }
     complete: boolean; windowOpenedAt: string | null; windowDays: number; dueAt: string | null
   } | null
-  declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null }
+  declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null; taxReturns?: { has: boolean; at?: string } | null }
   declaredNa: string[]
   petsAllowed: boolean | null
   petsProhibitedNotice: boolean
@@ -336,21 +336,27 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
         </div>
       )}
 
-      {/* What the applicant declared about themselves — vehicle and animal.
-          These retire the matching checklist items, so staff need to see the
-          answer that did it rather than wondering why a row went N/A.
-          ALWAYS shown when the checklist has a conditional item at all (not
-          only once answered) — this stays editable here too as a fallback
-          (an answer that came in some other way than the resident's own
-          link), even though the normal path is now the resident answering
-          these as real Yes/No controls on their own /request/[token] link
-          (app/api/request/[token]/declare/route.ts) rather than replying to
-          an email in prose. */}
-      {d.checklist.some(c => c.condition_key === 'vehicle' || c.condition_key === 'pet' || c.condition_key === 'assistance_animal') && (
+      {/* What the applicant declared about themselves — vehicle, animal, and
+          (purchase-only) 2 years of U.S. tax returns. These retire the
+          matching checklist items, so staff need to see the answer that did
+          it rather than wondering why a row went N/A. ALWAYS shown when the
+          checklist has a conditional item at all (not only once answered) —
+          this stays editable here too as a fallback (an answer that came in
+          some other way than the resident's own link, or an application
+          started before a given question existed — see
+          20260901_backfill_international_tax_returns_declaration.sql),
+          even though the normal path is the resident answering vehicle/
+          animal as real Yes/No controls on their own /request/[token] link
+          (app/api/request/[token]/declare/route.ts) and tax returns at the
+          start of the pre-apply intake form itself
+          (app/api/pre-apply/[token]/declare/route.ts), rather than replying
+          to an email in prose. */}
+      {d.checklist.some(c => c.condition_key === 'vehicle' || c.condition_key === 'pet' || c.condition_key === 'assistance_animal' || c.condition_key === 'international') && (
         <DeclarationsCard
           id={id} declarations={d.declarations} declaredNa={d.declaredNa}
           petsProhibitedNotice={d.petsProhibitedNotice} animalGuidance={d.animalGuidance}
           assistanceAnimalDenialGrounds={d.assistanceAnimalDenialGrounds} assistanceAnimalDecisionDays={d.assistanceAnimalDecisionDays}
+          showTaxReturns={d.checklist.some(c => c.condition_key === 'international')}
           onDone={load}
         />
       )}
@@ -1968,20 +1974,25 @@ function AgentsCard({ id, stakeholders, onDone }: { id: string; stakeholders: { 
 // text before ever requesting registration). One Yes/No control per
 // question, editable at any time — a later correction simply overwrites the
 // earlier answer, same as the applicant-facing version.
-function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, animalGuidance, assistanceAnimalDenialGrounds, assistanceAnimalDecisionDays, onDone }: {
+function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, animalGuidance, assistanceAnimalDenialGrounds, assistanceAnimalDecisionDays, showTaxReturns, onDone }: {
   id: string
-  declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null }
+  declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null; taxReturns?: { has: boolean; at?: string } | null }
   declaredNa: string[]
   petsProhibitedNotice: boolean
   animalGuidance: { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[]; staffNote: string } | null
   assistanceAnimalDenialGrounds: string[]
   assistanceAnimalDecisionDays: number
+  /** Purchase-only condition_key='international' checklist items (Foreign
+   *  Police Clearance / CPA Financial Certification / Notarized Translation)
+   *  only exist on some associations' checklists — the question is only
+   *  worth showing where it actually gates something. */
+  showTaxReturns: boolean
   onDone: () => void
 }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
-  async function set(body: { vehicle?: boolean; animal?: boolean; animalKind?: string }) {
+  async function set(body: { vehicle?: boolean; animal?: boolean; animalKind?: string; taxReturns?: boolean }) {
     setBusy(JSON.stringify(body)); setErr(null)
     try {
       const r = await fetch(`/api/admin/pre-apply/${id}/declarations`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
@@ -1995,7 +2006,7 @@ function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, 
 
   return (
     <div style={{ border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: 10, padding: '12px 14px', margin: '12px 0' }}>
-      <div style={{ font: '700 12px system-ui', color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Vehicle & animal declaration</div>
+      <div style={{ font: '700 12px system-ui', color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>{showTaxReturns ? 'Vehicle, animal & tax returns declaration' : 'Vehicle & animal declaration'}</div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0' }}>
         <span style={{ font: '13.5px system-ui', color: '#374151', width: 220 }}>🚗 Vehicle kept at the unit?</span>
@@ -2018,6 +2029,14 @@ function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, 
               {k === 'pet' ? 'Pet' : k === 'service' ? 'Service animal' : k === 'esa' ? 'Emotional support' : 'Not sure yet'}
             </button>
           ))}
+        </div>
+      )}
+      {showTaxReturns && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0' }}>
+          <span style={{ font: '13.5px system-ui', color: '#374151', width: 220 }}>🌎 2 years of U.S. tax returns?</span>
+          <button style={declarations.taxReturns?.has === true ? ynOn('#166534') : yn} disabled={!!busy} onClick={() => set({ taxReturns: true })}>Yes</button>
+          <button style={declarations.taxReturns?.has === false ? ynOn('#6b7280') : yn} disabled={!!busy} onClick={() => set({ taxReturns: false })}>No</button>
+          {typeof declarations.taxReturns?.has !== 'boolean' && <span style={{ font: '12px system-ui', color: '#b45309' }}>not answered yet</span>}
         </div>
       )}
       {err && <p style={{ font: '12.5px system-ui', color: '#b91c1c', margin: '6px 0 0' }}>⚠ {err}</p>}
