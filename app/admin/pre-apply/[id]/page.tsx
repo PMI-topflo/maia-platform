@@ -1520,6 +1520,62 @@ function CreditScore({ id, stakeholderId, name, score, decided, onDone }: { id: 
   )
 }
 
+// Live preview of the Maintenance Assessment Acknowledgment — creates and
+// sends nothing, just shows exactly what MAIA would generate right now
+// (app/api/admin/pre-apply/[id]/maintenance-assessment-preview). User
+// direction, 2026-09-01, after the special-assessment mixup on MANXI 303
+// (Wilner Florestan) got signed with the wrong dollar figure: "place a
+// button for me to preview before sending so I can see it before pushing
+// the request."
+function MaintenanceAssessmentPreviewButton({ id }: { id: string }) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [data, setData] = useState<{ title: string; details: { label: string; value: string }[]; statement: string } | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function show() {
+    setOpen(true); setLoading(true); setErr(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/maintenance-assessment-preview`, { credentials: 'include' })
+      const j = await r.json()
+      if (!r.ok) throw new Error(j.error || 'failed')
+      setData(j)
+    } catch (e) { setErr((e as Error).message) } finally { setLoading(false) }
+  }
+
+  return (
+    <>
+      <button onClick={show} style={{ font: '600 11px system-ui', color: '#2563eb', background: '#fff', border: '1px solid #bfdbfe', borderRadius: 7, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>👁 Preview</button>
+      {open && (
+        <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 22, maxWidth: 560, width: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, gap: 12 }}>
+              <span style={{ font: '700 15px system-ui', color: '#1f2937' }}>{data?.title ?? 'Maintenance Assessment Acknowledgment'}</span>
+              <button onClick={() => setOpen(false)} style={{ font: '700 15px system-ui', color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>✕</button>
+            </div>
+            {loading && <p style={{ font: '13px system-ui', color: '#6b7280' }}>Loading…</p>}
+            {err && <p style={{ font: '13px system-ui', color: '#b91c1c' }}>⚠ {err}</p>}
+            {data && (
+              <>
+                <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
+                  {data.details.map((d, i) => (
+                    <div key={d.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 12px', borderTop: i ? '1px solid #f3f4f6' : 'none' }}>
+                      <span style={{ font: '600 12.5px system-ui', color: '#6b7280', flexShrink: 0 }}>{d.label}</span>
+                      <span style={{ font: '600 12.5px system-ui', color: '#1f2937', textAlign: 'right' }}>{d.value}</span>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ font: '13px system-ui', color: '#374151', lineHeight: 1.5, margin: 0 }}>{data.statement}</p>
+                <p style={{ font: '11.5px system-ui', color: '#9ca3af', marginTop: 14, marginBottom: 0 }}>This is a live preview — the dollar figure reflects the CINC ledger right now. Nothing has been created or sent.</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 // Request specific documents from the owner and/or tenant — tick items, tag each
 // Owner / Tenant / Both, and MAIA emails each recipient their list + an upload
 // link (the standard PMI email). Uploads file straight back onto the application.
@@ -1695,7 +1751,15 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, tenantEma
             {staffOnly
               ? <span style={{ font: '600 11px system-ui', color: '#6b7280', background: '#f3f4f6', borderRadius: 7, padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>🗂️ Staff obtains this</span>
               : ESIGN_ITEM_KEYS.has(it.doc_key)
-              ? <span style={{ font: '600 11px system-ui', color: '#5b21b6', background: '#f3e8ff', borderRadius: 7, padding: '4px 10px', whiteSpace: 'nowrap', flexShrink: 0 }}>✍️ MAIA sends it to sign</span>
+              ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  {/* Preview only exists for the one form with a live-data-derived
+                      figure that can silently be wrong (the special-assessment mixup,
+                      MANXI 303) — the other forms have nothing to get wrong before send. */}
+                  {it.doc_key === 'maintenance_assessment_ack' && <MaintenanceAssessmentPreviewButton id={id} />}
+                  <span style={{ font: '600 11px system-ui', color: '#5b21b6', background: '#f3e8ff', borderRadius: 7, padding: '4px 10px', whiteSpace: 'nowrap' }}>✍️ MAIA sends it to sign</span>
+                </span>
+              )
               // "Applicant" not "Tenant" — this control is shared by every
               // application type, and "Tenant" is simply wrong on a Purchase
               // (there's a buyer, not a tenant). User report, 2026-08-19:
