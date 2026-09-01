@@ -49,6 +49,10 @@ const PROMPT = `You are reading a residential lease / rental agreement, or a ten
 - lease_start / lease_end: the lease term dates if present (a renewal uses the renewal term); null on an affidavit that has no term.
 - monthly_rent: the rent amount as written (e.g. "$1,850"), or null.
 - tenant_email / tenant_phone: the TENANT's email and phone if shown (NOT the landlord's or agent's); null if absent.
+  On the standard Florida Realtors/Bar residential lease form, these are printed in SMALL text near the TOP of
+  page 1, in a labeled four-line block right below the landlord's and tenant's names ("Landlord's E-mail Address",
+  "Landlord's telephone number", "Tenant's E-mail Address", "Tenant's Telephone Number") — read that block
+  carefully even if the parties' names above it are the only large, bold text on the page.
 Use null / [] when a field isn't clearly present.`
 
 export async function extractLeaseDetails(buf: Buffer, contentType: string | null): Promise<LeaseDetails> {
