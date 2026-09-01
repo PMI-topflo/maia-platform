@@ -38,23 +38,30 @@
 // was a real bug (fixed) but turned out NOT to explain the credit_report/
 // eviction_history finding below -- that's a separate, confirmed issue.
 //
-// ⚠ credit_report and eviction_history are NOT available on this Checkr
-// account, CONFIRMED 2026-08-31 -- not a test-data artifact. Even with an
+// ⚠ UPDATE 2026-09-01 -- REVISES the 2026-08-31 finding below. Checkr support
+// (William, Checkr Tenant) confirmed the credit_report/eviction_history-null
+// finding was a BUG ON CHECKR'S SIDE ("a recent change made it so test mode
+// credit reports and eviction checks were not populating correctly"), not an
+// account/package limitation as concluded on 2026-08-31 -- they say it's
+// fixed in production as of 2026-09-01. NOT YET RE-VERIFIED on our end: the
+// next create-test run (Madelyn Webster tuple or similar) needs to actually
+// show non-null credit_report/eviction_history before this codebase treats
+// them as available again. Until then, treat the account-limitation
+// conclusion below as superseded-but-unconfirmed, not as still-true.
+//
+// Original 2026-08-31 finding (NOW IN QUESTION per the above): even with an
 // exact documented tuple match (Madelyn Webster, criminal "clear" / credit
 // "consider" per Checkr's own scenario table), the structured report came
 // back with credit_report/eviction_history both null. Requesting them
 // explicitly via add_on_products got a real 422 from POST /orders:
 // {"errors":[{"code":"validation_error","detail":"Unknown add-on products:
 // credit_report, eviction_history","source":{"pointer":"/add_on_products"}}]}
-// -- i.e. Checkr itself says these aren't bundled in the package AND aren't
-// purchasable as add-ons on this account. This directly contradicts
-// .env.example's CHECKR_PACKAGE_RESIDENTIAL comment (which describes
-// Essential as including "full eviction history, credit score, credit
-// report" -- that description does not match this account's actual
-// configuration). See docs/ROADMAP.md for the full writeup and the
-// Checkr-support follow-up; do not re-attempt add_on_products for either
-// of these two products without a confirmed account/package change from
-// Checkr first.
+// -- this 422 is a separate, still-unexplained mechanism (Checkr rejects
+// them BY NAME as add-ons) from the test-mode-report bug Checkr just fixed;
+// don't assume the fix also changes whether add_on_products accepts these
+// names. .env.example's CHECKR_PACKAGE_RESIDENTIAL comment was corrected
+// 2026-08-31 to match the account-limitation conclusion -- re-check it too
+// once re-verified. See docs/ROADMAP.md for the full writeup.
 //
 // ⚠ There is no distinct "international" package. Checkr's own pricing page
 // (checkr.com/pricing/international, confirmed 2026-07-06) shows international

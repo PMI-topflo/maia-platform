@@ -24,7 +24,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params
 
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('id, association_code, application_type, applicant_role, unit_label, status, submitted_at, rules_ack, drive_folder_url, na_items, declarations, audited_by, audited_at, reviewed_by, reviewed_at, review_note, approved_by_role')
+    .select('id, association_code, application_type, applicant_role, unit_label, status, submitted_at, rules_ack, drive_folder_url, na_items, declarations, audited_by, audited_at, reviewed_by, reviewed_at, review_note, approved_by_role, detailed_application_id')
     .eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -106,6 +106,23 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const derivedNa = declaredNaKeys(checklist, declarations, { petsAllowed })
   const naItems = [...new Set([...(Array.isArray(app.na_items) ? (app.na_items as string[]) : []), ...derivedNa])]
 
+  // screening_subjects belongs to the LEGACY public.applications table, not
+  // this listing_applications row -- detailed_application_id is the bridge
+  // (same one lib/application-handoff.ts's handoffOnApproval() and
+  // app/api/board/review/route.ts already use, just walked in the other
+  // direction). Nothing to show until an association is on maia_checkr AND
+  // this application has actually been handed off.
+  const detailedId = app.detailed_application_id as string | null
+  const { data: screeningRows } = detailedId
+    ? await supabaseAdmin.from('screening_subjects')
+        .select('subject_index, name, status, report_url, report_data')
+        .eq('application_id', detailedId).order('subject_index', { ascending: true })
+    : { data: null }
+  const screeningSubjects = (screeningRows ?? []).map(s => ({
+    name: (s.name as string | null) ?? null, status: (s.status as string | null) ?? null,
+    reportUrl: (s.report_url as string | null) ?? null, reportData: (s.report_data as Record<string, unknown> | null) ?? null,
+  }))
+
   return NextResponse.json({
     id: app.id, associationCode: app.association_code, type: app.application_type, unit: app.unit_label,
     status: app.status, submittedAt: app.submitted_at,
@@ -123,6 +140,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     rulesAck: app.rules_ack,
     driveFolderUrl: app.drive_folder_url,
     screeningProvider: (assocRow?.screening_provider as string | null) ?? 'tenant_evaluation',
+    screeningSubjects,
     audit: { auditedBy: app.audited_by, auditedAt: app.audited_at, reviewedBy: app.reviewed_by, reviewedAt: app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role },
     naItems,
     currentLease,

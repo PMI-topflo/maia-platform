@@ -8,6 +8,7 @@
 import { use, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { APPLICANT_ROLES, applicantRoleLabel } from '@/lib/applicant-roles'
+import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger'
 
 interface Doc { id: string; doc_key: string | null; doc_label: string | null; filename: string; mime_type: string | null; url: string | null; suggestedName: string | null; expirationDate: string | null; noExpiration: boolean; bySource: string | null; stakeholderId: string | null; createdAt: string | null }
 interface Detail {
@@ -29,6 +30,7 @@ interface Detail {
   } | null
   declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null; taxReturns?: { has: boolean; at?: string } | null }
   declaredNa: string[]
+  screeningSubjects: { name: string | null; status: string | null; reportUrl: string | null; reportData: Record<string, unknown> | null }[]
   petsAllowed: boolean | null
   petsProhibitedNotice: boolean
   animalGuidance: { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[]; staffNote: string } | null
@@ -359,6 +361,39 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           showTaxReturns={d.checklist.some(c => c.condition_key === 'international')}
           onDone={load}
         />
+      )}
+
+      {/* Checkr background check — one row per subject, once the association
+          is on maia_checkr AND this application has actually been handed off
+          (screening_subjects belongs to the legacy public.applications table;
+          detailed_application_id is the bridge, see the API route). The board
+          sees the same report_url PDF on their own review link
+          (app/api/board/review/route.ts) — this is the staff-facing copy,
+          which had no screening visibility at all before this. User
+          direction, 2026-09-01, after confirming a real Checkr test report
+          now comes back populated: "add this report in a view... for me and
+          the board in the application." */}
+      {d.screeningSubjects.length > 0 && (
+        <div style={{ border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: 10, padding: '12px 14px', margin: '12px 0' }}>
+          <div style={{ font: '700 12px system-ui', color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Background check (Checkr)</div>
+          {d.screeningSubjects.map((s, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '5px 0', borderTop: i ? '1px solid #eef2f7' : 'none' }}>
+              <span style={{ font: '600 13.5px system-ui', color: '#1f2937', flex: '0 1 auto' }}>{s.name ?? `Applicant ${i + 1}`}</span>
+              <span style={{
+                font: '600 11px system-ui', borderRadius: 999, padding: '2px 9px',
+                color: s.status === 'complete' ? '#065f46' : s.status === 'error' ? '#991b1b' : '#92400e',
+                background: s.status === 'complete' ? '#d1fae5' : s.status === 'error' ? '#fee2e2' : '#fef3c7',
+              }}>Checkr: {s.status ?? 'pending'}</span>
+              {s.reportUrl && (
+                <DocumentPreviewTrigger
+                  label="View report ↗" downloadUrl={s.reportUrl}
+                  previewUrl={`/api/document-preview?url=${encodeURIComponent(s.reportUrl)}`}
+                  style={{ font: '600 12px system-ui', color: '#2563eb', background: 'none', border: 'none', padding: 0 }}
+                />
+              )}
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Checklist — with staff upload boxes so you can file a doc you got by email */}

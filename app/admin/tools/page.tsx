@@ -113,6 +113,10 @@ export default function AdminToolsPage() {
   const [dialpadMsg,         setDialpadMsg]        = useState<string | null>(null)
   const [dialpadDaysBack,    setDialpadDaysBack]   = useState(30)
 
+  // Checkr key mode (test vs live) — never the key itself
+  const [checkrMode,    setCheckrMode]    = useState<'test' | 'live' | 'unconfigured' | 'unrecognized' | null>(null)
+  const [checkrLoading, setCheckrLoading] = useState(true)
+
   async function refreshDialpadStatus() {
     try {
       const r = await fetch('/api/admin/dialpad/status')
@@ -250,6 +254,13 @@ export default function AdminToolsPage() {
 
     // Fetch Dialpad integration status
     refreshDialpadStatus()
+
+    // Fetch Checkr key mode
+    fetch('/api/admin/checkr-key-status')
+      .then(r => r.json())
+      .then(d => setCheckrMode(d.mode ?? null))
+      .catch(() => setCheckrMode(null))
+      .finally(() => setCheckrLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1018,6 +1029,29 @@ export default function AdminToolsPage() {
                   SMS history is webhook-only going forward — Dialpad does not expose a list endpoint for past SMS.
                 </p>
               </>
+            )}
+          </div>
+        </section>
+
+        {/* ── Checkr key mode ───────────────────────────────────────────── */}
+        <section style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', marginBottom: '1.5rem' }}>
+          <div style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+            <div>
+              <h2 style={{ fontWeight: 700, margin: 0, fontSize: '1rem' }}>Checkr key mode</h2>
+              <p style={{ color: '#6b7280', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
+                Whether <code style={{ background: '#f3f4f6', padding: '0 3px', borderRadius: 3, fontSize: '0.75rem' }}>CHECKR_API_KEY</code> is a test or live key — never the key itself, since it&apos;s marked Sensitive in Vercel and unreadable otherwise. Do not flip any association to maia_checkr while this reads TEST MODE.
+              </p>
+            </div>
+            {checkrLoading ? (
+              <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>Loading…</span>
+            ) : checkrMode === 'live' ? (
+              <span style={{ padding: '2px 8px', background: '#dcfce7', color: '#166534', fontSize: '0.7rem', borderRadius: 4, fontWeight: 600 }}>LIVE MODE</span>
+            ) : checkrMode === 'test' ? (
+              <span style={{ padding: '2px 8px', background: '#fef3c7', color: '#92400e', fontSize: '0.7rem', borderRadius: 4, fontWeight: 600 }}>TEST MODE</span>
+            ) : checkrMode === 'unconfigured' ? (
+              <span style={{ padding: '2px 8px', background: '#fee2e2', color: '#991b1b', fontSize: '0.7rem', borderRadius: 4, fontWeight: 600 }}>NOT CONFIGURED</span>
+            ) : (
+              <span style={{ padding: '2px 8px', background: '#fee2e2', color: '#991b1b', fontSize: '0.7rem', borderRadius: 4, fontWeight: 600 }}>UNRECOGNIZED KEY FORMAT</span>
             )}
           </div>
         </section>
