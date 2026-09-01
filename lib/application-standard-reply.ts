@@ -34,6 +34,7 @@ import { splitEmails } from '@/lib/document-request-email'
 import { providedByOkForRole } from '@/lib/intake-documents'
 import { logOutboundCommunication } from '@/lib/application-comm-log'
 import { getOutstandingSummary } from '@/lib/application-outstanding-summary'
+import { sendLeasePacket, findUnitLeasePacket } from '@/lib/lease-packet'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 
@@ -67,16 +68,17 @@ export interface StandardReplyResult {
 interface StakeholderRow {
   name:      string | null
   email:     string | null
+  phone:     string | null
   role:      string
   isPrimary: boolean
 }
 
 async function loadStakeholders(applicationId: string): Promise<StakeholderRow[]> {
   const { data } = await supabaseAdmin.from('application_stakeholders')
-    .select('name, email, role, is_primary').eq('application_id', applicationId)
+    .select('name, email, phone, role, is_primary').eq('application_id', applicationId)
   return (data ?? []).map(s => ({
     name: (s.name as string | null) ?? null, email: (s.email as string | null) ?? null,
-    role: String(s.role), isPrimary: !!s.is_primary,
+    phone: (s.phone as string | null) ?? null, role: String(s.role), isPrimary: !!s.is_primary,
   }))
 }
 
@@ -155,7 +157,7 @@ export async function draftStandardReply(opts: {
   // not just its absence. gatedBy is computed in getOutstandingSummary from
   // the CHECKLIST's own condition_key, not hardcoded, so a future association
   // with a differently-gated item is covered for free.
-  const uploadRows = summary.rows.filter(r => !r.isEsignItem && providedByOk(r.providedBy) && !r.gatedBy)
+  const uploadRows = summary.rows.filter(r => !r.isEsignItem && providedByOk(r.providedBy) && !r.gatedBy && r.docKey !== 'landlord_tenant_agreement')
   // Forms are unaffected by the role filter — they already always go to the
   // applicant roster regardless of who is currently emailing (sendEsignFormsForItems).
   const formRows = summary.rows.filter(r => r.isEsignItem && !r.gatedBy)
@@ -197,10 +199,22 @@ export async function draftStandardReply(opts: {
   // complement: applicant-only when the sender is the owner, landlord-only
   // when the sender is the applicant.
   const theirRows = summary.rows.filter(r =>
-    !r.isEsignItem && !r.gatedBy && (r.providedBy === 'applicant' || r.providedBy === 'landlord') && !providedByOk(r.providedBy)
+    !r.isEsignItem && !r.gatedBy && (r.providedBy === 'applicant' || r.providedBy === 'landlord') && !providedByOk(r.providedBy) && r.docKey !== 'landlord_tenant_agreement'
   )
 
-  if (uploadRows.length === 0 && formRows.length === 0 && summary.declineQuestions.length === 0 && agentRows.length === 0 && theirRows.length === 0) {
+  // The Landlord–Tenant Agreement is not a document either party uploads — it's
+  // its own e-signed packet, owner AND tenant both sign (lib/lease-packet.ts),
+  // same as the staff Request panel and the lease-renewal check-in already
+  // handle it (app/api/admin/pre-apply/[id]/request-docs/route.ts,
+  // lib/lease-renewal-check.ts). Before this it fell into uploadRows/theirRows
+  // like any other document and this reply told whoever emailed in to "visit
+  // the secure link below to upload" it — a file that doesn't exist for
+  // anyone to provide. Real case, 2026-09-01 (Querline Lazard). Not filtered
+  // by providedByOk — both roles need to be told about it regardless of who's
+  // emailing in, unlike a plain upload which only ever addresses one side.
+  const packetRows = summary.rows.filter(r => r.docKey === 'landlord_tenant_agreement')
+
+  if (uploadRows.length === 0 && formRows.length === 0 && summary.declineQuestions.length === 0 && agentRows.length === 0 && theirRows.length === 0 && packetRows.length === 0) {
     const draftText = `Hello${senderName ? ` ${senderName}` : ''},\n\nThank you for reaching out. Everything required on your application is already on file — nothing further is needed from you at this time.\n\nWe'll be in touch as soon as there's an update.\n\nThank you,\nPMI Top Florida Properties`
     await logOutboundCommunication({
       applicationId, associationCode: code, unitLabel: unit,
@@ -269,12 +283,41 @@ export async function draftStandardReply(opts: {
     ? await sendEsignFormsForItems(applicationId, formRows.map(r => r.docKey), createdBy)
     : { sent: [], failed: [] }
 
+  // ── Packet item (Landlord–Tenant Agreement) → sent immediately too, same
+  // idempotent guard request-docs/route.ts already relies on: check for an
+  // existing packet first so a second reply on the same thread doesn't
+  // double-invite. tenantOverride mirrors that route's own reasoning — a
+  // brand-new lease's tenant is often on application_stakeholders well
+  // before unit_tenant_contacts has ever heard of them, and the CURRENT
+  // application's own lease_start/lease_end (not unit_tenant_contacts',
+  // which only refreshes on approval — real bug, MANXI 706) is the correct
+  // term to file the packet under. ──
+  const primaryApplicant = stakeholders.find(s => s.role === 'applicant' && s.isPrimary) ?? stakeholders.find(s => s.role === 'applicant')
+  const existingPacket = packetRows.length && unit ? await findUnitLeasePacket(code, unit) : null
+  let packetLeaseDates: { lease_start: string | null; lease_end: string | null } | null = null
+  if (packetRows.length && unit && !existingPacket) {
+    const { data } = await supabaseAdmin.from('listing_applications').select('lease_start, lease_end').eq('id', applicationId).maybeSingle()
+    packetLeaseDates = (data as { lease_start: string | null; lease_end: string | null } | null) ?? null
+  }
+  const packet = packetRows.length && unit && !existingPacket
+    ? await sendLeasePacket(code, unit, createdBy, {
+        name: primaryApplicant?.name ?? null,
+        email: primaryApplicant?.email ?? null,
+        phone: primaryApplicant?.phone ?? null,
+        leaseStart: packetLeaseDates?.lease_start ?? null,
+        leaseEnd: packetLeaseDates?.lease_end ?? null,
+      })
+    : null
+  const packetWarning = packet && !packet.ok ? [`Landlord–Tenant Agreement was not sent — ${packet.error}.`]
+    : packet && packet.skipped.length ? packet.skipped.map(s => `Landlord–Tenant Agreement: ${s}.`)
+    : []
+
   // "Still needed" is worded for the RECIPIENT — the role filter above already
   // dropped anything not theirs to provide; a form that failed to send stays
   // listed here too (it is still genuinely outstanding), just with the reason
   // surfaced separately below rather than silently disappearing. Declaration-
   // gated items are NOT in this list at all — they're a question, not a request.
-  const missingSummary = [...uploadRows, ...theirRows, ...formRows, ...agentRows].map(r => r.label)
+  const missingSummary = [...uploadRows, ...theirRows, ...formRows, ...agentRows, ...packetRows].map(r => r.label)
 
   // Grouped into what to DO with each part, rather than one flat list mixing
   // "upload this", "we already emailed you a separate link for that", and
@@ -340,6 +383,17 @@ export async function draftStandardReply(opts: {
     for (const f of forms.sent) lines.push(`  • ${ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey}`)
   }
 
+  if (packetRows.length) {
+    lines.push('')
+    if (packet?.ok) {
+      lines.push('The Landlord–Tenant Agreement is a separate e-sign packet, not an upload — we\'ve just sent signing links directly to the owner and tenant by email. Please check your inbox to review and sign; there\'s nothing to attach for this one.')
+    } else if (existingPacket) {
+      lines.push('The Landlord–Tenant Agreement is a separate e-sign packet, not an upload — signing links were already sent by email. Please check your inbox (and your ' + theirLabel + '\'s) and sign if you haven\'t yet; there\'s nothing to attach for this one.')
+    } else {
+      lines.push('The Landlord–Tenant Agreement still needs to be e-signed — it is not an upload, we\'ll follow up separately with the signing link.')
+    }
+  }
+
   // provided_by='agent' items: told, not asked — there's no link to give
   // THIS recipient for something only their agent can supply, but they still
   // need to know it's still outstanding and whose court it's in.
@@ -352,11 +406,12 @@ export async function draftStandardReply(opts: {
   // Staff-only note: NOT sent to the resident. This is what stops a failed
   // form-send from vanishing silently — the previous version listed the item
   // as "still needed" with zero indication anything had gone wrong sending it.
-  if (forms.failed.length) {
+  if (forms.failed.length || packetWarning.length) {
     lines.push('')
     lines.push('—')
     lines.push('[Staff note — remove before sending] Could not send automatically:')
     for (const f of forms.failed) lines.push(`  • ${ESIGN_CHECKLIST_ITEMS[f.docKey]?.noun ?? f.docKey} — ${f.reason}`)
+    for (const w of packetWarning) lines.push(`  • ${w}`)
   }
 
   // Only true when there actually IS a link above — an agent-only outstanding
