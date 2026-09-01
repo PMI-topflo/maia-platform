@@ -4087,6 +4087,15 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `ALTER TABLE public.screening_subjects ADD COLUMN IF NOT EXISTS report_data jsonb;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'backfill_international_tax_returns_declaration',
+    label:       'Backfill declarations.taxReturns for pre-existing MANXI purchase applications',
+    description: "User direction, 2026-09-01: the 'international' condition_key checklist items (intl_police_clearance, intl_cpa_certification, intl_translation — 20260828_manxi_international_applicant_docs.sql) only retire once declarations.taxReturns.has is explicitly answered, and that question is only ever asked at the START of the pre-apply intake form — so any MANXI purchase application started before 2026-08-28 never saw it and stayed permanently gated as still needing Foreign Police Clearance / CPA Financial Certification, even once the applicant had already provided 2 years of U.S. tax returns. Real case, 2026-09-01: Wilner Florestan's Request-the-missing-documents panel still listed both as \"missing\" despite his Last 2 Years' Tax Returns document already being on file and approved. Backfills declarations.taxReturns = {has: true} for every OPEN MANXI purchase application that hasn't answered the question but does have a tax_returns_2yr document on file — direct evidence, not a guess. An application with no answer AND no tax_returns_2yr document is left untouched (genuinely unknown) and still needs a real yes/no from staff.",
+    filename:    '20260901_backfill_international_tax_returns_declaration.sql',
+    artifact:    { type: 'column', table: 'listing_applications', column: 'declarations' },
+    sql: `-- See supabase/migrations/20260901_backfill_international_tax_returns_declaration.sql for the full backfill.
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
