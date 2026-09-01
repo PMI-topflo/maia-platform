@@ -25,7 +25,7 @@ Continuation of the 2026-08-30 finding (`credit_report`/`eviction_history` came 
 **Sent to Checkr (Victor)**: a follow-up email with the exact 422 response and both order IDs, asking what package tier or account change would actually add credit report and eviction history. **Awaiting his reply.**
 
 ### ⏳ NEXT
-1. Awaiting Checkr's reply to the 2026-08-31 follow-up (the account-configuration question, not the test-data question this time).
+1. ~~Awaiting Checkr's reply to the 2026-08-31 follow-up~~ — **Checkr replied 2026-09-01** (William, Checkr Tenant): the null-report finding (item 5 above) was a bug on Checkr's side ("a recent change made it so test mode credit reports and eviction checks were not populating correctly"), now fixed in production — NOT the account/package limitation this entry concluded. **Not yet re-verified on our end** — re-run create-test and check for non-null `credit_report`/`eviction_history` before trusting this as resolved. `lib/screening/checkr.ts`, `.env.example`, and `docs/ROADMAP.md`'s Checkr entry updated 2026-09-01 to flag the conclusion above as superseded-but-unconfirmed rather than silently leaving the old "CONFIRMED" language standing.
 2. Older, unchanged: Checkr key prefix (test vs live) still unverified; Rentvine tenant-sync cron dead since 2026-06-17.
 
 Memory: [[checkr_add_on_products_investigation]], [[dp3_ho6_insurance_acceptance]], [[fabios_architecture_review]].
