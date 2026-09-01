@@ -113,13 +113,22 @@ export async function esignItemBlocker(docKey: string, c: AppCtx): Promise<strin
   return null
 }
 
-/** Best-effort: the unit's most recent quarterly-assessment charge from CINC's
- *  ledger, so the Maintenance Assessment Acknowledgment shows a real figure
- *  instead of a guess. Conservative on failure, same as the rest of this
- *  codebase's document handling (see lib/occupant-sponsorship.ts) — on any
- *  doubt (no owner on file, no matching ledger line, a network error) the
- *  form simply omits the dollar amount and states the due dates only; it
- *  never shows a wrong number. */
+/** Best-effort: the unit's most recent REGULAR quarterly-assessment charge
+ *  from CINC's ledger, so the Maintenance Assessment Acknowledgment shows a
+ *  real figure instead of a guess. Conservative on failure, same as the rest
+ *  of this codebase's document handling (see lib/occupant-sponsorship.ts) —
+ *  on any doubt (no owner on file, no matching ledger line, a network error)
+ *  the form simply omits the dollar amount and states the due dates only; it
+ *  never shows a wrong number.
+ *
+ *  Real bug, 2026-09-01 (MANXI 303, Wilner Florestan): the old /assess/i
+ *  filter also matches a "Special Assessment" ledger line — CINC uses
+ *  "Assessment" in the transaction-type text for both. Whichever one posted
+ *  most recently won the date sort, so a special assessment (a one-time or
+ *  limited-term capital charge, NOT the recurring quarterly maintenance fee
+ *  this form is about) could silently stand in for it. Excluding anything
+ *  whose description also matches /special/i keeps only the regular,
+ *  recurring quarterly maintenance assessment this field is meant to show. */
 async function currentQuarterlyAssessment(code: string, unit: string | null): Promise<{ amount: number; asOf: string } | null> {
   if (!unit) return null
   try {
@@ -136,12 +145,54 @@ async function currentQuarterlyAssessment(code: string, unit: string | null): Pr
       fromDate: from.toISOString().slice(0, 10), toDate: today.toISOString().slice(0, 10),
     })
     const assessments = rows
-      .filter(r => (r.Debit ?? 0) > 0 && /assess/i.test(`${r.Assessment ?? ''} ${r.Description ?? ''} ${r.TransactionTypeDescription ?? ''}`))
+      .filter(r => {
+        if (!((r.Debit ?? 0) > 0)) return false
+        const text = `${r.Assessment ?? ''} ${r.Description ?? ''} ${r.TransactionTypeDescription ?? ''}`
+        return /assess/i.test(text) && !/special/i.test(text)
+      })
       .sort((a, b) => new Date(b.Date ?? 0).getTime() - new Date(a.Date ?? 0).getTime())
     const latest = assessments[0]
     if (!latest?.Debit || !latest.Date) return null
     return { amount: latest.Debit, asOf: new Date(latest.Date).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }) }
   } catch { return null }
+}
+
+/** The Maintenance Assessment Acknowledgment's actual content — extracted out
+ *  of createAndSend() so a staff preview (below) shows EXACTLY what would be
+ *  sent, not a re-implementation that can drift out of sync with it. */
+async function buildMaintenanceAssessmentContent(c: AppCtx, buyerName: string, unitLabel: string): Promise<{ details: { label: string; value: string }[]; statement: string }> {
+  const assessment = await currentQuarterlyAssessment(c.code, c.unit)
+  const details: { label: string; value: string }[] = [
+    { label: 'Property', value: c.address ?? `Unit ${unitLabel}` },
+    { label: 'Buyer', value: buyerName },
+    { label: 'Due dates', value: 'Jan 1 · Apr 1 · Jul 1 · Oct 1 — considered late on the 5th' },
+    // $25.00 per quarter — Amendment to Rule 56 (recorded 1997-05-22, Broward
+    // County O.R. Book 26543, Page 0575).
+    { label: 'Late fee', value: '$25.00 per quarter if not paid when due (Amendment to Rule 56, recorded 1997)' },
+  ]
+  if (assessment) {
+    details.push({ label: 'Current quarterly assessment', value: `$${assessment.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} (per the ledger, as of ${assessment.asOf})` })
+  }
+  const statement = `I acknowledge the due dates and late fee above${assessment ? ', and the current quarterly assessment amount shown,' : ''} and agree to pay the Association's maintenance assessments on schedule as a condition of my purchase. The Association does not bill this amount monthly, and the quarterly amount may change each year by Board action.`
+  return { details, statement }
+}
+
+/** Staff-facing preview: exactly what the Maintenance Assessment
+ *  Acknowledgment would say right now, without creating or sending anything.
+ *  User direction, 2026-09-01 (after the special-assessment mixup on MANXI
+ *  303, Wilner Florestan): "place a button for me to preview before sending
+ *  so I can see it before pushing the request." */
+export async function previewMaintenanceAssessmentAck(applicationId: string): Promise<
+  { title: string; details: { label: string; value: string }[]; statement: string } | { error: string }
+> {
+  const c = await loadCtx(applicationId)
+  if (!c) return { error: 'application not found' }
+  const blocker = await esignItemBlocker('maintenance_assessment_ack', c)
+  if (blocker) return { error: blocker }
+  const unitLabel = c.unit ?? '—'
+  const lead = c.people[0]
+  const { details, statement } = await buildMaintenanceAssessmentContent(c, lead.name, unitLabel)
+  return { title: `Maintenance Assessment Acknowledgment — Unit ${unitLabel}`, details, statement }
 }
 
 /** Create + email one form. Returns what was sent, or throws with a reason. */
@@ -236,19 +287,7 @@ async function createAndSend(docKey: string, applicationId: string, c: AppCtx, c
 
   // ── Maintenance Assessment Acknowledgment (purchase-only) ─────────────
   if (docKey === 'maintenance_assessment_ack') {
-    const assessment = await currentQuarterlyAssessment(c.code, c.unit)
-    const details: { label: string; value: string }[] = [
-      { label: 'Property', value: c.address ?? `Unit ${unitLabel}` },
-      { label: 'Buyer', value: lead.name },
-      { label: 'Due dates', value: 'Jan 1 · Apr 1 · Jul 1 · Oct 1 — considered late on the 5th' },
-      // $25.00 per quarter — Amendment to Rule 56 (recorded 1997-05-22, Broward
-      // County O.R. Book 26543, Page 0575).
-      { label: 'Late fee', value: '$25.00 per quarter if not paid when due (Amendment to Rule 56, recorded 1997)' },
-    ]
-    if (assessment) {
-      details.push({ label: 'Current quarterly assessment', value: `$${assessment.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} (per the ledger, as of ${assessment.asOf})` })
-    }
-    const statement = `I acknowledge the due dates and late fee above${assessment ? ', and the current quarterly assessment amount shown,' : ''} and agree to pay the Association's maintenance assessments on schedule as a condition of my purchase. The Association does not bill this amount monthly, and the quarterly amount may change each year by Board action.`
+    const { details, statement } = await buildMaintenanceAssessmentContent(c, lead.name, unitLabel)
     const { data: created, error } = await supabaseAdmin.from('esign_documents').insert({
       kind: spec.kind, association_code: c.code, unit_ref: c.unit,
       title: `Maintenance Assessment Acknowledgment — Unit ${unitLabel}`,
