@@ -33,14 +33,28 @@
 // and confirmed directly by Checkr support 2026-08-31). A partial match
 // (e.g. the right ssn, wrong name/dob) is treated as a miss and silently
 // falls through to "the clean scenario for every product" -- an inert,
-// mostly-empty result, NOT the real canned data for that ssn. This is the
-// likely actual cause of the 2026-08-30 finding that credit_report and
-// eviction_history came back null on a test order (see docs/ROADMAP.md) --
-// the test applicant used SSN 333-33-3333 (Norma Davies' real documented
-// SSN) with a generic name/dob that didn't match her tuple, not a real gap
-// in what the essential package returns. create-test/route.ts's default
-// scenario now uses the exact matching tuple; this needs a live re-run
-// (this environment has no Checkr credentials) to fully confirm.
+// mostly-empty result, NOT the real canned data for that ssn.
+// create-test/route.ts's scenarios all use exact matching tuples now; this
+// was a real bug (fixed) but turned out NOT to explain the credit_report/
+// eviction_history finding below -- that's a separate, confirmed issue.
+//
+// ⚠ credit_report and eviction_history are NOT available on this Checkr
+// account, CONFIRMED 2026-08-31 -- not a test-data artifact. Even with an
+// exact documented tuple match (Madelyn Webster, criminal "clear" / credit
+// "consider" per Checkr's own scenario table), the structured report came
+// back with credit_report/eviction_history both null. Requesting them
+// explicitly via add_on_products got a real 422 from POST /orders:
+// {"errors":[{"code":"validation_error","detail":"Unknown add-on products:
+// credit_report, eviction_history","source":{"pointer":"/add_on_products"}}]}
+// -- i.e. Checkr itself says these aren't bundled in the package AND aren't
+// purchasable as add-ons on this account. This directly contradicts
+// .env.example's CHECKR_PACKAGE_RESIDENTIAL comment (which describes
+// Essential as including "full eviction history, credit score, credit
+// report" -- that description does not match this account's actual
+// configuration). See docs/ROADMAP.md for the full writeup and the
+// Checkr-support follow-up; do not re-attempt add_on_products for either
+// of these two products without a confirmed account/package change from
+// Checkr first.
 //
 // ⚠ There is no distinct "international" package. Checkr's own pricing page
 // (checkr.com/pricing/international, confirmed 2026-07-06) shows international
