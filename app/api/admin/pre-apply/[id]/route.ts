@@ -16,6 +16,8 @@ import { getReviewState } from '@/lib/board-review'
 import { screeningValidThrough, isScreeningExpired } from '@/lib/screening/validity'
 import { getCurrentLease, getRelatedOccupantApplications } from '@/lib/occupant-sponsorship'
 import { handoffOnApproval } from '@/lib/application-handoff'
+import { ESIGN_CHECKLIST_ITEMS } from '@/lib/application-esign-forms'
+import { findUnitLeasePacket } from '@/lib/lease-packet'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -129,6 +131,49 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     }
   })
 
+  // Per-document signer status for MAIA-generated e-sign forms — staff report,
+  // 2026-09-02: an already-uploaded e-signed document only shows a flat
+  // "e-signed" tag, with no way to see who actually signed (or, before it's
+  // uploaded at all, that it was even sent) without opening the PDF. A
+  // document never lands in application_documents until every signer has
+  // completed (lib/esign.ts's recordEsignSignature / lib/lease-packet.ts's
+  // bothSigned), so "pending" only ever applies to a checklist item with no
+  // doc yet — there is no way to see a partially-signed FILED document.
+  const esignKinds = Object.values(ESIGN_CHECKLIST_ITEMS).map(v => v.kind)
+  const { data: esignRows } = unit
+    ? await supabaseAdmin.from('esign_documents')
+        .select('kind, status, signers, created_at')
+        .eq('association_code', code).eq('unit_ref', unit)
+        .in('kind', esignKinds).neq('status', 'void')
+        .order('created_at', { ascending: false })
+    : { data: null }
+  const latestEsignByKind = new Map<string, { status: string; signers: { name: string | null; signed_at?: string | null }[] }>()
+  for (const row of esignRows ?? []) {
+    const k = String(row.kind)
+    if (latestEsignByKind.has(k)) continue
+    latestEsignByKind.set(k, { status: String(row.status), signers: Array.isArray(row.signers) ? row.signers as { name: string | null; signed_at?: string | null }[] : [] })
+  }
+  const leasePacket = unit ? await findUnitLeasePacket(code, unit) : null
+
+  function esignStatusFor(docKey: string): { status: string; signed: string[]; pending: string[] } | null {
+    if (docKey === 'landlord_tenant_agreement') {
+      if (!leasePacket) return null
+      return {
+        status: leasePacket.status,
+        signed: [leasePacket.ownerSignedAt ? 'Owner' : null, leasePacket.tenantSignedAt ? 'Tenant' : null].filter((x): x is string => !!x),
+        pending: [!leasePacket.ownerSignedAt ? 'Owner' : null, !leasePacket.tenantSignedAt ? 'Tenant' : null].filter((x): x is string => !!x),
+      }
+    }
+    const kind = ESIGN_CHECKLIST_ITEMS[docKey]?.kind
+    const latest = kind ? latestEsignByKind.get(kind) : undefined
+    if (!latest) return null
+    return {
+      status: latest.status,
+      signed: latest.signers.filter(s => !!s.signed_at).map(s => s.name).filter((x): x is string => !!x),
+      pending: latest.signers.filter(s => !s.signed_at).map(s => s.name).filter((x): x is string => !!x),
+    }
+  }
+
   return NextResponse.json({
     id: app.id, associationCode: app.association_code, type: app.application_type, unit: app.unit_label,
     status: app.status, submittedAt: app.submitted_at,
@@ -164,7 +209,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     animalGuidance: declarations.animal?.has && declarations.animal.kind ? animalDocGuidance(declarations.animal.kind) : null,
     assistanceAnimalDenialGrounds: isAssistanceAnimal(declarations.animal?.kind) ? ASSISTANCE_ANIMAL_DENIAL_GROUNDS : [],
     assistanceAnimalDecisionDays: ASSISTANCE_ANIMAL_DECISION_DAYS,
-    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, per_applicant: c.per_applicant, allow_multiple: c.allow_multiple, uploaded: uploaded.has(c.doc_key), condition_key: c.condition_key, template_path: c.template_path })),
+    checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, per_applicant: c.per_applicant, allow_multiple: c.allow_multiple, uploaded: uploaded.has(c.doc_key), condition_key: c.condition_key, template_path: c.template_path, esign: esignStatusFor(c.doc_key) })),
     documents: withUrls,
   })
 }

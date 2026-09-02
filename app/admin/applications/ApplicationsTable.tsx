@@ -29,6 +29,12 @@ type Occupant = {
   name?: string;
   relationship?: string;
   dob?: string;
+  isAdult?: string;
+  canSignSelf?: '' | 'yes' | 'no';
+  guardianName?: string;
+  guardianRelationship?: string;
+  guardianConfirmed?: boolean;
+  guardianDocUrl?: string | null;
   [key: string]: unknown;
 };
 
@@ -478,6 +484,30 @@ function DetailPanel({
                 <div className="font-medium">{o.name ?? `Occupant ${i + 1}`}</div>
                 {o.relationship && <div className="text-gray-500">Relationship: {o.relationship}</div>}
                 {o.dob && <div className="text-gray-500">DOB: {o.dob}</div>}
+                {o.canSignSelf === 'no' && (
+                  <div className="mt-1.5 rounded border border-amber-200 bg-amber-50 p-2 space-y-1">
+                    <div className="text-xs font-semibold text-amber-800">
+                      ⚠ Cannot sign/consent for themselves
+                    </div>
+                    <div className="text-xs text-amber-900">
+                      Signed by: <span className="font-medium">{o.guardianName || '—'}</span>
+                      {o.guardianRelationship && <> ({o.guardianRelationship})</>}
+                    </div>
+                    <div className="text-xs text-amber-900">
+                      Attestation: {o.guardianConfirmed ? '✓ confirmed' : '⚠ not confirmed'}
+                    </div>
+                    {o.guardianDocUrl ? (
+                      <DocumentPreviewTrigger
+                        label="Guardianship / POA document ↗"
+                        previewUrl={`/api/document-preview?url=${encodeURIComponent(o.guardianDocUrl)}`}
+                        downloadUrl={o.guardianDocUrl}
+                        className="text-left text-xs text-[#f26a1b] hover:underline"
+                      />
+                    ) : (
+                      <div className="text-xs text-red-600 font-medium">⚠ No guardianship/POA document on file</div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
