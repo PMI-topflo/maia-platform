@@ -83,6 +83,28 @@ Two independent clocks:
 
 New fields needed on `lease_renewal_checks`: `escalated_at`, `escalation_notice_sent_at`, `violation_fee_authorized`, `violation_fee_deadline`, `violation_fee_applied_at`, plus whatever tracks the T+30 grace-window outcome (fee waived vs. forced new application).
 
+### Roster-based applicant/occupant pricing — designed 2026-09-02, not yet built
+
+Found while reviewing Phase 1's gate: `components/ApplicationForm.tsx`'s existing "Other Occupants" section (name/age/email per person, already localized in all 7 languages) tells the applicant *"Adults 18+ will receive an invitation to complete their screening"* — but that's not true today. Traced end to end:
+
+- `calcTotal()` never counts `occupants` — only `applicants` (individual/couple) or `principals` (commercial). An occupant contributes $0 to the price regardless of age.
+- The "invitation" (`app/api/apply/invite-coapplicant`) is a plain FYI email with no payment link and no screening step.
+- `app/api/trigger-screening`'s `screening_subjects` are built **only** from `app.applicants`/`app.principals` — `app.occupants` is never read. An adult occupant is never actually sent to Checkr.
+
+So an adult occupant is listed, told they'll be invited to screen, and nothing happens — no charge, no Checkr order, no real screening. Same class of bug as the married-couple pricing fix (PR #748): copy promises something the code doesn't do.
+
+**Target model** — replace today's split (`applicants[]`, fixed-length by `appType` `individual`/`couple`; `principals[]` for commercial; `occupants[]`, disconnected) with one roster for residential applications (`individual`/`couple`/`additionalResident` collapse into this — `commercial` and `international` keep their own existing models, they have fundamentally different documents/pricing):
+
+- Each row: name, a role picker — **Applicant / Co-Applicant / Additional Occupant** — plus **Minor? Yes/No** (age already collected today; minor = under 18 the same way the existing occupant-email-disabled logic already computes it).
+- **Pricing**: `$150 × count(rows where minor = No)`, regardless of which of the three roles they picked — an adult Additional Occupant is priced and screened exactly like a Co-Applicant, matching the `additional_occupant` application type PR #748 already gates on `/pre-apply`. So yes: 3 non-minor rows = $450, 4 = $600, and so on.
+- **Married-couple exception preserved exactly as already fixed** (PR #748): if exactly 2 non-minor rows are flagged married to each other AND the certificate is actually uploaded, that pair is $150 total instead of $300 — never granted from the "yes" answer alone.
+- **Minors**: recorded (name, age, relationship) for occupancy/compliance records — unit occupant limits, lease occupant lists — but never priced, never sent to Checkr. Not a UI nicety: screening a minor for a background/credit check is the wrong thing to do, not just an unwanted charge.
+- `app/api/trigger-screening`'s subject-building extended to iterate the full roster (not just `applicants`/`principals`), filtered to non-minor rows.
+
+**Where it lives**: inside `/apply` (where roster, pricing, Checkr subjects, and Stripe payment are already assembled today — per the "reuse, don't rebuild" call already made for the married-couple flow), not a parallel roster UI on `/pre-apply`. The gate on `/pre-apply` stays as-is: it defers roster/pricing detail to `/apply`, same as it already defers the married-couple question there.
+
+**Loose end this would close**: PR #748's gate currently gates every `role='applicant'` stakeholder on `/pre-apply` because it has no way to tell a minor apart from an adult. In practice a household is unlikely to add a minor as their own `/pre-apply` collaborator (that flow is for people filling in their own part), so this is a low-priority follow-up, not a blocker — worth a look once the roster's minor flag exists, not before.
+
 ### Phasing
 
 1. **Pipeline unification** — 🟡 **partially shipped 2026-09-02.** Investigation found the backend chain was already built and live on a DIFFERENT front door (`/apply/applicant` + `/apply/agent`, reached via `FinancialsAccessButton`): it already hands off into `/apply?listingApp=<id>`, Stripe checkout already fires `/api/trigger-screening` on `checkout.session.completed` (not board approval — that claim in an earlier draft of this section was wrong, confirmed by reading `app/api/webhooks/stripe/route.ts`), and `app/api/apply/link-listing` already bridges `detailed_application_id` back onto `listing_applications`. The actual gap was that NONE of this was reachable from `/pre-apply/[code]` — the flow staff and applicants actually use daily. Shipped: a `ScreeningPaymentGate` on `app/pre-apply/[code]/page.tsx` — every `role='applicant'` stakeholder (lead AND co-applicants) on a `lease`/`purchase`/`additional_occupant` application now sees the full document checklist (read-only) plus a payment/screening gate instead of upload boxes, until `listing_applications.detailed_application_id` is set; opens the existing `/apply?listingApp=...` wizard in a new tab, "Check again" re-loads once it bridges back. Co-applicants are gated too (not exempt — corrected 2026-09-02: they get their own Checkr check, they just don't have to be the one who pays, since `detailed_application_id` lives on the shared `listing_applications` row and whichever applicant in the group pays first clears it for the rest); owners and agents are never gated (they're never screened). This flow collects no age field on a stakeholder, so a minor can't be told apart from an adult co-applicant/occupant — gating everyone with `role='applicant'` is the conservative default until that's collected. Also fixed a real collision this surfaced: `link-listing` marks every `role='applicant'` stakeholder `'completed'` immediately on payment — correct for the lightweight `/apply/applicant`+`/apply/agent` pattern (paying IS the whole application there) but would have shown the pre-apply applicant "you're all done" before they'd uploaded anything; `DocsStep`'s "already done" check now also requires their own checklist to actually be complete. **Not yet done**: the checklist-preview + 45-day acknowledgment e-sign (that's Phase 2, listed separately below) — the gate currently just lists the checklist inline, no e-signed acknowledgment yet.
@@ -90,6 +112,7 @@ New fields needed on `lease_renewal_checks`: `escalated_at`, `escalation_notice_
 3. Board visibility filter (step 7).
 4. Screening validity display + 10/5/1-day warning cron + 45-day expiration + $150 re-screening payment.
 5. Lease non-renewal escalation (independent of 1–4, can ship anytime).
+6. Roster-based applicant/occupant pricing (independent of 1–5, can ship anytime) — replaces `/apply`'s disconnected occupants list with the Applicant/Co-Applicant/Additional Occupant + minor Yes/No roster above, so every non-minor resident is actually priced ($150 each) and actually screened, not just listed.
 
 ---
 
