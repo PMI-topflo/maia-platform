@@ -155,12 +155,23 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   }
   const leasePacket = unit ? await findUnitLeasePacket(code, unit) : null
 
-  function esignStatusFor(docKey: string): { status: string; signed: string[]; pending: string[] } | null {
+  // Staff report, 2026-09-02: the signer line named WHO signed but not WHEN --
+  // and separately, re-sending the Landlord-Tenant Agreement for signature
+  // surfaced that its EXPIRED badge is driven by the LEASE'S end date
+  // (lib/lease-packet.ts's mirrorAgreementToOnGoing writes expiration_date:
+  // p.lease_end), not by the e-signature going stale -- signatures never
+  // expire. Carrying each signer's date here lets the client show it; the
+  // badge/confirm wording distinguishes "lease term ended" from "expired"
+  // for this doc_key specifically (see ChecklistRow).
+  function esignStatusFor(docKey: string): { status: string; signed: { name: string; at: string }[]; pending: string[] } | null {
     if (docKey === 'landlord_tenant_agreement') {
       if (!leasePacket) return null
       return {
         status: leasePacket.status,
-        signed: [leasePacket.ownerSignedAt ? 'Owner' : null, leasePacket.tenantSignedAt ? 'Tenant' : null].filter((x): x is string => !!x),
+        signed: [
+          leasePacket.ownerSignedAt ? { name: 'Owner', at: leasePacket.ownerSignedAt } : null,
+          leasePacket.tenantSignedAt ? { name: 'Tenant', at: leasePacket.tenantSignedAt } : null,
+        ].filter((x): x is { name: string; at: string } => !!x),
         pending: [!leasePacket.ownerSignedAt ? 'Owner' : null, !leasePacket.tenantSignedAt ? 'Tenant' : null].filter((x): x is string => !!x),
       }
     }
@@ -169,7 +180,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     if (!latest) return null
     return {
       status: latest.status,
-      signed: latest.signers.filter(s => !!s.signed_at).map(s => s.name).filter((x): x is string => !!x),
+      signed: latest.signers
+        .filter(s => !!s.signed_at && !!s.name)
+        .map(s => ({ name: s.name as string, at: s.signed_at as string })),
       pending: latest.signers.filter(s => !s.signed_at).map(s => s.name).filter((x): x is string => !!x),
     }
   }

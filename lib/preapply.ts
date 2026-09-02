@@ -311,7 +311,10 @@ export async function carryOverApprovedDocs(newAppId: string, associationCode: s
 export interface StakeholderRow {
   id: string; role: StakeholderRole; name: string | null; email: string | null; phone: string | null
   isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; emailVerifiedAt: string | null
+  checklistAckSignedAt: string | null
 }
+
+const STAKEHOLDER_COLS = 'id, role, name, email, phone, is_primary, status, signed_at, email_verified_at, checklist_ack_signed_at'
 
 function toRow(r: Record<string, unknown>): StakeholderRow {
   const role = String(r.role) as StakeholderRole
@@ -320,19 +323,20 @@ function toRow(r: Record<string, unknown>): StakeholderRow {
     phone: (r.phone as string | null) ?? null, isPrimary: Boolean(r.is_primary), status: String(r.status),
     signs: roleSigns(role), signedAt: (r.signed_at as string | null) ?? null,
     emailVerifiedAt: (r.email_verified_at as string | null) ?? null,
+    checklistAckSignedAt: (r.checklist_ack_signed_at as string | null) ?? null,
   }
 }
 
 export async function listStakeholders(applicationId: string): Promise<StakeholderRow[]> {
   const { data } = await supabaseAdmin.from('application_stakeholders')
-    .select('id, role, name, email, phone, is_primary, status, signed_at, email_verified_at')
+    .select(STAKEHOLDER_COLS)
     .eq('application_id', applicationId).order('is_primary', { ascending: false }).order('created_at', { ascending: true })
   return (data ?? []).map(toRow)
 }
 
 export async function getStakeholder(applicationId: string, stakeholderId: string): Promise<StakeholderRow | null> {
   const { data } = await supabaseAdmin.from('application_stakeholders')
-    .select('id, role, name, email, phone, is_primary, status, signed_at, email_verified_at')
+    .select(STAKEHOLDER_COLS)
     .eq('application_id', applicationId).eq('id', stakeholderId).maybeSingle()
   return data ? toRow(data) : null
 }
@@ -375,7 +379,7 @@ export async function addStakeholders(
       application_id: applicationId, role: p.role, name: p.name.trim(), email: p.email.trim(),
       phone: p.phone?.trim() || null, is_primary: false, status: 'invited', added_by_role: addedByRole,
     })),
-  ).select('id, role, name, email, phone, is_primary, status, signed_at, email_verified_at')
+  ).select(STAKEHOLDER_COLS)
   return (data ?? []).map(toRow)
 }
 
@@ -397,6 +401,16 @@ export async function signStakeholderRules(stakeholderId: string, ack: { name: s
   const now = new Date().toISOString()
   await supabaseAdmin.from('application_stakeholders')
     .update({ rules_ack_name: ack.name, signature_image: ack.signature, rules_ack_ip: ack.ip, signed_at: now, updated_at: now })
+    .eq('id', stakeholderId)
+}
+
+/** Record a stakeholder's checklist acknowledgment signature (Phase 2,
+ *  docs/ROADMAP.md's Phasing item 2) -- distinct from signStakeholderRules
+ *  above, which signs a different document at a different point in the flow. */
+export async function signChecklistAck(stakeholderId: string, ack: { name: string; signature: string | null; ip: string | null }): Promise<void> {
+  const now = new Date().toISOString()
+  await supabaseAdmin.from('application_stakeholders')
+    .update({ checklist_ack_name: ack.name, checklist_ack_signature: ack.signature, checklist_ack_ip: ack.ip, checklist_ack_signed_at: now, updated_at: now })
     .eq('id', stakeholderId)
 }
 

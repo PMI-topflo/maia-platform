@@ -80,7 +80,7 @@ interface Collaborator { id: string; name: string | null; email: string | null; 
 interface Info {
   associationName: string; type: string; unitLabel: string | null
   applicationId: string; detailedApplicationId: string | null
-  me: { name: string | null; role: string; roleLabel: string; signs: boolean; isPrimary: boolean; status: string; emailVerified: boolean; emailMasked: string | null; signed: boolean }
+  me: { name: string | null; role: string; roleLabel: string; signs: boolean; isPrimary: boolean; status: string; emailVerified: boolean; emailMasked: string | null; signed: boolean; checklistAckSignedAt: string | null }
   canAddCollaborators: boolean; submitted: boolean
   checklist: ChecklistItem[]; rules: { rule_key: string; label: string }[]; collaborators: Collaborator[]
   declarations: Declarations
@@ -418,7 +418,7 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
       )}
 
       {screeningGateActive ? (
-        <ScreeningPaymentGate code={code} info={info} lang={lang} onRecheck={load} />
+        <ScreeningPaymentGate code={code} token={token} info={info} lang={lang} onRecheck={load} />
       ) : (
         <>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
@@ -510,19 +510,34 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
 // already use — opened in a new tab (like EsignBox's signing links) so this
 // pre-apply tab stays put; "Check again" re-loads once app/api/apply/link-listing
 // has bridged detailed_application_id back.
-function ScreeningPaymentGate({ code, info, lang, onRecheck }: { code: string; info: Info; lang: PortalLang; onRecheck: () => void }) {
+function ScreeningPaymentGate({ code, token, info, lang, onRecheck }: { code: string; token: string; info: Info; lang: PortalLang; onRecheck: () => void }) {
   const payHref = `/apply?listingApp=${encodeURIComponent(info.applicationId)}&assoc=${encodeURIComponent(code)}&unit=${encodeURIComponent(info.unitLabel ?? '')}&lang=${encodeURIComponent(lang)}`
+  const checklistBox = info.checklist.length > 0 && (
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, background: '#fafbfc' }}>
+      <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '0 0 8px' }}>Your document checklist</h2>
+      <p style={{ fontSize: 12.5, color: '#6b7280', margin: '0 0 8px', lineHeight: 1.5 }}>Here is everything you&apos;ll need. You&apos;ll upload it after the step below.</p>
+      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, color: '#374151', lineHeight: 1.7 }}>
+        {info.checklist.map(d => <li key={d.id}>{d.label}{!d.required && ' (optional)'}</li>)}
+      </ul>
+    </div>
+  )
+
+  // Phase 2, docs/ROADMAP.md's Phasing item 2: before the payment button
+  // even appears, the applicant e-signs an acknowledgment of the checklist
+  // shown above plus the 45-day deadline — not just decorative warning text
+  // next to the button, an actual attestation on record (POST .../checklist-ack).
+  if (!info.me.checklistAckSignedAt) {
+    return (
+      <div style={{ marginTop: 14 }}>
+        {checklistBox}
+        <ChecklistAckBox token={token} onSigned={onRecheck} />
+      </div>
+    )
+  }
+
   return (
     <div style={{ marginTop: 14 }}>
-      {info.checklist.length > 0 && (
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, background: '#fafbfc' }}>
-          <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '0 0 8px' }}>Your document checklist</h2>
-          <p style={{ fontSize: 12.5, color: '#6b7280', margin: '0 0 8px', lineHeight: 1.5 }}>Here is everything you&apos;ll need. You&apos;ll upload it after the step below.</p>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, color: '#374151', lineHeight: 1.7 }}>
-            {info.checklist.map(d => <li key={d.id}>{d.label}{!d.required && ' (optional)'}</li>)}
-          </ul>
-        </div>
-      )}
+      {checklistBox}
       <div style={{ marginTop: 14, border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 12, padding: 16 }}>
         <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '0 0 6px' }}>Background screening &amp; application fee</h2>
         <p style={{ fontSize: 13, color: '#92400e', margin: '0 0 10px', lineHeight: 1.55 }}>
@@ -546,6 +561,58 @@ function ScreeningPaymentGate({ code, info, lang, onRecheck }: { code: string; i
         </div>
         <p style={{ fontSize: 11.5, color: '#9aa0ab', margin: '10px 0 0', lineHeight: 1.5 }}>Opens in a new tab — come back to this page afterward to upload your documents.</p>
       </div>
+    </div>
+  )
+}
+
+// The Phase 2 acknowledgment itself: same inline checkbox + typed name +
+// SignaturePad mechanics as the rules acknowledgment further down this page
+// (DocsStep's submit()), because this is the SAME already-OTP-verified
+// session signing right here — no separate emailed link/token round-trip
+// needed, unlike the multi-signer forms lib/application-esign-forms.ts sends.
+function ChecklistAckBox({ token, onSigned }: { token: string; onSigned: () => void }) {
+  const [name, setName] = useState('')
+  const [sig, setSig] = useState('')
+  const [agreed, setAgreed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function sign() {
+    setErr(null)
+    if (!agreed) { setErr('Please check the box to acknowledge the checklist and the 45-day deadline.'); return }
+    if (!name.trim()) { setErr('Please type your name to sign.'); return }
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/pre-apply/${token}/checklist-ack`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, signatureImage: sig }),
+      })
+      const d = await r.json(); if (!r.ok) throw new Error(d.error ?? 'Could not save')
+      onSigned()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ marginTop: 14, border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 12, padding: 16 }} dir="ltr">
+      <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '0 0 8px' }}>Before you pay: acknowledge the checklist &amp; deadline</h2>
+      <p style={{ fontSize: 12.5, color: '#92400e', fontWeight: 700, margin: '0 0 8px', lineHeight: 1.5 }}>
+        ⚠ I have reviewed the complete document checklist above for my application.
+      </p>
+      <p style={{ fontSize: 12.5, color: '#92400e', fontWeight: 700, margin: '0 0 12px', lineHeight: 1.5 }}>
+        ⚠ I understand that from the date my background screening is completed, I have 45 DAYS to submit every required document, or my application will be considered EXPIRED — and a new background screening, with its own separate charge, will be required to continue.
+      </p>
+      <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13.5, color: '#374151', lineHeight: 1.5 }}>
+        <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} style={{ marginTop: 3 }} />
+        <span>I have read the document checklist and the 45-day deadline above, and I agree to them.</span>
+      </label>
+      <label style={{ ...label, marginTop: 12 }}>Type your full legal name to sign<input style={field} value={name} onChange={e => setName(e.target.value)} /></label>
+      <div style={{ marginTop: 12 }}>
+        <label style={{ ...label, marginTop: 0 }}>Draw your signature (optional)</label>
+        <SignaturePad onChange={img => setSig(img ?? '')} />
+      </div>
+      {err && <p style={{ color: '#b91c1c', fontSize: 13, marginTop: 10 }}>⚠ {err}</p>}
+      <button onClick={sign} disabled={busy} style={{ marginTop: 14, padding: '12px 22px', borderRadius: 9, border: 'none', background: busy ? '#9ca3af' : '#f26a1b', color: '#fff', fontWeight: 700, fontSize: 14, cursor: busy ? 'default' : 'pointer' }}>
+        {busy ? 'Saving…' : 'Sign & continue →'}
+      </button>
     </div>
   )
 }

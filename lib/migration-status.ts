@@ -4114,6 +4114,15 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `-- See supabase/migrations/20260902_rescreening_payments.sql for the full table + grants.
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'checklist_acknowledgment',
+    label:       'application_stakeholders — checklist acknowledgment e-sign columns (Phase 2)',
+    description: "docs/ROADMAP.md's Phasing item 2: before an applicant on /pre-apply/[code] reaches the payment/screening button, they e-sign an acknowledgment of the full document checklist plus the 45-day-from-screening-completion deadline. A distinct signature from the existing rules acknowledgment (signed later, after screening) -- its own column set on application_stakeholders (checklist_ack_name/checklist_ack_signature/checklist_ack_ip/checklist_ack_signed_at).",
+    filename:    '20260902_checklist_acknowledgment.sql',
+    artifact:    { type: 'column', table: 'application_stakeholders', column: 'checklist_ack_signed_at' },
+    sql: `-- See supabase/migrations/20260902_checklist_acknowledgment.sql for the full column additions.
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
