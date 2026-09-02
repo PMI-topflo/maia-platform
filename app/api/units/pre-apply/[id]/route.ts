@@ -17,6 +17,15 @@ async function loadApp(id: string, assoc: string) {
     .select('id, association_code, application_type, unit_label, status, submitted_at, rules_ack, drive_folder_url, audited_at, reviewed_at, review_note, approved_by_role')
     .eq('id', id).maybeSingle()
   if (!data || String(data.association_code).toUpperCase() !== assoc.toUpperCase()) return null
+  // The board queue's list (GET /api/units/pre-apply) already only shows
+  // applications with submitted_at set — but this detail/action endpoint had
+  // no matching guard, so a reviewer with a bookmarked or guessed id could
+  // still open, and even approve/decline, an application the applicant
+  // hasn't finished submitting yet (docs/ROADMAP.md's Phasing item 7: "board
+  // only ever sees complete applications"). submitted_at is set once, by
+  // lib/preapply.ts's submitIntake(), only once every required document has
+  // actually arrived -- same bar the list already applies.
+  if (!data.submitted_at) return null
   return data
 }
 
