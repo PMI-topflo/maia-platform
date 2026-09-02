@@ -115,6 +115,12 @@ const translations = {
     occupantEmail: "Email (18+ only)",
     occupantAdultQ: "Is this person 18 or older?",
     occupantAdultNote: "Adults are individually background-checked and charged $150 — please provide their information below.",
+    canSignSelfQ: "Can this person sign and consent for themselves?",
+    guardianSignerName: "Name of person signing on their behalf",
+    guardianRelationshipLabel: "Their relationship to this person / legal authority (e.g. Legal Guardian, Power of Attorney)",
+    guardianDocLabel: "Guardianship / Power of Attorney Documentation",
+    guardianConfirm: "I confirm I am legally authorized to sign and consent to a background, credit, and eviction check on behalf of {name}.",
+    guardianRequired: "Please confirm your authority to sign on {name}'s behalf, and upload documentation, before continuing.",
     addOccupant: "+ Add Occupant",
     sendInvite: "Send invitation to co-applicant",
     inviteSentLabel: "Invitation sent ✓",
@@ -232,6 +238,12 @@ const translations = {
     occupantEmail: "Correo (solo mayores de 18)",
     occupantAdultQ: "¿Esta persona tiene 18 años o más?",
     occupantAdultNote: "Los adultos se someten a una verificación individual de antecedentes y se cobran $150 — proporcione su información a continuación.",
+    canSignSelfQ: "¿Puede esta persona firmar y dar su consentimiento por sí misma?",
+    guardianSignerName: "Nombre de la persona que firma en su nombre",
+    guardianRelationshipLabel: "Su relación con esta persona / autoridad legal (p. ej. Tutor Legal, Poder Notarial)",
+    guardianDocLabel: "Documentación de Tutela / Poder Notarial",
+    guardianConfirm: "Confirmo que estoy legalmente autorizado para firmar y dar consentimiento para una verificación de antecedentes, crédito y desalojo en nombre de {name}.",
+    guardianRequired: "Confirme su autoridad para firmar en nombre de {name} y suba la documentación antes de continuar.",
     addOccupant: "+ Agregar Ocupante",
     sendInvite: "Enviar invitación al co-solicitante",
     inviteSentLabel: "Invitación enviada ✓",
@@ -343,6 +355,12 @@ const translations = {
     occupantEmail: "E-mail (somente maiores de 18)",
     occupantAdultQ: "Esta pessoa tem 18 anos ou mais?",
     occupantAdultNote: "Adultos passam por verificação de antecedentes individual e são cobrados $150 — forneça as informações abaixo.",
+    canSignSelfQ: "Esta pessoa pode assinar e dar consentimento por si mesma?",
+    guardianSignerName: "Nome da pessoa que está assinando em seu nome",
+    guardianRelationshipLabel: "Sua relação com esta pessoa / autoridade legal (ex.: Tutor Legal, Procuração)",
+    guardianDocLabel: "Documentação de Tutela / Procuração",
+    guardianConfirm: "Confirmo que estou legalmente autorizado a assinar e dar consentimento para uma verificação de antecedentes, crédito e despejo em nome de {name}.",
+    guardianRequired: "Confirme sua autoridade para assinar em nome de {name} e envie a documentação antes de continuar.",
     addOccupant: "+ Adicionar Ocupante",
     sendInvite: "Enviar convite ao co-solicitante",
     inviteSentLabel: "Convite enviado ✓",
@@ -454,6 +472,12 @@ const translations = {
     occupantEmail: "E-mail (18+ seulement)",
     occupantAdultQ: "Cette personne a-t-elle 18 ans ou plus ?",
     occupantAdultNote: "Les adultes font l'objet d'une vérification des antécédents individuelle et sont facturés 150 $ — veuillez fournir leurs informations ci-dessous.",
+    canSignSelfQ: "Cette personne peut-elle signer et donner son consentement elle-même ?",
+    guardianSignerName: "Nom de la personne qui signe en son nom",
+    guardianRelationshipLabel: "Son lien avec cette personne / autorité légale (ex. : Tuteur Légal, Procuration)",
+    guardianDocLabel: "Documentation de Tutelle / Procuration",
+    guardianConfirm: "Je confirme être légalement autorisé(e) à signer et à consentir à une vérification des antécédents, du crédit et d'expulsion au nom de {name}.",
+    guardianRequired: "Veuillez confirmer votre autorité à signer au nom de {name} et téléverser la documentation avant de continuer.",
     addOccupant: "+ Ajouter un Occupant",
     sendInvite: "Envoyer une invitation au co-demandeur",
     inviteSentLabel: "Invitation envoyée ✓",
@@ -565,6 +589,12 @@ const translations = {
     occupantEmail: "אימייל (מעל 18 בלבד)",
     occupantAdultQ: "האם אדם זה בן 18 ומעלה?",
     occupantAdultNote: "מבוגרים עוברים בדיקת רקע פרטנית ומחויבים ב-$150 — יש לספק את פרטיהם למטה.",
+    canSignSelfQ: "האם אדם זה יכול לחתום ולתת הסכמה בעצמו?",
+    guardianSignerName: "שם האדם החותם בשמו",
+    guardianRelationshipLabel: "הקשר שלו לאדם זה / סמכות משפטית (למשל אפוטרופוס חוקי, ייפוי כוח)",
+    guardianDocLabel: "מסמכי אפוטרופסות / ייפוי כוח",
+    guardianConfirm: "אני מאשר/ת שאני מוסמך/ת מבחינה משפטית לחתום ולתת הסכמה לבדיקת רקע, אשראי ופינוי בשם {name}.",
+    guardianRequired: "יש לאשר את סמכותך לחתום בשם {name} ולהעלות תיעוד לפני שממשיכים.",
     addOccupant: "+ הוסף דייר",
     sendInvite: "שלח הזמנה למגיש המשותף",
     inviteSentLabel: "הזמנה נשלחה ✓",
@@ -676,6 +706,12 @@ const translations = {
     occupantEmail: "Электронная почта (только для 18+)",
     occupantAdultQ: "Этому человеку 18 лет или больше?",
     occupantAdultNote: "Взрослые проходят индивидуальную проверку данных и оплачивают $150 — укажите их данные ниже.",
+    canSignSelfQ: "Может ли этот человек подписать и дать согласие самостоятельно?",
+    guardianSignerName: "Имя человека, подписывающего от его имени",
+    guardianRelationshipLabel: "Отношение к этому человеку / законные полномочия (напр. Законный опекун, Доверенность)",
+    guardianDocLabel: "Документы об опекунстве / доверенности",
+    guardianConfirm: "Я подтверждаю, что имею законные полномочия подписывать и давать согласие на проверку данных, кредитной истории и выселения от имени {name}.",
+    guardianRequired: "Подтвердите свои полномочия подписывать от имени {name} и загрузите документы, прежде чем продолжить.",
     addOccupant: "+ Добавить жильца",
     sendInvite: "Отправить приглашение со-заявителю",
     inviteSentLabel: "Приглашение отправлено ✓",
@@ -787,6 +823,12 @@ const translations = {
     occupantEmail: "Imèl (18 an+ sèlman)",
     occupantAdultQ: "Èske moun sa a gen 18 an oswa plis?",
     occupantAdultNote: "Granmoun yo pase yon tchèk background endividyèl epi yo peye $150 — tanpri bay enfòmasyon yo anba a.",
+    canSignSelfQ: "Èske moun sa a ka siyen epi bay konsantman pou tèt li?",
+    guardianSignerName: "Non moun k ap siyen nan non li",
+    guardianRelationshipLabel: "Relasyon li ak moun sa a / otorite legal (egz. Gadyen Legal, Pwokirasyon)",
+    guardianDocLabel: "Dokiman Gadyenaj / Pwokirasyon",
+    guardianConfirm: "Mwen konfime mwen otorize legalman pou siyen epi bay konsantman pou yon tchèk background, kredi, ak degèpisman nan non {name}.",
+    guardianRequired: "Tanpri konfime otorite ou pou siyen nan non {name}, epi telechaje dokiman anvan ou kontinye.",
     addOccupant: "+ Ajoute Okipan",
     sendInvite: "Voye envitasyon bay ko-aplikan an",
     inviteSentLabel: "Envitasyon voye ✓",
@@ -1070,7 +1112,18 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   // have quietly under-charged/under-screened an adult occupant whose age
   // just wasn't typed in yet. dob/ssn only matter once isAdult === 'yes' —
   // that's what actually lets trigger-screening send them to Checkr.
-  const [occupants, setOccupants] = useState<{name: string; age: string; email: string; isAdult: '' | 'yes' | 'no'; dob: string; ssn: string; phone: string}[]>([]);
+  // canSignSelf covers the real case that surfaced this (Unit 706, an
+  // elderly additional resident who cannot sign for himself): when 'no',
+  // the primary applicant identifies who is actually signing/consenting on
+  // that person's behalf and their legal authority (guardian, POA, health
+  // care surrogate), with documentation required -- never by quietly
+  // reusing the occupant's own email so the record falsely reads as if
+  // they signed themselves. See docs/ROADMAP.md's "Power of attorney /
+  // legal guardian signing" section.
+  const [occupants, setOccupants] = useState<{
+    name: string; age: string; email: string; isAdult: '' | 'yes' | 'no'; dob: string; ssn: string; phone: string;
+    canSignSelf: '' | 'yes' | 'no'; guardianName: string; guardianRelationship: string; guardianConfirmed: boolean;
+  }[]>([]);
   const adultOccupants = occupants.filter(o => o.isAdult === 'yes');
   const [rulesAgreed, setRulesAgreed] = useState(false);
   const [rulesSignature, setRulesSignature] = useState("");
@@ -1150,7 +1203,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
           entity_name?: string | null
           sunbiz_id?: string | null
           principals?: { name: string; dob: string; govIdUrl?: string | null; proofIncomeUrl?: string | null }[] | null
-          occupants?: { name: string; age: string; email: string; isAdult?: '' | 'yes' | 'no'; dob?: string; ssn?: string; phone?: string }[] | null
+          occupants?: { name: string; age: string; email: string; isAdult?: '' | 'yes' | 'no'; dob?: string; ssn?: string; phone?: string; canSignSelf?: '' | 'yes' | 'no'; guardianName?: string; guardianRelationship?: string; guardianConfirmed?: boolean }[] | null
           is_married_couple?: boolean | null
           couple_has_cert?: boolean | null
           language?: string | null
@@ -1167,10 +1220,12 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         if (d.entity_name)  setEntityName(d.entity_name);
         if (d.sunbiz_id)    setSunbizId(d.sunbiz_id);
         if (d.principals?.length) setPrincipals(d.principals);
-        // Normalize drafts saved before the roster-pricing fields existed.
+        // Normalize drafts saved before the roster-pricing / guardian fields existed.
         if (d.occupants?.length) setOccupants(d.occupants.map(o => ({
           name: o.name, age: o.age, email: o.email,
           isAdult: o.isAdult ?? '', dob: o.dob ?? '', ssn: o.ssn ?? '', phone: o.phone ?? '',
+          canSignSelf: o.canSignSelf ?? '', guardianName: o.guardianName ?? '',
+          guardianRelationship: o.guardianRelationship ?? '', guardianConfirmed: o.guardianConfirmed ?? false,
         })));
         if (typeof d.is_married_couple === 'boolean') setIsMarriedCouple(d.is_married_couple);
         if (typeof d.couple_has_cert === 'boolean') setCoupleOption(d.couple_has_cert ? 'yes' : 'no');
@@ -1390,6 +1445,8 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
 
   const updateOccupant = (idx: number, key: string, val: string) =>
     setOccupants((prev) => { const n = [...prev]; n[idx] = { ...n[idx], [key]: val }; return n; });
+  const toggleGuardianConfirmed = (idx: number) =>
+    setOccupants((prev) => { const n = [...prev]; n[idx] = { ...n[idx], guardianConfirmed: !n[idx].guardianConfirmed }; return n; });
 
   const sendCoApplicantInvite = async () => {
     if (!applicants[1]?.email) return;
@@ -1482,6 +1539,20 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
             .replace("{s}", unread.length === 1 ? "" : "s")
         )
         return
+      }
+    }
+    if (step === 3) {
+      // Blocking, unlike most fields on this form -- see docs/ROADMAP.md's
+      // "Power of attorney / legal guardian signing" section on why an
+      // occupant who can't sign for themselves needs a real, checked
+      // attestation plus actual documentation before payment, not just a
+      // filled-in text field.
+      for (let ai = 0; ai < adultOccupants.length; ai++) {
+        const o = adultOccupants[ai];
+        if (o.canSignSelf === "no" && (!o.guardianConfirmed || !docs[`occGuardianDoc_${ai}`])) {
+          setError(t.guardianRequired.replace("{name}", o.name || t.addlResident));
+          return;
+        }
       }
     }
     if (step === 3 && !agreed) { setError(t.consentRequired); return; }
@@ -1587,7 +1658,10 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
       const occupantsWithDocs = occupants.map(o => {
         if (o.isAdult !== "yes") return o;
         adultIdx += 1;
-        return { ...o, govIdUrl: docUrls[`occGovId_${adultIdx}`] ?? null, proofIncomeUrl: docUrls[`occProofIncome_${adultIdx}`] ?? null };
+        return {
+          ...o, govIdUrl: docUrls[`occGovId_${adultIdx}`] ?? null, proofIncomeUrl: docUrls[`occProofIncome_${adultIdx}`] ?? null,
+          guardianDocUrl: o.canSignSelf === "no" ? (docUrls[`occGuardianDoc_${adultIdx}`] ?? null) : null,
+        };
       });
       const payload = {
         association,
@@ -2194,11 +2268,35 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                               <input type="date" placeholder={t.dob} value={o.dob} onChange={(e) => updateOccupant(idx, "dob", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
                               <input type="text" placeholder={t.ssn} value={o.ssn} onChange={(e) => updateOccupant(idx, "ssn", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
                             </div>
+
+                            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #eee" }}>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>{t.canSignSelfQ}</div>
+                              <div style={{ display: "flex", gap: 8 }}>
+                                {([{ val: "yes", label: t.yes }, { val: "no", label: t.no }] as const).map(({ val, label }) => (
+                                  <button key={val} onClick={() => updateOccupant(idx, "canSignSelf", val)}
+                                    style={{ flex: 1, padding: "8px 14px", background: o.canSignSelf === val ? "#f26a1b" : "#fff", color: o.canSignSelf === val ? "#fff" : "#6b7280", border: `1.5px solid ${o.canSignSelf === val ? "#f26a1b" : "#e5e7eb"}`, borderRadius: 3, fontSize: 13, fontWeight: 600, cursor: "pointer", transition: "all 0.18s" }}>
+                                    {label}
+                                  </button>
+                                ))}
+                              </div>
+                              {o.canSignSelf === "no" && (
+                                <div style={{ marginTop: 10 }}>
+                                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 12px" }}>
+                                    <input type="text" placeholder={t.guardianSignerName} value={o.guardianName} onChange={(e) => updateOccupant(idx, "guardianName", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
+                                    <input type="text" placeholder={t.guardianRelationshipLabel} value={o.guardianRelationship} onChange={(e) => updateOccupant(idx, "guardianRelationship", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
+                                  </div>
+                                  <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 10, fontSize: 12, color: "#0d0d0d", lineHeight: 1.45 }}>
+                                    <input type="checkbox" checked={o.guardianConfirmed} onChange={() => toggleGuardianConfirmed(idx)} style={{ marginTop: 2 }} />
+                                    <span>{t.guardianConfirm.replace("{name}", o.name || t.addlResident)}</span>
+                                  </label>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
                     ))}
-                    <button onClick={() => setOccupants((prev) => [...prev, { name: "", age: "", email: "", isAdult: "", dob: "", ssn: "", phone: "" }])} style={{ fontSize: 13, fontWeight: 600, color: "#f26a1b", background: "none", border: "1.5px dashed #f26a1b", borderRadius: 3, padding: "9px 18px", cursor: "pointer", width: "100%", marginTop: 4 }}>
+                    <button onClick={() => setOccupants((prev) => [...prev, { name: "", age: "", email: "", isAdult: "", dob: "", ssn: "", phone: "", canSignSelf: "", guardianName: "", guardianRelationship: "", guardianConfirmed: false }])} style={{ fontSize: 13, fontWeight: 600, color: "#f26a1b", background: "none", border: "1.5px dashed #f26a1b", borderRadius: 3, padding: "9px 18px", cursor: "pointer", width: "100%", marginTop: 4 }}>
                       {t.addOccupant}
                     </button>
                   </div>
@@ -2231,6 +2329,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
               {adultOccupants.map((o, i) => {
                 const govKey = `occGovId_${i}`;
                 const incKey = `occProofIncome_${i}`;
+                const guardianKey = `occGuardianDoc_${i}`;
                 return (
                   <div key={`occ-${i}`} style={{ marginBottom: 18 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#0d0d0d", marginBottom: 8, fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -2238,6 +2337,9 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                     </div>
                     <UploadBox label={`${t.govId} — ${o.name || t.addlResident}`} t={t} uploaded={docs[govKey]} uploading={!!uploading[govKey]} onUpload={(f) => uploadDoc(f, govKey)} />
                     <UploadBox label={`${t.proofIncome} — ${o.name || t.addlResident}`} t={t} uploaded={docs[incKey]} uploading={!!uploading[incKey]} onUpload={(f) => uploadDoc(f, incKey)} />
+                    {o.canSignSelf === "no" && (
+                      <UploadBox label={`${t.guardianDocLabel} — ${o.name || t.addlResident}`} t={t} uploaded={docs[guardianKey]} uploading={!!uploading[guardianKey]} onUpload={(f) => uploadDoc(f, guardianKey)} />
+                    )}
                   </div>
                 );
               })}
