@@ -36,11 +36,18 @@ export async function POST(req: NextRequest) {
     } else if (applicationType === "additionalResident") {
       lineItems = [{ price: process.env.STRIPE_PRICE_ADDITIONAL!, quantity: 1 }];
     } else if (applicationType === "couple") {
-      if (amount === 150) {
-        lineItems = [{ price: process.env.STRIPE_PRICE_COUPLE!, quantity: 1 }];
-      } else {
-        lineItems = [{ price: process.env.STRIPE_PRICE_INDIVIDUAL!, quantity: 2 }];
-      }
+      // The $150 couple rate requires the marriage certificate actually be on
+      // file -- re-checked here against the row itself rather than trusting
+      // the client-supplied `amount`, since components/ApplicationForm.tsx
+      // already writes docs_marriage_cert_url before calling this endpoint.
+      // Without it (client bug, stale UI, or a tampered request), this is two
+      // ordinary $150 individual applications, not a discounted "couple, no
+      // cert" product.
+      const { data: app } = await supabaseAdmin.from("applications")
+        .select("docs_marriage_cert_url").eq("id", applicationId).maybeSingle();
+      lineItems = app?.docs_marriage_cert_url
+        ? [{ price: process.env.STRIPE_PRICE_COUPLE!, quantity: 1 }]
+        : [{ price: process.env.STRIPE_PRICE_INDIVIDUAL!, quantity: 2 }];
     } else if (applicationType === "commercial") {
       const numPrincipals = Math.round(amount / 150);
       lineItems = [{ price: process.env.STRIPE_PRICE_COMMERCIAL!, quantity: numPrincipals }];
