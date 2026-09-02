@@ -92,6 +92,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
       name: me.name, role: me.role, roleLabel: roleLabel(me.role), signs: me.signs,
       isPrimary: me.isPrimary, status: me.status, emailVerified: !!me.emailVerifiedAt,
       emailMasked: maskEmail(me.email), signed: !!me.signedAt,
+      checklistAckSignedAt: me.checklistAckSignedAt,
     },
     // The lead always can; so can the owner — they didn't start the
     // application but still need a way to add their own agent (Rule 2).
