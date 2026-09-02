@@ -4,8 +4,10 @@
 -- Dedupe table for the 45-day screening-validity warning cron
 -- (app/api/cron/screening-expiry-warnings/route.ts, docs/ROADMAP.md's
 -- "Screening validity" section). Warns the applicant at 10/5/1 days
--- before their screening's 45-day validity window closes; this table
--- is what stops a daily cron from re-sending a warning already sent.
+-- before their screening's 45-day validity window closes, and once
+-- more (days_before = 0) the moment it actually expires, with the
+-- re-screening payment link. This table is what stops a daily cron
+-- from re-sending a warning (or the expiry notice) already sent.
 --
 -- Keyed on the listing_applications row (not the individual
 -- screening_subjects rows) since the validity clock is computed at the
@@ -18,7 +20,7 @@
 CREATE TABLE IF NOT EXISTS public.screening_expiry_warnings (
   id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   listing_application_id uuid NOT NULL,
-  days_before            int NOT NULL CHECK (days_before IN (10, 5, 1)),
+  days_before            int NOT NULL CHECK (days_before IN (10, 5, 1, 0)),  -- 0 = the expiry notice itself
   sent_at                timestamptz NOT NULL DEFAULT now(),
   created_at             timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT screening_expiry_warnings_uniq UNIQUE (listing_application_id, days_before)

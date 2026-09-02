@@ -4099,10 +4099,19 @@ NOTIFY pgrst, 'reload schema';`,
   {
     key:         'screening_expiry_warnings',
     label:       'screening_expiry_warnings — dedupe table for the 45-day screening-validity warning cron',
-    description: "docs/ROADMAP.md's \"Screening validity\" section (Phase 4): app/api/cron/screening-expiry-warnings/route.ts warns the applicant at 10/5/1 days before their screening's 45-day validity window closes (lib/screening/validity.ts, lib/board-review.ts's screeningValidThrough). Keyed on listing_application_id since the clock is computed at the application level, not per screening_subjects row -- it only starts once every subject on the application has completed.",
+    description: "docs/ROADMAP.md's \"Screening validity\" section (Phase 4): app/api/cron/screening-expiry-warnings/route.ts warns the applicant at 10/5/1 days before their screening's 45-day validity window closes (lib/screening/validity.ts, lib/board-review.ts's screeningValidThrough), and once more (days_before = 0) with the re-screening payment link the moment it actually expires. Keyed on listing_application_id since the clock is computed at the application level, not per screening_subjects row -- it only starts once every subject on the application has completed.",
     filename:    '20260902_screening_expiry_warnings.sql',
     artifact:    { type: 'table', table: 'screening_expiry_warnings' },
     sql: `-- See supabase/migrations/20260902_screening_expiry_warnings.sql for the full table + grants.
+NOTIFY pgrst, 'reload schema';`,
+  },
+  {
+    key:         'rescreening_payments',
+    label:       'rescreening_payments — the $150 re-screening charge, its own table',
+    description: "docs/ROADMAP.md's \"Re-screening charge\" section (Phase 4): when a screening expires before the application is complete, the applicant gets a one-time link to app/rescreen/[token] to pay for a fresh Checkr order (STRIPE_PRICE_RESCREENING, $150, distinct from the original application-fee Price IDs). token is the page's entire auth, same DB-token pattern as lease_renewal_checks.owner_token/tenant_token, not an HMAC.",
+    filename:    '20260902_rescreening_payments.sql',
+    artifact:    { type: 'table', table: 'rescreening_payments' },
+    sql: `-- See supabase/migrations/20260902_rescreening_payments.sql for the full table + grants.
 NOTIFY pgrst, 'reload schema';`,
   },
 ]
