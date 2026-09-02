@@ -519,7 +519,7 @@ function ScreeningPaymentGate({ code, info, lang, onRecheck }: { code: string; i
           Before uploading your documents, complete the background screening payment. This starts your background check right away, running in parallel while you gather the rest of your documents — instead of waiting until everything else is done.
         </p>
         <p style={{ fontSize: 12.5, color: '#92400e', fontWeight: 700, margin: '0 0 12px', lineHeight: 1.5 }}>
-          ⚠ This fee is non-refundable, including if your application is later withdrawn, denied, not completed, or expired.
+          ⚠ THIS FEE IS NON-REFUNDABLE, INCLUDING IF YOUR APPLICATION IS LATER WITHDRAWN, DENIED, NOT COMPLETED, OR EXPIRED.
         </p>
         <a href={payHref} target="_blank" rel="noreferrer"
           style={{ display: 'inline-block', padding: '12px 22px', borderRadius: 9, background: '#f26a1b', color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
