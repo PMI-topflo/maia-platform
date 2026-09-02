@@ -71,6 +71,20 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  // Adult "Additional Occupant" rows (docs/ROADMAP.md's "Roster-based
+  // applicant/occupant pricing") get their own real Checkr order too, same as
+  // any other applicant -- this used to be promised in the UI copy and never
+  // actually done. A minor occupant (isAdult !== 'yes') is never a subject
+  // here, on any app_type, commercial included.
+  const occupantIndexBase = subjects.length
+  ;(app.occupants || []).filter((o: Record<string, unknown>) => o.isAdult === 'yes').forEach((o: Record<string, unknown>, i: number) => {
+    subjects.push({
+      index: occupantIndexBase + i, name: o.name as string,
+      email: o.email as string | undefined, dob: o.dob as string | undefined, ssn: o.ssn as string | undefined,
+      isCommercial: false, isInternational: false,
+    })
+  })
+
   const results = await Promise.allSettled(
     subjects.map(async s => {
       const { orderId, status } = await screening.createOrder(s, property)

@@ -109,10 +109,12 @@ const translations = {
     no: "No",
     marriedCertWillBeRequired: "A marriage certificate will be required in the Documents step.",
     otherOccupants: "Other Occupants",
-    otherOccupantsHint: "List all other people who will reside in the unit. Adults 18+ will receive an invitation to complete their screening.",
+    otherOccupantsHint: "List everyone else who will reside in the unit. Each adult (18+) is screened individually and charged $150; minors are recorded only, never charged or screened.",
     occupantName: "Full Name",
     occupantAge: "Age",
     occupantEmail: "Email (18+ only)",
+    occupantAdultQ: "Is this person 18 or older?",
+    occupantAdultNote: "Adults are individually background-checked and charged $150 — please provide their information below.",
     addOccupant: "+ Add Occupant",
     sendInvite: "Send invitation to co-applicant",
     inviteSentLabel: "Invitation sent ✓",
@@ -224,10 +226,12 @@ const translations = {
     no: "No",
     marriedCertWillBeRequired: "Se requerirá un certificado de matrimonio en el paso de Documentos.",
     otherOccupants: "Otros Ocupantes",
-    otherOccupantsHint: "Liste todas las demás personas que residirán en la unidad. Los adultos de 18+ recibirán una invitación para completar su verificación.",
+    otherOccupantsHint: "Liste a todas las demás personas que residirán en la unidad. Cada adulto (18+) se verifica individualmente y se cobra $150; los menores solo se registran, nunca se cobran ni se verifican.",
     occupantName: "Nombre Completo",
     occupantAge: "Edad",
     occupantEmail: "Correo (solo mayores de 18)",
+    occupantAdultQ: "¿Esta persona tiene 18 años o más?",
+    occupantAdultNote: "Los adultos se someten a una verificación individual de antecedentes y se cobran $150 — proporcione su información a continuación.",
     addOccupant: "+ Agregar Ocupante",
     sendInvite: "Enviar invitación al co-solicitante",
     inviteSentLabel: "Invitación enviada ✓",
@@ -333,10 +337,12 @@ const translations = {
     no: "Não",
     marriedCertWillBeRequired: "Uma certidão de casamento será exigida na etapa de Documentos.",
     otherOccupants: "Outros Ocupantes",
-    otherOccupantsHint: "Liste todas as outras pessoas que residirão na unidade. Adultos de 18+ receberão um convite para concluir sua verificação.",
+    otherOccupantsHint: "Liste todas as outras pessoas que residirão na unidade. Cada adulto (18+) é verificado individualmente e cobrado $150; menores são apenas registrados, nunca cobrados ou verificados.",
     occupantName: "Nome Completo",
     occupantAge: "Idade",
     occupantEmail: "E-mail (somente maiores de 18)",
+    occupantAdultQ: "Esta pessoa tem 18 anos ou mais?",
+    occupantAdultNote: "Adultos passam por verificação de antecedentes individual e são cobrados $150 — forneça as informações abaixo.",
     addOccupant: "+ Adicionar Ocupante",
     sendInvite: "Enviar convite ao co-solicitante",
     inviteSentLabel: "Convite enviado ✓",
@@ -442,10 +448,12 @@ const translations = {
     no: "Non",
     marriedCertWillBeRequired: "Un certificat de mariage sera requis à l'étape Documents.",
     otherOccupants: "Autres Occupants",
-    otherOccupantsHint: "Listez toutes les autres personnes qui résideront dans l'unité. Les adultes de 18+ recevront une invitation à compléter leur vérification.",
+    otherOccupantsHint: "Listez toutes les autres personnes qui résideront dans l'unité. Chaque adulte (18+) est vérifié individuellement et facturé 150 $; les mineurs sont seulement enregistrés, jamais facturés ni vérifiés.",
     occupantName: "Nom Complet",
     occupantAge: "Âge",
     occupantEmail: "E-mail (18+ seulement)",
+    occupantAdultQ: "Cette personne a-t-elle 18 ans ou plus ?",
+    occupantAdultNote: "Les adultes font l'objet d'une vérification des antécédents individuelle et sont facturés 150 $ — veuillez fournir leurs informations ci-dessous.",
     addOccupant: "+ Ajouter un Occupant",
     sendInvite: "Envoyer une invitation au co-demandeur",
     inviteSentLabel: "Invitation envoyée ✓",
@@ -551,10 +559,12 @@ const translations = {
     no: "לא",
     marriedCertWillBeRequired: "תעודת נישואין תידרש בשלב המסמכים.",
     otherOccupants: "דיירים נוספים",
-    otherOccupantsHint: "רשום את כל שאר האנשים שיגורו ביחידה. מבוגרים מעל 18 יקבלו הזמנה להשלים את הבדיקה שלהם.",
+    otherOccupantsHint: "רשום את כל שאר האנשים שיגורו ביחידה. כל מבוגר (18+) נבדק בנפרד ומחויב ב-$150; קטינים נרשמים בלבד, לעולם לא מחויבים או נבדקים.",
     occupantName: "שם מלא",
     occupantAge: "גיל",
     occupantEmail: "אימייל (מעל 18 בלבד)",
+    occupantAdultQ: "האם אדם זה בן 18 ומעלה?",
+    occupantAdultNote: "מבוגרים עוברים בדיקת רקע פרטנית ומחויבים ב-$150 — יש לספק את פרטיהם למטה.",
     addOccupant: "+ הוסף דייר",
     sendInvite: "שלח הזמנה למגיש המשותף",
     inviteSentLabel: "הזמנה נשלחה ✓",
@@ -660,10 +670,12 @@ const translations = {
     no: "Нет",
     marriedCertWillBeRequired: "Свидетельство о браке потребуется на шаге Документы.",
     otherOccupants: "Другие жильцы",
-    otherOccupantsHint: "Перечислите всех других людей, которые будут проживать в квартире. Взрослые 18+ получат приглашение пройти проверку.",
+    otherOccupantsHint: "Перечислите всех остальных людей, которые будут проживать в квартире. Каждый взрослый (18+) проверяется индивидуально и оплачивает $150; несовершеннолетние только фиксируются, но не проверяются и не оплачивают.",
     occupantName: "Полное имя",
     occupantAge: "Возраст",
     occupantEmail: "Электронная почта (только для 18+)",
+    occupantAdultQ: "Этому человеку 18 лет или больше?",
+    occupantAdultNote: "Взрослые проходят индивидуальную проверку данных и оплачивают $150 — укажите их данные ниже.",
     addOccupant: "+ Добавить жильца",
     sendInvite: "Отправить приглашение со-заявителю",
     inviteSentLabel: "Приглашение отправлено ✓",
@@ -769,10 +781,12 @@ const translations = {
     no: "Non",
     marriedCertWillBeRequired: "Y ap mande yon sètifika maryaj nan etap Dokiman yo.",
     otherOccupants: "Lòt Okipan",
-    otherOccupantsHint: "Endike tout lòt moun ki pral abite nan inite a. Granmoun 18 an+ ap resevwa yon envitasyon pou konplete tcheke yo.",
+    otherOccupantsHint: "Endike tout lòt moun ki pral abite nan inite a. Chak granmoun (18+) chèke endividyèlman epi yo peye $150; timoun minè jis anrejistre, yo pa janm peye ni chèke.",
     occupantName: "Non Konplè",
     occupantAge: "Laj",
     occupantEmail: "Imèl (18 an+ sèlman)",
+    occupantAdultQ: "Èske moun sa a gen 18 an oswa plis?",
+    occupantAdultNote: "Granmoun yo pase yon tchèk background endividyèl epi yo peye $150 — tanpri bay enfòmasyon yo anba a.",
     addOccupant: "+ Ajoute Okipan",
     sendInvite: "Voye envitasyon bay ko-aplikan an",
     inviteSentLabel: "Envitasyon voye ✓",
@@ -1051,7 +1065,13 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [langOpen, setLangOpen]       = useState(false);
   const [applicationId, setApplicationId] = useState<string | null>(null);
   const [isMarriedCouple, setIsMarriedCouple] = useState<boolean | null>(null);
-  const [occupants, setOccupants] = useState<{name: string; age: string; email: string}[]>([]);
+  // isAdult is an explicit Yes/No answer, not inferred from age — age can be
+  // left blank, and parseInt('') >= 18 silently reads as false, which would
+  // have quietly under-charged/under-screened an adult occupant whose age
+  // just wasn't typed in yet. dob/ssn only matter once isAdult === 'yes' —
+  // that's what actually lets trigger-screening send them to Checkr.
+  const [occupants, setOccupants] = useState<{name: string; age: string; email: string; isAdult: '' | 'yes' | 'no'; dob: string; ssn: string; phone: string}[]>([]);
+  const adultOccupants = occupants.filter(o => o.isAdult === 'yes');
   const [rulesAgreed, setRulesAgreed] = useState(false);
   const [rulesSignature, setRulesSignature] = useState("");
   const [inviteSent, setInviteSent] = useState(false);
@@ -1130,7 +1150,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
           entity_name?: string | null
           sunbiz_id?: string | null
           principals?: { name: string; dob: string; govIdUrl?: string | null; proofIncomeUrl?: string | null }[] | null
-          occupants?: { name: string; age: string; email: string }[] | null
+          occupants?: { name: string; age: string; email: string; isAdult?: '' | 'yes' | 'no'; dob?: string; ssn?: string; phone?: string }[] | null
           is_married_couple?: boolean | null
           couple_has_cert?: boolean | null
           language?: string | null
@@ -1147,7 +1167,11 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         if (d.entity_name)  setEntityName(d.entity_name);
         if (d.sunbiz_id)    setSunbizId(d.sunbiz_id);
         if (d.principals?.length) setPrincipals(d.principals);
-        if (d.occupants?.length)  setOccupants(d.occupants);
+        // Normalize drafts saved before the roster-pricing fields existed.
+        if (d.occupants?.length) setOccupants(d.occupants.map(o => ({
+          name: o.name, age: o.age, email: o.email,
+          isAdult: o.isAdult ?? '', dob: o.dob ?? '', ssn: o.ssn ?? '', phone: o.phone ?? '',
+        })));
         if (typeof d.is_married_couple === 'boolean') setIsMarriedCouple(d.is_married_couple);
         if (typeof d.couple_has_cert === 'boolean') setCoupleOption(d.couple_has_cert ? 'yes' : 'no');
         if (d.language)     setLang(d.language);
@@ -1325,7 +1349,13 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   };
 
   // ── Pricing ────────────────────────────────────────────────────────────────
-  const calcTotal = () => {
+  // Adult occupants (Additional Occupant role) are priced and screened just
+  // like any other applicant -- $150 each, on top of whatever the base
+  // application type comes to. See docs/ROADMAP.md's "Roster-based
+  // applicant/occupant pricing" section: this closes the gap where an adult
+  // occupant was listed, told they'd be screened, and never actually priced
+  // or sent to Checkr.
+  const calcBaseTotal = () => {
     if (appType === "individual")       return 150;
     if (appType === "couple")           return coupleCertUploaded ? 150 : 300;
     if (appType === "additionalResident") return 150;
@@ -1333,6 +1363,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     if (appType === "international")     return 150;
     return 0;
   };
+  const calcTotal = () => calcBaseTotal() + adultOccupants.length * 150;
   const total = calcTotal();
 
   const updateApplicant = (idx: number, key: string, val: string) =>
@@ -1549,6 +1580,15 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         govIdUrl: docUrls[`govId_${idx}`] ?? null,
         proofIncomeUrl: docUrls[`proofIncome_${idx}`] ?? null,
       }));
+      // Adult occupants get the same per-person doc treatment, keyed by their
+      // position within the adult-only subset -- matching the same
+      // occGovId_${i}/occProofIncome_${i} keys the Documents step uploads to.
+      let adultIdx = -1;
+      const occupantsWithDocs = occupants.map(o => {
+        if (o.isAdult !== "yes") return o;
+        adultIdx += 1;
+        return { ...o, govIdUrl: docUrls[`occGovId_${adultIdx}`] ?? null, proofIncomeUrl: docUrls[`occProofIncome_${adultIdx}`] ?? null };
+      });
       const payload = {
         association,
         app_type:         appType,
@@ -1566,7 +1606,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
         language:         lang,
         stripe_payment_status: "pending",
         is_married_couple: isMarriedCouple,
-        occupants: occupants.length > 0 ? occupants : null,
+        occupants: occupantsWithDocs.length > 0 ? occupantsWithDocs : null,
         rules_agreed_at: rulesSignature.trim() ? new Date().toISOString() : null,
         rules_signature: rulesSignature.trim() || null,
         // Audit-trail field: exact association_documents.id of every
@@ -2128,14 +2168,37 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#0d0d0d", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{t.otherOccupants}</div>
                     <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14, lineHeight: 1.5 }}>{t.otherOccupantsHint}</div>
                     {occupants.map((o, idx) => (
-                      <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 70px 1fr auto", gap: 8, marginBottom: 8, alignItems: "center" }}>
-                        <input type="text" placeholder={t.occupantName} value={o.name} onChange={(e) => updateOccupant(idx, "name", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
-                        <input type="number" placeholder={t.occupantAge} value={o.age} min={0} max={120} onChange={(e) => updateOccupant(idx, "age", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
-                        <input type="email" placeholder={t.occupantEmail} value={o.email} onChange={(e) => updateOccupant(idx, "email", e.target.value)} style={{ ...inp, padding: "8px 10px", opacity: parseInt(o.age) >= 18 ? 1 : 0.35 }} disabled={!!o.age && parseInt(o.age) < 18} />
-                        <button onClick={() => setOccupants((prev) => prev.filter((_, i) => i !== idx))} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 18, padding: "0 4px" }}>✕</button>
+                      <div key={idx} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 4, padding: 12, marginBottom: 10 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 70px auto", gap: 8, alignItems: "center" }}>
+                          <input type="text" placeholder={t.occupantName} value={o.name} onChange={(e) => updateOccupant(idx, "name", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
+                          <input type="number" placeholder={t.occupantAge} value={o.age} min={0} max={120} onChange={(e) => updateOccupant(idx, "age", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
+                          <button onClick={() => setOccupants((prev) => prev.filter((_, i) => i !== idx))} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 18, padding: "0 4px" }}>✕</button>
+                        </div>
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>{t.occupantAdultQ}</div>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            {([{ val: "yes", label: t.yes }, { val: "no", label: t.no }] as const).map(({ val, label }) => (
+                              <button key={val} onClick={() => updateOccupant(idx, "isAdult", val)}
+                                style={{ flex: 1, padding: "8px 14px", background: o.isAdult === val ? "#f26a1b" : "#fff", color: o.isAdult === val ? "#fff" : "#6b7280", border: `1.5px solid ${o.isAdult === val ? "#f26a1b" : "#e5e7eb"}`, borderRadius: 3, fontSize: 13, fontWeight: 600, cursor: "pointer", transition: "all 0.18s" }}>
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {o.isAdult === "yes" && (
+                          <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #eee" }}>
+                            <div style={{ fontSize: 11.5, color: "#b45309", marginBottom: 8, lineHeight: 1.4 }}>{t.occupantAdultNote}</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 12px" }}>
+                              <input type="email" placeholder={t.occupantEmail} value={o.email} onChange={(e) => updateOccupant(idx, "email", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
+                              <input type="tel" placeholder={t.phone} value={o.phone} onChange={(e) => updateOccupant(idx, "phone", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
+                              <input type="date" placeholder={t.dob} value={o.dob} onChange={(e) => updateOccupant(idx, "dob", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
+                              <input type="text" placeholder={t.ssn} value={o.ssn} onChange={(e) => updateOccupant(idx, "ssn", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
-                    <button onClick={() => setOccupants((prev) => [...prev, { name: "", age: "", email: "" }])} style={{ fontSize: 13, fontWeight: 600, color: "#f26a1b", background: "none", border: "1.5px dashed #f26a1b", borderRadius: 3, padding: "9px 18px", cursor: "pointer", width: "100%", marginTop: 4 }}>
+                    <button onClick={() => setOccupants((prev) => [...prev, { name: "", age: "", email: "", isAdult: "", dob: "", ssn: "", phone: "" }])} style={{ fontSize: 13, fontWeight: 600, color: "#f26a1b", background: "none", border: "1.5px dashed #f26a1b", borderRadius: 3, padding: "9px 18px", cursor: "pointer", width: "100%", marginTop: 4 }}>
                       {t.addOccupant}
                     </button>
                   </div>
@@ -2162,6 +2225,19 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                     )}
                     <UploadBox label={`${t.govId}${(isCommercial ? principals.length : applicants.length) > 1 ? ` — ${name}` : ""}`} t={t} uploaded={docs[govKey]} uploading={!!uploading[govKey]} onUpload={(f) => uploadDoc(f, govKey)} />
                     <UploadBox label={`${t.proofIncome}${(isCommercial ? principals.length : applicants.length) > 1 ? ` — ${name}` : ""}`} t={t} uploaded={docs[incKey]} uploading={!!uploading[incKey]} onUpload={(f) => uploadDoc(f, incKey)} />
+                  </div>
+                );
+              })}
+              {adultOccupants.map((o, i) => {
+                const govKey = `occGovId_${i}`;
+                const incKey = `occProofIncome_${i}`;
+                return (
+                  <div key={`occ-${i}`} style={{ marginBottom: 18 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#0d0d0d", marginBottom: 8, fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      {o.name || t.addlResident}
+                    </div>
+                    <UploadBox label={`${t.govId} — ${o.name || t.addlResident}`} t={t} uploaded={docs[govKey]} uploading={!!uploading[govKey]} onUpload={(f) => uploadDoc(f, govKey)} />
+                    <UploadBox label={`${t.proofIncome} — ${o.name || t.addlResident}`} t={t} uploaded={docs[incKey]} uploading={!!uploading[incKey]} onUpload={(f) => uploadDoc(f, incKey)} />
                   </div>
                 );
               })}
@@ -2542,6 +2618,11 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                   {appType === "international" && (
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d" }}>
                       <span>1 × {t.international}</span><span style={{ fontWeight: 600 }}>$150</span>
+                    </div>
+                  )}
+                  {adultOccupants.length > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d", marginTop: appType ? 4 : 0 }}>
+                      <span>{adultOccupants.length} × {t.addlResident}</span><span style={{ fontWeight: 600 }}>${adultOccupants.length * 150}</span>
                     </div>
                   )}
                 </div>

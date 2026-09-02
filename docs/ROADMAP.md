@@ -83,27 +83,51 @@ Two independent clocks:
 
 New fields needed on `lease_renewal_checks`: `escalated_at`, `escalation_notice_sent_at`, `violation_fee_authorized`, `violation_fee_deadline`, `violation_fee_applied_at`, plus whatever tracks the T+30 grace-window outcome (fee waived vs. forced new application).
 
-### Roster-based applicant/occupant pricing — designed 2026-09-02, not yet built
+### Roster-based applicant/occupant pricing — 🟡 shipped 2026-09-02 (narrower than the original design), PR #749
 
-Found while reviewing Phase 1's gate: `components/ApplicationForm.tsx`'s existing "Other Occupants" section (name/age/email per person, already localized in all 7 languages) tells the applicant *"Adults 18+ will receive an invitation to complete their screening"* — but that's not true today. Traced end to end:
+Found while reviewing Phase 1's gate: `components/ApplicationForm.tsx`'s existing "Other Occupants" section (name/age/email per person, already localized in all 7 languages) tells the applicant *"Adults 18+ will receive an invitation to complete their screening"* — but that wasn't true. Traced end to end:
 
-- `calcTotal()` never counts `occupants` — only `applicants` (individual/couple) or `principals` (commercial). An occupant contributes $0 to the price regardless of age.
+- `calcTotal()` never counted `occupants` — only `applicants` (individual/couple) or `principals` (commercial). An occupant contributed $0 to the price regardless of age.
 - The "invitation" (`app/api/apply/invite-coapplicant`) is a plain FYI email with no payment link and no screening step.
-- `app/api/trigger-screening`'s `screening_subjects` are built **only** from `app.applicants`/`app.principals` — `app.occupants` is never read. An adult occupant is never actually sent to Checkr.
+- `app/api/trigger-screening`'s `screening_subjects` were built **only** from `app.applicants`/`app.principals` — `app.occupants` was never read. An adult occupant was never actually sent to Checkr.
 
-So an adult occupant is listed, told they'll be invited to screen, and nothing happens — no charge, no Checkr order, no real screening. Same class of bug as the married-couple pricing fix (PR #748): copy promises something the code doesn't do.
+So an adult occupant was listed, told they'd be invited to screen, and nothing happened — no charge, no Checkr order, no real screening. Same class of bug as the married-couple pricing fix (PR #748): copy promising something the code didn't do.
 
-**Target model** — replace today's split (`applicants[]`, fixed-length by `appType` `individual`/`couple`; `principals[]` for commercial; `occupants[]`, disconnected) with one roster for residential applications (`individual`/`couple`/`additionalResident` collapse into this — `commercial` and `international` keep their own existing models, they have fundamentally different documents/pricing):
+**What actually shipped** — deliberately narrower than the original design below, to avoid the ripple risk of changing `applications.applicants`' shape/cardinality (11 other files read it: staff tables, board review, PDF generation, webhooks, resend-resume-link, send-to-board — none of them audited before this PR, so none of them touched):
 
-- Each row: name, a role picker — **Applicant / Co-Applicant / Additional Occupant** — plus **Minor? Yes/No** (age already collected today; minor = under 18 the same way the existing occupant-email-disabled logic already computes it).
-- **Pricing**: `$150 × count(rows where minor = No)`, regardless of which of the three roles they picked — an adult Additional Occupant is priced and screened exactly like a Co-Applicant, matching the `additional_occupant` application type PR #748 already gates on `/pre-apply`. So yes: 3 non-minor rows = $450, 4 = $600, and so on.
-- **Married-couple exception preserved exactly as already fixed** (PR #748): if exactly 2 non-minor rows are flagged married to each other AND the certificate is actually uploaded, that pair is $150 total instead of $300 — never granted from the "yes" answer alone.
-- **Minors**: recorded (name, age, relationship) for occupancy/compliance records — unit occupant limits, lease occupant lists — but never priced, never sent to Checkr. Not a UI nicety: screening a minor for a background/credit check is the wrong thing to do, not just an unwanted charge.
-- `app/api/trigger-screening`'s subject-building extended to iterate the full roster (not just `applicants`/`principals`), filtered to non-minor rows.
+- `applicants[]` is untouched — still exactly "Applicant" (+ "Co-Applicant" at index 1 for `couple`), same shape, same cardinality, zero ripple to those 11 consumers.
+- `occupants[]` is where "Additional Occupant" now really lives. Each row gets an explicit **"Is this person 18 or older? Yes/No"** toggle — not inferred from the age field, which silently read as "minor" when left blank (`parseInt('') >= 18` is `false`). That was a real risk for this exact feature: an unanswered age would have quietly skipped pricing and screening for an actual adult.
+- Answering "Yes" reveals the same data an applicant provides — email, phone, DOB, SSN, Gov ID, Proof of Income — since Checkr needs it to run a real order, not just a name.
+- **Pricing**: `$150 × count(occupants where isAdult === 'yes')`, added on top of whatever the base application type comes to (`calcTotal()` split into `calcBaseTotal()` + the occupant surcharge). 3 adult occupants really is +$450, 4 is +$600, on top of the base individual/couple/commercial/international price.
+- Re-verified server-side in `create-checkout-session` against `applications.occupants` (never the client-supplied `amount`) — same defense-in-depth as the married-couple fix. The commercial branch's principal count, which used to back-compute `Math.round(amount / 150)`, now subtracts the occupant surcharge back out first, or a commercial application with occupants would have silently bought extra "principal" line items instead of occupant ones.
+- `app/api/trigger-screening` now also builds a `screening_subjects` row for every adult occupant — a real Checkr order, not just a listing.
+- **Minors**: recorded (name, age) for record purposes, never priced, never sent to Checkr, regardless of what's answered.
 
-**Where it lives**: inside `/apply` (where roster, pricing, Checkr subjects, and Stripe payment are already assembled today — per the "reuse, don't rebuild" call already made for the married-couple flow), not a parallel roster UI on `/pre-apply`. The gate on `/pre-apply` stays as-is: it defers roster/pricing detail to `/apply`, same as it already defers the married-couple question there.
+**Not shipped — real scope-narrowing from the original design, not an oversight**: no combined role picker (Applicant / Co-Applicant / Additional Occupant as one dropdown) — the distinction is still which list a person is in (`applicants[]` vs `occupants[]`), not a field on a unified roster. And the married-couple $150-total exception was **not** extended to occupant pairs — it still only applies to the original 2-person `applicants[]` couple case. Two adult occupants who are married to each other are each charged $150 individually; no discount. Revisit if that comes up in practice.
 
-**Loose end this would close**: PR #748's gate currently gates every `role='applicant'` stakeholder on `/pre-apply` because it has no way to tell a minor apart from an adult. In practice a household is unlikely to add a minor as their own `/pre-apply` collaborator (that flow is for people filling in their own part), so this is a low-priority follow-up, not a blocker — worth a look once the roster's minor flag exists, not before.
+**Where it lives**: inside `/apply` (where pricing, Checkr subjects, and Stripe payment are already assembled — per the "reuse, don't rebuild" call already made for the married-couple flow), not a parallel roster UI on `/pre-apply`. The gate on `/pre-apply` is unchanged: it still defers this detail to `/apply`, same as it already defers the married-couple question there.
+
+**Loose end this doesn't close**: PR #748's gate still gates every `role='applicant'` stakeholder on `/pre-apply` with no way to tell a minor apart from an adult — this phase added a minor flag to `/apply`'s occupants, not to `/pre-apply`'s stakeholders, which is a different data model. Still a low-priority follow-up, not a blocker.
+
+### Power of attorney / legal guardian signing — designed 2026-09-02, not yet built
+
+Real case: MANXI Unit 706, Timothy Dean Walker, an elderly additional resident who cannot sign or consent for himself. The question that surfaced this — whether the applicant can just sign on his behalf, or reuse his email so a family member completes his step under his name — is only partly a UX question. The rest is legal: whether someone else can bind him to a background/credit/eviction-check authorization and a lease Rules & Regulations acknowledgment at all depends on whether they actually hold legal authority to act for him, which is a question for PMI's counsel and the association's governing documents, not something to assume.
+
+**Why reusing the occupant's email is specifically the wrong move, not just an inelegant one**: this app already fingerprints who signs — `rules_applicant_photo`, `geolocation`, and the drawn `rulesSignature` in `components/ApplicationForm.tsx` all exist to prove who was physically present when the Rules & Regulations acknowledgment happened, and `/pre-apply`'s per-stakeholder flow adds an email-OTP step before that person's own SignaturePad unlocks. Letting someone else complete Timothy's step under his email doesn't skip a formality — it fabricates the record: it says Timothy's photo, Timothy's location, Timothy's signature, when it wasn't him. That's worse than no signature on file, because now false evidence exists if it's ever challenged.
+
+**Target design** — an honest "signing on behalf of" path, decided 2026-09-02: the **primary applicant** is the one who identifies this, since Timothy can't do either step himself:
+
+- On each adult occupant row (the roster from the section above), a new question: **"Can this person sign and consent for themselves? Yes/No."**
+- If "No": capture **who** is actually signing on their behalf (defaults to the primary applicant's own name, editable — it doesn't have to be them), **their relationship / legal authority** to that person (free text — "Legal Guardian," "Power of Attorney," "Health Care Surrogate," or whatever actually applies; deliberately not a fixed dropdown, since the real range of valid authority isn't enumerable in the UI), and **required document upload** — the actual guardianship or POA paperwork, same upload-gates-the-claim pattern already used for the marriage certificate (PR #748) and Sunbiz registration.
+- A distinct, explicit attestation — not folded into the general "I agree to the terms above" consent — naming the represented person: *"I confirm I am legally authorized to sign and consent to a background, credit, and eviction check on behalf of {name}."* Checked separately from the general consent, and blocks continuing to Payment until it's checked AND the document is uploaded (a real blocking validation — unlike most of this form's fields today, which are marked required but not actually enforced in `handleNext`; this one is deliberately stricter given the stakes).
+- The photo/geolocation/signature capture at the Rules step is untouched — it now honestly proves who signed and, combined with the guardian attestation + document, who they signed for and under what claimed authority. Nothing here removes evidence; it adds the missing piece instead of hiding behind someone else's identity.
+- Checkr screening for that occupant proceeds exactly as normal once payment completes — the guardian's consent stands in for the occupant's own, the same way a parent's consent already stands in for other legally-dependent screening contexts. No change needed to `trigger-screening` itself.
+
+**Where it lives**: the same adult-occupant roster on `/apply` this builds on top of (PR #749) — new fields per occupant (`canSignSelf`, `guardianName`, `guardianRelationship`, `guardianConfirmed`) plus a `guardianDocUrl` upload alongside the existing Gov ID / Proof of Income uploads for that person.
+
+**Deliberately out of scope for this phase**: extending this to co-applicants (`applicants[]`, the `couple` case) or to `/pre-apply`'s per-stakeholder signing flow. The real case is an additional occupant; both of those are natural follow-ups if the same need comes up there, not built speculatively now.
+
+**Open question for PMI, not a product decision**: whether an informal "family member assisting, no POA/guardianship paperwork" case should be allowed at all, or whether the document upload should be a hard requirement with no exception. This phase assumes the latter (required, no informal path) since that's the only version that doesn't ask MAIA to make a legal judgment call it isn't positioned to make — confirm with counsel before loosening it.
 
 ### Phasing
 
@@ -112,7 +136,8 @@ So an adult occupant is listed, told they'll be invited to screen, and nothing h
 3. Board visibility filter (step 7).
 4. Screening validity display + 10/5/1-day warning cron + 45-day expiration + $150 re-screening payment.
 5. Lease non-renewal escalation (independent of 1–4, can ship anytime).
-6. Roster-based applicant/occupant pricing (independent of 1–5, can ship anytime) — replaces `/apply`'s disconnected occupants list with the Applicant/Co-Applicant/Additional Occupant + minor Yes/No roster above, so every non-minor resident is actually priced ($150 each) and actually screened, not just listed.
+6. Roster-based applicant/occupant pricing — 🟡 **shipped 2026-09-02** (independent of 1–5). `/apply`'s occupants list now actually prices ($150/adult) and actually screens every adult occupant instead of just listing them, gated by an explicit minor Yes/No per row. Narrower than originally designed — see the section above for what didn't ship (a unified role-picker roster, married-pair discount among occupants).
+7. Power of attorney / legal guardian signing — 🔴 designed 2026-09-02, not yet built (independent of 1–6, builds on top of Phase 6's occupant roster). Real case: Unit 706, an elderly additional resident who can't sign or consent for himself. See the section above for the full design and the explicit "never fake it by reusing their email" call.
 
 ---
 
