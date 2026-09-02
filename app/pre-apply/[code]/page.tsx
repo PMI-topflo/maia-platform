@@ -531,8 +531,11 @@ function ScreeningPaymentGate({ code, info, lang, onRecheck }: { code: string; i
         <p style={{ fontSize: 12.5, color: '#92400e', fontWeight: 700, margin: '0 0 10px', lineHeight: 1.5 }}>
           ⚠ YOU MUST COMPLETE YOUR APPLICATION WITHIN 45 DAYS OF YOUR SCREENING BEING COMPLETED, OR IT WILL BE CONSIDERED EXPIRED.
         </p>
-        <p style={{ fontSize: 12.5, color: '#92400e', fontWeight: 700, margin: '0 0 12px', lineHeight: 1.5 }}>
+        <p style={{ fontSize: 12.5, color: '#92400e', fontWeight: 700, margin: '0 0 10px', lineHeight: 1.5 }}>
           ⚠ THIS FEE IS NON-REFUNDABLE, INCLUDING IF YOUR APPLICATION IS LATER WITHDRAWN, DENIED, NOT COMPLETED, OR EXPIRED.
+        </p>
+        <p style={{ fontSize: 12.5, color: '#92400e', fontWeight: 700, margin: '0 0 12px', lineHeight: 1.5 }}>
+          ⚠ ANY ADDITIONAL APPLICANT ADDED TO THIS APPLICATION LATER PAYS THEIR OWN APPLICATION FEE SEPARATELY, EVEN IF MARRIED TO AN APPLICANT ALREADY ON FILE.
         </p>
         <a href={payHref} target="_blank" rel="noreferrer"
           style={{ display: 'inline-block', padding: '12px 22px', borderRadius: 9, background: '#f26a1b', color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
