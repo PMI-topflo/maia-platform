@@ -357,16 +357,26 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
   const gatesPending = answersGates && info.pendingDeclarations.length > 0
   const canSubmit = myRequiredDone && !gatesPending && (!info.me.signs || (agreed && !!rulesName.trim()))
 
-  // The primary applicant on a lease/purchase pays for + consents to the
-  // Checkr background screening before uploading documents (Checkr-first
-  // pipeline redesign, docs/ROADMAP.md). Reuses the already-built /apply
-  // wizard + Stripe checkout via the same ?listingApp= hand-off
-  // app/apply/applicant and app/apply/agent already use; clears once
-  // app/api/apply/link-listing bridges detailed_application_id back.
-  // Co-applicants, owners, and agents were never the ones being screened or
-  // paying, so they are never gated.
-  const screeningGateActive = info.me.role === 'applicant' && info.me.isPrimary
-    && (info.type === 'lease' || info.type === 'purchase') && !info.detailedApplicationId
+  // Every applicant (the lead AND co-applicants — a co-applicant gets their
+  // own Checkr background check too, not just the lead) pays for + consents
+  // to screening before uploading documents (Checkr-first pipeline redesign,
+  // docs/ROADMAP.md). Also applies to additional_occupant: an adult being
+  // added to an existing lease still needs their own screening, not just the
+  // carried-over lease/CoU/etc. documents (lib/preapply.ts's
+  // carryOverApprovedDocs). This flow has no age field on a stakeholder, so
+  // a minor co-applicant/occupant can't be told apart from an adult here —
+  // gating everyone with role='applicant' is the safe default until that's
+  // collected; staff can waive it by hand in the meantime.
+  // Reuses the already-built /apply wizard + Stripe checkout via the same
+  // ?listingApp= hand-off app/apply/applicant and app/apply/agent already
+  // use. detailedApplicationId lives on the shared listing_applications row,
+  // not per-stakeholder, so whichever applicant in the group pays first (the
+  // /apply wizard's own roster already prices multiple co-applicants in one
+  // checkout) clears the gate for everyone else in the group too.
+  // Owners and agents are never screened, so they're never gated.
+  const screeningGateActive = info.me.role === 'applicant'
+    && (info.type === 'lease' || info.type === 'purchase' || info.type === 'additional_occupant')
+    && !info.detailedApplicationId
 
   // A stale 'completed' stakeholder status from that same link-listing
   // hand-off (shared with app/apply/applicant + app/apply/agent, where
