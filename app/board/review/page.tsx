@@ -49,7 +49,7 @@ interface BoardMember {
 interface Documents { govId: string | null; proofIncome: string | null; marriageCert: string | null; lease: string | null }
 interface AckDoc { id: string; filename: string | null; category: string | null; effective_date: string | null }
 interface Stakeholder { role: string; name: string | null; email: string | null; phone: string | null }
-interface ScreeningSubjectSummary { name: string | null; status: string | null; report_url: string | null }
+interface ScreeningSubjectSummary { name: string | null; status: string | null; report_url: string | null; valid_through: string | null; expired: boolean }
 
 type LoadState = 'loading' | 'invalid' | 'decided' | 'ready';
 
@@ -394,10 +394,15 @@ export default function BoardReviewPage() {
                           ? <DocumentPreviewTrigger label="Proof of Income ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(proofIncome)}`} downloadUrl={proofIncome} style={{ color: '#f26a1b', fontWeight: 700 }} />
                           : <span style={{ color: '#9ca3af' }}>Proof of Income — not provided</span>}
                       </div>
-                      <div style={{ marginTop: '0.4rem', fontSize: '0.8rem' }}>
+                      <div style={{ marginTop: '0.4rem', fontSize: '0.8rem', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                         {subject?.report_url
                           ? <DocumentPreviewTrigger label="View background check report ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(subject.report_url)}`} downloadUrl={subject.report_url} style={{ color: '#f26a1b', fontWeight: 700 }} />
                           : <span style={{ color: '#92400e' }}>Background check — {subject?.status ?? 'pending'}</span>}
+                        {subject?.status === 'complete' && subject.valid_through && (
+                          subject.expired
+                            ? <span style={{ font: '700 10px system-ui', color: '#fff', background: '#b91c1c', borderRadius: 5, padding: '2px 7px' }}>🚨 SCREENING EXPIRED {new Date(subject.valid_through).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                            : <span style={{ color: '#6b7280', fontSize: '0.75rem' }}>Valid through {new Date(subject.valid_through).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                        )}
                       </div>
                     </div>
                   );

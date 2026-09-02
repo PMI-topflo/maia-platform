@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { verifySession, SESSION_COOKIE } from '@/lib/session';
+import { screeningValidThrough, isScreeningExpired } from '@/lib/screening/validity';
 
 interface Applicant {
   firstName?: string;
@@ -72,10 +73,16 @@ async function assembleBoardPackage(application: Record<string, unknown>, applic
   //    applicants/principals array order.
   const { data: subjectRows } = await supabaseAdmin
     .from('screening_subjects')
-    .select('subject_index, name, status, report_url')
+    .select('subject_index, name, status, report_url, completed_at')
     .eq('application_id', applicationId)
     .order('subject_index', { ascending: true });
-  const subjects = (subjectRows ?? []).map(s => ({ name: s.name as string | null, status: s.status as string | null, report_url: s.report_url as string | null }));
+  const subjects = (subjectRows ?? []).map(s => {
+    const completedAt = s.completed_at as string | null
+    return {
+      name: s.name as string | null, status: s.status as string | null, report_url: s.report_url as string | null,
+      valid_through: screeningValidThrough(completedAt)?.toISOString() ?? null, expired: isScreeningExpired(completedAt),
+    }
+  });
 
   return { documents, acknowledgedDocs, stakeholders, subjects };
 }
