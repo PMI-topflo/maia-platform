@@ -1064,6 +1064,15 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
 
   const isCouple     = appType === "couple";
   const hasCert      = coupleOption === "yes";
+  // hasCert is just the toggle (also controls whether the upload box below
+  // even shows), not proof of anything -- pricing must never trust it alone.
+  // The $150 couple rate requires the certificate to actually be uploaded;
+  // without it (whether they said "no" or said "yes" and never uploaded)
+  // it's two ordinary $150 individual applications, not a $300 "couple, no
+  // cert" product. Server-side, app/api/create-checkout-session/route.ts
+  // independently re-checks the uploaded file before honoring this price --
+  // never trust this client computation alone for what Stripe actually charges.
+  const coupleCertUploaded = hasCert && !!docs.marriageCert;
   const isCommercial = appType === "commercial";
   const isInternational = appType === "international";
 
@@ -1318,7 +1327,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   // ── Pricing ────────────────────────────────────────────────────────────────
   const calcTotal = () => {
     if (appType === "individual")       return 150;
-    if (appType === "couple")           return hasCert ? 150 : 300;
+    if (appType === "couple")           return coupleCertUploaded ? 150 : 300;
     if (appType === "additionalResident") return 150;
     if (appType === "commercial")       return principals.length * 150;
     if (appType === "international")     return 150;
@@ -1543,7 +1552,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
       const payload = {
         association,
         app_type:         appType,
-        couple_has_cert:  isCouple ? hasCert : null,
+        couple_has_cert:  isCouple ? coupleCertUploaded : null,
         applicants:       isCommercial ? null : applicantsWithDocs,
         principals:       isCommercial ? principalsWithDocs : null,
         entity_name:      isCommercial && !commercialAsPerson ? entityName : null,
@@ -2516,8 +2525,8 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                   )}
                   {appType === "couple" && (
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d" }}>
-                      <span>{hasCert ? t.coupleRate : "2 × Individual"}</span>
-                      <span style={{ fontWeight: 600 }}>{hasCert ? "$150" : "$300"}</span>
+                      <span>{coupleCertUploaded ? t.coupleRate : "2 × Individual"}</span>
+                      <span style={{ fontWeight: 600 }}>{coupleCertUploaded ? "$150" : "$300"}</span>
                     </div>
                   )}
                   {appType === "additionalResident" && (

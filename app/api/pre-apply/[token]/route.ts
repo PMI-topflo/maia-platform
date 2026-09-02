@@ -82,6 +82,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     associationName: (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || intake.associationCode,
     type: intake.type,
     unitLabel: intake.unitLabel,
+    // Needed client-side only to build the /apply?listingApp= hand-off URL for
+    // the screening-payment gate; detailedApplicationId is non-null once the
+    // primary applicant has paid + consented via that hand-off.
+    applicationId: intake.applicationId,
+    detailedApplicationId: intake.detailedApplicationId,
     // The current stakeholder holding this token
     me: {
       name: me.name, role: me.role, roleLabel: roleLabel(me.role), signs: me.signs,

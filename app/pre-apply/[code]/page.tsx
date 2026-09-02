@@ -79,6 +79,7 @@ interface AnimalGuidance { heading: string; intro: string; mayRequest: string[];
 interface Collaborator { id: string; name: string | null; email: string | null; role: string; roleLabel: string; isPrimary: boolean; status: string; signs: boolean; signed: boolean; emailVerified: boolean }
 interface Info {
   associationName: string; type: string; unitLabel: string | null
+  applicationId: string; detailedApplicationId: string | null
   me: { name: string | null; role: string; roleLabel: string; signs: boolean; isPrimary: boolean; status: string; emailVerified: boolean; emailMasked: string | null; signed: boolean }
   canAddCollaborators: boolean; submitted: boolean
   checklist: ChecklistItem[]; rules: { rule_key: string; label: string }[]; collaborators: Collaborator[]
@@ -345,18 +346,6 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
   if (err && !info) return <div style={wrap}><h2>⚠ {err}</h2></div>
   if (!info) return <div style={wrap}><p>{f.uploadingBtn === 'Uploading…' ? 'Loading…' : '…'}</p></div>
 
-  const alreadyDone = done || info.me.status === 'completed'
-  if (alreadyDone) {
-    const appSubmitted = done?.appSubmitted ?? info.submitted
-    return (
-      <div style={wrap}>
-        <h1 style={{ color: '#f26a1b' }}>✅ {appSubmitted ? f.doneSubmittedH : f.doneH}</h1>
-        <p>{appSubmitted ? f.doneSubmittedP : f.doneP}</p>
-        <p style={{ color: '#6b7280', fontSize: 13, marginTop: 18 }}>{f.questions}</p>
-      </div>
-    )
-  }
-
   const myDocs = info.checklist.filter(d => d.mine)
   const otherDocs = info.checklist.filter(d => !d.mine)
   const myRequiredDone = myDocs.every(d => !d.required || d.uploaded)
@@ -367,6 +356,44 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
   const answersGates = info.me.role === 'applicant' || info.me.isPrimary
   const gatesPending = answersGates && info.pendingDeclarations.length > 0
   const canSubmit = myRequiredDone && !gatesPending && (!info.me.signs || (agreed && !!rulesName.trim()))
+
+  // Every applicant (the lead AND co-applicants — a co-applicant gets their
+  // own Checkr background check too, not just the lead) pays for + consents
+  // to screening before uploading documents (Checkr-first pipeline redesign,
+  // docs/ROADMAP.md). Also applies to additional_occupant: an adult being
+  // added to an existing lease still needs their own screening, not just the
+  // carried-over lease/CoU/etc. documents (lib/preapply.ts's
+  // carryOverApprovedDocs). This flow has no age field on a stakeholder, so
+  // a minor co-applicant/occupant can't be told apart from an adult here —
+  // gating everyone with role='applicant' is the safe default until that's
+  // collected; staff can waive it by hand in the meantime.
+  // Reuses the already-built /apply wizard + Stripe checkout via the same
+  // ?listingApp= hand-off app/apply/applicant and app/apply/agent already
+  // use. detailedApplicationId lives on the shared listing_applications row,
+  // not per-stakeholder, so whichever applicant in the group pays first (the
+  // /apply wizard's own roster already prices multiple co-applicants in one
+  // checkout) clears the gate for everyone else in the group too.
+  // Owners and agents are never screened, so they're never gated.
+  const screeningGateActive = info.me.role === 'applicant'
+    && (info.type === 'lease' || info.type === 'purchase' || info.type === 'additional_occupant')
+    && !info.detailedApplicationId
+
+  // A stale 'completed' stakeholder status from that same link-listing
+  // hand-off (shared with app/apply/applicant + app/apply/agent, where
+  // paying IS the whole application) would otherwise show the applicant
+  // "you're all done" before they've uploaded their own checklist items —
+  // require the checklist to actually be done too.
+  const alreadyDone = done || (info.me.status === 'completed' && myRequiredDone)
+  if (alreadyDone) {
+    const appSubmitted = done?.appSubmitted ?? info.submitted
+    return (
+      <div style={wrap}>
+        <h1 style={{ color: '#f26a1b' }}>✅ {appSubmitted ? f.doneSubmittedH : f.doneH}</h1>
+        <p>{appSubmitted ? f.doneSubmittedP : f.doneP}</p>
+        <p style={{ color: '#6b7280', fontSize: 13, marginTop: 18 }}>{f.questions}</p>
+      </div>
+    )
+  }
 
   // Verify email first (per person).
   if (!info.me.emailVerified) return (
@@ -390,21 +417,27 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
         <DeclarationCard token={token} info={info} onDone={load} />
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
-        {myDocs.length === 0
-          ? <p style={{ fontSize: 13, color: '#6b7280' }}>{f.noDocsForYou}</p>
-          : myDocs.map(d => d.esignUrl
-              ? <EsignBox key={d.id} item={d} />
-              : <DocBox key={d.id} token={token} item={d} lang={lang} onDone={load} />)}
-      </div>
-
-      {otherDocs.length > 0 && (
+      {screeningGateActive ? (
+        <ScreeningPaymentGate code={code} info={info} lang={lang} onRecheck={load} />
+      ) : (
         <>
-          <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '20px 0 4px' }}>{f.otherDocsH}</h2>
-          <p style={{ fontSize: 12.5, color: '#6b7280', marginTop: 0 }}>{f.otherDocsP}</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {otherDocs.map(d => <DocBox key={d.id} token={token} item={d} lang={lang} onDone={load} />)}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+            {myDocs.length === 0
+              ? <p style={{ fontSize: 13, color: '#6b7280' }}>{f.noDocsForYou}</p>
+              : myDocs.map(d => d.esignUrl
+                  ? <EsignBox key={d.id} item={d} />
+                  : <DocBox key={d.id} token={token} item={d} lang={lang} onDone={load} />)}
           </div>
+
+          {otherDocs.length > 0 && (
+            <>
+              <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '20px 0 4px' }}>{f.otherDocsH}</h2>
+              <p style={{ fontSize: 12.5, color: '#6b7280', marginTop: 0 }}>{f.otherDocsP}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {otherDocs.map(d => <DocBox key={d.id} token={token} item={d} lang={lang} onDone={load} />)}
+              </div>
+            </>
+          )}
         </>
       )}
 
@@ -427,41 +460,92 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
         </div>
       )}
 
-      {/* Rules — signed only by tenants/buyers and owners. The acknowledgment
-          text is ALWAYS in English (it's the binding attestation). */}
-      {info.me.signs ? (
-        <div dir="ltr" style={{ textAlign: 'left' }}>
-          <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '22px 0 4px' }}>{fEn.rulesH}</h2>
-          {lang !== 'en' && <p style={{ fontSize: 11.5, color: '#9aa0ab', margin: '0 0 6px', fontStyle: 'italic' }}>{f.rulesH} — shown in English for signing.</p>}
-          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, padding: '10px 12px', margin: '8px 0 10px' }}>
-            {lang !== 'en' && <p dir={isRtl(lang) ? 'rtl' : 'ltr'} style={{ fontSize: 12.5, color: '#92400e', margin: '0 0 6px', lineHeight: 1.5, textAlign: isRtl(lang) ? 'right' : 'left' }}>⚠ {f.signDisclaimer}</p>}
-            <p style={{ fontSize: 12.5, color: '#92400e', margin: 0, lineHeight: 1.5 }}>⚠ {fEn.signDisclaimer}</p>
-          </div>
-          {info.rules.length > 0 ? (
-            <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 13.5, color: '#374151', lineHeight: 1.6 }}>
-              {info.rules.map(r => <li key={r.rule_key}>{r.label}</li>)}
-            </ul>
-          ) : <p style={{ fontSize: 13, color: '#6b7280' }}>{fEn.rulesFallback}</p>}
+      {!screeningGateActive && (
+        <>
+          {/* Rules — signed only by tenants/buyers and owners. The acknowledgment
+              text is ALWAYS in English (it's the binding attestation). */}
+          {info.me.signs ? (
+            <div dir="ltr" style={{ textAlign: 'left' }}>
+              <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '22px 0 4px' }}>{fEn.rulesH}</h2>
+              {lang !== 'en' && <p style={{ fontSize: 11.5, color: '#9aa0ab', margin: '0 0 6px', fontStyle: 'italic' }}>{f.rulesH} — shown in English for signing.</p>}
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 9, padding: '10px 12px', margin: '8px 0 10px' }}>
+                {lang !== 'en' && <p dir={isRtl(lang) ? 'rtl' : 'ltr'} style={{ fontSize: 12.5, color: '#92400e', margin: '0 0 6px', lineHeight: 1.5, textAlign: isRtl(lang) ? 'right' : 'left' }}>⚠ {f.signDisclaimer}</p>}
+                <p style={{ fontSize: 12.5, color: '#92400e', margin: 0, lineHeight: 1.5 }}>⚠ {fEn.signDisclaimer}</p>
+              </div>
+              {info.rules.length > 0 ? (
+                <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 13.5, color: '#374151', lineHeight: 1.6 }}>
+                  {info.rules.map(r => <li key={r.rule_key}>{r.label}</li>)}
+                </ul>
+              ) : <p style={{ fontSize: 13, color: '#6b7280' }}>{fEn.rulesFallback}</p>}
 
-          <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 14, fontSize: 13.5, color: '#374151', lineHeight: 1.5 }}>
-            <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} style={{ marginTop: 3 }} />
-            <span>{fEn.agreeLine}</span>
-          </label>
-          <label style={label}>{fEn.signNameL}<input style={field} value={rulesName} onChange={e => setRulesName(e.target.value)} /></label>
-          <div style={{ marginTop: 12 }}>
-            <label style={{ ...label, marginTop: 0 }}>{fEn.drawSig}</label>
-            <SignaturePad onChange={img => setSig(img ?? '')} />
-          </div>
-        </div>
-      ) : (
-        <p style={{ marginTop: 22, fontSize: 13, color: '#0f7a4d', background: '#f0fdf6', border: '1px solid #cdeedd', borderRadius: 9, padding: '10px 12px' }}>{f.noSignNote}</p>
+              <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 14, fontSize: 13.5, color: '#374151', lineHeight: 1.5 }}>
+                <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} style={{ marginTop: 3 }} />
+                <span>{fEn.agreeLine}</span>
+              </label>
+              <label style={label}>{fEn.signNameL}<input style={field} value={rulesName} onChange={e => setRulesName(e.target.value)} /></label>
+              <div style={{ marginTop: 12 }}>
+                <label style={{ ...label, marginTop: 0 }}>{fEn.drawSig}</label>
+                <SignaturePad onChange={img => setSig(img ?? '')} />
+              </div>
+            </div>
+          ) : (
+            <p style={{ marginTop: 22, fontSize: 13, color: '#0f7a4d', background: '#f0fdf6', border: '1px solid #cdeedd', borderRadius: 9, padding: '10px 12px' }}>{f.noSignNote}</p>
+          )}
+
+          {gatesPending && <p style={{ color: '#92400e', fontSize: 12.5, marginTop: 12 }}>⚠ Please answer the questions above before submitting.</p>}
+          {!myRequiredDone && <p style={{ color: '#92400e', fontSize: 12.5, marginTop: 12 }}>{f.uploadAllNote}</p>}
+          {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
+          <button onClick={submit} disabled={busy || !canSubmit} style={primary(!busy && canSubmit)}>{busy ? f.submittingBtn : f.submitMyPart}</button>
+        </>
       )}
-
-      {gatesPending && <p style={{ color: '#92400e', fontSize: 12.5, marginTop: 12 }}>⚠ Please answer the questions above before submitting.</p>}
-      {!myRequiredDone && <p style={{ color: '#92400e', fontSize: 12.5, marginTop: 12 }}>{f.uploadAllNote}</p>}
-      {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
-      <button onClick={submit} disabled={busy || !canSubmit} style={primary(!busy && canSubmit)}>{busy ? f.submittingBtn : f.submitMyPart}</button>
       <p style={{ color: '#9ca3af', fontSize: 12, marginTop: 12, textAlign: 'center' }}>PMI Top Florida Properties · {code}</p>
+    </div>
+  )
+}
+
+// Gate shown to the primary lease/purchase applicant instead of the document
+// upload boxes, until they've paid for + consented to the Checkr background
+// screening. Sends them into the existing, already-built /apply wizard via
+// the same ?listingApp= hand-off app/apply/applicant and app/apply/agent
+// already use — opened in a new tab (like EsignBox's signing links) so this
+// pre-apply tab stays put; "Check again" re-loads once app/api/apply/link-listing
+// has bridged detailed_application_id back.
+function ScreeningPaymentGate({ code, info, lang, onRecheck }: { code: string; info: Info; lang: PortalLang; onRecheck: () => void }) {
+  const payHref = `/apply?listingApp=${encodeURIComponent(info.applicationId)}&assoc=${encodeURIComponent(code)}&unit=${encodeURIComponent(info.unitLabel ?? '')}&lang=${encodeURIComponent(lang)}`
+  return (
+    <div style={{ marginTop: 14 }}>
+      {info.checklist.length > 0 && (
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, background: '#fafbfc' }}>
+          <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '0 0 8px' }}>Your document checklist</h2>
+          <p style={{ fontSize: 12.5, color: '#6b7280', margin: '0 0 8px', lineHeight: 1.5 }}>Here is everything you&apos;ll need. You&apos;ll upload it after the step below.</p>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, color: '#374151', lineHeight: 1.7 }}>
+            {info.checklist.map(d => <li key={d.id}>{d.label}{!d.required && ' (optional)'}</li>)}
+          </ul>
+        </div>
+      )}
+      <div style={{ marginTop: 14, border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 12, padding: 16 }}>
+        <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '0 0 6px' }}>Background screening &amp; application fee</h2>
+        <p style={{ fontSize: 13, color: '#92400e', margin: '0 0 10px', lineHeight: 1.55 }}>
+          Before uploading your documents, complete the background screening payment. This starts your background check right away, running in parallel while you gather the rest of your documents.
+        </p>
+        <p style={{ fontSize: 12.5, color: '#92400e', fontWeight: 700, margin: '0 0 10px', lineHeight: 1.5 }}>
+          ⚠ YOU MUST COMPLETE YOUR APPLICATION WITHIN 45 DAYS OF YOUR SCREENING BEING COMPLETED, OR IT WILL BE CONSIDERED EXPIRED.
+        </p>
+        <p style={{ fontSize: 12.5, color: '#92400e', fontWeight: 700, margin: '0 0 10px', lineHeight: 1.5 }}>
+          ⚠ THIS FEE IS NON-REFUNDABLE, INCLUDING IF YOUR APPLICATION IS LATER WITHDRAWN, DENIED, NOT COMPLETED, OR EXPIRED.
+        </p>
+        <p style={{ fontSize: 12.5, color: '#92400e', fontWeight: 700, margin: '0 0 12px', lineHeight: 1.5 }}>
+          ⚠ ANY ADDITIONAL APPLICANT ADDED TO THIS APPLICATION LATER PAYS THEIR OWN APPLICATION FEE SEPARATELY, EVEN IF MARRIED TO AN APPLICANT ALREADY ON FILE.
+        </p>
+        <a href={payHref} target="_blank" rel="noreferrer"
+          style={{ display: 'inline-block', padding: '12px 22px', borderRadius: 9, background: '#f26a1b', color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
+          Continue to payment &amp; background check →
+        </a>
+        <div style={{ marginTop: 10 }}>
+          <button onClick={onRecheck} className="pa-link" style={{ fontSize: 12.5, color: '#6b7280' }}>Already paid? Check again</button>
+        </div>
+        <p style={{ fontSize: 11.5, color: '#9aa0ab', margin: '10px 0 0', lineHeight: 1.5 }}>Opens in a new tab — come back to this page afterward to upload your documents.</p>
+      </div>
     </div>
   )
 }

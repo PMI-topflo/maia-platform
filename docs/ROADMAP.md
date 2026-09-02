@@ -7,6 +7,115 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 
 ---
 
+## 🔴 PLANNED — Checkr-first application pipeline redesign (decided 2026-09-01, not yet implemented)
+
+Full redesign of the applicant-facing flow, driven by two real operational problems: too many open applications for staff to hand-manage one at a time, and Checkr's screening cost currently only gets paid (if at all) at the very END of the process, after staff has already done most of the compliance work. Decided in detail with the user 2026-09-01; nothing below is built yet. This section is the authoritative spec — implement against THIS, not the conversation that produced it.
+
+### The target flow
+
+1. Applicant picks application type → sees the **complete** document checklist for that type before starting anything (reads the existing `association_intake_documents` checklist — same data `/admin/pre-apply` already uses).
+2. Applicant e-signs an acknowledgment covering BOTH (a) the full document list they just saw, and (b) that they have **45 days from screening completion** to finish submitting everything. Same mechanical pattern as the Maintenance Assessment Acknowledgment (`lib/application-esign-forms.ts`).
+3. Applicant pays the screening cost via Stripe.
+4. Checkr order fires on payment confirmation (not on board approval, which is today's — backwards — trigger point).
+5. Board's 30-day decision window opens exactly as it does **today** — once every required document is individually approved (`lib/board-review.ts`'s `syncBoardWindow()`). **No logic change needed here**: because screening now runs FIRST (step 4, before document collection even starts), it is always finished by the time every document is approved, so the existing rule already produces the right result.
+6. Applicant completes remaining documentation (this is what `/admin/pre-apply` already does well).
+7. Board only ever sees complete applications — needs an actual visibility filter on the board queue (today "complete" is computed via `deriveReviewState()` but nothing hides an incomplete application from view).
+
+### Architectural fork this depends on
+
+MAIA currently has TWO separate, never-merged application pipelines:
+- **Legacy self-serve**: `/apply` → `components/ApplicationForm.tsx` → Stripe checkout (`app/api/create-checkout-session`, `app/api/webhooks/stripe`) → the legacy `public.applications` table → `/api/trigger-screening`. This is the ONLY place Stripe payment touches an application today, and it already has the full married-couple / marriage-certificate flow built (see below) — fully localized in English/Spanish/Portuguese/French.
+- **Staff-driven compliance pipeline**: `/admin/pre-apply` → `listing_applications`. The daily-use system today. No payment step at all. Triggers Checkr screening only via `lib/application-handoff.ts`'s `handoffOnApproval()`, i.e. only AFTER a board approves — the opposite of what this redesign needs.
+
+**Decision: unify onto `listing_applications`.** The self-serve flow becomes the front door but writes to the SAME `listing_applications` row shape `/admin/pre-apply` already manages, instead of the legacy `applications` table — reusing checklist tracking, per-document review, and the board-review window rather than maintaining a third system. The `detailed_application_id` bridge (`listing_applications.detailed_application_id`, already used by `handoffOnApproval()` and `app/api/board/review/route.ts` to connect a `listing_applications` row to its `screening_subjects` rows in the legacy `applications` table) gets engaged from the START of the flow instead of retrofitted after approval.
+
+### Married-couple / marriage-certificate flow — ALREADY BUILT, reuse as-is
+
+`components/ApplicationForm.tsx` already has exactly this, fully localized (EN/ES/PT/FR):
+- "Are the above co-applicants a married couple?" toggle, shown right after co-applicants are added.
+- If yes: "A marriage certificate will be required in the Documents step" — flagged immediately.
+- Pricing: couple rate is $150 **total** WITH the certificate uploaded; WITHOUT it, each applicant is charged $150 individually ($300 total). The upload directly gates the price shown at checkout.
+
+Carry this pattern forward unchanged into the unified flow — don't rebuild it.
+
+### Screening validity — 45 days, hardcoded
+
+- `validThrough = screening_subjects.completed_at + 45 days`.
+- Displayed as **"Background Screening Valid Through: MM/DD/YYYY"** everywhere the report already appears (the "Background check (Checkr)" section added to `/admin/pre-apply/[id]` 2026-09-01, and the board's own review page).
+- New cron warns the applicant at **10 / 5 / 1 days** before that date — same shape as `app/api/cron/lease-renewal-alerts/route.ts`; needs its own dedupe table so a daily cron doesn't re-send a warning already sent.
+- **At day 45, if the checklist still isn't complete**: application marked expired/incomplete, staff/board processing blocked. To continue, a fresh Checkr order is required, gated behind the re-screening payment below. If the applicant finishes before day 45, none of this triggers.
+
+### Re-screening charge — $150, deliberately NOT called an "application fee"
+
+User-provided legal framing (Florida condo context, §718.112(2)(k) caps transfer/application fees at $150 and requires governing-document authority to charge them) — implemented exactly as directed, not augmented with independent legal judgment:
+
+- Copy everywhere this charge appears (Stripe checkout line item, confirmation email, the acknowledgment form): *"This is not an association application fee. It reimburses the actual cost of obtaining a new third-party background/credit report and processing it in the system, required because your prior screening expired 45+ days ago without your application being completed."*
+- New `STRIPE_PRICE_RESCREENING` env var, $150, a Stripe Price ID distinct from the original application-fee prices (own line item in Stripe's own records) even though the dollar amount is the same as the standard application fee.
+
+### Lease non-renewal — a NEW, real deadline on top of the existing (currently toothless) reminder cron
+
+`app/api/cron/lease-renewal-alerts/route.ts` today only ever nags at the 30-day and 7-day marks, forever, with zero consequence for staying unresolved — confirmed by reading the code, there is no existing deadline-consequence logic at all. New behavior:
+
+```
+T-30 days          T-7 days         T (lease end)              T+30 days
+   │                  │                    │                        │
+   │ Existing reminder │ Existing reminder  │ Lease has now expired  │ Grace window closes
+   │ (unchanged)       │ (unchanged)        │                        │
+   │                  │                    │                        │
+   └── Escalation notice fires here if      └──────── Grace window ──┘
+       still unsatisfied at T-30                  (owner can still avoid
+       → owner/vacant/occupied questions            a new application fee
+       → 15-day clock starts for the                here)
+         violation-fee decision
+```
+
+Two independent clocks:
+
+1. **15-day violation-fee clock**, starts at the T-30 escalation notice — about the owner going unresponsive, not about the lease itself.
+   - (a) Email the owner: "Did you already renew this lease without telling us? If so, please start the proper renewal process now" — reusing their existing `lease_renewal_checks` check-in link (`lib/lease-renewal-check.ts`), new copy for the "already renewed, just didn't notify us" case.
+   - (b) / (c) Same email asks vacant / owner-occupied — `lease_renewal_checks.owner_occupancy` already has this field (`vacant`/`owner_occupied`/`leased`); the escalation makes sure it's actually asked at this point.
+   - (d) Staff, board, and the on-site manager are notified the deadline passed unresolved, with a real decision to make: apply a violation fee to the owner if they don't respond within 15 days of this notice. New staff screen (list of escalated units, yes/no on pre-authorizing the fee) plus the 15-day timer itself.
+
+2. **30-day-after-expiration grace window**, starts at the actual lease-end date T — about how the paperwork proceeds, decided 2026-09-01 as **Option 2**:
+   - If the owner confirms WITHIN this window that it's the same continuing tenant who never actually left (just late notifying MAIA) → **fee waived**, routes to the lightweight `lease_renewal` application type, no new $150 charge.
+   - If NOTHING is confirmed by T+30 → automatically treated as a brand-new lease application. Full $150 fee, fresh screening, no exception.
+   - **Must be flagged RED** the moment T+30 passes unresolved — reuse the exact `🚨 EXPIRED` red-badge/red-row visual pattern already used for expired documents on `/admin/pre-apply/[id]` (`ChecklistRow`'s `isExpired` styling), shown on the unit's page and on whatever list surfaces these escalated units to staff, so a blown grace window reads exactly as urgently as an expired document does today.
+
+New fields needed on `lease_renewal_checks`: `escalated_at`, `escalation_notice_sent_at`, `violation_fee_authorized`, `violation_fee_deadline`, `violation_fee_applied_at`, plus whatever tracks the T+30 grace-window outcome (fee waived vs. forced new application).
+
+### Roster-based applicant/occupant pricing — designed 2026-09-02, not yet built
+
+Found while reviewing Phase 1's gate: `components/ApplicationForm.tsx`'s existing "Other Occupants" section (name/age/email per person, already localized in all 7 languages) tells the applicant *"Adults 18+ will receive an invitation to complete their screening"* — but that's not true today. Traced end to end:
+
+- `calcTotal()` never counts `occupants` — only `applicants` (individual/couple) or `principals` (commercial). An occupant contributes $0 to the price regardless of age.
+- The "invitation" (`app/api/apply/invite-coapplicant`) is a plain FYI email with no payment link and no screening step.
+- `app/api/trigger-screening`'s `screening_subjects` are built **only** from `app.applicants`/`app.principals` — `app.occupants` is never read. An adult occupant is never actually sent to Checkr.
+
+So an adult occupant is listed, told they'll be invited to screen, and nothing happens — no charge, no Checkr order, no real screening. Same class of bug as the married-couple pricing fix (PR #748): copy promises something the code doesn't do.
+
+**Target model** — replace today's split (`applicants[]`, fixed-length by `appType` `individual`/`couple`; `principals[]` for commercial; `occupants[]`, disconnected) with one roster for residential applications (`individual`/`couple`/`additionalResident` collapse into this — `commercial` and `international` keep their own existing models, they have fundamentally different documents/pricing):
+
+- Each row: name, a role picker — **Applicant / Co-Applicant / Additional Occupant** — plus **Minor? Yes/No** (age already collected today; minor = under 18 the same way the existing occupant-email-disabled logic already computes it).
+- **Pricing**: `$150 × count(rows where minor = No)`, regardless of which of the three roles they picked — an adult Additional Occupant is priced and screened exactly like a Co-Applicant, matching the `additional_occupant` application type PR #748 already gates on `/pre-apply`. So yes: 3 non-minor rows = $450, 4 = $600, and so on.
+- **Married-couple exception preserved exactly as already fixed** (PR #748): if exactly 2 non-minor rows are flagged married to each other AND the certificate is actually uploaded, that pair is $150 total instead of $300 — never granted from the "yes" answer alone.
+- **Minors**: recorded (name, age, relationship) for occupancy/compliance records — unit occupant limits, lease occupant lists — but never priced, never sent to Checkr. Not a UI nicety: screening a minor for a background/credit check is the wrong thing to do, not just an unwanted charge.
+- `app/api/trigger-screening`'s subject-building extended to iterate the full roster (not just `applicants`/`principals`), filtered to non-minor rows.
+
+**Where it lives**: inside `/apply` (where roster, pricing, Checkr subjects, and Stripe payment are already assembled today — per the "reuse, don't rebuild" call already made for the married-couple flow), not a parallel roster UI on `/pre-apply`. The gate on `/pre-apply` stays as-is: it defers roster/pricing detail to `/apply`, same as it already defers the married-couple question there.
+
+**Loose end this would close**: PR #748's gate currently gates every `role='applicant'` stakeholder on `/pre-apply` because it has no way to tell a minor apart from an adult. In practice a household is unlikely to add a minor as their own `/pre-apply` collaborator (that flow is for people filling in their own part), so this is a low-priority follow-up, not a blocker — worth a look once the roster's minor flag exists, not before.
+
+### Phasing
+
+1. **Pipeline unification** — 🟡 **partially shipped 2026-09-02.** Investigation found the backend chain was already built and live on a DIFFERENT front door (`/apply/applicant` + `/apply/agent`, reached via `FinancialsAccessButton`): it already hands off into `/apply?listingApp=<id>`, Stripe checkout already fires `/api/trigger-screening` on `checkout.session.completed` (not board approval — that claim in an earlier draft of this section was wrong, confirmed by reading `app/api/webhooks/stripe/route.ts`), and `app/api/apply/link-listing` already bridges `detailed_application_id` back onto `listing_applications`. The actual gap was that NONE of this was reachable from `/pre-apply/[code]` — the flow staff and applicants actually use daily. Shipped: a `ScreeningPaymentGate` on `app/pre-apply/[code]/page.tsx` — every `role='applicant'` stakeholder (lead AND co-applicants) on a `lease`/`purchase`/`additional_occupant` application now sees the full document checklist (read-only) plus a payment/screening gate instead of upload boxes, until `listing_applications.detailed_application_id` is set; opens the existing `/apply?listingApp=...` wizard in a new tab, "Check again" re-loads once it bridges back. Co-applicants are gated too (not exempt — corrected 2026-09-02: they get their own Checkr check, they just don't have to be the one who pays, since `detailed_application_id` lives on the shared `listing_applications` row and whichever applicant in the group pays first clears it for the rest); owners and agents are never gated (they're never screened). This flow collects no age field on a stakeholder, so a minor can't be told apart from an adult co-applicant/occupant — gating everyone with `role='applicant'` is the conservative default until that's collected. Also fixed a real collision this surfaced: `link-listing` marks every `role='applicant'` stakeholder `'completed'` immediately on payment — correct for the lightweight `/apply/applicant`+`/apply/agent` pattern (paying IS the whole application there) but would have shown the pre-apply applicant "you're all done" before they'd uploaded anything; `DocsStep`'s "already done" check now also requires their own checklist to actually be complete. **Not yet done**: the checklist-preview + 45-day acknowledgment e-sign (that's Phase 2, listed separately below) — the gate currently just lists the checklist inline, no e-signed acknowledgment yet.
+2. Checklist-preview screen + the acknowledgment e-sign (steps 1–2, including the 45-day notice).
+3. Board visibility filter (step 7).
+4. Screening validity display + 10/5/1-day warning cron + 45-day expiration + $150 re-screening payment.
+5. Lease non-renewal escalation (independent of 1–4, can ship anytime).
+6. Roster-based applicant/occupant pricing (independent of 1–5, can ship anytime) — replaces `/apply`'s disconnected occupants list with the Applicant/Co-Applicant/Additional Occupant + minor Yes/No roster above, so every non-minor resident is actually priced ($150 each) and actually screened, not just listed.
+
+---
+
 ## ✅ LIVE — HO-6 / DP-3 unit-owner insurance acceptance (2026-08-31, PR #735)
 
 Real Citizens "Dwelling Fire DP-3 Unit Owners Special Form" policy (MANXI unit 912, Carmen Robinson) correctly flagged that MAIA's insurance validation/copy only ever named "HO-6" — a real risk of falsely rejecting a legitimate equivalent policy, since DP-3 is Citizens' common condo-unit-owner form (frequently the only option in South Florida's high-risk zones) and carries the same essential coverages (Condominium Unit Owners Coverage, personal property, personal liability).

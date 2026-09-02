@@ -455,11 +455,15 @@ export interface IntakeState {
   submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
   docKeys: string[]
+  // Set once the primary applicant has paid + consented to screening via the
+  // /apply wizard hand-off (app/api/apply/link-listing) — the gate on
+  // app/pre-apply/[code]/page.tsx clears once this is non-null.
+  detailedApplicationId: string | null
 }
 
 export async function getIntake(applicationId: string): Promise<IntakeState | null> {
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('id, listing_id, association_code, application_type, applicant_role, unit_label, status, submitted_at')
+    .select('id, listing_id, association_code, application_type, applicant_role, unit_label, status, submitted_at, detailed_application_id')
     .eq('id', applicationId).maybeSingle()
   if (!app) return null
   const [{ data: sh }, { data: docs }] = await Promise.all([
@@ -472,6 +476,7 @@ export async function getIntake(applicationId: string): Promise<IntakeState | nu
     unitLabel: (app.unit_label as string | null) ?? null, status: String(app.status), submittedAt: (app.submitted_at as string | null) ?? null,
     applicant: sh ? { name: sh.name as string | null, email: sh.email as string | null, phone: sh.phone as string | null } : null,
     docKeys: (docs ?? []).map(d => String(d.doc_key)).filter(Boolean),
+    detailedApplicationId: (app.detailed_application_id as string | null) ?? null,
   }
 }
 
