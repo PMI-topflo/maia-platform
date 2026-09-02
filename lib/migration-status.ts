@@ -4096,6 +4096,15 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `-- See supabase/migrations/20260901_backfill_international_tax_returns_declaration.sql for the full backfill.
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'screening_expiry_warnings',
+    label:       'screening_expiry_warnings — dedupe table for the 45-day screening-validity warning cron',
+    description: "docs/ROADMAP.md's \"Screening validity\" section (Phase 4): app/api/cron/screening-expiry-warnings/route.ts warns the applicant at 10/5/1 days before their screening's 45-day validity window closes (lib/screening/validity.ts, lib/board-review.ts's screeningValidThrough). Keyed on listing_application_id since the clock is computed at the application level, not per screening_subjects row -- it only starts once every subject on the application has completed.",
+    filename:    '20260902_screening_expiry_warnings.sql',
+    artifact:    { type: 'table', table: 'screening_expiry_warnings' },
+    sql: `-- See supabase/migrations/20260902_screening_expiry_warnings.sql for the full table + grants.
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
