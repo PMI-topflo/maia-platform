@@ -37,7 +37,7 @@ interface Detail {
   animalGuidance: { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[]; staffNote: string } | null
   assistanceAnimalDenialGrounds: string[]
   assistanceAnimalDecisionDays: number
-  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; per_applicant: boolean; allow_multiple: boolean; uploaded: boolean; condition_key: string | null; template_path: string | null; esign: { status: string; signed: string[]; pending: string[] } | null }[]
+  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; per_applicant: boolean; allow_multiple: boolean; uploaded: boolean; condition_key: string | null; template_path: string | null; esign: { status: string; signed: { name: string; at: string }[]; pending: string[] } | null }[]
   documents: Doc[]
 }
 
@@ -916,7 +916,7 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
 // One checklist row: the doc (if any) with an INLINE preview box, the suggested
 // YYYY_MM_Type rename, an editable expiration date to approve, Ignore, and the
 // upload/replace control.
-function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, driveFiles, driveFilesErr, loadDriveFiles, stakeholderId, applicants, checklist, assoc, appType, hasExample, review, scopeKey, onRequest }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string; allow_multiple?: boolean; esign?: { status: string; signed: string[]; pending: string[] } | null }; doc: Doc | undefined; extraDocs?: Doc[]; checklist?: { doc_key: string; label: string }[]; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; driveFilesErr?: string | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[]; assoc?: string; appType?: string; hasExample?: boolean;
+function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, driveFiles, driveFilesErr, loadDriveFiles, stakeholderId, applicants, checklist, assoc, appType, hasExample, review, scopeKey, onRequest }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string; allow_multiple?: boolean; esign?: { status: string; signed: { name: string; at: string }[]; pending: string[] } | null }; doc: Doc | undefined; extraDocs?: Doc[]; checklist?: { doc_key: string; label: string }[]; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; driveFilesErr?: string | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[]; assoc?: string; appType?: string; hasExample?: boolean;
   review?: { state: 'waiting' | 'received' | 'approved' | 'refused'; decision: { by: string; role: string; at: string; reason: string | null } | null } | null;
   scopeKey?: string; onRequest?: (docKey: string, label: string) => void }) {
   const allowMultiple = !!c.allow_multiple
@@ -1054,7 +1054,10 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
     // acknowledgment instead of a silent click-through.
     if (decision === 'approved' && isExpired) {
       const expDate = doc?.expirationDate ? new Date(doc.expirationDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'an earlier date'
-      if (!confirm(`"${c.label}" expired on ${expDate}. Approve it anyway?`)) return
+      const msg = c.doc_key === 'landlord_tenant_agreement'
+        ? `The lease term on "${c.label}" ended ${expDate} — the e-signatures themselves are still valid. Approve it anyway?`
+        : `"${c.label}" expired on ${expDate}. Approve it anyway?`
+      if (!confirm(msg)) return
     }
     if (decision === 'refused' && (refusing ?? '').trim().length < 4) {
       if (refusing === null) { setRefusing(''); return }
@@ -1086,16 +1089,27 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 260px', minWidth: 0 }}>
           <span style={{ fontWeight: 600, fontSize: 14 }}>{c.label}</span> <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px' }}>{c.provided_by}</span>{!c.required && <span style={{ fontSize: 11, color: '#6b7280' }}> · optional</span>}
-          {isExpired && <span style={{ font: '700 10px system-ui', color: '#fff', background: '#b91c1c', borderRadius: 5, padding: '2px 7px', marginLeft: 7 }}>🚨 EXPIRED {new Date(doc!.expirationDate!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
-          {/* Who actually signed this — a filed e-signed document is always
-              fully executed (it can't land here otherwise), but "e-signed" alone
-              didn't say by whom; a not-yet-uploaded item that was already sent
-              out shows the same info instead of looking untouched. Staff
-              near-miss, 2026-09-02. */}
+          {/* landlord_tenant_agreement's "expiration" is the LEASE'S end date
+              (lib/lease-packet.ts writes expiration_date: lease_end), not the
+              e-signature going stale — signatures never expire. Worded
+              differently here so it doesn't read as "this document/signature
+              is invalid." Staff report, 2026-09-02. */}
+          {isExpired && (
+            <span style={{ font: '700 10px system-ui', color: '#fff', background: '#b91c1c', borderRadius: 5, padding: '2px 7px', marginLeft: 7 }}>
+              {c.doc_key === 'landlord_tenant_agreement'
+                ? `⚠ LEASE TERM ENDED ${new Date(doc!.expirationDate!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                : `🚨 EXPIRED ${new Date(doc!.expirationDate!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+            </span>
+          )}
+          {/* Who actually signed this, and when — a filed e-signed document is
+              always fully executed (it can't land here otherwise), but
+              "e-signed" alone didn't say by whom or when; a not-yet-uploaded
+              item that was already sent out shows the same info instead of
+              looking untouched. Staff near-miss + follow-up, 2026-09-02. */}
           {c.esign && (
             <div style={{ font: '11.5px system-ui', color: c.esign.pending.length ? '#92400e' : '#166534', marginTop: 2 }}>
               {c.esign.pending.length === 0
-                ? `✍ Signed by ${c.esign.signed.join(', ') || '—'}`
+                ? `✍ Signed by ${c.esign.signed.length ? c.esign.signed.map(s => `${s.name} (${fmt(s.at)})`).join(', ') : '—'}`
                 : `✍ Sent for signature — ${c.esign.signed.length}/${c.esign.signed.length + c.esign.pending.length} signed, waiting on ${c.esign.pending.join(', ')}`}
             </div>
           )}
