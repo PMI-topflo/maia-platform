@@ -43,7 +43,7 @@ const KID = { id: 'p3', name: 'Kid', applicant_role: 'minor_dependent' }
 const state = (over: Partial<ReviewInputs> = {}) => deriveReviewState({
   app: { na_items: [], declarations: {}, board_window_opened_at: null, board_window_days: null },
   checklist: [doc('drivers_license'), doc('signed_lease')],
-  docs: [], reviews: [], people: [ANNA], petsAllowed: true, ...over,
+  docs: [], reviews: [], people: [ANNA], petsAllowed: true, screeningCompletedAt: [], ...over,
 })
 
 const file = (doc_key: string, stakeholder_id: string | null = null, created_at = '2026-08-01T00:00:00.000Z') =>
@@ -242,6 +242,37 @@ eq('no checklist → not "waiting on documents"', stage({ state: state({ checkli
 function arrived_all() {
   return state({ docs: [file('drivers_license'), file('signed_lease')] })
 }
+
+// 21-25. Screening validity (docs/ROADMAP.md's "Screening validity" section,
+// lib/screening/validity.ts's 45-day window). daysAgo() keeps these
+// deterministic regardless of when the suite runs.
+const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString()
+
+eq('no screening yet → not expired, no valid-through date',
+  state({}).screeningExpired, false)
+eq('no screening yet → valid-through is null',
+  state({}).screeningValidThrough, null)
+
+const longExpired = state({ screeningCompletedAt: [daysAgo(50)] })
+eq('screening completed 50 days ago, application incomplete → expired', longExpired.screeningExpired, true)
+
+const stillValid = state({ screeningCompletedAt: [daysAgo(10)] })
+eq('screening completed 10 days ago → not yet expired', stillValid.screeningExpired, false)
+
+// An approved application's screening going stale afterward is not this
+// app's problem to re-flag — screeningExpired only ever matters while the
+// application is still incomplete.
+const expiredButApproved = state({
+  checklist: [doc('a')], docs: [file('a')], reviews: [review('a', 'approved')],
+  screeningCompletedAt: [daysAgo(50)],
+})
+eq('expired screening on an already-complete application is not flagged', expiredButApproved.screeningExpired, false)
+
+// One subject finished, the other hasn't -- the application as a whole isn't
+// screened yet, so the clock must not start on just the first person.
+const partialScreening = state({ screeningCompletedAt: [daysAgo(50), null] })
+eq('one of two subjects still incomplete → no valid-through date yet', partialScreening.screeningValidThrough, null)
+eq('one of two subjects still incomplete → not expired', partialScreening.screeningExpired, false)
 
 console.log(fails === 0 ? '\nAll review-state cases pass.' : `\n${fails} FAILING`)
 process.exit(fails === 0 ? 0 : 1)

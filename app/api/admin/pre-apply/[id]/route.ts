@@ -13,6 +13,7 @@ import {
 } from '@/lib/animal-accommodation'
 import { roleLabel, roleSigns } from '@/lib/preapply'
 import { getReviewState } from '@/lib/board-review'
+import { screeningValidThrough, isScreeningExpired } from '@/lib/screening/validity'
 import { getCurrentLease, getRelatedOccupantApplications } from '@/lib/occupant-sponsorship'
 import { handoffOnApproval } from '@/lib/application-handoff'
 
@@ -115,13 +116,18 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const detailedId = app.detailed_application_id as string | null
   const { data: screeningRows } = detailedId
     ? await supabaseAdmin.from('screening_subjects')
-        .select('subject_index, name, status, report_url, report_data')
+        .select('subject_index, name, status, report_url, report_data, completed_at')
         .eq('application_id', detailedId).order('subject_index', { ascending: true })
     : { data: null }
-  const screeningSubjects = (screeningRows ?? []).map(s => ({
-    name: (s.name as string | null) ?? null, status: (s.status as string | null) ?? null,
-    reportUrl: (s.report_url as string | null) ?? null, reportData: (s.report_data as Record<string, unknown> | null) ?? null,
-  }))
+  const screeningSubjects = (screeningRows ?? []).map(s => {
+    const completedAt = (s.completed_at as string | null) ?? null
+    return {
+      name: (s.name as string | null) ?? null, status: (s.status as string | null) ?? null,
+      reportUrl: (s.report_url as string | null) ?? null, reportData: (s.report_data as Record<string, unknown> | null) ?? null,
+      completedAt, validThrough: screeningValidThrough(completedAt)?.toISOString() ?? null,
+      expired: isScreeningExpired(completedAt),
+    }
+  })
 
   return NextResponse.json({
     id: app.id, associationCode: app.association_code, type: app.application_type, unit: app.unit_label,
@@ -149,6 +155,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       rows: review.rows.map(r => ({ scopeKey: r.scopeKey, docKey: r.docKey, state: r.state, decision: r.decision, perApplicantName: r.perApplicantName })),
       totals: review.totals, complete: review.complete,
       windowOpenedAt: review.windowOpenedAt, windowDays: review.windowDays, dueAt: review.dueAt,
+      screeningValidThrough: review.screeningValidThrough, screeningExpired: review.screeningExpired,
     } : null,
     declarations,
     declaredNa: derivedNa,

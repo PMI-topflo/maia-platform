@@ -20,6 +20,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getIntakeChecklist, getIntakeChecklistAll, isApplicationType, parseDeclarations, declaredNaKeys, type IntakeDoc } from '@/lib/intake-documents'
+import { screeningValidThrough, isScreeningExpired } from '@/lib/screening/validity'
 
 export type ReviewDecision = 'approved' | 'refused'
 export type ReviewerRole = 'board' | 'onsite_manager' | 'staff'
@@ -57,6 +58,14 @@ export interface ReviewState {
   windowOpenedAt: string | null
   windowDays: number
   dueAt: string | null
+  /** Null until every screening_subjects row on the bridged legacy application
+   *  has completed_at set -- an in-progress screening never "expires". See
+   *  docs/ROADMAP.md's "Screening validity" section and lib/screening/validity.ts. */
+  screeningValidThrough: string | null
+  /** True only when NOT complete and the validity window above has passed --
+   *  a fully-approved application's screening staying "expired" in the
+   *  background is not this app's business; nothing here re-blocks it. */
+  screeningExpired: boolean
 }
 
 const scoped = (docKey: string, sid: string | null) => sid ? `${docKey}#${sid}` : docKey
@@ -73,6 +82,11 @@ export interface ReviewInputs {
     board_window_opened_at: string | null
     board_window_days: number | null
   }
+  /** completed_at of every screening_subjects row bridged via
+   *  listing_applications.detailed_application_id -> applications.id ->
+   *  screening_subjects.application_id. Empty when never handed off to
+   *  Checkr yet. */
+  screeningCompletedAt: (string | null)[]
   checklist: IntakeDoc[]
   docs: { id: string; doc_key: string; filename: string | null; stakeholder_id: string | null; created_at: string }[]
   reviews: { scope_key: string; decision: string; reason: string | null; decided_by: string; decided_by_role: string; decided_at: string }[]
@@ -84,18 +98,20 @@ export interface ReviewInputs {
 /** Read the whole review state for ONE application. One query set, one truth. */
 export async function getReviewState(applicationId: string): Promise<ReviewState | null> {
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('association_code, application_type, na_items, declarations, board_window_opened_at, board_window_days')
+    .select('association_code, application_type, na_items, declarations, board_window_opened_at, board_window_days, detailed_application_id')
     .eq('id', applicationId).maybeSingle()
   if (!app) return null
 
   const type = String(app.application_type ?? '')
   const code = String(app.association_code ?? '')
-  const [checklist, { data: docs }, { data: reviews }, { data: people }, { data: assoc }] = await Promise.all([
+  const detailedId = (app.detailed_application_id as string | null) ?? null
+  const [checklist, { data: docs }, { data: reviews }, { data: people }, { data: assoc }, { data: subjects }] = await Promise.all([
     isApplicationType(type) ? getIntakeChecklist(code, type) : Promise.resolve([] as IntakeDoc[]),
     supabaseAdmin.from('application_documents').select('id, doc_key, filename, stakeholder_id, created_at').eq('application_id', applicationId),
     supabaseAdmin.from('application_document_reviews').select('scope_key, decision, reason, decided_by, decided_by_role, decided_at').eq('application_id', applicationId),
     supabaseAdmin.from('application_stakeholders').select('id, name, applicant_role').eq('application_id', applicationId).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('associations').select('pets_allowed').eq('association_code', code).maybeSingle(),
+    detailedId ? supabaseAdmin.from('screening_subjects').select('completed_at').eq('application_id', detailedId) : Promise.resolve({ data: [] as { completed_at: string | null }[] }),
   ])
 
   return deriveReviewState({
@@ -109,12 +125,13 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
     reviews: (reviews ?? []).map(r => ({ scope_key: String(r.scope_key), decision: String(r.decision), reason: (r.reason as string | null) ?? null, decided_by: String(r.decided_by), decided_by_role: String(r.decided_by_role), decided_at: String(r.decided_at) })),
     people: (people ?? []).map(p => ({ id: String(p.id), name: (p.name as string | null) ?? null, applicant_role: (p.applicant_role as string | null) ?? null })),
     petsAllowed: (assoc?.pets_allowed as boolean | null) ?? null,
+    screeningCompletedAt: (subjects ?? []).map(s => (s.completed_at as string | null) ?? null),
   })
 }
 
 /** The derivation itself — pure, so it cannot drift between the one-application
  *  screens and the dashboards that roll many of them up. */
-export function deriveReviewState({ app, checklist, docs, reviews, people, petsAllowed }: ReviewInputs): ReviewState {
+export function deriveReviewState({ app, checklist, docs, reviews, people, petsAllowed, screeningCompletedAt }: ReviewInputs): ReviewState {
   // Items the applicant's own declaration retired ("I keep no vehicle") are not
   // outstanding — they do not apply, so they must never hold the window shut.
   const declarations = parseDeclarations(app.declarations)
@@ -192,7 +209,18 @@ export function deriveReviewState({ app, checklist, docs, reviews, people, petsA
     ? new Date(new Date(windowOpenedAt).getTime() + windowDays * 86400000).toISOString()
     : null
 
-  return { rows, totals, complete, windowOpenedAt, windowDays, dueAt }
+  // Every subject has to have actually completed before the application-level
+  // clock starts -- a screening still in progress is never "expired", it's
+  // just not done. The clock starts from whichever subject finished LAST,
+  // since the application as a whole isn't screened until all of them are.
+  const allScreeningComplete = screeningCompletedAt.length > 0 && screeningCompletedAt.every((c): c is string => !!c)
+  const latestCompletedAt = allScreeningComplete
+    ? screeningCompletedAt.reduce((max, c) => (c! > max ? c! : max), screeningCompletedAt[0]!)
+    : null
+  const screeningValidThroughIso = screeningValidThrough(latestCompletedAt)?.toISOString() ?? null
+  const screeningExpired = !complete && isScreeningExpired(latestCompletedAt)
+
+  return { rows, totals, complete, windowOpenedAt, windowDays, dueAt, screeningValidThrough: screeningValidThroughIso, screeningExpired }
 }
 
 /** The same state for MANY applications, in a fixed number of queries rather
@@ -207,12 +235,13 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
   if (!ids.length) return out
 
   const { data: apps } = await supabaseAdmin.from('listing_applications')
-    .select('id, association_code, application_type, na_items, declarations, board_window_opened_at, board_window_days')
+    .select('id, association_code, application_type, na_items, declarations, board_window_opened_at, board_window_days, detailed_application_id')
     .in('id', ids)
   if (!apps?.length) return out
 
   const codes = [...new Set(apps.map(a => String(a.association_code ?? '').toUpperCase()).filter(Boolean))]
-  const [{ data: docs }, { data: reviews }, { data: people }, { data: assocs }, checklistsByCode] = await Promise.all([
+  const detailedIds = [...new Set(apps.map(a => (a.detailed_application_id as string | null)).filter((v): v is string => !!v))]
+  const [{ data: docs }, { data: reviews }, { data: people }, { data: assocs }, checklistsByCode, { data: subjects }] = await Promise.all([
     supabaseAdmin.from('application_documents').select('id, application_id, doc_key, filename, stakeholder_id, created_at').in('application_id', ids),
     supabaseAdmin.from('application_document_reviews').select('application_id, scope_key, decision, reason, decided_by, decided_by_role, decided_at').in('application_id', ids),
     supabaseAdmin.from('application_stakeholders').select('id, application_id, name, applicant_role').eq('role', 'applicant').in('application_id', ids)
@@ -220,6 +249,7 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
     codes.length ? supabaseAdmin.from('associations').select('association_code, pets_allowed').in('association_code', codes) : Promise.resolve({ data: [] }),
     // One checklist read per ASSOCIATION, not per application.
     Promise.all(codes.map(async c => [c, await getIntakeChecklistAll(c)] as const)).then(e => new Map(e)),
+    detailedIds.length ? supabaseAdmin.from('screening_subjects').select('application_id, completed_at').in('application_id', detailedIds) : Promise.resolve({ data: [] as { application_id: string; completed_at: string | null }[] }),
   ])
 
   const petsBy = new Map((assocs ?? []).map(a => [String(a.association_code).toUpperCase(), (a.pets_allowed as boolean | null) ?? null]))
@@ -232,12 +262,17 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
     return m
   }
   const docsBy = group(docs), reviewsBy = group(reviews), peopleBy = group(people)
+  // Keyed by the LEGACY applications.id (detailed_application_id), not the
+  // listing_applications id -- that's what screening_subjects.application_id
+  // actually foreign-keys to.
+  const subjectsByDetailedId = group(subjects)
 
   for (const a of apps) {
     const id = String(a.id)
     const code = String(a.association_code ?? '').toUpperCase()
     const type = String(a.application_type ?? '')
     const checklist = isApplicationType(type) ? (checklistsByCode.get(code)?.[type] ?? []) : []
+    const detailedId = (a.detailed_application_id as string | null) ?? null
     out.set(id, deriveReviewState({
       app: {
         na_items: a.na_items, declarations: a.declarations,
@@ -249,6 +284,7 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
       reviews: (reviewsBy.get(id) ?? []).map(r => ({ scope_key: String(r.scope_key), decision: String(r.decision), reason: (r.reason as string | null) ?? null, decided_by: String(r.decided_by), decided_by_role: String(r.decided_by_role), decided_at: String(r.decided_at) })),
       people: (peopleBy.get(id) ?? []).map(p => ({ id: String(p.id), name: (p.name as string | null) ?? null, applicant_role: (p.applicant_role as string | null) ?? null })),
       petsAllowed: petsBy.get(code) ?? null,
+      screeningCompletedAt: detailedId ? (subjectsByDetailedId.get(detailedId) ?? []).map(s => (s.completed_at as string | null) ?? null) : [],
     }))
   }
   return out

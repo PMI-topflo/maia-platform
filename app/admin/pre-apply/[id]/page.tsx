@@ -27,10 +27,11 @@ interface Detail {
     rows: { scopeKey: string; docKey: string; state: 'waiting' | 'received' | 'approved' | 'refused'; decision: { by: string; role: string; at: string; reason: string | null } | null; perApplicantName: string | null }[]
     totals: { required: number; received: number; decided: number; approved: number; refused: number; waiting: number }
     complete: boolean; windowOpenedAt: string | null; windowDays: number; dueAt: string | null
+    screeningValidThrough: string | null; screeningExpired: boolean
   } | null
   declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null; taxReturns?: { has: boolean; at?: string } | null }
   declaredNa: string[]
-  screeningSubjects: { name: string | null; status: string | null; reportUrl: string | null; reportData: Record<string, unknown> | null }[]
+  screeningSubjects: { name: string | null; status: string | null; reportUrl: string | null; reportData: Record<string, unknown> | null; completedAt: string | null; validThrough: string | null; expired: boolean }[]
   petsAllowed: boolean | null
   petsProhibitedNotice: boolean
   animalGuidance: { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[]; staffNote: string } | null
@@ -384,6 +385,11 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                 color: s.status === 'complete' ? '#065f46' : s.status === 'error' ? '#991b1b' : '#92400e',
                 background: s.status === 'complete' ? '#d1fae5' : s.status === 'error' ? '#fee2e2' : '#fef3c7',
               }}>Checkr: {s.status ?? 'pending'}</span>
+              {s.status === 'complete' && s.validThrough && (
+                s.expired
+                  ? <span style={{ font: '700 10px system-ui', color: '#fff', background: '#b91c1c', borderRadius: 5, padding: '2px 7px' }}>🚨 SCREENING EXPIRED {new Date(s.validThrough).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                  : <span style={{ font: '600 11px system-ui', color: '#6b7280' }}>Valid through {new Date(s.validThrough).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+              )}
               {s.reportUrl && (
                 <DocumentPreviewTrigger
                   label="View report ↗" downloadUrl={s.reportUrl}
@@ -537,6 +543,16 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           with a hand-typed note — which never said WHICH document was wrong.
           Decisions now live on the documents themselves; this summarises them
           and pushes the outstanding ones into a request. */}
+      {!decided && d.review?.screeningExpired && (
+        <div style={{ marginTop: 20, padding: 16, border: '1.5px solid #b91c1c', borderRadius: 12, background: '#fef2f2' }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: '#991b1b' }}>
+            🚨 Screening expired {d.review.screeningValidThrough ? fmt(d.review.screeningValidThrough) : ''} — application incomplete
+          </div>
+          <div style={{ fontSize: 13.5, color: '#7f1d1d', marginTop: 4, lineHeight: 1.5 }}>
+            More than 45 days have passed since the background check completed and the checklist still isn&apos;t fully approved. A fresh screening (re-charged, not waived) is required before this can move forward.
+          </div>
+        </div>
+      )}
       {!decided && d.review && (
         <div style={{ marginTop: 20, padding: 16, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fafafa' }}>
           <div style={{ display: 'flex', gap: 13, alignItems: 'flex-start' }}>
