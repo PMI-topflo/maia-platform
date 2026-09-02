@@ -37,7 +37,7 @@ interface Detail {
   animalGuidance: { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[]; staffNote: string } | null
   assistanceAnimalDenialGrounds: string[]
   assistanceAnimalDecisionDays: number
-  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; per_applicant: boolean; allow_multiple: boolean; uploaded: boolean; condition_key: string | null; template_path: string | null }[]
+  checklist: { doc_key: string; label: string; required: boolean; provided_by: string; per_applicant: boolean; allow_multiple: boolean; uploaded: boolean; condition_key: string | null; template_path: string | null; esign: { status: string; signed: string[]; pending: string[] } | null }[]
   documents: Doc[]
 }
 
@@ -916,7 +916,7 @@ function SignerRow({ sg }: { sg: DecResult['signers'][number] }) {
 // One checklist row: the doc (if any) with an INLINE preview box, the suggested
 // YYYY_MM_Type rename, an editable expiration date to approve, Ignore, and the
 // upload/replace control.
-function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, driveFiles, driveFilesErr, loadDriveFiles, stakeholderId, applicants, checklist, assoc, appType, hasExample, review, scopeKey, onRequest }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string; allow_multiple?: boolean }; doc: Doc | undefined; extraDocs?: Doc[]; checklist?: { doc_key: string; label: string }[]; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; driveFilesErr?: string | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[]; assoc?: string; appType?: string; hasExample?: boolean;
+function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, driveFiles, driveFilesErr, loadDriveFiles, stakeholderId, applicants, checklist, assoc, appType, hasExample, review, scopeKey, onRequest }: { id: string; c: { doc_key: string; label: string; required: boolean; provided_by: string; allow_multiple?: boolean; esign?: { status: string; signed: string[]; pending: string[] } | null }; doc: Doc | undefined; extraDocs?: Doc[]; checklist?: { doc_key: string; label: string }[]; na: boolean; first: boolean; decided: boolean; onDone: () => void; driveFiles: { fileId: string; name: string; mimeType: string }[] | null; driveFilesErr?: string | null; loadDriveFiles: () => Promise<void>; stakeholderId?: string; applicants?: { id: string; name: string | null }[]; assoc?: string; appType?: string; hasExample?: boolean;
   review?: { state: 'waiting' | 'received' | 'approved' | 'refused'; decision: { by: string; role: string; at: string; reason: string | null } | null } | null;
   scopeKey?: string; onRequest?: (docKey: string, label: string) => void }) {
   const allowMultiple = !!c.allow_multiple
@@ -1048,6 +1048,14 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
 
   async function decide(decision: 'approved' | 'refused' | 'clear') {
     if (!scopeKey) return
+    // Staff near-miss, 2026-09-02: approving an EXPIRED document was one click,
+    // same as any other — the badge on the title line was the only warning,
+    // and it's easy to click Approve without reading it. Force an explicit
+    // acknowledgment instead of a silent click-through.
+    if (decision === 'approved' && isExpired) {
+      const expDate = doc?.expirationDate ? new Date(doc.expirationDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'an earlier date'
+      if (!confirm(`"${c.label}" expired on ${expDate}. Approve it anyway?`)) return
+    }
     if (decision === 'refused' && (refusing ?? '').trim().length < 4) {
       if (refusing === null) { setRefusing(''); return }
       alert('Say briefly why it is refused — the applicant sees this.')
@@ -1079,6 +1087,18 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
         <div style={{ flex: '1 1 260px', minWidth: 0 }}>
           <span style={{ fontWeight: 600, fontSize: 14 }}>{c.label}</span> <span style={{ font: '600 10px system-ui', color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px' }}>{c.provided_by}</span>{!c.required && <span style={{ fontSize: 11, color: '#6b7280' }}> · optional</span>}
           {isExpired && <span style={{ font: '700 10px system-ui', color: '#fff', background: '#b91c1c', borderRadius: 5, padding: '2px 7px', marginLeft: 7 }}>🚨 EXPIRED {new Date(doc!.expirationDate!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
+          {/* Who actually signed this — a filed e-signed document is always
+              fully executed (it can't land here otherwise), but "e-signed" alone
+              didn't say by whom; a not-yet-uploaded item that was already sent
+              out shows the same info instead of looking untouched. Staff
+              near-miss, 2026-09-02. */}
+          {c.esign && (
+            <div style={{ font: '11.5px system-ui', color: c.esign.pending.length ? '#92400e' : '#166534', marginTop: 2 }}>
+              {c.esign.pending.length === 0
+                ? `✍ Signed by ${c.esign.signed.join(', ') || '—'}`
+                : `✍ Sent for signature — ${c.esign.signed.length}/${c.esign.signed.length + c.esign.pending.length} signed, waiting on ${c.esign.pending.join(', ')}`}
+            </div>
+          )}
           {doc && !na && (
             <div style={{ font: '11.5px system-ui', color: '#6b7280', marginTop: 2, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
               <span style={{ flexShrink: 0 }}>Will file as</span>
