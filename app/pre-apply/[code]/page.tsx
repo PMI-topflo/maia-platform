@@ -516,7 +516,7 @@ function ScreeningPaymentGate({ code, info, lang, onRecheck }: { code: string; i
       <div style={{ marginTop: 14, border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 12, padding: 16 }}>
         <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '0 0 6px' }}>Background screening &amp; application fee</h2>
         <p style={{ fontSize: 13, color: '#92400e', margin: '0 0 10px', lineHeight: 1.55 }}>
-          Before uploading your documents, complete the background screening payment. This starts your background check right away, running in parallel while you gather the rest of your documents — instead of waiting until everything else is done.
+          Before uploading your documents, complete the background screening payment. This starts your background check right away, running in parallel while you gather the rest of your documents.
         </p>
         <p style={{ fontSize: 12.5, color: '#92400e', fontWeight: 700, margin: '0 0 10px', lineHeight: 1.5 }}>
           ⚠ YOU MUST COMPLETE YOUR APPLICATION WITHIN 45 DAYS OF YOUR SCREENING BEING COMPLETED, OR IT WILL BE CONSIDERED EXPIRED.
