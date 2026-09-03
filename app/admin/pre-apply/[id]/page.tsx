@@ -445,6 +445,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       )}
       {(d.type === 'lease_renewal' || d.type === 'additional_occupant') && <CarryOverButton id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
+      {!decided && d.screeningSubjects.length === 0 && <CheckrRequestSender id={id} provider={d.screeningProvider} onDone={load} />}
       {!decided && <RulesAckSender id={id} />}
       {!decided && <PetRegSender id={id} />}
       {!decided && <TenantEvalSender id={id} />}
@@ -741,6 +742,46 @@ function TenantEvalSender({ id }: { id: string }) {
       {sent && <div style={{ marginTop: 6, font: '12px system-ui', color: sent.sent.length ? '#166534' : '#b91c1c' }}>
         {sent.sent.length > 0 && `✓ Sent to ${sent.sent.join(', ')}`}{sent.failed.length > 0 && ` · could not send to ${sent.failed.join(', ')}`}
       </div>}
+    </div>
+  )
+}
+
+// Manual trigger for the real Checkr order (app/api/trigger-screening) —
+// normally fires automatically off the Stripe webhook the moment payment
+// clears. Only shown while no screening_subjects exist yet (once they do,
+// the "Background check (Checkr)" block above takes over). Real orders
+// cost money and email the applicant a consent link, so this confirms
+// before firing rather than being a single accidental click.
+function CheckrRequestSender({ id, provider, onDone }: { id: string; provider: string; onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function request() {
+    if (!confirm('Create a real Checkr order for every applicant/occupant on this application? This costs money and emails each of them a consent link.')) return
+    setBusy(true); setResult(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/request-screening`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed')
+      setResult({ ok: true, text: `✓ Requested ${j.succeeded}/${j.subjects} order${j.subjects === 1 ? '' : 's'}.${j.failed ? ` ${j.failed} failed — see below.` : ''}${j.errors?.length ? ` ${j.errors.join(' · ')}` : ''}` })
+      onDone()
+    } catch (e) { setResult({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
+  }
+
+  const isCheckr = provider === 'maia_checkr'
+  return (
+    <div style={{ margin: '4px 0 14px', border: `1px solid ${isCheckr ? '#bfdbfe' : '#e5e7eb'}`, background: isCheckr ? '#eff6ff' : '#f9fafb', borderRadius: 10, padding: 12 }}>
+      <div style={{ font: '700 13px system-ui', color: isCheckr ? '#1e40af' : '#6b7280', marginBottom: 4 }}>🔍 Background check <span style={{ font: '400 11.5px system-ui', color: '#9ca3af' }}>· via Checkr</span></div>
+      {isCheckr ? (
+        <>
+          <div style={{ font: '12.5px system-ui', color: '#4b5563', marginBottom: 8 }}>No Checkr order exists yet for this application. This normally fires automatically the moment the applicant pays — use this if it looks like it didn&apos;t, or to retry.</div>
+          <button onClick={request} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#1d4ed8', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
+            {busy ? 'Requesting…' : '🔍 Request background check via Checkr'}
+          </button>
+        </>
+      ) : (
+        <div style={{ font: '12.5px system-ui', color: '#6b7280' }}>This association is on Tenant Evaluation, not Checkr — flip its screening provider on the Association Hub to request a Checkr order here instead.</div>
+      )}
+      {result && <div style={{ marginTop: 8, font: '12px system-ui', color: result.ok ? '#166534' : '#b91c1c' }}>{result.text}</div>}
     </div>
   )
 }
