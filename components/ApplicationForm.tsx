@@ -1155,6 +1155,12 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
   const [listingAppId, setListingAppId]         = useState<string | null>(null);
   const [prefillAssocCode, setPrefillAssocCode] = useState<string | null>(null);
   const [prefillUnit, setPrefillUnit]           = useState<string | null>(null);
+  // Already on file from her pre-apply checklist (see /api/apply/prefill) —
+  // "Rules Knowledge Acknowledgment" there is the same legal event as this
+  // wizard's own "Rules & Regulations" signature below, just captured
+  // earlier. Shown as a confirmation instead of asking her to sign again.
+  const [prefillRulesAck, setPrefillRulesAck]   = useState<{ name: string; at: string | null } | null>(null);
+  const [prefillMarriageCertApproved, setPrefillMarriageCertApproved] = useState(false);
 
   const isCouple     = appType === "couple";
   const hasCert      = coupleOption === "yes";
@@ -1178,6 +1184,48 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     const ac = p.get('assoc');      if (ac) setPrefillAssocCode(ac.toUpperCase());
     const un = p.get('unit');       if (un) setPrefillUnit(un);
   }, []);
+
+  // Prefill her name/email/phone from the pre-apply record MAIA already has
+  // for her, and mark anything already uploaded/signed there — staff report,
+  // 2026-09-03: she was re-typing her own information and re-uploading/
+  // re-signing things from scratch. Never overwrites a field she's already
+  // typed into (only fills blanks), and never touches dob/ssn/id (not
+  // collected in the pre-apply flow at all).
+  useEffect(() => {
+    if (!listingAppId) return;
+    let cancelled = false;
+    fetch(`/api/apply/prefill?listingApp=${encodeURIComponent(listingAppId)}`)
+      .then(r => r.json())
+      .then((d: { name?: string | null; email?: string | null; phone?: string | null; rulesAck?: { name: string; at: string | null } | null; marriageCert?: { uploaded: boolean; approved: boolean } | null }) => {
+        if (cancelled) return;
+        if (d.name || d.email || d.phone) {
+          const [first, ...rest] = (d.name ?? '').trim().split(/\s+/);
+          setApplicants(prev => {
+            const n = [...prev];
+            const cur = n[0] ?? {};
+            n[0] = {
+              ...cur,
+              firstName: cur.firstName || (first ?? ''),
+              lastName:  cur.lastName  || rest.join(' '),
+              email:     cur.email     || (d.email ?? ''),
+              phone:     cur.phone     || (d.phone ?? ''),
+            };
+            return n;
+          });
+        }
+        if (d.marriageCert?.uploaded) {
+          setDocs(prev => ({ ...prev, marriageCert: true }));
+          setPrefillMarriageCertApproved(!!d.marriageCert.approved);
+        }
+        if (d.rulesAck) {
+          setPrefillRulesAck(d.rulesAck);
+          setRulesSignature(d.rulesAck.name);
+          setRulesAgreed(true);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [listingAppId]);
 
   // Resolve the prefilled association by code once the list loads.
   useEffect(() => {
@@ -2368,7 +2416,14 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                 );
               })}
               {(isCouple && hasCert || isMarriedCouple === true) && (
-                <UploadBox label={t.marriageCert} t={t} uploaded={docs.marriageCert} uploading={uploading.marriageCert} onUpload={(f) => uploadDoc(f, "marriageCert")} />
+                <div style={{ marginBottom: 16 }}>
+                  <UploadBox label={t.marriageCert} t={t} uploaded={docs.marriageCert} uploading={uploading.marriageCert} onUpload={(f) => uploadDoc(f, "marriageCert")} />
+                  {docs.marriageCert === true && (
+                    <div style={{ marginTop: -10, fontSize: 11, color: "#1a6b3c" }}>
+                      Already on file from your application{prefillMarriageCertApproved ? " — approved" : ""}. Upload a new one only if you need to replace it.
+                    </div>
+                  )}
+                </div>
               )}
               {isInternational && (() => {
                 const ic = INTL_DOCS_CONTENT[(lang as IntlDocsLang) in INTL_DOCS_CONTENT ? (lang as IntlDocsLang) : "en"];
@@ -2410,6 +2465,14 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#f26a1b", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: "monospace" }}>
                   ✍ {t.rulesTitle}
                 </div>
+                {prefillRulesAck ? (
+                  <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 3, padding: "12px 14px" }}>
+                    <div style={{ color: "#1a6b3c", fontWeight: 700, fontSize: 13 }}>✓ Already reviewed &amp; signed</div>
+                    <div style={{ color: "#374151", fontSize: 12.5, marginTop: 4, lineHeight: 1.5 }}>
+                      Signed by <strong>{prefillRulesAck.name}</strong> as part of your application review{prefillRulesAck.at ? ` on ${new Date(prefillRulesAck.at).toLocaleDateString()}` : ""} — no need to sign again.
+                    </div>
+                  </div>
+                ) : (<>
                 <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.65, margin: "0 0 12px" }}>
                   {t.rulesConsent} <strong>{association || leaseData?.matched?.name || "your association"}</strong>.
                 </p>
@@ -2694,6 +2757,7 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                     </button>
                   )}
                 </div>
+                </>)}
               </div>
               <div style={{ background: "#fafaf9", borderRadius: 4, padding: 18, border: "1px solid #e5e7eb", marginTop: 8 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#0d0d0d", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "monospace" }}>{t.signature}</div>
