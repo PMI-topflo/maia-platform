@@ -392,8 +392,9 @@ function associationPickerSection_(assocList, suggest, forcedAssoc) {
   // Application section above) covers the common case; this is the
   // verification tool for when it's genuinely unclear whether the sender is
   // the owner, the tenant, or an agent — the exact gap the playbook flags as
-  // having no automated answer. Also feeds the "Create → Application Link"
-  // flow below (same card-wide 'lookup_unit' field, one picker for both).
+  // having no automated answer. Also feeds the "Create application link"
+  // button right below (same card-wide 'lookup_unit' field, one picker for
+  // both).
   //
   // A real DROPDOWN of the association's actual units, not free text — staff
   // report, 2026-09-03: typing a unit by hand was error-prone (typos silently
@@ -411,6 +412,15 @@ function associationPickerSection_(assocList, suggest, forcedAssoc) {
     s.addWidget(unitDd);
     s.addWidget(CardService.newTextButton().setText('🔍 Who is on this unit?')
       .setOnClickAction(CardService.newAction().setFunctionName('lookupUnitAction').setParameters({ association_code: selected })));
+    // Its OWN button, right next to the two fields it actually needs — staff
+    // report, 2026-09-03 (round 2): folding this into the Create ticket/work
+    // order form below made it LOOK like Priority/Assignee/Subject/Notes were
+    // required too, even though createTicketAction skipped straight past them
+    // for this type. Those fields being visibly there was itself the
+    // confusion. Association + unit are already picked right here — one more
+    // click is the whole flow.
+    s.addWidget(CardService.newTextButton().setText('🔗 Create application link')
+      .setOnClickAction(CardService.newAction().setFunctionName('preapplyLinkAction')));
   }
   return s;
 }
@@ -421,19 +431,10 @@ function createSection_(ctx, data, suggest, staffList) {
   var s = CardService.newCardSection().setHeader(data.matched ? '➕ Create another item' : '➕ Create ticket / work order');
 
   var woFirst = suggest.kind === 'work_order';   // pre-select Work order when suggested
-  // 'Application Link' folded in here rather than its own button elsewhere —
-  // staff report, 2026-09-03: a separate button in the Association section
-  // for one specific thing was confusing next to this already-familiar
-  // pick-a-type-then-Create flow. Picking it and hitting Create/Create
-  // another skips Priority/Assignee/Subject/Notes below (createTicketAction)
-  // and instead checks the unit (from the picker above) for an open
-  // application and hands back a ready-to-paste reply with the pre-apply
-  // link — see preapplyLinkAction's twin path in createTicketAction.
   s.addWidget(CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
     .setTitle('Type').setFieldName('type')
     .addItem('Ticket', 'ticket', !woFirst)
-    .addItem('Work order', 'work_order', woFirst)
-    .addItem('Application Link', 'application_link', false));
+    .addItem('Work order', 'work_order', woFirst));
 
   s.addWidget(CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
     .setTitle('Priority').setFieldName('priority')
@@ -567,12 +568,6 @@ function saveSettings(e) {
 function createTicketAction(e) {
   var p = e.commonEventObject.parameters || {};
   var f = e.commonEventObject.formInputs || {};
-  // 'Application Link' shares this button (see createSection_) but is a
-  // totally different action than ticket/work-order creation — hand off to
-  // preapplyLinkAction's own logic (checks for an open application on the
-  // unit, hands back a copy-page draft) instead of falling through to
-  // tickets/ensure below.
-  if (strInput_(f, 'type') === 'application_link') return preapplyLinkAction(e);
   try {
     var assignee = strInput_(f, 'assignee');   // 'me'/'' = caller, else a staff email
     if (assignee === 'me') assignee = '';
@@ -754,12 +749,11 @@ function draftApplicationReplyAction(e) {
 // see the openApplication note below) — an agent forwarding "please send me
 // the rental application" is the exact real case this closes. Same copy-page
 // + compose-insert pattern as the two draft actions above, so it slots into
-// the same "hit Reply → Insert Maia draft" muscle memory. Reads the sender's
-// name fresh off the open message (readMessage_) rather than a passed
-// parameter, since the shared 'Create' button that triggers this (via
-// createTicketAction, when Type = 'Application Link') carries threadId/
-// email/contactName, not a name. association_code and lookup_unit are the
-// same card-wide fields the association picker's dropdowns already set.
+// the same "hit Reply → Insert Maia draft" muscle memory. Triggered by its
+// own button right in the association picker (see associationPickerSection_)
+// — association_code and lookup_unit are the same card-wide fields its
+// dropdowns already set, so this reads them directly with no parameters of
+// its own; readMessage_(e) gets the sender's name fresh off the open message.
 function preapplyLinkAction(e) {
   var p = e.commonEventObject.parameters || {};
   var f = e.commonEventObject.formInputs || {};
