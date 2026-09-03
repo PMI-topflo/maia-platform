@@ -150,6 +150,35 @@ export async function findUnitLeasePacket(associationCode: string, account: stri
   }
 }
 
+/** Self-service equivalent of application-esign-forms.ts's
+ *  getOrCreateEsignLink, for the Landlord-Tenant Agreement -- it lives on
+ *  its own two-party lease_packets table/token system, not the generic
+ *  esign engine the other self-service checklist items (Emergency Contact,
+ *  Pet Registration, etc.) use, so it needs its own "check first, create
+ *  only if nothing exists yet" version of the same pattern. Creating a
+ *  fresh packet emails BOTH parties via sendLeasePacket -- the same
+ *  create-on-first-view side effect the generic engine already has for the
+ *  other 4 self-service items, so this is consistent, not a new one.
+ *  Returns null once the given role has already signed (nothing left for
+ *  them to do here) or on hard failure (e.g. no email on file for either
+ *  party). */
+export async function getOrCreateLeasePacketLink(
+  associationCode: string, unit: string, role: LeasePacketRole, createdBy: string,
+  tenantOverride: { name: string | null; email: string | null; phone: string | null; leaseStart: string | null; leaseEnd: string | null },
+): Promise<{ url: string; completed: boolean } | null> {
+  let p = await findUnitLeasePacket(associationCode, unit)
+  if (!p) {
+    const created = await sendLeasePacket(associationCode, unit, createdBy, tenantOverride)
+    if (!created.ok) return null
+    p = await findUnitLeasePacket(associationCode, unit)
+    if (!p) return null
+  }
+  const signedAt = role === 'owner' ? p.ownerSignedAt : p.tenantSignedAt
+  if (signedAt) return null
+  const url = `${APP}/lease-packet/${await signLeasePacketToken(p.id, role)}`
+  return { url, completed: false }
+}
+
 export interface LeasePacketRow {
   id: string
   association_code: string
