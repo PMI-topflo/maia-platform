@@ -26,6 +26,14 @@ const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 
 const TYPE_WORD: Record<string, string> = { lease: 'lease/rental', purchase: 'purchase', lease_renewal: 'lease renewal', additional_occupant: 'additional occupant' }
 
+// A brand-new application at this unit still routes through this SAME link
+// even when one is already open -- /api/pre-apply/start's own dedupe (see
+// its findOpenUnitApplication) folds a second self-identified person into
+// the existing application as a collaborator instead of spawning a
+// duplicate. This check exists so STAFF know that before sending, not to
+// pick a different URL -- there isn't a different one to pick.
+const PRIMARY_TYPES = ['lease', 'purchase', 'lease_renewal']
+
 export async function POST(req: Request) {
   const staff = await addonStaffEmail(req)
   if (!staff) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
@@ -34,16 +42,37 @@ export async function POST(req: Request) {
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
 
   const code = String(b.association_code ?? '').trim().toUpperCase()
-  const type = String(b.type ?? '').trim()
+  // No type picker in the Gmail add-on's consolidated "Create → Application
+  // Link" flow -- defaults to the overwhelmingly common case (a rental).
+  // It's only a UI preselect on the pre-apply page itself, changeable there.
+  const rawType = String(b.type ?? '').trim()
+  const type = isApplicationType(rawType) ? rawType : 'lease'
   const unit = String(b.unit ?? '').trim()
   const toName = String(b.to_name ?? '').trim()
   if (!code) return NextResponse.json({ error: 'Choose an association first.' }, { status: 400 })
-  if (!isApplicationType(type)) return NextResponse.json({ error: 'Choose an application type.' }, { status: 400 })
 
   const { data: assoc } = await supabaseAdmin.from('associations')
     .select('association_code, association_name, legal_name, active').eq('association_code', code).maybeSingle()
   if (!assoc || assoc.active === false) return NextResponse.json({ error: 'This association is not accepting applications online.' }, { status: 404 })
   const assocName = (assoc.legal_name as string | null) || (assoc.association_name as string | null) || code
+
+  // Real case this surfaces: a SECOND agent asking for "the application" on
+  // a unit where one is already in progress (started by a different agent's
+  // client, or the owner). Staff should know before sending, even though
+  // the link itself is safe to send either way.
+  let openLeadName: string | null = null
+  if (unit) {
+    const { data: openApps } = await supabaseAdmin.from('listing_applications')
+      .select('id').eq('association_code', code).eq('unit_label', unit)
+      .in('application_type', PRIMARY_TYPES).not('status', 'in', '("approved","declined","withdrawn")')
+      .order('created_at', { ascending: true }).limit(1)
+    const openApp = (openApps ?? [])[0]
+    if (openApp) {
+      const { data: lead } = await supabaseAdmin.from('application_stakeholders')
+        .select('name, role').eq('application_id', openApp.id).eq('is_primary', true).maybeSingle()
+      openLeadName = (lead?.name as string | null) ?? 'someone'
+    }
+  }
 
   const params = new URLSearchParams({ type })
   if (unit) params.set('unit', unit)
@@ -68,5 +97,8 @@ export async function POST(req: Request) {
   ].join('\n')
 
   const viewToken = await saveDraftView(draftText)
-  return NextResponse.json({ url, draftText, viewToken })
+  return NextResponse.json({
+    url, draftText, viewToken,
+    openApplication: openLeadName ? { leadName: openLeadName } : null,
+  })
 }

@@ -89,16 +89,6 @@ function onAssociationChange(e) {
     .build();
 }
 
-// Applications this application type dropdown offers — kept in step with
-// app/pre-apply/[code]/page.tsx's TYPE_DEFS (the actual portal these links
-// point at).
-var PREAPPLY_TYPES_ = [
-  { key: 'lease',               label: 'Lease / Rental' },
-  { key: 'purchase',            label: 'Purchase' },
-  { key: 'lease_renewal',       label: 'Lease Renewal' },
-  { key: 'additional_occupant', label: 'Additional Occupant' },
-];
-
 function buildGmailCard_(e, forcedAssoc) {
   if (!isConfigured_()) return settingsCard_(true);
 
@@ -397,33 +387,30 @@ function associationPickerSection_(assocList, suggest, forcedAssoc) {
       .setWrapText(true));
   }
 
-  // Unit lookup — "who is on the other end of this email", as an explicit
+  // Unit picker — "who is on the other end of this email", as an explicit
   // check rather than a guess. Automatic thread/email matching (the 🏠
   // Application section above) covers the common case; this is the
   // verification tool for when it's genuinely unclear whether the sender is
   // the owner, the tenant, or an agent — the exact gap the playbook flags as
-  // having no automated answer. A plain text field, not onChange: Apps
-  // Script has no debounce, so firing a full card rebuild per keystroke
-  // would be unusable — an explicit button is the only reasonable trigger.
+  // having no automated answer. Also feeds the "Create → Application Link"
+  // flow below (same card-wide 'lookup_unit' field, one picker for both).
+  //
+  // A real DROPDOWN of the association's actual units, not free text — staff
+  // report, 2026-09-03: typing a unit by hand was error-prone (typos silently
+  // matched nothing) and the whole point of the association dropdown above is
+  // picking from real records, not retyping them. /api/associations/units is
+  // public (no add-on auth needed) and already backs the /apply wizard's own
+  // unit picker.
   if (selected) {
-    s.addWidget(CardService.newTextInput().setFieldName('lookup_unit').setTitle('Unit number'));
+    var units = [];
+    try { units = apiGet_('/api/associations/units?code=' + encodeURIComponent(selected)) || []; } catch (uErr) { units = []; }
+    var unitDd = CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
+      .setTitle('Unit number').setFieldName('lookup_unit');
+    unitDd.addItem('— choose —', '', true);
+    units.forEach(function (u) { unitDd.addItem(String(u), String(u), false); });
+    s.addWidget(unitDd);
     s.addWidget(CardService.newTextButton().setText('🔍 Who is on this unit?')
       .setOnClickAction(CardService.newAction().setFunctionName('lookupUnitAction').setParameters({ association_code: selected })));
-  }
-
-  // 🔗 New application link — the actual first step when nobody has an
-  // application started yet (an agent forwarding "please send the rental
-  // application"). Reuses the same Unit number field above rather than a
-  // second one. Real gap, 2026-09-03: staff had no quick way to hand back
-  // MAIA's own self-serve /pre-apply/[code] portal link without leaving
-  // Gmail to construct the URL (and the reply around it) by hand.
-  if (selected) {
-    var typeDd = CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
-      .setTitle('Application type').setFieldName('preapply_type');
-    PREAPPLY_TYPES_.forEach(function (t, i) { typeDd.addItem(t.label, t.key, i === 0); });
-    s.addWidget(typeDd);
-    s.addWidget(CardService.newTextButton().setText('🔗 Draft reply with application link')
-      .setOnClickAction(CardService.newAction().setFunctionName('preapplyLinkAction').setParameters({ association_code: selected })));
   }
   return s;
 }
@@ -434,10 +421,19 @@ function createSection_(ctx, data, suggest, staffList) {
   var s = CardService.newCardSection().setHeader(data.matched ? '➕ Create another item' : '➕ Create ticket / work order');
 
   var woFirst = suggest.kind === 'work_order';   // pre-select Work order when suggested
+  // 'Application Link' folded in here rather than its own button elsewhere —
+  // staff report, 2026-09-03: a separate button in the Association section
+  // for one specific thing was confusing next to this already-familiar
+  // pick-a-type-then-Create flow. Picking it and hitting Create/Create
+  // another skips Priority/Assignee/Subject/Notes below (createTicketAction)
+  // and instead checks the unit (from the picker above) for an open
+  // application and hands back a ready-to-paste reply with the pre-apply
+  // link — see preapplyLinkAction's twin path in createTicketAction.
   s.addWidget(CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
     .setTitle('Type').setFieldName('type')
     .addItem('Ticket', 'ticket', !woFirst)
-    .addItem('Work order', 'work_order', woFirst));
+    .addItem('Work order', 'work_order', woFirst)
+    .addItem('Application Link', 'application_link', false));
 
   s.addWidget(CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
     .setTitle('Priority').setFieldName('priority')
@@ -571,6 +567,12 @@ function saveSettings(e) {
 function createTicketAction(e) {
   var p = e.commonEventObject.parameters || {};
   var f = e.commonEventObject.formInputs || {};
+  // 'Application Link' shares this button (see createSection_) but is a
+  // totally different action than ticket/work-order creation — hand off to
+  // preapplyLinkAction's own logic (checks for an open application on the
+  // unit, hands back a copy-page draft) instead of falling through to
+  // tickets/ensure below.
+  if (strInput_(f, 'type') === 'application_link') return preapplyLinkAction(e);
   try {
     var assignee = strInput_(f, 'assignee');   // 'me'/'' = caller, else a staff email
     if (assignee === 'me') assignee = '';
@@ -748,29 +750,43 @@ function draftApplicationReplyAction(e) {
   } catch (err) { return notify_(err); }
 }
 
-// For a unit with no application started yet — an agent forwarding "please
-// send me the rental application" is the exact real case this closes. Same
-// copy-page + compose-insert pattern as the two draft actions above, so it
-// slots into the same "hit Reply → Insert Maia draft" muscle memory. Reads
-// the sender's name fresh off the open message (readMessage_) rather than a
-// passed parameter, since the button that triggers this lives in the
-// association picker, not a per-application section that already had ctx.
+// For a unit with no application started yet (or one already in progress —
+// see the openApplication note below) — an agent forwarding "please send me
+// the rental application" is the exact real case this closes. Same copy-page
+// + compose-insert pattern as the two draft actions above, so it slots into
+// the same "hit Reply → Insert Maia draft" muscle memory. Reads the sender's
+// name fresh off the open message (readMessage_) rather than a passed
+// parameter, since the shared 'Create' button that triggers this (via
+// createTicketAction, when Type = 'Application Link') carries threadId/
+// email/contactName, not a name. association_code and lookup_unit are the
+// same card-wide fields the association picker's dropdowns already set.
 function preapplyLinkAction(e) {
   var p = e.commonEventObject.parameters || {};
   var f = e.commonEventObject.formInputs || {};
   var ctx = readMessage_(e);
+  var assoc = strInput_(f, 'association_code');
+  if (!assoc) return notify_({ message: 'Choose an association first.' });
   try {
     var res = apiPost_('/api/addon/preapply-link', {
-      association_code: p.association_code || '',
-      type: strInput_(f, 'preapply_type') || 'lease',
+      association_code: assoc,
       unit: strInput_(f, 'lookup_unit') || '',
       to_name: ctx.name || '',
     });
     var draft = res.draftText || res.url || '(no draft returned)';
-    CacheService.getUserCache().put('draft_' + (ctx.threadId || p.association_code), draft, 1800);
+    CacheService.getUserCache().put('draft_' + (ctx.threadId || assoc), draft, 1800);
 
     var card = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Application link — ready to send'));
     var s = CardService.newCardSection();
+    // Staff report, 2026-09-03: two different agents both asked for "the"
+    // application on the same unit -- flagged here, up front, rather than
+    // discovered only after the reply already went out. The link itself is
+    // still correct to send either way (see preapply-link/route.ts's
+    // dedupe note), this is just so it's not a surprise.
+    if (res.openApplication) {
+      s.addWidget(CardService.newTextParagraph().setText(
+        '⚠️ An application for this unit is already in progress, started by <b>' + (res.openApplication.leadName || 'someone') +
+        '</b>. This link is still safe to send — whoever opens it next joins that same application instead of starting a duplicate.'));
+    }
     if (res.viewToken) {
       s.addWidget(CardService.newTextButton().setText('📋 Open to copy')
         .setOpenLink(CardService.newOpenLink().setUrl(getConfig_().apiBase + '/addon/draft/' + res.viewToken)));
@@ -780,7 +796,7 @@ function preapplyLinkAction(e) {
       '<i>Or hit Reply in Gmail, then “Insert Maia draft”.</i>'));
     card.addSection(s);
     return CardService.newActionResponseBuilder()
-      .setNotification(CardService.newNotification().setText('Draft ready.'))
+      .setNotification(CardService.newNotification().setText(res.openApplication ? 'Draft ready — application already in progress, see note.' : 'Draft ready.'))
       .setNavigation(CardService.newNavigation().pushCard(card.build())).build();
   } catch (err) { return notify_(err); }
 }
