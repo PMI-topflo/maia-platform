@@ -450,9 +450,13 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {(d.type === 'lease_renewal' || d.type === 'additional_occupant') && <CarryOverButton id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
       {!decided && d.screeningSubjects.length === 0 && <CheckrRequestSender id={id} provider={d.screeningProvider} onDone={load} />}
+      {!decided && d.screeningSubjects.length === 0 && <RentvineFallbackSender id={id} />}
       {!decided && <RulesAckSender id={id} />}
       {!decided && <PetRegSender id={id} />}
-      {!decided && <TenantEvalSender id={id} />}
+      {/* Tenant Evaluation retired from the UI, 2026-09-03 — Checkr (+ the
+          Rentvine fallback above) replaces it. Code kept in place
+          (TenantEvalSender below, lib/tenant-evaluation.ts, its API route)
+          in case it's ever needed again; just not rendered. */}
       <CommunicationsLog id={id} unit={d.unit} associationCode={d.associationCode} />
 
       {/* Shared documents — one for the whole unit / application. */}
@@ -740,6 +744,52 @@ function TenantEvalSender({ id }: { id: string }) {
           </div>
           <button onClick={send} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#1d4ed8', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
             {busy ? 'Sending…' : `🔎 Send Tenant Evaluation guide (${info.recipients.length})`}
+          </button>
+        </>
+      )}
+      {sent && <div style={{ marginTop: 6, font: '12px system-ui', color: sent.sent.length ? '#166534' : '#b91c1c' }}>
+        {sent.sent.length > 0 && `✓ Sent to ${sent.sent.join(', ')}`}{sent.failed.length > 0 && ` · could not send to ${sent.failed.join(', ')}`}
+      </div>}
+    </div>
+  )
+}
+
+// Manual fallback background check, sent via PMI's Rentvine-hosted
+// application — for when Checkr has an issue and staff need another path
+// right now. One fixed, generic link (Rentvine's own apply form isn't unit-
+// or address-scoped for this — user direction, 2026-09-03), unlike Tenant
+// Evaluation this needs no per-association guide/property-code setup.
+function RentvineFallbackSender({ id }: { id: string }) {
+  interface Info { recipients: { name: string | null; email: string | null }[]; skipped: string[]; blockers: string[] }
+  const [info, setInfo] = useState<Info | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState<{ sent: string[]; failed: string[] } | null>(null)
+  const load = useCallback(() => { fetch(`/api/admin/pre-apply/${id}/rentvine-fallback`, { credentials: 'include' }).then(r => r.json()).then(setInfo).catch(() => setInfo(null)) }, [id])
+  useEffect(load, [load])
+  if (!info) return null
+
+  async function send() {
+    setBusy(true); setSent(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/rentvine-fallback`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setSent({ sent: j.sent, failed: j.failed }); load()
+    } catch (e) { alert(`Could not send: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ margin: '4px 0 14px', border: '1px solid #e5e7eb', background: '#f9fafb', borderRadius: 10, padding: 12 }}>
+      <div style={{ font: '700 13px system-ui', color: '#374151', marginBottom: 4 }}>🔗 Background check <span style={{ font: '400 11.5px system-ui', color: '#9ca3af' }}>· Rentvine fallback, if Checkr has an issue</span></div>
+      {info.blockers.length > 0 && !info.recipients.length ? (
+        <div style={{ font: '12.5px system-ui', color: '#92400e' }}>{info.blockers.map((b, i) => <div key={i}>⚠ {b}</div>)}</div>
+      ) : (
+        <>
+          <div style={{ font: '12.5px system-ui', color: '#4b5563', marginBottom: 8 }}>
+            Emails {info.recipients.map(r => r.name ?? r.email).join(', ')} a link to PMI&apos;s Rentvine application to complete their background check there instead.
+            {info.skipped.length > 0 && <> Not sent to {info.skipped.join(', ')} — no email on file.</>}
+          </div>
+          <button onClick={send} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#4b5563', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
+            {busy ? 'Sending…' : `🔗 Send Rentvine application link (${info.recipients.length})`}
           </button>
         </>
       )}
