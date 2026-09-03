@@ -29,7 +29,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
   const detailedId = app.detailed_application_id as string | null
   if (!detailedId) {
-    return NextResponse.json({ error: 'Payment hasn’t been completed yet — Checkr screening starts automatically once the applicant pays. Nothing to request until then.' }, { status: 400 })
+    // reason: 'payment_pending' lets the UI offer "send her the payment
+    // link" instead of a dead-end error -- staff report, 2026-09-03 (MANXI
+    // 912): payment was never in her workflow because Checkr wasn't her
+    // provider when she went through her own pre-apply checklist, so she
+    // was never shown app/pre-apply/[code]/page.tsx's ScreeningPaymentGate.
+    return NextResponse.json({ error: 'Payment hasn’t been completed yet — Checkr screening starts automatically once the applicant pays. Nothing to request until then.', reason: 'payment_pending' }, { status: 400 })
   }
 
   // The application's OWN snapshotted provider (set at creation), not
