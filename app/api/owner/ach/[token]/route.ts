@@ -45,6 +45,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     ok: true, ...o, account: data.account, association_code: data.assoc,
     email: addr?.Email ?? null,
     phone: addr?.MobilePhone || addr?.HomePhone || addr?.WorkPhone || null,
+    // Real case, 2026-09-03: an owner already on Automatic ACH since April
+    // 2024 re-submitted this form (reached via the WhatsApp payment menu,
+    // which always offers ACH setup with no CINC lookup), and AR got a
+    // confusing "please set up in CINC" email for someone already set up.
+    // 3 = Automatic ACH, same constant lib/integrations/cinc.ts's
+    // setHomeownerAch() writes — surfaced here so the page can skip the form
+    // instead of collecting bank details nobody needs to re-enter.
+    alreadyEnrolled: addr?.BillingTypeID === 3,
   })
 }
 
