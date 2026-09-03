@@ -195,9 +195,13 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   // Only documents that belong to THIS application's checklist can raise the
   // expired alarm. Files the Drive scan pulled in that aren't part of this
   // application type (e.g. a previous tenant's lease on a purchase) show as
-  // "extra" and must not flag the application as non-compliant.
+  // "extra" and must not flag the application as non-compliant. A doc whose
+  // checklist item is marked N/A (e.g. Pet Registration retired by an
+  // emotional-support-animal declaration) is excluded too, same as the
+  // per-row badge below — an item that no longer applies at all has nothing
+  // to "fix" by re-signing or re-uploading it. Staff report, 2026-09-03.
   const checklistKeys = new Set(d.checklist.map(c => c.doc_key))
-  const expiredDocs = d.documents.filter(x => x.doc_key && checklistKeys.has(x.doc_key) && x.expirationDate && !x.noExpiration && new Date(x.expirationDate) < new Date())
+  const expiredDocs = d.documents.filter(x => x.doc_key && checklistKeys.has(x.doc_key) && !naFor(x.doc_key, x.stakeholderId ?? null) && x.expirationDate && !x.noExpiration && new Date(x.expirationDate) < new Date())
   const decided = d.status === 'approved' || d.status === 'declined'
   const hasLease = d.documents.some(x => x.doc_key === 'signed_lease')
   const reqCount = d.checklist.filter(c => c.required).length
@@ -1156,7 +1160,14 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
   }
 
   const isImg = (doc?.mime_type ?? '').startsWith('image/')
-  const isExpired = !!(doc && doc.expirationDate && !doc.noExpiration && new Date(doc.expirationDate) < new Date())
+  // A doc marked N/A no longer applies to this application at all (e.g. the
+  // applicant declared an emotional-support animal, which retires the
+  // standard Pet Registration item in favor of the separate reasonable-
+  // accommodation process) — its expiration stops being anyone's problem.
+  // Staff report, 2026-09-03: a Pet Registration signed back before that
+  // declaration, already marked N/A, still screamed EXPIRED with nothing
+  // to actually fix (re-signing a form that no longer applies isn't a fix).
+  const isExpired = !na && !!(doc && doc.expirationDate && !doc.noExpiration && new Date(doc.expirationDate) < new Date())
   const link: React.CSSProperties = { font: '600 13px system-ui', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'none' }
 
   return (
