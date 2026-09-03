@@ -274,13 +274,35 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
         )
       })()}
 
-      {/* MAIA screams on expired files */}
-      {expiredDocs.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fef2f2', border: '1px solid #b91c1c', borderLeft: '4px solid #b91c1c', borderRadius: 10, padding: '11px 14px', margin: '12px 0' }}>
-          <span style={{ fontSize: 20 }}>🚨</span>
-          <div style={{ flex: 1, fontSize: 13.5, color: '#7f1d1d' }}><b>{expiredDocs.length} expired document{expiredDocs.length === 1 ? '' : 's'}.</b> {expiredDocs.map(x => `${x.doc_label || x.filename} (expired ${new Date(x.expirationDate!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`).join(', ')}. Request current copies below before this can move forward.</div>
-        </div>
-      )}
+      {/* MAIA screams on expired files -- except landlord_tenant_agreement,
+          whose "expiration_date" is the LEASE'S end date (lib/lease-packet.ts
+          writes expiration_date: lease_end), not the e-signature going stale.
+          This banner used to lump it in with real expired uploads and tell
+          staff to "request current copies" -- there's no current copy to
+          request, the document is a completed e-signature that never goes
+          stale; only the underlying lease term ended. The row badge and the
+          approve confirm() dialog already made this distinction (2026-09-02);
+          this banner was missed. Staff report, 2026-09-03. */}
+      {(() => {
+        const staleDocs = expiredDocs.filter(x => x.doc_key !== 'landlord_tenant_agreement')
+        const endedLeaseDocs = expiredDocs.filter(x => x.doc_key === 'landlord_tenant_agreement')
+        return (
+          <>
+            {staleDocs.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fef2f2', border: '1px solid #b91c1c', borderLeft: '4px solid #b91c1c', borderRadius: 10, padding: '11px 14px', margin: '12px 0' }}>
+                <span style={{ fontSize: 20 }}>🚨</span>
+                <div style={{ flex: 1, fontSize: 13.5, color: '#7f1d1d' }}><b>{staleDocs.length} expired document{staleDocs.length === 1 ? '' : 's'}.</b> {staleDocs.map(x => `${x.doc_label || x.filename} (expired ${new Date(x.expirationDate!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`).join(', ')}. Request current copies below before this can move forward.</div>
+              </div>
+            )}
+            {endedLeaseDocs.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fffbeb', border: '1px solid #f59e0b', borderLeft: '4px solid #f59e0b', borderRadius: 10, padding: '11px 14px', margin: '12px 0' }}>
+                <span style={{ fontSize: 20 }}>⚠</span>
+                <div style={{ flex: 1, fontSize: 13.5, color: '#92400e' }}><b>Lease term ended.</b> {endedLeaseDocs.map(x => `${x.doc_label || x.filename} (${new Date(x.expirationDate!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`).join(', ')} — the e-signatures themselves are still valid and never expire; this just flags that the lease term itself is over, in case a renewal is needed.</div>
+              </div>
+            )}
+          </>
+        )
+      })()}
 
       {/* An additional occupant is joining a lease that already exists. Show it
           — the tenant of record, the term, and links to the approved
