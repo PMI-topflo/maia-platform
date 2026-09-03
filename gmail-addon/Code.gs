@@ -89,6 +89,16 @@ function onAssociationChange(e) {
     .build();
 }
 
+// Applications this application type dropdown offers — kept in step with
+// app/pre-apply/[code]/page.tsx's TYPE_DEFS (the actual portal these links
+// point at).
+var PREAPPLY_TYPES_ = [
+  { key: 'lease',               label: 'Lease / Rental' },
+  { key: 'purchase',            label: 'Purchase' },
+  { key: 'lease_renewal',       label: 'Lease Renewal' },
+  { key: 'additional_occupant', label: 'Additional Occupant' },
+];
+
 function buildGmailCard_(e, forcedAssoc) {
   if (!isConfigured_()) return settingsCard_(true);
 
@@ -399,6 +409,21 @@ function associationPickerSection_(assocList, suggest, forcedAssoc) {
     s.addWidget(CardService.newTextInput().setFieldName('lookup_unit').setTitle('Unit number'));
     s.addWidget(CardService.newTextButton().setText('🔍 Who is on this unit?')
       .setOnClickAction(CardService.newAction().setFunctionName('lookupUnitAction').setParameters({ association_code: selected })));
+  }
+
+  // 🔗 New application link — the actual first step when nobody has an
+  // application started yet (an agent forwarding "please send the rental
+  // application"). Reuses the same Unit number field above rather than a
+  // second one. Real gap, 2026-09-03: staff had no quick way to hand back
+  // MAIA's own self-serve /pre-apply/[code] portal link without leaving
+  // Gmail to construct the URL (and the reply around it) by hand.
+  if (selected) {
+    var typeDd = CardService.newSelectionInput().setType(CardService.SelectionInputType.DROPDOWN)
+      .setTitle('Application type').setFieldName('preapply_type');
+    PREAPPLY_TYPES_.forEach(function (t, i) { typeDd.addItem(t.label, t.key, i === 0); });
+    s.addWidget(typeDd);
+    s.addWidget(CardService.newTextButton().setText('🔗 Draft reply with application link')
+      .setOnClickAction(CardService.newAction().setFunctionName('preapplyLinkAction').setParameters({ association_code: selected })));
   }
   return s;
 }
@@ -719,6 +744,43 @@ function draftApplicationReplyAction(e) {
     card.addSection(s);
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification().setText(res.nothingOutstanding ? 'Nothing outstanding — drafted a plain thank-you.' : 'Draft ready.'))
+      .setNavigation(CardService.newNavigation().pushCard(card.build())).build();
+  } catch (err) { return notify_(err); }
+}
+
+// For a unit with no application started yet — an agent forwarding "please
+// send me the rental application" is the exact real case this closes. Same
+// copy-page + compose-insert pattern as the two draft actions above, so it
+// slots into the same "hit Reply → Insert Maia draft" muscle memory. Reads
+// the sender's name fresh off the open message (readMessage_) rather than a
+// passed parameter, since the button that triggers this lives in the
+// association picker, not a per-application section that already had ctx.
+function preapplyLinkAction(e) {
+  var p = e.commonEventObject.parameters || {};
+  var f = e.commonEventObject.formInputs || {};
+  var ctx = readMessage_(e);
+  try {
+    var res = apiPost_('/api/addon/preapply-link', {
+      association_code: p.association_code || '',
+      type: strInput_(f, 'preapply_type') || 'lease',
+      unit: strInput_(f, 'lookup_unit') || '',
+      to_name: ctx.name || '',
+    });
+    var draft = res.draftText || res.url || '(no draft returned)';
+    CacheService.getUserCache().put('draft_' + (ctx.threadId || p.association_code), draft, 1800);
+
+    var card = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Application link — ready to send'));
+    var s = CardService.newCardSection();
+    if (res.viewToken) {
+      s.addWidget(CardService.newTextButton().setText('📋 Open to copy')
+        .setOpenLink(CardService.newOpenLink().setUrl(getConfig_().apiBase + '/addon/draft/' + res.viewToken)));
+    }
+    s.addWidget(CardService.newTextInput().setFieldName('draft_text').setMultiline(true).setValue(draft));
+    s.addWidget(CardService.newTextParagraph().setText(
+      '<i>Or hit Reply in Gmail, then “Insert Maia draft”.</i>'));
+    card.addSection(s);
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Draft ready.'))
       .setNavigation(CardService.newNavigation().pushCard(card.build())).build();
   } catch (err) { return notify_(err); }
 }
