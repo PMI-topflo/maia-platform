@@ -60,7 +60,6 @@ export default function RequestUpload({ params }: { params: Promise<{ token: str
         )}
         <MessageBox token={token} initial={d.note ?? ''} />
         <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 20, borderTop: '1px solid #e7e2d9', paddingTop: 14 }}>Secure upload · PDF or image · no login needed. Questions? Reply to the email or contact support@topfloridaproperties.com.</p>
-        <ForwardEmailHint associationCode={d.associationCode} unit={d.unit} />
       </div>
     </div>
   )
@@ -147,30 +146,15 @@ function RosterRow({ token, item, people, applicationType, onDone }: { token: st
   )
 }
 
-// Forwarding an email straight to maia@pmitop.com is often faster for the
-// owner/tenant than coming back to this link — a renewed insurance
-// declaration, a signed page, anything. Same "@maia upapp <ACCOUNT>" tag
-// staff already see on the admin screen (app/admin/pre-apply/[id]/page.tsx's
-// CommunicationsLog), now copy-pasteable here too so it reaches the same
-// application's filed history either way. User direction, 2026-08-21.
-function ForwardEmailHint({ associationCode, unit }: { associationCode: string; unit: string | null }) {
-  const [copied, setCopied] = useState(false)
-  const cmd = `@maia upapp ${associationCode}${unit ?? ''}`
-  async function copy() {
-    try { await navigator.clipboard.writeText(cmd); setCopied(true); setTimeout(() => setCopied(false), 1800) } catch { /* clipboard unavailable */ }
-  }
-  return (
-    <div style={{ marginTop: 14, border: '1px solid #e7e2d9', borderRadius: 10, background: '#faf8f4', padding: '12px 14px' }}>
-      <p style={{ font: '600 12.5px system-ui', color: '#3f4756', margin: '0 0 8px', lineHeight: 1.5 }}>
-        Prefer to just forward an email instead? Send it to <strong>maia@pmitop.com</strong> with this line included in the body, and it&apos;s filed on this application automatically:
-      </p>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <code style={{ flex: 1, background: '#eef2ff', color: '#3730a3', padding: '7px 10px', borderRadius: 6, font: '600 12.5px ui-monospace,monospace', wordBreak: 'break-all' }}>{cmd}</code>
-        <button onClick={copy} style={{ cursor: 'pointer', font: '700 12.5px system-ui', color: '#fff', background: copied ? '#166534' : '#c0571a', border: 'none', borderRadius: 7, padding: '8px 13px', whiteSpace: 'nowrap' }}>{copied ? '✓ Copied' : 'Copy'}</button>
-      </div>
-    </div>
-  )
-}
+// A "forward an email to maia@ with @maia upapp <ACCOUNT>" hint used to live
+// here. User correction, 2026-09-03 (Mark Leguizamon, MANXI 613): that
+// command only logs the email text + attachment FILE NAMES into the
+// application's Communication history — it never saves the attachment
+// content, so a document sent that way was invisible to staff and unfileable
+// against a real checklist item. Removed from every public-facing surface
+// (this page, the resident-facing emails in lib/maia-email.ts) — it stays
+// staff-only, on the admin application screen and the Gmail add-on, where
+// it's genuinely used for filing correspondence, not documents.
 
 // A message the owner/tenant can leave for us — registered as communication history.
 function MessageBox({ token, initial }: { token: string; initial: string }) {
