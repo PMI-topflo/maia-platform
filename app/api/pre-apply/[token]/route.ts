@@ -11,6 +11,7 @@ import { getIntakeChecklist, PROVIDED_BY_LABEL, parseDeclarations, pendingDeclar
 import { activeConditions, declaredPetWhereProhibited, ANIMAL_KIND_LABEL, ANIMAL_KIND_BLURB, animalDocGuidance } from '@/lib/animal-accommodation'
 import { maskEmail, maskPhone } from '@/lib/esign-verify'
 import { getOrCreateEsignLink } from '@/lib/application-esign-forms'
+import { getOrCreateLeasePacketLink } from '@/lib/lease-packet'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -28,7 +29,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     supabaseAdmin.from('associations').select('association_name, legal_name, pets_allowed').eq('association_code', intake.associationCode).maybeSingle(),
     supabaseAdmin.from('association_application_rules').select('rule_key, label').eq('association_code', intake.associationCode).eq('active', true),
     listStakeholders(r.applicationId),
-    supabaseAdmin.from('listing_applications').select('declarations').eq('id', r.applicationId).maybeSingle(),
+    supabaseAdmin.from('listing_applications').select('declarations, lease_start, lease_end').eq('id', r.applicationId).maybeSingle(),
   ])
   const uploaded = new Set(intake.docKeys)
   const myProvidedBy = roleToProvidedBy(me.role)
@@ -65,11 +66,36 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   // their behalf); for the applicant themselves, a real signing link is
   // attached below instead of leaving it as an uploadable slot.
   const LIVE_ESIGN_KEYS = new Set(['emergency_contact', 'military_service_disclosure', 'pet_registration', 'maintenance_assessment_ack'])
+  // landlord_tenant_agreement is excluded from the generic checklist mapping
+  // below for the same reason governing_docs_ack is: it's a real two-party
+  // e-signed document (lib/lease-packet.ts), never a plain upload, and its
+  // "mine" (provided_by='landlord') would only ever be true for the owner --
+  // the tenant needs their own sign link too, which the generic per-item map
+  // can't express (one provided_by, one link, per item). Given its own
+  // handling below (leaseAgreement) instead, same self-service pattern as
+  // the LIVE_ESIGN_KEYS items just on lease-packet's own token system.
   const visible = checklist.filter(d => {
-    if (!applies(d.condition_key) || d.provided_by === 'staff' || d.doc_key === 'governing_docs_ack') return false
+    if (!applies(d.condition_key) || d.provided_by === 'staff' || d.doc_key === 'governing_docs_ack' || d.doc_key === 'landlord_tenant_agreement') return false
     if (LIVE_ESIGN_KEYS.has(d.doc_key) && d.provided_by !== myProvidedBy) return false
     return true
   })
+
+  // Real gap found 2026-09-03: with no handling here at all, this fell
+  // through to a plain upload box on whichever role's own checklist showed
+  // it -- the same "asked to upload a document nobody could ever produce a
+  // file for" bug already fixed for the staff request-docs flow (MANXI 912,
+  // 2026-08-21), just never fixed in this second code path. Only the owner
+  // and the tenant/applicant actually sign it -- an agent or co-applicant
+  // viewing their own checklist never sees it at all, same as they'd never
+  // see someone else's military-service disclosure.
+  const leaseChecklistItem = checklist.find(d => d.doc_key === 'landlord_tenant_agreement' && applies(d.condition_key))
+  const myLeaseRole: 'owner' | 'tenant' | null = me.role === 'owner' ? 'owner' : me.role === 'applicant' ? 'tenant' : null
+  const leaseAgreement = (leaseChecklistItem && myLeaseRole)
+    ? await getOrCreateLeasePacketLink(intake.associationCode, String(intake.unitLabel ?? ''), myLeaseRole, `token:pre-apply/${token}`, {
+        name: intake.applicant?.name ?? null, email: intake.applicant?.email ?? null, phone: intake.applicant?.phone ?? null,
+        leaseStart: (appRow?.lease_start as string | null) ?? null, leaseEnd: (appRow?.lease_end as string | null) ?? null,
+      }).catch(() => null)
+    : null
 
   // Signed download URLs for any blank forms the applicant must print & notarize.
   const templateUrls = new Map<string, string>()
@@ -87,6 +113,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     // primary applicant has paid + consented via that hand-off.
     applicationId: intake.applicationId,
     detailedApplicationId: intake.detailedApplicationId,
+    // Landlord-Tenant Agreement, owner/tenant self-service (see comment
+    // above) -- null for anyone else, or once this association/type doesn't
+    // require it, or once this role has already signed their side.
+    leaseAgreement: leaseAgreement ? { label: leaseChecklistItem!.label, url: leaseAgreement.url } : null,
     // The current stakeholder holding this token
     me: {
       name: me.name, role: me.role, roleLabel: roleLabel(me.role), signs: me.signs,

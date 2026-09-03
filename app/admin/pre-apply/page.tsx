@@ -57,6 +57,7 @@ export default function PreApplyQueue() {
   const [apps, setApps] = useState<App[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [filter, setFilter] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
   const [showRef, setShowRef] = useState(false)
   const [refAssoc, setRefAssoc] = useState('')
@@ -101,6 +102,18 @@ export default function PreApplyQueue() {
   }, [])
 
   const count = (k: string) => (apps ?? []).filter(a => a.chipKey === k).length
+
+  // One free-text box searching across every column title shown in the row —
+  // applicant, email, association, unit, type, and stage — instead of five
+  // separate per-column filters. Staff report, 2026-09-03: the list is
+  // getting too long to scan by eye (30+ MANXI rows alone).
+  const matchesSearch = (a: App) => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    const stageLabel = (STAGE_META[a.chipKey] ?? { label: a.stageLabel }).label
+    return [a.applicant?.name, a.applicant?.email, a.associationCode, a.unit, TYPE_LABEL[a.type] ?? a.type, stageLabel]
+      .some(v => (v ?? '').toString().toLowerCase().includes(q))
+  }
 
   // Only ever offered for a bare-shell application (0 docs, per the row's own
   // Docs count) — the endpoint independently re-checks every table an
@@ -208,6 +221,23 @@ export default function PreApplyQueue() {
         </div>
       )}
 
+      {/* Free-text search across applicant, email, association, unit, type
+          and stage — one box instead of a filter per column. */}
+      {apps && apps.length > 0 && (
+        <div style={{ position: 'relative', maxWidth: 420, margin: '0 0 14px' }}>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="🔎 Search applicant, email, assoc, unit, type, stage…"
+            style={{ width: '100%', boxSizing: 'border-box', font: '13px system-ui', padding: '9px 30px 9px 12px', border: '1px solid #d1d5db', borderRadius: 8 }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')} title="Clear search"
+              style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', color: '#9ca3af', cursor: 'pointer', font: '700 15px system-ui', lineHeight: 1 }}>×</button>
+          )}
+        </div>
+      )}
+
       {err && <p style={{ color: '#991b1b' }}>{err}</p>}
 
       {/* In progress — the applicant is uploading but hasn't submitted. These are
@@ -233,14 +263,16 @@ export default function PreApplyQueue() {
         )
       })()}
 
-      {!apps ? <p style={{ color: '#9ca3af' }}>Loading…</p> : apps.length === 0 ? <p style={{ color: '#9ca3af' }}>No applications yet.</p> : (
+      {!apps ? <p style={{ color: '#9ca3af' }}>Loading…</p> : apps.length === 0 ? <p style={{ color: '#9ca3af' }}>No applications yet.</p> : apps.filter(a => (!filter || a.chipKey === filter) && matchesSearch(a)).length === 0 ? (
+        <p style={{ color: '#9ca3af' }}>No applications match{search ? ` “${search}”` : ''}{filter ? ` in ${STAGE_META[filter]?.label ?? filter}` : ''}.</p>
+      ) : (
         <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 12 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead><tr style={{ background: '#f9fafb', textAlign: 'left' }}>
               {['Applicant', 'Assoc', 'Unit', 'Type', 'Docs', 'Signed', 'Started', 'Stage', 'Drive', ''].map(h => <th key={h} style={{ padding: '10px 12px', color: '#6b7280', fontWeight: 600, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {apps.filter(a => !filter || a.chipKey === filter)
+              {apps.filter(a => (!filter || a.chipKey === filter) && matchesSearch(a))
                 // Decided (approved/declined) applications sink to the end —
                 // staff report, 2026-08-20: "Put the approved in the final
                 // of the list." Array.sort is stable, so within each group

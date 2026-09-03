@@ -80,6 +80,7 @@ interface Collaborator { id: string; name: string | null; email: string | null; 
 interface Info {
   associationName: string; type: string; unitLabel: string | null
   applicationId: string; detailedApplicationId: string | null
+  leaseAgreement: { label: string; url: string } | null
   me: { name: string | null; role: string; roleLabel: string; signs: boolean; isPrimary: boolean; status: string; emailVerified: boolean; emailMasked: string | null; signed: boolean; checklistAckSignedAt: string | null; verifyChannel: 'email' | 'phone'; verifyTargetMasked: string | null }
   canAddCollaborators: boolean; submitted: boolean
   checklist: ChecklistItem[]; rules: { rule_key: string; label: string }[]; collaborators: Collaborator[]
@@ -506,7 +507,21 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
       ) : (
         <>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
-            {myDocs.length === 0
+            {/* Landlord-Tenant Agreement, self-service like the other e-signed
+                checklist items — owner and tenant each get their own real
+                sign link the moment they view this page, minted server-side
+                (lib/lease-packet.ts). Never shown to an agent or co-applicant
+                — only the two parties who actually sign it. */}
+            {info.leaseAgreement && (
+              <div style={{ border: '1px solid #c7d2fe', background: '#eef2ff', borderRadius: 10, padding: 12 }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{info.leaseAgreement.label}</div>
+                <a href={info.leaseAgreement.url} target="_blank" rel="noreferrer"
+                  style={{ display: 'inline-block', marginTop: 8, padding: '9px 16px', borderRadius: 8, border: 'none', background: '#3730a3', color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+                  📝 Sign now →
+                </a>
+              </div>
+            )}
+            {myDocs.length === 0 && !info.leaseAgreement
               ? <p style={{ fontSize: 13, color: '#6b7280' }}>{isAgent ? f.noDocsForYouAgent.replace('{name}', clientName) : f.noDocsForYou}</p>
               : myDocs.map(d => d.esignUrl
                   ? <EsignBox key={d.id} item={d} />
