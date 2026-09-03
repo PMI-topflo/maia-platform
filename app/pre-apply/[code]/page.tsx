@@ -97,7 +97,7 @@ const field: React.CSSProperties = { width: '100%', padding: '10px 12px', fontSi
 const label: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: '#374151', marginTop: 14, display: 'block' }
 const primary = (on: boolean): React.CSSProperties => ({ width: '100%', marginTop: 18, padding: '13px', fontSize: 16, fontWeight: 700, color: '#fff', background: on ? '#f26a1b' : '#9ca3af', border: 'none', borderRadius: 8, cursor: on ? 'pointer' : 'default' })
 
-type Step = 'welcome' | 'persona' | 'contact' | 'type' | 'invite' | 'docs'
+type Step = 'welcome' | 'persona' | 'contact' | 'confirm-unit' | 'type' | 'invite' | 'docs'
 
 export default function PreApplyPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params)
@@ -109,6 +109,12 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
   const [token, setToken] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // The hero used to hardcode one specific association's name regardless of
+  // which [code] the link was actually for — every other association's link
+  // showed the wrong community. Fetched from the real association record instead.
+  const [assocName, setAssocName] = useState<string | null>(null)
+  // "Is this the right unit?" — set once the contact step's lookup returns.
+  const [unitCheck, setUnitCheck] = useState<{ checking: boolean; found: boolean | null }>({ checking: false, found: null })
 
   // Invited collaborators arrive with a ready token (?t=). Otherwise a staff /
   // email link may prefill ?type=&unit=&name=&email=&lang= and jump to persona.
@@ -124,6 +130,28 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
     if (TYPE_DEFS.some(x => x.key === qType)) setType(qType)
     setForm(f => ({ ...f, unit: q.get('unit') ?? f.unit, name: q.get('name') ?? f.name, email: q.get('email') ?? f.email }))
   }, [])
+
+  useEffect(() => {
+    fetch(`/api/pre-apply/lookup?code=${encodeURIComponent(code)}`)
+      .then(r => r.json()).then(d => { if (d.associationName) setAssocName(d.associationName) }).catch(() => {})
+  }, [code])
+
+  // Required, and checked against real unit records before the applicant can
+  // move on — staff report, 2026-09-02: unit was free-text, optional, and
+  // never verified, so a mistyped or blank unit silently skipped the
+  // per-unit duplicate-application check AND owner verification downstream.
+  async function confirmUnit() {
+    if (!form.name.trim() || !form.email.includes('@')) { setErr('Please enter your name and a valid email.'); return }
+    if (!form.unit.trim()) { setErr('Please enter your unit number.'); return }
+    setErr(null)
+    setUnitCheck({ checking: true, found: null })
+    setStep('confirm-unit')
+    try {
+      const r = await fetch(`/api/pre-apply/lookup?code=${encodeURIComponent(code)}&unit=${encodeURIComponent(form.unit.trim())}`)
+      const d = await r.json()
+      setUnitCheck({ checking: false, found: typeof d.unitFound === 'boolean' ? d.unitFound : null })
+    } catch { setUnitCheck({ checking: false, found: null }) }
+  }
 
   async function start() {
     setErr(null)
@@ -156,11 +184,12 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
           <div className="pa-brand"><span className="pa-dot" /> PMI Top Florida Properties</div>
           {LangSelect}
         </div>
-        <div className="pa-assoc">The Manors of Inverrary XI Condominium Association</div>
+        <div className="pa-assoc">{assocName ?? code.toUpperCase()}</div>
         <h1 className="pa-h1">{s.title}</h1>
         {step === 'welcome' && <><p className="pa-lede">{s.lede}</p><span className="pa-pill">{s.pill}</span></>}
         {step === 'persona' && <p className="pa-lede">{f.personaP}</p>}
         {step === 'contact' && <p className="pa-lede">{s.contactSub}</p>}
+        {step === 'confirm-unit' && <p className="pa-lede">{f.confirmUnitH2}</p>}
         {step === 'type' && <p className="pa-lede">{s.getP}</p>}
         {step === 'invite' && <p className="pa-lede">{f.inviteP}</p>}
       </div>
@@ -209,7 +238,7 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
           </div>
           {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
           <button className="pa-cta" disabled={!type || busy} onClick={start}>{busy ? '…' : s.cta}</button>
-          <button onClick={() => setStep('contact')} className="pa-link" style={{ display: 'block', margin: '10px auto 0' }}>{s.back}</button>
+          <button onClick={() => setStep('confirm-unit')} className="pa-link" style={{ display: 'block', margin: '10px auto 0' }}>{s.back}</button>
         </div>
       )}
 
@@ -246,8 +275,28 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
           <label className="pa-lbl">{s.phoneL}<input className="pa-field" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} inputMode="tel" /></label>
           <label className="pa-lbl">{s.unitL}<input className="pa-field" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} placeholder="e.g. 511" /></label>
           {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
-          <button className="pa-cta" onClick={() => { if (!form.name.trim() || !form.email.includes('@')) { setErr('Please enter your name and a valid email.'); return } setErr(null); setStep('type') }}>{s.continue2}</button>
+          <button className="pa-cta" onClick={confirmUnit}>{s.continue2}</button>
           <button onClick={() => setStep('persona')} className="pa-link" style={{ display: 'block', margin: '10px auto 0' }}>{s.back}</button>
+        </div>
+      )}
+
+      {step === 'confirm-unit' && (
+        <div className="pa-card">
+          <div className="pa-eye">{f.confirmUnitEye}</div>
+          <h2>{f.confirmUnitH2}</h2>
+          <div style={{ marginTop: 14, border: '1.5px solid #e2e5ec', borderRadius: 12, padding: '16px 18px', background: '#fafbfc' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9aa0ab' }}>{assocName ?? code.toUpperCase()}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: '#1f2a44', margin: '2px 0 10px' }}>Unit {form.unit}</div>
+            {unitCheck.checking ? (
+              <p style={{ fontSize: 13.5, color: '#6b7280', margin: 0 }}>{f.confirmUnitChecking}</p>
+            ) : unitCheck.found ? (
+              <p style={{ fontSize: 13.5, color: '#0f7a4d', fontWeight: 600, margin: 0 }}>{f.confirmUnitFound}</p>
+            ) : (
+              <p style={{ fontSize: 13.5, color: '#b45309', fontWeight: 600, margin: 0, lineHeight: 1.5 }}>⚠ {f.confirmUnitNotFound}</p>
+            )}
+          </div>
+          <button className="pa-cta" disabled={unitCheck.checking} onClick={() => setStep('type')}>{f.confirmUnitYes}</button>
+          <button onClick={() => setStep('contact')} className="pa-link" style={{ display: 'block', margin: '10px auto 0' }}>{f.confirmUnitEdit}</button>
         </div>
       )}
 
