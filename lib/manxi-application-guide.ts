@@ -60,20 +60,26 @@ export interface GuideStep { title: string; body: string }
 
 export const MANXI_GUIDE_STEPS: GuideStep[] = [
   {
-    // Corrected 2026-08-27: this used to describe a single MAIA-collected fee
-    // covering processing + the background check. That isn't real yet — MAIA
-    // collects nothing today; the applicant pays and completes the check
-    // directly on Tenant Evaluation's own site, using the property code MAIA
-    // gives them. Don't restore the "$150/$300, filed through MAIA's portal"
-    // framing until MAIA actually collects a payment for the new (listing_
-    // applications) flow — that logic exists only in the old, unused
-    // ApplicationForm.tsx / applications-table system today.
-    title: 'Submit the application',
-    body: 'Filed through MAIA\'s secure portal. Each applicant then completes the background/credit check directly on Tenant Evaluation\'s own site, using the property code MAIA provides — that check, and its fee, are handled entirely by Tenant Evaluation, not MAIA.',
+    // Rewritten 2026-09-03 for the Checkr-first pre-apply redesign — the
+    // 2026-08-27 correction below this comment (superseded) described a
+    // flow where MAIA collected nothing and Tenant Evaluation handled the
+    // fee and the check entirely on its own site. That's no longer how a
+    // NEW application works: MAIA's own /pre-apply portal now confirms the
+    // unit, walks the applicant through the checklist with a signed
+    // acknowledgment, then collects the application fee itself (Stripe) —
+    // the background/credit check starts automatically the moment that fee
+    // clears, in parallel with document upload, not as a separate errand on
+    // a third-party site afterward.
+    title: 'Start your application & confirm your unit',
+    body: "Filed through MAIA's secure portal. You'll identify yourself, confirm the unit, and review the full document checklist for your application type before anything else.",
+  },
+  {
+    title: 'Pay & consent to your background/credit check',
+    body: "A one-time application fee is paid securely through MAIA's own checkout — each applicant (including a co-applicant) pays their own. The background/credit check starts automatically the moment payment clears; you'll get a separate email with a short consent step to complete it.",
   },
   {
     title: 'Upload the required documents',
-    body: "Each applicant gets a personal upload link — see the checklist below for exactly what's needed for your application type.",
+    body: "Each applicant gets a personal upload link — see the checklist below for exactly what's needed for your application type. This runs in parallel with your background check, not after it.",
   },
   { title: 'Staff review', body: 'PMI checks every document against the checklist and flags anything missing or expired before it reaches the Board.' },
   { title: 'Board review', body: 'The Board has up to 30 days to decide, starting once the last required document has been received and reviewed.' },
