@@ -22,10 +22,15 @@ interface Applicant {
  *  collaborative stakeholders. Kept in one place so the two never drift. */
 async function assembleBoardPackage(application: Record<string, unknown>, applicationId: string) {
   // 1. Documents — the stored values are private storage PATHS; sign them so
-  //    the board can open each one (1-hour links).
+  //    the board can open each one (1-hour links). Government ID is sourced
+  //    from the post-payment intake checklist instead (see govIdDocs below,
+  //    2026-09-03) — applicants[].govIdUrl and docs_gov_id_url are dead now
+  //    that /apply's Documents step no longer collects it there. Proof of
+  //    Income was dropped from board review entirely, same date: nothing in
+  //    the post-payment checklist collects it either (not even MANXI's own
+  //    ~20-item checklist has an equivalent), so a live field for it would
+  //    always be empty.
   const docPaths: Record<string, string | null> = {
-    govId:        (application.docs_gov_id_url as string | null)        ?? null,
-    proofIncome:  (application.docs_proof_income_url as string | null)  ?? null,
     marriageCert: (application.docs_marriage_cert_url as string | null) ?? null,
     lease:        (application.docs_lease_url as string | null)         ?? null,
   };
@@ -54,7 +59,7 @@ async function assembleBoardPackage(application: Record<string, unknown>, applic
   // 3. Collaborative stakeholders — if this detailed application is linked to a
   //    listing application, surface everyone involved (listing agent, owner,
   //    applicant's agent, applicants).
-  let stakeholders: { role: string; name: string | null; email: string | null; phone: string | null }[] = [];
+  let stakeholders: { id: string; role: string; name: string | null; email: string | null; phone: string | null }[] = [];
   const { data: la } = await supabaseAdmin
     .from('listing_applications')
     .select('id, listing_id')
@@ -63,9 +68,42 @@ async function assembleBoardPackage(application: Record<string, unknown>, applic
   if (la) {
     const { data: sh } = await supabaseAdmin
       .from('application_stakeholders')
-      .select('role, name, email, phone')
+      .select('id, role, name, email, phone')
       .or(`application_id.eq.${la.id},listing_id.eq.${la.listing_id}`);
     stakeholders = sh ?? [];
+  }
+
+  // 3b. Government ID — from the post-payment intake checklist
+  // (application_documents, doc_key 'drivers_license') on the linked
+  // listing_applications row, not the dead applicants[].govIdUrl field.
+  // Most associations collect this as ONE shared upload for the whole
+  // application; a few (e.g. additional_occupant) collect one per person —
+  // reflected here as however many rows actually exist, newest wins per
+  // stakeholder (or per "shared" when stakeholder_id is null).
+  let govIdDocs: { url: string; name: string | null }[] = [];
+  if (la) {
+    const { data: rows } = await supabaseAdmin
+      .from('application_documents')
+      .select('storage_path, stakeholder_id, created_at')
+      .eq('application_id', la.id)
+      .eq('doc_key', 'drivers_license')
+      .order('created_at', { ascending: false });
+    const seen = new Set<string>();
+    const latestPerPerson = (rows ?? []).filter(r => {
+      const key = (r.stakeholder_id as string | null) ?? 'shared';
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const signed = await Promise.all(latestPerPerson.map(async r => {
+      const { data: s } = await supabaseAdmin.storage
+        .from('application-docs')
+        .createSignedUrl(r.storage_path as string, 60 * 60);
+      if (!s?.signedUrl) return null;
+      const name = r.stakeholder_id ? (stakeholders.find(x => x.id === r.stakeholder_id)?.name ?? null) : null;
+      return { url: s.signedUrl, name };
+    }));
+    govIdDocs = signed.filter((d): d is { url: string; name: string | null } => !!d);
   }
 
   // 4. Per-applicant Checkr status + report -- each applicant/principal has
@@ -84,7 +122,7 @@ async function assembleBoardPackage(application: Record<string, unknown>, applic
     }
   });
 
-  return { documents, acknowledgedDocs, stakeholders, subjects };
+  return { documents, govIdDocs, acknowledgedDocs, stakeholders, subjects };
 }
 
 export async function GET(req: NextRequest) {
@@ -125,7 +163,7 @@ export async function GET(req: NextRequest) {
       ? await supabaseAdmin.from('board_approval_config').select('approval_letter_template').eq('association_code', associationCode).eq('purpose', 'application').maybeSingle()
       : { data: null };
 
-    const { documents, acknowledgedDocs, stakeholders, subjects } = await assembleBoardPackage(application, previewId);
+    const { documents, govIdDocs, acknowledgedDocs, stakeholders, subjects } = await assembleBoardPackage(application, previewId);
 
     return NextResponse.json({
       ok: true,
@@ -134,6 +172,7 @@ export async function GET(req: NextRequest) {
       letterTemplate: config?.approval_letter_template ?? null,
       alreadyDecided: false,
       documents,
+      govIdDocs,
       acknowledgedDocs,
       stakeholders,
       subjects,
@@ -186,7 +225,7 @@ export async function GET(req: NextRequest) {
 
   const letterTemplate = config?.approval_letter_template ?? null;
 
-  const { documents, acknowledgedDocs, stakeholders, subjects } = await assembleBoardPackage(application, review.application_id);
+  const { documents, govIdDocs, acknowledgedDocs, stakeholders, subjects } = await assembleBoardPackage(application, review.application_id);
 
   return NextResponse.json({
     ok: true,
@@ -198,6 +237,7 @@ export async function GET(req: NextRequest) {
     letterTemplate,
     alreadyDecided,
     documents,
+    govIdDocs,
     acknowledgedDocs,
     stakeholders,
     subjects,

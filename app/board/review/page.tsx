@@ -46,7 +46,8 @@ interface BoardMember {
   email: string;
 }
 
-interface Documents { govId: string | null; proofIncome: string | null; marriageCert: string | null; lease: string | null }
+interface Documents { marriageCert: string | null; lease: string | null }
+interface GovIdDoc { url: string; name: string | null }
 interface AckDoc { id: string; filename: string | null; category: string | null; effective_date: string | null }
 interface Stakeholder { role: string; name: string | null; email: string | null; phone: string | null }
 interface ScreeningSubjectSummary { name: string | null; status: string | null; report_url: string | null; valid_through: string | null; expired: boolean }
@@ -105,6 +106,7 @@ export default function BoardReviewPage() {
   const [boardMember, setBoardMember] = useState<BoardMember | null>(null);
   const [letterTemplate, setLetterTemplate] = useState<string | null>(null);
   const [documents, setDocuments] = useState<Documents | null>(null);
+  const [govIdDocs, setGovIdDocs] = useState<GovIdDoc[]>([]);
   const [ackDocs, setAckDocs] = useState<AckDoc[]>([]);
   const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
   const [subjects, setSubjects] = useState<ScreeningSubjectSummary[]>([]);
@@ -146,6 +148,7 @@ export default function BoardReviewPage() {
         setBoardMember(json.boardMember);
         setLetterTemplate(json.letterTemplate);
         setDocuments(json.documents ?? null);
+        setGovIdDocs(json.govIdDocs ?? []);
         setAckDocs(json.acknowledgedDocs ?? []);
         setStakeholders(json.stakeholders ?? []);
         setSubjects(json.subjects ?? []);
@@ -366,8 +369,11 @@ export default function BoardReviewPage() {
           {application && (
             <>
               {/* Applicants / principals + occupants -- each with their own
-                  Gov ID, Proof of Income, and Checkr background check,
-                  since every applicant/principal has a separate order. */}
+                  Checkr background check, since every applicant/principal has
+                  a separate order. Government ID is no longer per-applicant
+                  here -- it comes from the post-payment intake checklist
+                  (govIdDocs below), which most associations collect as one
+                  shared upload for the whole application. */}
               <div style={{ marginBottom: '1.75rem' }}>
                 <div style={sectionTitle}>{application.app_type === 'commercial' ? 'Entity & Principals' : 'Applicants'}</div>
                 {application.app_type === 'commercial' && application.entity_name && (
@@ -379,21 +385,11 @@ export default function BoardReviewPage() {
                     ? String(a.name ?? `Principal ${i + 1}`)
                     : [a.firstName, a.lastName].filter(Boolean).join(' ') || `Applicant ${i + 1}`;
                   const meta = [a.email, a.phone, a.dob && `DOB ${a.dob}`, a.unitApplying && `Unit ${a.unitApplying}`].filter(Boolean).join('  ·  ');
-                  const govId = a.govIdUrl as string | undefined;
-                  const proofIncome = a.proofIncomeUrl as string | undefined;
                   const subject = subjects[i];
                   return (
                     <div key={i} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.65rem 0.9rem', marginBottom: '0.5rem' }}>
                       <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{name}</div>
                       {meta && <div style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: '0.15rem' }}>{meta}</div>}
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.9rem', marginTop: '0.5rem', fontSize: '0.8rem' }}>
-                        {govId
-                          ? <DocumentPreviewTrigger label="Government ID ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(govId)}`} downloadUrl={govId} style={{ color: '#f26a1b', fontWeight: 700 }} />
-                          : <span style={{ color: '#9ca3af' }}>Government ID — not provided</span>}
-                        {proofIncome
-                          ? <DocumentPreviewTrigger label="Proof of Income ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(proofIncome)}`} downloadUrl={proofIncome} style={{ color: '#f26a1b', fontWeight: 700 }} />
-                          : <span style={{ color: '#9ca3af' }}>Proof of Income — not provided</span>}
-                      </div>
                       <div style={{ marginTop: '0.4rem', fontSize: '0.8rem', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                         {subject?.report_url
                           ? <DocumentPreviewTrigger label="View background check report ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(subject.report_url)}`} downloadUrl={subject.report_url} style={{ color: '#f26a1b', fontWeight: 700 }} />
@@ -416,8 +412,13 @@ export default function BoardReviewPage() {
               </div>
 
               {/* Documents shared across the whole application (not tied to
-                  one applicant) -- lease/purchase agreement and, for a
-                  couple, the marriage certificate. */}
+                  one applicant) -- lease/purchase agreement, marriage
+                  certificate, and Government ID. Gov ID comes from the
+                  post-payment intake checklist (application_documents,
+                  doc_key 'drivers_license') rather than a per-applicant
+                  upload -- most associations collect it as ONE shared file
+                  for the application; where an association's checklist
+                  collects one per person, each shows its own name below. */}
               <div style={{ marginBottom: '1.75rem' }}>
                 <div style={sectionTitle}>Documents</div>
                 <div style={{ display: 'grid', gap: '0.5rem' }}>
@@ -430,6 +431,19 @@ export default function BoardReviewPage() {
                       </div>
                     );
                   })}
+                  {govIdDocs.length > 0
+                    ? govIdDocs.map((d, i) => (
+                        <div key={`gov-${i}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.55rem 0.9rem', fontSize: '0.85rem' }}>
+                          <span>📄 Government ID{d.name ? ` — ${d.name}` : ''}</span>
+                          <DocumentPreviewTrigger label="Open ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(d.url)}`} downloadUrl={d.url} style={{ color: '#f26a1b', fontWeight: 700 }} />
+                        </div>
+                      ))
+                    : (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.55rem 0.9rem', fontSize: '0.85rem' }}>
+                        <span>📄 Government ID</span>
+                        <span style={{ color: '#9ca3af' }}>Not provided</span>
+                      </div>
+                    )}
                 </div>
               </div>
 
