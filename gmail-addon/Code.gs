@@ -710,7 +710,7 @@ function draftReplyAction(e) {
     }
     s.addWidget(CardService.newTextInput().setFieldName('draft_text').setMultiline(true).setValue(draft));
     s.addWidget(CardService.newTextParagraph().setText(
-      '<i>Or hit Reply in Gmail, then “Insert Maia draft”.</i>'));
+      '<i>Or hit Reply in Gmail, then "Insert Maia draft".</i>'));
     card.addSection(s);
     return CardService.newActionResponseBuilder()
       .setNavigation(CardService.newNavigation().pushCard(card.build())).build();
@@ -742,7 +742,7 @@ function draftApplicationReplyAction(e) {
     }
     s.addWidget(CardService.newTextInput().setFieldName('draft_text').setMultiline(true).setValue(draft));
     s.addWidget(CardService.newTextParagraph().setText(
-      '<i>Or hit Reply in Gmail, then “Insert Maia draft”. Review the staff note at the bottom (if any) and delete it before sending — it is not meant for the resident.</i>'));
+      '<i>Or hit Reply in Gmail, then "Insert Maia draft". Review the staff note at the bottom (if any) and delete it before sending — it is not meant for the resident.</i>'));
     card.addSection(s);
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification().setText(res.nothingOutstanding ? 'Nothing outstanding — drafted a plain thank-you.' : 'Draft ready.'))
@@ -793,7 +793,7 @@ function preapplyLinkAction(e) {
     }
     s.addWidget(CardService.newTextInput().setFieldName('draft_text').setMultiline(true).setValue(draft));
     s.addWidget(CardService.newTextParagraph().setText(
-      '<i>Or hit Reply in Gmail, then “Insert Maia draft”.</i>'));
+      '<i>Or hit Reply in Gmail, then "Insert Maia draft".</i>'));
     card.addSection(s);
     return CardService.newActionResponseBuilder()
       .setNotification(CardService.newNotification().setText(res.openApplication ? 'Draft ready — application already in progress, see note.' : 'Draft ready.'))
