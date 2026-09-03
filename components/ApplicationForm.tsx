@@ -2347,38 +2347,23 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
           {/* ══ STEP 3: Documents + Consent ════════════════════════════════ */}
           {step === 3 && (
             <div>
-              {(isCommercial ? principals : applicants).map((person, idx) => {
-                const name = isCommercial
-                  ? (person as { name?: string }).name || `Principal ${idx + 1}`
-                  : [(person as Record<string, string>).firstName, (person as Record<string, string>).lastName].filter(Boolean).join(" ") || `Applicant ${idx + 1}`;
-                const govKey = `govId_${idx}`;
-                const incKey = `proofIncome_${idx}`;
-                return (
-                  <div key={idx} style={{ marginBottom: 18 }}>
-                    {(isCommercial ? principals.length : applicants.length) > 1 && (
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#0d0d0d", marginBottom: 8, fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                        {name}
-                      </div>
-                    )}
-                    <UploadBox label={`${t.govId}${(isCommercial ? principals.length : applicants.length) > 1 ? ` — ${name}` : ""}`} t={t} uploaded={docs[govKey]} uploading={!!uploading[govKey]} onUpload={(f) => uploadDoc(f, govKey)} />
-                    <UploadBox label={`${t.proofIncome}${(isCommercial ? principals.length : applicants.length) > 1 ? ` — ${name}` : ""}`} t={t} uploaded={docs[incKey]} uploading={!!uploading[incKey]} onUpload={(f) => uploadDoc(f, incKey)} />
-                  </div>
-                );
-              })}
+              {/* Government ID / Proof of Income used to be collected here for
+                  every applicant and adult occupant, even though Checkr never
+                  needs them (its order only ever sends email/name/DOB/SSN) and
+                  they were never blocking (see handleNext). The association's
+                  own per-type checklist collects them post-payment instead
+                  (lib/intake-documents.ts) -- keeping just one place that
+                  actually requires them. Only the marriage certificate stays
+                  here, since it changes the price shown on the next step. */}
               {adultOccupants.map((o, i) => {
-                const govKey = `occGovId_${i}`;
-                const incKey = `occProofIncome_${i}`;
                 const guardianKey = `occGuardianDoc_${i}`;
+                if (o.canSignSelf !== "no") return null;
                 return (
                   <div key={`occ-${i}`} style={{ marginBottom: 18 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#0d0d0d", marginBottom: 8, fontFamily: "monospace", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                       {o.name || t.addlResident}
                     </div>
-                    <UploadBox label={`${t.govId} — ${o.name || t.addlResident}`} t={t} uploaded={docs[govKey]} uploading={!!uploading[govKey]} onUpload={(f) => uploadDoc(f, govKey)} />
-                    <UploadBox label={`${t.proofIncome} — ${o.name || t.addlResident}`} t={t} uploaded={docs[incKey]} uploading={!!uploading[incKey]} onUpload={(f) => uploadDoc(f, incKey)} />
-                    {o.canSignSelf === "no" && (
-                      <UploadBox label={`${t.guardianDocLabel} — ${o.name || t.addlResident}`} t={t} uploaded={docs[guardianKey]} uploading={!!uploading[guardianKey]} onUpload={(f) => uploadDoc(f, guardianKey)} />
-                    )}
+                    <UploadBox label={`${t.guardianDocLabel} — ${o.name || t.addlResident}`} t={t} uploaded={docs[guardianKey]} uploading={!!uploading[guardianKey]} onUpload={(f) => uploadDoc(f, guardianKey)} />
                   </div>
                 );
               })}

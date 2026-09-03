@@ -33,6 +33,29 @@ export class CincApiError    extends Error {
   }
 }
 
+// Plain fetch() has no timeout, so when CINC's own API is slow/degraded (a
+// real recurring failure mode — see docs/SESSION-HANDOFF.md), a call here
+// used to just hang for as long as the serverless function was allowed to
+// run. The invoice-push route chains up to ~8 of these in one request, so
+// that read to staff as the whole "Push to CINC" action freezing with no
+// error at all. Every fetch in this file now goes through this so a
+// degraded CINC fails fast with a clear message instead of hanging.
+const CINC_TIMEOUT_MS = 20_000
+async function fetchWithTimeout(url: string | URL, init?: RequestInit, timeoutMs = CINC_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new CincApiError(`CINC request timed out after ${timeoutMs / 1000}s — CINC's API may be degraded right now. Try again shortly.`)
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function requireConfig(): { id: string; secret: string } {
   if (!CLIENT_ID || !CLIENT_SECRET) {
     throw new CincConfigError('CINC_CLIENT_ID / CINC_CLIENT_SECRET not set')
@@ -57,7 +80,7 @@ async function getToken(): Promise<string> {
     scope:         SCOPE,
   })
 
-  const res = await fetch(AUTH_URL, {
+  const res = await fetchWithTimeout(AUTH_URL, {
     method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body:    body.toString(),
@@ -99,7 +122,7 @@ async function call<T>(
   headers.set('Accept', 'application/json')
   if (init?.json !== undefined) headers.set('Content-Type', 'application/json')
 
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     ...init,
     headers,
     body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
@@ -109,7 +132,7 @@ async function call<T>(
   if (res.status === 401) {
     _token = null
     headers.set('Authorization', `Bearer ${await getToken()}`)
-    const retry = await fetch(url, { ...init, headers, body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body })
+    const retry = await fetchWithTimeout(url, { ...init, headers, body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body })
     if (!retry.ok) {
       const body = await retry.text()
       throw new CincApiError(`${init?.method ?? 'GET'} ${path} failed (${retry.status}): ${body.slice(0, 400)}`, retry.status, body)
@@ -129,8 +152,8 @@ async function call<T>(
  *  content type (PDF/image), or null on failure. */
 export async function getCincDocument(imageId: number): Promise<{ bytes: Buffer; contentType: string; filename?: string } | null> {
   const url = `${API_BASE}/management/1/document/${imageId}`
-  let res = await fetch(url, { headers: { Authorization: `Bearer ${await getToken()}`, Accept: 'application/json' } })
-  if (res.status === 401) { _token = null; res = await fetch(url, { headers: { Authorization: `Bearer ${await getToken()}`, Accept: 'application/json' } }) }
+  let res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${await getToken()}`, Accept: 'application/json' } })
+  if (res.status === 401) { _token = null; res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${await getToken()}`, Accept: 'application/json' } }) }
   if (!res.ok) return null
 
   const sniff = (bytes: Buffer, name = ''): string => {
