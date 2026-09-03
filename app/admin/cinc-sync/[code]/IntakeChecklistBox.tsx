@@ -77,8 +77,14 @@ export default function IntakeChecklistBox({ code }: { code: string }) {
   )
 }
 
-// Where an approved intake hands off for the background check. MANXI stays on
-// Tenant Evaluation until Checkr is production-authorized; flip when ready.
+// Where an approved intake hands off for the background check. The
+// 'tenant_evaluation' DB value is unchanged (no migration needed) but the
+// label now reads "Rentvine Screening" — Tenant Evaluation itself is
+// retired, and staff use this slot for the manual Rentvine fallback
+// instead (see RentvineFallbackSender, app/admin/pre-apply/[id]/page.tsx).
+// MANXI flipped to maia_checkr 2026-09-03 once the Checkr key mode read
+// LIVE on /admin/tools; this option is planned for removal once every
+// association has migrated off it.
 function ScreeningProviderToggle({ code }: { code: string }) {
   const [provider, setProvider] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -92,7 +98,7 @@ function ScreeningProviderToggle({ code }: { code: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 10px', marginBottom: 12 }}>
       <span style={{ font: '600 11px system-ui', color: '#6b7280' }}>On approval, screen via:</span>
-      {[{ k: 'tenant_evaluation', l: 'Tenant Evaluation (current)' }, { k: 'maia_checkr', l: 'MAIA + Checkr' }].map(o => (
+      {[{ k: 'tenant_evaluation', l: 'Rentvine Screening' }, { k: 'maia_checkr', l: 'MAIA + Checkr' }].map(o => (
         <button key={o.k} onClick={() => set(o.k)} disabled={busy || provider === o.k}
           style={{ font: '600 11px system-ui', padding: '4px 10px', borderRadius: 6, cursor: provider === o.k ? 'default' : 'pointer', border: `1px solid ${provider === o.k ? '#2563eb' : '#d1d5db'}`, background: provider === o.k ? '#eff6ff' : '#fff', color: provider === o.k ? '#1d4ed8' : '#374151' }}>{o.l}</button>
       ))}
