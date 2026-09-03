@@ -19,6 +19,7 @@ import { addonStaffEmail } from '@/lib/addon-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { isApplicationType } from '@/lib/intake-documents'
 import { saveDraftView } from '@/lib/addon-draft-views'
+import { guideAvailable } from '@/lib/application-guide-data'
 
 export const dynamic = 'force-dynamic'
 
@@ -78,6 +79,21 @@ export async function POST(req: Request) {
   if (unit) params.set('unit', unit)
   const url = `${APP}/pre-apply/${encodeURIComponent(code)}?${params.toString()}`
 
+  // Real gap this closes: staff manually appended a second link (the
+  // Application Guide — eligibility rules, fees, full document checklist,
+  // move-in procedures) onto the composed reply by hand when an agent asked
+  // for "the requirements" alongside the application itself (agent report,
+  // 2026-09-03: Lucely Coral, MANXI Unit 513). guideAvailable() gates it —
+  // only MANXI has a guide content module registered so far (see
+  // lib/application-guide-data.ts's GUIDE_CONTENT); every other association
+  // just gets the application-link paragraph, same as before.
+  const guideParagraphs = guideAvailable(code) ? [
+    '',
+    'Association requirements & move-in procedures: our full Application Guide covers eligibility rules, the step-by-step process and fees, and the complete document checklist, plus what\'s registered separately after approval (gate access, club ID, etc.):',
+    '',
+    `${APP}/apply/${encodeURIComponent(code)}/guide`,
+  ] : []
+
   const unitLine = unit ? ` for Unit ${unit}` : ''
   const draftText = [
     `Hello${toName ? ` ${toName}` : ''},`,
@@ -87,6 +103,7 @@ export async function POST(req: Request) {
     'Everything is self-service through our secure application portal. Please open the link below and follow the steps: confirm the unit, upload the required documents, sign the association acknowledgment, and pay the one-time application fee, which also covers the background/credit/eviction check.',
     '',
     url,
+    ...guideParagraphs,
     '',
     'A note on who should open it: the actual applicant (your client) should complete their own part with their own email address, since the background check consent link can only go to them. You\'re welcome to start the application yourself and add your client — and the other agent, if there is one — as collaborators from there; each person gets their own secure link by email to fill in their part in parallel.',
     '',
