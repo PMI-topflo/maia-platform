@@ -1,24 +1,25 @@
 // GET  /api/admin/intake-documents?code=CODE  → the per-type intake checklist.
 // POST /api/admin/intake-documents  { code, application_type, doc_key, label, provided_by?, required?, note?, sort_order? }
-//   → add/update a checklist row (upsert on association+type+doc_key). Staff-only.
+//   → add/update a checklist row (upsert on association+type+doc_key). Owner-only
+//   (the Association Hub's Checklist tab this backs is hidden from regular staff).
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { requireStaffSession } from '@/lib/staff-auth'
+import { requireOwnerSession } from '@/lib/staff-auth'
 import { getIntakeChecklistAll, isApplicationType, APPLICATION_TYPES, PROVIDED_BY_LABEL, type ProvidedBy } from '@/lib/intake-documents'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: Request) {
-  if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!await requireOwnerSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const code = new URL(req.url).searchParams.get('code')
   if (!code) return NextResponse.json({ error: 'code required' }, { status: 400 })
   return NextResponse.json({ types: APPLICATION_TYPES, checklist: await getIntakeChecklistAll(code) })
 }
 
 export async function POST(req: Request) {
-  const session = await requireStaffSession()
+  const session = await requireOwnerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   let b: { code?: string; application_type?: string; doc_key?: string; label?: string; provided_by?: string; required?: boolean; note?: string; sort_order?: number }

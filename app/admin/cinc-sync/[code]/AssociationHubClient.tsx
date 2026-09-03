@@ -9,7 +9,7 @@
 // =====================================================================
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import WoComplianceModal from './WoComplianceModal'
 import OnboardVendorModal from '@/components/OnboardVendorModal'
@@ -113,14 +113,33 @@ const STATUS_STYLES: Record<string, string> = {
   waiting_external: 'bg-blue-100 text-blue-800', resolved: 'bg-slate-100 text-slate-700', closed: 'bg-gray-200 text-gray-600',
 }
 
-const TABS = ['Overview', 'Board & Owners', 'Vendors', 'Work Orders', 'Maintenance', 'Projects', 'Inspections', 'Financials', 'Budget', 'Documents & Compliance', 'Reports'] as const
+const TABS = ['Overview', 'Board & Owners', 'Vendors', 'Work Orders', 'Maintenance', 'Projects', 'Inspections', 'Financials', 'Budget', 'Documents & Compliance', 'Reports', 'Checklist'] as const
 type Tab = typeof TABS[number]
+
+// 'Checklist' (the application document checklist + screening-provider
+// toggle, formerly a sidebar box every staff member saw on every tab) is
+// owner-only — hidden from regular staff, not just tucked away. The API
+// routes it calls (app/api/admin/intake-documents/**, /screening-provider)
+// enforce the same gate server-side via requireOwnerSession, so this
+// client-side check is about what's shown, not the only thing guarding it.
+function useIsOwner(): boolean {
+  const [isOwner, setIsOwner] = useState(false)
+  useEffect(() => {
+    fetch('/api/admin/me', { credentials: 'include' })
+      .then(r => r.json())
+      .then((d: { loginEmail?: string }) => setIsOwner((d.loginEmail ?? '').toLowerCase() === 'pmi@topfloridaproperties.com'))
+      .catch(() => setIsOwner(false))
+  }, [])
+  return isOwner
+}
 
 export default function AssociationHubClient({ data }: { data: AssociationHubData }) {
   const router = useRouter()
   const [tab, setTab] = useState<Tab>('Overview')
   const [docScope, setDocScope] = useState<'assoc' | 'unit'>('assoc')
   const [actionsOpen, setActionsOpen] = useState(false)
+  const isOwner = useIsOwner()
+  const visibleTabs = isOwner ? TABS : TABS.filter(t => t !== 'Checklist')
   const { code } = data
   const bankTotal = data.bankAccounts.reduce((s, a) => s + (a.bankBalance ?? 0), 0)
   // The public resident portal — the page unit owners log into and the general
@@ -253,7 +272,7 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
 
       {/* Tabs */}
       <div className="mb-5 flex flex-wrap items-center gap-1 border-b border-gray-200">
-        {TABS.map(t => (
+        {visibleTabs.map(t => (
           <button key={t} onClick={() => selectTab(t)} className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${tab === t ? 'border-[#f26a1b] text-[#f26a1b]' : 'border-transparent text-gray-500 hover:text-gray-900'}`}>{t}</button>
         ))}
         {/* Preview the resident portal the way owners / visitors actually see
@@ -294,7 +313,6 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
           <OnboardingChecklistCard data={data} onOpenTab={selectTab} />
           <BoardCertBox code={data.code} />
           <OnsiteManagersBox code={data.code} />
-          <IntakeChecklistBox code={data.code} />
         </aside>
 
         {/* Tab content */}
@@ -511,6 +529,8 @@ export default function AssociationHubClient({ data }: { data: AssociationHubDat
               <Link href={`/admin/reports/monthly?assoc=${code}`} className="inline-block rounded bg-[#f26a1b] px-3 py-2 text-sm font-medium text-white hover:bg-[#d85a14]">Open monthly board report →</Link>
             </Card>
           )}
+
+          {tab === 'Checklist' && isOwner && <IntakeChecklistBox code={code} />}
         </section>
       </div>
     </div>
