@@ -3,7 +3,7 @@
 import { use, useEffect, useState } from 'react'
 import { SignaturePad } from '@/components/SignatureEvidence'
 
-interface Info { name: string; unit: string | null; address: string | null; association: string; account: string; email: string | null; phone: string | null }
+interface Info { name: string; unit: string | null; address: string | null; association: string; account: string; email: string | null; phone: string | null; alreadyEnrolled: boolean }
 
 export default function OwnerAchPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
@@ -58,6 +58,22 @@ export default function OwnerAchPage({ params }: { params: Promise<{ token: stri
 
   if (err && !info)  return <div style={wrap}><h2>⚠ {err}</h2></div>
   if (!info)         return <div style={wrap}><p>Loading…</p></div>
+  // Real case, 2026-09-03: an owner already on Automatic ACH re-submitted
+  // this form, and AR got a confusing "please set up in CINC" email for
+  // someone already set up. Stop it at the source instead of collecting
+  // bank details nobody needs to re-enter.
+  if (info.alreadyEnrolled) return (
+    <div style={wrap}>
+      <h1 style={{ fontSize: 22, color: '#f26a1b', marginBottom: 2 }}>✅ You&apos;re already set up</h1>
+      <p style={{ color: '#374151', fontSize: 15, lineHeight: 1.5 }}>
+        {info.name}, <strong>Unit {info.unit ?? info.account}</strong> at {info.association} is already enrolled in automatic ACH payments, drafted on the 1st of the month.
+      </p>
+      <p style={{ color: '#6b7280', fontSize: 13.5, lineHeight: 1.5 }}>
+        If your bank account changed and you need to update it, or something looks off with your payments, reach out and we&apos;ll take care of it directly — no need to resubmit this form.
+      </p>
+      <p style={{ color: '#6b7280', fontSize: 13 }}>ar@topfloridaproperties.com · (305) 900-5105</p>
+    </div>
+  )
   if (done) return (
     <div style={wrap}>
       <h1 style={{ color: '#f26a1b' }}>✅ Thank you!</h1>
