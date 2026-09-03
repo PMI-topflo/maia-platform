@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
+import { redactSSN } from '@/lib/redact-sensitive'
 import { loadRequest } from '../route'
 
 export const runtime = 'nodejs'
@@ -19,7 +20,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   let b: { note?: string }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
-  const note = String(b.note ?? '').trim()
+  const rawNote = String(b.note ?? '').trim()
+  // Screened BEFORE it's stored or emailed — see lib/redact-sensitive.ts for
+  // the real incident that prompted this. `sensitive` drives the client-side
+  // warning below so whoever typed it learns not to do it again.
+  const { text: note, found: sensitive } = redactSSN(rawNote)
 
   const { error } = await supabaseAdmin.from('document_requests')
     .update(r.role === 'owner' ? { owner_note: note || null } : { tenant_note: note || null }).eq('id', r.req.id)
@@ -33,5 +38,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         <p><a href="${process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'}/admin/pre-apply/${r.req.application_id}">Open the application →</a></p>
       </div>` }).catch(() => null)
   }
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, sensitive })
 }
