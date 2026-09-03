@@ -4148,6 +4148,15 @@ ON CONFLICT (association_code, application_type, doc_key)
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'outbound_send_error',
+    label:       'outbound_send_attempts — error column for failed sends',
+    description: "User direction, 2026-09-03: \"can we receive an email each time it fails?\" sendEmail() previously let a provider error (Resend rejecting the request, Gmail OAuth failing) propagate with no record of WHY — most callers do `.catch(() => null)` for their own control flow, so the failure vanished with no trace. Adds a nullable `error` column, parallel to the existing `blocked_reason`, so a failed send is recorded the same way a blocked one already is; paired with a code change so sendEmail() now also emails staff when this happens (and the existing Resend webhook now does the same for a later bounced/complained/failed delivery event).",
+    filename:    '20260903c_outbound_send_error.sql',
+    artifact:    { type: 'column', table: 'outbound_send_attempts', column: 'error' },
+    sql: `ALTER TABLE public.outbound_send_attempts ADD COLUMN IF NOT EXISTS error text;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
