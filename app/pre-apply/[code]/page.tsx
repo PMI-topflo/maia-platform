@@ -402,6 +402,17 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
   const myDocs = info.checklist.filter(d => d.mine)
   const otherDocs = info.checklist.filter(d => !d.mine)
   const myRequiredDone = myDocs.every(d => !d.required || d.uploaded)
+  // Agents already could upload any non-staff, non-esign document for the
+  // person they represent (record-doc never checked provided_by against the
+  // uploader's own role) — just labeled as a vague "if you have them"
+  // convenience. User direction, 2026-09-03: for a client who isn't
+  // comfortable online, this is the actual intended workflow, so name it
+  // as one. listing_agent represents the owner; applicant_agent represents
+  // the lead applicant.
+  const isAgent = info.me.role === 'listing_agent' || info.me.role === 'applicant_agent'
+  const clientRole = info.me.role === 'listing_agent' ? 'owner' : 'applicant'
+  const client = info.collaborators.find(c => c.role === clientRole && (clientRole === 'owner' || c.isPrimary))
+  const clientName = client?.name?.trim() || (clientRole === 'owner' ? 'the owner' : 'the applicant')
   // Only the applicant (or whoever leads the application) answers the yes/no
   // gates; an agent uploading their part is never asked. Whoever IS asked
   // cannot submit until they have answered, so an unanswered gate can't be
@@ -476,7 +487,7 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
         <>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
             {myDocs.length === 0
-              ? <p style={{ fontSize: 13, color: '#6b7280' }}>{f.noDocsForYou}</p>
+              ? <p style={{ fontSize: 13, color: '#6b7280' }}>{isAgent ? f.noDocsForYouAgent.replace('{name}', clientName) : f.noDocsForYou}</p>
               : myDocs.map(d => d.esignUrl
                   ? <EsignBox key={d.id} item={d} />
                   : <DocBox key={d.id} token={token} item={d} lang={lang} onDone={load} />)}
@@ -484,8 +495,8 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
 
           {otherDocs.length > 0 && (
             <>
-              <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '20px 0 4px' }}>{f.otherDocsH}</h2>
-              <p style={{ fontSize: 12.5, color: '#6b7280', marginTop: 0 }}>{f.otherDocsP}</p>
+              <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '20px 0 4px' }}>{isAgent ? f.otherDocsHAgent.replace('{name}', clientName) : f.otherDocsH}</h2>
+              <p style={{ fontSize: 12.5, color: '#6b7280', marginTop: 0 }}>{isAgent ? f.otherDocsPAgent.replace('{name}', clientName) : f.otherDocsP}</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {otherDocs.map(d => <DocBox key={d.id} token={token} item={d} lang={lang} onDone={load} />)}
               </div>

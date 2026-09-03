@@ -189,6 +189,7 @@ export interface PreApplyFlowStrings {
   verifyH1Phone: string; verifyPPhone: string
   // Documents
   docsH1: string; docsP: string; yourDocsH: string; otherDocsH: string; otherDocsP: string; noDocsForYou: string
+  otherDocsHAgent: string; otherDocsPAgent: string; noDocsForYouAgent: string
   optional: string; uploadedTag: string; uploadBtn: string; replaceBtn: string; uploadingBtn: string; uploadAllNote: string
   downloadForm: string; notarizeSteps: string; printSignUpload: string
   // Rules + signature
@@ -226,6 +227,8 @@ const flowEn: PreApplyFlowStrings = {
   sendCode: 'Send me a code', resendCode: 'Resend code', codePlaceholder: '6-digit code', verifyBtn: 'Verify', codeSentTo: 'Code sent to',
   docsH1: 'Your documents', docsP: 'Upload each document below in its own box.',
   yourDocsH: 'Your documents', otherDocsH: 'Other documents (if you have them)',
+  otherDocsHAgent: '{name}’s documents', otherDocsPAgent: 'You can upload these on {name}’s behalf — helpful if they’re not comfortable doing this online themselves.',
+  noDocsForYouAgent: 'Nothing is required directly from you — but you can upload {name}’s documents below, on their behalf, if that’s easier for them.',
   otherDocsP: 'These are usually provided by someone else on the application — upload only if you have them.',
   noDocsForYou: 'No documents are required from you — thank you.',
   optional: 'optional', uploadedTag: 'Uploaded', uploadBtn: 'Upload', replaceBtn: 'Replace', uploadingBtn: 'Uploading…',
@@ -274,6 +277,8 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     sendCode: 'Envíenme un código', resendCode: 'Reenviar código', codePlaceholder: 'Código de 6 dígitos', verifyBtn: 'Verificar', codeSentTo: 'Código enviado a',
     docsH1: 'Sus documentos', docsP: 'Suba cada documento en su propia casilla.',
     yourDocsH: 'Sus documentos', otherDocsH: 'Otros documentos (si los tiene)',
+    otherDocsHAgent: 'Documentos de {name}', otherDocsPAgent: 'Puede subir estos documentos en nombre de {name} — útil si esa persona no se siente cómoda haciéndolo en línea.',
+    noDocsForYouAgent: 'No se requiere nada directamente de usted — pero puede subir los documentos de {name} a continuación, en su nombre, si eso le resulta más fácil.',
     otherDocsP: 'Normalmente los aporta otra persona de la solicitud — súbalos solo si los tiene.',
     noDocsForYou: 'No se requieren documentos de su parte — gracias.',
     optional: 'opcional', uploadedTag: 'Subido', uploadBtn: 'Subir', replaceBtn: 'Reemplazar', uploadingBtn: 'Subiendo…',
@@ -313,6 +318,8 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     sendCode: 'Envie-me um código', resendCode: 'Reenviar código', codePlaceholder: 'Código de 6 dígitos', verifyBtn: 'Verificar', codeSentTo: 'Código enviado para',
     docsH1: 'Seus documentos', docsP: 'Envie cada documento em sua própria caixa.',
     yourDocsH: 'Seus documentos', otherDocsH: 'Outros documentos (se você os tiver)',
+    otherDocsHAgent: 'Documentos de {name}', otherDocsPAgent: 'Você pode enviar estes documentos em nome de {name} — útil se essa pessoa não se sentir à vontade fazendo isso online.',
+    noDocsForYouAgent: 'Nada é exigido diretamente de você — mas você pode enviar os documentos de {name} abaixo, em nome dela, se isso for mais fácil.',
     otherDocsP: 'Normalmente fornecidos por outra pessoa da inscrição — envie apenas se você os tiver.',
     noDocsForYou: 'Nenhum documento é exigido de você — obrigado.',
     optional: 'opcional', uploadedTag: 'Enviado', uploadBtn: 'Enviar', replaceBtn: 'Substituir', uploadingBtn: 'Enviando…',
@@ -352,6 +359,8 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     sendCode: 'Envoyez-moi un code', resendCode: 'Renvoyer le code', codePlaceholder: 'Code à 6 chiffres', verifyBtn: 'Vérifier', codeSentTo: 'Code envoyé à',
     docsH1: 'Vos documents', docsP: 'Téléversez chaque document dans sa propre case.',
     yourDocsH: 'Vos documents', otherDocsH: 'Autres documents (si vous les avez)',
+    otherDocsHAgent: 'Documents de {name}', otherDocsPAgent: 'Vous pouvez téléverser ces documents au nom de {name} — utile si cette personne n’est pas à l’aise pour le faire en ligne elle-même.',
+    noDocsForYouAgent: 'Rien n’est requis directement de vous — mais vous pouvez téléverser les documents de {name} ci-dessous, en son nom, si c’est plus simple pour elle.',
     otherDocsP: 'Généralement fournis par une autre personne de la demande — téléversez seulement si vous les avez.',
     noDocsForYou: 'Aucun document n’est requis de votre part — merci.',
     optional: 'facultatif', uploadedTag: 'Téléversé', uploadBtn: 'Téléverser', replaceBtn: 'Remplacer', uploadingBtn: 'Téléversement…',
@@ -391,6 +400,8 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     sendCode: 'Voye m yon kòd', resendCode: 'Voye kòd ankò', codePlaceholder: 'Kòd 6 chif', verifyBtn: 'Verifye', codeSentTo: 'Kòd voye bay',
     docsH1: 'Dokiman ou yo', docsP: 'Telechaje chak dokiman nan pwòp bwat li.',
     yourDocsH: 'Dokiman ou yo', otherDocsH: 'Lòt dokiman (si w genyen yo)',
+    otherDocsHAgent: 'Dokiman {name}', otherDocsPAgent: 'Ou ka telechaje dokiman sa yo nan non {name} — itil si moun sa a pa alèz fè sa sou entènèt pou tèt li.',
+    noDocsForYouAgent: 'Pa gen anyen ki obligatwa dirèkteman nan men ou — men ou ka telechaje dokiman {name} anba a, nan non li, si sa pi fasil pou li.',
     otherDocsP: 'Anjeneral se yon lòt moun nan aplikasyon an ki bay yo — telechaje sèlman si w genyen yo.',
     noDocsForYou: 'Pa gen dokiman ki obligatwa pou ou — mèsi.',
     optional: 'opsyonèl', uploadedTag: 'Telechaje', uploadBtn: 'Telechaje', replaceBtn: 'Ranplase', uploadingBtn: 'Y ap telechaje…',
@@ -430,6 +441,8 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     sendCode: 'שלחו לי קוד', resendCode: 'שלחו קוד שוב', codePlaceholder: 'קוד בן 6 ספרות', verifyBtn: 'אימות', codeSentTo: 'קוד נשלח אל',
     docsH1: 'המסמכים שלכם', docsP: 'העלו כל מסמך בתיבה משלו.',
     yourDocsH: 'המסמכים שלכם', otherDocsH: 'מסמכים נוספים (אם יש לכם)',
+    otherDocsHAgent: 'המסמכים של {name}', otherDocsPAgent: 'תוכלו להעלות את המסמכים האלה בשם {name} — שימושי אם אותו אדם לא נוח לו לעשות זאת אונליין בעצמו.',
+    noDocsForYouAgent: 'שום דבר לא נדרש ישירות מכם — אבל תוכלו להעלות למטה את המסמכים של {name}, בשמו, אם זה נוח יותר עבורו.',
     otherDocsP: 'בדרך כלל מסופקים על ידי מישהו אחר בבקשה — העלו רק אם יש לכם אותם.',
     noDocsForYou: 'לא נדרשים מכם מסמכים — תודה.',
     optional: 'לא חובה', uploadedTag: 'הועלה', uploadBtn: 'העלאה', replaceBtn: 'החלפה', uploadingBtn: 'מעלה…',
@@ -469,6 +482,8 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     sendCode: 'Отправьте мне код', resendCode: 'Отправить код повторно', codePlaceholder: '6-значный код', verifyBtn: 'Подтвердить', codeSentTo: 'Код отправлен на',
     docsH1: 'Ваши документы', docsP: 'Загрузите каждый документ в свою ячейку.',
     yourDocsH: 'Ваши документы', otherDocsH: 'Другие документы (если они у вас есть)',
+    otherDocsHAgent: 'Документы {name}', otherDocsPAgent: 'Вы можете загрузить эти документы от имени {name} — это удобно, если этому человеку неудобно делать это онлайн самостоятельно.',
+    noDocsForYouAgent: 'От вас лично ничего не требуется — но вы можете загрузить документы {name} ниже, от его/её имени, если так удобнее.',
     otherDocsP: 'Обычно их предоставляет другой участник заявки — загрузите, только если они у вас есть.',
     noDocsForYou: 'От вас документы не требуются — спасибо.',
     optional: 'необязательно', uploadedTag: 'Загружено', uploadBtn: 'Загрузить', replaceBtn: 'Заменить', uploadingBtn: 'Загрузка…',
