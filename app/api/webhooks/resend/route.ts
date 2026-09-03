@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { alertEmailFailure } from '@/lib/gmail'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,6 +23,13 @@ const STATUS_OF: Record<string, string> = {
   'email.opened': 'opened', 'email.clicked': 'clicked', 'email.bounced': 'bounced',
   'email.complained': 'complained', 'email.failed': 'failed',
 }
+// Terminal, genuinely-bad outcomes — NOT delivery_delayed, which is often
+// transient (greylisting, a full mailbox) and can still resolve to
+// delivered. User direction, 2026-09-03: "can we receive an email each time
+// it fails?" — this is the half of that ask for a message Resend DID accept
+// at send time but couldn't actually deliver; lib/gmail.ts's sendEmail()
+// covers the other half (Resend rejecting the request outright).
+const ALERT_STATUSES = new Set(['bounced', 'complained', 'failed'])
 
 /** Svix signature check: HMAC-SHA256 over `${id}.${timestamp}.${body}`. */
 function verify(secret: string, id: string, ts: string, body: string, header: string): boolean {
@@ -64,6 +72,11 @@ export async function POST(req: Request) {
     const cur = (r.delivery_status as string | null) ?? null
     if (cur && (RANK[cur] ?? 0) >= (RANK[status] ?? 0)) continue
     await supabaseAdmin.from('outbound_send_attempts').update({ delivery_status: status }).eq('id', r.id)
+  }
+
+  if (ALERT_STATUSES.has(status)) {
+    const to = Array.isArray(evt.data?.to) ? evt.data.to : (evt.data?.to ? [evt.data.to] : [])
+    void alertEmailFailure({ to, subject: evt.data?.subject ?? '(no subject)', reason: `Resend reported "${status}" for this message after it was accepted at send time.` })
   }
 
   return NextResponse.json({ ok: true, status, matched: (rows ?? []).length })

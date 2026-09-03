@@ -493,6 +493,57 @@ export async function registerGmailWatchWithToken(topicName: string, accessToken
   return res.json() as Promise<{ historyId: string; expiration: string }>
 }
 
+// ── Failure alerts ───────────────────────────────────────────────────────────
+// User direction, 2026-09-03: "can we receive an email each time it fails?"
+// Two distinct failure modes both route through here:
+//  - sendEmail() itself throwing below — Resend/Gmail rejected the request
+//    outright (bad API key, malformed request, provider outage). This never
+//    gets a provider_message_id, so app/api/webhooks/resend/route.ts can
+//    never see it.
+//  - app/api/webhooks/resend/route.ts receiving a later bounced/complained/
+//    failed event for a message Resend DID accept at send time but
+//    couldn't actually deliver.
+// Sent via a DIRECT provider call, never through sendEmail() itself — that
+// would recurse back into this same failure path during a real outage.
+// Throttled to at most one alert per ALERT_COOLDOWN_MS so a burst (e.g. a
+// full Resend outage, or one bad mailing list) doesn't flood staff with one
+// email per failed send.
+const ALERT_TO = (process.env.MAIA_SEND_FAILURE_ALERT_EMAILS ?? 'PMI@topfloridaproperties.com')
+  .split(',').map(s => s.trim()).filter(Boolean)
+const ALERT_COOLDOWN_MS = Number(process.env.MAIA_SEND_FAILURE_ALERT_COOLDOWN_MS ?? 10 * 60_000)
+let lastAlertAt = 0
+
+export async function alertEmailFailure(opts: { to: string[] | string; subject: string; reason: string }): Promise<void> {
+  if (!ALERT_TO.length) return
+  const now = Date.now()
+  if (now - lastAlertAt < ALERT_COOLDOWN_MS) return
+  lastAlertAt = now
+
+  const to = Array.isArray(opts.to) ? opts.to.join(', ') : opts.to
+  const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6">
+    <p style="color:#b91c1c;font-weight:700;margin:0 0 10px">⚠️ A MAIA email failed to send.</p>
+    <p style="margin:0 0 6px"><b>To:</b> ${to}</p>
+    <p style="margin:0 0 10px"><b>Subject:</b> ${opts.subject}</p>
+    <p style="font-family:ui-monospace,monospace;font-size:12.5px;background:#fef2f2;color:#7f1d1d;padding:10px 12px;border-radius:8px;white-space:pre-wrap;margin:0">${opts.reason}</p>
+    <p style="color:#9ca3af;font-size:12px;margin:14px 0 0">Further failures in the next ${Math.round(ALERT_COOLDOWN_MS / 60000)} minutes won't send another alert.</p>
+  </div>`
+  const alertSubject = `⚠️ MAIA email failed — ${opts.subject}`.slice(0, 200)
+
+  // Resend first (if configured), then Gmail OAuth as a genuinely different
+  // network path — so a Resend-specific outage still reaches someone.
+  try {
+    if (process.env.RESEND_API_KEY) {
+      await sendViaResend({ to: ALERT_TO, subject: alertSubject, html, text: htmlToPlainText(html) })
+      return
+    }
+  } catch (err) { console.error('[alertEmailFailure] Resend alert send also failed:', err) }
+  try {
+    await sendViaGmail({ to: ALERT_TO, subject: alertSubject, html })
+  } catch (err) {
+    console.error('[alertEmailFailure] Gmail fallback alert send also failed — giving up, logged only:', err)
+  }
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export interface SendEmailResult {
@@ -549,13 +600,25 @@ export async function sendEmail({
   // and Yahoo in particular junks HTML-only transactional mail from newer domains.
   const textBody = text ?? htmlToPlainText(body)
 
-  if (process.env.RESEND_API_KEY) {
-    messageId = await sendViaResend({ to: addresses, cc: ccAddresses, bcc: bccAddresses, subject, html: body, text: textBody, replyTo, headers, attachments })
-  } else {
-    // Gmail fallback has no separate CC/BCC header here — fold CC into recipients.
-    // BCC is intentionally NOT folded in (it would make staff visible to the
-    // recipient, defeating the point); the fallback simply omits the blind copy.
-    await sendViaGmail({ to: [...addresses, ...ccAddresses], subject, html: body })
+  try {
+    if (process.env.RESEND_API_KEY) {
+      messageId = await sendViaResend({ to: addresses, cc: ccAddresses, bcc: bccAddresses, subject, html: body, text: textBody, replyTo, headers, attachments })
+    } else {
+      // Gmail fallback has no separate CC/BCC header here — fold CC into recipients.
+      // BCC is intentionally NOT folded in (it would make staff visible to the
+      // recipient, defeating the point); the fallback simply omits the blind copy.
+      await sendViaGmail({ to: [...addresses, ...ccAddresses], subject, html: body })
+    }
+  } catch (err) {
+    // Most callers do `.catch(() => null)` on sendEmail() for their own
+    // control flow — without this, a failed send vanished with no trace
+    // anywhere a human would see it. Recorded AND alerted, then re-thrown
+    // so existing caller behavior is unchanged.
+    const reason = err instanceof Error ? err.message : String(err)
+    console.error(`[sendEmail] send failed to ${addresses.join(', ')}: ${reason}`)
+    await recordOutboundAttempt({ toEmails: addresses, subject, error: reason })
+    void alertEmailFailure({ to: addresses, subject, reason })
+    throw err
   }
 
   // Record AFTER successful provider call so the counter reflects what
