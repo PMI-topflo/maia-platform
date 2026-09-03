@@ -2154,51 +2154,64 @@ interface Comm { type: 'document_request' | 'approval_letter' | 'approval_sent' 
   byRole?: string; docKey?: string; decision?: string; reason?: string | null; id: string; at: string; by?: string | null; ownerEmail?: string | null; tenantEmail?: string | null; ownerItems?: string[]; tenantItems?: string[]; message?: string | null; ownerNote?: string | null; tenantNote?: string | null; signers?: string[]; recipients?: string[]; subject?: string | null; body?: string; fromEmail?: string | null; fromName?: string | null; toEmails?: string[]; ccEmails?: string[]; attachmentNames?: string[] }
 function CommunicationsLog({ id, unit, associationCode }: { id: string; unit: string | null; associationCode: string }) {
   const [rows, setRows] = useState<Comm[] | null>(null)
+  // Collapsed by default -- staff report, 2026-09-03: on a long-running
+  // application this section grows to dozens of entries and pushes
+  // everything below it off screen. Loaded regardless of open/closed so the
+  // header can still show a count.
+  const [open, setOpen] = useState(false)
   useEffect(() => { fetch(`/api/admin/pre-apply/${id}/communications`, { credentials: 'include' }).then(r => r.json()).then(d => setRows(d.communications ?? [])).catch(() => setRows([])) }, [id])
   if (!rows) return null
   const cmd = `@maia upapp ${associationCode}${unit ?? ''}`
-  // The section used to render nothing at all until the first request went
-  // out, which made staff think it didn't exist. It now always shows, and
-  // when it's empty it explains how to put something in it.
   return (
     <div style={{ margin: '4px 0 14px' }}>
-      <div style={{ font: '700 11px system-ui', letterSpacing: '.06em', textTransform: 'uppercase', color: '#6b7280', margin: '0 0 6px' }}>Communication history</div>
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, background: '#f9fafb', padding: '8px 11px', marginBottom: 8, font: '12px system-ui', color: '#4b5563' }}>
-        📨 Forward any email with the board, tenants or agents to <strong>maia@pmitop.com</strong> with <code style={{ background: '#eef2ff', color: '#3730a3', padding: '1px 6px', borderRadius: 4, font: '600 11.5px ui-monospace,monospace' }}>{cmd}</code> in the body and MAIA files it here, with its date.
-      </div>
-      {rows.length === 0 && <div style={{ font: '12.5px system-ui', color: '#9ca3af', padding: '2px 2px 6px' }}>Nothing filed yet — document requests, the signed approval letter, and any email you forward will appear here.</div>}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {rows.map(c => c.type === 'document_decision' ? (
-          <div key={c.id} style={{ border: `1px solid ${c.decision === 'approved' ? '#bbf7d0' : '#f3c9c3'}`, borderRadius: 8, padding: '9px 12px', background: c.decision === 'approved' ? '#f0fdf4' : '#fdf2f0', fontSize: 12.5 }}>
-            <div style={{ color: c.decision === 'approved' ? '#166534' : '#b42318', fontWeight: 600 }}>
-              {c.decision === 'approved' ? '🟢' : '🔴'} {c.docKey} {c.decision === 'approved' ? 'approved' : 'sent back'} by {c.by} · {fmt(c.at)}
-            </div>
-            {c.reason && <div style={{ marginTop: 4, color: '#1f2937', borderLeft: '3px solid #b42318', paddingLeft: 8 }}>“{c.reason}”</div>}
+      <button onClick={() => setOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', background: 'none', border: 'none', padding: 0, margin: '0 0 6px', cursor: 'pointer', textAlign: 'left' }}>
+        <span style={{ font: '700 11px system-ui', letterSpacing: '.06em', textTransform: 'uppercase', color: '#6b7280' }}>Communication history{rows.length > 0 ? ` (${rows.length})` : ''}</span>
+        <span style={{ font: '600 11px system-ui', color: '#2563eb' }}>{open ? '▲ Hide' : '▼ Show'}</span>
+      </button>
+      {open && (
+        <>
+          {/* The section used to render nothing at all until the first request
+              went out, which made staff think it didn't exist. It now always
+              shows once expanded, and when it's empty it explains how to put
+              something in it. */}
+          <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, background: '#f9fafb', padding: '8px 11px', marginBottom: 8, font: '12px system-ui', color: '#4b5563' }}>
+            📨 Forward any email with the board, tenants or agents to <strong>maia@pmitop.com</strong> with <code style={{ background: '#eef2ff', color: '#3730a3', padding: '1px 6px', borderRadius: 4, font: '600 11.5px ui-monospace,monospace' }}>{cmd}</code> in the body and MAIA files it here, with its date.
           </div>
-        ) : c.type === 'filed_email' ? (
-          <FiledEmailRow key={c.id} c={c} />
-        ) : c.type === 'approval_sent' ? (
-          <div key={c.id} style={{ border: '1px solid #bfdbfe', borderRadius: 8, padding: '9px 12px', background: '#eff6ff', fontSize: 12.5 }}>
-            <div style={{ color: '#1e40af', fontWeight: 600 }}>📤 Approval letter emailed to all parties · {fmt(c.at)}</div>
-            {c.recipients && c.recipients.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}>{c.recipients.join(' · ')}</div>}
+          {rows.length === 0 && <div style={{ font: '12.5px system-ui', color: '#9ca3af', padding: '2px 2px 6px' }}>Nothing filed yet — document requests, the signed approval letter, and any email you forward will appear here.</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {rows.map(c => c.type === 'document_decision' ? (
+              <div key={c.id} style={{ border: `1px solid ${c.decision === 'approved' ? '#bbf7d0' : '#f3c9c3'}`, borderRadius: 8, padding: '9px 12px', background: c.decision === 'approved' ? '#f0fdf4' : '#fdf2f0', fontSize: 12.5 }}>
+                <div style={{ color: c.decision === 'approved' ? '#166534' : '#b42318', fontWeight: 600 }}>
+                  {c.decision === 'approved' ? '🟢' : '🔴'} {c.docKey} {c.decision === 'approved' ? 'approved' : 'sent back'} by {c.by} · {fmt(c.at)}
+                </div>
+                {c.reason && <div style={{ marginTop: 4, color: '#1f2937', borderLeft: '3px solid #b42318', paddingLeft: 8 }}>“{c.reason}”</div>}
+              </div>
+            ) : c.type === 'filed_email' ? (
+              <FiledEmailRow key={c.id} c={c} />
+            ) : c.type === 'approval_sent' ? (
+              <div key={c.id} style={{ border: '1px solid #bfdbfe', borderRadius: 8, padding: '9px 12px', background: '#eff6ff', fontSize: 12.5 }}>
+                <div style={{ color: '#1e40af', fontWeight: 600 }}>📤 Approval letter emailed to all parties · {fmt(c.at)}</div>
+                {c.recipients && c.recipients.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}>{c.recipients.join(' · ')}</div>}
+              </div>
+            ) : c.type === 'approval_letter' ? (
+              <div key={c.id} style={{ border: '1px solid #bbf7d0', borderRadius: 8, padding: '9px 12px', background: '#f0fdf4', fontSize: 12.5 }}>
+                <div style={{ color: '#166534', fontWeight: 600 }}>🏛 Board approval letter signed · {fmt(c.at)}</div>
+                {c.signers && c.signers.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}>Signed by: {c.signers.join(', ')}</div>}
+              </div>
+            ) : (
+              <div key={c.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '9px 12px', background: '#fff', fontSize: 12.5 }}>
+                <div style={{ color: '#9ca3af' }}>📩 Documents requested · {fmt(c.at)}{c.by ? ` · ${c.by.replace(/^staff:/, '')}` : ''}</div>
+                {c.ownerItems && c.ownerItems.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}><strong>To owner</strong>{c.ownerEmail ? ` (${c.ownerEmail})` : ''}: {c.ownerItems.join(', ')}</div>}
+                {c.tenantItems && c.tenantItems.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}><strong>To tenant</strong>{c.tenantEmail ? ` (${c.tenantEmail})` : ''}: {c.tenantItems.join(', ')}</div>}
+                {c.message && <div style={{ color: '#6b7280', marginTop: 3, fontStyle: 'italic' }}>Note: {c.message}</div>}
+                {c.ownerNote && <div style={{ marginTop: 4, color: '#1f2937', borderLeft: '3px solid #c05a1c', paddingLeft: 8 }}>💬 Owner replied: {c.ownerNote}</div>}
+                {c.tenantNote && <div style={{ marginTop: 4, color: '#1f2937', borderLeft: '3px solid #c05a1c', paddingLeft: 8 }}>💬 Tenant replied: {c.tenantNote}</div>}
+                <ResendRequest id={id} requestId={c.id} />
+              </div>
+            ))}
           </div>
-        ) : c.type === 'approval_letter' ? (
-          <div key={c.id} style={{ border: '1px solid #bbf7d0', borderRadius: 8, padding: '9px 12px', background: '#f0fdf4', fontSize: 12.5 }}>
-            <div style={{ color: '#166534', fontWeight: 600 }}>🏛 Board approval letter signed · {fmt(c.at)}</div>
-            {c.signers && c.signers.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}>Signed by: {c.signers.join(', ')}</div>}
-          </div>
-        ) : (
-          <div key={c.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '9px 12px', background: '#fff', fontSize: 12.5 }}>
-            <div style={{ color: '#9ca3af' }}>📩 Documents requested · {fmt(c.at)}{c.by ? ` · ${c.by.replace(/^staff:/, '')}` : ''}</div>
-            {c.ownerItems && c.ownerItems.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}><strong>To owner</strong>{c.ownerEmail ? ` (${c.ownerEmail})` : ''}: {c.ownerItems.join(', ')}</div>}
-            {c.tenantItems && c.tenantItems.length > 0 && <div style={{ color: '#374151', marginTop: 3 }}><strong>To tenant</strong>{c.tenantEmail ? ` (${c.tenantEmail})` : ''}: {c.tenantItems.join(', ')}</div>}
-            {c.message && <div style={{ color: '#6b7280', marginTop: 3, fontStyle: 'italic' }}>Note: {c.message}</div>}
-            {c.ownerNote && <div style={{ marginTop: 4, color: '#1f2937', borderLeft: '3px solid #c05a1c', paddingLeft: 8 }}>💬 Owner replied: {c.ownerNote}</div>}
-            {c.tenantNote && <div style={{ marginTop: 4, color: '#1f2937', borderLeft: '3px solid #c05a1c', paddingLeft: 8 }}>💬 Tenant replied: {c.tenantNote}</div>}
-            <ResendRequest id={id} requestId={c.id} />
-          </div>
-        ))}
-      </div>
+        </>
+      )}
     </div>
   )
 }

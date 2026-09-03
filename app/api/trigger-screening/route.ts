@@ -12,6 +12,9 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { screening } from '@/lib/screening'
 import { computeAggregateStatus } from '@/lib/screening/aggregate'
 import type { ScreeningProperty } from '@/lib/screening/types'
+import { sendEmail } from '@/lib/gmail'
+
+const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get('x-internal-secret')
@@ -96,6 +99,29 @@ export async function POST(req: NextRequest) {
       }, { onConflict: 'application_id,subject_index' })
       if (upErr) throw new Error(`screening_subjects upsert: ${upErr.message}`)
       return orderId
+    }),
+  )
+
+  // Staff asked, 2026-09-03, after having no idea what an applicant actually
+  // received: Checkr sends its own consent-link email directly (no MAIA
+  // template involved -- see this file's header) the moment an order is
+  // created above, so this is a heads-up ahead of it, not a duplicate. Only
+  // for subjects whose order actually succeeded and who have an email on
+  // file; failures here never fail the request -- the order itself already
+  // succeeded.
+  await Promise.allSettled(
+    subjects.map((s, i) => {
+      if (results[i].status !== 'fulfilled' || !s.email) return Promise.resolve()
+      const unitLine = property.unit ? ` (Unit ${property.unit})` : ''
+      return sendEmail({
+        to: s.email,
+        subject: `Next step: complete your background check — ${assocRow.association_name}`,
+        html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6;max-width:520px;margin:0 auto">
+          <p>Hi${s.name ? ` ${esc(s.name)}` : ''},</p>
+          <p>Your background/credit check for <strong>${esc(String(assocRow.association_name))}</strong>${esc(unitLine)} has started. You'll get a <strong>separate email directly from Checkr</strong> within a few minutes with a secure link to complete a short consent step — that email doesn't come from us, so please check your spam folder if you don't see it.</p>
+          <p>Your application can't move forward until that step is complete, so please take care of it as soon as you can.</p>
+        </div>`,
+      }).catch(() => null)
     }),
   )
 
