@@ -760,7 +760,7 @@ function TenantEvalSender({ id }: { id: string }) {
 // or address-scoped for this — user direction, 2026-09-03), unlike Tenant
 // Evaluation this needs no per-association guide/property-code setup.
 function RentvineFallbackSender({ id }: { id: string }) {
-  interface Info { recipients: { name: string | null; email: string | null }[]; skipped: string[]; blockers: string[] }
+  interface Info { url: string; recipients: { name: string | null; email: string | null }[]; skipped: string[]; blockers: string[] }
   const [info, setInfo] = useState<Info | null>(null)
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState<{ sent: string[]; failed: string[] } | null>(null)
@@ -780,12 +780,16 @@ function RentvineFallbackSender({ id }: { id: string }) {
   return (
     <div style={{ margin: '4px 0 14px', border: '1px solid #e5e7eb', background: '#f9fafb', borderRadius: 10, padding: 12 }}>
       <div style={{ font: '700 13px system-ui', color: '#374151', marginBottom: 4 }}>🔗 Background check <span style={{ font: '400 11.5px system-ui', color: '#9ca3af' }}>· Rentvine fallback, if Checkr has an issue</span></div>
+      <div style={{ font: '12.5px system-ui', color: '#4b5563', marginBottom: 8 }}>
+        For your own use only — this is PMI&apos;s generic Rentvine application, not sent to the applicant automatically:{' '}
+        <a href={info.url} target="_blank" rel="noreferrer" style={{ color: '#4b5563', wordBreak: 'break-all' }}>{info.url}</a>
+      </div>
       {info.blockers.length > 0 && !info.recipients.length ? (
         <div style={{ font: '12.5px system-ui', color: '#92400e' }}>{info.blockers.map((b, i) => <div key={i}>⚠ {b}</div>)}</div>
       ) : (
         <>
           <div style={{ font: '12.5px system-ui', color: '#4b5563', marginBottom: 8 }}>
-            Emails {info.recipients.map(r => r.name ?? r.email).join(', ')} a link to PMI&apos;s Rentvine application to complete their background check there instead.
+            Or email {info.recipients.map(r => r.name ?? r.email).join(', ')} this same link to complete their background check there instead.
             {info.skipped.length > 0 && <> Not sent to {info.skipped.join(', ')} — no email on file.</>}
           </div>
           <button onClick={send} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#4b5563', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>

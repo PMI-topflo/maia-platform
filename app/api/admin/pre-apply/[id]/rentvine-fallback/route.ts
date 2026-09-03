@@ -44,6 +44,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   else if (withEmail.length === 0) blockers.push('None of the applicants have an email on file yet.')
 
   return NextResponse.json({
+    url: RENTVINE_APPLY_URL,
     recipients: withEmail.map(a => ({ name: a.name, email: a.email })),
     skipped: c.applicants.filter(a => !a.email).map(a => a.name ?? 'unnamed applicant'),
     blockers,
