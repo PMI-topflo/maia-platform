@@ -211,6 +211,21 @@ export interface IntakeApplicant { name: string; email?: string | null; phone?: 
 
 export interface CreatedIntake { applicationId: string; listingId: string; stakeholderId: string }
 
+/** Which screening provider an application actually uses. Applications
+ *  snapshot the association's screening_provider onto themselves AT
+ *  CREATION (see createIntake below), so flipping an association's setting
+ *  later only ever affects applications started after the flip -- one
+ *  already in flight keeps whatever was in effect when it started. NULL
+ *  (a row from before this column existed) means tenant_evaluation, full
+ *  stop -- never a live associations lookup, since every real application
+ *  before 2026-09-03 ran on tenant_evaluation (Checkr was never live
+ *  before then). Every caller that needs "what provider is THIS
+ *  application on" should go through this, not read associations.screening_provider
+ *  directly. */
+export function resolveScreeningProvider(raw: string | null | undefined): 'tenant_evaluation' | 'maia_checkr' {
+  return raw === 'maia_checkr' ? 'maia_checkr' : 'tenant_evaluation'
+}
+
 /** Create a new intake: listing + application + the lead stakeholder (the
  *  person who opened the link, in their chosen role). */
 export async function createIntake(input: {
@@ -223,9 +238,15 @@ export async function createIntake(input: {
   }).select('id').single()
   if (le || !listing) return { error: `Could not start: ${le?.message ?? 'unknown'}` }
 
+  // Snapshot the association's CURRENT screening provider onto this
+  // application right now -- see resolveScreeningProvider's doc comment.
+  const { data: assocRow } = await supabaseAdmin.from('associations').select('screening_provider').eq('association_code', assoc).maybeSingle()
+  const screeningProvider = resolveScreeningProvider(assocRow?.screening_provider as string | null)
+
   const { data: app, error: ae } = await supabaseAdmin.from('listing_applications').insert({
     listing_id: listing.id, status: 'started', application_type: input.type, applicant_role: input.role,
     association_code: assoc, unit_label: input.unitLabel, created_by_role: input.role,
+    screening_provider: screeningProvider,
   }).select('id').single()
   if (ae || !app) return { error: `Could not start: ${ae?.message ?? 'unknown'}` }
 

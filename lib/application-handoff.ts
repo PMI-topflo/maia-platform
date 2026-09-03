@@ -16,6 +16,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
+import { resolveScreeningProvider } from '@/lib/preapply'
 
 const HANDOFF_NOTIFY = (process.env.UNIT_UPLOAD_NOTIFY_EMAILS ?? 'PMI@topfloridaproperties.com,ar@topfloridaproperties.com')
   .split(',').map(s => s.trim()).filter(Boolean)
@@ -24,13 +25,13 @@ const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;',
 
 export async function handoffOnApproval(applicationId: string, byRole: string): Promise<void> {
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('association_code, application_type, unit_label, drive_folder_url, detailed_application_id').eq('id', applicationId).maybeSingle()
+    .select('association_code, application_type, unit_label, drive_folder_url, detailed_application_id, screening_provider').eq('id', applicationId).maybeSingle()
   if (!app) return
-  const [{ data: assoc }, { data: sh }] = await Promise.all([
-    supabaseAdmin.from('associations').select('screening_provider, association_name').eq('association_code', String(app.association_code)).maybeSingle(),
-    supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', applicationId).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
-  ])
-  const provider = (assoc?.screening_provider as string | null) ?? 'tenant_evaluation'
+  const { data: sh } = await supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', applicationId).eq('role', 'applicant').eq('is_primary', true).maybeSingle()
+  // The application's OWN snapshotted provider, not associations.screening_provider
+  // live -- an application already in flight when the association flips must
+  // keep the provider it started under. See lib/preapply.ts's resolveScreeningProvider.
+  const provider = resolveScreeningProvider(app.screening_provider as string | null)
 
   if (provider === 'maia_checkr') {
     // Trigger MAIA's Checkr pipeline only when a detailed application is linked.
