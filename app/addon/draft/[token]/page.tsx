@@ -8,6 +8,11 @@
 
 import { use, useEffect, useState } from 'react'
 
+// Font the draft is pasted with — kept in sync with Code.gs's
+// onComposeInsertDraft wrapper so "copy to clipboard" here and "Insert Maia
+// draft" in Gmail produce the same look.
+const DRAFT_FONT_STYLE = 'font-family: Verdana, Geneva, sans-serif; font-size: 14px; line-height: 1.5;'
+
 export default function DraftView({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
   const [text, setText] = useState<string | null>(null)
@@ -21,13 +26,31 @@ export default function DraftView({ params }: { params: Promise<{ token: string 
 
   async function copy() {
     if (!text) return
+    // Copy as rich text (not just plain text) so the font carries over when
+    // pasted into Gmail's compose box — a plain-text clipboard write has no
+    // font to carry, it just inherits whatever Gmail's editor happens to be
+    // set to. Mirrors the font Code.gs's "Insert Maia draft" path applies.
     try {
-      await navigator.clipboard.writeText(text)
+      const html = `<div style="${DRAFT_FONT_STYLE}">${text.replace(/\n/g, '<br>')}</div>`
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+          'text/html': new Blob([html], { type: 'text/html' }),
+        }),
+      ])
       setCopied(true)
       setTimeout(() => setCopied(false), 1800)
     } catch {
-      // Clipboard API blocked (rare, non-HTTPS or permission denied) —
-      // the textarea below is still there to select and copy by hand.
+      // Rich-text clipboard write unsupported or blocked — plain text still
+      // gets the content across, just without the font.
+      try {
+        await navigator.clipboard.writeText(text)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1800)
+      } catch {
+        // Clipboard API blocked entirely — the textarea is still there to
+        // select and copy by hand.
+      }
     }
   }
 

@@ -84,7 +84,7 @@ export async function POST(req: Request) {
     '',
     `Thank you for reaching out about the ${TYPE_WORD[type] ?? type} application${unitLine} at ${assocName}.`,
     '',
-    'Everything is self-service through our secure application portal — no PDF to fill out or fax. Please open the link below and follow the steps: confirm the unit, upload the required documents, sign the association acknowledgment, and pay the one-time application fee, which also covers the background/credit/eviction check.',
+    'Everything is self-service through our secure application portal. Please open the link below and follow the steps: confirm the unit, upload the required documents, sign the association acknowledgment, and pay the one-time application fee, which also covers the background/credit/eviction check.',
     '',
     url,
     '',

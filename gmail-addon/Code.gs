@@ -858,9 +858,14 @@ function lookupUnitAction(e) {
 function onComposeInsertDraft(e) {
   var threadId = e.gmail && e.gmail.threadId ? e.gmail.threadId : '';
   var draft = CacheService.getUserCache().get('draft_' + threadId) || '';
+  // Wrapped in the same font as the draft copy-page's clipboard write
+  // (app/addon/draft/[token]/page.tsx's DRAFT_FONT_STYLE) so both ways of
+  // getting a draft into Gmail look the same.
+  var html = '<div style="font-family: Verdana, Geneva, sans-serif; font-size: 14px; line-height: 1.5;">' +
+    draft.replace(/\n/g, '<br>') + '</div>';
   return CardService.newUpdateDraftActionResponseBuilder()
     .setUpdateDraftBodyAction(CardService.newUpdateDraftBodyAction()
-      .addUpdateContent(draft.replace(/\n/g, '<br>'), CardService.ContentType.MUTABLE_HTML)
+      .addUpdateContent(html, CardService.ContentType.MUTABLE_HTML)
       .setUpdateType(CardService.UpdateDraftBodyType.IN_PLACE_INSERT))
     .build();
 }
