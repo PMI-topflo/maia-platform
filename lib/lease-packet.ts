@@ -276,8 +276,32 @@ export async function recordLeaseSignature(
   const { error } = await supabaseAdmin.from('lease_packets').update(patch).eq('id', id)
   if (error) return { ok: false, error: `Could not save your signature: ${error.message}` }
 
-  if (bothSigned) { await fileAgreementCompliance(p); await mirrorAgreementToOnGoing(p) }
+  // p was fetched BEFORE this signature was recorded, so on the completing
+  // signature (bothSigned) it's still missing the signer's own
+  // signed_at/sig_image — rendering the filed PDF from it showed that party
+  // as "Awaiting electronic signature" even though they'd just signed. Merge
+  // this signature's own patch in before rendering/filing.
+  if (bothSigned) {
+    const signedP: LeasePacketRow = { ...p, ...patch } as LeasePacketRow
+    await fileAgreementCompliance(signedP)
+    await mirrorAgreementToOnGoing(signedP)
+  }
   return { ok: true, status, bothSigned }
+}
+
+/** Re-render and re-file the Agreement PDF from the packet's CURRENT
+ *  (fresh) signature state. Staff-facing recovery for any packet completed
+ *  before the stale-snapshot bug above was fixed (2026-09-03) — those
+ *  filed a PDF missing whichever party signed second, even though both
+ *  signatures were correctly recorded. Safe to call on an already-correct
+ *  packet too: mirrorAgreementToOnGoing replaces the filed document. */
+export async function refileAgreement(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const p = await getLeasePacket(id)
+  if (!p) return { ok: false, error: 'Lease packet not found.' }
+  if (p.status !== 'completed') return { ok: false, error: 'Both parties must sign before the Agreement can be filed.' }
+  await fileAgreementCompliance(p)
+  await mirrorAgreementToOnGoing(p)
+  return { ok: true }
 }
 
 // #3(b): when both sign, render the Agreement PDF and file it into the unit's
