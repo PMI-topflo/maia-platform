@@ -34,6 +34,11 @@ import { detectApplicationGuideTrigger, replyWithApplicationGuide } from '@/lib/
 
 const ALLOWED_DOMAINS = ['@topfloridaproperties.com', '@pmitop.com', '@mypmitop.com']
 
+// Reply-To for MAIA's own confirmation emails — a monitored inbox, not
+// maia@pmitop.com itself. Matches lib/document-request-email.ts, lib/board-
+// review-email.ts and the other renderMaiaEmail() senders' own SUPPORT const.
+const SUPPORT_EMAIL = 'support@topfloridaproperties.com'
+
 const TRIGGER_PHRASES = [
   '@maia please add to the database',
   '@maia add new owner',
@@ -2489,6 +2494,7 @@ export async function processEmailCommand(messageId: string): Promise<void> {
         console.log(`[MAIA] upapp ${appRef.associationCode}${appRef.unitLabel ?? ''} → ok=${result.ok} reason=${result.reason ?? '—'} dup=${!!result.duplicate}`)
         await sendEmail({
           to: parsed.senderEmail,
+          replyTo: SUPPORT_EMAIL,
           subject: parsed.subject.startsWith('Re:') ? parsed.subject : `Re: ${parsed.subject}`,
           html: buildLogReplyHtml(result, appRef, parsed.subject),
           ...(parsed.rfcMessageId && { headers: { 'In-Reply-To': parsed.rfcMessageId, References: parsed.rfcMessageId } }),
