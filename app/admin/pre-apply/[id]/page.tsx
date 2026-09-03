@@ -2198,6 +2198,7 @@ function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, 
 }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [reminded, setReminded] = useState<Record<string, string>>({})
 
   async function set(body: { vehicle?: boolean; animal?: boolean; animalKind?: string; taxReturns?: boolean }) {
     setBusy(JSON.stringify(body)); setErr(null)
@@ -2207,6 +2208,19 @@ function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, 
       onDone()
     } catch (e) { setErr((e as Error).message) } finally { setBusy(null) }
   }
+
+  // These Yes/No buttons above are a staff OVERRIDE -- they answer FOR the
+  // applicant. This asks HER to answer, on her own pre-apply page (the only
+  // place the question actually lives) -- there was no way to do that before.
+  async function remind(key: 'vehicle' | 'animal' | 'taxReturns') {
+    setBusy(`remind-${key}`); setErr(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/remind-declaration`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setReminded(m => ({ ...m, [key]: 'Reminder sent ✓' }))
+    } catch (e) { setReminded(m => ({ ...m, [key]: (e as Error).message })) } finally { setBusy(null) }
+  }
+  const remindBtn: React.CSSProperties = { font: '600 11px system-ui', color: '#2563eb', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }
 
   const yn: React.CSSProperties = { font: '600 12px system-ui', padding: '5px 12px', borderRadius: 7, border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer' }
   const ynOn = (c: string): React.CSSProperties => ({ ...yn, background: c, borderColor: c, color: '#fff' })
@@ -2219,14 +2233,28 @@ function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, 
         <span style={{ font: '13.5px system-ui', color: '#374151', width: 220 }}>🚗 Vehicle kept at the unit?</span>
         <button style={declarations.vehicle?.has === true ? ynOn('#166534') : yn} disabled={!!busy} onClick={() => set({ vehicle: true })}>Yes</button>
         <button style={declarations.vehicle?.has === false ? ynOn('#6b7280') : yn} disabled={!!busy} onClick={() => set({ vehicle: false })}>No</button>
-        {typeof declarations.vehicle?.has !== 'boolean' && <span style={{ font: '12px system-ui', color: '#b45309' }}>not answered yet</span>}
+        {typeof declarations.vehicle?.has !== 'boolean' && (
+          <span style={{ font: '12px system-ui', color: '#b45309', display: 'flex', gap: 8, alignItems: 'center' }}>
+            not answered yet
+            {reminded.vehicle
+              ? <span style={{ color: reminded.vehicle.startsWith('Reminder') ? '#166534' : '#b91c1c' }}>{reminded.vehicle}</span>
+              : <button style={remindBtn} disabled={!!busy} onClick={() => remind('vehicle')}>✉ Ask her to answer</button>}
+          </span>
+        )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0' }}>
         <span style={{ font: '13.5px system-ui', color: '#374151', width: 220 }}>🐾 Pet / service / support animal?</span>
         <button style={declarations.animal?.has === true ? ynOn('#166534') : yn} disabled={!!busy} onClick={() => set({ animal: true, animalKind: declarations.animal?.kind ?? 'pet' })}>Yes</button>
         <button style={declarations.animal?.has === false ? ynOn('#6b7280') : yn} disabled={!!busy} onClick={() => set({ animal: false })}>No</button>
-        {typeof declarations.animal?.has !== 'boolean' && <span style={{ font: '12px system-ui', color: '#b45309' }}>not answered yet</span>}
+        {typeof declarations.animal?.has !== 'boolean' && (
+          <span style={{ font: '12px system-ui', color: '#b45309', display: 'flex', gap: 8, alignItems: 'center' }}>
+            not answered yet
+            {reminded.animal
+              ? <span style={{ color: reminded.animal.startsWith('Reminder') ? '#166534' : '#b91c1c' }}>{reminded.animal}</span>
+              : <button style={remindBtn} disabled={!!busy} onClick={() => remind('animal')}>✉ Ask her to answer</button>}
+          </span>
+        )}
       </div>
 
       {declarations.animal?.has && (
@@ -2243,7 +2271,14 @@ function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, 
           <span style={{ font: '13.5px system-ui', color: '#374151', width: 220 }}>🌎 2 years of U.S. tax returns?</span>
           <button style={declarations.taxReturns?.has === true ? ynOn('#166534') : yn} disabled={!!busy} onClick={() => set({ taxReturns: true })}>Yes</button>
           <button style={declarations.taxReturns?.has === false ? ynOn('#6b7280') : yn} disabled={!!busy} onClick={() => set({ taxReturns: false })}>No</button>
-          {typeof declarations.taxReturns?.has !== 'boolean' && <span style={{ font: '12px system-ui', color: '#b45309' }}>not answered yet</span>}
+          {typeof declarations.taxReturns?.has !== 'boolean' && (
+            <span style={{ font: '12px system-ui', color: '#b45309', display: 'flex', gap: 8, alignItems: 'center' }}>
+              not answered yet
+              {reminded.taxReturns
+                ? <span style={{ color: reminded.taxReturns.startsWith('Reminder') ? '#166534' : '#b91c1c' }}>{reminded.taxReturns}</span>
+                : <button style={remindBtn} disabled={!!busy} onClick={() => remind('taxReturns')}>✉ Ask her to answer</button>}
+            </span>
+          )}
         </div>
       )}
       {err && <p style={{ font: '12.5px system-ui', color: '#b91c1c', margin: '6px 0 0' }}>⚠ {err}</p>}
