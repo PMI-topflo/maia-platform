@@ -8,8 +8,9 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getIntake, resolveToken, addStakeholders, listStakeholders, markStakeholderNotified, roleLabel, isStakeholderRole, type StakeholderRole } from '@/lib/preapply'
 import { signPreApplyToken } from '@/lib/preapply-token'
-import { maskEmail } from '@/lib/esign-verify'
+import { maskEmail, maskPhone } from '@/lib/esign-verify'
 import { sendEmail } from '@/lib/gmail'
+import { sendSMS } from '@/lib/twilio-send'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -23,7 +24,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   if (!r) return NextResponse.json({ error: 'This link has expired or is invalid.' }, { status: 401 })
   const rows = await listStakeholders(r.applicationId)
   return NextResponse.json({
-    collaborators: rows.map(s => ({ id: s.id, name: s.name, email: maskEmail(s.email), role: s.role, roleLabel: roleLabel(s.role), isPrimary: s.isPrimary, status: s.status, signs: s.signs })),
+    collaborators: rows.map(s => ({ id: s.id, name: s.name, email: s.email ? maskEmail(s.email) : maskPhone(s.phone), role: s.role, roleLabel: roleLabel(s.role), isPrimary: s.isPrimary, status: s.status, signs: s.signs })),
   })
 }
 
@@ -43,11 +44,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   let b: { collaborators?: { name?: string; email?: string; phone?: string; role?: string }[] }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
   const raw = Array.isArray(b.collaborators) ? b.collaborators : []
+  // Email OR phone -- a collaborator with no email (the "no tech" case, user
+  // direction 2026-09-03) still gets a real invite, just by SMS instead.
   const people = raw
     .map(p => ({ name: String(p.name ?? '').trim(), email: String(p.email ?? '').trim(), phone: String(p.phone ?? '').trim() || null, role: String(p.role ?? '').trim() }))
-    .filter(p => p.name && p.email.includes('@') && isStakeholderRole(p.role))
+    .filter(p => p.name && (p.email.includes('@') || p.phone) && isStakeholderRole(p.role))
     .map(p => ({ ...p, role: p.role as StakeholderRole }))
-  if (people.length === 0) return NextResponse.json({ error: 'Add at least one person with a name, valid email, and role.' }, { status: 400 })
+  if (people.length === 0) return NextResponse.json({ error: 'Add at least one person with a name, an email or phone, and a role.' }, { status: 400 })
 
   const created = await addStakeholders(r.applicationId, people, r.stakeholder.role)
 
@@ -57,25 +60,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const leadName = r.stakeholder.name || 'The applicant'
 
   await Promise.all(created.map(async s => {
-    if (!s.email) return
+    if (!s.email && !s.phone) return
     const t = await signPreApplyToken(r.applicationId, s.id)
     const link = `${APP}/pre-apply/${encodeURIComponent(intake.associationCode)}?t=${encodeURIComponent(t)}`
     const signs = s.signs
     try {
-      await sendEmail({
-        to: s.email,
-        subject: `Action needed: your part of the ${assocName} application`,
-        html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6;max-width:520px;margin:0 auto">
-          <p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#f26a1b;font-weight:700;margin:0 0 4px">PMI Top Florida Properties</p>
-          <h2 style="margin:0 0 8px;color:#1f2a44">You've been added to an application</h2>
-          <p><strong>${esc(leadName)}</strong> is completing a <strong>${esc(intake.type.replace(/_/g, ' '))}</strong> application for <strong>${esc(assocName)}</strong>${intake.unitLabel ? ` (Unit ${esc(intake.unitLabel)})` : ''} and added you as the <strong>${esc(roleLabel(s.role))}</strong>.</p>
-          <p>Open your secure link to verify your email, upload your documents${signs ? ', and sign the association acknowledgment' : ''}. Everyone fills their part in parallel, so this only takes a few minutes.</p>
-          <p style="text-align:center;margin:22px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;font-weight:700;padding:13px 26px;border-radius:10px;display:inline-block">Open my part of the application →</a></p>
-          <p style="color:#9ca3af;font-size:12px">If the button doesn't work, copy this link:<br>${link}</p>
-        </div>`,
-      })
+      if (s.email) {
+        await sendEmail({
+          to: s.email,
+          subject: `Action needed: your part of the ${assocName} application`,
+          html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6;max-width:520px;margin:0 auto">
+            <p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#f26a1b;font-weight:700;margin:0 0 4px">PMI Top Florida Properties</p>
+            <h2 style="margin:0 0 8px;color:#1f2a44">You've been added to an application</h2>
+            <p><strong>${esc(leadName)}</strong> is completing a <strong>${esc(intake.type.replace(/_/g, ' '))}</strong> application for <strong>${esc(assocName)}</strong>${intake.unitLabel ? ` (Unit ${esc(intake.unitLabel)})` : ''} and added you as the <strong>${esc(roleLabel(s.role))}</strong>.</p>
+            <p>Open your secure link to verify your email, upload your documents${signs ? ', and sign the association acknowledgment' : ''}. Everyone fills their part in parallel, so this only takes a few minutes.</p>
+            <p style="text-align:center;margin:22px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;font-weight:700;padding:13px 26px;border-radius:10px;display:inline-block">Open my part of the application →</a></p>
+            <p style="color:#9ca3af;font-size:12px">If the button doesn't work, copy this link:<br>${link}</p>
+          </div>`,
+        })
+      } else if (s.phone) {
+        // No email on file -- text the link instead. Freeform WhatsApp needs
+        // the recipient to have messaged us first (business-initiated
+        // messages are otherwise rejected), and there's no pre-approved
+        // "here's your link" WhatsApp template yet, so SMS is the reliable
+        // choice for a first-contact invite (OTP codes still prefer
+        // WhatsApp, see send-otp -- that uses an approved template).
+        await sendSMS(s.phone, `${leadName} added you (${roleLabel(s.role)}) to a ${assocName} application. Open your part: ${link}`)
+      }
       await markStakeholderNotified(s.id)
-    } catch { /* one failed email shouldn't fail the batch */ }
+    } catch { /* one failed invite shouldn't fail the batch */ }
   }))
 
   return NextResponse.json({

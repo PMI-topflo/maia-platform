@@ -203,7 +203,11 @@ export function roleToProvidedBy(role: string): ProvidedBy {
   return 'applicant'
 }
 
-export interface IntakeApplicant { name: string; email: string; phone?: string | null }
+// email OR phone, never neither -- enforced by the caller (POST /api/pre-apply/
+// start), not here. A phone-only applicant (no email on file, no tech-savviness
+// assumed) verifies and gets their OTP over SMS/WhatsApp instead of email; see
+// send-otp/verify-otp.
+export interface IntakeApplicant { name: string; email?: string | null; phone?: string | null }
 
 export interface CreatedIntake { applicationId: string; listingId: string; stakeholderId: string }
 
@@ -227,7 +231,7 @@ export async function createIntake(input: {
 
   const { data: sh, error: se } = await supabaseAdmin.from('application_stakeholders').insert({
     application_id: app.id, role: input.role, name: input.applicant.name,
-    email: input.applicant.email, phone: input.applicant.phone ?? null,
+    email: input.applicant.email?.trim() || null, phone: input.applicant.phone ?? null,
     is_primary: true, status: 'started', added_by_role: input.role, started_at: new Date().toISOString(),
   }).select('id').single()
   if (se || !sh) return { error: `Could not start: ${se?.message ?? 'unknown'}` }
@@ -360,23 +364,32 @@ export async function resolveToken(token: string): Promise<{ applicationId: stri
   return stakeholder ? { applicationId: t.applicationId, stakeholder } : null
 }
 
-/** Add collaborators to an application (deduped by email). Returns the created
- *  rows so the caller can email each an invite link. */
+/** Add collaborators to an application (deduped by email, or by phone when no
+ *  email is given). Returns the created rows so the caller can notify each
+ *  one their own invite link -- by email if they have one, else by SMS. */
 export async function addStakeholders(
   applicationId: string,
-  people: { name: string; email: string; phone?: string | null; role: StakeholderRole }[],
+  people: { name: string; email?: string | null; phone?: string | null; role: StakeholderRole }[],
   addedByRole: string,
 ): Promise<StakeholderRow[]> {
   const existing = await listStakeholders(applicationId)
-  const have = new Set(existing.map(s => (s.email ?? '').trim().toLowerCase()).filter(Boolean))
+  const haveEmail = new Set(existing.map(s => (s.email ?? '').trim().toLowerCase()).filter(Boolean))
+  const havePhone = new Set(existing.map(s => (s.phone ?? '').replace(/\D/g, '')).filter(p => p.length >= 7))
   const fresh = people.filter(p => {
-    const e = p.email.trim().toLowerCase()
-    return e.includes('@') && p.name.trim() && isStakeholderRole(p.role) && !have.has(e) && (have.add(e), true)
+    const e = (p.email ?? '').trim().toLowerCase()
+    const ph = (p.phone ?? '').replace(/\D/g, '')
+    const hasContact = e.includes('@') || ph.length >= 7
+    if (!hasContact || !p.name.trim() || !isStakeholderRole(p.role)) return false
+    if (e && haveEmail.has(e)) return false
+    if (!e && ph && havePhone.has(ph)) return false
+    if (e) haveEmail.add(e)
+    if (ph) havePhone.add(ph)
+    return true
   })
   if (fresh.length === 0) return []
   const { data } = await supabaseAdmin.from('application_stakeholders').insert(
     fresh.map(p => ({
-      application_id: applicationId, role: p.role, name: p.name.trim(), email: p.email.trim(),
+      application_id: applicationId, role: p.role, name: p.name.trim(), email: p.email?.trim() || null,
       phone: p.phone?.trim() || null, is_primary: false, status: 'invited', added_by_role: addedByRole,
     })),
   ).select(STAKEHOLDER_COLS)
@@ -389,7 +402,10 @@ export async function markStakeholderNotified(stakeholderId: string): Promise<vo
     .eq('id', stakeholderId)
 }
 
-export async function markStakeholderEmailVerified(stakeholderId: string): Promise<void> {
+// Named for email historically -- reused as-is for phone-verified stakeholders
+// too (email_verified_at doubles as "identity verified at", regardless of
+// channel) rather than adding a second column/migration for the same gate.
+export async function markStakeholderVerified(stakeholderId: string): Promise<void> {
   const now = new Date().toISOString()
   await supabaseAdmin.from('application_stakeholders')
     .update({ email_verified_at: now, status: 'active', started_at: now, updated_at: now })

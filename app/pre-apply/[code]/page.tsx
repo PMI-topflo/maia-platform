@@ -65,8 +65,8 @@ const WELCOME_CSS = `
 .pa-foot{text-align:center;color:#9aa0ab;font-size:11.5px;margin-top:22px;line-height:1.7}
 .pa-field{width:100%;padding:11px 12px;font-size:15px;border:1px solid #d1d5db;border-radius:9px;box-sizing:border-box;margin-top:5px;font-family:inherit}
 .pa-lbl{font-size:12.5px;font-weight:600;color:#374151;margin-top:14px;display:block}
-.pa-collab-row{display:grid;grid-template-columns:1fr 1fr 150px 32px;gap:8px;margin-top:10px}
-@media(max-width:560px){.pa-collab-row{grid-template-columns:1fr 1fr;}.pa-collab-row .pa-rm{grid-column:2;justify-self:end}}
+.pa-collab-row{display:grid;grid-template-columns:1fr 1fr 120px 150px 32px;gap:8px;margin-top:10px}
+@media(max-width:680px){.pa-collab-row{grid-template-columns:1fr 1fr;}.pa-collab-row .pa-rm{grid-column:2;justify-self:end}}
 .pa-x{background:#f3f4f6;border:none;border-radius:8px;font-size:16px;color:#6b7280;cursor:pointer}
 .pa-link{background:none;border:none;color:#6b7280;font-size:13px;cursor:pointer;font-family:inherit}
 .pa-ghost{width:100%;margin-top:12px;padding:11px;border:1.5px dashed #d1d5db;border-radius:10px;background:#fff;color:#374151;font-weight:600;font-size:14px;cursor:pointer;font-family:inherit}
@@ -80,7 +80,7 @@ interface Collaborator { id: string; name: string | null; email: string | null; 
 interface Info {
   associationName: string; type: string; unitLabel: string | null
   applicationId: string; detailedApplicationId: string | null
-  me: { name: string | null; role: string; roleLabel: string; signs: boolean; isPrimary: boolean; status: string; emailVerified: boolean; emailMasked: string | null; signed: boolean; checklistAckSignedAt: string | null }
+  me: { name: string | null; role: string; roleLabel: string; signs: boolean; isPrimary: boolean; status: string; emailVerified: boolean; emailMasked: string | null; signed: boolean; checklistAckSignedAt: string | null; verifyChannel: 'email' | 'phone'; verifyTargetMasked: string | null }
   canAddCollaborators: boolean; submitted: boolean
   checklist: ChecklistItem[]; rules: { rule_key: string; label: string }[]; collaborators: Collaborator[]
   declarations: Declarations
@@ -141,7 +141,7 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
   // never verified, so a mistyped or blank unit silently skipped the
   // per-unit duplicate-application check AND owner verification downstream.
   async function confirmUnit() {
-    if (!form.name.trim() || !form.email.includes('@')) { setErr('Please enter your name and a valid email.'); return }
+    if (!form.name.trim() || (!form.email.includes('@') && !form.phone.trim())) { setErr('Please enter your name, and either an email or a mobile phone number.'); return }
     if (!form.unit.trim()) { setErr('Please enter your unit number.'); return }
     setErr(null)
     setUnitCheck({ checking: true, found: null })
@@ -156,7 +156,7 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
   async function start() {
     setErr(null)
     if (!role) { setErr('Please choose who you are.'); return }
-    if (!form.name.trim() || !form.email.includes('@')) { setErr('Please enter your name and a valid email.'); return }
+    if (!form.name.trim() || (!form.email.includes('@') && !form.phone.trim())) { setErr('Please enter your name, and either an email or a mobile phone number.'); return }
     setBusy(true)
     try {
       const r = await fetch('/api/pre-apply/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, type, role, ...form }) })
@@ -273,6 +273,7 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
           <label className="pa-lbl">{s.nameL}<input className="pa-field" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
           <label className="pa-lbl">{s.emailL}<input className="pa-field" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
           <label className="pa-lbl">{s.phoneL}<input className="pa-field" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} inputMode="tel" /></label>
+          <p style={{ fontSize: 12, color: '#9aa0ab', margin: '4px 0 0', lineHeight: 1.4 }}>{f.contactEmailOrPhoneNote}</p>
           <label className="pa-lbl">{s.unitL}<input className="pa-field" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} placeholder="e.g. 511" /></label>
           {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
           <button className="pa-cta" onClick={confirmUnit}>{s.continue2}</button>
@@ -315,22 +316,24 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
 // ── Add collaborators (name / email / role) + email each their own link ──────
 function CollaboratorAdder({ token, lang, onAdded, compact }: { token: string; lang: PortalLang; onAdded?: () => void; compact?: boolean }) {
   const f = preApplyFlow(lang)
-  const [rows, setRows] = useState<{ name: string; email: string; role: string }[]>([{ name: '', email: '', role: '' }])
+  const [rows, setRows] = useState<{ name: string; email: string; phone: string; role: string }[]>([{ name: '', email: '', phone: '', role: '' }])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
-  const set = (i: number, k: 'name' | 'email' | 'role', v: string) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r))
-  const valid = rows.filter(r => r.name.trim() && r.email.includes('@') && r.role)
+  const set = (i: number, k: 'name' | 'email' | 'phone' | 'role', v: string) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r))
+  // Email OR phone -- a collaborator with no email (no tech-savviness assumed,
+  // user direction 2026-09-03) can still be added, invited by SMS instead.
+  const valid = rows.filter(r => r.name.trim() && (r.email.includes('@') || r.phone.trim()) && r.role)
 
   async function send() {
     setErr(null); setMsg(null)
-    if (valid.length === 0) { setErr('Add at least one person with a name, valid email, and role.'); return }
+    if (valid.length === 0) { setErr('Add at least one person with a name, an email or phone, and a role.'); return }
     setBusy(true)
     try {
       const r = await fetch(`/api/pre-apply/${token}/collaborators`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ collaborators: valid }) })
       const d = await r.json(); if (!r.ok) throw new Error(d.error ?? 'Could not send')
-      setMsg(f.invSent); setRows([{ name: '', email: '', role: '' }]); onAdded?.()
+      setMsg(f.invSent); setRows([{ name: '', email: '', phone: '', role: '' }]); onAdded?.()
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 
@@ -340,6 +343,7 @@ function CollaboratorAdder({ token, lang, onAdded, compact }: { token: string; l
         <div className="pa-collab-row" key={i}>
           <input className="pa-field" style={{ marginTop: 0 }} placeholder={f.invNameL} value={r.name} onChange={e => set(i, 'name', e.target.value)} />
           <input className="pa-field" style={{ marginTop: 0 }} type="email" placeholder={f.invEmailL} value={r.email} onChange={e => set(i, 'email', e.target.value)} />
+          <input className="pa-field" style={{ marginTop: 0 }} placeholder={f.invPhoneL} value={r.phone} onChange={e => set(i, 'phone', e.target.value)} inputMode="tel" />
           <select className="pa-field" style={{ marginTop: 0 }} value={r.role} onChange={e => set(i, 'role', e.target.value)}>
             <option value="">{f.invRolePick}</option>
             {ROLE_DEFS.map(rd => <option key={rd.key} value={rd.key}>{f[rd.lk]}</option>)}
@@ -349,7 +353,7 @@ function CollaboratorAdder({ token, lang, onAdded, compact }: { token: string; l
             : <span />}
         </div>
       ))}
-      <button className="pa-ghost" onClick={() => setRows(rs => [...rs, { name: '', email: '', role: '' }])}>{f.invAdd}</button>
+      <button className="pa-ghost" onClick={() => setRows(rs => [...rs, { name: '', email: '', phone: '', role: '' }])}>{f.invAdd}</button>
       {err && <p style={{ color: '#b91c1c', fontSize: 13, marginTop: 10 }}>⚠ {err}</p>}
       {msg && <p style={{ color: '#166534', fontSize: 13, marginTop: 10 }}>✓ {msg}</p>}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
@@ -448,8 +452,8 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
   if (!info.me.emailVerified) return (
     <div style={wrap}>
       <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6b7280', margin: 0 }}>{info.associationName}</p>
-      <h1 style={{ fontSize: 22, color: '#1f2a44', margin: '4px 0 2px' }}>{f.verifyH1}</h1>
-      <p style={{ color: '#6b7280', fontSize: 14, marginTop: 0 }}>{f.verifyP}{info.me.emailMasked ? ` (${info.me.emailMasked})` : ''}</p>
+      <h1 style={{ fontSize: 22, color: '#1f2a44', margin: '4px 0 2px' }}>{info.me.verifyChannel === 'phone' ? f.verifyH1Phone : f.verifyH1}</h1>
+      <p style={{ color: '#6b7280', fontSize: 14, marginTop: 0 }}>{info.me.verifyChannel === 'phone' ? f.verifyPPhone : f.verifyP}{info.me.verifyTargetMasked ? ` (${info.me.verifyTargetMasked})` : ''}</p>
       <VerifyEmail token={token} lang={lang} onVerified={load} />
     </div>
   )

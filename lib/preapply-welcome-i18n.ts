@@ -179,12 +179,14 @@ export interface PreApplyFlowStrings {
   // Confirm-unit step
   confirmUnitEye: string; confirmUnitH2: string; confirmUnitFound: string; confirmUnitNotFound: string
   confirmUnitChecking: string; confirmUnitYes: string; confirmUnitEdit: string
+  contactEmailOrPhoneNote: string
   // Invite collaborators step
   inviteEye: string; inviteH2: string; inviteP: string
-  invNameL: string; invEmailL: string; invRoleL: string; invRolePick: string
+  invNameL: string; invEmailL: string; invPhoneL: string; invRoleL: string; invRolePick: string
   invAdd: string; invSend: string; invSending: string; invSkip: string; invContinue: string; invSent: string
   // Email verification
   verifyH1: string; verifyP: string; sendCode: string; resendCode: string; codePlaceholder: string; verifyBtn: string; codeSentTo: string
+  verifyH1Phone: string; verifyPPhone: string
   // Documents
   docsH1: string; docsP: string; yourDocsH: string; otherDocsH: string; otherDocsP: string; noDocsForYou: string
   optional: string; uploadedTag: string; uploadBtn: string; replaceBtn: string; uploadingBtn: string; uploadAllNote: string
@@ -212,13 +214,15 @@ const flowEn: PreApplyFlowStrings = {
   confirmUnitNotFound: 'We don’t have this unit on file yet — that’s okay, just double-check the number is correct before continuing.',
   confirmUnitChecking: 'Checking…',
   confirmUnitYes: 'Yes, this is correct →', confirmUnitEdit: '← Edit unit number',
+  contactEmailOrPhoneNote: 'Please provide at least one — email or mobile phone. No email? That’s okay, we can text or WhatsApp you instead.',
   inviteEye: 'Work together', inviteH2: 'Add everyone involved',
   inviteP: 'Add the other people on this application — co-applicants, the owner, the agent. MAIA emails each of them their own secure link so everyone fills their part at the same time. You can also do this later.',
-  invNameL: 'Full name', invEmailL: 'Email', invRoleL: 'Role', invRolePick: 'Choose a role…',
+  invNameL: 'Full name', invEmailL: 'Email (or phone below)', invPhoneL: 'Mobile phone (if no email)', invRoleL: 'Role', invRolePick: 'Choose a role…',
   invAdd: '+ Add another person', invSend: 'Send invitations', invSending: 'Sending…',
   invSkip: 'Skip — it’s just me for now', invContinue: 'Continue to my documents →',
   invSent: 'Invitations sent — each person got their own link.',
   verifyH1: 'Verify your email', verifyP: 'We’ll send a code to confirm it’s you before you upload documents.',
+  verifyH1Phone: 'Verify your phone', verifyPPhone: 'We’ll text or WhatsApp you a code to confirm it’s you before you upload documents.',
   sendCode: 'Send me a code', resendCode: 'Resend code', codePlaceholder: '6-digit code', verifyBtn: 'Verify', codeSentTo: 'Code sent to',
   docsH1: 'Your documents', docsP: 'Upload each document below in its own box.',
   yourDocsH: 'Your documents', otherDocsH: 'Other documents (if you have them)',
@@ -262,7 +266,7 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     confirmUnitYes: 'Sí, es correcto →', confirmUnitEdit: '← Editar número de unidad',
     inviteEye: 'Trabajen juntos', inviteH2: 'Agregue a todos los involucrados',
     inviteP: 'Agregue a las demás personas de esta solicitud — coinquilinos, el propietario, el agente. MAIA enviará a cada uno su propio enlace seguro para que todos completen su parte al mismo tiempo. También puede hacerlo más tarde.',
-    invNameL: 'Nombre completo', invEmailL: 'Correo', invRoleL: 'Rol', invRolePick: 'Elija un rol…',
+    invNameL: 'Nombre completo', invEmailL: 'Correo (o teléfono abajo)', invPhoneL: 'Teléfono móvil (si no tiene correo)', invRoleL: 'Rol', invRolePick: 'Elija un rol…',
     invAdd: '+ Agregar otra persona', invSend: 'Enviar invitaciones', invSending: 'Enviando…',
     invSkip: 'Omitir — por ahora soy solo yo', invContinue: 'Continuar con mis documentos →',
     invSent: 'Invitaciones enviadas — cada persona recibió su propio enlace.',
@@ -301,7 +305,7 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     confirmUnitYes: 'Sim, está correto →', confirmUnitEdit: '← Editar número da unidade',
     inviteEye: 'Trabalhem juntos', inviteH2: 'Adicione todos os envolvidos',
     inviteP: 'Adicione as outras pessoas desta inscrição — coinquilinos, o proprietário, o corretor. A MAIA envia a cada um seu próprio link seguro para que todos preencham sua parte ao mesmo tempo. Você também pode fazer isso depois.',
-    invNameL: 'Nome completo', invEmailL: 'E-mail', invRoleL: 'Função', invRolePick: 'Escolha uma função…',
+    invNameL: 'Nome completo', invEmailL: 'E-mail (ou telefone abaixo)', invPhoneL: 'Celular (se não tiver e-mail)', invRoleL: 'Função', invRolePick: 'Escolha uma função…',
     invAdd: '+ Adicionar outra pessoa', invSend: 'Enviar convites', invSending: 'Enviando…',
     invSkip: 'Pular — por enquanto sou só eu', invContinue: 'Continuar para meus documentos →',
     invSent: 'Convites enviados — cada pessoa recebeu seu próprio link.',
@@ -340,7 +344,7 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     confirmUnitYes: 'Oui, c’est correct →', confirmUnitEdit: '← Modifier le numéro d’unité',
     inviteEye: 'Collaborez', inviteH2: 'Ajoutez toutes les personnes concernées',
     inviteP: 'Ajoutez les autres personnes de cette demande — colocataires, le propriétaire, l’agent. MAIA envoie à chacun son propre lien sécurisé pour que tout le monde remplisse sa partie en même temps. Vous pouvez aussi le faire plus tard.',
-    invNameL: 'Nom complet', invEmailL: 'E-mail', invRoleL: 'Rôle', invRolePick: 'Choisissez un rôle…',
+    invNameL: 'Nom complet', invEmailL: 'E-mail (ou téléphone ci-dessous)', invPhoneL: 'Téléphone mobile (si pas d’e-mail)', invRoleL: 'Rôle', invRolePick: 'Choisissez un rôle…',
     invAdd: '+ Ajouter une autre personne', invSend: 'Envoyer les invitations', invSending: 'Envoi…',
     invSkip: 'Passer — c’est juste moi pour l’instant', invContinue: 'Continuer vers mes documents →',
     invSent: 'Invitations envoyées — chacun a reçu son propre lien.',
@@ -379,7 +383,7 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     confirmUnitYes: 'Wi, li kòrèk →', confirmUnitEdit: '← Modifye nimewo inite a',
     inviteEye: 'Travay ansanm', inviteH2: 'Ajoute tout moun ki enplike',
     inviteP: 'Ajoute lòt moun nan aplikasyon sa a — ko-aplikan, pwopriyetè a, ajan an. MAIA voye pou chak youn pwòp lyen sekirize yo pou tout moun ranpli pati yo an menm tan. Ou ka fè sa pita tou.',
-    invNameL: 'Non konplè', invEmailL: 'Imèl', invRoleL: 'Wòl', invRolePick: 'Chwazi yon wòl…',
+    invNameL: 'Non konplè', invEmailL: 'Imèl (oswa telefòn anba a)', invPhoneL: 'Telefòn mobil (si w pa gen imèl)', invRoleL: 'Wòl', invRolePick: 'Chwazi yon wòl…',
     invAdd: '+ Ajoute yon lòt moun', invSend: 'Voye envitasyon yo', invSending: 'Y ap voye…',
     invSkip: 'Sote — se jis mwen pou kounye a', invContinue: 'Kontinye ak dokiman mwen yo →',
     invSent: 'Envitasyon voye — chak moun jwenn pwòp lyen yo.',
@@ -418,7 +422,7 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     confirmUnitYes: 'כן, זה נכון →', confirmUnitEdit: '→ עריכת מספר יחידה',
     inviteEye: 'עבדו יחד', inviteH2: 'הוסיפו את כל המעורבים',
     inviteP: 'הוסיפו את שאר האנשים בבקשה זו — שותפים, הבעלים, הסוכן. MAIA שולחת לכל אחד קישור מאובטח משלו כדי שכולם ימלאו את חלקם בו-זמנית. אפשר גם לעשות זאת מאוחר יותר.',
-    invNameL: 'שם מלא', invEmailL: 'אימייל', invRoleL: 'תפקיד', invRolePick: 'בחרו תפקיד…',
+    invNameL: 'שם מלא', invEmailL: 'אימייל (או טלפון למטה)', invPhoneL: 'טלפון נייד (אם אין אימייל)', invRoleL: 'תפקיד', invRolePick: 'בחרו תפקיד…',
     invAdd: '+ הוסף אדם נוסף', invSend: 'שלח הזמנות', invSending: 'שולח…',
     invSkip: 'דלג — בינתיים רק אני', invContinue: 'המשך למסמכים שלי →',
     invSent: 'ההזמנות נשלחו — כל אחד קיבל קישור משלו.',
@@ -457,7 +461,7 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     confirmUnitYes: 'Да, всё верно →', confirmUnitEdit: '← Изменить номер квартиры',
     inviteEye: 'Работайте вместе', inviteH2: 'Добавьте всех участников',
     inviteP: 'Добавьте остальных участников этой заявки — созаявителей, владельца, агента. MAIA отправит каждому его собственную защищённую ссылку, чтобы все заполнили свою часть одновременно. Это также можно сделать позже.',
-    invNameL: 'Полное имя', invEmailL: 'Эл. почта', invRoleL: 'Роль', invRolePick: 'Выберите роль…',
+    invNameL: 'Полное имя', invEmailL: 'Эл. почта (или телефон ниже)', invPhoneL: 'Мобильный телефон (если нет эл. почты)', invRoleL: 'Роль', invRolePick: 'Выберите роль…',
     invAdd: '+ Добавить ещё человека', invSend: 'Отправить приглашения', invSending: 'Отправка…',
     invSkip: 'Пропустить — пока только я', invContinue: 'Перейти к моим документам →',
     invSent: 'Приглашения отправлены — каждый получил свою ссылку.',
