@@ -15,6 +15,13 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 
+// Shared between app/api/admin/pre-apply/[id]/remind-declaration (writes it)
+// and app/api/admin/pre-apply/[id]/route.ts (reads it back, to show "Reminded
+// {date}" on the declaration itself instead of only in the Communications
+// tab) -- a stable, parseable subject rather than the nicer applicant-facing
+// email subject those routes send, which varies per key/association.
+export const DECLARATION_REMINDER_SUBJECT_PREFIX = 'Declaration reminder — '
+
 export interface ApplicationRef { associationCode: string; unitLabel: string | null }
 
 // Long form:  "@maia update application MANXI103" / "…MANXI 103" / "…: MANXI-103"

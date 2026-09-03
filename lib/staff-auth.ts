@@ -16,3 +16,17 @@ export async function requireStaffSession(): Promise<SessionData | null> {
   const session = token ? await verifySession(token) : null
   return session && session.persona === 'staff' ? session : null
 }
+
+// A staff session's userId is the login email (see app/api/auth/verify-otp's
+// staff branch) -- this is the only account allowed past requireOwnerSession,
+// for content restricted even from regular staff.
+const OWNER_EMAILS = new Set(['pmi@topfloridaproperties.com'])
+
+/** Like requireStaffSession, but only for the account-owner login -- use
+ *  this to gate content that shouldn't be visible to regular staff at all. */
+export async function requireOwnerSession(): Promise<SessionData | null> {
+  const session = await requireStaffSession()
+  if (!session) return null
+  const email = typeof session.userId === 'string' ? session.userId.trim().toLowerCase() : ''
+  return OWNER_EMAILS.has(email) ? session : null
+}

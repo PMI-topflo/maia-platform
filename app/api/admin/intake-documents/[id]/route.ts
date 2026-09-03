@@ -1,16 +1,16 @@
 // PATCH  /api/admin/intake-documents/[id]  { label?, provided_by?, required?, note?, sort_order?, active? }
 // DELETE /api/admin/intake-documents/[id]
-// Edit or remove one intake checklist row. Staff-only.
+// Edit or remove one intake checklist row. Owner-only (see route.ts).
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { requireStaffSession } from '@/lib/staff-auth'
+import { requireOwnerSession } from '@/lib/staff-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!await requireOwnerSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await ctx.params
 
   let b: { label?: string; provided_by?: string; required?: boolean; note?: string; sort_order?: number; active?: boolean }
@@ -30,7 +30,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!await requireOwnerSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await ctx.params
   const { error } = await supabaseAdmin.from('association_intake_documents').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
