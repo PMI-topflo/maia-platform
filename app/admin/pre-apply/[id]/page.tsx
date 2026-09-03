@@ -195,9 +195,13 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   // Only documents that belong to THIS application's checklist can raise the
   // expired alarm. Files the Drive scan pulled in that aren't part of this
   // application type (e.g. a previous tenant's lease on a purchase) show as
-  // "extra" and must not flag the application as non-compliant.
+  // "extra" and must not flag the application as non-compliant. A doc whose
+  // checklist item is marked N/A (e.g. Pet Registration retired by an
+  // emotional-support-animal declaration) is excluded too, same as the
+  // per-row badge below — an item that no longer applies at all has nothing
+  // to "fix" by re-signing or re-uploading it. Staff report, 2026-09-03.
   const checklistKeys = new Set(d.checklist.map(c => c.doc_key))
-  const expiredDocs = d.documents.filter(x => x.doc_key && checklistKeys.has(x.doc_key) && x.expirationDate && !x.noExpiration && new Date(x.expirationDate) < new Date())
+  const expiredDocs = d.documents.filter(x => x.doc_key && checklistKeys.has(x.doc_key) && !naFor(x.doc_key, x.stakeholderId ?? null) && x.expirationDate && !x.noExpiration && new Date(x.expirationDate) < new Date())
   const decided = d.status === 'approved' || d.status === 'declined'
   const hasLease = d.documents.some(x => x.doc_key === 'signed_lease')
   const reqCount = d.checklist.filter(c => c.required).length
@@ -446,9 +450,13 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {(d.type === 'lease_renewal' || d.type === 'additional_occupant') && <CarryOverButton id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
       {!decided && d.screeningSubjects.length === 0 && <CheckrRequestSender id={id} provider={d.screeningProvider} onDone={load} />}
+      {!decided && d.screeningSubjects.length === 0 && <RentvineFallbackSender id={id} />}
       {!decided && <RulesAckSender id={id} />}
       {!decided && <PetRegSender id={id} />}
-      {!decided && <TenantEvalSender id={id} />}
+      {/* Tenant Evaluation retired from the UI, 2026-09-03 — Checkr (+ the
+          Rentvine fallback above) replaces it. Code kept in place
+          (TenantEvalSender below, lib/tenant-evaluation.ts, its API route)
+          in case it's ever needed again; just not rendered. */}
       <CommunicationsLog id={id} unit={d.unit} associationCode={d.associationCode} />
 
       {/* Shared documents — one for the whole unit / application. */}
@@ -736,6 +744,52 @@ function TenantEvalSender({ id }: { id: string }) {
           </div>
           <button onClick={send} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#1d4ed8', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
             {busy ? 'Sending…' : `🔎 Send Tenant Evaluation guide (${info.recipients.length})`}
+          </button>
+        </>
+      )}
+      {sent && <div style={{ marginTop: 6, font: '12px system-ui', color: sent.sent.length ? '#166534' : '#b91c1c' }}>
+        {sent.sent.length > 0 && `✓ Sent to ${sent.sent.join(', ')}`}{sent.failed.length > 0 && ` · could not send to ${sent.failed.join(', ')}`}
+      </div>}
+    </div>
+  )
+}
+
+// Manual fallback background check, sent via PMI's Rentvine-hosted
+// application — for when Checkr has an issue and staff need another path
+// right now. One fixed, generic link (Rentvine's own apply form isn't unit-
+// or address-scoped for this — user direction, 2026-09-03), unlike Tenant
+// Evaluation this needs no per-association guide/property-code setup.
+function RentvineFallbackSender({ id }: { id: string }) {
+  interface Info { recipients: { name: string | null; email: string | null }[]; skipped: string[]; blockers: string[] }
+  const [info, setInfo] = useState<Info | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState<{ sent: string[]; failed: string[] } | null>(null)
+  const load = useCallback(() => { fetch(`/api/admin/pre-apply/${id}/rentvine-fallback`, { credentials: 'include' }).then(r => r.json()).then(setInfo).catch(() => setInfo(null)) }, [id])
+  useEffect(load, [load])
+  if (!info) return null
+
+  async function send() {
+    setBusy(true); setSent(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/rentvine-fallback`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setSent({ sent: j.sent, failed: j.failed }); load()
+    } catch (e) { alert(`Could not send: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ margin: '4px 0 14px', border: '1px solid #e5e7eb', background: '#f9fafb', borderRadius: 10, padding: 12 }}>
+      <div style={{ font: '700 13px system-ui', color: '#374151', marginBottom: 4 }}>🔗 Background check <span style={{ font: '400 11.5px system-ui', color: '#9ca3af' }}>· Rentvine fallback, if Checkr has an issue</span></div>
+      {info.blockers.length > 0 && !info.recipients.length ? (
+        <div style={{ font: '12.5px system-ui', color: '#92400e' }}>{info.blockers.map((b, i) => <div key={i}>⚠ {b}</div>)}</div>
+      ) : (
+        <>
+          <div style={{ font: '12.5px system-ui', color: '#4b5563', marginBottom: 8 }}>
+            Emails {info.recipients.map(r => r.name ?? r.email).join(', ')} a link to PMI&apos;s Rentvine application to complete their background check there instead.
+            {info.skipped.length > 0 && <> Not sent to {info.skipped.join(', ')} — no email on file.</>}
+          </div>
+          <button onClick={send} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#4b5563', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
+            {busy ? 'Sending…' : `🔗 Send Rentvine application link (${info.recipients.length})`}
           </button>
         </>
       )}
@@ -1156,7 +1210,14 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
   }
 
   const isImg = (doc?.mime_type ?? '').startsWith('image/')
-  const isExpired = !!(doc && doc.expirationDate && !doc.noExpiration && new Date(doc.expirationDate) < new Date())
+  // A doc marked N/A no longer applies to this application at all (e.g. the
+  // applicant declared an emotional-support animal, which retires the
+  // standard Pet Registration item in favor of the separate reasonable-
+  // accommodation process) — its expiration stops being anyone's problem.
+  // Staff report, 2026-09-03: a Pet Registration signed back before that
+  // declaration, already marked N/A, still screamed EXPIRED with nothing
+  // to actually fix (re-signing a form that no longer applies isn't a fix).
+  const isExpired = !na && !!(doc && doc.expirationDate && !doc.noExpiration && new Date(doc.expirationDate) < new Date())
   const link: React.CSSProperties = { font: '600 13px system-ui', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'none' }
 
   return (
