@@ -498,13 +498,16 @@ function DetailPanel({
                     </div>
                     {o.guardianDocUrl ? (
                       <DocumentPreviewTrigger
-                        label="Guardianship / POA document ↗"
+                        label="Supporting authorization document ↗"
                         previewUrl={`/api/document-preview?url=${encodeURIComponent(o.guardianDocUrl)}`}
                         downloadUrl={o.guardianDocUrl}
                         className="text-left text-xs text-[#f26a1b] hover:underline"
                       />
                     ) : (
-                      <div className="text-xs text-red-600 font-medium">⚠ No guardianship/POA document on file</div>
+                      // Attestation-only is the norm here, not an error -- user
+                      // direction, 2026-09-03: no document is required, only the
+                      // checked attestation above. Neutral, not a red flag.
+                      <div className="text-xs text-gray-500">No supporting document uploaded (attestation only)</div>
                     )}
                   </div>
                 )}

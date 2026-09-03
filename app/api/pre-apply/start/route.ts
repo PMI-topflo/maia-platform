@@ -177,10 +177,24 @@ export async function POST(req: Request) {
   const type = String(b.type ?? '').trim()
   const name = String(b.name ?? '').trim()
   const email = String(b.email ?? '').trim()
+  const phone = String(b.phone ?? '').trim()
   const role = String(b.role ?? 'applicant').trim()
   if (!code || !isApplicationType(type)) return NextResponse.json({ error: 'code and a valid application type are required' }, { status: 400 })
   if (!isStakeholderRole(role)) return NextResponse.json({ error: 'Please choose who you are (tenant, owner, or agent).' }, { status: 400 })
-  if (!name || !email.includes('@')) return NextResponse.json({ error: 'Please enter your name and a valid email.' }, { status: 400 })
+  if (!name) return NextResponse.json({ error: 'Please enter your name.' }, { status: 400 })
+  // role='applicant' (lead AND co-applicants) gets a real Checkr background
+  // check, and Checkr only ever delivers its consent/questionnaire link by
+  // email (lib/screening/checkr.ts) -- there is no SMS/WhatsApp option on
+  // Checkr's side, so phone-only would leave them with no way to ever
+  // consent. Owner/agent are never screened, so phone-only (SMS/WhatsApp
+  // identity verification, send-otp/verify-otp) is fine for them. User
+  // direction, 2026-09-03.
+  if (role === 'applicant' && !email.includes('@')) {
+    return NextResponse.json({ error: 'A valid email is required — the background check consent link can only be sent by email, not text or WhatsApp. Use someone else’s email (like an agent’s) if you don’t have your own.' }, { status: 400 })
+  }
+  if (role !== 'applicant' && !email.includes('@') && !phone) {
+    return NextResponse.json({ error: 'Please enter your name, and either an email or a mobile phone number.' }, { status: 400 })
+  }
 
   const { data: assoc } = await supabaseAdmin.from('associations').select('association_code, active').eq('association_code', code).maybeSingle()
   if (!assoc || assoc.active === false) return NextResponse.json({ error: 'This association is not accepting applications online.' }, { status: 404 })
@@ -198,8 +212,12 @@ export async function POST(req: Request) {
       .select('id').eq('association_code', code).eq('unit_label', unitLabel).eq('status', 'started')
       .order('created_at', { ascending: false }).limit(20)
     for (const a of openApps ?? []) {
-      const { data: me } = await supabaseAdmin.from('application_stakeholders')
-        .select('id').eq('application_id', a.id).ilike('email', email).maybeSingle()
+      // Same person reopening the link -- matched by email when they have
+      // one, else by phone (a phone-only applicant with no email still
+      // shouldn't get a fresh duplicate application every time they tap
+      // their SMS/WhatsApp link again).
+      const q = supabaseAdmin.from('application_stakeholders').select('id').eq('application_id', a.id)
+      const { data: me } = await (email.includes('@') ? q.ilike('email', email) : q.eq('phone', phone)).maybeSingle()
       if (me) {
         const resumed = await signPreApplyToken(String(a.id), String(me.id))
         return NextResponse.json({ ok: true, token: resumed, resumed: true })

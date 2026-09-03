@@ -65,8 +65,8 @@ const WELCOME_CSS = `
 .pa-foot{text-align:center;color:#9aa0ab;font-size:11.5px;margin-top:22px;line-height:1.7}
 .pa-field{width:100%;padding:11px 12px;font-size:15px;border:1px solid #d1d5db;border-radius:9px;box-sizing:border-box;margin-top:5px;font-family:inherit}
 .pa-lbl{font-size:12.5px;font-weight:600;color:#374151;margin-top:14px;display:block}
-.pa-collab-row{display:grid;grid-template-columns:1fr 1fr 150px 32px;gap:8px;margin-top:10px}
-@media(max-width:560px){.pa-collab-row{grid-template-columns:1fr 1fr;}.pa-collab-row .pa-rm{grid-column:2;justify-self:end}}
+.pa-collab-row{display:grid;grid-template-columns:1fr 1fr 120px 150px 32px;gap:8px;margin-top:10px}
+@media(max-width:680px){.pa-collab-row{grid-template-columns:1fr 1fr;}.pa-collab-row .pa-rm{grid-column:2;justify-self:end}}
 .pa-x{background:#f3f4f6;border:none;border-radius:8px;font-size:16px;color:#6b7280;cursor:pointer}
 .pa-link{background:none;border:none;color:#6b7280;font-size:13px;cursor:pointer;font-family:inherit}
 .pa-ghost{width:100%;margin-top:12px;padding:11px;border:1.5px dashed #d1d5db;border-radius:10px;background:#fff;color:#374151;font-weight:600;font-size:14px;cursor:pointer;font-family:inherit}
@@ -80,7 +80,7 @@ interface Collaborator { id: string; name: string | null; email: string | null; 
 interface Info {
   associationName: string; type: string; unitLabel: string | null
   applicationId: string; detailedApplicationId: string | null
-  me: { name: string | null; role: string; roleLabel: string; signs: boolean; isPrimary: boolean; status: string; emailVerified: boolean; emailMasked: string | null; signed: boolean; checklistAckSignedAt: string | null }
+  me: { name: string | null; role: string; roleLabel: string; signs: boolean; isPrimary: boolean; status: string; emailVerified: boolean; emailMasked: string | null; signed: boolean; checklistAckSignedAt: string | null; verifyChannel: 'email' | 'phone'; verifyTargetMasked: string | null }
   canAddCollaborators: boolean; submitted: boolean
   checklist: ChecklistItem[]; rules: { rule_key: string; label: string }[]; collaborators: Collaborator[]
   declarations: Declarations
@@ -97,7 +97,7 @@ const field: React.CSSProperties = { width: '100%', padding: '10px 12px', fontSi
 const label: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: '#374151', marginTop: 14, display: 'block' }
 const primary = (on: boolean): React.CSSProperties => ({ width: '100%', marginTop: 18, padding: '13px', fontSize: 16, fontWeight: 700, color: '#fff', background: on ? '#f26a1b' : '#9ca3af', border: 'none', borderRadius: 8, cursor: on ? 'pointer' : 'default' })
 
-type Step = 'welcome' | 'persona' | 'contact' | 'type' | 'invite' | 'docs'
+type Step = 'welcome' | 'persona' | 'contact' | 'confirm-unit' | 'type' | 'invite' | 'docs'
 
 export default function PreApplyPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params)
@@ -109,6 +109,12 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
   const [token, setToken] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // The hero used to hardcode one specific association's name regardless of
+  // which [code] the link was actually for — every other association's link
+  // showed the wrong community. Fetched from the real association record instead.
+  const [assocName, setAssocName] = useState<string | null>(null)
+  // "Is this the right unit?" — set once the contact step's lookup returns.
+  const [unitCheck, setUnitCheck] = useState<{ checking: boolean; found: boolean | null }>({ checking: false, found: null })
 
   // Invited collaborators arrive with a ready token (?t=). Otherwise a staff /
   // email link may prefill ?type=&unit=&name=&email=&lang= and jump to persona.
@@ -125,10 +131,44 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
     setForm(f => ({ ...f, unit: q.get('unit') ?? f.unit, name: q.get('name') ?? f.name, email: q.get('email') ?? f.email }))
   }, [])
 
+  useEffect(() => {
+    fetch(`/api/pre-apply/lookup?code=${encodeURIComponent(code)}`)
+      .then(r => r.json()).then(d => { if (d.associationName) setAssocName(d.associationName) }).catch(() => {})
+  }, [code])
+
+  // Required, and checked against real unit records before the applicant can
+  // move on — staff report, 2026-09-02: unit was free-text, optional, and
+  // never verified, so a mistyped or blank unit silently skipped the
+  // per-unit duplicate-application check AND owner verification downstream.
+  // The 'applicant' role (lead AND co-applicants) gets an actual Checkr
+  // background check, and Checkr only ever delivers its consent/questionnaire
+  // link by email (lib/screening/checkr.ts) -- there is no SMS/WhatsApp
+  // option on Checkr's side. Phone-only is fine for owner/agent, who are
+  // never screened, but an applicant with no email would have no way to
+  // ever actually consent. User direction, 2026-09-03.
+  const needsEmail = role === 'applicant'
+  const contactValid = () => form.name.trim() && (needsEmail ? form.email.includes('@') : (form.email.includes('@') || form.phone.trim()))
+  const contactErr = needsEmail
+    ? 'Please enter your name and a valid email — a background check requires one to send you the consent link (you can use someone else’s, like your agent’s, if you don’t have your own).'
+    : 'Please enter your name, and either an email or a mobile phone number.'
+
+  async function confirmUnit() {
+    if (!contactValid()) { setErr(contactErr); return }
+    if (!form.unit.trim()) { setErr('Please enter your unit number.'); return }
+    setErr(null)
+    setUnitCheck({ checking: true, found: null })
+    setStep('confirm-unit')
+    try {
+      const r = await fetch(`/api/pre-apply/lookup?code=${encodeURIComponent(code)}&unit=${encodeURIComponent(form.unit.trim())}`)
+      const d = await r.json()
+      setUnitCheck({ checking: false, found: typeof d.unitFound === 'boolean' ? d.unitFound : null })
+    } catch { setUnitCheck({ checking: false, found: null }) }
+  }
+
   async function start() {
     setErr(null)
     if (!role) { setErr('Please choose who you are.'); return }
-    if (!form.name.trim() || !form.email.includes('@')) { setErr('Please enter your name and a valid email.'); return }
+    if (!contactValid()) { setErr(contactErr); return }
     setBusy(true)
     try {
       const r = await fetch('/api/pre-apply/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, type, role, ...form }) })
@@ -156,11 +196,12 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
           <div className="pa-brand"><span className="pa-dot" /> PMI Top Florida Properties</div>
           {LangSelect}
         </div>
-        <div className="pa-assoc">The Manors of Inverrary XI Condominium Association</div>
+        <div className="pa-assoc">{assocName ?? code.toUpperCase()}</div>
         <h1 className="pa-h1">{s.title}</h1>
         {step === 'welcome' && <><p className="pa-lede">{s.lede}</p><span className="pa-pill">{s.pill}</span></>}
         {step === 'persona' && <p className="pa-lede">{f.personaP}</p>}
         {step === 'contact' && <p className="pa-lede">{s.contactSub}</p>}
+        {step === 'confirm-unit' && <p className="pa-lede">{f.confirmUnitH2}</p>}
         {step === 'type' && <p className="pa-lede">{s.getP}</p>}
         {step === 'invite' && <p className="pa-lede">{f.inviteP}</p>}
       </div>
@@ -209,7 +250,7 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
           </div>
           {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
           <button className="pa-cta" disabled={!type || busy} onClick={start}>{busy ? '…' : s.cta}</button>
-          <button onClick={() => setStep('contact')} className="pa-link" style={{ display: 'block', margin: '10px auto 0' }}>{s.back}</button>
+          <button onClick={() => setStep('confirm-unit')} className="pa-link" style={{ display: 'block', margin: '10px auto 0' }}>{s.back}</button>
         </div>
       )}
 
@@ -244,10 +285,33 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
           <label className="pa-lbl">{s.nameL}<input className="pa-field" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
           <label className="pa-lbl">{s.emailL}<input className="pa-field" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
           <label className="pa-lbl">{s.phoneL}<input className="pa-field" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} inputMode="tel" /></label>
+          <p style={{ fontSize: 12, color: needsEmail ? '#b45309' : '#9aa0ab', margin: '4px 0 0', lineHeight: 1.4, fontWeight: needsEmail ? 600 : 400 }}>
+            {needsEmail ? f.contactEmailRequiredNote : f.contactEmailOrPhoneNote}
+          </p>
           <label className="pa-lbl">{s.unitL}<input className="pa-field" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} placeholder="e.g. 511" /></label>
           {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
-          <button className="pa-cta" onClick={() => { if (!form.name.trim() || !form.email.includes('@')) { setErr('Please enter your name and a valid email.'); return } setErr(null); setStep('type') }}>{s.continue2}</button>
+          <button className="pa-cta" onClick={confirmUnit}>{s.continue2}</button>
           <button onClick={() => setStep('persona')} className="pa-link" style={{ display: 'block', margin: '10px auto 0' }}>{s.back}</button>
+        </div>
+      )}
+
+      {step === 'confirm-unit' && (
+        <div className="pa-card">
+          <div className="pa-eye">{f.confirmUnitEye}</div>
+          <h2>{f.confirmUnitH2}</h2>
+          <div style={{ marginTop: 14, border: '1.5px solid #e2e5ec', borderRadius: 12, padding: '16px 18px', background: '#fafbfc' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9aa0ab' }}>{assocName ?? code.toUpperCase()}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: '#1f2a44', margin: '2px 0 10px' }}>Unit {form.unit}</div>
+            {unitCheck.checking ? (
+              <p style={{ fontSize: 13.5, color: '#6b7280', margin: 0 }}>{f.confirmUnitChecking}</p>
+            ) : unitCheck.found ? (
+              <p style={{ fontSize: 13.5, color: '#0f7a4d', fontWeight: 600, margin: 0 }}>{f.confirmUnitFound}</p>
+            ) : (
+              <p style={{ fontSize: 13.5, color: '#b45309', fontWeight: 600, margin: 0, lineHeight: 1.5 }}>⚠ {f.confirmUnitNotFound}</p>
+            )}
+          </div>
+          <button className="pa-cta" disabled={unitCheck.checking} onClick={() => setStep('type')}>{f.confirmUnitYes}</button>
+          <button onClick={() => setStep('contact')} className="pa-link" style={{ display: 'block', margin: '10px auto 0' }}>{f.confirmUnitEdit}</button>
         </div>
       )}
 
@@ -266,22 +330,30 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
 // ── Add collaborators (name / email / role) + email each their own link ──────
 function CollaboratorAdder({ token, lang, onAdded, compact }: { token: string; lang: PortalLang; onAdded?: () => void; compact?: boolean }) {
   const f = preApplyFlow(lang)
-  const [rows, setRows] = useState<{ name: string; email: string; role: string }[]>([{ name: '', email: '', role: '' }])
+  const [rows, setRows] = useState<{ name: string; email: string; phone: string; role: string }[]>([{ name: '', email: '', phone: '', role: '' }])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
-  const set = (i: number, k: 'name' | 'email' | 'role', v: string) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r))
-  const valid = rows.filter(r => r.name.trim() && r.email.includes('@') && r.role)
+  const set = (i: number, k: 'name' | 'email' | 'phone' | 'role', v: string) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r))
+  const filled = rows.filter(r => r.name.trim() && r.role)
+  // A co-applicant (role='applicant') gets their own real Checkr background
+  // check -- Checkr only ever delivers its consent link by email, so
+  // phone-only would leave them with no way to ever consent. Owner/agent are
+  // never screened, so email OR phone is fine for them (the "no tech" case,
+  // user direction 2026-09-03).
+  const missingEmail = filled.filter(r => r.role === 'applicant' && !r.email.includes('@'))
+  const valid = filled.filter(r => r.role === 'applicant' ? r.email.includes('@') : (r.email.includes('@') || r.phone.trim()))
 
   async function send() {
     setErr(null); setMsg(null)
-    if (valid.length === 0) { setErr('Add at least one person with a name, valid email, and role.'); return }
+    if (missingEmail.length) { setErr(`A valid email is required for ${missingEmail.map(r => r.name).join(', ')} — they'll be background-checked, and the consent link can only be sent by email.`); return }
+    if (valid.length === 0) { setErr('Add at least one person with a name, an email or phone, and a role.'); return }
     setBusy(true)
     try {
       const r = await fetch(`/api/pre-apply/${token}/collaborators`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ collaborators: valid }) })
       const d = await r.json(); if (!r.ok) throw new Error(d.error ?? 'Could not send')
-      setMsg(f.invSent); setRows([{ name: '', email: '', role: '' }]); onAdded?.()
+      setMsg(f.invSent); setRows([{ name: '', email: '', phone: '', role: '' }]); onAdded?.()
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 
@@ -291,6 +363,7 @@ function CollaboratorAdder({ token, lang, onAdded, compact }: { token: string; l
         <div className="pa-collab-row" key={i}>
           <input className="pa-field" style={{ marginTop: 0 }} placeholder={f.invNameL} value={r.name} onChange={e => set(i, 'name', e.target.value)} />
           <input className="pa-field" style={{ marginTop: 0 }} type="email" placeholder={f.invEmailL} value={r.email} onChange={e => set(i, 'email', e.target.value)} />
+          <input className="pa-field" style={{ marginTop: 0 }} placeholder={f.invPhoneL} value={r.phone} onChange={e => set(i, 'phone', e.target.value)} inputMode="tel" />
           <select className="pa-field" style={{ marginTop: 0 }} value={r.role} onChange={e => set(i, 'role', e.target.value)}>
             <option value="">{f.invRolePick}</option>
             {ROLE_DEFS.map(rd => <option key={rd.key} value={rd.key}>{f[rd.lk]}</option>)}
@@ -300,7 +373,7 @@ function CollaboratorAdder({ token, lang, onAdded, compact }: { token: string; l
             : <span />}
         </div>
       ))}
-      <button className="pa-ghost" onClick={() => setRows(rs => [...rs, { name: '', email: '', role: '' }])}>{f.invAdd}</button>
+      <button className="pa-ghost" onClick={() => setRows(rs => [...rs, { name: '', email: '', phone: '', role: '' }])}>{f.invAdd}</button>
       {err && <p style={{ color: '#b91c1c', fontSize: 13, marginTop: 10 }}>⚠ {err}</p>}
       {msg && <p style={{ color: '#166534', fontSize: 13, marginTop: 10 }}>✓ {msg}</p>}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
@@ -349,6 +422,17 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
   const myDocs = info.checklist.filter(d => d.mine)
   const otherDocs = info.checklist.filter(d => !d.mine)
   const myRequiredDone = myDocs.every(d => !d.required || d.uploaded)
+  // Agents already could upload any non-staff, non-esign document for the
+  // person they represent (record-doc never checked provided_by against the
+  // uploader's own role) — just labeled as a vague "if you have them"
+  // convenience. User direction, 2026-09-03: for a client who isn't
+  // comfortable online, this is the actual intended workflow, so name it
+  // as one. listing_agent represents the owner; applicant_agent represents
+  // the lead applicant.
+  const isAgent = info.me.role === 'listing_agent' || info.me.role === 'applicant_agent'
+  const clientRole = info.me.role === 'listing_agent' ? 'owner' : 'applicant'
+  const client = info.collaborators.find(c => c.role === clientRole && (clientRole === 'owner' || c.isPrimary))
+  const clientName = client?.name?.trim() || (clientRole === 'owner' ? 'the owner' : 'the applicant')
   // Only the applicant (or whoever leads the application) answers the yes/no
   // gates; an agent uploading their part is never asked. Whoever IS asked
   // cannot submit until they have answered, so an unanswered gate can't be
@@ -399,8 +483,8 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
   if (!info.me.emailVerified) return (
     <div style={wrap}>
       <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6b7280', margin: 0 }}>{info.associationName}</p>
-      <h1 style={{ fontSize: 22, color: '#1f2a44', margin: '4px 0 2px' }}>{f.verifyH1}</h1>
-      <p style={{ color: '#6b7280', fontSize: 14, marginTop: 0 }}>{f.verifyP}{info.me.emailMasked ? ` (${info.me.emailMasked})` : ''}</p>
+      <h1 style={{ fontSize: 22, color: '#1f2a44', margin: '4px 0 2px' }}>{info.me.verifyChannel === 'phone' ? f.verifyH1Phone : f.verifyH1}</h1>
+      <p style={{ color: '#6b7280', fontSize: 14, marginTop: 0 }}>{info.me.verifyChannel === 'phone' ? f.verifyPPhone : f.verifyP}{info.me.verifyTargetMasked ? ` (${info.me.verifyTargetMasked})` : ''}</p>
       <VerifyEmail token={token} lang={lang} onVerified={load} />
     </div>
   )
@@ -423,7 +507,7 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
         <>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
             {myDocs.length === 0
-              ? <p style={{ fontSize: 13, color: '#6b7280' }}>{f.noDocsForYou}</p>
+              ? <p style={{ fontSize: 13, color: '#6b7280' }}>{isAgent ? f.noDocsForYouAgent.replace('{name}', clientName) : f.noDocsForYou}</p>
               : myDocs.map(d => d.esignUrl
                   ? <EsignBox key={d.id} item={d} />
                   : <DocBox key={d.id} token={token} item={d} lang={lang} onDone={load} />)}
@@ -431,8 +515,8 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
 
           {otherDocs.length > 0 && (
             <>
-              <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '20px 0 4px' }}>{f.otherDocsH}</h2>
-              <p style={{ fontSize: 12.5, color: '#6b7280', marginTop: 0 }}>{f.otherDocsP}</p>
+              <h2 style={{ fontSize: 15, color: '#1f2a44', margin: '20px 0 4px' }}>{isAgent ? f.otherDocsHAgent.replace('{name}', clientName) : f.otherDocsH}</h2>
+              <p style={{ fontSize: 12.5, color: '#6b7280', marginTop: 0 }}>{isAgent ? f.otherDocsPAgent.replace('{name}', clientName) : f.otherDocsP}</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {otherDocs.map(d => <DocBox key={d.id} token={token} item={d} lang={lang} onDone={load} />)}
               </div>

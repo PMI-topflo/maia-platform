@@ -118,9 +118,12 @@ const translations = {
     canSignSelfQ: "Can this person sign and consent for themselves?",
     guardianSignerName: "Name of person signing on their behalf",
     guardianRelationshipLabel: "Their relationship to this person / legal authority (e.g. Legal Guardian, Power of Attorney)",
-    guardianDocLabel: "Guardianship / Power of Attorney Documentation",
+    guardianAuthHeading: "Authorization to Sign on Their Behalf",
+    guardianAuthBody: "Because {name} is unable to sign or consent for themselves, whoever signs below is confirming they have the legal right to do so on their behalf — for example as a court-appointed guardian, someone with power of attorney, or another form of legal authority.",
+    guardianDocLabel: "Supporting documentation, if you have it (optional)",
     guardianConfirm: "I confirm I am legally authorized to sign and consent to a background, credit, and eviction check on behalf of {name}.",
-    guardianRequired: "Please confirm your authority to sign on {name}'s behalf, and upload documentation, before continuing.",
+    guardianRequired: "Please confirm your authority to sign on {name}'s behalf before continuing.",
+    occupantEmailRequired: "Please enter a valid email for {name} — adults are individually background-checked, and the consent link can only be sent by email (not text). Use someone else's email if they don't have their own.",
     addOccupant: "+ Add Occupant",
     sendInvite: "Send invitation to co-applicant",
     inviteSentLabel: "Invitation sent ✓",
@@ -241,9 +244,12 @@ const translations = {
     canSignSelfQ: "¿Puede esta persona firmar y dar su consentimiento por sí misma?",
     guardianSignerName: "Nombre de la persona que firma en su nombre",
     guardianRelationshipLabel: "Su relación con esta persona / autoridad legal (p. ej. Tutor Legal, Poder Notarial)",
-    guardianDocLabel: "Documentación de Tutela / Poder Notarial",
+    guardianAuthHeading: "Autorización para Firmar en su Nombre",
+    guardianAuthBody: "Debido a que {name} no puede firmar ni dar su consentimiento por sí mismo, quien firme a continuación confirma que tiene el derecho legal de hacerlo en su nombre — por ejemplo, como tutor designado por un tribunal, mediante un poder notarial, u otra forma de autoridad legal.",
+    guardianDocLabel: "Documentación de respaldo, si la tiene (opcional)",
     guardianConfirm: "Confirmo que estoy legalmente autorizado para firmar y dar consentimiento para una verificación de antecedentes, crédito y desalojo en nombre de {name}.",
-    guardianRequired: "Confirme su autoridad para firmar en nombre de {name} y suba la documentación antes de continuar.",
+    guardianRequired: "Confirme su autoridad para firmar en nombre de {name} antes de continuar.",
+    occupantEmailRequired: "Ingrese un correo válido para {name} — los adultos son verificados individualmente, y el enlace de consentimiento solo puede enviarse por correo (no por texto). Use el correo de otra persona si no tiene el suyo propio.",
     addOccupant: "+ Agregar Ocupante",
     sendInvite: "Enviar invitación al co-solicitante",
     inviteSentLabel: "Invitación enviada ✓",
@@ -358,9 +364,12 @@ const translations = {
     canSignSelfQ: "Esta pessoa pode assinar e dar consentimento por si mesma?",
     guardianSignerName: "Nome da pessoa que está assinando em seu nome",
     guardianRelationshipLabel: "Sua relação com esta pessoa / autoridade legal (ex.: Tutor Legal, Procuração)",
-    guardianDocLabel: "Documentação de Tutela / Procuração",
+    guardianAuthHeading: "Autorização para Assinar em Nome Dele(a)",
+    guardianAuthBody: "Como {name} não pode assinar ou dar consentimento por si mesmo(a), quem assinar abaixo está confirmando que tem o direito legal de fazê-lo em seu nome — por exemplo, como tutor nomeado pelo tribunal, por meio de uma procuração, ou outra forma de autoridade legal.",
+    guardianDocLabel: "Documentação de apoio, se você tiver (opcional)",
     guardianConfirm: "Confirmo que estou legalmente autorizado a assinar e dar consentimento para uma verificação de antecedentes, crédito e despejo em nome de {name}.",
-    guardianRequired: "Confirme sua autoridade para assinar em nome de {name} e envie a documentação antes de continuar.",
+    guardianRequired: "Confirme sua autoridade para assinar em nome de {name} antes de continuar.",
+    occupantEmailRequired: "Digite um e-mail válido para {name} — os adultos são verificados individualmente, e o link de consentimento só pode ser enviado por e-mail (não por SMS). Use o e-mail de outra pessoa se ele(a) não tiver o próprio.",
     addOccupant: "+ Adicionar Ocupante",
     sendInvite: "Enviar convite ao co-solicitante",
     inviteSentLabel: "Convite enviado ✓",
@@ -475,9 +484,12 @@ const translations = {
     canSignSelfQ: "Cette personne peut-elle signer et donner son consentement elle-même ?",
     guardianSignerName: "Nom de la personne qui signe en son nom",
     guardianRelationshipLabel: "Son lien avec cette personne / autorité légale (ex. : Tuteur Légal, Procuration)",
-    guardianDocLabel: "Documentation de Tutelle / Procuration",
+    guardianAuthHeading: "Autorisation de Signer en Son Nom",
+    guardianAuthBody: "Étant donné que {name} ne peut pas signer ni donner son consentement lui/elle-même, la personne qui signe ci-dessous confirme qu’elle a le droit légal de le faire en son nom — par exemple en tant que tuteur désigné par un tribunal, par procuration, ou toute autre forme d’autorité légale.",
+    guardianDocLabel: "Documentation à l’appui, si vous en avez (facultatif)",
     guardianConfirm: "Je confirme être légalement autorisé(e) à signer et à consentir à une vérification des antécédents, du crédit et d'expulsion au nom de {name}.",
-    guardianRequired: "Veuillez confirmer votre autorité à signer au nom de {name} et téléverser la documentation avant de continuer.",
+    guardianRequired: "Veuillez confirmer votre autorité à signer au nom de {name} avant de continuer.",
+    occupantEmailRequired: "Veuillez saisir un e-mail valide pour {name} — les adultes sont vérifiés individuellement, et le lien de consentement ne peut être envoyé que par e-mail (pas par SMS). Utilisez l'e-mail d'une autre personne s'il/elle n'en a pas.",
     addOccupant: "+ Ajouter un Occupant",
     sendInvite: "Envoyer une invitation au co-demandeur",
     inviteSentLabel: "Invitation envoyée ✓",
@@ -592,9 +604,12 @@ const translations = {
     canSignSelfQ: "האם אדם זה יכול לחתום ולתת הסכמה בעצמו?",
     guardianSignerName: "שם האדם החותם בשמו",
     guardianRelationshipLabel: "הקשר שלו לאדם זה / סמכות משפטית (למשל אפוטרופוס חוקי, ייפוי כוח)",
-    guardianDocLabel: "מסמכי אפוטרופסות / ייפוי כוח",
+    guardianAuthHeading: "הרשאה לחתום בשמו/ה",
+    guardianAuthBody: "מכיוון ש-{name} אינו/ה יכול/ה לחתום או לתת הסכמה בעצמו/ה, מי שחותם/ת למטה מאשר/ת שיש לו/ה את הזכות החוקית לעשות זאת בשמו/ה — לדוגמה כאפוטרופוס שמונה על ידי בית משפט, באמצעות ייפוי כוח, או צורה אחרת של סמכות חוקית.",
+    guardianDocLabel: "תיעוד תומך, אם יש לך (רשות)",
     guardianConfirm: "אני מאשר/ת שאני מוסמך/ת מבחינה משפטית לחתום ולתת הסכמה לבדיקת רקע, אשראי ופינוי בשם {name}.",
-    guardianRequired: "יש לאשר את סמכותך לחתום בשם {name} ולהעלות תיעוד לפני שממשיכים.",
+    guardianRequired: "יש לאשר את סמכותך לחתום בשם {name} לפני שממשיכים.",
+    occupantEmailRequired: "יש להזין אימייל תקף עבור {name} — מבוגרים נבדקים בנפרד, וקישור ההסכמה יכול להישלח רק באימייל (לא בהודעת טקסט). השתמשו באימייל של מישהו אחר אם אין לו/ה אימייל משלו/ה.",
     addOccupant: "+ הוסף דייר",
     sendInvite: "שלח הזמנה למגיש המשותף",
     inviteSentLabel: "הזמנה נשלחה ✓",
@@ -709,9 +724,12 @@ const translations = {
     canSignSelfQ: "Может ли этот человек подписать и дать согласие самостоятельно?",
     guardianSignerName: "Имя человека, подписывающего от его имени",
     guardianRelationshipLabel: "Отношение к этому человеку / законные полномочия (напр. Законный опекун, Доверенность)",
-    guardianDocLabel: "Документы об опекунстве / доверенности",
+    guardianAuthHeading: "Разрешение на подпись от его/её имени",
+    guardianAuthBody: "Поскольку {name} не может подписать или дать согласие самостоятельно, тот, кто подписывает ниже, подтверждает, что имеет законное право сделать это от его/её имени — например, в качестве назначенного судом опекуна, по доверенности или в силу иной формы юридических полномочий.",
+    guardianDocLabel: "Подтверждающие документы, если они у вас есть (необязательно)",
     guardianConfirm: "Я подтверждаю, что имею законные полномочия подписывать и давать согласие на проверку данных, кредитной истории и выселения от имени {name}.",
-    guardianRequired: "Подтвердите свои полномочия подписывать от имени {name} и загрузите документы, прежде чем продолжить.",
+    guardianRequired: "Подтвердите свои полномочия подписывать от имени {name}, прежде чем продолжить.",
+    occupantEmailRequired: "Введите действительный адрес эл. почты для {name} — взрослые проверяются индивидуально, и ссылка для согласия может быть отправлена только по эл. почте (не по SMS). Используйте чужой адрес, если у него/неё нет своего.",
     addOccupant: "+ Добавить жильца",
     sendInvite: "Отправить приглашение со-заявителю",
     inviteSentLabel: "Приглашение отправлено ✓",
@@ -826,9 +844,12 @@ const translations = {
     canSignSelfQ: "Èske moun sa a ka siyen epi bay konsantman pou tèt li?",
     guardianSignerName: "Non moun k ap siyen nan non li",
     guardianRelationshipLabel: "Relasyon li ak moun sa a / otorite legal (egz. Gadyen Legal, Pwokirasyon)",
-    guardianDocLabel: "Dokiman Gadyenaj / Pwokirasyon",
+    guardianAuthHeading: "Otorizasyon pou Siyen nan Non Li",
+    guardianAuthBody: "Piske {name} pa kapab siyen oswa bay konsantman pou tèt li, moun ki siyen anba a ap konfime li gen dwa legal pou fè sa nan non li — pa egzanp kòm yon gadyen tribinal nonmen, atravè yon pwokirasyon, oswa yon lòt fòm otorite legal.",
+    guardianDocLabel: "Dokiman sipò, si w genyen yo (opsyonèl)",
     guardianConfirm: "Mwen konfime mwen otorize legalman pou siyen epi bay konsantman pou yon tchèk background, kredi, ak degèpisman nan non {name}.",
-    guardianRequired: "Tanpri konfime otorite ou pou siyen nan non {name}, epi telechaje dokiman anvan ou kontinye.",
+    guardianRequired: "Tanpri konfime otorite ou pou siyen nan non {name} anvan ou kontinye.",
+    occupantEmailRequired: "Tanpri antre yon imèl valid pou {name} — granmoun yo chèke endividyèlman, epi lyen konsantman an ka voye sèlman pa imèl (pa tèks). Itilize imèl yon lòt moun si li pa gen pwòp li.",
     addOccupant: "+ Ajoute Okipan",
     sendInvite: "Voye envitasyon bay ko-aplikan an",
     inviteSentLabel: "Envitasyon voye ✓",
@@ -1521,6 +1542,19 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     if (step === 2 && isCommercial && !commercialAsPerson) {
       if (!entityName.trim() || !sunbizId.trim()) { setError(t.allFieldsRequired); return; }
     }
+    if (step === 2) {
+      // Every adult occupant gets their own real Checkr background check
+      // (calcTotal/adultOccupants below), and Checkr only ever delivers its
+      // consent link by email -- there's no SMS/WhatsApp option on Checkr's
+      // side. Without this, an occupant with no email was silently excluded
+      // from the co-applicant invite (see the submit handler's own,
+      // narrower adultOccupants filter) while still being priced and
+      // screened here with no email to ever actually consent. User
+      // direction, 2026-09-03.
+      for (const o of adultOccupants) {
+        if (!o.email.includes('@')) { setError(t.occupantEmailRequired.replace('{name}', o.name || t.addlResident)); return; }
+      }
+    }
     if (step === 3 && !rulesSignature.trim()) { setError(t.rulesRequired); return; }
     // Block signature submission until every governing document has
     // been opened. Hardcoded English message — i18n keys live with the
@@ -1545,11 +1579,12 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
       // Blocking, unlike most fields on this form -- see docs/ROADMAP.md's
       // "Power of attorney / legal guardian signing" section on why an
       // occupant who can't sign for themselves needs a real, checked
-      // attestation plus actual documentation before payment, not just a
-      // filled-in text field.
+      // attestation before payment, not just a filled-in text field.
+      // Supporting documentation is offered but optional -- user direction,
+      // 2026-09-03: attestation is the gate, not a required upload.
       for (let ai = 0; ai < adultOccupants.length; ai++) {
         const o = adultOccupants[ai];
-        if (o.canSignSelf === "no" && (!o.guardianConfirmed || !docs[`occGuardianDoc_${ai}`])) {
+        if (o.canSignSelf === "no" && !o.guardianConfirmed) {
           setError(t.guardianRequired.replace("{name}", o.name || t.addlResident));
           return;
         }
@@ -2285,10 +2320,14 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
                                     <input type="text" placeholder={t.guardianSignerName} value={o.guardianName} onChange={(e) => updateOccupant(idx, "guardianName", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
                                     <input type="text" placeholder={t.guardianRelationshipLabel} value={o.guardianRelationship} onChange={(e) => updateOccupant(idx, "guardianRelationship", e.target.value)} style={{ ...inp, padding: "8px 10px" }} />
                                   </div>
-                                  <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 10, fontSize: 12, color: "#0d0d0d", lineHeight: 1.45 }}>
-                                    <input type="checkbox" checked={o.guardianConfirmed} onChange={() => toggleGuardianConfirmed(idx)} style={{ marginTop: 2 }} />
-                                    <span>{t.guardianConfirm.replace("{name}", o.name || t.addlResident)}</span>
-                                  </label>
+                                  <div style={{ marginTop: 12, padding: "12px 14px", background: "#fff7f0", border: "1px solid #f3d9c4", borderRadius: 4 }}>
+                                    <div style={{ fontWeight: 700, fontSize: 13, color: "#0d0d0d", marginBottom: 6 }}>{t.guardianAuthHeading}</div>
+                                    <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10, lineHeight: 1.5 }}>{t.guardianAuthBody.replace("{name}", o.name || t.addlResident)}</div>
+                                    <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, color: "#0d0d0d", lineHeight: 1.45, fontWeight: 600 }}>
+                                      <input type="checkbox" checked={o.guardianConfirmed} onChange={() => toggleGuardianConfirmed(idx)} style={{ marginTop: 2 }} />
+                                      <span>{t.guardianConfirm.replace("{name}", o.name || t.addlResident)}</span>
+                                    </label>
+                                  </div>
                                 </div>
                               )}
                             </div>

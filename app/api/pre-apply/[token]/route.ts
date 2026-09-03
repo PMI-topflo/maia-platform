@@ -9,7 +9,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getIntake, resolveToken, listStakeholders, roleToProvidedBy, roleLabel, INTAKE_BUCKET } from '@/lib/preapply'
 import { getIntakeChecklist, PROVIDED_BY_LABEL, parseDeclarations, pendingDeclarations } from '@/lib/intake-documents'
 import { activeConditions, declaredPetWhereProhibited, ANIMAL_KIND_LABEL, ANIMAL_KIND_BLURB, animalDocGuidance } from '@/lib/animal-accommodation'
-import { maskEmail } from '@/lib/esign-verify'
+import { maskEmail, maskPhone } from '@/lib/esign-verify'
 import { getOrCreateEsignLink } from '@/lib/application-esign-forms'
 
 export const runtime = 'nodejs'
@@ -91,7 +91,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     me: {
       name: me.name, role: me.role, roleLabel: roleLabel(me.role), signs: me.signs,
       isPrimary: me.isPrimary, status: me.status, emailVerified: !!me.emailVerifiedAt,
+      // "emailVerified" is really "identity verified", possibly over phone --
+      // see markStakeholderVerified. verifyChannel tells the client which
+      // channel send-otp/verify-otp will actually use (email if on file,
+      // else phone -- same deterministic rule server-side), and
+      // verifyTargetMasked is whichever of email/phone that resolves to, so
+      // the UI can say "we texted you a code" instead of always "emailed".
       emailMasked: maskEmail(me.email), signed: !!me.signedAt,
+      verifyChannel: (me.email ?? '').includes('@') ? 'email' as const : 'phone' as const,
+      verifyTargetMasked: (me.email ?? '').includes('@') ? maskEmail(me.email) : maskPhone(me.phone),
       checklistAckSignedAt: me.checklistAckSignedAt,
     },
     // The lead always can; so can the owner — they didn't start the
