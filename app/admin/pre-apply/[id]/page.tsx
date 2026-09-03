@@ -955,6 +955,23 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
   const [editingName, setEditingName] = useState(false)
   const [nameVal, setNameVal] = useState(doc?.suggestedName ?? doc?.filename ?? '')
   const [rescanMsg, setRescanMsg] = useState<{ tone: 'good' | 'bad' | 'plain'; text: string } | null>(null)
+  const [refileMsg, setRefileMsg] = useState<string | null>(null)
+  // Recovery for packets completed before 2026-09-03: the filed PDF was
+  // rendered from a stale snapshot missing whichever party signed second,
+  // so it showed them as "Awaiting electronic signature" even though the
+  // signer-status line above (read fresh from the database) correctly had
+  // both signed. Re-renders + re-files from current state — safe to run
+  // any time, including on an already-correct packet.
+  async function refileAgreement() {
+    setBusy('refile'); setRefileMsg(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/refile-agreement`, { method: 'POST', credentials: 'include' })
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok || j.error) throw new Error(j.error || 'Could not re-file the Agreement.')
+      setRefileMsg('✓ Re-filed with both signatures.')
+      onDone()
+    } catch (e) { setRefileMsg((e as Error).message) } finally { setBusy(null) }
+  }
   useEffect(() => { setExp(doc?.expirationDate ?? ''); setSavedExp(doc?.expirationDate ?? ''); setNoExp(!!doc?.noExpiration); setNameVal(doc?.suggestedName ?? doc?.filename ?? ''); setRescanMsg(null) }, [doc?.id, doc?.expirationDate, doc?.noExpiration, doc?.suggestedName, doc?.filename])
   async function saveName() { setBusy('name'); try { await patchDoc({ suggested_name: nameVal }); setEditingName(false); onDone() } catch { /* */ } finally { setBusy(null) } }
 
@@ -1107,10 +1124,22 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
               item that was already sent out shows the same info instead of
               looking untouched. Staff near-miss + follow-up, 2026-09-02. */}
           {c.esign && (
-            <div style={{ font: '11.5px system-ui', color: c.esign.pending.length ? '#92400e' : '#166534', marginTop: 2 }}>
-              {c.esign.pending.length === 0
-                ? `✍ Signed by ${c.esign.signed.length ? c.esign.signed.map(s => `${s.name} (${fmt(s.at)})`).join(', ') : '—'}`
-                : `✍ Sent for signature — ${c.esign.signed.length}/${c.esign.signed.length + c.esign.pending.length} signed, waiting on ${c.esign.pending.join(', ')}`}
+            <div style={{ font: '11.5px system-ui', color: c.esign.pending.length ? '#92400e' : '#166534', marginTop: 2, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span>
+                {c.esign.pending.length === 0
+                  ? `✍ Signed by ${c.esign.signed.length ? c.esign.signed.map(s => `${s.name} (${fmt(s.at)})`).join(', ') : '—'}`
+                  : `✍ Sent for signature — ${c.esign.signed.length}/${c.esign.signed.length + c.esign.pending.length} signed, waiting on ${c.esign.pending.join(', ')}`}
+              </span>
+              {/* Landlord-Tenant Agreement only: the filed PDF can be stale
+                  from the pre-2026-09-03 bug even when both parties are
+                  correctly shown as signed above — let staff re-render it
+                  from current state without re-requesting anyone's signature. */}
+              {c.doc_key === 'landlord_tenant_agreement' && c.esign.pending.length === 0 && (
+                <button onClick={refileAgreement} disabled={busy === 'refile'} title="Re-render the filed PDF from the current signature record — use if it shows a signature missing that's listed above" style={{ font: '600 11px system-ui', color: '#4338ca', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 5, padding: '1px 7px', cursor: 'pointer' }}>
+                  {busy === 'refile' ? 'Re-filing…' : '🔄 Re-file PDF'}
+                </button>
+              )}
+              {refileMsg && <span style={{ color: refileMsg.startsWith('✓') ? '#166534' : '#b91c1c' }}>{refileMsg}</span>}
             </div>
           )}
           {doc && !na && (
