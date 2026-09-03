@@ -11,7 +11,7 @@
 
 import { NextResponse } from 'next/server'
 import { addonStaffEmail } from '@/lib/addon-token'
-import { findOpenTicketByGmailThread, findOpenTicketByContact } from '@/lib/tickets'
+import { findOpenTicketByGmailThread } from '@/lib/tickets'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const dynamic = 'force-dynamic'
@@ -40,11 +40,18 @@ export async function GET(req: Request) {
   // addresses (forwards) must not drive contact-matching.
   const contactEmail = email && !isInternalAddress(email) ? email : null
 
-  // Matched open ticket: thread is the strongest (and only reliable) signal;
-  // fall back to contact only when it's a genuine external address.
-  let matched = null
-  if (thread) matched = await findOpenTicketByGmailThread(thread)
-  if (!matched && contactEmail) matched = await findOpenTicketByContact({ email: contactEmail })
+  // Matched open ticket: ONLY the Gmail thread is a reliable signal for
+  // "this specific email is about this specific ticket." A contact-email
+  // fallback used to also surface the sender's most recent open ticket on
+  // ANY thread -- staff report, 2026-09-03: opened a brand-new inquiry email
+  // about one unit and the sidebar showed "🔗 Linked ticket" for an
+  // unrelated, older ticket about a different unit, just because the same
+  // person had once emailed about that too. The contact's history is still
+  // surfaced below as "recent tickets for this contact" (clearly labeled as
+  // history, with its own manual 🔗 Link button per row) -- that distinction
+  // is exactly the fix: history to review, not an auto-applied match
+  // presented as fact.
+  const matched = thread ? await findOpenTicketByGmailThread(thread) : null
 
   // Recent tickets for this contact (any status), newest first — external only.
   let recent: Array<Record<string, unknown>> = []
