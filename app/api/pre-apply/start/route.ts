@@ -181,11 +181,20 @@ export async function POST(req: Request) {
   const role = String(b.role ?? 'applicant').trim()
   if (!code || !isApplicationType(type)) return NextResponse.json({ error: 'code and a valid application type are required' }, { status: 400 })
   if (!isStakeholderRole(role)) return NextResponse.json({ error: 'Please choose who you are (tenant, owner, or agent).' }, { status: 400 })
-  // Email OR phone, not both required -- built for the applicant with no
-  // email address / not comfortable online (user direction, 2026-09-03):
-  // identity verification (send-otp/verify-otp) falls back to SMS/WhatsApp
-  // when there's no email on file.
-  if (!name || (!email.includes('@') && !phone)) return NextResponse.json({ error: 'Please enter your name, and either an email or a mobile phone number.' }, { status: 400 })
+  if (!name) return NextResponse.json({ error: 'Please enter your name.' }, { status: 400 })
+  // role='applicant' (lead AND co-applicants) gets a real Checkr background
+  // check, and Checkr only ever delivers its consent/questionnaire link by
+  // email (lib/screening/checkr.ts) -- there is no SMS/WhatsApp option on
+  // Checkr's side, so phone-only would leave them with no way to ever
+  // consent. Owner/agent are never screened, so phone-only (SMS/WhatsApp
+  // identity verification, send-otp/verify-otp) is fine for them. User
+  // direction, 2026-09-03.
+  if (role === 'applicant' && !email.includes('@')) {
+    return NextResponse.json({ error: 'A valid email is required — the background check consent link can only be sent by email, not text or WhatsApp. Use someone else’s email (like an agent’s) if you don’t have your own.' }, { status: 400 })
+  }
+  if (role !== 'applicant' && !email.includes('@') && !phone) {
+    return NextResponse.json({ error: 'Please enter your name, and either an email or a mobile phone number.' }, { status: 400 })
+  }
 
   const { data: assoc } = await supabaseAdmin.from('associations').select('association_code, active').eq('association_code', code).maybeSingle()
   if (!assoc || assoc.active === false) return NextResponse.json({ error: 'This association is not accepting applications online.' }, { status: 404 })

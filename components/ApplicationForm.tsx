@@ -123,6 +123,7 @@ const translations = {
     guardianDocLabel: "Supporting documentation, if you have it (optional)",
     guardianConfirm: "I confirm I am legally authorized to sign and consent to a background, credit, and eviction check on behalf of {name}.",
     guardianRequired: "Please confirm your authority to sign on {name}'s behalf before continuing.",
+    occupantEmailRequired: "Please enter a valid email for {name} — adults are individually background-checked, and the consent link can only be sent by email (not text). Use someone else's email if they don't have their own.",
     addOccupant: "+ Add Occupant",
     sendInvite: "Send invitation to co-applicant",
     inviteSentLabel: "Invitation sent ✓",
@@ -248,6 +249,7 @@ const translations = {
     guardianDocLabel: "Documentación de respaldo, si la tiene (opcional)",
     guardianConfirm: "Confirmo que estoy legalmente autorizado para firmar y dar consentimiento para una verificación de antecedentes, crédito y desalojo en nombre de {name}.",
     guardianRequired: "Confirme su autoridad para firmar en nombre de {name} antes de continuar.",
+    occupantEmailRequired: "Ingrese un correo válido para {name} — los adultos son verificados individualmente, y el enlace de consentimiento solo puede enviarse por correo (no por texto). Use el correo de otra persona si no tiene el suyo propio.",
     addOccupant: "+ Agregar Ocupante",
     sendInvite: "Enviar invitación al co-solicitante",
     inviteSentLabel: "Invitación enviada ✓",
@@ -367,6 +369,7 @@ const translations = {
     guardianDocLabel: "Documentação de apoio, se você tiver (opcional)",
     guardianConfirm: "Confirmo que estou legalmente autorizado a assinar e dar consentimento para uma verificação de antecedentes, crédito e despejo em nome de {name}.",
     guardianRequired: "Confirme sua autoridade para assinar em nome de {name} antes de continuar.",
+    occupantEmailRequired: "Digite um e-mail válido para {name} — os adultos são verificados individualmente, e o link de consentimento só pode ser enviado por e-mail (não por SMS). Use o e-mail de outra pessoa se ele(a) não tiver o próprio.",
     addOccupant: "+ Adicionar Ocupante",
     sendInvite: "Enviar convite ao co-solicitante",
     inviteSentLabel: "Convite enviado ✓",
@@ -486,6 +489,7 @@ const translations = {
     guardianDocLabel: "Documentation à l’appui, si vous en avez (facultatif)",
     guardianConfirm: "Je confirme être légalement autorisé(e) à signer et à consentir à une vérification des antécédents, du crédit et d'expulsion au nom de {name}.",
     guardianRequired: "Veuillez confirmer votre autorité à signer au nom de {name} avant de continuer.",
+    occupantEmailRequired: "Veuillez saisir un e-mail valide pour {name} — les adultes sont vérifiés individuellement, et le lien de consentement ne peut être envoyé que par e-mail (pas par SMS). Utilisez l'e-mail d'une autre personne s'il/elle n'en a pas.",
     addOccupant: "+ Ajouter un Occupant",
     sendInvite: "Envoyer une invitation au co-demandeur",
     inviteSentLabel: "Invitation envoyée ✓",
@@ -605,6 +609,7 @@ const translations = {
     guardianDocLabel: "תיעוד תומך, אם יש לך (רשות)",
     guardianConfirm: "אני מאשר/ת שאני מוסמך/ת מבחינה משפטית לחתום ולתת הסכמה לבדיקת רקע, אשראי ופינוי בשם {name}.",
     guardianRequired: "יש לאשר את סמכותך לחתום בשם {name} לפני שממשיכים.",
+    occupantEmailRequired: "יש להזין אימייל תקף עבור {name} — מבוגרים נבדקים בנפרד, וקישור ההסכמה יכול להישלח רק באימייל (לא בהודעת טקסט). השתמשו באימייל של מישהו אחר אם אין לו/ה אימייל משלו/ה.",
     addOccupant: "+ הוסף דייר",
     sendInvite: "שלח הזמנה למגיש המשותף",
     inviteSentLabel: "הזמנה נשלחה ✓",
@@ -724,6 +729,7 @@ const translations = {
     guardianDocLabel: "Подтверждающие документы, если они у вас есть (необязательно)",
     guardianConfirm: "Я подтверждаю, что имею законные полномочия подписывать и давать согласие на проверку данных, кредитной истории и выселения от имени {name}.",
     guardianRequired: "Подтвердите свои полномочия подписывать от имени {name}, прежде чем продолжить.",
+    occupantEmailRequired: "Введите действительный адрес эл. почты для {name} — взрослые проверяются индивидуально, и ссылка для согласия может быть отправлена только по эл. почте (не по SMS). Используйте чужой адрес, если у него/неё нет своего.",
     addOccupant: "+ Добавить жильца",
     sendInvite: "Отправить приглашение со-заявителю",
     inviteSentLabel: "Приглашение отправлено ✓",
@@ -843,6 +849,7 @@ const translations = {
     guardianDocLabel: "Dokiman sipò, si w genyen yo (opsyonèl)",
     guardianConfirm: "Mwen konfime mwen otorize legalman pou siyen epi bay konsantman pou yon tchèk background, kredi, ak degèpisman nan non {name}.",
     guardianRequired: "Tanpri konfime otorite ou pou siyen nan non {name} anvan ou kontinye.",
+    occupantEmailRequired: "Tanpri antre yon imèl valid pou {name} — granmoun yo chèke endividyèlman, epi lyen konsantman an ka voye sèlman pa imèl (pa tèks). Itilize imèl yon lòt moun si li pa gen pwòp li.",
     addOccupant: "+ Ajoute Okipan",
     sendInvite: "Voye envitasyon bay ko-aplikan an",
     inviteSentLabel: "Envitasyon voye ✓",
@@ -1534,6 +1541,19 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     }
     if (step === 2 && isCommercial && !commercialAsPerson) {
       if (!entityName.trim() || !sunbizId.trim()) { setError(t.allFieldsRequired); return; }
+    }
+    if (step === 2) {
+      // Every adult occupant gets their own real Checkr background check
+      // (calcTotal/adultOccupants below), and Checkr only ever delivers its
+      // consent link by email -- there's no SMS/WhatsApp option on Checkr's
+      // side. Without this, an occupant with no email was silently excluded
+      // from the co-applicant invite (see the submit handler's own,
+      // narrower adultOccupants filter) while still being priced and
+      // screened here with no email to ever actually consent. User
+      // direction, 2026-09-03.
+      for (const o of adultOccupants) {
+        if (!o.email.includes('@')) { setError(t.occupantEmailRequired.replace('{name}', o.name || t.addlResident)); return; }
+      }
     }
     if (step === 3 && !rulesSignature.trim()) { setError(t.rulesRequired); return; }
     // Block signature submission until every governing document has

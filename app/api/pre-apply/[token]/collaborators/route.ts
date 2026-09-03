@@ -44,11 +44,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   let b: { collaborators?: { name?: string; email?: string; phone?: string; role?: string }[] }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
   const raw = Array.isArray(b.collaborators) ? b.collaborators : []
-  // Email OR phone -- a collaborator with no email (the "no tech" case, user
-  // direction 2026-09-03) still gets a real invite, just by SMS instead.
-  const people = raw
+  const parsed = raw
     .map(p => ({ name: String(p.name ?? '').trim(), email: String(p.email ?? '').trim(), phone: String(p.phone ?? '').trim() || null, role: String(p.role ?? '').trim() }))
-    .filter(p => p.name && (p.email.includes('@') || p.phone) && isStakeholderRole(p.role))
+    .filter(p => p.name && isStakeholderRole(p.role))
+  // A collaborator added as role='applicant' (a co-applicant) gets their own
+  // real Checkr background check, and Checkr only ever delivers its consent
+  // link by email -- there's no SMS/WhatsApp option on Checkr's side, so
+  // phone-only would leave them with no way to ever consent. Reject those
+  // explicitly (by name) rather than silently dropping them -- a real gap
+  // found elsewhere in this pipeline (components/ApplicationForm.tsx's
+  // adult-occupant filter used to just exclude anyone with no email, with no
+  // error telling the lead why). Owner/agent are never screened, so email OR
+  // phone is fine for them (the "no tech" case, user direction 2026-09-03).
+  const missingEmail = parsed.filter(p => p.role === 'applicant' && !p.email.includes('@')).map(p => p.name)
+  if (missingEmail.length) {
+    return NextResponse.json({ error: `A valid email is required for ${missingEmail.join(', ')} — they'll be background-checked, and the consent link can only be sent by email. Use someone else's email (like an agent's) if they don't have their own.` }, { status: 400 })
+  }
+  const people = parsed
+    .filter(p => p.email.includes('@') || p.phone)
     .map(p => ({ ...p, role: p.role as StakeholderRole }))
   if (people.length === 0) return NextResponse.json({ error: 'Add at least one person with a name, an email or phone, and a role.' }, { status: 400 })
 

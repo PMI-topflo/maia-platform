@@ -140,8 +140,20 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
   // move on — staff report, 2026-09-02: unit was free-text, optional, and
   // never verified, so a mistyped or blank unit silently skipped the
   // per-unit duplicate-application check AND owner verification downstream.
+  // The 'applicant' role (lead AND co-applicants) gets an actual Checkr
+  // background check, and Checkr only ever delivers its consent/questionnaire
+  // link by email (lib/screening/checkr.ts) -- there is no SMS/WhatsApp
+  // option on Checkr's side. Phone-only is fine for owner/agent, who are
+  // never screened, but an applicant with no email would have no way to
+  // ever actually consent. User direction, 2026-09-03.
+  const needsEmail = role === 'applicant'
+  const contactValid = () => form.name.trim() && (needsEmail ? form.email.includes('@') : (form.email.includes('@') || form.phone.trim()))
+  const contactErr = needsEmail
+    ? 'Please enter your name and a valid email — a background check requires one to send you the consent link (you can use someone else’s, like your agent’s, if you don’t have your own).'
+    : 'Please enter your name, and either an email or a mobile phone number.'
+
   async function confirmUnit() {
-    if (!form.name.trim() || (!form.email.includes('@') && !form.phone.trim())) { setErr('Please enter your name, and either an email or a mobile phone number.'); return }
+    if (!contactValid()) { setErr(contactErr); return }
     if (!form.unit.trim()) { setErr('Please enter your unit number.'); return }
     setErr(null)
     setUnitCheck({ checking: true, found: null })
@@ -156,7 +168,7 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
   async function start() {
     setErr(null)
     if (!role) { setErr('Please choose who you are.'); return }
-    if (!form.name.trim() || (!form.email.includes('@') && !form.phone.trim())) { setErr('Please enter your name, and either an email or a mobile phone number.'); return }
+    if (!contactValid()) { setErr(contactErr); return }
     setBusy(true)
     try {
       const r = await fetch('/api/pre-apply/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, type, role, ...form }) })
@@ -273,7 +285,9 @@ export default function PreApplyPage({ params }: { params: Promise<{ code: strin
           <label className="pa-lbl">{s.nameL}<input className="pa-field" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></label>
           <label className="pa-lbl">{s.emailL}<input className="pa-field" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
           <label className="pa-lbl">{s.phoneL}<input className="pa-field" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} inputMode="tel" /></label>
-          <p style={{ fontSize: 12, color: '#9aa0ab', margin: '4px 0 0', lineHeight: 1.4 }}>{f.contactEmailOrPhoneNote}</p>
+          <p style={{ fontSize: 12, color: needsEmail ? '#b45309' : '#9aa0ab', margin: '4px 0 0', lineHeight: 1.4, fontWeight: needsEmail ? 600 : 400 }}>
+            {needsEmail ? f.contactEmailRequiredNote : f.contactEmailOrPhoneNote}
+          </p>
           <label className="pa-lbl">{s.unitL}<input className="pa-field" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} placeholder="e.g. 511" /></label>
           {err && <p style={{ color: '#b91c1c', fontSize: 14, marginTop: 12 }}>⚠ {err}</p>}
           <button className="pa-cta" onClick={confirmUnit}>{s.continue2}</button>
@@ -322,12 +336,18 @@ function CollaboratorAdder({ token, lang, onAdded, compact }: { token: string; l
   const [err, setErr] = useState<string | null>(null)
 
   const set = (i: number, k: 'name' | 'email' | 'phone' | 'role', v: string) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r))
-  // Email OR phone -- a collaborator with no email (no tech-savviness assumed,
-  // user direction 2026-09-03) can still be added, invited by SMS instead.
-  const valid = rows.filter(r => r.name.trim() && (r.email.includes('@') || r.phone.trim()) && r.role)
+  const filled = rows.filter(r => r.name.trim() && r.role)
+  // A co-applicant (role='applicant') gets their own real Checkr background
+  // check -- Checkr only ever delivers its consent link by email, so
+  // phone-only would leave them with no way to ever consent. Owner/agent are
+  // never screened, so email OR phone is fine for them (the "no tech" case,
+  // user direction 2026-09-03).
+  const missingEmail = filled.filter(r => r.role === 'applicant' && !r.email.includes('@'))
+  const valid = filled.filter(r => r.role === 'applicant' ? r.email.includes('@') : (r.email.includes('@') || r.phone.trim()))
 
   async function send() {
     setErr(null); setMsg(null)
+    if (missingEmail.length) { setErr(`A valid email is required for ${missingEmail.map(r => r.name).join(', ')} — they'll be background-checked, and the consent link can only be sent by email.`); return }
     if (valid.length === 0) { setErr('Add at least one person with a name, an email or phone, and a role.'); return }
     setBusy(true)
     try {

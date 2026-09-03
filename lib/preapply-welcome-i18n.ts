@@ -179,7 +179,7 @@ export interface PreApplyFlowStrings {
   // Confirm-unit step
   confirmUnitEye: string; confirmUnitH2: string; confirmUnitFound: string; confirmUnitNotFound: string
   confirmUnitChecking: string; confirmUnitYes: string; confirmUnitEdit: string
-  contactEmailOrPhoneNote: string
+  contactEmailOrPhoneNote: string; contactEmailRequiredNote: string
   // Invite collaborators step
   inviteEye: string; inviteH2: string; inviteP: string
   invNameL: string; invEmailL: string; invPhoneL: string; invRoleL: string; invRolePick: string
@@ -216,6 +216,7 @@ const flowEn: PreApplyFlowStrings = {
   confirmUnitChecking: 'Checking…',
   confirmUnitYes: 'Yes, this is correct →', confirmUnitEdit: '← Edit unit number',
   contactEmailOrPhoneNote: 'Please provide at least one — email or mobile phone. No email? That’s okay, we can text or WhatsApp you instead.',
+  contactEmailRequiredNote: '⚠ An email is required for you specifically — your background check consent link can only be sent by email (not text or WhatsApp). No email of your own? You can use someone else’s, like your agent’s, to receive it.',
   inviteEye: 'Work together', inviteH2: 'Add everyone involved',
   inviteP: 'Add the other people on this application — co-applicants, the owner, the agent. MAIA emails each of them their own secure link so everyone fills their part at the same time. You can also do this later.',
   invNameL: 'Full name', invEmailL: 'Email (or phone below)', invPhoneL: 'Mobile phone (if no email)', invRoleL: 'Role', invRolePick: 'Choose a role…',
@@ -267,6 +268,8 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     confirmUnitNotFound: 'Aún no tenemos esta unidad registrada — está bien, solo confirme que el número es correcto antes de continuar.',
     confirmUnitChecking: 'Verificando…',
     confirmUnitYes: 'Sí, es correcto →', confirmUnitEdit: '← Editar número de unidad',
+    contactEmailOrPhoneNote: 'Proporcione al menos uno — correo o teléfono móvil. ¿No tiene correo? No hay problema, podemos enviarle un mensaje de texto o WhatsApp.',
+    contactEmailRequiredNote: '⚠ Se requiere un correo específicamente para usted — el enlace de consentimiento para la verificación de antecedentes solo puede enviarse por correo (no por texto ni WhatsApp). ¿No tiene correo propio? Puede usar el de otra persona, como su agente, para recibirlo.',
     inviteEye: 'Trabajen juntos', inviteH2: 'Agregue a todos los involucrados',
     inviteP: 'Agregue a las demás personas de esta solicitud — coinquilinos, el propietario, el agente. MAIA enviará a cada uno su propio enlace seguro para que todos completen su parte al mismo tiempo. También puede hacerlo más tarde.',
     invNameL: 'Nombre completo', invEmailL: 'Correo (o teléfono abajo)', invPhoneL: 'Teléfono móvil (si no tiene correo)', invRoleL: 'Rol', invRolePick: 'Elija un rol…',
@@ -308,6 +311,8 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     confirmUnitNotFound: 'Ainda não temos esta unidade registrada — tudo bem, apenas confirme se o número está correto antes de continuar.',
     confirmUnitChecking: 'Verificando…',
     confirmUnitYes: 'Sim, está correto →', confirmUnitEdit: '← Editar número da unidade',
+    contactEmailOrPhoneNote: 'Forneça pelo menos um — e-mail ou celular. Não tem e-mail? Sem problema, podemos enviar por SMS ou WhatsApp.',
+    contactEmailRequiredNote: '⚠ Um e-mail é obrigatório especificamente para você — o link de consentimento da verificação de antecedentes só pode ser enviado por e-mail (não por SMS ou WhatsApp). Não tem e-mail próprio? Pode usar o de outra pessoa, como seu corretor, para recebê-lo.',
     inviteEye: 'Trabalhem juntos', inviteH2: 'Adicione todos os envolvidos',
     inviteP: 'Adicione as outras pessoas desta inscrição — coinquilinos, o proprietário, o corretor. A MAIA envia a cada um seu próprio link seguro para que todos preencham sua parte ao mesmo tempo. Você também pode fazer isso depois.',
     invNameL: 'Nome completo', invEmailL: 'E-mail (ou telefone abaixo)', invPhoneL: 'Celular (se não tiver e-mail)', invRoleL: 'Função', invRolePick: 'Escolha uma função…',
@@ -349,6 +354,8 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     confirmUnitNotFound: 'Nous n’avons pas encore cette unité dans nos dossiers — ce n’est pas grave, vérifiez simplement que le numéro est correct avant de continuer.',
     confirmUnitChecking: 'Vérification…',
     confirmUnitYes: 'Oui, c’est correct →', confirmUnitEdit: '← Modifier le numéro d’unité',
+    contactEmailOrPhoneNote: 'Veuillez fournir au moins l’un des deux — e-mail ou téléphone mobile. Pas d’e-mail ? Ce n’est pas grave, nous pouvons vous envoyer un SMS ou un message WhatsApp.',
+    contactEmailRequiredNote: '⚠ Un e-mail est requis spécifiquement pour vous — le lien de consentement de vérification des antécédents ne peut être envoyé que par e-mail (pas par SMS ni WhatsApp). Pas d’e-mail à vous ? Vous pouvez utiliser celui d’une autre personne, comme votre agent, pour le recevoir.',
     inviteEye: 'Collaborez', inviteH2: 'Ajoutez toutes les personnes concernées',
     inviteP: 'Ajoutez les autres personnes de cette demande — colocataires, le propriétaire, l’agent. MAIA envoie à chacun son propre lien sécurisé pour que tout le monde remplisse sa partie en même temps. Vous pouvez aussi le faire plus tard.',
     invNameL: 'Nom complet', invEmailL: 'E-mail (ou téléphone ci-dessous)', invPhoneL: 'Téléphone mobile (si pas d’e-mail)', invRoleL: 'Rôle', invRolePick: 'Choisissez un rôle…',
@@ -390,6 +397,8 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     confirmUnitNotFound: 'Nou poko gen inite sa a nan dosye nou — pa gen pwoblèm, jis verifye nimewo a kòrèk anvan w kontinye.',
     confirmUnitChecking: 'K ap verifye…',
     confirmUnitYes: 'Wi, li kòrèk →', confirmUnitEdit: '← Modifye nimewo inite a',
+    contactEmailOrPhoneNote: 'Tanpri bay omwen youn — imèl oswa telefòn mobil. Ou pa gen imèl? Pa gen pwoblèm, nou ka voye tèks oswa WhatsApp ba ou.',
+    contactEmailRequiredNote: '⚠ Nou bezwen yon imèl spesyalman pou ou — lyen konsantman verifikasyon background la ka voye sèlman pa imèl (pa tèks ni WhatsApp). Ou pa gen pwòp imèl ou? Ou ka itilize pa yon lòt moun, tankou ajan ou, pou resevwa li.',
     inviteEye: 'Travay ansanm', inviteH2: 'Ajoute tout moun ki enplike',
     inviteP: 'Ajoute lòt moun nan aplikasyon sa a — ko-aplikan, pwopriyetè a, ajan an. MAIA voye pou chak youn pwòp lyen sekirize yo pou tout moun ranpli pati yo an menm tan. Ou ka fè sa pita tou.',
     invNameL: 'Non konplè', invEmailL: 'Imèl (oswa telefòn anba a)', invPhoneL: 'Telefòn mobil (si w pa gen imèl)', invRoleL: 'Wòl', invRolePick: 'Chwazi yon wòl…',
@@ -431,6 +440,8 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     confirmUnitNotFound: 'עדיין אין לנו את היחידה הזו במערכת — זה בסדר, רק ודאו שהמספר נכון לפני שממשיכים.',
     confirmUnitChecking: 'בודק…',
     confirmUnitYes: 'כן, זה נכון →', confirmUnitEdit: '→ עריכת מספר יחידה',
+    contactEmailOrPhoneNote: 'אנא ספקו לפחות אחד מהם — אימייל או טלפון נייד. אין לכם אימייל? זה בסדר, נוכל לשלוח לכם הודעת טקסט או וואטסאפ.',
+    contactEmailRequiredNote: '⚠ נדרש אימייל במיוחד עבורכם — קישור ההסכמה לבדיקת רקע יכול להישלח רק באימייל (לא בהודעת טקסט או וואטסאפ). אין לכם אימייל משלכם? תוכלו להשתמש באימייל של מישהו אחר, כמו הסוכן שלכם, כדי לקבל אותו.',
     inviteEye: 'עבדו יחד', inviteH2: 'הוסיפו את כל המעורבים',
     inviteP: 'הוסיפו את שאר האנשים בבקשה זו — שותפים, הבעלים, הסוכן. MAIA שולחת לכל אחד קישור מאובטח משלו כדי שכולם ימלאו את חלקם בו-זמנית. אפשר גם לעשות זאת מאוחר יותר.',
     invNameL: 'שם מלא', invEmailL: 'אימייל (או טלפון למטה)', invPhoneL: 'טלפון נייד (אם אין אימייל)', invRoleL: 'תפקיד', invRolePick: 'בחרו תפקיד…',
@@ -472,6 +483,8 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     confirmUnitNotFound: 'Этой квартиры пока нет в нашей базе — это нормально, просто убедитесь, что номер указан верно, прежде чем продолжить.',
     confirmUnitChecking: 'Проверка…',
     confirmUnitYes: 'Да, всё верно →', confirmUnitEdit: '← Изменить номер квартиры',
+    contactEmailOrPhoneNote: 'Укажите хотя бы одно — эл. почту или мобильный телефон. Нет эл. почты? Ничего страшного, мы можем отправить вам SMS или сообщение в WhatsApp.',
+    contactEmailRequiredNote: '⚠ Эл. почта обязательна именно для вас — ссылка для согласия на проверку данных может быть отправлена только по эл. почте (не по SMS и не через WhatsApp). Нет своей эл. почты? Вы можете использовать чужую, например вашего агента, чтобы получить её.',
     inviteEye: 'Работайте вместе', inviteH2: 'Добавьте всех участников',
     inviteP: 'Добавьте остальных участников этой заявки — созаявителей, владельца, агента. MAIA отправит каждому его собственную защищённую ссылку, чтобы все заполнили свою часть одновременно. Это также можно сделать позже.',
     invNameL: 'Полное имя', invEmailL: 'Эл. почта (или телефон ниже)', invPhoneL: 'Мобильный телефон (если нет эл. почты)', invRoleL: 'Роль', invRolePick: 'Выберите роль…',
