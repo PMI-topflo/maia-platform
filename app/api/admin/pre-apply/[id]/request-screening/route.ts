@@ -11,6 +11,7 @@ import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveScreeningProvider } from '@/lib/preapply'
+import { logOutboundCommunication } from '@/lib/application-comm-log'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -23,7 +24,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const { id } = await ctx.params
 
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('association_code, detailed_application_id, screening_provider').eq('id', id).maybeSingle()
+    .select('association_code, unit_label, detailed_application_id, screening_provider').eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'not found' }, { status: 404 })
 
   const detailedId = app.detailed_application_id as string | null
@@ -54,6 +55,16 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   } catch (err) {
     return NextResponse.json({ error: `Could not reach the screening service: ${(err as Error).message}` }, { status: 502 })
   }
+
+  // Staff report, 2026-09-03 (MANXI 912 again): this ran but left no trace
+  // anywhere staff could see it happened, or when -- same gap the Rentvine
+  // fallback and declaration-reminder sends were already fixed for.
+  await logOutboundCommunication({
+    applicationId: id, associationCode: String(app.association_code), unitLabel: (app.unit_label as string | null) ?? null,
+    subject: 'Requested background check via Checkr',
+    body: `Requested ${j.succeeded ?? 0}/${j.subjects ?? 0} Checkr order${j.subjects === 1 ? '' : 's'}.${j.failed ? ` ${j.failed} failed.` : ''}${j.errors?.length ? ` ${j.errors.join(' · ')}` : ''}`,
+    loggedBy: `staff:${session.displayName}`,
+  })
 
   return NextResponse.json(j)
 }
