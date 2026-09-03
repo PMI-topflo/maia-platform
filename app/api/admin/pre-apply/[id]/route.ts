@@ -11,7 +11,7 @@ import {
   animalDocGuidance, declaredPetWhereProhibited, isAssistanceAnimal,
   ASSISTANCE_ANIMAL_DENIAL_GROUNDS, ASSISTANCE_ANIMAL_DECISION_DAYS,
 } from '@/lib/animal-accommodation'
-import { roleLabel, roleSigns } from '@/lib/preapply'
+import { roleLabel, roleSigns, resolveScreeningProvider } from '@/lib/preapply'
 import { getReviewState } from '@/lib/board-review'
 import { screeningValidThrough, isScreeningExpired } from '@/lib/screening/validity'
 import { getCurrentLease, getRelatedOccupantApplications } from '@/lib/occupant-sponsorship'
@@ -27,13 +27,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params
 
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('id, association_code, application_type, applicant_role, unit_label, status, submitted_at, rules_ack, drive_folder_url, na_items, declarations, audited_by, audited_at, reviewed_by, reviewed_at, review_note, approved_by_role, detailed_application_id')
+    .select('id, association_code, application_type, applicant_role, unit_label, status, submitted_at, rules_ack, drive_folder_url, na_items, declarations, audited_by, audited_at, reviewed_by, reviewed_at, review_note, approved_by_role, detailed_application_id, screening_provider')
     .eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const code = String(app.association_code), unit = (app.unit_label as string | null) ?? ''
   const [{ data: assocRow }, { data: ownerRows }, { data: tenantRow }] = await Promise.all([
-    supabaseAdmin.from('associations').select('screening_provider, pets_allowed').eq('association_code', code).maybeSingle(),
+    supabaseAdmin.from('associations').select('pets_allowed').eq('association_code', code).maybeSingle(),
     // NOT maybeSingle(): a co-owned unit has one row PER OWNER, and MANXI 103
     // (Andre + Marcia Danford) is exactly that. maybeSingle() returns PGRST116
     // "multiple rows returned" and yields null, so the owner's name and email
@@ -203,7 +203,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     })),
     rulesAck: app.rules_ack,
     driveFolderUrl: app.drive_folder_url,
-    screeningProvider: (assocRow?.screening_provider as string | null) ?? 'tenant_evaluation',
+    // The application's OWN snapshotted provider (set at creation), not
+    // associations.screening_provider live -- an application already in
+    // flight when the association flips keeps the provider it started
+    // under. See lib/preapply.ts's resolveScreeningProvider.
+    screeningProvider: resolveScreeningProvider(app.screening_provider as string | null),
     screeningSubjects,
     audit: { auditedBy: app.audited_by, auditedAt: app.audited_at, reviewedBy: app.reviewed_by, reviewedAt: app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role },
     naItems,

@@ -4123,6 +4123,15 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `-- See supabase/migrations/20260902_checklist_acknowledgment.sql for the full column additions.
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'listing_applications_screening_provider',
+    label:       'listing_applications — screening_provider snapshot column',
+    description: "User direction, 2026-09-03: flipping an association's screening_provider (e.g. MANXI to maia_checkr) must only apply to NEW applications, not re-route ones already in flight on Tenant Evaluation. Snapshots the provider onto the application itself at creation (lib/preapply.ts's createIntake), instead of every caller reading associations.screening_provider live -- NULL (pre-migration rows) means tenant_evaluation, never a live association lookup.",
+    filename:    '20260903_listing_applications_screening_provider.sql',
+    artifact:    { type: 'column', table: 'listing_applications', column: 'screening_provider' },
+    sql: `-- See supabase/migrations/20260903_listing_applications_screening_provider.sql for the full column addition.
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

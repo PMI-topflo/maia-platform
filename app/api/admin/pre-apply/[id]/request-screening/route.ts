@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { resolveScreeningProvider } from '@/lib/preapply'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,7 +23,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const { id } = await ctx.params
 
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('association_code, detailed_application_id').eq('id', id).maybeSingle()
+    .select('association_code, detailed_application_id, screening_provider').eq('id', id).maybeSingle()
   if (!app) return NextResponse.json({ error: 'not found' }, { status: 404 })
 
   const detailedId = app.detailed_application_id as string | null
@@ -30,10 +31,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ error: 'Payment hasn’t been completed yet — Checkr screening starts automatically once the applicant pays. Nothing to request until then.' }, { status: 400 })
   }
 
-  const { data: assoc } = await supabaseAdmin.from('associations')
-    .select('screening_provider').eq('association_code', String(app.association_code)).maybeSingle()
-  if ((assoc?.screening_provider as string | null) !== 'maia_checkr') {
-    return NextResponse.json({ error: 'This association is on Tenant Evaluation, not Checkr — switch its screening provider on the Association Hub before requesting a Checkr order.' }, { status: 400 })
+  // The application's OWN snapshotted provider (set at creation), not
+  // associations.screening_provider live — an application already in
+  // flight when the association flips to Checkr stays on whatever it
+  // started under. See lib/preapply.ts's resolveScreeningProvider.
+  if (resolveScreeningProvider(app.screening_provider as string | null) !== 'maia_checkr') {
+    return NextResponse.json({ error: 'This application started on Tenant Evaluation, not Checkr — it keeps that provider even if the association has since switched. Use the Rentvine fallback or upload the report directly instead.' }, { status: 400 })
   }
 
   // Same call the Stripe webhook itself makes on payment (see
