@@ -94,10 +94,17 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
     } catch (e) { alert(`Tax check: ${(e as Error).message}`) } finally { setTaxBusy(false) }
   }
 
+  // Bumped every time load() runs, so CommunicationsLog (which fetches its
+  // own separate endpoint and otherwise only loads once on mount) refetches
+  // too -- staff report, 2026-09-03: sending the Checkr confirm-and-pay
+  // link didn't show up in Communication history without a full page
+  // reload, because nothing told that panel anything had changed.
+  const [commsVersion, setCommsVersion] = useState(0)
+
   const load = useCallback(() => {
     fetch(`/api/admin/pre-apply/${id}`, { credentials: 'include' })
       .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j })
-      .then(setD).catch(e => setErr(String(e.message ?? e)))
+      .then(j => { setD(j); setCommsVersion(v => v + 1) }).catch(e => setErr(String(e.message ?? e)))
   }, [id])
   useEffect(load, [load])
 
@@ -458,7 +465,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           Rentvine fallback above) replaces it. Code kept in place
           (TenantEvalSender below, lib/tenant-evaluation.ts, its API route)
           in case it's ever needed again; just not rendered. */}
-      <CommunicationsLog id={id} unit={d.unit} associationCode={d.associationCode} />
+      <CommunicationsLog id={id} unit={d.unit} associationCode={d.associationCode} refreshKey={commsVersion} />
 
       {/* Shared documents — one for the whole unit / application. */}
       <div style={{ font: '700 12px system-ui', letterSpacing: '.04em', textTransform: 'uppercase', color: '#6b7280', margin: '2px 0 6px' }}>Shared documents</div>
@@ -844,6 +851,7 @@ function CheckrRequestSender({ id, provider, onDone }: { id: string; provider: s
       const r = await fetch(`/api/admin/pre-apply/${id}/send-payment-link`, { method: 'POST', credentials: 'include' })
       const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed')
       setLinkSent({ ok: true, text: `✓ Sent to ${j.sentTo}` })
+      onDone()
     } catch (e) { setLinkSent({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
   }
 
@@ -2181,14 +2189,18 @@ function BoardReviewSender({ id, onDone }: { id: string; onDone: () => void }) {
 // whom, what was asked, and any message the owner/tenant sent back.
 interface Comm { type: 'document_request' | 'approval_letter' | 'approval_sent' | 'filed_email' | 'document_decision';
   byRole?: string; docKey?: string; decision?: string; reason?: string | null; id: string; at: string; by?: string | null; ownerEmail?: string | null; tenantEmail?: string | null; ownerItems?: string[]; tenantItems?: string[]; message?: string | null; ownerNote?: string | null; tenantNote?: string | null; signers?: string[]; recipients?: string[]; subject?: string | null; body?: string; fromEmail?: string | null; fromName?: string | null; toEmails?: string[]; ccEmails?: string[]; attachmentNames?: string[] }
-function CommunicationsLog({ id, unit, associationCode }: { id: string; unit: string | null; associationCode: string }) {
+function CommunicationsLog({ id, unit, associationCode, refreshKey }: { id: string; unit: string | null; associationCode: string; refreshKey: number }) {
   const [rows, setRows] = useState<Comm[] | null>(null)
   // Collapsed by default -- staff report, 2026-09-03: on a long-running
   // application this section grows to dozens of entries and pushes
   // everything below it off screen. Loaded regardless of open/closed so the
   // header can still show a count.
   const [open, setOpen] = useState(false)
-  useEffect(() => { fetch(`/api/admin/pre-apply/${id}/communications`, { credentials: 'include' }).then(r => r.json()).then(d => setRows(d.communications ?? [])).catch(() => setRows([])) }, [id])
+  // refreshKey (bumped by the parent's load()) re-fetches this on every
+  // action elsewhere on the page that logs a new communication -- this
+  // endpoint is otherwise fully decoupled from the rest of the page's data
+  // and would only ever load once, on mount.
+  useEffect(() => { fetch(`/api/admin/pre-apply/${id}/communications`, { credentials: 'include' }).then(r => r.json()).then(d => setRows(d.communications ?? [])).catch(() => setRows([])) }, [id, refreshKey])
   if (!rows) return null
   const cmd = `@maia upapp ${associationCode}${unit ?? ''}`
   return (
