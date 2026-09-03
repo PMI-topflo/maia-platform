@@ -815,16 +815,36 @@ function CheckrRequestSender({ id, provider, onDone }: { id: string; provider: s
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
   const [switchErr, setSwitchErr] = useState<string | null>(null)
+  // Set when request-screening's reason:'payment_pending' comes back --
+  // staff report, 2026-09-03 (MANXI 912): the error alone was a dead end.
+  // She was never shown the payment step at all because Checkr wasn't her
+  // provider when she went through her own checklist page, so this is a
+  // real "go send her the link" case, not just a wait-and-see one.
+  const [paymentPending, setPaymentPending] = useState(false)
+  const [linkSent, setLinkSent] = useState<{ ok: boolean; text: string } | null>(null)
 
   async function request() {
     if (!confirm('Create a real Checkr order for every applicant/occupant on this application? This costs money and emails each of them a consent link.')) return
-    setBusy(true); setResult(null)
+    setBusy(true); setResult(null); setPaymentPending(false)
     try {
       const r = await fetch(`/api/admin/pre-apply/${id}/request-screening`, { method: 'POST', credentials: 'include' })
-      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed')
+      const j = await r.json()
+      if (!r.ok || j.error) {
+        if (j.reason === 'payment_pending') setPaymentPending(true)
+        throw new Error(j.error || 'failed')
+      }
       setResult({ ok: true, text: `✓ Requested ${j.succeeded}/${j.subjects} order${j.subjects === 1 ? '' : 's'}.${j.failed ? ` ${j.failed} failed — see below.` : ''}${j.errors?.length ? ` ${j.errors.join(' · ')}` : ''}` })
       onDone()
     } catch (e) { setResult({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
+  }
+
+  async function sendPaymentLink() {
+    setBusy(true); setLinkSent(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/send-payment-link`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed')
+      setLinkSent({ ok: true, text: `✓ Sent to ${j.sentTo}` })
+    } catch (e) { setLinkSent({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
   }
 
   // Flipping the association's own toggle does NOT retroactively move an
@@ -853,6 +873,15 @@ function CheckrRequestSender({ id, provider, onDone }: { id: string; provider: s
           <button onClick={request} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#1d4ed8', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
             {busy ? 'Requesting…' : '🔍 Request background check via Checkr'}
           </button>
+          {paymentPending && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ font: '12.5px system-ui', color: '#6b7280', marginBottom: 6 }}>She hasn&apos;t seen the payment step — likely because Checkr wasn&apos;t her provider yet when she went through her own checklist page. Send her the link to confirm her details and pay:</div>
+              <button onClick={sendPaymentLink} disabled={busy} style={{ font: '700 12.5px system-ui', color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '7px 12px', cursor: busy ? 'default' : 'pointer' }}>
+                {busy ? 'Sending…' : '✉ Send her the confirm & pay link'}
+              </button>
+              {linkSent && <div style={{ marginTop: 6, font: '12px system-ui', color: linkSent.ok ? '#166534' : '#b91c1c' }}>{linkSent.text}</div>}
+            </div>
+          )}
         </>
       ) : (
         <>
