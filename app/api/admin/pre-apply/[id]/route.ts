@@ -18,6 +18,7 @@ import { getCurrentLease, getRelatedOccupantApplications } from '@/lib/occupant-
 import { handoffOnApproval } from '@/lib/application-handoff'
 import { ESIGN_CHECKLIST_ITEMS } from '@/lib/application-esign-forms'
 import { findUnitLeasePacket } from '@/lib/lease-packet'
+import { DECLARATION_REMINDER_SUBJECT_PREFIX } from '@/lib/application-comm-log'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -108,6 +109,21 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const declarations = parseDeclarations(app.declarations)
   const derivedNa = declaredNaKeys(checklist, declarations, { petsAllowed })
   const naItems = [...new Set([...(Array.isArray(app.na_items) ? (app.na_items as string[]) : []), ...derivedNa])]
+
+  // Staff report, 2026-09-03: DeclarationsCard's "Ask her to answer" only
+  // tracked whether a reminder was sent in local component state, so it
+  // silently forgot on every reload -- staff had no way to tell an already-
+  // sent reminder from one they'd never sent. Read it back from the same
+  // application_communications row remind-declaration logs, most-recent per
+  // key, rather than adding a new column just for this.
+  const { data: reminderRows } = await supabaseAdmin.from('application_communications')
+    .select('subject, occurred_at').eq('application_id', id).eq('direction', 'outbound')
+    .ilike('subject', `${DECLARATION_REMINDER_SUBJECT_PREFIX}%`).order('occurred_at', { ascending: false })
+  const declarationReminders: Record<string, string> = {}
+  for (const r of reminderRows ?? []) {
+    const key = String(r.subject ?? '').slice(DECLARATION_REMINDER_SUBJECT_PREFIX.length)
+    if (key && !declarationReminders[key]) declarationReminders[key] = String(r.occurred_at)
+  }
 
   // screening_subjects belongs to the LEGACY public.applications table, not
   // this listing_applications row -- detailed_application_id is the bridge
@@ -220,6 +236,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       screeningValidThrough: review.screeningValidThrough, screeningExpired: review.screeningExpired,
     } : null,
     declarations,
+    declarationReminders,
     declaredNa: derivedNa,
     petsAllowed,
     petsProhibitedNotice: declaredPetWhereProhibited(declarations, petsAllowed),

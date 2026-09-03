@@ -12,6 +12,7 @@ import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { signPreApplyToken } from '@/lib/preapply-token'
 import { sendEmail } from '@/lib/gmail'
+import { logOutboundCommunication, DECLARATION_REMINDER_SUBJECT_PREFIX } from '@/lib/application-comm-log'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -68,6 +69,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   } catch (err) {
     return NextResponse.json({ error: `Could not send the reminder: ${(err as Error).message}` }, { status: 502 })
   }
+
+  await logOutboundCommunication({
+    applicationId: id, associationCode: code, unitLabel: unit,
+    subject: `${DECLARATION_REMINDER_SUBJECT_PREFIX}${key}`,
+    body: `Asked ${sh.name ?? 'the applicant'} to answer ${QUESTION[key]}.`,
+    toEmails: [sh.email as string],
+    loggedBy: `staff:${session.displayName}`,
+  })
 
   return NextResponse.json({ ok: true })
 }

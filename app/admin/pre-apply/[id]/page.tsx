@@ -30,6 +30,7 @@ interface Detail {
     screeningValidThrough: string | null; screeningExpired: boolean
   } | null
   declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null; taxReturns?: { has: boolean; at?: string } | null }
+  declarationReminders: Record<string, string>
   declaredNa: string[]
   screeningSubjects: { name: string | null; status: string | null; reportUrl: string | null; reportData: Record<string, unknown> | null; completedAt: string | null; validThrough: string | null; expired: boolean }[]
   petsAllowed: boolean | null
@@ -382,7 +383,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           to an email in prose. */}
       {d.checklist.some(c => c.condition_key === 'vehicle' || c.condition_key === 'pet' || c.condition_key === 'assistance_animal' || c.condition_key === 'international') && (
         <DeclarationsCard
-          id={id} declarations={d.declarations} declaredNa={d.declaredNa}
+          id={id} declarations={d.declarations} declarationReminders={d.declarationReminders} declaredNa={d.declaredNa}
           petsProhibitedNotice={d.petsProhibitedNotice} animalGuidance={d.animalGuidance}
           assistanceAnimalDenialGrounds={d.assistanceAnimalDenialGrounds} assistanceAnimalDecisionDays={d.assistanceAnimalDecisionDays}
           showTaxReturns={d.checklist.some(c => c.condition_key === 'international')}
@@ -813,6 +814,7 @@ function RentvineFallbackSender({ id }: { id: string }) {
 function CheckrRequestSender({ id, provider, onDone }: { id: string; provider: string; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+  const [switchErr, setSwitchErr] = useState<string | null>(null)
 
   async function request() {
     if (!confirm('Create a real Checkr order for every applicant/occupant on this application? This costs money and emails each of them a consent link.')) return
@@ -823,6 +825,22 @@ function CheckrRequestSender({ id, provider, onDone }: { id: string; provider: s
       setResult({ ok: true, text: `✓ Requested ${j.succeeded}/${j.subjects} order${j.subjects === 1 ? '' : 's'}.${j.failed ? ` ${j.failed} failed — see below.` : ''}${j.errors?.length ? ` ${j.errors.join(' · ')}` : ''}` })
       onDone()
     } catch (e) { setResult({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
+  }
+
+  // Flipping the association's own toggle does NOT retroactively move an
+  // already-created application onto Checkr (it's snapshotted at creation,
+  // see lib/preapply.ts's resolveScreeningProvider) -- staff report,
+  // 2026-09-03: the old copy here told staff to flip the association as if
+  // that would fix it, which does nothing for an application already in
+  // flight. This is the actual one-off catch-up for a single application.
+  async function switchToCheckr() {
+    if (!confirm('Switch just this application to Checkr? This only affects this one application — not the association setting, and not any other application.')) return
+    setBusy(true); setSwitchErr(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/switch-to-checkr`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed')
+      onDone()
+    } catch (e) { setSwitchErr((e as Error).message) } finally { setBusy(false) }
   }
 
   const isCheckr = provider === 'maia_checkr'
@@ -837,7 +855,13 @@ function CheckrRequestSender({ id, provider, onDone }: { id: string; provider: s
           </button>
         </>
       ) : (
-        <div style={{ font: '12.5px system-ui', color: '#6b7280' }}>This association is on Tenant Evaluation, not Checkr — flip its screening provider on the Association Hub to request a Checkr order here instead.</div>
+        <>
+          <div style={{ font: '12.5px system-ui', color: '#6b7280', marginBottom: 8 }}>This application started on Tenant Evaluation and stays there even if the association has since switched — flipping the association&apos;s toggle won&apos;t move it. Switch just this one, or use the Rentvine fallback below.</div>
+          <button onClick={switchToCheckr} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#1d4ed8', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
+            {busy ? 'Switching…' : '🔍 Switch this application to Checkr'}
+          </button>
+          {switchErr && <div style={{ marginTop: 8, font: '12px system-ui', color: '#b91c1c' }}>{switchErr}</div>}
+        </>
       )}
       {result && <div style={{ marginTop: 8, font: '12px system-ui', color: result.ok ? '#166534' : '#b91c1c' }}>{result.text}</div>}
     </div>
@@ -2287,9 +2311,13 @@ function AgentsCard({ id, stakeholders, onDone }: { id: string; stakeholders: { 
 // text before ever requesting registration). One Yes/No control per
 // question, editable at any time — a later correction simply overwrites the
 // earlier answer, same as the applicant-facing version.
-function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, animalGuidance, assistanceAnimalDenialGrounds, assistanceAnimalDecisionDays, showTaxReturns, onDone }: {
+function DeclarationsCard({ id, declarations, declarationReminders, declaredNa, petsProhibitedNotice, animalGuidance, assistanceAnimalDenialGrounds, assistanceAnimalDecisionDays, showTaxReturns, onDone }: {
   id: string
   declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null; taxReturns?: { has: boolean; at?: string } | null }
+  /** Most recent "Ask her to answer" reminder per key, ISO timestamp —
+   *  derived server-side from application_communications so it survives a
+   *  reload instead of living only in this component's local state. */
+  declarationReminders: Record<string, string>
   declaredNa: string[]
   petsProhibitedNotice: boolean
   animalGuidance: { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[]; staffNote: string } | null
@@ -2304,7 +2332,7 @@ function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, 
 }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
-  const [reminded, setReminded] = useState<Record<string, string>>({})
+  const [remindErr, setRemindErr] = useState<Record<string, string>>({})
 
   async function set(body: { vehicle?: boolean; animal?: boolean; animalKind?: string; taxReturns?: boolean }) {
     setBusy(JSON.stringify(body)); setErr(null)
@@ -2318,15 +2346,24 @@ function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, 
   // These Yes/No buttons above are a staff OVERRIDE -- they answer FOR the
   // applicant. This asks HER to answer, on her own pre-apply page (the only
   // place the question actually lives) -- there was no way to do that before.
+  // onDone() (a full reload) is what turns the just-sent reminder into a
+  // persisted "Reminded {date}" below, via declarationReminders -- staff
+  // reported this used to silently forget on every page refresh.
   async function remind(key: 'vehicle' | 'animal' | 'taxReturns') {
-    setBusy(`remind-${key}`); setErr(null)
+    setBusy(`remind-${key}`); setRemindErr(m => ({ ...m, [key]: '' }))
     try {
       const r = await fetch(`/api/admin/pre-apply/${id}/remind-declaration`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
-      setReminded(m => ({ ...m, [key]: 'Reminder sent ✓' }))
-    } catch (e) { setReminded(m => ({ ...m, [key]: (e as Error).message })) } finally { setBusy(null) }
+      onDone()
+    } catch (e) { setRemindErr(m => ({ ...m, [key]: (e as Error).message })) } finally { setBusy(null) }
   }
   const remindBtn: React.CSSProperties = { font: '600 11px system-ui', color: '#2563eb', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }
+  const remindedAt = (key: string) => (
+    <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <span style={{ color: '#166534' }}>✓ Reminded {fmt(declarationReminders[key])}</span>
+      <button style={remindBtn} disabled={!!busy} onClick={() => remind(key as 'vehicle' | 'animal' | 'taxReturns')}>ask again</button>
+    </span>
+  )
 
   const yn: React.CSSProperties = { font: '600 12px system-ui', padding: '5px 12px', borderRadius: 7, border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer' }
   const ynOn = (c: string): React.CSSProperties => ({ ...yn, background: c, borderColor: c, color: '#fff' })
@@ -2342,9 +2379,10 @@ function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, 
         {typeof declarations.vehicle?.has !== 'boolean' && (
           <span style={{ font: '12px system-ui', color: '#b45309', display: 'flex', gap: 8, alignItems: 'center' }}>
             not answered yet
-            {reminded.vehicle
-              ? <span style={{ color: reminded.vehicle.startsWith('Reminder') ? '#166534' : '#b91c1c' }}>{reminded.vehicle}</span>
+            {declarationReminders.vehicle
+              ? remindedAt('vehicle')
               : <button style={remindBtn} disabled={!!busy} onClick={() => remind('vehicle')}>✉ Ask her to answer</button>}
+            {remindErr.vehicle && <span style={{ color: '#b91c1c' }}>{remindErr.vehicle}</span>}
           </span>
         )}
       </div>
@@ -2356,9 +2394,10 @@ function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, 
         {typeof declarations.animal?.has !== 'boolean' && (
           <span style={{ font: '12px system-ui', color: '#b45309', display: 'flex', gap: 8, alignItems: 'center' }}>
             not answered yet
-            {reminded.animal
-              ? <span style={{ color: reminded.animal.startsWith('Reminder') ? '#166534' : '#b91c1c' }}>{reminded.animal}</span>
+            {declarationReminders.animal
+              ? remindedAt('animal')
               : <button style={remindBtn} disabled={!!busy} onClick={() => remind('animal')}>✉ Ask her to answer</button>}
+            {remindErr.animal && <span style={{ color: '#b91c1c' }}>{remindErr.animal}</span>}
           </span>
         )}
       </div>
@@ -2380,9 +2419,10 @@ function DeclarationsCard({ id, declarations, declaredNa, petsProhibitedNotice, 
           {typeof declarations.taxReturns?.has !== 'boolean' && (
             <span style={{ font: '12px system-ui', color: '#b45309', display: 'flex', gap: 8, alignItems: 'center' }}>
               not answered yet
-              {reminded.taxReturns
-                ? <span style={{ color: reminded.taxReturns.startsWith('Reminder') ? '#166534' : '#b91c1c' }}>{reminded.taxReturns}</span>
+              {declarationReminders.taxReturns
+                ? remindedAt('taxReturns')
                 : <button style={remindBtn} disabled={!!busy} onClick={() => remind('taxReturns')}>✉ Ask her to answer</button>}
+              {remindErr.taxReturns && <span style={{ color: '#b91c1c' }}>{remindErr.taxReturns}</span>}
             </span>
           )}
         </div>
