@@ -28,9 +28,16 @@ export function htmlToPlainText(html: string): string {
 
 // ── Normalise recipients ─────────────────────────────────────────────────────
 
+// Real incident, 2026-09-03: a stored contact email carried a stray space
+// ("dshoodlyne @yahoo.com") — .trim() only strips leading/trailing
+// whitespace, so the internal space sailed through and Resend rejected the
+// whole send (422 "Invalid `to` field"). No valid email address ever
+// contains whitespace anywhere, so stripping ALL of it (not just the ends)
+// is always safe and turns this exact typo into a deliverable address
+// instead of a silent failure.
 function toAddresses(to: string | string[]): string[] {
   const raw = Array.isArray(to) ? to : [to]
-  return raw.flatMap(t => t.split(',').map(s => s.trim())).filter(Boolean)
+  return raw.flatMap(t => t.split(',').map(s => s.replace(/\s+/g, ''))).filter(Boolean)
 }
 
 // ── Resend ───────────────────────────────────────────────────────────────────
