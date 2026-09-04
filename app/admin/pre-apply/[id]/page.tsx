@@ -1507,8 +1507,14 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
       {open && doc && (
         <div style={{ marginTop: 8, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', background: '#f9fafb' }}>
           {isImg
+            // A raw phone-screenshot upload (e.g. a Liberty Mutual insurance
+            // card, ~1170px native width) was overflowing this container —
+            // `maxWidth: 100%` alone isn't a reliable cap in every ambient
+            // layout; explicit `width: 100%` + `height: auto` is the actual
+            // bulletproof responsive-image pattern. Staff report, 2026-09-04:
+            // preview showed text clipped on both edges instead of scaled down.
             // eslint-disable-next-line @next/next/no-img-element
-            ? <img src={doc.url ?? ''} alt={c.label} style={{ display: 'block', maxWidth: '100%', margin: '0 auto' }} />
+            ? <img src={doc.url ?? ''} alt={c.label} style={{ display: 'block', width: '100%', maxWidth: '100%', height: 'auto', margin: '0 auto' }} />
             : <iframe src={doc.url ?? ''} title={c.label} style={{ width: '100%', height: 480, border: 'none' }} />}
         </div>
       )}
