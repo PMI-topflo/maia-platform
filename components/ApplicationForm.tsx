@@ -29,6 +29,12 @@ const translations = {
     reviewEdit: "Edit",
     applicantsCount: "Applicant(s)",
     feesNonRefundable: "Fees are non-refundable.",
+    guideHeading: "Application Guide — Required Reading",
+    guideBlurb: "Before applying, please review the full Application Guide — eligibility rules, fees, and the complete document checklist for this association.",
+    guideLinkText: "Open the Application Guide →",
+    guideCheckbox: "I have read and understood the Application Guide, eligibility rules, and requirements.",
+    guideNamePlaceholder: "Type your full name to confirm",
+    guideRequired: "Please read the Application Guide, then check the box and type your name to confirm before continuing.",
     selectAssociation: "Select Association",
     associationPlaceholder: "Choose your association…",
     loadingAssociations: "Loading associations…",
@@ -159,6 +165,12 @@ const translations = {
     reviewEdit: "Editar",
     applicantsCount: "Solicitante(s)",
     feesNonRefundable: "Los pagos no son reembolsables.",
+    guideHeading: "Guía de Solicitud — Lectura Obligatoria",
+    guideBlurb: "Antes de aplicar, revise la Guía de Solicitud completa — reglas de elegibilidad, tarifas y la lista completa de documentos para esta asociación.",
+    guideLinkText: "Abrir la Guía de Solicitud →",
+    guideCheckbox: "He leído y entendido la Guía de Solicitud, las reglas de elegibilidad y los requisitos.",
+    guideNamePlaceholder: "Escriba su nombre completo para confirmar",
+    guideRequired: "Por favor lea la Guía de Solicitud, marque la casilla y escriba su nombre para confirmar antes de continuar.",
     selectAssociation: "Seleccionar Asociación",
     associationPlaceholder: "Elija su asociación…",
     loadingAssociations: "Cargando asociaciones…",
@@ -283,6 +295,12 @@ const translations = {
     reviewEdit: "Editar",
     applicantsCount: "Solicitante(s)",
     feesNonRefundable: "As taxas não são reembolsáveis.",
+    guideHeading: "Guia de Solicitação — Leitura Obrigatória",
+    guideBlurb: "Antes de aplicar, revise o Guia de Solicitação completo — regras de elegibilidade, taxas e a lista completa de documentos para esta associação.",
+    guideLinkText: "Abrir o Guia de Solicitação →",
+    guideCheckbox: "Li e entendi o Guia de Solicitação, as regras de elegibilidade e os requisitos.",
+    guideNamePlaceholder: "Digite seu nome completo para confirmar",
+    guideRequired: "Por favor, leia o Guia de Solicitação, marque a caixa e digite seu nome para confirmar antes de continuar.",
     selectAssociation: "Selecionar Associação",
     associationPlaceholder: "Escolha sua associação…",
     loadingAssociations: "Carregando associações…",
@@ -407,6 +425,12 @@ const translations = {
     reviewEdit: "Modifier",
     applicantsCount: "Demandeur(s)",
     feesNonRefundable: "Les frais ne sont pas remboursables.",
+    guideHeading: "Guide de Demande — Lecture Obligatoire",
+    guideBlurb: "Avant de postuler, veuillez consulter le Guide de Demande complet — règles d'éligibilité, frais et la liste complète des documents pour cette association.",
+    guideLinkText: "Ouvrir le Guide de Demande →",
+    guideCheckbox: "J'ai lu et compris le Guide de Demande, les règles d'éligibilité et les exigences.",
+    guideNamePlaceholder: "Tapez votre nom complet pour confirmer",
+    guideRequired: "Veuillez lire le Guide de Demande, cocher la case et taper votre nom pour confirmer avant de continuer.",
     selectAssociation: "Sélectionner l'Association",
     associationPlaceholder: "Choisissez votre association…",
     loadingAssociations: "Chargement des associations…",
@@ -531,6 +555,12 @@ const translations = {
     reviewEdit: "ערוך",
     applicantsCount: "מגיש(ים)",
     feesNonRefundable: "התשלומים אינם ניתנים להחזר.",
+    guideHeading: "מדריך הגשת בקשה — קריאת חובה",
+    guideBlurb: "לפני ההגשה, אנא עיין במדריך הגשת הבקשה המלא — כללי זכאות, עלויות ורשימת המסמכים המלאה עבור עמותה זו.",
+    guideLinkText: "פתח את מדריך הגשת הבקשה ←",
+    guideCheckbox: "קראתי והבנתי את מדריך הגשת הבקשה, כללי הזכאות והדרישות.",
+    guideNamePlaceholder: "הקלד את שמך המלא לאישור",
+    guideRequired: "אנא קרא את מדריך הגשת הבקשה, סמן את התיבה והקלד את שמך לפני שתמשיך.",
     selectAssociation: "בחר עמותה",
     associationPlaceholder: "בחר את העמותה שלך…",
     loadingAssociations: "טוען עמותות…",
@@ -655,6 +685,12 @@ const translations = {
     reviewEdit: "Изменить",
     applicantsCount: "Заявитель(и)",
     feesNonRefundable: "Оплата не подлежит возврату.",
+    guideHeading: "Руководство по подаче заявки — обязательно к прочтению",
+    guideBlurb: "Перед подачей заявки, пожалуйста, ознакомьтесь с полным Руководством по подаче заявки — правила соответствия требованиям, сборы и полный список документов для этой ассоциации.",
+    guideLinkText: "Открыть Руководство по подаче заявки →",
+    guideCheckbox: "Я прочитал(а) и понял(а) Руководство по подаче заявки, правила соответствия требованиям и требования.",
+    guideNamePlaceholder: "Введите ваше полное имя для подтверждения",
+    guideRequired: "Пожалуйста, прочитайте Руководство по подаче заявки, отметьте флажок и введите своё имя перед продолжением.",
     selectAssociation: "Выбрать ассоциацию",
     associationPlaceholder: "Выберите вашу ассоциацию…",
     loadingAssociations: "Загрузка ассоциаций…",
@@ -779,6 +815,12 @@ const translations = {
     reviewEdit: "Modifye",
     applicantsCount: "Aplikan",
     feesNonRefundable: "Frè yo pa ranbousab.",
+    guideHeading: "Gid Aplikasyon — Lekti Obligatwa",
+    guideBlurb: "Anvan ou aplike, tanpri revize Gid Aplikasyon konplè a — règ elijibilite, frè, ak lis dokiman konplè pou asosyasyon sa a.",
+    guideLinkText: "Louvri Gid Aplikasyon an →",
+    guideCheckbox: "Mwen li e mwen konprann Gid Aplikasyon an, règ elijibilite yo, ak egzijans yo.",
+    guideNamePlaceholder: "Tape non konplè ou pou konfime",
+    guideRequired: "Tanpri li Gid Aplikasyon an, tcheke bwat la, epi tape non ou pou konfime anvan ou kontinye.",
     selectAssociation: "Chwazi Asosyasyon",
     associationPlaceholder: "Chwazi asosyasyon ou…",
     loadingAssociations: "Y ap chaje asosyasyon yo…",
@@ -1176,6 +1218,13 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
   const adultOccupants = occupants.filter(o => o.isAdult === 'yes');
   const [rulesAgreed, setRulesAgreed] = useState(false);
   const [rulesSignature, setRulesSignature] = useState("");
+  // Application Guide acknowledgment -- MANXI only for now (the only
+  // association with Guide content authored, see
+  // lib/application-guide-data.ts's GUIDE_CONTENT). Gated client-side on
+  // the association code rather than importing guideAvailable(), which
+  // pulls in supabaseAdmin and can't run in this client component.
+  const [guideAcked, setGuideAcked] = useState(false);
+  const [guideAckName, setGuideAckName] = useState("");
   const [inviteSent, setInviteSent] = useState(false);
   const [inviteSending, setInviteSending] = useState(false);
   // Hand-off from a collaborative stakeholder flow (/apply/applicant|agent):
@@ -1313,6 +1362,8 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
             docsViewed?: string[]
             leaseData?: LeaseData | null
             hasCert?: boolean
+            guideAcked?: boolean
+            guideAckName?: string
           } | null
           applicants?: Record<string, string>[] | null
           entity_name?: string | null
@@ -1348,6 +1399,8 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
         if (d.rules_signature) setRulesSignature(d.rules_signature);
         if (d.draft_data?.selectedDocPerCategory) setSelectedDocPerCategory(d.draft_data.selectedDocPerCategory);
         if (Array.isArray(d.draft_data?.docsViewed)) setDocsViewed(new Set(d.draft_data.docsViewed));
+        if (d.draft_data?.guideAcked) setGuideAcked(true);
+        if (d.draft_data?.guideAckName) setGuideAckName(d.draft_data.guideAckName);
         if (d.draft_data?.leaseData) {
           setLeaseData(d.draft_data.leaseData);
           setLeaseConfirmed(true);
@@ -1627,6 +1680,7 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
   const handleNext = () => {
     setError("");
     if (step === 0) {
+      if (assocCode === "MANXI" && (!guideAcked || !guideAckName.trim())) { setError(t.guideRequired); return; }
       if (!leaseConfirmed) { setError(t.leaseRequired); return; }
     }
     if (step === 1) {
@@ -1712,6 +1766,8 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
           docsViewed: [...docsViewed],
           leaseData,
           hasCert,
+          guideAcked,
+          guideAckName,
           // Don't put base64 signature / photo here — they live in
           // their dedicated columns via record-signature-evidence.
         },
@@ -1758,7 +1814,7 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
   // every state change is fine because saveDraft is only called
   // imperatively, not registered as a hook dep elsewhere.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applicationId, association, appType, step, selectedDocPerCategory, docsViewed, leaseData, hasCert, applicants, entityName, sunbizId, principals, occupants, isMarriedCouple, isCouple, lang]);
+  }, [applicationId, association, appType, step, selectedDocPerCategory, docsViewed, leaseData, hasCert, guideAcked, guideAckName, applicants, entityName, sunbizId, principals, occupants, isMarriedCouple, isCouple, lang]);
 
   // ── Stripe checkout ────────────────────────────────────────────────────────
   const handlePay = async () => {
@@ -2074,6 +2130,38 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
                   </div>
                 )}
               </div>
+
+              {/* Application Guide acknowledgment -- MANXI only, see the
+                  guideAcked state declaration for why it's gated this way
+                  rather than via guideAvailable(). Blocks Continue on this
+                  step (see handleNext's step===0 check) until checked AND
+                  named. */}
+              {assocCode === "MANXI" && (
+                <div style={{ marginBottom: 22, padding: "16px 18px", background: "#fff7f0", border: "1px solid #f3d9c4", borderRadius: 4 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#0d0d0d", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "monospace" }}>
+                    {t.guideHeading}
+                  </div>
+                  <p style={{ fontSize: 12.5, color: "#6b7280", marginBottom: 10, lineHeight: 1.55 }}>{t.guideBlurb}</p>
+                  <a href="/apply/MANXI/guide" target="_blank" rel="noopener noreferrer" style={{ display: "inline-block", marginBottom: 14, fontSize: 13, fontWeight: 700, color: "#f26a1b" }}>
+                    {t.guideLinkText}
+                  </a>
+                  <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, color: "#0d0d0d", lineHeight: 1.45, fontWeight: 600, cursor: "pointer", marginBottom: guideAcked ? 10 : 0 }}>
+                    <input type="checkbox" checked={guideAcked} onChange={(e) => setGuideAcked(e.target.checked)} style={{ marginTop: 2 }} />
+                    <span>{t.guideCheckbox}</span>
+                  </label>
+                  {guideAcked && (
+                    <input
+                      type="text"
+                      value={guideAckName}
+                      onChange={(e) => setGuideAckName(e.target.value)}
+                      placeholder={t.guideNamePlaceholder}
+                      style={{ ...inp, background: "#fff" }}
+                      onFocus={(e) => (e.target.style.borderColor = "#f26a1b")}
+                      onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")}
+                    />
+                  )}
+                </div>
+              )}
 
               {/* Manual unit number -- the lease upload below auto-extracts a
                   unit when present, but a preselectedAssociation link skips
