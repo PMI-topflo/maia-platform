@@ -28,6 +28,7 @@ const translations = {
     reviewHeading: "Review Your Application",
     reviewEdit: "Edit",
     applicantsCount: "Applicant(s)",
+    feesNonRefundable: "Fees are non-refundable.",
     selectAssociation: "Select Association",
     associationPlaceholder: "Choose your association…",
     loadingAssociations: "Loading associations…",
@@ -157,6 +158,7 @@ const translations = {
     reviewHeading: "Revise Su Solicitud",
     reviewEdit: "Editar",
     applicantsCount: "Solicitante(s)",
+    feesNonRefundable: "Los pagos no son reembolsables.",
     selectAssociation: "Seleccionar Asociación",
     associationPlaceholder: "Elija su asociación…",
     loadingAssociations: "Cargando asociaciones…",
@@ -280,6 +282,7 @@ const translations = {
     reviewHeading: "Revise Sua Solicitação",
     reviewEdit: "Editar",
     applicantsCount: "Solicitante(s)",
+    feesNonRefundable: "As taxas não são reembolsáveis.",
     selectAssociation: "Selecionar Associação",
     associationPlaceholder: "Escolha sua associação…",
     loadingAssociations: "Carregando associações…",
@@ -403,6 +406,7 @@ const translations = {
     reviewHeading: "Vérifiez Votre Demande",
     reviewEdit: "Modifier",
     applicantsCount: "Demandeur(s)",
+    feesNonRefundable: "Les frais ne sont pas remboursables.",
     selectAssociation: "Sélectionner l'Association",
     associationPlaceholder: "Choisissez votre association…",
     loadingAssociations: "Chargement des associations…",
@@ -526,6 +530,7 @@ const translations = {
     reviewHeading: "בדוק את בקשתך",
     reviewEdit: "ערוך",
     applicantsCount: "מגיש(ים)",
+    feesNonRefundable: "התשלומים אינם ניתנים להחזר.",
     selectAssociation: "בחר עמותה",
     associationPlaceholder: "בחר את העמותה שלך…",
     loadingAssociations: "טוען עמותות…",
@@ -649,6 +654,7 @@ const translations = {
     reviewHeading: "Проверьте Вашу Заявку",
     reviewEdit: "Изменить",
     applicantsCount: "Заявитель(и)",
+    feesNonRefundable: "Оплата не подлежит возврату.",
     selectAssociation: "Выбрать ассоциацию",
     associationPlaceholder: "Выберите вашу ассоциацию…",
     loadingAssociations: "Загрузка ассоциаций…",
@@ -772,6 +778,7 @@ const translations = {
     reviewHeading: "Verifye Aplikasyon Ou",
     reviewEdit: "Modifye",
     applicantsCount: "Aplikan",
+    feesNonRefundable: "Frè yo pa ranbousab.",
     selectAssociation: "Chwazi Asosyasyon",
     associationPlaceholder: "Chwazi asosyasyon ou…",
     loadingAssociations: "Y ap chaje asosyasyon yo…",
@@ -3030,6 +3037,9 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
               <div style={{ marginTop: 12, textAlign: "center", fontSize: 11, color: "#9ca3af", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                 <span>🔒</span> Secured by Stripe · PCI DSS compliant
               </div>
+              <div style={{ marginTop: 6, textAlign: "center", fontSize: 11, color: "#9ca3af" }}>
+                {t.feesNonRefundable}
+              </div>
             </div>
           )}
 
@@ -3040,19 +3050,21 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
             </div>
           )}
 
-          {/* Navigation */}
-          {step < 5 && (
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 24, gap: 12 }}>
-              {step > 0 ? (
-                <button onClick={() => { setStep((s) => s - 1); setError(""); }} style={{ padding: "11px 22px", background: "#f3f4f6", color: "#6b7280", border: "none", borderRadius: 3, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                  ← {t.back}
-                </button>
-              ) : <div />}
+          {/* Navigation -- Back stays available on every step, including
+              Payment (the "Pay" button above is the step's own forward
+              action, not this bar's Continue). */}
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 24, gap: 12 }}>
+            {step > 0 ? (
+              <button onClick={() => { setStep((s) => s - 1); setError(""); }} style={{ padding: "11px 22px", background: "#f3f4f6", color: "#6b7280", border: "none", borderRadius: 3, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                ← {t.back}
+              </button>
+            ) : <div />}
+            {step < 5 && (
               <button onClick={handleNext} style={{ padding: "11px 28px", background: "#f26a1b", color: "#fff", border: "none", borderRadius: 3, fontSize: 13, fontWeight: 600, cursor: "pointer", letterSpacing: "0.03em" }}>
                 {t.next} →
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
