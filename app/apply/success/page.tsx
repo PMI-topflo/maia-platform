@@ -7,76 +7,82 @@ interface ScreeningSubject { id: string; name: string | null; status: string }
 
 const copy: Record<string, Record<string, string>> = {
   en: {
-    heading: "Application Submitted",
-    body: "Your application has been received and payment confirmed. The board will review and you will receive a decision by email.",
+    heading: "Payment Received",
+    body: "Your payment has been confirmed. If you have more documents to add, use the button below — no need to start over.",
     ref: "Reference Number",
     next: "What happens next",
-    s1: "Your documents are forwarded to the association board.",
+    s1: "Add more documents any time using the button below, if you have any.",
     s2: "Checkr will email each applicant a secure link to complete a quick background-check step.",
     s3: "The board will review and vote — typically within 7–10 business days.",
     s4: "You will receive written notice of the board's decision.",
     support: "Questions? Email us at",
-    newApp: "Start a new application",
+    continueDocs: "Continue — Upload More Documents",
+    newApp: "Start a different application",
   },
   es: {
-    heading: "Solicitud Enviada",
-    body: "Su solicitud ha sido recibida y el pago confirmado. La junta revisará y recibirá una decisión por correo.",
+    heading: "Pago Recibido",
+    body: "Su pago ha sido confirmado. Si tiene más documentos para agregar, use el botón de abajo — no es necesario comenzar de nuevo.",
     ref: "Número de Referencia",
     next: "¿Qué sigue?",
-    s1: "Sus documentos son enviados a la junta de la asociación.",
+    s1: "Agregue más documentos cuando lo necesite usando el botón de abajo.",
     s2: "Checkr le enviará a cada solicitante un enlace seguro para completar un breve paso de verificación de antecedentes.",
     s3: "La junta revisará y votará — normalmente en 7–10 días hábiles.",
     s4: "Recibirá notificación escrita de la decisión.",
     support: "¿Preguntas? Escríbanos a",
-    newApp: "Iniciar nueva solicitud",
+    continueDocs: "Continuar — Subir Más Documentos",
+    newApp: "Iniciar una solicitud diferente",
   },
   pt: {
-    heading: "Solicitação Enviada",
-    body: "Sua solicitação foi recebida e o pagamento confirmado. O conselho revisará e você receberá uma decisão por e-mail.",
+    heading: "Pagamento Recebido",
+    body: "Seu pagamento foi confirmado. Se tiver mais documentos para adicionar, use o botão abaixo — não é necessário começar de novo.",
     ref: "Número de Referência",
     next: "O que acontece agora",
-    s1: "Seus documentos são encaminhados ao conselho da associação.",
+    s1: "Adicione mais documentos quando quiser usando o botão abaixo.",
     s2: "A Checkr enviará a cada solicitante um link seguro para concluir uma breve etapa de verificação de antecedentes.",
     s3: "O conselho revisará e votará — geralmente em 7–10 dias úteis.",
     s4: "Você receberá notificação escrita da decisão.",
     support: "Dúvidas? Envie e-mail para",
-    newApp: "Iniciar nova solicitação",
+    continueDocs: "Continuar — Enviar Mais Documentos",
+    newApp: "Iniciar uma solicitação diferente",
   },
   fr: {
-    heading: "Demande Soumise",
-    body: "Votre demande a été reçue et le paiement confirmé. Le conseil examinera et vous recevrez une décision par e-mail.",
+    heading: "Paiement Reçu",
+    body: "Votre paiement a été confirmé. Si vous avez d'autres documents à ajouter, utilisez le bouton ci-dessous — pas besoin de recommencer.",
     ref: "Numéro de Référence",
     next: "Prochaines étapes",
-    s1: "Vos documents sont transmis au conseil de l'association.",
+    s1: "Ajoutez d'autres documents à tout moment à l'aide du bouton ci-dessous.",
     s2: "Checkr enverra à chaque demandeur un lien sécurisé pour compléter une brève étape de vérification des antécédents.",
     s3: "Le conseil examinera et votera — généralement sous 7 à 10 jours ouvrables.",
     s4: "Vous recevrez une notification écrite de la décision.",
     support: "Questions ? Écrivez-nous à",
-    newApp: "Nouvelle demande",
+    continueDocs: "Continuer — Téléverser Plus de Documents",
+    newApp: "Démarrer une autre demande",
   },
   he: {
-    heading: "הבקשה נשלחה",
-    body: "בקשתך התקבלה והתשלום אושר. הוועד יסקור ותקבל החלטה בדוא״ל.",
+    heading: "התשלום התקבל",
+    body: "התשלום שלך אושר. אם יש לך מסמכים נוספים להוסיף, השתמש בכפתור למטה — אין צורך להתחיל מחדש.",
     ref: "מספר אסמכתא",
     next: "מה קורה עכשיו",
-    s1: "המסמכים שלך יועברו לוועד העמותה.",
+    s1: "הוסף מסמכים נוספים בכל עת באמצעות הכפתור למטה.",
     s2: "Checkr תשלח לכל מגיש בקשה קישור מאובטח להשלמת שלב קצר של בדיקת רקע.",
     s3: "הוועד יסקור ויצביע — בדרך כלל תוך 7–10 ימי עסקים.",
     s4: "תקבל הודעה בכתב על החלטת הוועד.",
     support: "שאלות? שלח לנו אימייל",
-    newApp: "התחל בקשה חדשה",
+    continueDocs: "המשך — העלה מסמכים נוספים",
+    newApp: "התחל בקשה אחרת",
   },
   ru: {
-    heading: "Заявка отправлена",
-    body: "Ваша заявка получена и оплата подтверждена. Совет рассмотрит её и вышлет решение по электронной почте.",
+    heading: "Оплата получена",
+    body: "Ваша оплата подтверждена. Если у вас есть дополнительные документы, используйте кнопку ниже — начинать заново не нужно.",
     ref: "Номер заявки",
     next: "Дальнейшие шаги",
-    s1: "Ваши документы переданы в совет ассоциации.",
+    s1: "Добавляйте дополнительные документы в любое время с помощью кнопки ниже.",
     s2: "Checkr отправит каждому заявителю защищённую ссылку для завершения краткой проверки биографических данных.",
     s3: "Совет рассмотрит и проголосует — как правило, в течение 7–10 рабочих дней.",
     s4: "Вы получите письменное уведомление о решении совета.",
     support: "Вопросы? Напишите нам по адресу",
-    newApp: "Подать новую заявку",
+    continueDocs: "Продолжить — Загрузить больше документов",
+    newApp: "Начать другую заявку",
   },
 };
 
@@ -180,12 +186,21 @@ function SuccessContent() {
             support@topfloridaproperties.com
           </a>
         </p>
-        <button
-          onClick={() => router.push("/apply")}
-          className="px-8 py-3 bg-black text-white text-sm font-semibold rounded cursor-pointer hover:bg-gray-800 transition-colors"
-        >
-          {t.newApp}
-        </button>
+        {applicationId ? (
+          <button
+            onClick={() => router.push(`/apply/documents/${applicationId}`)}
+            className="px-8 py-3 bg-black text-white text-sm font-semibold rounded cursor-pointer hover:bg-gray-800 transition-colors"
+          >
+            {t.continueDocs}
+          </button>
+        ) : (
+          <button
+            onClick={() => router.push("/apply")}
+            className="px-8 py-3 bg-black text-white text-sm font-semibold rounded cursor-pointer hover:bg-gray-800 transition-colors"
+          >
+            {t.newApp}
+          </button>
+        )}
       </div>
     </div>
   );
