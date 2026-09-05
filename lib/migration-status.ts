@@ -4157,6 +4157,15 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `ALTER TABLE public.outbound_send_attempts ADD COLUMN IF NOT EXISTS error text;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'applications_supplemental_documents',
+    label:       'applications — supplemental_documents column',
+    description: 'Lets a paid /apply applicant add more documents afterward (app/apply/documents/[id]) without reopening the wizard.',
+    filename:    '20260905_applications_supplemental_documents.sql',
+    artifact:    { type: 'column', table: 'applications', column: 'supplemental_documents' },
+    sql: `ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS supplemental_documents jsonb NOT NULL DEFAULT '[]'::jsonb;
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

@@ -75,7 +75,7 @@ const translations = {
     payTotal: "Total Due",
     payOnline: "Pay Securely with Card",
     signature: "Consent & Authorization",
-    signatureConsent: "I authorize PMI Top Florida Properties to conduct a background, credit, and eviction check on all applicants listed above. I certify that all information provided is accurate and complete.",
+    signatureConsent: "I authorize PMI Top Florida Properties to conduct a background, credit, and eviction check on all applicants listed above. I certify that all information provided is accurate and complete. All fees paid are non-refundable.",
     iAgree: "I agree to the terms above",
     next: "Continue",
     back: "Back",
@@ -201,7 +201,7 @@ const translations = {
     payTotal: "Total a Pagar",
     payOnline: "Pagar con Tarjeta",
     signature: "Consentimiento y Autorización",
-    signatureConsent: "Autorizo a PMI Top Florida Properties a realizar verificación de antecedentes, crédito y desalojo. Certifico que toda la información es correcta.",
+    signatureConsent: "Autorizo a PMI Top Florida Properties a realizar verificación de antecedentes, crédito y desalojo. Certifico que toda la información es correcta. Todos los pagos realizados no son reembolsables.",
     iAgree: "Acepto los términos anteriores",
     next: "Continuar",
     back: "Atrás",
@@ -321,7 +321,7 @@ const translations = {
     payTotal: "Total a Pagar",
     payOnline: "Pagar com Cartão",
     signature: "Consentimento e Autorização",
-    signatureConsent: "Autorizo a PMI Top Florida Properties a realizar verificação de antecedentes, crédito e despejo. Certifico que todas as informações são verdadeiras.",
+    signatureConsent: "Autorizo a PMI Top Florida Properties a realizar verificação de antecedentes, crédito e despejo. Certifico que todas as informações são verdadeiras. Todas as taxas pagas não são reembolsáveis.",
     iAgree: "Concordo com os termos acima",
     next: "Continuar",
     back: "Voltar",
@@ -441,7 +441,7 @@ const translations = {
     payTotal: "Total à Payer",
     payOnline: "Payer par Carte",
     signature: "Consentement et Autorisation",
-    signatureConsent: "J'autorise PMI Top Florida Properties à effectuer une vérification des antécédents, du crédit et des expulsions. Je certifie que toutes les informations fournies sont exactes.",
+    signatureConsent: "J'autorise PMI Top Florida Properties à effectuer une vérification des antécédents, du crédit et des expulsions. Je certifie que toutes les informations fournies sont exactes. Tous les frais payés sont non remboursables.",
     iAgree: "J'accepte les conditions ci-dessus",
     next: "Continuer",
     back: "Retour",
@@ -561,7 +561,7 @@ const translations = {
     payTotal: "סה״כ לתשלום",
     payOnline: "שלם בכרטיס אשראי",
     signature: "הסכמה והרשאה",
-    signatureConsent: "אני מסמיך את PMI Top Florida Properties לבצע בדיקת רקע, אשראי ופינוי עבור כל המגישים הרשומים לעיל. אני מאשר שכל המידע שמסרתי מדויק ומלא.",
+    signatureConsent: "אני מסמיך את PMI Top Florida Properties לבצע בדיקת רקע, אשראי ופינוי עבור כל המגישים הרשומים לעיל. אני מאשר שכל המידע שמסרתי מדויק ומלא. כל התשלומים ששולמו אינם ניתנים להחזר.",
     iAgree: "אני מסכים לתנאים לעיל",
     next: "המשך",
     back: "חזרה",
@@ -681,7 +681,7 @@ const translations = {
     payTotal: "Итого к оплате",
     payOnline: "Оплатить картой",
     signature: "Согласие и авторизация",
-    signatureConsent: "Я разрешаю PMI Top Florida Properties провести проверку биографии, кредитной истории и истории выселений для всех указанных заявителей. Я подтверждаю точность и полноту предоставленных данных.",
+    signatureConsent: "Я разрешаю PMI Top Florida Properties провести проверку биографии, кредитной истории и истории выселений для всех указанных заявителей. Я подтверждаю точность и полноту предоставленных данных. Все уплаченные сборы не подлежат возврату.",
     iAgree: "Я согласен с указанными условиями",
     next: "Продолжить",
     back: "Назад",
@@ -801,7 +801,7 @@ const translations = {
     payTotal: "Total pou Peye",
     payOnline: "Peye an Sekirite ak Kat",
     signature: "Konsantman & Otorizasyon",
-    signatureConsent: "Mwen otorize PMI Top Florida Properties pou fè yon tcheke background, kredi, ak ekspilsyon sou tout aplikan ki endike anwo yo. Mwen sètifye ke tout enfòmasyon yo bay yo egzak e konplè.",
+    signatureConsent: "Mwen otorize PMI Top Florida Properties pou fè yon tcheke background, kredi, ak ekspilsyon sou tout aplikan ki endike anwo yo. Mwen sètifye ke tout enfòmasyon yo bay yo egzak e konplè. Tout frè peye yo pa ranbousab.",
     iAgree: "Mwen dakò ak kondisyon ki anwo yo",
     next: "Kontinye",
     back: "Tounen",
@@ -1037,7 +1037,7 @@ function ApplicantFields({ index, t, data, onChange, units }: ApplicantFieldsPro
 // ════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ════════════════════════════════════════════════════════════════
-export default function ApplicationForm({ preselectedAssociation = null }) {
+export default function ApplicationForm({ preselectedAssociation = null }: { preselectedAssociation?: string | null }) {
   const [lang, setLang]               = useState("en");
   const t                             = translations[lang as keyof typeof translations];
   const [step, setStep]               = useState(0);
@@ -1233,6 +1233,17 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     const m = associations.find(a => a.code.toUpperCase() === prefillAssocCode);
     if (m) { setAssociation(m.name); setAssocCode(m.code); setAssocSearch(m.name); }
   }, [prefillAssocCode, associations]);
+
+  // A locked-in preselectedAssociation only carries the display NAME (it's
+  // rendered before the associations list has loaded, so it can't resolve
+  // a code up front) -- assocCode stays blank without this, silently
+  // skipping the per-association eligibility block-rule check and the
+  // lease-matching hint downstream, both keyed by code, not name.
+  useEffect(() => {
+    if (!preselectedAssociation || assocCode || associations.length === 0) return;
+    const m = associations.find(a => a.name === preselectedAssociation);
+    if (m) setAssocCode(m.code);
+  }, [preselectedAssociation, associations, assocCode]);
 
   // Prefill the unit on the first applicant (survives type selection — the type
   // cards spread prev[0]).
