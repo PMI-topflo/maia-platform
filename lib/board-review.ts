@@ -105,14 +105,26 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
   const type = String(app.application_type ?? '')
   const code = String(app.association_code ?? '')
   const detailedId = (app.detailed_application_id as string | null) ?? null
-  const [checklist, { data: docs }, { data: reviews }, { data: people }, { data: assoc }, { data: subjects }] = await Promise.all([
+  const [checklist, docsRes, reviewsRes, peopleRes, assocRes, subjectsRes] = await Promise.all([
     isApplicationType(type) ? getIntakeChecklist(code, type) : Promise.resolve([] as IntakeDoc[]),
     supabaseAdmin.from('application_documents').select('id, doc_key, filename, stakeholder_id, created_at').eq('application_id', applicationId),
     supabaseAdmin.from('application_document_reviews').select('scope_key, decision, reason, decided_by, decided_by_role, decided_at').eq('application_id', applicationId),
     supabaseAdmin.from('application_stakeholders').select('id, name, applicant_role, is_primary, vehicle_has, vehicle_declared_at, tax_returns_has, tax_returns_declared_at').eq('application_id', applicationId).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('associations').select('pets_allowed').eq('association_code', code).maybeSingle(),
-    detailedId ? supabaseAdmin.from('screening_subjects').select('completed_at').eq('application_id', detailedId) : Promise.resolve({ data: [] as { completed_at: string | null }[] }),
+    detailedId ? supabaseAdmin.from('screening_subjects').select('completed_at').eq('application_id', detailedId) : Promise.resolve({ data: [] as { completed_at: string | null }[], error: null }),
   ])
+  const { data: docs } = docsRes, { data: reviews } = reviewsRes, { data: people } = peopleRes, { data: assoc } = assocRes, { data: subjects } = subjectsRes
+  // A failed query here (e.g. a column a migration hasn't added yet) must
+  // never look identical to "no rows" -- that's exactly how a co-applicant's
+  // whole roster row silently vanished from every screen that reads it,
+  // 2026-09-05: the query errored, was swallowed, and read back as an empty
+  // array with nothing in the logs to say why.
+  for (const [label, res] of [
+    ['application_documents', docsRes], ['application_document_reviews', reviewsRes],
+    ['application_stakeholders', peopleRes], ['associations', assocRes], ['screening_subjects', subjectsRes],
+  ] as const) {
+    if (res.error) console.error(`[board-review] getReviewState(${applicationId}) ${label} query failed:`, res.error.message)
+  }
 
   return deriveReviewState({
     app: {
@@ -252,16 +264,25 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
 
   const codes = [...new Set(apps.map(a => String(a.association_code ?? '').toUpperCase()).filter(Boolean))]
   const detailedIds = [...new Set(apps.map(a => (a.detailed_application_id as string | null)).filter((v): v is string => !!v))]
-  const [{ data: docs }, { data: reviews }, { data: people }, { data: assocs }, checklistsByCode, { data: subjects }] = await Promise.all([
+  const [docsRes, reviewsRes, peopleRes, assocsRes, checklistsByCode, subjectsRes] = await Promise.all([
     supabaseAdmin.from('application_documents').select('id, application_id, doc_key, filename, stakeholder_id, created_at').in('application_id', ids),
     supabaseAdmin.from('application_document_reviews').select('application_id, scope_key, decision, reason, decided_by, decided_by_role, decided_at').in('application_id', ids),
     supabaseAdmin.from('application_stakeholders').select('id, application_id, name, applicant_role, is_primary, vehicle_has, vehicle_declared_at, tax_returns_has, tax_returns_declared_at').eq('role', 'applicant').in('application_id', ids)
       .order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
-    codes.length ? supabaseAdmin.from('associations').select('association_code, pets_allowed').in('association_code', codes) : Promise.resolve({ data: [] }),
+    codes.length ? supabaseAdmin.from('associations').select('association_code, pets_allowed').in('association_code', codes) : Promise.resolve({ data: [], error: null }),
     // One checklist read per ASSOCIATION, not per application.
     Promise.all(codes.map(async c => [c, await getIntakeChecklistAll(c)] as const)).then(e => new Map(e)),
-    detailedIds.length ? supabaseAdmin.from('screening_subjects').select('application_id, completed_at').in('application_id', detailedIds) : Promise.resolve({ data: [] as { application_id: string; completed_at: string | null }[] }),
+    detailedIds.length ? supabaseAdmin.from('screening_subjects').select('application_id, completed_at').in('application_id', detailedIds) : Promise.resolve({ data: [] as { application_id: string; completed_at: string | null }[], error: null }),
   ])
+  const { data: docs } = docsRes, { data: reviews } = reviewsRes, { data: people } = peopleRes, { data: assocs } = assocsRes, { data: subjects } = subjectsRes
+  // Same reasoning as getReviewState() above -- a failed query must never
+  // read back identical to "no rows".
+  for (const [label, res] of [
+    ['application_documents', docsRes], ['application_document_reviews', reviewsRes],
+    ['application_stakeholders', peopleRes], ['associations', assocsRes], ['screening_subjects', subjectsRes],
+  ] as const) {
+    if (res.error) console.error(`[board-review] getReviewStates(${ids.length} apps) ${label} query failed:`, res.error.message)
+  }
 
   const petsBy = new Map((assocs ?? []).map(a => [String(a.association_code).toUpperCase(), (a.pets_allowed as boolean | null) ?? null]))
   const group = <T extends { application_id: unknown }>(rows: T[] | null) => {

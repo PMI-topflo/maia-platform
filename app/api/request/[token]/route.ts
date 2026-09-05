@@ -47,9 +47,10 @@ export async function resolveDeclaringStakeholder(req: { application_id: unknown
   const emails = [...new Set(raw.split(',').map(s => s.trim().toLowerCase()).filter(e => e.includes('@')))]
   if (emails.length !== 1) return null
   const stakeholderRole = role === 'owner' ? 'owner' : 'applicant'
-  const { data } = await supabaseAdmin.from('application_stakeholders')
+  const { data, error } = await supabaseAdmin.from('application_stakeholders')
     .select('id, name, is_primary, vehicle_has, vehicle_declared_at')
     .eq('application_id', String(req.application_id)).eq('role', stakeholderRole).ilike('email', emails[0]).maybeSingle()
+  if (error) console.error(`[request/token] resolveDeclaringStakeholder(${req.application_id}, ${role}) failed:`, error.message)
   if (!data) return null
   return {
     id: String(data.id), name: (data.name as string | null) ?? null, is_primary: !!data.is_primary,

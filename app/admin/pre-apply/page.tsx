@@ -10,7 +10,9 @@ interface App {
   id: string; associationCode: string; type: string; unit: string | null; status: string
   stage: string; chipKey: string; stageLabel: string; detail: string
   submittedAt: string | null; startedAt: string | null; reviewedAt: string | null; driveFolderUrl: string | null
-  applicant: { name: string | null; email: string | null } | null; docCount: number; signed: boolean
+  applicant: { name: string | null; email: string | null } | null
+  applicants: { name: string | null; email: string | null; isPrimary: boolean }[]
+  docCount: number; signed: boolean
   lastRequestedAt: string | null
 }
 const isDecided = (status: string) => status === 'approved' || status === 'declined'
@@ -111,7 +113,7 @@ export default function PreApplyQueue() {
     const q = search.trim().toLowerCase()
     if (!q) return true
     const stageLabel = (STAGE_META[a.chipKey] ?? { label: a.stageLabel }).label
-    return [a.applicant?.name, a.applicant?.email, a.associationCode, a.unit, TYPE_LABEL[a.type] ?? a.type, stageLabel]
+    return [...a.applicants.flatMap(p => [p.name, p.email]), a.associationCode, a.unit, TYPE_LABEL[a.type] ?? a.type, stageLabel]
       .some(v => (v ?? '').toString().toLowerCase().includes(q))
   }
 
@@ -253,7 +255,7 @@ export default function PreApplyQueue() {
               {inFlight.map(a => (
                 <a key={a.id} href={`/admin/pre-apply/${a.id}`} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', font: '13px system-ui', color: '#1f2937', textDecoration: 'none' }}>
                   <strong>{a.associationCode}{a.unit ? ` · Unit ${a.unit}` : ''}</strong>
-                  <span style={{ color: '#6b7280' }}>{a.applicant?.name || 'applicant'} · {TYPE_LABEL[a.type] ?? a.type}</span>
+                  <span style={{ color: '#6b7280' }}>{a.applicants.map(p => p.name).filter(Boolean).join(' & ') || 'applicant'} · {TYPE_LABEL[a.type] ?? a.type}</span>
                   <span style={{ font: '700 11px system-ui', color: '#fff', background: '#f59e0b', borderRadius: 999, padding: '2px 8px' }}>{a.docCount} doc{a.docCount === 1 ? '' : 's'}</span>
                   <span style={{ color: '#9ca3af', fontSize: 12 }}>started {fmt(a.startedAt)}</span>
                 </a>
@@ -282,7 +284,14 @@ export default function PreApplyQueue() {
                 const st = STAGE_META[a.chipKey] ?? { label: a.stageLabel, c: '#374151', b: '#f3f4f6' }
                 return (
                   <tr key={a.id} style={{ cursor: 'pointer' }}>
-                    <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}><div style={{ fontWeight: 600, color: '#1d4ed8' }}>{a.applicant?.name || '—'}</div><div style={{ color: '#9ca3af', fontSize: 12 }}>{a.applicant?.email}</div></td>
+                    <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>
+                      {a.applicants.length > 0 ? a.applicants.map((p, i) => (
+                        <div key={i} style={{ marginTop: i ? 4 : 0 }}>
+                          <div style={{ fontWeight: 600, color: '#1d4ed8' }}>{p.name || '—'}</div>
+                          {p.email && <div style={{ color: '#9ca3af', fontSize: 12 }}>{p.email}</div>}
+                        </div>
+                      )) : <div style={{ fontWeight: 600, color: '#1d4ed8' }}>—</div>}
+                    </td>
                     <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{a.associationCode}</td>
                     <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{a.unit || '—'}</td>
                     <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{TYPE_LABEL[a.type] ?? a.type}</td>

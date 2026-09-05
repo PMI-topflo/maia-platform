@@ -45,12 +45,19 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     supabaseAdmin.from('unit_tenant_contacts').select('tenant_email').eq('association_code', code).eq('unit_ref', unit).maybeSingle(),
   ])
 
-  const [{ data: sh }, { data: stakeholders }, { data: docs }, checklist] = await Promise.all([
+  const [shRes, stakeholdersRes, docsRes, checklist] = await Promise.all([
     supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', id).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
     supabaseAdmin.from('application_stakeholders').select('id, role, name, email, phone, is_primary, status, signed_at, rules_ack_name, email_verified_at, applicant_role, credit_score, vehicle_has, vehicle_declared_at, tax_returns_has, tax_returns_declared_at').eq('application_id', id).order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('application_documents').select('id, doc_key, doc_label, storage_path, filename, mime_type, suggested_name, expiration_date, no_expiration, uploaded_by_role, stakeholder_id, created_at').eq('application_id', id).order('created_at', { ascending: true }),
     isApplicationType(String(app.application_type)) ? getIntakeChecklist(String(app.association_code), app.application_type as ApplicationType) : Promise.resolve([]),
   ])
+  const { data: sh } = shRes, { data: stakeholders } = stakeholdersRes, { data: docs } = docsRes
+  // A failed query (e.g. a column a migration hasn't added yet) must never
+  // read back identical to "no stakeholders" -- that's exactly how a
+  // co-applicant's whole roster silently vanished from this page, 2026-09-05.
+  if (stakeholdersRes.error) console.error(`[admin/pre-apply/${id}] stakeholders query failed:`, stakeholdersRes.error.message)
+  if (shRes.error) console.error(`[admin/pre-apply/${id}] primary applicant query failed:`, shRes.error.message)
+  if (docsRes.error) console.error(`[admin/pre-apply/${id}] documents query failed:`, docsRes.error.message)
 
   // View links go through /doc/[docId] (fresh signed URL each click — never expire).
   const withUrls = (docs ?? []).map(d => ({

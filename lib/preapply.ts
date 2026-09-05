@@ -360,16 +360,21 @@ function toRow(r: Record<string, unknown>): StakeholderRow {
 }
 
 export async function listStakeholders(applicationId: string): Promise<StakeholderRow[]> {
-  const { data } = await supabaseAdmin.from('application_stakeholders')
+  const { data, error } = await supabaseAdmin.from('application_stakeholders')
     .select(STAKEHOLDER_COLS)
     .eq('application_id', applicationId).order('is_primary', { ascending: false }).order('created_at', { ascending: true })
+  // A failed query (e.g. a column a migration hasn't added yet) must never
+  // read back identical to "no stakeholders" -- that's exactly how a
+  // co-applicant's whole roster silently vanished, 2026-09-05.
+  if (error) console.error(`[preapply] listStakeholders(${applicationId}) failed:`, error.message)
   return (data ?? []).map(toRow)
 }
 
 export async function getStakeholder(applicationId: string, stakeholderId: string): Promise<StakeholderRow | null> {
-  const { data } = await supabaseAdmin.from('application_stakeholders')
+  const { data, error } = await supabaseAdmin.from('application_stakeholders')
     .select(STAKEHOLDER_COLS)
     .eq('application_id', applicationId).eq('id', stakeholderId).maybeSingle()
+  if (error) console.error(`[preapply] getStakeholder(${applicationId}, ${stakeholderId}) failed:`, error.message)
   return data ? toRow(data) : null
 }
 
