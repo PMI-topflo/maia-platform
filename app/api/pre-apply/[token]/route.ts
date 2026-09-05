@@ -7,7 +7,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getIntake, resolveToken, listStakeholders, roleToProvidedBy, roleLabel, INTAKE_BUCKET } from '@/lib/preapply'
-import { getIntakeChecklist, PROVIDED_BY_LABEL, parseDeclarations, pendingDeclarations } from '@/lib/intake-documents'
+import { getIntakeChecklist, PROVIDED_BY_LABEL, parseDeclarations, pendingDeclarations, stakeholderVehicleAnswer, stakeholderTaxReturnsAnswer, type Declarations } from '@/lib/intake-documents'
 import { activeConditions, declaredPetWhereProhibited, ANIMAL_KIND_LABEL, ANIMAL_KIND_BLURB, animalDocGuidance } from '@/lib/animal-accommodation'
 import { maskEmail, maskPhone } from '@/lib/esign-verify'
 import { getOrCreateEsignLink } from '@/lib/application-esign-forms'
@@ -38,7 +38,16 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   // applicant once they have said the thing applies to them. An unanswered
   // gate hides the item AND blocks submission, so nothing is silently skipped.
   const petsAllowed = (assoc?.pets_allowed as boolean | null) ?? null
-  const declarations = parseDeclarations(appRow?.declarations)
+  const sharedDeclarations = parseDeclarations(appRow?.declarations)
+  // Vehicle and tax-returns are answered per-applicant now — swap in THIS
+  // stakeholder's own answer (falling back to the shared/legacy value only
+  // for the primary) everywhere this route reads a declaration. Animal
+  // stays the single, application-level answer from sharedDeclarations.
+  const declarations: Declarations = {
+    ...sharedDeclarations,
+    vehicle: stakeholderVehicleAnswer({ id: me.id, is_primary: me.isPrimary, vehicle_has: me.vehicleHas, vehicle_declared_at: me.vehicleDeclaredAt }, sharedDeclarations),
+    taxReturns: stakeholderTaxReturnsAnswer({ id: me.id, is_primary: me.isPrimary, tax_returns_has: me.taxReturnsHas, tax_returns_declared_at: me.taxReturnsDeclaredAt }, sharedDeclarations),
+  }
   const liveConditions = activeConditions(declarations, { petsAllowed })
   const applies = (c: string | null) => !c || liveConditions.has(c)
   // provided_by='staff' items (e.g. Background/Credit Reports) are pulled by

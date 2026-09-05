@@ -337,9 +337,14 @@ export interface StakeholderRow {
   id: string; role: StakeholderRole; name: string | null; email: string | null; phone: string | null
   isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; emailVerifiedAt: string | null
   checklistAckSignedAt: string | null
+  // This stakeholder's OWN answers to the vehicle / tax-returns declarations
+  // (each applicant/buyer answers their own — see lib/intake-documents.ts's
+  // stakeholderVehicleAnswer/stakeholderTaxReturnsAnswer).
+  vehicleHas: boolean | null; vehicleDeclaredAt: string | null
+  taxReturnsHas: boolean | null; taxReturnsDeclaredAt: string | null
 }
 
-const STAKEHOLDER_COLS = 'id, role, name, email, phone, is_primary, status, signed_at, email_verified_at, checklist_ack_signed_at'
+const STAKEHOLDER_COLS = 'id, role, name, email, phone, is_primary, status, signed_at, email_verified_at, checklist_ack_signed_at, vehicle_has, vehicle_declared_at, tax_returns_has, tax_returns_declared_at'
 
 function toRow(r: Record<string, unknown>): StakeholderRow {
   const role = String(r.role) as StakeholderRole
@@ -349,6 +354,8 @@ function toRow(r: Record<string, unknown>): StakeholderRow {
     signs: roleSigns(role), signedAt: (r.signed_at as string | null) ?? null,
     emailVerifiedAt: (r.email_verified_at as string | null) ?? null,
     checklistAckSignedAt: (r.checklist_ack_signed_at as string | null) ?? null,
+    vehicleHas: (r.vehicle_has as boolean | null) ?? null, vehicleDeclaredAt: (r.vehicle_declared_at as string | null) ?? null,
+    taxReturnsHas: (r.tax_returns_has as boolean | null) ?? null, taxReturnsDeclaredAt: (r.tax_returns_declared_at as string | null) ?? null,
   }
 }
 

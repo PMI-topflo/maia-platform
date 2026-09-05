@@ -15,7 +15,7 @@ interface Detail {
   id: string; associationCode: string; type: string; unit: string | null; status: string; submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
   ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null; tenantEmailIsAgent: boolean
-  stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; phone: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean; applicantRole: string | null; creditScore: number | null }[]
+  stakeholders?: { id: string; role: string; roleLabel: string; name: string | null; email: string | null; phone: string | null; isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; rulesAckName: string | null; emailVerified: boolean; applicantRole: string | null; creditScore: number | null; vehicle: { has: boolean; at?: string } | null; taxReturns: { has: boolean; at?: string } | null }[]
   rulesAck: { name?: string; at?: string } | null
   driveFolderUrl: string | null
   screeningProvider: string
@@ -391,6 +391,9 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {d.checklist.some(c => c.condition_key === 'vehicle' || c.condition_key === 'pet' || c.condition_key === 'assistance_animal' || c.condition_key === 'international') && (
         <DeclarationsCard
           id={id} declarations={d.declarations} declarationReminders={d.declarationReminders} declaredNa={d.declaredNa}
+          // Vehicle and tax-returns are answered per-applicant -- one row per
+          // applicant/buyer stakeholder, each carrying their own answer.
+          applicants={(d.stakeholders ?? []).filter(s => s.role === 'applicant').map(s => ({ id: s.id, name: s.name, vehicle: s.vehicle, taxReturns: s.taxReturns }))}
           petsProhibitedNotice={d.petsProhibitedNotice} animalGuidance={d.animalGuidance}
           assistanceAnimalDenialGrounds={d.assistanceAnimalDenialGrounds} assistanceAnimalDecisionDays={d.assistanceAnimalDecisionDays}
           showTaxReturns={d.checklist.some(c => c.condition_key === 'international')}
@@ -2371,14 +2374,19 @@ function AgentsCard({ id, stakeholders, onDone }: { id: string; stakeholders: { 
 // text before ever requesting registration). One Yes/No control per
 // question, editable at any time — a later correction simply overwrites the
 // earlier answer, same as the applicant-facing version.
-function DeclarationsCard({ id, declarations, declarationReminders, declaredNa, petsProhibitedNotice, animalGuidance, assistanceAnimalDenialGrounds, assistanceAnimalDecisionDays, showTaxReturns, onDone }: {
+function DeclarationsCard({ id, declarations, declarationReminders, declaredNa, applicants, petsProhibitedNotice, animalGuidance, assistanceAnimalDenialGrounds, assistanceAnimalDecisionDays, showTaxReturns, onDone }: {
   id: string
   declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null; taxReturns?: { has: boolean; at?: string } | null }
   /** Most recent "Ask her to answer" reminder per key, ISO timestamp —
    *  derived server-side from application_communications so it survives a
-   *  reload instead of living only in this component's local state. */
+   *  reload instead of living only in this component's local state. Keyed
+   *  `${key}:${stakeholderId}` for vehicle/taxReturns (per-applicant), bare
+   *  `key` for animal (still one shared question). */
   declarationReminders: Record<string, string>
   declaredNa: string[]
+  /** Each applicant/buyer stakeholder with their OWN vehicle/tax-returns
+   *  answer — every applicant answers their own now. */
+  applicants: { id: string; name: string | null; vehicle: { has: boolean; at?: string } | null; taxReturns: { has: boolean; at?: string } | null }[]
   petsProhibitedNotice: boolean
   animalGuidance: { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[]; staffNote: string } | null
   assistanceAnimalDenialGrounds: string[]
@@ -2394,7 +2402,7 @@ function DeclarationsCard({ id, declarations, declarationReminders, declaredNa, 
   const [err, setErr] = useState<string | null>(null)
   const [remindErr, setRemindErr] = useState<Record<string, string>>({})
 
-  async function set(body: { vehicle?: boolean; animal?: boolean; animalKind?: string; taxReturns?: boolean }) {
+  async function set(body: { vehicle?: boolean; animal?: boolean; animalKind?: string; taxReturns?: boolean; stakeholderId?: string }) {
     setBusy(JSON.stringify(body)); setErr(null)
     try {
       const r = await fetch(`/api/admin/pre-apply/${id}/declarations`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
@@ -2409,43 +2417,55 @@ function DeclarationsCard({ id, declarations, declarationReminders, declaredNa, 
   // onDone() (a full reload) is what turns the just-sent reminder into a
   // persisted "Reminded {date}" below, via declarationReminders -- staff
   // reported this used to silently forget on every page refresh.
-  async function remind(key: 'vehicle' | 'animal' | 'taxReturns') {
-    setBusy(`remind-${key}`); setRemindErr(m => ({ ...m, [key]: '' }))
+  async function remind(key: 'vehicle' | 'animal' | 'taxReturns', stakeholderId?: string) {
+    const reminderKey = stakeholderId ? `${key}:${stakeholderId}` : key
+    setBusy(`remind-${reminderKey}`); setRemindErr(m => ({ ...m, [reminderKey]: '' }))
     try {
-      const r = await fetch(`/api/admin/pre-apply/${id}/remind-declaration`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) })
+      const r = await fetch(`/api/admin/pre-apply/${id}/remind-declaration`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, stakeholderId }) })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
       onDone()
-    } catch (e) { setRemindErr(m => ({ ...m, [key]: (e as Error).message })) } finally { setBusy(null) }
+    } catch (e) { setRemindErr(m => ({ ...m, [reminderKey]: (e as Error).message })) } finally { setBusy(null) }
   }
   const remindBtn: React.CSSProperties = { font: '600 11px system-ui', color: '#2563eb', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }
-  const remindedAt = (key: string) => (
+  const remindedAt = (key: 'vehicle' | 'animal' | 'taxReturns', reminderKey: string, stakeholderId?: string) => (
     <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <span style={{ color: '#166534' }}>✓ Reminded {fmt(declarationReminders[key])}</span>
-      <button style={remindBtn} disabled={!!busy} onClick={() => remind(key as 'vehicle' | 'animal' | 'taxReturns')}>ask again</button>
+      <span style={{ color: '#166534' }}>✓ Reminded {fmt(declarationReminders[reminderKey])}</span>
+      <button style={remindBtn} disabled={!!busy} onClick={() => remind(key, stakeholderId)}>ask again</button>
     </span>
   )
 
   const yn: React.CSSProperties = { font: '600 12px system-ui', padding: '5px 12px', borderRadius: 7, border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer' }
   const ynOn = (c: string): React.CSSProperties => ({ ...yn, background: c, borderColor: c, color: '#fff' })
 
+  // One row per applicant/buyer stakeholder — falls back to a single
+  // sentinel row (no stakeholderId, server defaults to primary) on the
+  // unexpected shape of no applicant stakeholders on file at all.
+  const declarants = applicants.length ? applicants : [{ id: '', name: null, vehicle: declarations.vehicle ?? null, taxReturns: declarations.taxReturns ?? null }]
+  const personSuffix = (name: string | null) => declarants.length > 1 ? ` — ${name || 'applicant'}` : ''
+
   return (
     <div style={{ border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: 10, padding: '12px 14px', margin: '12px 0' }}>
       <div style={{ font: '700 12px system-ui', color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>{showTaxReturns ? 'Vehicle, animal & tax returns declaration' : 'Vehicle & animal declaration'}</div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0' }}>
-        <span style={{ font: '13.5px system-ui', color: '#374151', width: 220 }}>🚗 Vehicle kept at the unit?</span>
-        <button style={declarations.vehicle?.has === true ? ynOn('#166534') : yn} disabled={!!busy} onClick={() => set({ vehicle: true })}>Yes</button>
-        <button style={declarations.vehicle?.has === false ? ynOn('#6b7280') : yn} disabled={!!busy} onClick={() => set({ vehicle: false })}>No</button>
-        {typeof declarations.vehicle?.has !== 'boolean' && (
-          <span style={{ font: '12px system-ui', color: '#b45309', display: 'flex', gap: 8, alignItems: 'center' }}>
-            not answered yet
-            {declarationReminders.vehicle
-              ? remindedAt('vehicle')
-              : <button style={remindBtn} disabled={!!busy} onClick={() => remind('vehicle')}>✉ Ask her to answer</button>}
-            {remindErr.vehicle && <span style={{ color: '#b91c1c' }}>{remindErr.vehicle}</span>}
-          </span>
-        )}
-      </div>
+      {declarants.map(a => {
+        const reminderKey = a.id ? `vehicle:${a.id}` : 'vehicle'
+        return (
+          <div key={`vehicle-${a.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0' }}>
+            <span style={{ font: '13.5px system-ui', color: '#374151', width: 220 }}>🚗 Vehicle kept at the unit?{personSuffix(a.name)}</span>
+            <button style={a.vehicle?.has === true ? ynOn('#166534') : yn} disabled={!!busy} onClick={() => set({ vehicle: true, stakeholderId: a.id || undefined })}>Yes</button>
+            <button style={a.vehicle?.has === false ? ynOn('#6b7280') : yn} disabled={!!busy} onClick={() => set({ vehicle: false, stakeholderId: a.id || undefined })}>No</button>
+            {typeof a.vehicle?.has !== 'boolean' && (
+              <span style={{ font: '12px system-ui', color: '#b45309', display: 'flex', gap: 8, alignItems: 'center' }}>
+                not answered yet
+                {declarationReminders[reminderKey]
+                  ? remindedAt('vehicle', reminderKey, a.id || undefined)
+                  : <button style={remindBtn} disabled={!!busy} onClick={() => remind('vehicle', a.id || undefined)}>✉ Ask her to answer</button>}
+                {remindErr[reminderKey] && <span style={{ color: '#b91c1c' }}>{remindErr[reminderKey]}</span>}
+              </span>
+            )}
+          </div>
+        )
+      })}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0' }}>
         <span style={{ font: '13.5px system-ui', color: '#374151', width: 220 }}>🐾 Pet / service / support animal?</span>
@@ -2455,7 +2475,7 @@ function DeclarationsCard({ id, declarations, declarationReminders, declaredNa, 
           <span style={{ font: '12px system-ui', color: '#b45309', display: 'flex', gap: 8, alignItems: 'center' }}>
             not answered yet
             {declarationReminders.animal
-              ? remindedAt('animal')
+              ? remindedAt('animal', 'animal')
               : <button style={remindBtn} disabled={!!busy} onClick={() => remind('animal')}>✉ Ask her to answer</button>}
             {remindErr.animal && <span style={{ color: '#b91c1c' }}>{remindErr.animal}</span>}
           </span>
@@ -2471,22 +2491,25 @@ function DeclarationsCard({ id, declarations, declarationReminders, declaredNa, 
           ))}
         </div>
       )}
-      {showTaxReturns && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0' }}>
-          <span style={{ font: '13.5px system-ui', color: '#374151', width: 220 }}>🌎 2 years of U.S. tax returns?</span>
-          <button style={declarations.taxReturns?.has === true ? ynOn('#166534') : yn} disabled={!!busy} onClick={() => set({ taxReturns: true })}>Yes</button>
-          <button style={declarations.taxReturns?.has === false ? ynOn('#6b7280') : yn} disabled={!!busy} onClick={() => set({ taxReturns: false })}>No</button>
-          {typeof declarations.taxReturns?.has !== 'boolean' && (
-            <span style={{ font: '12px system-ui', color: '#b45309', display: 'flex', gap: 8, alignItems: 'center' }}>
-              not answered yet
-              {declarationReminders.taxReturns
-                ? remindedAt('taxReturns')
-                : <button style={remindBtn} disabled={!!busy} onClick={() => remind('taxReturns')}>✉ Ask her to answer</button>}
-              {remindErr.taxReturns && <span style={{ color: '#b91c1c' }}>{remindErr.taxReturns}</span>}
-            </span>
-          )}
-        </div>
-      )}
+      {showTaxReturns && declarants.map(a => {
+        const reminderKey = a.id ? `taxReturns:${a.id}` : 'taxReturns'
+        return (
+          <div key={`tax-${a.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '6px 0' }}>
+            <span style={{ font: '13.5px system-ui', color: '#374151', width: 220 }}>🌎 2 years of U.S. tax returns?{personSuffix(a.name)}</span>
+            <button style={a.taxReturns?.has === true ? ynOn('#166534') : yn} disabled={!!busy} onClick={() => set({ taxReturns: true, stakeholderId: a.id || undefined })}>Yes</button>
+            <button style={a.taxReturns?.has === false ? ynOn('#6b7280') : yn} disabled={!!busy} onClick={() => set({ taxReturns: false, stakeholderId: a.id || undefined })}>No</button>
+            {typeof a.taxReturns?.has !== 'boolean' && (
+              <span style={{ font: '12px system-ui', color: '#b45309', display: 'flex', gap: 8, alignItems: 'center' }}>
+                not answered yet
+                {declarationReminders[reminderKey]
+                  ? remindedAt('taxReturns', reminderKey, a.id || undefined)
+                  : <button style={remindBtn} disabled={!!busy} onClick={() => remind('taxReturns', a.id || undefined)}>✉ Ask her to answer</button>}
+                {remindErr[reminderKey] && <span style={{ color: '#b91c1c' }}>{remindErr[reminderKey]}</span>}
+              </span>
+            )}
+          </div>
+        )
+      })}
       {err && <p style={{ font: '12.5px system-ui', color: '#b91c1c', margin: '6px 0 0' }}>⚠ {err}</p>}
 
       {declaredNa?.length > 0 && (
