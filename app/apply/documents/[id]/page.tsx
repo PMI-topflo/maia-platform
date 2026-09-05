@@ -30,8 +30,8 @@ export default function ApplyDocumentsPage({ params }: { params: Promise<{ id: s
         const res = await fetch(`/api/apply/documents/${id}`)
         const d = await res.json()
         if (cancelled) return
-        if (!res.ok) { setError(d.error ?? 'This link is invalid.'); return }
-        setAssociation(d.association); setRefNum(d.refNum); setDocs(d.documents ?? [])
+        if (!res.ok) { setError(d.error ?? 'This link is invalid.') }
+        else { setAssociation(d.association); setRefNum(d.refNum); setDocs(d.documents ?? []) }
       } catch { if (!cancelled) setError('Could not load this page. Please try again.') }
       if (!cancelled) setLoading(false)
     }

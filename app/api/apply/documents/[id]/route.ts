@@ -46,9 +46,10 @@ async function signDocs(docs: SupplementalDoc[]) {
 }
 
 async function loadPaidApplication(id: string) {
-  const { data: app } = await supabaseAdmin.from('applications')
+  const { data: app, error } = await supabaseAdmin.from('applications')
     .select('id, association, applicants, stripe_payment_status, supplemental_documents')
     .eq('id', id).maybeSingle()
+  if (error) console.error('[apply/documents] Supabase query failed:', error.message)
   if (!app || app.stripe_payment_status !== 'paid') return null
   return app
 }
