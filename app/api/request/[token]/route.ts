@@ -4,7 +4,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { parseDeclarations, getIntakeChecklist, isApplicationType, signTemplateUrls } from '@/lib/intake-documents'
+import { parseDeclarations, getIntakeChecklist, isApplicationType, signTemplateUrls, stakeholderVehicleAnswer } from '@/lib/intake-documents'
 import { getReviewState } from '@/lib/board-review'
 import { findUnitLeasePacket } from '@/lib/lease-packet'
 
@@ -32,13 +32,38 @@ export async function loadRequest(token: string) {
   return { req: data, role, mine }
 }
 
+/** Which single stakeholder is on the other end of this link, for the
+ *  vehicle declaration specifically. Every document_requests row that can
+ *  carry the synthetic __declare_vehicle__ item was created by
+ *  draftStandardReply (lib/application-standard-reply.ts) scoped to exactly
+ *  ONE sender email on that side — never a comma-joined batch of several
+ *  people — so matching that email back to a stakeholder always resolves
+ *  cleanly when it resolves at all. Returns null when the row's email
+ *  doesn't match any stakeholder on file (e.g. sent via an agent fallback,
+ *  or more than one address on that side), and the caller falls back to the
+ *  shared, legacy-primary-only answer, same as before this existed. */
+export async function resolveDeclaringStakeholder(req: { application_id: unknown; owner_email: unknown; tenant_email: unknown }, role: 'owner' | 'tenant') {
+  const raw = String((role === 'owner' ? req.owner_email : req.tenant_email) ?? '')
+  const emails = [...new Set(raw.split(',').map(s => s.trim().toLowerCase()).filter(e => e.includes('@')))]
+  if (emails.length !== 1) return null
+  const stakeholderRole = role === 'owner' ? 'owner' : 'applicant'
+  const { data } = await supabaseAdmin.from('application_stakeholders')
+    .select('id, name, is_primary, vehicle_has, vehicle_declared_at')
+    .eq('application_id', String(req.application_id)).eq('role', stakeholderRole).ilike('email', emails[0]).maybeSingle()
+  if (!data) return null
+  return {
+    id: String(data.id), name: (data.name as string | null) ?? null, is_primary: !!data.is_primary,
+    vehicle_has: (data.vehicle_has as boolean | null) ?? null, vehicle_declared_at: (data.vehicle_declared_at as string | null) ?? null,
+  }
+}
+
 export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
   const r = await loadRequest(token)
   if (!r) return NextResponse.json({ error: 'This link is invalid or has expired.' }, { status: 404 })
 
   const unitLabelForPacket = (r.req.unit_label as string | null) ?? null
-  const [{ data: assoc }, { data: docs }, { data: roster }, { data: appRow }, state, packet] = await Promise.all([
+  const [{ data: assoc }, { data: docs }, { data: roster }, { data: appRow }, state, packet, declaringStakeholder] = await Promise.all([
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', r.req.association_code).maybeSingle(),
     supabaseAdmin.from('application_documents').select('id, doc_key').eq('application_id', r.req.application_id),
     supabaseAdmin.from('application_stakeholders').select('name, email, phone, applicant_role, is_primary')
@@ -46,8 +71,16 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     supabaseAdmin.from('listing_applications').select('application_type, declarations').eq('id', r.req.application_id).maybeSingle(),
     getReviewState(r.req.application_id),
     unitLabelForPacket ? findUnitLeasePacket(r.req.association_code, unitLabelForPacket) : Promise.resolve(null),
+    resolveDeclaringStakeholder(r.req, r.role),
   ])
   const declarations = parseDeclarations(appRow?.declarations)
+  // Vehicle is answered per-applicant now — this link's own resolved
+  // stakeholder (see resolveDeclaringStakeholder) answers for themselves,
+  // falling back to the shared/legacy value only when nobody could be
+  // resolved (matches the primary-only fallback everywhere else).
+  const vehicleAnswer = declaringStakeholder
+    ? stakeholderVehicleAnswer({ id: declaringStakeholder.id, is_primary: declaringStakeholder.is_primary, vehicle_has: declaringStakeholder.vehicle_has, vehicle_declared_at: declaringStakeholder.vehicle_declared_at }, declarations)
+    : (declarations.vehicle ?? null)
   // A file item can go stale on THIS row: it was appended when a declaration
   // gate was still undecided (both animal paths kept open — see
   // app/api/request/[token]/declare/route.ts), and the applicant's later,
@@ -98,7 +131,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     people,
     items: r.mine.map(i => {
       if (i.doc_key === 'tenant_contact_info') return { doc_key: i.doc_key, label: i.label, kind: 'contact' as const, uploaded: contactDone }
-      if (i.doc_key === DECLARE_VEHICLE) return { doc_key: i.doc_key, label: i.label, kind: 'declare' as const, declareKey: 'vehicle' as const, uploaded: typeof declarations.vehicle?.has === 'boolean', has: declarations.vehicle?.has ?? null }
+      if (i.doc_key === DECLARE_VEHICLE) {
+        // Personalized only when it actually disambiguates -- more than one
+        // applicant on this application. The common single-applicant case
+        // keeps the original, directly-addressed "Do you..." wording.
+        const label = people.length > 1 && declaringStakeholder?.name ? `Does ${declaringStakeholder.name} keep a vehicle at the unit?` : i.label
+        return { doc_key: i.doc_key, label, kind: 'declare' as const, declareKey: 'vehicle' as const, uploaded: typeof vehicleAnswer?.has === 'boolean', has: vehicleAnswer?.has ?? null }
+      }
       if (i.doc_key === DECLARE_ANIMAL) return { doc_key: i.doc_key, label: i.label, kind: 'declare' as const, declareKey: 'animal' as const, uploaded: typeof declarations.animal?.has === 'boolean', has: declarations.animal?.has ?? null, animalKind: declarations.animal?.kind ?? null }
       // landlord_tenant_agreement is never an upload — MAIA sends its own
       // e-signed packet for it (lib/lease-packet.ts, request-docs/route.ts).

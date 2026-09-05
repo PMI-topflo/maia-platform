@@ -23,7 +23,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { loadRequest } from '../route'
+import { loadRequest, resolveDeclaringStakeholder } from '../route'
 import { getReviewState } from '@/lib/board-review'
 import { isEsignItem, sendEsignFormsForItems } from '@/lib/application-esign-forms'
 import { getIntakeChecklist, isApplicationType, parseDeclarations, pendingDeclarations, providedByOkForRole, type Declarations } from '@/lib/intake-documents'
@@ -42,6 +42,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   let b: { vehicle?: unknown; animal?: unknown; animalKind?: unknown }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
+  if (typeof b.vehicle !== 'boolean' && typeof b.animal !== 'boolean') return NextResponse.json({ error: 'nothing to record' }, { status: 400 })
 
   const appId = String(r.req.application_id)
   const { data: app } = await supabaseAdmin.from('listing_applications')
@@ -49,16 +50,41 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!app) return NextResponse.json({ error: 'application not found' }, { status: 404 })
 
   const now = new Date().toISOString()
-  const next: Declarations = { ...parseDeclarations(app.declarations) }
-  if (typeof b.vehicle === 'boolean') next.vehicle = { has: b.vehicle, at: now }
+  const sharedDeclarations = parseDeclarations(app.declarations)
+  const next: Declarations = { ...sharedDeclarations }
+
+  // Vehicle is answered PER STAKEHOLDER now — write to the one stakeholder
+  // this link's own email resolves to (resolveDeclaringStakeholder), same
+  // column app/api/pre-apply/[token]/declare/route.ts writes. Falls back to
+  // the shared column, same as before this existed, on a link whose email
+  // doesn't match any stakeholder on file (e.g. sent via an agent).
+  const declaringStakeholder = typeof b.vehicle === 'boolean' ? await resolveDeclaringStakeholder(r.req, r.role) : null
+  let vehicleAnswer: { has: boolean; at?: string } | null = null
+  if (typeof b.vehicle === 'boolean') {
+    if (declaringStakeholder) {
+      const { error } = await supabaseAdmin.from('application_stakeholders')
+        .update({ vehicle_has: b.vehicle, vehicle_declared_at: now }).eq('id', declaringStakeholder.id)
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    } else {
+      next.vehicle = { has: b.vehicle, at: now }
+    }
+    vehicleAnswer = { has: b.vehicle, at: now }
+  }
+
   if (typeof b.animal === 'boolean') {
     const kind = ANIMAL_KINDS.includes(b.animalKind as AnimalKind) ? b.animalKind as AnimalKind : null
     next.animal = { has: b.animal, kind: b.animal ? kind : null, at: now }
   }
-  if (!('vehicle' in next) && !('animal' in next)) return NextResponse.json({ error: 'nothing to record' }, { status: 400 })
 
-  const { error } = await supabaseAdmin.from('listing_applications').update({ declarations: next, updated_at: now }).eq('id', appId)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (typeof b.animal === 'boolean' || (typeof b.vehicle === 'boolean' && !declaringStakeholder)) {
+    const { error } = await supabaseAdmin.from('listing_applications').update({ declarations: next, updated_at: now }).eq('id', appId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // The declarations view for everything below (gating, the response body):
+  // vehicle always reflects what was JUST answered, regardless of which
+  // column it landed in above.
+  const declarationsNow: Declarations = vehicleAnswer ? { ...next, vehicle: vehicleAnswer } : next
 
   // What's newly relevant, straight from the single source of truth — never
   // re-derived by hand here, so this can never disagree with what the
@@ -84,7 +110,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const state = await getReviewState(appId)
   const type = String(app.application_type ?? '')
   const checklist = isApplicationType(type) ? await getIntakeChecklist(String(app.association_code), type) : []
-  const pendingAfter = pendingDeclarations(checklist, next)
+  const pendingAfter = pendingDeclarations(checklist, declarationsNow)
   const docKeyCondition = new Map(checklist.map(c => [c.doc_key, c.condition_key]))
   const stillGated = (docKey: string): boolean => {
     const ck = docKeyCondition.get(docKey)
@@ -100,6 +126,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // /api/request/[token]/upload has no way to route an upload to a specific
   // applicant. Deduping by doc_key here avoids appending the same item
   // twice (which duplicated the React key and rendered two identical rows).
+  //
+  // Known limitation, unchanged by vehicle going per-applicant: this filter
+  // is bare-docKey, not per-stakeholder, so if Mark still needs his own car
+  // registration while Kimberly (on THIS link) just said she has no vehicle,
+  // Mark's still-waiting row can get appended here as "Car Registration"
+  // with no indication it's actually his, not hers — the same "can't route
+  // to a specific applicant" gap noted above, just reachable from a new
+  // angle now that the two can disagree. Not fixed here; it's the same,
+  // separately-tracked routing limitation, not something vehicle-per-
+  // applicant introduces on its own.
   const already = new Set(r.mine.map(i => i.doc_key))
   const relevant = state
     ? state.rows.filter(row =>
@@ -125,5 +161,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     await supabaseAdmin.from('document_requests').update({ items: [...items, ...newUploadItems] }).eq('id', r.req.id)
   }
 
-  return NextResponse.json({ ok: true, declarations: next, newUploadItems: newUploadItems.map(i => i.label), sentForms })
+  return NextResponse.json({ ok: true, declarations: declarationsNow, newUploadItems: newUploadItems.map(i => i.label), sentForms })
 }
