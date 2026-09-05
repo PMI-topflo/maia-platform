@@ -1037,7 +1037,7 @@ function ApplicantFields({ index, t, data, onChange, units }: ApplicantFieldsPro
 // ════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ════════════════════════════════════════════════════════════════
-export default function ApplicationForm({ preselectedAssociation = null }) {
+export default function ApplicationForm({ preselectedAssociation = null }: { preselectedAssociation?: string | null }) {
   const [lang, setLang]               = useState("en");
   const t                             = translations[lang as keyof typeof translations];
   const [step, setStep]               = useState(0);
@@ -1233,6 +1233,17 @@ export default function ApplicationForm({ preselectedAssociation = null }) {
     const m = associations.find(a => a.code.toUpperCase() === prefillAssocCode);
     if (m) { setAssociation(m.name); setAssocCode(m.code); setAssocSearch(m.name); }
   }, [prefillAssocCode, associations]);
+
+  // A locked-in preselectedAssociation only carries the display NAME (it's
+  // rendered before the associations list has loaded, so it can't resolve
+  // a code up front) -- assocCode stays blank without this, silently
+  // skipping the per-association eligibility block-rule check and the
+  // lease-matching hint downstream, both keyed by code, not name.
+  useEffect(() => {
+    if (!preselectedAssociation || assocCode || associations.length === 0) return;
+    const m = associations.find(a => a.name === preselectedAssociation);
+    if (m) setAssocCode(m.code);
+  }, [preselectedAssociation, associations, assocCode]);
 
   // Prefill the unit on the first applicant (survives type selection — the type
   // cards spread prev[0]).
