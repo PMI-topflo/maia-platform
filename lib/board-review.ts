@@ -19,7 +19,7 @@
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { getIntakeChecklist, getIntakeChecklistAll, isApplicationType, parseDeclarations, declaredNaKeys, type IntakeDoc } from '@/lib/intake-documents'
+import { getIntakeChecklist, getIntakeChecklistAll, isApplicationType, parseDeclarations, declaredNaKeysPerApplicant, type IntakeDoc, type StakeholderDeclarationFields } from '@/lib/intake-documents'
 import { screeningValidThrough, isScreeningExpired } from '@/lib/screening/validity'
 
 export type ReviewDecision = 'approved' | 'refused'
@@ -91,7 +91,7 @@ export interface ReviewInputs {
   docs: { id: string; doc_key: string; filename: string | null; stakeholder_id: string | null; created_at: string }[]
   reviews: { scope_key: string; decision: string; reason: string | null; decided_by: string; decided_by_role: string; decided_at: string }[]
   /** Applicants, primary first. */
-  people: { id: string; name: string | null; applicant_role: string | null }[]
+  people: { id: string; name: string | null; applicant_role: string | null; is_primary: boolean; vehicle_has: boolean | null; vehicle_declared_at: string | null; tax_returns_has: boolean | null; tax_returns_declared_at: string | null }[]
   petsAllowed: boolean | null
 }
 
@@ -109,7 +109,7 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
     isApplicationType(type) ? getIntakeChecklist(code, type) : Promise.resolve([] as IntakeDoc[]),
     supabaseAdmin.from('application_documents').select('id, doc_key, filename, stakeholder_id, created_at').eq('application_id', applicationId),
     supabaseAdmin.from('application_document_reviews').select('scope_key, decision, reason, decided_by, decided_by_role, decided_at').eq('application_id', applicationId),
-    supabaseAdmin.from('application_stakeholders').select('id, name, applicant_role').eq('application_id', applicationId).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
+    supabaseAdmin.from('application_stakeholders').select('id, name, applicant_role, is_primary, vehicle_has, vehicle_declared_at, tax_returns_has, tax_returns_declared_at').eq('application_id', applicationId).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('associations').select('pets_allowed').eq('association_code', code).maybeSingle(),
     detailedId ? supabaseAdmin.from('screening_subjects').select('completed_at').eq('application_id', detailedId) : Promise.resolve({ data: [] as { completed_at: string | null }[] }),
   ])
@@ -123,7 +123,11 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
     checklist,
     docs: (docs ?? []).map(d => ({ id: String(d.id), doc_key: String(d.doc_key), filename: (d.filename as string | null) ?? null, stakeholder_id: d.stakeholder_id ? String(d.stakeholder_id) : null, created_at: String(d.created_at) })),
     reviews: (reviews ?? []).map(r => ({ scope_key: String(r.scope_key), decision: String(r.decision), reason: (r.reason as string | null) ?? null, decided_by: String(r.decided_by), decided_by_role: String(r.decided_by_role), decided_at: String(r.decided_at) })),
-    people: (people ?? []).map(p => ({ id: String(p.id), name: (p.name as string | null) ?? null, applicant_role: (p.applicant_role as string | null) ?? null })),
+    people: (people ?? []).map(p => ({
+      id: String(p.id), name: (p.name as string | null) ?? null, applicant_role: (p.applicant_role as string | null) ?? null,
+      is_primary: !!p.is_primary, vehicle_has: (p.vehicle_has as boolean | null) ?? null, vehicle_declared_at: (p.vehicle_declared_at as string | null) ?? null,
+      tax_returns_has: (p.tax_returns_has as boolean | null) ?? null, tax_returns_declared_at: (p.tax_returns_declared_at as string | null) ?? null,
+    })),
     petsAllowed: (assoc?.pets_allowed as boolean | null) ?? null,
     screeningCompletedAt: (subjects ?? []).map(s => (s.completed_at as string | null) ?? null),
   })
@@ -132,18 +136,25 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
 /** The derivation itself — pure, so it cannot drift between the one-application
  *  screens and the dashboards that roll many of them up. */
 export function deriveReviewState({ app, checklist, docs, reviews, people, petsAllowed, screeningCompletedAt }: ReviewInputs): ReviewState {
-  // Items the applicant's own declaration retired ("I keep no vehicle") are not
-  // outstanding — they do not apply, so they must never hold the window shut.
-  const declarations = parseDeclarations(app.declarations)
-  const na = new Set([
-    ...(Array.isArray(app.na_items) ? (app.na_items as string[]) : []),
-    ...declaredNaKeys(checklist, declarations, { petsAllowed }),
-  ])
-  const isNa = (docKey: string, sid: string | null) => na.has(docKey) || (!!sid && na.has(`${docKey}#${sid}`))
-
   const byScope = new Map(reviews.map(r => [r.scope_key, r]))
   // Minors don't hold up a review — they provide nothing.
   const applicants = people.filter(p => (p.applicant_role ?? '') !== 'minor_dependent')
+
+  // Items a declaration retired ("I keep no vehicle") are not outstanding —
+  // they do not apply, so they must never hold the window shut. Vehicle and
+  // tax-returns are retired per the ANSWERING stakeholder (see
+  // declaredNaKeysPerApplicant) since each applicant/buyer answers their
+  // own; animal stays a single, application-level retirement.
+  const declarations = parseDeclarations(app.declarations)
+  const stakeholderFields: StakeholderDeclarationFields[] = applicants.map(a => ({
+    id: a.id, is_primary: a.is_primary, vehicle_has: a.vehicle_has, vehicle_declared_at: a.vehicle_declared_at,
+    tax_returns_has: a.tax_returns_has, tax_returns_declared_at: a.tax_returns_declared_at,
+  }))
+  const na = new Set([
+    ...(Array.isArray(app.na_items) ? (app.na_items as string[]) : []),
+    ...declaredNaKeysPerApplicant(checklist, declarations, stakeholderFields, { petsAllowed }),
+  ])
+  const isNa = (docKey: string, sid: string | null) => na.has(docKey) || (!!sid && na.has(`${docKey}#${sid}`))
 
   const rows: ReviewRow[] = []
   for (const c of checklist) {
@@ -244,7 +255,7 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
   const [{ data: docs }, { data: reviews }, { data: people }, { data: assocs }, checklistsByCode, { data: subjects }] = await Promise.all([
     supabaseAdmin.from('application_documents').select('id, application_id, doc_key, filename, stakeholder_id, created_at').in('application_id', ids),
     supabaseAdmin.from('application_document_reviews').select('application_id, scope_key, decision, reason, decided_by, decided_by_role, decided_at').in('application_id', ids),
-    supabaseAdmin.from('application_stakeholders').select('id, application_id, name, applicant_role').eq('role', 'applicant').in('application_id', ids)
+    supabaseAdmin.from('application_stakeholders').select('id, application_id, name, applicant_role, is_primary, vehicle_has, vehicle_declared_at, tax_returns_has, tax_returns_declared_at').eq('role', 'applicant').in('application_id', ids)
       .order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     codes.length ? supabaseAdmin.from('associations').select('association_code, pets_allowed').in('association_code', codes) : Promise.resolve({ data: [] }),
     // One checklist read per ASSOCIATION, not per application.
@@ -282,7 +293,11 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
       checklist,
       docs: (docsBy.get(id) ?? []).map(d => ({ id: String(d.id), doc_key: String(d.doc_key), filename: (d.filename as string | null) ?? null, stakeholder_id: d.stakeholder_id ? String(d.stakeholder_id) : null, created_at: String(d.created_at) })),
       reviews: (reviewsBy.get(id) ?? []).map(r => ({ scope_key: String(r.scope_key), decision: String(r.decision), reason: (r.reason as string | null) ?? null, decided_by: String(r.decided_by), decided_by_role: String(r.decided_by_role), decided_at: String(r.decided_at) })),
-      people: (peopleBy.get(id) ?? []).map(p => ({ id: String(p.id), name: (p.name as string | null) ?? null, applicant_role: (p.applicant_role as string | null) ?? null })),
+      people: (peopleBy.get(id) ?? []).map(p => ({
+        id: String(p.id), name: (p.name as string | null) ?? null, applicant_role: (p.applicant_role as string | null) ?? null,
+        is_primary: !!p.is_primary, vehicle_has: (p.vehicle_has as boolean | null) ?? null, vehicle_declared_at: (p.vehicle_declared_at as string | null) ?? null,
+        tax_returns_has: (p.tax_returns_has as boolean | null) ?? null, tax_returns_declared_at: (p.tax_returns_declared_at as string | null) ?? null,
+      })),
       petsAllowed: petsBy.get(code) ?? null,
       screeningCompletedAt: detailedId ? (subjectsByDetailedId.get(detailedId) ?? []).map(s => (s.completed_at as string | null) ?? null) : [],
     }))

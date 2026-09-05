@@ -6,7 +6,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
-import { getIntakeChecklist, isApplicationType, parseDeclarations, declaredNaKeys, type ApplicationType } from '@/lib/intake-documents'
+import { getIntakeChecklist, isApplicationType, parseDeclarations, declaredNaKeysPerApplicant, stakeholderVehicleAnswer, stakeholderTaxReturnsAnswer, type ApplicationType, type StakeholderDeclarationFields } from '@/lib/intake-documents'
 import {
   animalDocGuidance, declaredPetWhereProhibited, isAssistanceAnimal,
   ASSISTANCE_ANIMAL_DENIAL_GROUNDS, ASSISTANCE_ANIMAL_DECISION_DAYS,
@@ -47,7 +47,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const [{ data: sh }, { data: stakeholders }, { data: docs }, checklist] = await Promise.all([
     supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', id).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
-    supabaseAdmin.from('application_stakeholders').select('id, role, name, email, phone, is_primary, status, signed_at, rules_ack_name, email_verified_at, applicant_role, credit_score').eq('application_id', id).order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
+    supabaseAdmin.from('application_stakeholders').select('id, role, name, email, phone, is_primary, status, signed_at, rules_ack_name, email_verified_at, applicant_role, credit_score, vehicle_has, vehicle_declared_at, tax_returns_has, tax_returns_declared_at').eq('application_id', id).order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('application_documents').select('id, doc_key, doc_label, storage_path, filename, mime_type, suggested_name, expiration_date, no_expiration, uploaded_by_role, stakeholder_id, created_at').eq('application_id', id).order('created_at', { ascending: true }),
     isApplicationType(String(app.application_type)) ? getIntakeChecklist(String(app.association_code), app.application_type as ApplicationType) : Promise.resolve([]),
   ])
@@ -107,7 +107,17 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const petsAllowed = (assocRow?.pets_allowed as boolean | null) ?? null
   const declarations = parseDeclarations(app.declarations)
-  const derivedNa = declaredNaKeys(checklist, declarations, { petsAllowed })
+  // Vehicle and tax-returns are answered per-applicant now (each
+  // applicant/buyer answers their own) — minors don't answer either, same
+  // exclusion lib/board-review.ts uses.
+  const declarants: StakeholderDeclarationFields[] = (stakeholders ?? [])
+    .filter(s => s.role === 'applicant' && (s.applicant_role ?? '') !== 'minor_dependent')
+    .map(s => ({
+      id: String(s.id), is_primary: !!s.is_primary,
+      vehicle_has: (s.vehicle_has as boolean | null) ?? null, vehicle_declared_at: (s.vehicle_declared_at as string | null) ?? null,
+      tax_returns_has: (s.tax_returns_has as boolean | null) ?? null, tax_returns_declared_at: (s.tax_returns_declared_at as string | null) ?? null,
+    }))
+  const derivedNa = declaredNaKeysPerApplicant(checklist, declarations, declarants, { petsAllowed })
   const naItems = [...new Set([...(Array.isArray(app.na_items) ? (app.na_items as string[]) : []), ...derivedNa])]
 
   // Staff report, 2026-09-03: DeclarationsCard's "Ask her to answer" only
@@ -216,6 +226,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       signedAt: s.signed_at, rulesAckName: s.rules_ack_name, emailVerified: !!s.email_verified_at,
       applicantRole: (s.applicant_role as string | null) ?? null,
       creditScore: (s.credit_score as number | null) ?? null,
+      // This stakeholder's own vehicle/tax-returns answer — each
+      // applicant/buyer answers their own now. Only meaningful for
+      // role==='applicant'; DeclarationsCard filters to those.
+      vehicle: stakeholderVehicleAnswer({ id: String(s.id), is_primary: !!s.is_primary, vehicle_has: (s.vehicle_has as boolean | null) ?? null, vehicle_declared_at: (s.vehicle_declared_at as string | null) ?? null }, declarations),
+      taxReturns: stakeholderTaxReturnsAnswer({ id: String(s.id), is_primary: !!s.is_primary, tax_returns_has: (s.tax_returns_has as boolean | null) ?? null, tax_returns_declared_at: (s.tax_returns_declared_at as string | null) ?? null }, declarations),
     })),
     rulesAck: app.rules_ack,
     driveFolderUrl: app.drive_folder_url,

@@ -4166,6 +4166,19 @@ NOTIFY pgrst, 'reload schema';`,
     sql: `ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS supplemental_documents jsonb NOT NULL DEFAULT '[]'::jsonb;
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'stakeholder_declarations',
+    label:       'application_stakeholders — per-stakeholder vehicle/tax-returns columns',
+    description: "User direction, 2026-09-05: the vehicle and tax-returns (purchase-only) declarations were each one shared answer for the whole application even though the documents they gate are already per-applicant, so one applicant's \"yes\" opened a waiting checklist row for every co-applicant. Adds nullable vehicle_has/vehicle_declared_at and tax_returns_has/tax_returns_declared_at columns so each applicant/buyer answers their own question; the existing shared declarations.vehicle/.taxReturns columns stay in place for back-compat reads of already-answered legacy applications.",
+    filename:    '20260905b_stakeholder_declarations.sql',
+    artifact:    { type: 'column', table: 'application_stakeholders', column: 'vehicle_has' },
+    sql: `ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS vehicle_has boolean;
+ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS vehicle_declared_at timestamptz;
+ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS tax_returns_has boolean;
+ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS tax_returns_declared_at timestamptz;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

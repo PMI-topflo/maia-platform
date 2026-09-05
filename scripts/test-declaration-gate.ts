@@ -14,7 +14,10 @@ import {
   missingAnswers, requiresVaccinationRecord, requiresPhoto, effectiveBranch, asksServiceTaskDetail,
   asksDisabilityDocumentation, type AnimalQuestionnaire,
 } from '../lib/animal-questionnaire'
-import { declaredNaKeys, pendingDeclarations, type Declarations } from '../lib/intake-documents'
+import {
+  declaredNaKeys, pendingDeclarations, declaredNaKeysPerApplicant,
+  stakeholderVehicleAnswer, stakeholderTaxReturnsAnswer, type Declarations, type StakeholderDeclarationFields,
+} from '../lib/intake-documents'
 
 const CHECKLIST = [
   { doc_key: 'drivers_license',                 condition_key: null },
@@ -83,6 +86,44 @@ eq('a service animal is never flagged as a prohibited pet',
 // 9. An association with no conditional items never asks anything.
 eq('no conditional items → no gates',
   pendingDeclarations([{ condition_key: null }], {}), [])
+
+// ── Vehicle and tax-returns are answered PER APPLICANT, not once for the
+//    whole application (2026-09-05: one co-applicant's "yes" used to decide
+//    it for every co-applicant, including ones who'd say "no"). ──────────
+const PRIMARY = (over: Partial<StakeholderDeclarationFields> = {}): StakeholderDeclarationFields =>
+  ({ id: 's1', is_primary: true, vehicle_has: null, vehicle_declared_at: null, tax_returns_has: null, tax_returns_declared_at: null, ...over })
+const CO_APPLICANT = (over: Partial<StakeholderDeclarationFields> = {}): StakeholderDeclarationFields =>
+  ({ id: 's2', is_primary: false, vehicle_has: null, vehicle_declared_at: null, tax_returns_has: null, tax_returns_declared_at: null, ...over })
+
+// 9b. Own answer wins; an unanswered PRIMARY falls back to the legacy shared
+//     value (that's who was actually answering it before this existed); an
+//     unanswered NON-primary never inherits somebody else's answer.
+eq('own vehicle answer wins over the legacy shared value',
+  stakeholderVehicleAnswer(PRIMARY({ vehicle_has: true }), { vehicle: { has: false } }), { has: true, at: undefined })
+eq('unanswered primary falls back to the legacy shared vehicle answer',
+  stakeholderVehicleAnswer(PRIMARY(), { vehicle: { has: false } }), { has: false })
+eq('unanswered co-applicant never inherits the shared vehicle answer',
+  stakeholderVehicleAnswer(CO_APPLICANT(), { vehicle: { has: false } }), null)
+eq('same fallback rule for tax-returns',
+  stakeholderTaxReturnsAnswer(CO_APPLICANT(), { taxReturns: { has: true } }), null)
+
+// 9c. declaredNaKeysPerApplicant: vehicle/tax-returns retirement is SCOPED to
+//     the one stakeholder who answered, never bare (application-wide) — the
+//     fix for the actual bug. Animal (not per-applicant here) stays bare.
+const PER_APPLICANT_CHECKLIST = [
+  { doc_key: 'car_registration', condition_key: 'vehicle', per_applicant: true },
+  { doc_key: 'intl_police_clearance', condition_key: 'international', per_applicant: true },
+  { doc_key: 'pet_registration', condition_key: 'pet', per_applicant: false },
+]
+eq('vehicle retirement is scoped per stakeholder, not bare',
+  declaredNaKeysPerApplicant(PER_APPLICANT_CHECKLIST, {}, [PRIMARY({ vehicle_has: false }), CO_APPLICANT({ vehicle_has: true })]).sort(),
+  ['car_registration#s1'])
+eq('tax-returns retirement (has=true retires the international branch) is scoped the same way',
+  declaredNaKeysPerApplicant(PER_APPLICANT_CHECKLIST, {}, [PRIMARY({ tax_returns_has: true }), CO_APPLICANT({ tax_returns_has: false })]).sort(),
+  ['intl_police_clearance#s1'])
+eq('animal keeps the original bare, application-wide retirement',
+  declaredNaKeysPerApplicant(PER_APPLICANT_CHECKLIST, { animal: { has: false } }, [PRIMARY(), CO_APPLICANT()]).sort(),
+  ['pet_registration'])
 
 // ── The questionnaire branch + its required files ────────────────────
 const FILE = { path: 'esign/x', filename: 'x.pdf' }

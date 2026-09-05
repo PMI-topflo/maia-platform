@@ -36,9 +36,9 @@ const doc = (doc_key: string, over: Partial<IntakeDoc> = {}): IntakeDoc => ({
   per_applicant: false, allow_multiple: false, condition_key: null, ...over,
 })
 
-const ANNA = { id: 'p1', name: 'Anna', applicant_role: 'primary_applicant' }
-const BEN = { id: 'p2', name: 'Ben', applicant_role: 'co_applicant' }
-const KID = { id: 'p3', name: 'Kid', applicant_role: 'minor_dependent' }
+const ANNA = { id: 'p1', name: 'Anna', applicant_role: 'primary_applicant', is_primary: true, vehicle_has: null, vehicle_declared_at: null, tax_returns_has: null, tax_returns_declared_at: null }
+const BEN = { id: 'p2', name: 'Ben', applicant_role: 'co_applicant', is_primary: false, vehicle_has: null, vehicle_declared_at: null, tax_returns_has: null, tax_returns_declared_at: null }
+const KID = { id: 'p3', name: 'Kid', applicant_role: 'minor_dependent', is_primary: false, vehicle_has: null, vehicle_declared_at: null, tax_returns_has: null, tax_returns_declared_at: null }
 
 const state = (over: Partial<ReviewInputs> = {}) => deriveReviewState({
   app: { na_items: [], declarations: {}, board_window_opened_at: null, board_window_days: null },
@@ -185,6 +185,38 @@ eq('a shared item is satisfied by any uploader', states(shared), ['signed_lease:
 // ── 12. An empty checklist completes nothing ─────────────────────────
 // req.length > 0 is deliberate: "no requirements" is not "all requirements met".
 eq('an empty checklist is not complete', state({ checklist: [] }).complete, false)
+
+// ── 12b. Vehicle is answered PER APPLICANT, not once for the whole
+//         application — Anna has a car, Ben doesn't, so only Anna's
+//         car_registration row exists. This is the exact bug reported:
+//         one co-applicant's answer used to decide it for everyone.
+const vehiclePerApplicant = state({
+  checklist: [doc('car_registration', { condition_key: 'vehicle', per_applicant: true })],
+  people: [{ ...ANNA, vehicle_has: true }, { ...BEN, vehicle_has: false }],
+})
+eq('vehicle: one applicant with a car, one without → only the car owner gets a row',
+  states(vehiclePerApplicant), ['car_registration#p1:waiting'])
+
+// ── 12c. Tax-returns (purchase-only) is answered PER BUYER the same way —
+//         Anna has 2 years of U.S. returns (retires it for her), Ben doesn't
+//         (still needs the international-branch documents).
+const taxReturnsPerBuyer = state({
+  checklist: [doc('intl_police_clearance', { condition_key: 'international', per_applicant: true })],
+  people: [{ ...ANNA, tax_returns_has: true }, { ...BEN, tax_returns_has: false }],
+})
+eq('tax-returns: one buyer with U.S. returns, one without → only the international buyer gets a row',
+  states(taxReturnsPerBuyer), ['intl_police_clearance#p2:waiting'])
+
+// ── 12d. Legacy fallback: an application answered before per-applicant
+//         existed (shared declarations.vehicle, no per-stakeholder columns
+//         set) still reads correctly for the PRIMARY applicant only.
+const legacySharedVehicle = state({
+  app: { na_items: [], declarations: { vehicle: { has: false } }, board_window_opened_at: null, board_window_days: null },
+  checklist: [doc('car_registration', { condition_key: 'vehicle', per_applicant: true })],
+  people: [ANNA, BEN],
+})
+eq('legacy shared "no vehicle" retires it for the primary but leaves the co-applicant unanswered (still waiting)',
+  states(legacySharedVehicle), ['car_registration#p2:waiting'])
 
 // =====================================================================
 // The dashboard's judgement: whose turn is it.
