@@ -2481,14 +2481,32 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
                     </button>
                   </div>
                 ) : (
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: "#6b7280" }}>
-                    <span>
-                      {applicants.length} {t.applicantsCount}
-                      {applicants.length >= 2 && ` · ${t.areYouMarried} ${isMarriedCouple ? t.yes : t.no}`}
-                    </span>
-                    <button onClick={() => setStep(2)} style={{ background: "none", border: "none", color: "#f26a1b", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}>
-                      ✎ {t.reviewEdit}
-                    </button>
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: "monospace" }}>
+                        {applicants.length} {t.applicantsCount}
+                      </span>
+                      <button onClick={() => setStep(2)} style={{ background: "none", border: "none", color: "#f26a1b", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+                        ✎ {t.reviewEdit}
+                      </button>
+                    </div>
+                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                      {applicants.map((a, i) => (
+                        <div key={i} style={{ fontSize: 13, color: "#0d0d0d" }}>
+                          {`${a.firstName ?? ""} ${a.lastName ?? ""}`.trim() || `${t.applicant} ${i + 1}`}
+                        </div>
+                      ))}
+                    </div>
+                    {applicants.length >= 2 && (
+                      <div style={{ marginTop: 12, display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 20, background: isMarriedCouple ? "#f0fdf4" : "#f3f4f6", border: `1px solid ${isMarriedCouple ? "#bbf7d0" : "#e5e7eb"}` }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: isMarriedCouple ? "#1a6b3c" : "#6b7280" }}>
+                          {isMarriedCouple ? "✓" : "✕"}
+                        </span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: isMarriedCouple ? "#1a6b3c" : "#6b7280" }}>
+                          {t.areYouMarried} {isMarriedCouple ? t.yes : t.no}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
