@@ -50,6 +50,8 @@ async function loadPaidApplication(id: string) {
     .select('id, association, applicants, stripe_payment_status, supplemental_documents')
     .eq('id', id).maybeSingle()
   if (error) console.error('[apply/documents] Supabase query failed:', error.message)
+  else if (!app) console.error(`[apply/documents] No application row found for id ${id}`)
+  else if (app.stripe_payment_status !== 'paid') console.error(`[apply/documents] Application ${id} found but stripe_payment_status=${JSON.stringify(app.stripe_payment_status)}`)
   if (!app || app.stripe_payment_status !== 'paid') return null
   return app
 }
