@@ -29,8 +29,11 @@ export async function GET() {
   const dash = await getApplicationDashboard({ includeDecided: true, limit: 300 })
   const ids = dash.rows.map(r => r.id)
 
-  const [{ data: sh }, { data: docs }, { data: reqs }, { data: rulesAck }] = await Promise.all([
-    ids.length ? supabaseAdmin.from('application_stakeholders').select('application_id, name, email, is_primary').eq('is_primary', true).in('application_id', ids) : Promise.resolve({ data: [] }),
+  const [{ data: sh, error: shError }, { data: docs }, { data: reqs }, { data: rulesAck }] = await Promise.all([
+    // Every applicant, not just the primary — staff report, 2026-09-05:
+    // this list showed only one name per application with no way to tell
+    // which ones had a co-applicant without opening each one.
+    ids.length ? supabaseAdmin.from('application_stakeholders').select('application_id, name, email, is_primary').eq('role', 'applicant').in('application_id', ids).order('is_primary', { ascending: false }).order('created_at', { ascending: true }) : Promise.resolve({ data: [], error: null }),
     ids.length ? supabaseAdmin.from('application_documents').select('application_id').in('application_id', ids) : Promise.resolve({ data: [] }),
     // When a document request last went out — staff report, 2026-08-20: an
     // application that's genuinely waiting on the APPLICANT to respond to a
@@ -42,7 +45,15 @@ export async function GET() {
     ids.length ? supabaseAdmin.from('document_requests').select('application_id, created_at').in('application_id', ids) : Promise.resolve({ data: [] }),
     ids.length ? supabaseAdmin.from('listing_applications').select('id, rules_ack').in('id', ids) : Promise.resolve({ data: [] }),
   ])
-  const nameByApp = new Map((sh ?? []).map(s => [s.application_id, { name: s.name as string | null, email: s.email as string | null }]))
+  // Same lesson as the 2026-09-05 incident (see lib/board-review.ts): a
+  // failed query here must never read back identical to "no applicants".
+  if (shError) console.error('[admin/pre-apply] stakeholders query failed:', shError.message)
+  const applicantsByApp = new Map<string, { name: string | null; email: string | null; isPrimary: boolean }[]>()
+  for (const s of sh ?? []) {
+    const appId = s.application_id as string
+    const arr = applicantsByApp.get(appId); const row = { name: s.name as string | null, email: s.email as string | null, isPrimary: !!s.is_primary }
+    if (arr) arr.push(row); else applicantsByApp.set(appId, [row])
+  }
   const docCount = new Map<string, number>()
   for (const d of docs ?? []) docCount.set(d.application_id as string, (docCount.get(d.application_id as string) ?? 0) + 1)
   const lastRequestedAt = new Map<string, string>()
@@ -65,7 +76,12 @@ export async function GET() {
       id: r.id, associationCode: r.associationCode, type: r.type, unit: r.unit,
       status: r.status, stage: r.stage, chipKey: chipKey(r), stageLabel: stageLabel(r), detail: r.detail,
       submittedAt: r.submittedAt, startedAt: r.createdAt, reviewedAt: r.reviewedAt, driveFolderUrl: r.driveFolderUrl,
-      applicant: nameByApp.get(r.id) ?? (r.applicants[0] ? { name: r.applicants[0], email: null } : null),
+      applicant: applicantsByApp.get(r.id)?.[0] ?? (r.applicants[0] ? { name: r.applicants[0], email: null } : null),
+      // Every applicant on the application, primary first — lets the list
+      // show a co-applicant instead of just the one person happening to be
+      // "primary". Falls back to dash's bare name list on the same rare
+      // path `applicant` above does (no stakeholder row at all yet).
+      applicants: applicantsByApp.get(r.id) ?? r.applicants.map((name, i) => ({ name, email: null, isPrimary: i === 0 })),
       docCount: docCount.get(r.id) ?? 0,
       signed: signedByApp.get(r.id) ?? false,
       lastRequestedAt: lastRequestedAt.get(r.id) ?? null,
