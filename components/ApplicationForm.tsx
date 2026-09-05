@@ -24,7 +24,10 @@ const translations = {
   en: {
     title: "Resident Application",
     subtitle: "PMI Top Florida Properties",
-    steps: ["Document", "Type", "Applicants", "Documents", "Payment"],
+    steps: ["Document", "Type", "Applicants", "Summary", "Documents", "Payment"],
+    reviewHeading: "Review Your Application",
+    reviewEdit: "Edit",
+    applicantsCount: "Applicant(s)",
     selectAssociation: "Select Association",
     associationPlaceholder: "Choose your association…",
     loadingAssociations: "Loading associations…",
@@ -150,7 +153,10 @@ const translations = {
   es: {
     title: "Solicitud de Residente",
     subtitle: "PMI Top Florida Properties",
-    steps: ["Documento", "Tipo", "Solicitantes", "Documentos", "Pago"],
+    steps: ["Documento", "Tipo", "Solicitantes", "Resumen", "Documentos", "Pago"],
+    reviewHeading: "Revise Su Solicitud",
+    reviewEdit: "Editar",
+    applicantsCount: "Solicitante(s)",
     selectAssociation: "Seleccionar Asociación",
     associationPlaceholder: "Elija su asociación…",
     loadingAssociations: "Cargando asociaciones…",
@@ -270,7 +276,10 @@ const translations = {
   pt: {
     title: "Solicitação de Residente",
     subtitle: "PMI Top Florida Properties",
-    steps: ["Documento", "Tipo", "Solicitantes", "Documentos", "Pagamento"],
+    steps: ["Documento", "Tipo", "Solicitantes", "Resumo", "Documentos", "Pagamento"],
+    reviewHeading: "Revise Sua Solicitação",
+    reviewEdit: "Editar",
+    applicantsCount: "Solicitante(s)",
     selectAssociation: "Selecionar Associação",
     associationPlaceholder: "Escolha sua associação…",
     loadingAssociations: "Carregando associações…",
@@ -390,7 +399,10 @@ const translations = {
   fr: {
     title: "Demande de Résidence",
     subtitle: "PMI Top Florida Properties",
-    steps: ["Document", "Type", "Demandeurs", "Documents", "Paiement"],
+    steps: ["Document", "Type", "Demandeurs", "Résumé", "Documents", "Paiement"],
+    reviewHeading: "Vérifiez Votre Demande",
+    reviewEdit: "Modifier",
+    applicantsCount: "Demandeur(s)",
     selectAssociation: "Sélectionner l'Association",
     associationPlaceholder: "Choisissez votre association…",
     loadingAssociations: "Chargement des associations…",
@@ -510,7 +522,10 @@ const translations = {
   he: {
     title: "בקשת מגורים",
     subtitle: "PMI Top Florida Properties",
-    steps: ["מסמך", "סוג", "מגישים", "מסמכים", "תשלום"],
+    steps: ["מסמך", "סוג", "מגישים", "סיכום", "מסמכים", "תשלום"],
+    reviewHeading: "בדוק את בקשתך",
+    reviewEdit: "ערוך",
+    applicantsCount: "מגיש(ים)",
     selectAssociation: "בחר עמותה",
     associationPlaceholder: "בחר את העמותה שלך…",
     loadingAssociations: "טוען עמותות…",
@@ -630,7 +645,10 @@ const translations = {
   ru: {
     title: "Заявка на проживание",
     subtitle: "PMI Top Florida Properties",
-    steps: ["Документ", "Тип", "Заявители", "Документы", "Оплата"],
+    steps: ["Документ", "Тип", "Заявители", "Итог", "Документы", "Оплата"],
+    reviewHeading: "Проверьте Вашу Заявку",
+    reviewEdit: "Изменить",
+    applicantsCount: "Заявитель(и)",
     selectAssociation: "Выбрать ассоциацию",
     associationPlaceholder: "Выберите вашу ассоциацию…",
     loadingAssociations: "Загрузка ассоциаций…",
@@ -750,7 +768,10 @@ const translations = {
   ht: {
     title: "Aplikasyon Rezidan",
     subtitle: "PMI Top Florida Properties",
-    steps: ["Dokiman", "Tip", "Aplikan", "Dokiman", "Peman"],
+    steps: ["Dokiman", "Tip", "Aplikan", "Rezime", "Dokiman", "Peman"],
+    reviewHeading: "Verifye Aplikasyon Ou",
+    reviewEdit: "Modifye",
+    applicantsCount: "Aplikan",
     selectAssociation: "Chwazi Asosyasyon",
     associationPlaceholder: "Chwazi asosyasyon ou…",
     loadingAssociations: "Y ap chaje asosyasyon yo…",
@@ -1238,11 +1259,18 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
   // rendered before the associations list has loaded, so it can't resolve
   // a code up front) -- assocCode stays blank without this, silently
   // skipping the per-association eligibility block-rule check and the
-  // lease-matching hint downstream, both keyed by code, not name.
+  // lease-matching hint downstream, both keyed by code, not name. Also
+  // fetch its unit list -- the manual dropdown-selection path already does
+  // this itself, but a preselected association never goes through that path.
   useEffect(() => {
     if (!preselectedAssociation || assocCode || associations.length === 0) return;
     const m = associations.find(a => a.name === preselectedAssociation);
-    if (m) setAssocCode(m.code);
+    if (!m) return;
+    setAssocCode(m.code);
+    fetch(`/api/associations/units?code=${encodeURIComponent(m.code)}`)
+      .then((r) => r.json())
+      .then((units: string[]) => setAssocUnits(units))
+      .catch(() => setAssocUnits([]));
   }, [preselectedAssociation, associations, assocCode]);
 
   // Prefill the unit on the first applicant (survives type selection — the type
@@ -1614,11 +1642,11 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
         if (!o.email.includes('@')) { setError(t.occupantEmailRequired.replace('{name}', o.name || t.addlResident)); return; }
       }
     }
-    if (step === 3 && !rulesSignature.trim()) { setError(t.rulesRequired); return; }
+    if (step === 4 && !rulesSignature.trim()) { setError(t.rulesRequired); return; }
     // Block signature submission until every governing document has
     // been opened. Hardcoded English message — i18n keys live with the
     // other rules-step strings and can be added once the UX is locked.
-    if (step === 3 && governingDocCategories.length > 0) {
+    if (step === 4 && governingDocCategories.length > 0) {
       // Every required category must have its currently-selected doc
       // version marked viewed before the applicant can sign.
       const unread = governingDocCategories.filter(cat => {
@@ -1634,7 +1662,7 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
         return
       }
     }
-    if (step === 3) {
+    if (step === 4) {
       // Blocking, unlike most fields on this form -- see docs/ROADMAP.md's
       // "Power of attorney / legal guardian signing" section on why an
       // occupant who can't sign for themselves needs a real, checked
@@ -1649,7 +1677,7 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
         }
       }
     }
-    if (step === 3 && !agreed) { setError(t.consentRequired); return; }
+    if (step === 4 && !agreed) { setError(t.consentRequired); return; }
     const nextStep = step + 1;
     setStep(nextStep);
     // Save the in-progress draft so the applicant can resume from
@@ -1874,8 +1902,8 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
   // ── Type card config ───────────────────────────────────────────────────────
   const typeCards = [
     { key: "individual",        label: t.individual,        desc: t.individualDesc,        icon: "👤", price: "$150"           },
-    { key: "couple",            label: t.couple,            desc: t.coupleDesc,            icon: "💑", price: "$150"           },
     { key: "additionalResident",label: t.additionalResident,desc: t.additionalResidentDesc,icon: "➕", price: "$150"           },
+    { key: "couple",            label: t.couple,            desc: t.coupleDesc,            icon: "💑", price: "$150"           },
     { key: "commercial",        label: t.commercial,        desc: t.commercialDesc,        icon: "🏢", price: "$150/principal" },
     { key: "international",      label: t.international,      desc: t.internationalDesc,     icon: "🌍", price: "$150"           },
   ];
@@ -2038,6 +2066,32 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
                     <span>✓</span> {association}
                   </div>
                 )}
+              </div>
+
+              {/* Manual unit number -- the lease upload below auto-extracts a
+                  unit when present, but a preselectedAssociation link skips
+                  the lease requirement entirely (leaseConfirmed starts true),
+                  so without this field the unit was never captured at all
+                  for that flow. Kept alongside the applicant-step unit
+                  field (same unitApplying value) rather than replacing it --
+                  harmless redundancy, and it's the only unit prompt a
+                  preselected-association applicant sees this early. */}
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 7, fontFamily: "monospace" }}>
+                  {t.unitApplying}
+                </label>
+                <input
+                  type="text"
+                  list="apply-step0-units"
+                  value={applicants[0]?.unitApplying ?? ""}
+                  onChange={(e) => updateApplicant(0, "unitApplying", e.target.value)}
+                  style={inp}
+                  onFocus={(e) => (e.target.style.borderColor = "#f26a1b")}
+                  onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")}
+                />
+                <datalist id="apply-step0-units">
+                  {assocUnits.map((u) => <option key={u} value={u} />)}
+                </datalist>
               </div>
 
               <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6, fontFamily: "monospace" }}>
@@ -2403,8 +2457,97 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
             </div>
           )}
 
-          {/* ══ STEP 3: Documents + Consent ════════════════════════════════ */}
+          {/* ══ STEP 3: Summary ═══════════════════════════════════════════ */}
           {step === 3 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16, fontFamily: "monospace" }}>
+                {t.reviewHeading}
+              </div>
+
+              <div style={{ background: "#fafaf9", borderRadius: 4, padding: 18, border: "1px solid #e5e7eb", marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: isCommercial ? 0 : 10, paddingBottom: isCommercial ? 0 : 10, borderBottom: isCommercial ? "none" : "1px solid #e5e7eb" }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#0d0d0d" }}>
+                    {typeCards.find((c) => c.key === appType)?.label ?? appType}
+                  </span>
+                  <button onClick={() => setStep(1)} style={{ background: "none", border: "none", color: "#f26a1b", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+                    ✎ {t.reviewEdit}
+                  </button>
+                </div>
+                {isCommercial ? (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: "#6b7280", marginTop: 10 }}>
+                    <span>{principals.filter((p) => p.name).length} {t.principals}</span>
+                    <button onClick={() => setStep(2)} style={{ background: "none", border: "none", color: "#f26a1b", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+                      ✎ {t.reviewEdit}
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: "#6b7280" }}>
+                    <span>
+                      {applicants.length} {t.applicantsCount}
+                      {applicants.length >= 2 && ` · ${t.areYouMarried} ${isMarriedCouple ? t.yes : t.no}`}
+                    </span>
+                    <button onClick={() => setStep(2)} style={{ background: "none", border: "none", color: "#f26a1b", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+                      ✎ {t.reviewEdit}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Same breakdown shown again on the Payment step -- the point
+                  here is seeing the charge BEFORE the documents/consent step,
+                  with a way back to fix it, not just at the moment of paying. */}
+              <div style={{ background: "#fafaf9", borderRadius: 4, padding: 22, border: "1px solid #e5e7eb" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16, fontFamily: "monospace" }}>{t.paymentSummary}</div>
+
+                <div style={{ borderBottom: "1px solid #e5e7eb", paddingBottom: 14, marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6b7280", marginBottom: 8 }}>
+                    <span>{association}</span>
+                    <span style={{ fontFamily: "monospace", fontSize: 11 }}>{appType}</span>
+                  </div>
+
+                  {appType === "individual" && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d" }}>
+                      <span>1 × Individual</span><span style={{ fontWeight: 600 }}>$150</span>
+                    </div>
+                  )}
+                  {appType === "couple" && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d" }}>
+                      <span>{coupleCertUploaded ? t.coupleRate : "2 × Individual"}</span>
+                      <span style={{ fontWeight: 600 }}>{coupleCertUploaded ? "$150" : "$300"}</span>
+                    </div>
+                  )}
+                  {appType === "additionalResident" && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d" }}>
+                      <span>1 × {t.addlResident}</span><span style={{ fontWeight: 600 }}>$150</span>
+                    </div>
+                  )}
+                  {appType === "commercial" && principals.map((p, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d", marginBottom: 4 }}>
+                      <span>{p.name || `Principal ${i + 1}`}</span><span style={{ fontWeight: 600 }}>$150</span>
+                    </div>
+                  ))}
+                  {appType === "international" && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d" }}>
+                      <span>1 × {t.international}</span><span style={{ fontWeight: 600 }}>$150</span>
+                    </div>
+                  )}
+                  {adultOccupants.length > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#0d0d0d", marginTop: appType ? 4 : 0 }}>
+                      <span>{adultOccupants.length} × {t.addlResident}</span><span style={{ fontWeight: 600 }}>${adultOccupants.length * 150}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18, fontWeight: 700, color: "#0d0d0d", fontFamily: "'Fraunces', serif" }}>
+                  <span>{t.payTotal}</span>
+                  <span style={{ color: "#f26a1b" }}>${total}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ STEP 4: Documents + Consent ════════════════════════════════ */}
+          {step === 4 && (
             <div>
               {/* Government ID / Proof of Income used to be collected here for
                   every applicant and adult occupant, even though Checkr never
@@ -2783,8 +2926,8 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
             </div>
           )}
 
-          {/* ══ STEP 4: Payment ════════════════════════════════════════════ */}
-          {step === 4 && (
+          {/* ══ STEP 5: Payment ════════════════════════════════════════════ */}
+          {step === 5 && (
             <div>
               <div style={{ background: "#fafaf9", borderRadius: 4, padding: 22, border: "1px solid #e5e7eb", marginBottom: 20 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16, fontFamily: "monospace" }}>{t.paymentSummary}</div>
@@ -2880,7 +3023,7 @@ export default function ApplicationForm({ preselectedAssociation = null }: { pre
           )}
 
           {/* Navigation */}
-          {step < 4 && (
+          {step < 5 && (
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 24, gap: 12 }}>
               {step > 0 ? (
                 <button onClick={() => { setStep((s) => s - 1); setError(""); }} style={{ padding: "11px 22px", background: "#f3f4f6", color: "#6b7280", border: "none", borderRadius: 3, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
