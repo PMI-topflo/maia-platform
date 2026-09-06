@@ -2401,6 +2401,7 @@ function DeclarationsCard({ id, declarations, declarationReminders, declaredNa, 
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [remindErr, setRemindErr] = useState<Record<string, string>>({})
+  const [showAnimalGuidance, setShowAnimalGuidance] = useState(false)
 
   async function set(body: { vehicle?: boolean; animal?: boolean; animalKind?: string; taxReturns?: boolean; stakeholderId?: string }) {
     setBusy(JSON.stringify(body)); setErr(null)
@@ -2528,8 +2529,18 @@ function DeclarationsCard({ id, declarations, declarationReminders, declaredNa, 
 
       {animalGuidance && (declarations.animal?.kind === 'service' || declarations.animal?.kind === 'esa') && (
         <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px', marginTop: 9 }}>
-          <div style={{ font: '700 13px system-ui', color: '#1f2a44' }}>{animalGuidance.heading} — reasonable accommodation</div>
-          <p style={{ fontSize: 12.5, color: '#4b5563', margin: '4px 0 0', lineHeight: 1.5 }}>{animalGuidance.intro}</p>
+          {/* Collapsed by default -- staff report, 2026-09-06: this fair-housing
+              reference text (what may/must never be requested) is legally
+              important but too long to always show inline on every application
+              with a declared assistance animal. Still one click away, never
+              removed outright -- this is the guardrail that keeps a board
+              member from asking for something Fair Housing forbids. */}
+          <button onClick={() => setShowAnimalGuidance(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: '700 13px system-ui', color: '#1f2a44' }}>
+            <span style={{ display: 'inline-block', transform: showAnimalGuidance ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▸</span>
+            {animalGuidance.heading} — reasonable accommodation guidance
+          </button>
+          {showAnimalGuidance && (<>
+          <p style={{ fontSize: 12.5, color: '#4b5563', margin: '8px 0 0', lineHeight: 1.5 }}>{animalGuidance.intro}</p>
           <div style={{ fontSize: 12.5, color: '#166534', marginTop: 8, fontWeight: 700 }}>May be requested</div>
           <ul style={{ margin: '3px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#374151', lineHeight: 1.5 }}>
             {animalGuidance.mayRequest.map((t, i) => <li key={i}>{t}</li>)}
@@ -2554,6 +2565,7 @@ function DeclarationsCard({ id, declarations, declarationReminders, declaredNa, 
           <p style={{ fontSize: 11.5, color: '#9ca3af', margin: '9px 0 0', lineHeight: 1.5 }}>
             MAIA organises this request; it does not decide it. Record the decision on the board decision page below.
           </p>
+          </>)}
         </div>
       )}
     </div>
