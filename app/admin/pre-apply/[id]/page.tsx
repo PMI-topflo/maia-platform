@@ -471,8 +471,6 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
 
       {/* Checklist — with staff upload boxes so you can file a doc you got by email */}
       <h2 style={h2}>Documents ({d.documents.length} uploaded)</h2>
-      <p style={{ fontSize: 12.5, color: '#6b7280', margin: '0 0 8px' }}>Upload a document you received directly here — MAIA files it into this unit&apos;s <strong>On Going Applications</strong> Drive folder. (Official only after board approval.)</p>
-      {d.driveFolderUrl && <ScanDrive id={id} onDone={load} />}
       {/* Documents saved in MAIA but not yet in Drive (uploaded before uploads
           auto-mirrored, or a mirror that failed while Drive was unreachable). */}
       {d.documents.length > 0 && !d.driveFolderUrl && (
@@ -1576,43 +1574,6 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
             // eslint-disable-next-line @next/next/no-img-element
             ? <img src={doc.url ?? ''} alt={c.label} style={{ display: 'block', width: '100%', maxWidth: '100%', height: 'auto', margin: '0 auto' }} />
             : <iframe src={doc.url ?? ''} title={c.label} style={{ width: '100%', height: 480, border: 'none' }} />}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Read the files already in the linked Drive folder, classify each, and import
-// them into the matching checklist items (non-destructive — nothing in Drive
-// changes). One click; the checklist fills in with what it finds.
-function ScanDrive({ id, onDone }: { id: string; onDone: () => void }) {
-  const [busy, setBusy] = useState(false)
-  const [res, setRes] = useState<{ scanned: number; matched: { file: string; item: string; rename?: string; expiration?: string | null }[]; unmatched: { file: string; docType: string | null }[] } | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-
-  async function scan() {
-    setBusy(true); setErr(null); setRes(null)
-    try {
-      const r = await fetch(`/api/admin/pre-apply/${id}/scan-drive`, { method: 'POST', credentials: 'include' })
-      const text = await r.text()
-      let j: { error?: string; scanned?: number; matched?: { file: string; item: string; rename?: string; expiration?: string | null }[]; unmatched?: { file: string; docType: string | null }[] }
-      try { j = JSON.parse(text) } catch { throw new Error(r.ok ? 'The scan response was not readable — please try again.' : `Scan failed (${r.status}) — it may have timed out. Try again, or upload manually.`) }
-      if (!r.ok || j.error) throw new Error(j.error || 'failed')
-      setRes(j as { scanned: number; matched: { file: string; item: string; rename?: string; expiration?: string | null }[]; unmatched: { file: string; docType: string | null }[] }); onDone()
-    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
-  }
-
-  return (
-    <div style={{ margin: '0 0 12px' }}>
-      <button onClick={scan} disabled={busy} style={{ font: '600 13px system-ui', color: '#fff', background: busy ? '#9ca3af' : '#4338ca', border: 'none', borderRadius: 8, padding: '9px 14px', cursor: busy ? 'default' : 'pointer' }}>
-        {busy ? 'Reading & scanning Drive files…' : '🔎 Scan Drive folder & save to MAIA'}
-      </button>
-      {err && <p style={{ color: '#b91c1c', font: '13px system-ui', margin: '8px 0 0' }}>⚠ {err}</p>}
-      {res && (
-        <div style={{ marginTop: 8, font: '12.5px system-ui', color: '#374151' }}>
-          <div style={{ color: '#166534', fontWeight: 600 }}>✓ Saved to MAIA — scanned {res.scanned} file(s), imported {res.matched.length} to the checklist. Review each below — preview, set/confirm the expiration, mark &quot;does not expire&quot;, or Ignore.</div>
-          {res.matched.map((m, i) => <div key={i} style={{ color: '#374151' }}>• <span style={{ color: '#9ca3af' }}>{m.file}</span> → <strong>{m.item}</strong>{m.rename ? <span style={{ color: '#9ca3af' }}> · files as {m.rename}</span> : ''}{m.expiration ? <span style={{ color: '#b45309' }}> · expires {m.expiration}</span> : ''}</div>)}
-          {res.unmatched.length > 0 && <div style={{ color: '#92400e', marginTop: 4 }}>Not matched to a checklist item ({res.unmatched.length}): {res.unmatched.map(u => u.docType || u.file).join(', ')} — upload these manually if needed.</div>}
         </div>
       )}
     </div>
