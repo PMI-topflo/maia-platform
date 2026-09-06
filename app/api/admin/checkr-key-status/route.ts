@@ -1,30 +1,30 @@
 // GET /api/admin/checkr-key-status
 //
-// Reports ONLY whether CHECKR_API_KEY is a test (sk_test_) or live
-// (sk_live_) key -- never the key itself. Exists to resolve the one
+// Reports ONLY whether CHECKR_API_KEY is a test (ckr_sk_test_) or live
+// (ckr_sk_live_) key -- never the key itself. Exists to resolve the one
 // remaining gate on flipping any association to maia_checkr: the Vercel var
 // is marked Sensitive (unreadable via the dashboard UI or API once set), so
 // there was previously no way to confirm which mode was live short of
 // triggering a real order and watching what happens. See docs/ROADMAP.md's
 // Checkr entry -- this was listed as "offered, not built" until now.
 //
-// Real case, 2026-09-06: this checked for a 'ckr_sk_live_'/'ckr_sk_test_'
-// prefix, which nobody had verified against an actual Checkr dashboard --
-// the real prefix, confirmed live against Checkr's own masked key display
-// (both the test and the freshly-generated live key), is 'sk_test_'/
-// 'sk_live_' with no 'ckr_' prefix at all.
+// Real case, 2026-09-06: this originally checked for 'ckr_sk_live_'/
+// 'ckr_sk_test_', which is correct -- but a same-day "fix" changed it to
+// 'sk_live_'/'sk_test_' with no 'ckr_' prefix, based on Checkr's dashboard
+// TABLE showing a truncated "sk_live_••••xxxx" for a key row. That table
+// display is a shortened presentation, not the real secret -- a raw
+// copy-to-clipboard of an actual live key confirmed the true value is
+// 'ckr_sk_live_<40 hex chars>' (52 characters total), 'ckr_' prefix very
+// much included. The wrong fix then had staff strip the real 'ckr_' prefix
+// to satisfy this broken check, which made this endpoint report "live"
+// while actually sending Checkr a mangled key -- surfacing downstream as a
+// real 401 "Invalid token" from Checkr's own /orders endpoint. Reverted
+// back to the original, correct prefix.
 //
-// Still-open case, same day: after the prefix fix above shipped and was
-// confirmed live in production, this kept returning "unrecognized" for a
-// freshly-set CHECKR_API_KEY that Checkr's own dashboard shows as
-// sk_live_...2c6b. That rules out the prefix logic itself -- so the value
-// Vercel is actually injecting must not literally start with "sk_live_"
-// (a stray leading character from the copy/paste -- e.g. a zero-width
-// space, a smart-quote, a wrapping quote character, or a leading newline
-// -- would do exactly this while still "looking" right in a screenshot).
-// Added length + the char codes of the first/last few characters below
-// (never the key itself) so this can be confirmed from the JSON response
-// instead of guessed at.
+// Length + the char codes of the first/last few characters are still
+// reported below (never the key itself) so a future paste issue (a stray
+// leading character, an accidental capitalization of 'ckr_') can be
+// confirmed from the JSON response instead of guessed at.
 //
 // Also reports CHECKR_PACKAGE_RESIDENTIAL's raw value (not a credential --
 // it's a fixed package tier, not a secret, so no need to mask it). Added
@@ -51,8 +51,8 @@ export async function GET() {
 
   const key = process.env.CHECKR_API_KEY ?? ''
   const mode = !key ? 'unconfigured'
-    : key.startsWith('sk_live_') ? 'live'
-    : key.startsWith('sk_test_') ? 'test'
+    : key.startsWith('ckr_sk_live_') ? 'live'
+    : key.startsWith('ckr_sk_test_') ? 'test'
     : 'unrecognized'
 
   const pkg = process.env.CHECKR_PACKAGE_RESIDENTIAL ?? null
