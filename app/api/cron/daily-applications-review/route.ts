@@ -7,6 +7,13 @@
 // Target send time: 7:00 AM ET, every day — documents can arrive any day
 // of the week, so this doesn't skip weekends the way Daily News does.
 //
+// Also carries two sections added 2026-09-06 (user report: "I am totally
+// blind" to either of these) — applications past the 30-day board decision
+// window, and ones stuck 14+ days waiting on a required interview nobody's
+// marked held. Neither escalates anywhere else in the pipeline
+// (lib/board-review.ts's window, lib/board-decision-letter.ts's interview
+// gate), so this daily email is the only place they surface at all.
+//
 // DST-safe scheduling: same dual-UTC-hour trick as daily-staff-news —
 // Vercel cron runs in UTC and doesn't follow DST, so this fires at both
 // 11:00 and 12:00 UTC (vercel.json) and only actually sends when the

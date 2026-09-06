@@ -26,9 +26,10 @@ const NAVY   = '#1f2a44'
 const ORANGE = '#e85d26'
 const AMBER  = '#b45309'
 
-/** Default recipient — the same address BOARD_EMAIL_CC defaults to. One
- *  comma-separated env var to grow the list without a code change. */
-const RECIPIENTS = (process.env.APPLICATIONS_REVIEW_RECIPIENTS ?? 'PMI@topfloridaproperties.com')
+/** Default recipients — the same PMI+Jonathan pair BOARD_EMAIL_CC/OFFICE_EMAILS
+ *  default to (lib/board-review-email.ts). One comma-separated env var to
+ *  grow the list without a code change. */
+const RECIPIENTS = (process.env.APPLICATIONS_REVIEW_RECIPIENTS ?? 'PMI@topfloridaproperties.com,jonathan@topfloridaproperties.com')
   .split(',').map(s => s.trim()).filter(Boolean)
 
 function esc(s: string): string {
@@ -43,6 +44,14 @@ export interface ApplicationReviewDigestData {
   generatedIso: string
   toReview: DashboardRow[]   // stage 'not_sent' — documents on file, nobody's reviewed them
   refused: DashboardRow[]    // stage 'refused' — sent back, worth a glance at what's changed
+  // User report, 2026-09-06: "I am totally blind" to either of these — the
+  // 30-day board decision window and a required interview both silently ran
+  // past due with nothing escalating or notifying anyone (lib/board-review.ts,
+  // lib/board-decision-letter.ts). Both reuse the SAME alarm computation
+  // getApplicationDashboard() already does for the board/on-site-manager
+  // portal — this is the first time staff's own daily email surfaces it.
+  overdue: DashboardRow[]         // alarm 'overdue' — past the 30-day window, any stage
+  stalledInterview: DashboardRow[] // stage 'interview' AND alarm 'stalled' — 14+ days since the intro email, never marked held
 }
 
 function groupByAssociationThenUnit(rows: DashboardRow[]): { code: string; name: string; units: { unit: string; rows: DashboardRow[] }[] }[] {
@@ -68,6 +77,8 @@ export async function gatherApplicationReviewDigest(): Promise<ApplicationReview
     generatedIso: dash.generatedAt,
     toReview: dash.rows.filter(r => r.stage === 'not_sent'),
     refused: dash.rows.filter(r => r.stage === 'refused'),
+    overdue: dash.rows.filter(r => r.alarm === 'overdue'),
+    stalledInterview: dash.rows.filter(r => r.stage === 'interview' && r.alarm === 'stalled'),
   }
 }
 
@@ -84,7 +95,36 @@ function rowLine(r: DashboardRow, appUrl: string, tone: string): string {
   </td></tr>`
 }
 
-function groupBlock(title: string, subtitle: string, rows: DashboardRow[], appUrl: string, tone: string): string {
+// Overdue/stalled-interview rows need their OWN message (the day count is
+// the whole point), not r.detail — which for these rows describes the
+// generic stage ("Every document approved — write the Board Decision"),
+// not that it's actually overdue or stalled.
+function overdueLine(r: DashboardRow, appUrl: string): string {
+  const link = `${appUrl}/admin/pre-apply/${r.id}`
+  const who = r.applicants.length ? esc(r.applicants.join(', ')) : '<span style="color:#9ca3af">no applicant name on file</span>'
+  const days = r.daysLeft != null ? -r.daysLeft : null
+  return `<tr><td style="padding:9px 0;border-top:1px solid #f3f4f6">
+    <div style="font-size:13.5px;font-weight:700;color:${NAVY}">${who} <span style="font-weight:400;color:#6b7280">· ${esc(TYPE_LABEL[r.type] ?? r.type)}</span></div>
+    <div style="font-size:12.5px;color:#b42318;margin-top:2px">🚨 ${days != null ? `${days} day${days === 1 ? '' : 's'} past the 30-day window` : 'Past the 30-day window'} — ${esc(STAGE_LABEL_FALLBACK[r.stage] ?? r.stage)}</div>
+    <div style="margin-top:5px"><a href="${esc(link)}" style="font-size:12.5px;font-weight:700;color:${ORANGE};text-decoration:none">Open application &rarr;</a></div>
+  </td></tr>`
+}
+function stalledInterviewLine(r: DashboardRow, appUrl: string): string {
+  const link = `${appUrl}/admin/pre-apply/${r.id}`
+  const who = r.applicants.length ? esc(r.applicants.join(', ')) : '<span style="color:#9ca3af">no applicant name on file</span>'
+  return `<tr><td style="padding:9px 0;border-top:1px solid #f3f4f6">
+    <div style="font-size:13.5px;font-weight:700;color:${NAVY}">${who} <span style="font-weight:400;color:#6b7280">· ${esc(TYPE_LABEL[r.type] ?? r.type)}</span></div>
+    <div style="font-size:12.5px;color:${AMBER};margin-top:2px">🎤 ${r.waitingDays != null ? `${r.waitingDays} days` : 'A while'} since the interview intro email — mark it held once it happens, or nudge whoever's scheduling it</div>
+    <div style="margin-top:5px"><a href="${esc(link)}" style="font-size:12.5px;font-weight:700;color:${ORANGE};text-decoration:none">Open application &rarr;</a></div>
+  </td></tr>`
+}
+const STAGE_LABEL_FALLBACK: Record<string, string> = {
+  applicant: 'still waiting on documents', refused: 'sent back, awaiting a replacement', not_sent: 'ready to send to the board',
+  review: 'with the board to review', interview: 'waiting on interview', letter: 'documents approved — letter not written',
+  signature: 'letter out, awaiting signatures', decided: 'decided',
+}
+
+function groupBlock(title: string, subtitle: string, rows: DashboardRow[], appUrl: string, tone: string, line: (r: DashboardRow, appUrl: string, tone: string) => string = rowLine): string {
   if (!rows.length) return ''
   const groups = groupByAssociationThenUnit(rows)
   return `<tr><td style="padding:18px 28px 0">
@@ -97,7 +137,7 @@ function groupBlock(title: string, subtitle: string, rows: DashboardRow[], appUr
           <div style="margin-top:6px">
             <div style="font-size:11.5px;font-weight:700;color:#6b7280">Unit ${esc(u.unit)}</div>
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-              ${u.rows.map(r => rowLine(r, appUrl, tone)).join('')}
+              ${u.rows.map(r => line(r, appUrl, tone)).join('')}
             </table>
           </div>`).join('')}
       </div>`).join('')}
@@ -106,8 +146,10 @@ function groupBlock(title: string, subtitle: string, rows: DashboardRow[], appUr
 
 export function buildApplicationReviewDigestEmail(data: ApplicationReviewDigestData, appUrl: string): { subject: string; html: string; text: string } {
   const dateLabel = etDateLabel(data.generatedIso)
-  const total = data.toReview.length + data.refused.length
-  const subject = total > 0
+  const total = data.toReview.length + data.refused.length + data.overdue.length + data.stalledInterview.length
+  const subject = data.overdue.length > 0
+    ? `🚨 ${data.overdue.length} application${data.overdue.length === 1 ? '' : 's'} past the 30-day window — ${dateLabel}`
+    : total > 0
     ? `Applications to review — ${data.toReview.length} waiting — ${dateLabel}`
     : `Applications to review — all clear — ${dateLabel}`
 
@@ -134,6 +176,8 @@ export function buildApplicationReviewDigestEmail(data: ApplicationReviewDigestD
       <div style="font-size:14px;color:#166534;font-weight:600">✓ Nothing waiting on your review today.</div>
     </td></tr>` : ''}
 
+    ${groupBlock('🚨 Past the 30-day decision window', 'The Board may decide up to 30 days after the last requested document is received — that window has already passed with no letter yet.', data.overdue, appUrl, '#b42318', overdueLine)}
+    ${groupBlock('Waiting on an interview', 'A required board/buyer interview was requested 14+ days ago and still hasn’t been marked held.', data.stalledInterview, appUrl, AMBER, stalledInterviewLine)}
     ${groupBlock('Documents on file — not yet reviewed', 'Uploaded, waiting on a staff Approve/Refuse before the board pipeline can move.', data.toReview, appUrl, AMBER)}
     ${groupBlock('Sent back to the applicant', 'Refused, with a reason — worth a glance once they resubmit.', data.refused, appUrl, '#b42318')}
 
@@ -147,18 +191,20 @@ export function buildApplicationReviewDigestEmail(data: ApplicationReviewDigestD
 </td></tr></table>
 </body></html>`
 
-  const textLine = (r: DashboardRow) => `    - ${r.applicants.join(', ') || 'no applicant name'} (${TYPE_LABEL[r.type] ?? r.type}) — ${r.detail} — ${appUrl}/admin/pre-apply/${r.id}`
-  const textSection = (title: string, rows: DashboardRow[]) => {
+  const textLine = (r: DashboardRow, msg: string = r.detail) => `    - ${r.applicants.join(', ') || 'no applicant name'} (${TYPE_LABEL[r.type] ?? r.type}) — ${msg} — ${appUrl}/admin/pre-apply/${r.id}`
+  const textSection = (title: string, rows: DashboardRow[], line: (r: DashboardRow) => string = textLine) => {
     if (!rows.length) return []
     const groups = groupByAssociationThenUnit(rows)
     return [`${title} (${rows.length})`, ...groups.flatMap(g => [
-      g.name, ...g.units.flatMap(u => [`  Unit ${u.unit}`, ...u.rows.map(textLine)]),
+      g.name, ...g.units.flatMap(u => [`  Unit ${u.unit}`, ...u.rows.map(line)]),
     ]), '']
   }
   const text = [
     `Applications to review — ${dateLabel}`,
     '',
     ...(total === 0 ? ['Nothing waiting on your review today.', ''] : []),
+    ...textSection('PAST THE 30-DAY DECISION WINDOW', data.overdue, r => textLine(r, r.daysLeft != null ? `${-r.daysLeft} day(s) past the window` : 'past the window')),
+    ...textSection('Waiting on an interview', data.stalledInterview, r => textLine(r, r.waitingDays != null ? `${r.waitingDays} days since the interview intro email` : 'interview not yet held')),
     ...textSection('Documents on file — not yet reviewed', data.toReview),
     ...textSection('Sent back to the applicant', data.refused),
     'Maia · by PMI Top Florida Properties',
@@ -174,12 +220,17 @@ export interface SendApplicationReviewDigestResult {
   subject: string
   toReviewCount: number
   refusedCount: number
+  overdueCount: number
+  stalledInterviewCount: number
 }
 
 export async function sendApplicationReviewDigest(opts: { appUrl: string; dry?: boolean }): Promise<SendApplicationReviewDigestResult> {
   const data = await gatherApplicationReviewDigest()
   const email = buildApplicationReviewDigestEmail(data, opts.appUrl)
-  const base = { recipients: RECIPIENTS, subject: email.subject, toReviewCount: data.toReview.length, refusedCount: data.refused.length }
+  const base = {
+    recipients: RECIPIENTS, subject: email.subject, toReviewCount: data.toReview.length, refusedCount: data.refused.length,
+    overdueCount: data.overdue.length, stalledInterviewCount: data.stalledInterview.length,
+  }
   if (!RECIPIENTS.length) return { ok: false, ...base }
   if (opts.dry) return { ok: true, dry: true, ...base }
   await sendEmail({ to: RECIPIENTS, subject: email.subject, html: email.html, text: email.text })
