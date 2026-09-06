@@ -24,6 +24,7 @@ export type Stage =
   | 'refused'     // a document was sent back; a replacement must come in
   | 'not_sent'    // everything arrived — but nobody has been asked to review it
   | 'review'      // the board / on-site manager must decide on the documents
+  | 'interview'   // documents approved; a required board/buyer interview hasn't been marked held
   | 'letter'      // documents all approved; the Board Decision is not written
   | 'signature'   // the Board Decision is out, awaiting signatures
   | 'decided'     // approved or declined; nothing owed
@@ -36,6 +37,11 @@ export const STAGE_OWNER: Record<Stage, Owner> = {
   refused:   'applicant',
   not_sent:  'staff',
   review:    'board',
+  // The interview itself is between the applicant/buyer and the board, but
+  // NOTHING in the pipeline advances until staff click "mark completed" (see
+  // lib/board-decision-letter.ts's markInterviewCompleteAndAdvance) -- so
+  // it's staff's action that's actually owed here, not a wait on someone else.
+  interview: 'staff',
   letter:    'staff',
   signature: 'board',
   decided:   'staff',
@@ -47,12 +53,13 @@ export const STAGE_LABEL: Record<Stage, string> = {
   refused:   'Sent back — awaiting a replacement',
   not_sent:  'Ready to send to the board',
   review:    'With the board to review',
+  interview: 'Waiting on interview — mark it held when done',
   letter:    'Ready for the Board Decision',
   signature: 'Awaiting board signatures',
   decided:   'Decided',
 }
 
-export const STAGE_ORDER: Stage[] = ['refused', 'not_sent', 'review', 'letter', 'signature', 'applicant', 'decided']
+export const STAGE_ORDER: Stage[] = ['refused', 'not_sent', 'review', 'interview', 'letter', 'signature', 'applicant', 'decided']
 
 /** An application is stalled when the same person has owed the same action
  *  this long. Not a rule of the association's — a working threshold, so a
@@ -140,6 +147,13 @@ export interface StageInput {
   createdAt: string
   submittedAt: string | null
   reviewedAt: string | null
+  /** Whether this association/type requires an interview before the letter
+   *  (lib/board-decision-letter.ts's own interviewRequired derivation),
+   *  and where it stands. Nothing advances past 'interview' until staff
+   *  mark it held — see markInterviewCompleteAndAdvance. */
+  interviewRequired: boolean
+  interviewRequestedAt: string | null
+  interviewCompletedAt: string | null
 }
 
 /**
@@ -187,6 +201,9 @@ export function decideStage(i: StageInput): { stage: Stage; outstanding: string[
     }
   }
   if (i.state?.complete) {
+    if (!i.hasLetter && i.interviewRequired && !i.interviewCompletedAt) {
+      return { stage: 'interview', outstanding: [], sinceAt: i.interviewRequestedAt ?? i.state.windowOpenedAt }
+    }
     return { stage: i.hasLetter ? 'signature' : 'letter', outstanding: [], sinceAt: i.state.windowOpenedAt }
   }
   // No checklist configured, or nothing required of anybody. There is nothing
@@ -221,7 +238,7 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
     : ['started', 'submitted', 'under_review', 'approval_sent']
 
   let q = supabaseAdmin.from('listing_applications')
-    .select('id, association_code, application_type, unit_label, status, created_at, submitted_at, reviewed_at, drive_folder_url')
+    .select('id, association_code, application_type, unit_label, status, created_at, submitted_at, reviewed_at, drive_folder_url, interview_requested_at, interview_completed_at')
     .in('status', statuses)
     .order('created_at', { ascending: false })
     .limit(limit)
@@ -230,7 +247,7 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
   const { data: apps } = await q
 
   const rows: DashboardRow[] = []
-  const counts = { applicant: 0, refused: 0, not_sent: 0, review: 0, letter: 0, signature: 0, decided: 0 } as Record<Stage, number>
+  const counts = { applicant: 0, refused: 0, not_sent: 0, review: 0, interview: 0, letter: 0, signature: 0, decided: 0 } as Record<Stage, number>
   const alarms = { overdue: 0, dueSoon: 0, stalled: 0 }
   if (!apps?.length) return { rows, counts, alarms, generatedAt: new Date().toISOString() }
 
@@ -244,7 +261,7 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
       .order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('document_review_rounds').select('application_id, token, created_at, recipients').in('application_id', ids)
       .order('created_at', { ascending: false }),
-    codes.length ? supabaseAdmin.from('associations').select('association_code, association_name, legal_name').in('association_code', codes) : Promise.resolve({ data: [] }),
+    codes.length ? supabaseAdmin.from('associations').select('association_code, association_name, legal_name, requires_interview_lease, requires_interview_purchase').in('association_code', codes) : Promise.resolve({ data: [] }),
     // The Board Decision letter is keyed by association + unit, not by
     // application — so it is matched back by unit and only counted when it was
     // created AFTER the application, never a previous tenancy's letter.
@@ -271,6 +288,10 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
     String(a.association_code).toUpperCase(),
     (a.association_name as string | null) || (a.legal_name as string | null) || String(a.association_code),
   ]))
+  const interviewReqBy = new Map((assocs ?? []).map(a => [
+    String(a.association_code).toUpperCase(),
+    { lease: !!a.requires_interview_lease, purchase: !!a.requires_interview_purchase },
+  ]))
   const letterBy = new Map<string, { status: string; signers: { signed_at?: string }[]; created_at: string }>()
   for (const l of letters ?? []) {
     const k = `${String(l.association_code).toUpperCase()}|${String(l.unit_ref ?? '')}`
@@ -295,12 +316,19 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
 
     const totals = state?.totals ?? { required: 0, received: 0, decided: 0, approved: 0, refused: 0, waiting: 0 }
 
+    const appType = String(a.application_type ?? '')
+    const req = interviewReqBy.get(code)
+    const interviewRequired = appType === 'purchase' ? !!req?.purchase : appType === 'lease' ? !!req?.lease : false
+
     const { stage, outstanding, sinceAt } = decideStage({
       status, state: state ?? null,
       hasRound: !!round, roundSentAt: round?.created_at ?? null,
       hasLetter: !!letter,
       createdAt, submittedAt: (a.submitted_at as string | null) ?? null,
       reviewedAt: (a.reviewed_at as string | null) ?? null,
+      interviewRequired,
+      interviewRequestedAt: (a.interview_requested_at as string | null) ?? null,
+      interviewCompletedAt: (a.interview_completed_at as string | null) ?? null,
     })
 
     const daysLeft = daysUntil(state?.dueAt ?? null)
@@ -319,6 +347,7 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
       : stage === 'applicant' ? `Still to come: ${list(outstanding)}`
       : stage === 'not_sent' ? `${totals.received - totals.decided} document${totals.received - totals.decided === 1 ? '' : 's'} on file that nobody has been asked to review`
       : stage === 'review' ? `${outstanding.length} to decide: ${list(outstanding)}`
+      : stage === 'interview' ? 'Interview required before the Board Decision — mark it held once it happens'
       : stage === 'letter' ? 'Every document approved — write the Board Decision'
       : letter ? `${letter.signed} of ${letter.of} signatures` : 'Awaiting signatures'
 

@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
-type Stage = 'applicant' | 'refused' | 'not_sent' | 'review' | 'letter' | 'signature' | 'decided'
+type Stage = 'applicant' | 'refused' | 'not_sent' | 'review' | 'interview' | 'letter' | 'signature' | 'decided'
 type Owner = 'applicant' | 'staff' | 'board'
 type Alarm = 'overdue' | 'due_soon' | 'stalled'
 export type DashboardRole = 'staff' | 'board' | 'onsite_manager'
@@ -55,6 +55,7 @@ const STAGE_STYLE: Record<Stage, { c: string; b: string; dot: string }> = {
   refused:   { c: '#991b1b', b: '#fee2e2', dot: '🔴' },
   not_sent:  { c: '#92400e', b: '#fef3c7', dot: '📤' },
   review:    { c: '#1e40af', b: '#dbeafe', dot: '🔎' },
+  interview: { c: '#9a3412', b: '#ffedd5', dot: '🎤' },
   letter:    { c: '#5b21b6', b: '#ede9fe', dot: '📝' },
   signature: { c: '#5b21b6', b: '#ede9fe', dot: '✍️' },
   applicant: { c: '#854d0e', b: '#fef9c3', dot: '⏳' },
@@ -73,7 +74,7 @@ const STAGE_STYLE: Record<Stage, { c: string; b: string; dot: string }> = {
  *  The on-site manager reviews documents but does not sign the Board Decision,
  *  which is why `signature` is the board's alone. */
 const MINE: Record<DashboardRole, Stage[]> = {
-  staff: ['refused', 'not_sent', 'letter'],
+  staff: ['refused', 'not_sent', 'interview', 'letter'],
   board: ['review', 'signature'],
   onsite_manager: ['review'],
 }

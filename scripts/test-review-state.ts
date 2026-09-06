@@ -223,7 +223,8 @@ eq('legacy shared "no vehicle" retires it for the primary but leaves the co-appl
 // =====================================================================
 const S = (over: Partial<StageInput> = {}): StageInput => ({
   status: 'submitted', state: state(), hasRound: false, roundSentAt: null, hasLetter: false,
-  createdAt: '2026-08-01T00:00:00.000Z', submittedAt: '2026-08-02T00:00:00.000Z', reviewedAt: null, ...over,
+  createdAt: '2026-08-01T00:00:00.000Z', submittedAt: '2026-08-02T00:00:00.000Z', reviewedAt: null,
+  interviewRequired: false, interviewRequestedAt: null, interviewCompletedAt: null, ...over,
 })
 const stage = (over: Partial<StageInput> = {}) => decideStage(S(over)).stage
 
@@ -257,6 +258,19 @@ eq('complete, no letter → the office writes it', stage({ state: done, hasRound
 eq('complete, letter out → the board signs it', stage({ state: done, hasRound: true, hasLetter: true }), 'signature')
 eq('letter belongs to staff', STAGE_OWNER['letter'], 'staff')
 eq('signature belongs to the board', STAGE_OWNER['signature'], 'board')
+
+// 17b. Complete, but this association/type requires an interview that hasn't
+//      been held → distinct from a plain "write the letter" wait, and never
+//      confused with a letter that's already out (a letter can't exist yet —
+//      lib/board-decision-letter.ts gates letter creation on this).
+eq('complete, interview required, not held → interview, not letter',
+  stage({ state: done, hasRound: true, interviewRequired: true, interviewRequestedAt: '2026-08-15T00:00:00.000Z' }), 'interview')
+eq('complete, interview required and held → falls through to letter',
+  stage({ state: done, hasRound: true, interviewRequired: true, interviewCompletedAt: '2026-08-16T00:00:00.000Z' }), 'letter')
+eq('interview belongs to staff (nothing advances until they mark it held)', STAGE_OWNER['interview'], 'staff')
+eq('the interview clock starts when the intro email went out',
+  decideStage(S({ state: done, hasRound: true, interviewRequired: true, interviewRequestedAt: '2026-08-15T00:00:00.000Z' })).sinceAt,
+  '2026-08-15T00:00:00.000Z')
 
 // 18. Decided is decided, whatever the documents say.
 eq('approved → decided', stage({ status: 'approved', state: arrived }), 'decided')

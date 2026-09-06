@@ -85,6 +85,11 @@ export async function GET() {
       docCount: docCount.get(r.id) ?? 0,
       signed: signedByApp.get(r.id) ?? false,
       lastRequestedAt: lastRequestedAt.get(r.id) ?? null,
+      // Already computed by getApplicationDashboard() -- surfaced here so
+      // staff's own list finally shows the same days-left/overdue/signature
+      // visibility the board/on-site-manager portal has always had. User
+      // report, 2026-09-06: "I am totally blind" to this.
+      daysLeft: r.daysLeft, alarm: r.alarm, letter: r.letter,
     })),
   })
 }

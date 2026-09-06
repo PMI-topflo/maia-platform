@@ -14,6 +14,12 @@ interface App {
   applicants: { name: string | null; email: string | null; isPrimary: boolean }[]
   docCount: number; signed: boolean
   lastRequestedAt: string | null
+  // Same days-left/overdue/signature-progress the board & on-site-manager
+  // portal already shows, per lib/application-dashboard.ts — user report,
+  // 2026-09-06: staff had no equivalent view of their own.
+  daysLeft: number | null
+  alarm: 'overdue' | 'due_soon' | 'stalled' | null
+  letter: { status: string; signed: number; of: number } | null
 }
 const isDecided = (status: string) => status === 'approved' || status === 'declined'
 interface ChecklistItem { label: string; provided_by: string; required: boolean; notarized: boolean; exampleUrl: string | null }
@@ -48,12 +54,18 @@ const STAGE_META: Record<string, { label: string; c: string; b: string }> = {
   applicant:  { label: 'Collecting documents',               c: '#854d0e', b: '#fef9c3' },
   not_sent:   { label: 'Ready to send to the board',         c: '#1e40af', b: '#dbeafe' },
   review:     { label: 'With the board to review',           c: '#1e40af', b: '#dbeafe' },
+  interview:  { label: 'Waiting on interview',               c: '#9a3412', b: '#ffedd5' },
   letter:     { label: 'Documents approved — creating letter', c: '#5b21b6', b: '#ede9fe' },
   signature:  { label: 'Letter sent — awaiting signatures',  c: '#9a3412', b: '#ffedd5' },
   approved:   { label: 'Approved',                           c: '#166534', b: '#dcfce7' },
   declined:   { label: 'Declined',                           c: '#991b1b', b: '#fee2e2' },
 }
-const STAGE_ORDER = ['refused', 'applicant', 'not_sent', 'review', 'letter', 'signature', 'approved', 'declined']
+const STAGE_ORDER = ['refused', 'applicant', 'not_sent', 'review', 'interview', 'letter', 'signature', 'approved', 'declined']
+const ALARM_META: Record<string, { label: string; c: string; b: string }> = {
+  overdue:   { label: '🚨 OVERDUE', c: '#fff', b: '#b91c1c' },
+  due_soon:  { label: '⏳ Due soon', c: '#92400e', b: '#fef3c7' },
+  stalled:   { label: '💤 Stalled', c: '#fff', b: '#6b7280' },
+}
 
 export default function PreApplyQueue() {
   const [apps, setApps] = useState<App[] | null>(null)
@@ -299,12 +311,38 @@ export default function PreApplyQueue() {
                     <td style={{ ...td, textAlign: 'center' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{a.signed ? '✓' : '—'}</td>
                     <td style={{ ...td, whiteSpace: 'nowrap' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{fmt(a.startedAt)}</td>
                     <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>
-                      <span style={{ font: '600 11px system-ui', color: st.c, background: st.b, borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap' }}>{a.stageLabel}</span>
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <span style={{ font: '600 11px system-ui', color: st.c, background: st.b, borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap' }}>{a.stageLabel}</span>
+                        {/* The same overdue/due-soon/stalled alarm the board &
+                            on-site-manager portal already computes (lib/
+                            application-dashboard.ts) — this list never showed
+                            it, so a stuck application (nobody sent it to the
+                            board, an interview never marked held, a letter
+                            sitting unsigned past the 30-day window) was
+                            invisible unless staff opened it individually. */}
+                        {!isDecided(a.status) && a.alarm && (
+                          <span style={{ font: '700 10px system-ui', color: ALARM_META[a.alarm].c, background: ALARM_META[a.alarm].b, borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>
+                            {ALARM_META[a.alarm].label}
+                          </span>
+                        )}
+                      </div>
                       {/* What's actually outstanding, live — this is the whole
                           point of computing stage from real document state
                           instead of the status column: it can SAY what's
                           missing, not just report a status word. */}
                       {!isDecided(a.status) && a.detail && <div style={{ font: '11px system-ui', color: '#6b7280', marginTop: 3, maxWidth: 260 }}>{a.detail}</div>}
+                      {/* Days left on the 30-day board decision window, once
+                          it's open — the same clock shown to the board, now
+                          visible to staff too instead of only appearing after
+                          opening the application. */}
+                      {!isDecided(a.status) && a.daysLeft != null && (
+                        <div style={{ font: '11px system-ui', color: a.daysLeft < 0 ? '#b91c1c' : '#6b7280', marginTop: 3 }}>
+                          {a.daysLeft < 0 ? `${-a.daysLeft} day${-a.daysLeft === 1 ? '' : 's'} past the 30-day window` : `${a.daysLeft} day${a.daysLeft === 1 ? '' : 's'} left on the window`}
+                        </div>
+                      )}
+                      {!isDecided(a.status) && a.letter && (
+                        <div style={{ font: '11px system-ui', color: '#6b7280', marginTop: 3 }}>✍ {a.letter.signed}/{a.letter.of} signed</div>
+                      )}
                       {/* Decision date under the pill — was invisible before,
                           so an approved/declined row gave no sense of when.
                           Staff report: "with a date that was approved under
