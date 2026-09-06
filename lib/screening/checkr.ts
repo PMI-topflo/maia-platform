@@ -2,10 +2,14 @@
 // lib/screening/checkr.ts
 // Checkr TENANT Screening API implementation. Key differences from a
 // typical Checkr integration:
-//   - Bearer token auth (Authorization: Bearer sk_test_.../sk_live_...), not
-//     HTTP Basic -- no 'ckr_' prefix, confirmed 2026-09-06 against a real
-//     live key (this file previously assumed 'ckr_sk_test_'/'ckr_sk_live_',
-//     which nobody had checked against an actual live key until then).
+//   - Bearer token auth (Authorization: Bearer ckr_sk_test_.../ckr_sk_live_...),
+//     not HTTP Basic. A same-day "correction" on 2026-09-06 briefly dropped
+//     the 'ckr_' prefix based on Checkr's dashboard TABLE showing a
+//     truncated "sk_live_••••xxxx" for a key row -- that's a shortened
+//     display, not the real secret. A raw copy-to-clipboard of an actual
+//     live key confirmed the true prefix is 'ckr_sk_live_' (52 characters
+//     total with the 40-hex-char body), 'ckr_' very much included. Reverted
+//     back to the original, correct prefix the same day.
 //   - A single POST /orders call creates the whole screening (applicant +
 //     property + package) -- no separate Candidate-then-Report step.
 //   - There is NO embeddable consent widget. Checkr emails the applicant a
