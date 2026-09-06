@@ -148,8 +148,16 @@ async function sendApplicantEmail(app: Record<string, unknown>, session: Stripe.
   const to = applicants?.[0]?.email;
   if (!to) return;
   const refNum = "PMI-" + (app.id as string).slice(0, 8).toUpperCase();
-  const subject = `Application Received — ${app.association} · ${refNum}`;
-  const text = `Dear Applicant,\n\nYour application for ${app.association} has been received.\n\nReference: ${refNum}\nAmount Paid: $${((session.amount_total || 0) / 100).toFixed(2)}\n\nThe board will review within 7-10 business days.\n\nPMI Top Florida Properties | (305) 900-5077 · WhatsApp (786) 686-3223`;
+  const subject = `Payment Received — ${app.association} · ${refNum}`;
+  // Kept in sync with app/apply/success/page.tsx's "what happens next" copy —
+  // that page and this email used to disagree (this one still said "the
+  // board will review within 7-10 business days" immediately after payment,
+  // with no mention of the background check or documents step that actually
+  // comes first). Real case, 2026-09-06 (Querline Pinckney, MANXI 5A648107):
+  // this was the only email she got, and its silence on Checkr read as if
+  // nothing else was coming.
+  const docsUrl = `${process.env.NEXT_PUBLIC_APP_URL}/apply/documents/${app.id}`;
+  const text = `Dear Applicant,\n\nYour payment for ${app.association} has been confirmed.\n\nReference: ${refNum}\nAmount Paid: $${((session.amount_total || 0) / 100).toFixed(2)}\n\nWhat happens next:\n1. Add more documents any time using the link below, if you have any.\n2. Checkr will email you a secure link to complete a quick background-check step.\n3. Once your background check is complete, our team will review all your documents.\n4. We'll notify you as soon as your application is complete.\n\nAdd documents: ${docsUrl}\n\nPMI Top Florida Properties | (305) 900-5077 · WhatsApp (786) 686-3223`;
   try {
     const { messageId } = await sendEmail({ to, subject, text });
     void logEmail({ toEmail: to, subject, fullBody: text, persona: 'buyer', resendMessageId: messageId });
