@@ -149,20 +149,43 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   // direction). Nothing to show until an association is on maia_checkr AND
   // this application has actually been handed off.
   const detailedId = app.detailed_application_id as string | null
-  const { data: screeningRows } = detailedId
-    ? await supabaseAdmin.from('screening_subjects')
-        .select('subject_index, name, status, report_url, report_data, completed_at')
-        .eq('application_id', detailedId).order('subject_index', { ascending: true })
-    : { data: null }
+  const [{ data: screeningRows }, { data: paymentRow }] = detailedId
+    ? await Promise.all([
+        supabaseAdmin.from('screening_subjects')
+          .select('subject_index, name, status, report_url, report_data, completed_at, result')
+          .eq('application_id', detailedId).order('subject_index', { ascending: true }),
+        supabaseAdmin.from('applications')
+          .select('stripe_payment_status, stripe_amount_paid').eq('id', detailedId).maybeSingle(),
+      ])
+    : [{ data: null }, { data: null }]
+  // Staff report, 2026-09-06 (Querline Pinckney, MANXI 912): the badge only
+  // ever showed the LATEST status, with no way to see what Checkr actually
+  // sent over time (was there ever a report.completed event, or has it sat
+  // at awaiting_applicant since a stale test-mode order?) without pulling
+  // Vercel logs. result is the same append-only array app/api/checkr-webhook
+  // pushes {received_at, type, payload} onto for every delivery -- surfaced
+  // here as a compact type+timestamp history, raw payloads left out to keep
+  // the response small.
   const screeningSubjects = (screeningRows ?? []).map(s => {
     const completedAt = (s.completed_at as string | null) ?? null
+    const rawHistory = Array.isArray(s.result) ? s.result : s.result ? [s.result] : []
+    const history = rawHistory
+      .map(h => (h && typeof h === 'object' ? { type: String((h as Record<string, unknown>).type ?? 'unknown'), receivedAt: String((h as Record<string, unknown>).received_at ?? '') } : null))
+      .filter((h): h is { type: string; receivedAt: string } => !!h)
     return {
       name: (s.name as string | null) ?? null, status: (s.status as string | null) ?? null,
       reportUrl: (s.report_url as string | null) ?? null, reportData: (s.report_data as Record<string, unknown> | null) ?? null,
       completedAt, validThrough: screeningValidThrough(completedAt)?.toISOString() ?? null,
-      expired: isScreeningExpired(completedAt),
+      expired: isScreeningExpired(completedAt), history,
     }
   })
+  // "Was it paid or not" -- the same stripe_payment_status/stripe_amount_paid
+  // the Stripe webhook itself sets (app/api/webhooks/stripe/route.ts) on the
+  // legacy applications table trigger-screening reads from.
+  const payment = paymentRow ? {
+    status: (paymentRow.stripe_payment_status as string | null) ?? 'pending',
+    amountPaid: typeof paymentRow.stripe_amount_paid === 'number' ? paymentRow.stripe_amount_paid / 100 : null,
+  } : null
 
   // Per-document signer status for MAIA-generated e-sign forms — staff report,
   // 2026-09-02: an already-uploaded e-signed document only shows a flat
@@ -247,6 +270,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     // under. See lib/preapply.ts's resolveScreeningProvider.
     screeningProvider: resolveScreeningProvider(app.screening_provider as string | null),
     screeningSubjects,
+    payment,
     audit: { auditedBy: app.audited_by, auditedAt: app.audited_at, reviewedBy: app.reviewed_by, reviewedAt: app.reviewed_at, note: app.review_note, approvedByRole: app.approved_by_role },
     naItems,
     currentLease,
