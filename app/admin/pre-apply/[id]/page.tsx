@@ -32,7 +32,8 @@ interface Detail {
   declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null; taxReturns?: { has: boolean; at?: string } | null }
   declarationReminders: Record<string, string>
   declaredNa: string[]
-  screeningSubjects: { name: string | null; status: string | null; reportUrl: string | null; reportData: Record<string, unknown> | null; completedAt: string | null; validThrough: string | null; expired: boolean }[]
+  screeningSubjects: { name: string | null; status: string | null; reportUrl: string | null; reportData: Record<string, unknown> | null; completedAt: string | null; validThrough: string | null; expired: boolean; history: { type: string; receivedAt: string }[] }[]
+  payment: { status: string; amountPaid: number | null } | null
   petsAllowed: boolean | null
   petsProhibitedNotice: boolean
   animalGuidance: { heading: string; intro: string; mayRequest: string[]; mustNotRequest: string[]; staffNote: string } | null
@@ -413,26 +414,55 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           the board in the application." */}
       {d.screeningSubjects.length > 0 && (
         <div style={{ border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: 10, padding: '12px 14px', margin: '12px 0' }}>
-          <div style={{ font: '700 12px system-ui', color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Background check (Checkr)</div>
-          {d.screeningSubjects.map((s, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '5px 0', borderTop: i ? '1px solid #eef2f7' : 'none' }}>
-              <span style={{ font: '600 13.5px system-ui', color: '#1f2937', flex: '0 1 auto' }}>{s.name ?? `Applicant ${i + 1}`}</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+            <div style={{ font: '700 12px system-ui', color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em' }}>Background check (Checkr)</div>
+            {/* "Was it paid or not" — staff report, 2026-09-06: no way to see
+                the application-fee payment status from this page at all. */}
+            {d.payment && (
               <span style={{
                 font: '600 11px system-ui', borderRadius: 999, padding: '2px 9px',
-                color: s.status === 'complete' ? '#065f46' : s.status === 'error' ? '#991b1b' : '#92400e',
-                background: s.status === 'complete' ? '#d1fae5' : s.status === 'error' ? '#fee2e2' : '#fef3c7',
-              }}>Checkr: {s.status ?? 'pending'}</span>
-              {s.status === 'complete' && s.validThrough && (
-                s.expired
-                  ? <span style={{ font: '700 10px system-ui', color: '#fff', background: '#b91c1c', borderRadius: 5, padding: '2px 7px' }}>🚨 SCREENING EXPIRED {new Date(s.validThrough).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                  : <span style={{ font: '600 11px system-ui', color: '#6b7280' }}>Valid through {new Date(s.validThrough).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-              )}
-              {s.reportUrl && (
-                <DocumentPreviewTrigger
-                  label="View report ↗" downloadUrl={s.reportUrl}
-                  previewUrl={`/api/document-preview?url=${encodeURIComponent(s.reportUrl)}`}
-                  style={{ font: '600 12px system-ui', color: '#2563eb', background: 'none', border: 'none', padding: 0 }}
-                />
+                color: d.payment.status === 'paid' ? '#065f46' : '#92400e',
+                background: d.payment.status === 'paid' ? '#d1fae5' : '#fef3c7',
+              }}>
+                {d.payment.status === 'paid'
+                  ? `✓ Paid${d.payment.amountPaid != null ? ` $${d.payment.amountPaid.toFixed(2)}` : ''}`
+                  : `Payment: ${d.payment.status}`}
+              </span>
+            )}
+          </div>
+          {d.screeningSubjects.map((s, i) => (
+            <div key={i} style={{ padding: '5px 0', borderTop: i ? '1px solid #eef2f7' : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ font: '600 13.5px system-ui', color: '#1f2937', flex: '0 1 auto' }}>{s.name ?? `Applicant ${i + 1}`}</span>
+                <span style={{
+                  font: '600 11px system-ui', borderRadius: 999, padding: '2px 9px',
+                  color: s.status === 'complete' ? '#065f46' : s.status === 'error' ? '#991b1b' : '#92400e',
+                  background: s.status === 'complete' ? '#d1fae5' : s.status === 'error' ? '#fee2e2' : '#fef3c7',
+                }}>Checkr: {s.status ?? 'pending'}</span>
+                {s.status === 'complete' && s.validThrough && (
+                  s.expired
+                    ? <span style={{ font: '700 10px system-ui', color: '#fff', background: '#b91c1c', borderRadius: 5, padding: '2px 7px' }}>🚨 SCREENING EXPIRED {new Date(s.validThrough).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    : <span style={{ font: '600 11px system-ui', color: '#6b7280' }}>Valid through {new Date(s.validThrough).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                )}
+                {s.reportUrl && (
+                  <DocumentPreviewTrigger
+                    label="View report ↗" downloadUrl={s.reportUrl}
+                    previewUrl={`/api/document-preview?url=${encodeURIComponent(s.reportUrl)}`}
+                    style={{ font: '600 12px system-ui', color: '#2563eb', background: 'none', border: 'none', padding: 0 }}
+                  />
+                )}
+              </div>
+              {/* Every webhook delivery Checkr has actually sent for this
+                  subject, oldest first — so staff can see e.g. "nothing since
+                  order.applicant.visited" instead of guessing from one badge. */}
+              {s.history.length > 0 && (
+                <div style={{ margin: '4px 0 0 0', paddingLeft: 2 }}>
+                  {s.history.map((h, hi) => (
+                    <div key={hi} style={{ font: '11.5px system-ui', color: '#6b7280' }}>
+                      {h.receivedAt ? new Date(h.receivedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'} · {h.type}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           ))}
@@ -522,8 +552,20 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                 <CreditScore id={id} stakeholderId={a.id} name={a.name} score={a.creditScore} decided={decided} onDone={load} />
                 {/* Active applicant's documents */}
                 {perApplicantItems.map((c, i) => (
-                  <ChecklistRow key={c.doc_key} id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={docsFor(c.doc_key, a.id).slice(1)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} driveFilesErr={driveFilesErr} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} assoc={d.associationCode} appType={d.type} hasExample={!!c.template_path}
-                        review={reviewFor(c.doc_key, a.id)} scopeKey={scopeKeyOf(c.doc_key, a.id)} onRequest={(k, l) => setRequestFor({ doc_key: k, label: l })} />
+                  <div key={c.doc_key}>
+                    <ChecklistRow id={id} c={c} doc={docFor(c.doc_key, a.id)} extraDocs={docsFor(c.doc_key, a.id).slice(1)} na={naFor(c.doc_key, a.id)} first={i === 0} decided={decided} onDone={load} driveFiles={driveFiles} driveFilesErr={driveFilesErr} loadDriveFiles={loadDriveFiles} stakeholderId={a.id} applicants={applicants.map(x => ({ id: x.id, name: x.name }))} checklist={d.checklist.map(x => ({ doc_key: x.doc_key, label: x.label }))} assoc={d.associationCode} appType={d.type} hasExample={!!c.template_path}
+                                review={reviewFor(c.doc_key, a.id)} scopeKey={scopeKeyOf(c.doc_key, a.id)} onRequest={(k, l) => setRequestFor({ doc_key: k, label: l })} />
+                    {/* Staff report, 2026-09-06 (Querline Pinckney, MANXI 912):
+                        wanted the same Checkr status/history/payment info
+                        shown right on this row too, not only in the summary
+                        card up top -- screening_subjects has no stakeholder_id
+                        column, so matched by name (best-effort; a name typo
+                        between the lease and Checkr's own applicant record
+                        would miss this, same limitation the summary card has). */}
+                    {c.doc_key === 'background_credit' && (
+                      <CheckrStatusInline subject={d.screeningSubjects.find(s => (s.name ?? '').trim().toLowerCase() === (a.name ?? '').trim().toLowerCase())} payment={d.payment} />
+                    )}
+                  </div>
                 ))}
               </div>
             )
@@ -1809,6 +1851,47 @@ function CarryOverButton({ id, onDone }: { id: string; onDone: () => void }) {
     <div style={{ margin: '0 0 10px' }}>
       <button onClick={run} disabled={busy} style={{ ...btn('#0f766e'), padding: '8px 14px' }}>{busy ? 'Bringing in…' : '📥 Bring in the previous term’s files'}</button>
       {msg && <p style={{ font: '12.5px system-ui', color: '#6b7280', margin: '6px 0 0' }}>{msg}</p>}
+    </div>
+  )
+}
+
+// Same Checkr status/history + application-fee payment status shown on the
+// summary card above the checklist, repeated inline on this applicant's own
+// Background / Credit Reports row — see the render-site comment for why.
+function CheckrStatusInline({ subject, payment }: {
+  subject: { status: string | null; history: { type: string; receivedAt: string }[] } | undefined
+  payment: { status: string; amountPaid: number | null } | null
+}) {
+  if (!subject && !payment) return null
+  return (
+    <div style={{ margin: '4px 0 10px', padding: '8px 10px', background: '#f8fbff', border: '1px solid #dbeafe', borderRadius: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {payment && (
+          <span style={{
+            font: '600 11px system-ui', borderRadius: 999, padding: '2px 9px',
+            color: payment.status === 'paid' ? '#065f46' : '#92400e',
+            background: payment.status === 'paid' ? '#d1fae5' : '#fef3c7',
+          }}>
+            {payment.status === 'paid' ? `✓ Paid${payment.amountPaid != null ? ` $${payment.amountPaid.toFixed(2)}` : ''}` : `Payment: ${payment.status}`}
+          </span>
+        )}
+        {subject && (
+          <span style={{
+            font: '600 11px system-ui', borderRadius: 999, padding: '2px 9px',
+            color: subject.status === 'complete' ? '#065f46' : subject.status === 'error' ? '#991b1b' : '#92400e',
+            background: subject.status === 'complete' ? '#d1fae5' : subject.status === 'error' ? '#fee2e2' : '#fef3c7',
+          }}>Checkr: {subject.status ?? 'pending'}</span>
+        )}
+      </div>
+      {subject && subject.history.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          {subject.history.map((h, hi) => (
+            <div key={hi} style={{ font: '11.5px system-ui', color: '#6b7280' }}>
+              {h.receivedAt ? new Date(h.receivedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'} · {h.type}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
