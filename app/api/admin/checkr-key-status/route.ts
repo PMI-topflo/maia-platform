@@ -25,6 +25,16 @@
 // Added length + the char codes of the first/last few characters below
 // (never the key itself) so this can be confirmed from the JSON response
 // instead of guessed at.
+//
+// Also reports CHECKR_PACKAGE_RESIDENTIAL's raw value (not a credential --
+// it's a fixed package tier, not a secret, so no need to mask it). Added
+// 2026-09-06 after staff couldn't find any "Packages" section in Checkr's
+// dashboard matching this var -- Checkr's own Errors guide's example
+// validation error is `"detail":"must be one of: starter, essential"` on
+// `/order/package`, meaning package isn't a dashboard-configured slug at
+// all, just one of those two literal enum values. Checking the raw value
+// here confirms whether it's actually set to one of them before spending a
+// real order on finding out.
 
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
@@ -45,6 +55,9 @@ export async function GET() {
     : key.startsWith('sk_test_') ? 'test'
     : 'unrecognized'
 
+  const pkg = process.env.CHECKR_PACKAGE_RESIDENTIAL ?? null
+  const KNOWN_PACKAGES = ['starter', 'essential']
+
   return NextResponse.json({
     mode,
     length: key.length,
@@ -54,5 +67,7 @@ export async function GET() {
     // or just eyeball: 32=space, 34=", 39=', 8203/65279=invisible unicode.
     firstCharCodes: charCodes(key.slice(0, 6)),
     lastCharCodes: charCodes(key.slice(-4)),
+    package: pkg,
+    packageRecognized: pkg !== null && KNOWN_PACKAGES.includes(pkg),
   })
 }
