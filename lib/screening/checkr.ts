@@ -2,7 +2,10 @@
 // lib/screening/checkr.ts
 // Checkr TENANT Screening API implementation. Key differences from a
 // typical Checkr integration:
-//   - Bearer token auth (Authorization: Bearer ckr_sk_...), not HTTP Basic.
+//   - Bearer token auth (Authorization: Bearer sk_test_.../sk_live_...), not
+//     HTTP Basic -- no 'ckr_' prefix, confirmed 2026-09-06 against a real
+//     live key (this file previously assumed 'ckr_sk_test_'/'ckr_sk_live_',
+//     which nobody had checked against an actual live key until then).
 //   - A single POST /orders call creates the whole screening (applicant +
 //     property + package) -- no separate Candidate-then-Report step.
 //   - There is NO embeddable consent widget. Checkr emails the applicant a
@@ -14,7 +17,7 @@
 //     HMAC-SHA256 of "<t>.<raw_body>".
 //   - Order creation requires an Idempotency-Key header.
 //
-// ⚠ API_BASE confirmed LIVE 2026-07-06 with a real ckr_sk_test_ key —
+// ⚠ API_BASE confirmed LIVE 2026-07-06 with a real sk_test_ key —
 // `https://tenant.checkr.com/api` is the correct host+path prefix (NOT
 // api.checkr.com/v1, and NOT the /v1 shown in checkr-tenant-api-docs.redocly.app's
 // own placeholder examples, which use api.example.com). Confirmed BOTH real
