@@ -1,12 +1,18 @@
 // GET /api/admin/checkr-key-status
 //
-// Reports ONLY whether CHECKR_API_KEY is a test (ckr_sk_test_) or live
-// (ckr_sk_live_) key -- never the key itself. Exists to resolve the one
+// Reports ONLY whether CHECKR_API_KEY is a test (sk_test_) or live
+// (sk_live_) key -- never the key itself. Exists to resolve the one
 // remaining gate on flipping any association to maia_checkr: the Vercel var
 // is marked Sensitive (unreadable via the dashboard UI or API once set), so
 // there was previously no way to confirm which mode was live short of
 // triggering a real order and watching what happens. See docs/ROADMAP.md's
 // Checkr entry -- this was listed as "offered, not built" until now.
+//
+// Real case, 2026-09-06: this checked for a 'ckr_sk_live_'/'ckr_sk_test_'
+// prefix, which nobody had verified against an actual Checkr dashboard --
+// the real prefix, confirmed live against Checkr's own masked key display
+// (both the test and the freshly-generated live key), is 'sk_test_'/
+// 'sk_live_' with no 'ckr_' prefix at all.
 
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
@@ -19,8 +25,8 @@ export async function GET() {
 
   const key = process.env.CHECKR_API_KEY ?? ''
   const mode = !key ? 'unconfigured'
-    : key.startsWith('ckr_sk_live_') ? 'live'
-    : key.startsWith('ckr_sk_test_') ? 'test'
+    : key.startsWith('sk_live_') ? 'live'
+    : key.startsWith('sk_test_') ? 'test'
     : 'unrecognized'
 
   return NextResponse.json({ mode })

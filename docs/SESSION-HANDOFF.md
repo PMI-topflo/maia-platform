@@ -501,7 +501,7 @@ Nine commits, squash-merged. **All five migrations were applied to production DU
 
 ### ⏳ NEXT
 1. **Nothing creates a `rules_knowledge_ack` document** — the form renders, but no applicant can be sent one. Same wiring check for `pet_registration` (confirmed: should trigger the existing pet e-sign form) and `renters_insurance`. **This is what blocks a real VPCI application.**
-2. **Checkr:** integration is proven end-to-end in production; only the KEY MODE is unverified — Vercel vars are Sensitive and unedited since Jul 6, so probably still `ckr_sk_test`. **Do not flip anyone to `maia_checkr` until the prefix is confirmed live.**
+2. **Checkr:** live key generated and set 2026-09-06 (real case: a MANXI applicant's order silently ran in sandbox mode, no real email or background check ever went out — found via `/api/checkr-webhook` never receiving traffic). Also found and fixed while diagnosing: `/api/admin/checkr-key-status` was checking for a `ckr_sk_test_`/`ckr_sk_live_` prefix that never existed — the real prefix, confirmed against Checkr's own dashboard, is `sk_test_`/`sk_live_` with no `ckr_` prefix. Re-check that status endpoint after the next deploy to confirm it now reports `live`.
 3. Row-restyle of `/admin/pre-apply/[id]` — **the approved mockup is not in the repo and has never been seen. Ask for it; don't invent it.**
 4. Owner outreach for VPCI gaps: 50K no screening + no lease since 2024-11; 91M no board approval; 97M-2024 no eviction reports; 97M-2025 unsigned lease.
 5. Official folder intentionally empty until a future feature emails owners to declare leased / owner-occupied / vacant.
