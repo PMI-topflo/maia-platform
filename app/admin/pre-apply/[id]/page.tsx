@@ -496,7 +496,18 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           a stale one. Now shown whenever nothing has actually completed yet
           (so a genuinely finished report is never at risk of being
           silently re-requested/overwritten). */}
-      {!decided && d.screeningSubjects.every(s => s.status !== 'complete') && <CheckrRequestSender id={id} provider={d.screeningProvider} hasExisting={d.screeningSubjects.length > 0} paid={d.payment?.status === 'paid'} onDone={load} />}
+      {/* Staff report, 2026-09-06 (a Tenant Evaluation hand-off case): once
+          every applicant's own "Background / Credit Reports" row is
+          uploaded AND approved manually (e.g. a report from the retired
+          Tenant Evaluation process), the Checkr button should read as
+          resolved instead of sitting there as an easy way to accidentally
+          fire a real, separately-charged order on top of one already paid
+          for elsewhere. Only applies while no real Checkr order exists yet
+          -- an application that already has one goes through the normal
+          hasExisting path regardless. */}
+      {!decided && d.screeningSubjects.every(s => s.status !== 'complete') && <CheckrRequestSender id={id} provider={d.screeningProvider} hasExisting={d.screeningSubjects.length > 0} paid={d.payment?.status === 'paid'}
+        resolvedManually={applicants.length > 0 && applicants.every(a => !!docFor('background_credit', a.id) && reviewFor('background_credit', a.id)?.state === 'approved')}
+        onDone={load} />}
       {!decided && d.screeningSubjects.length === 0 && <RentvineFallbackSender id={id} />}
       {!decided && <RulesAckSender id={id} />}
       {!decided && <PetRegSender id={id} />}
@@ -822,7 +833,7 @@ function RentvineFallbackSender({ id }: { id: string }) {
 // comment above for why this isn't gated on "any row exists" anymore).
 // Real orders cost money and email the applicant a consent link, so this
 // confirms before firing rather than being a single accidental click.
-function CheckrRequestSender({ id, provider, hasExisting, paid, onDone }: { id: string; provider: string; hasExisting: boolean; paid: boolean; onDone: () => void }) {
+function CheckrRequestSender({ id, provider, hasExisting, paid, resolvedManually, onDone }: { id: string; provider: string; hasExisting: boolean; paid: boolean; resolvedManually: boolean; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
   // Set when request-screening's reason:'payment_pending' comes back --
@@ -888,9 +899,12 @@ function CheckrRequestSender({ id, provider, hasExisting, paid, onDone }: { id: 
           <div style={{ font: '12.5px system-ui', color: '#4b5563', marginBottom: 8 }}>
             {hasExisting
               ? 'An order already exists but nothing has completed yet — use this to fire a fresh one (e.g. after fixing a misconfigured Checkr key), replacing the existing order.'
+              : resolvedManually
+              ? 'Resolved manually — every applicant already has an approved "Background / Credit Reports" document on file (e.g. from the retired Tenant Evaluation process). Only use this if a real Checkr order is genuinely still needed on top of that.'
               : 'No Checkr order exists yet for this application. This normally fires automatically the moment the applicant pays — use this if it looks like it didn’t, or to retry.'}
           </div>
-          <button onClick={request} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#1d4ed8', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
+          <button onClick={request} disabled={busy} title={resolvedManually && !hasExisting ? 'Already resolved manually -- click only if a real Checkr order is genuinely still needed' : undefined}
+            style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : resolvedManually && !hasExisting ? '#9ca3af' : '#1d4ed8', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer', opacity: resolvedManually && !hasExisting ? 0.7 : 1 }}>
             {busy ? 'Requesting…' : hasExisting ? '🔍 Re-request background check via Checkr' : '🔍 Request background check via Checkr'}
           </button>
           {paymentPending && (
