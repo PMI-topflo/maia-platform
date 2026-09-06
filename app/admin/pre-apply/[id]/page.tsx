@@ -460,7 +460,15 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       )}
       {(d.type === 'lease_renewal' || d.type === 'additional_occupant') && <CarryOverButton id={id} onDone={load} />}
       {missing.length > 0 && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 10, font: '13px system-ui', color: '#92400e', marginBottom: 10 }}>⚠ Missing required: {missing.map(m => m.label).join(', ')}</div>}
-      {!decided && d.screeningSubjects.length === 0 && <CheckrRequestSender id={id} provider={d.screeningProvider} onDone={load} />}
+      {/* Real case, 2026-09-06 (Querline Pinckney, MANXI 912): her order was
+          created under a test-mode CHECKR_API_KEY, so a screening_subjects
+          row already existed (stuck at awaiting_applicant) once the key was
+          fixed to live -- this button used to hide entirely the moment ANY
+          row existed, with no way for staff to fire a fresh real order over
+          a stale one. Now shown whenever nothing has actually completed yet
+          (so a genuinely finished report is never at risk of being
+          silently re-requested/overwritten). */}
+      {!decided && d.screeningSubjects.every(s => s.status !== 'complete') && <CheckrRequestSender id={id} provider={d.screeningProvider} hasExisting={d.screeningSubjects.length > 0} onDone={load} />}
       {!decided && d.screeningSubjects.length === 0 && <RentvineFallbackSender id={id} />}
       {!decided && <RulesAckSender id={id} />}
       {!decided && <PetRegSender id={id} />}
@@ -817,11 +825,11 @@ function RentvineFallbackSender({ id }: { id: string }) {
 
 // Manual trigger for the real Checkr order (app/api/trigger-screening) —
 // normally fires automatically off the Stripe webhook the moment payment
-// clears. Only shown while no screening_subjects exist yet (once they do,
-// the "Background check (Checkr)" block above takes over). Real orders
-// cost money and email the applicant a consent link, so this confirms
-// before firing rather than being a single accidental click.
-function CheckrRequestSender({ id, provider, onDone }: { id: string; provider: string; onDone: () => void }) {
+// clears. Shown until a subject actually completes (see the render-site
+// comment above for why this isn't gated on "any row exists" anymore).
+// Real orders cost money and email the applicant a consent link, so this
+// confirms before firing rather than being a single accidental click.
+function CheckrRequestSender({ id, provider, hasExisting, onDone }: { id: string; provider: string; hasExisting: boolean; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
   const [switchErr, setSwitchErr] = useState<string | null>(null)
@@ -834,7 +842,10 @@ function CheckrRequestSender({ id, provider, onDone }: { id: string; provider: s
   const [linkSent, setLinkSent] = useState<{ ok: boolean; text: string } | null>(null)
 
   async function request() {
-    if (!confirm('Create a real Checkr order for every applicant/occupant on this application? This costs money and emails each of them a consent link.')) return
+    const msg = hasExisting
+      ? 'Create a fresh real Checkr order for every applicant/occupant on this application, replacing any existing one? This costs money and emails each of them a new consent link.'
+      : 'Create a real Checkr order for every applicant/occupant on this application? This costs money and emails each of them a consent link.'
+    if (!confirm(msg)) return
     setBusy(true); setResult(null); setPaymentPending(false)
     try {
       const r = await fetch(`/api/admin/pre-apply/${id}/request-screening`, { method: 'POST', credentials: 'include' })
@@ -880,9 +891,13 @@ function CheckrRequestSender({ id, provider, onDone }: { id: string; provider: s
       <div style={{ font: '700 13px system-ui', color: isCheckr ? '#1e40af' : '#6b7280', marginBottom: 4 }}>🔍 Background check <span style={{ font: '400 11.5px system-ui', color: '#9ca3af' }}>· via Checkr</span></div>
       {isCheckr ? (
         <>
-          <div style={{ font: '12.5px system-ui', color: '#4b5563', marginBottom: 8 }}>No Checkr order exists yet for this application. This normally fires automatically the moment the applicant pays — use this if it looks like it didn&apos;t, or to retry.</div>
+          <div style={{ font: '12.5px system-ui', color: '#4b5563', marginBottom: 8 }}>
+            {hasExisting
+              ? 'An order already exists but nothing has completed yet — use this to fire a fresh one (e.g. after fixing a misconfigured Checkr key), replacing the existing order.'
+              : 'No Checkr order exists yet for this application. This normally fires automatically the moment the applicant pays — use this if it looks like it didn’t, or to retry.'}
+          </div>
           <button onClick={request} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#1d4ed8', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
-            {busy ? 'Requesting…' : '🔍 Request background check via Checkr'}
+            {busy ? 'Requesting…' : hasExisting ? '🔍 Re-request background check via Checkr' : '🔍 Request background check via Checkr'}
           </button>
           {paymentPending && (
             <div style={{ marginTop: 8 }}>
