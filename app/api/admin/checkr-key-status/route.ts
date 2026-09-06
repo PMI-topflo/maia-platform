@@ -13,12 +13,28 @@
 // the real prefix, confirmed live against Checkr's own masked key display
 // (both the test and the freshly-generated live key), is 'sk_test_'/
 // 'sk_live_' with no 'ckr_' prefix at all.
+//
+// Still-open case, same day: after the prefix fix above shipped and was
+// confirmed live in production, this kept returning "unrecognized" for a
+// freshly-set CHECKR_API_KEY that Checkr's own dashboard shows as
+// sk_live_...2c6b. That rules out the prefix logic itself -- so the value
+// Vercel is actually injecting must not literally start with "sk_live_"
+// (a stray leading character from the copy/paste -- e.g. a zero-width
+// space, a smart-quote, a wrapping quote character, or a leading newline
+// -- would do exactly this while still "looking" right in a screenshot).
+// Added length + the char codes of the first/last few characters below
+// (never the key itself) so this can be confirmed from the JSON response
+// instead of guessed at.
 
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+function charCodes(s: string): number[] {
+  return Array.from(s, (c) => c.codePointAt(0) ?? 0)
+}
 
 export async function GET() {
   if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -29,5 +45,14 @@ export async function GET() {
     : key.startsWith('sk_test_') ? 'test'
     : 'unrecognized'
 
-  return NextResponse.json({ mode })
+  return NextResponse.json({
+    mode,
+    length: key.length,
+    // Never enough characters to reconstruct the key -- just enough to spot
+    // a stray character (whitespace, quote marks, BOM) that a screenshot
+    // can't reveal. Decode each code point at https://www.rapidtables.com/code/text/ascii-table.html
+    // or just eyeball: 32=space, 34=", 39=', 8203/65279=invisible unicode.
+    firstCharCodes: charCodes(key.slice(0, 6)),
+    lastCharCodes: charCodes(key.slice(-4)),
+  })
 }
