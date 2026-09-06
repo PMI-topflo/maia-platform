@@ -496,7 +496,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           a stale one. Now shown whenever nothing has actually completed yet
           (so a genuinely finished report is never at risk of being
           silently re-requested/overwritten). */}
-      {!decided && d.screeningSubjects.every(s => s.status !== 'complete') && <CheckrRequestSender id={id} provider={d.screeningProvider} hasExisting={d.screeningSubjects.length > 0} onDone={load} />}
+      {!decided && d.screeningSubjects.every(s => s.status !== 'complete') && <CheckrRequestSender id={id} provider={d.screeningProvider} hasExisting={d.screeningSubjects.length > 0} paid={d.payment?.status === 'paid'} onDone={load} />}
       {!decided && d.screeningSubjects.length === 0 && <RentvineFallbackSender id={id} />}
       {!decided && <RulesAckSender id={id} />}
       {!decided && <PetRegSender id={id} />}
@@ -869,7 +869,7 @@ function RentvineFallbackSender({ id }: { id: string }) {
 // comment above for why this isn't gated on "any row exists" anymore).
 // Real orders cost money and email the applicant a consent link, so this
 // confirms before firing rather than being a single accidental click.
-function CheckrRequestSender({ id, provider, hasExisting, onDone }: { id: string; provider: string; hasExisting: boolean; onDone: () => void }) {
+function CheckrRequestSender({ id, provider, hasExisting, paid, onDone }: { id: string; provider: string; hasExisting: boolean; paid: boolean; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
   const [switchErr, setSwitchErr] = useState<string | null>(null)
@@ -882,9 +882,18 @@ function CheckrRequestSender({ id, provider, hasExisting, onDone }: { id: string
   const [linkSent, setLinkSent] = useState<{ ok: boolean; text: string } | null>(null)
 
   async function request() {
+    // Staff report, 2026-09-06: "will it charge her again?" -- trigger-screening
+    // never touches Stripe (it only checks application.stripe_payment_status,
+    // never creates a charge), so re-requesting is always safe on that front.
+    // "This costs money" below refers to Checkr's own per-report fee billed to
+    // PMI's account, not a charge to the applicant -- made explicit here so
+    // staff don't hesitate to use this out of fear of double-billing them.
+    const costNote = paid
+      ? 'The application fee is already paid — this does NOT charge the applicant again. It only costs PMI the Checkr per-report fee.'
+      : 'This costs PMI the Checkr per-report fee (not a charge to the applicant).'
     const msg = hasExisting
-      ? 'Create a fresh real Checkr order for every applicant/occupant on this application, replacing any existing one? This costs money and emails each of them a new consent link.'
-      : 'Create a real Checkr order for every applicant/occupant on this application? This costs money and emails each of them a consent link.'
+      ? `Create a fresh real Checkr order for every applicant/occupant on this application, replacing any existing one? ${costNote} Each of them gets a new consent link by email.`
+      : `Create a real Checkr order for every applicant/occupant on this application? ${costNote} Each of them gets a consent link by email.`
     if (!confirm(msg)) return
     setBusy(true); setResult(null); setPaymentPending(false)
     try {
@@ -928,7 +937,16 @@ function CheckrRequestSender({ id, provider, hasExisting, onDone }: { id: string
   const isCheckr = provider === 'maia_checkr'
   return (
     <div style={{ margin: '4px 0 14px', border: `1px solid ${isCheckr ? '#bfdbfe' : '#e5e7eb'}`, background: isCheckr ? '#eff6ff' : '#f9fafb', borderRadius: 10, padding: 12 }}>
-      <div style={{ font: '700 13px system-ui', color: isCheckr ? '#1e40af' : '#6b7280', marginBottom: 4 }}>🔍 Background check <span style={{ font: '400 11.5px system-ui', color: '#9ca3af' }}>· via Checkr</span></div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <div style={{ font: '700 13px system-ui', color: isCheckr ? '#1e40af' : '#6b7280' }}>🔍 Background check <span style={{ font: '400 11.5px system-ui', color: '#9ca3af' }}>· via Checkr</span></div>
+        {/* Staff report, 2026-09-06: "couldn't flag now if it was paid or
+            not" right where the request/re-request button lives — the
+            summary card above shows this too, but not every staff member
+            scrolls back up before clicking. */}
+        <span style={{ font: '600 11px system-ui', borderRadius: 999, padding: '2px 9px', color: paid ? '#065f46' : '#92400e', background: paid ? '#d1fae5' : '#fef3c7' }}>
+          {paid ? '✓ Application fee paid' : 'Application fee not yet paid'}
+        </span>
+      </div>
       {isCheckr ? (
         <>
           <div style={{ font: '12.5px system-ui', color: '#4b5563', marginBottom: 8 }}>
