@@ -500,10 +500,6 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {!decided && d.screeningSubjects.length === 0 && <RentvineFallbackSender id={id} />}
       {!decided && <RulesAckSender id={id} />}
       {!decided && <PetRegSender id={id} />}
-      {/* Tenant Evaluation retired from the UI, 2026-09-03 — Checkr (+ the
-          Rentvine fallback above) replaces it. Code kept in place
-          (TenantEvalSender below, lib/tenant-evaluation.ts, its API route)
-          in case it's ever needed again; just not rendered. */}
       <CommunicationsLog id={id} unit={d.unit} associationCode={d.associationCode} refreshKey={commsVersion} />
 
       {/* Shared documents — one for the whole unit / application. */}
@@ -770,49 +766,6 @@ interface PetRegInfo {
   blockers: string[]
   existing: { id: string; status: string; createdAt: string; signers: { role: string; name?: string | null; signed_at?: string }[] } | null
 }
-function TenantEvalSender({ id }: { id: string }) {
-  interface Info { recipients: { name: string | null; email: string | null }[]; skipped: string[]; propertyCode: string | null; blockers: string[] }
-  const [info, setInfo] = useState<Info | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [sent, setSent] = useState<{ sent: string[]; failed: string[] } | null>(null)
-  const load = useCallback(() => { fetch(`/api/admin/pre-apply/${id}/tenant-evaluation`, { credentials: 'include' }).then(r => r.json()).then(setInfo).catch(() => setInfo(null)) }, [id])
-  useEffect(load, [load])
-  // No guide configured for this association at all — nothing useful to
-  // offer, so the card doesn't take up space saying so on every application.
-  if (!info || (info.blockers.length === 1 && info.blockers[0].startsWith('No Tenant Evaluation guide'))) return null
-
-  async function send() {
-    setBusy(true); setSent(null)
-    try {
-      const r = await fetch(`/api/admin/pre-apply/${id}/tenant-evaluation`, { method: 'POST', credentials: 'include' })
-      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
-      setSent({ sent: j.sent, failed: j.failed }); load()
-    } catch (e) { alert(`Could not send: ${(e as Error).message}`) } finally { setBusy(false) }
-  }
-
-  return (
-    <div style={{ margin: '4px 0 14px', border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 10, padding: 12 }}>
-      <div style={{ font: '700 13px system-ui', color: '#1e40af', marginBottom: 4 }}>🔎 Background / Credit Reports — ask them to apply <span style={{ font: '400 11.5px system-ui', color: '#9ca3af' }}>· via Tenant Evaluation</span></div>
-      {info.blockers.length > 0 && !info.recipients.length ? (
-        <div style={{ font: '12.5px system-ui', color: '#92400e' }}>{info.blockers.map((b, i) => <div key={i}>⚠ {b}</div>)}</div>
-      ) : (
-        <>
-          <div style={{ font: '12.5px system-ui', color: '#4b5563', marginBottom: 8 }}>
-            Emails {info.recipients.map(r => r.name ?? r.email).join(', ')} the step-by-step guide (property code {info.propertyCode}) to create their own Tenant Evaluation account and submit their background check — this is separate from uploading the finished report below.
-            {info.skipped.length > 0 && <> Not sent to {info.skipped.join(', ')} — no email on file.</>}
-          </div>
-          <button onClick={send} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#1d4ed8', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
-            {busy ? 'Sending…' : `🔎 Send Tenant Evaluation guide (${info.recipients.length})`}
-          </button>
-        </>
-      )}
-      {sent && <div style={{ marginTop: 6, font: '12px system-ui', color: sent.sent.length ? '#166534' : '#b91c1c' }}>
-        {sent.sent.length > 0 && `✓ Sent to ${sent.sent.join(', ')}`}{sent.failed.length > 0 && ` · could not send to ${sent.failed.join(', ')}`}
-      </div>}
-    </div>
-  )
-}
-
 // Manual fallback background check, sent via PMI's Rentvine-hosted
 // application — for when Checkr has an issue and staff need another path
 // right now. One fixed, generic link (Rentvine's own apply form isn't unit-
@@ -872,7 +825,6 @@ function RentvineFallbackSender({ id }: { id: string }) {
 function CheckrRequestSender({ id, provider, hasExisting, paid, onDone }: { id: string; provider: string; hasExisting: boolean; paid: boolean; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
-  const [switchErr, setSwitchErr] = useState<string | null>(null)
   // Set when request-screening's reason:'payment_pending' comes back --
   // staff report, 2026-09-03 (MANXI 912): the error alone was a dead end.
   // She was never shown the payment step at all because Checkr wasn't her
@@ -918,22 +870,6 @@ function CheckrRequestSender({ id, provider, hasExisting, paid, onDone }: { id: 
     } catch (e) { setLinkSent({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
   }
 
-  // Flipping the association's own toggle does NOT retroactively move an
-  // already-created application onto Checkr (it's snapshotted at creation,
-  // see lib/preapply.ts's resolveScreeningProvider) -- staff report,
-  // 2026-09-03: the old copy here told staff to flip the association as if
-  // that would fix it, which does nothing for an application already in
-  // flight. This is the actual one-off catch-up for a single application.
-  async function switchToCheckr() {
-    if (!confirm('Switch just this application to Checkr? This only affects this one application — not the association setting, and not any other application.')) return
-    setBusy(true); setSwitchErr(null)
-    try {
-      const r = await fetch(`/api/admin/pre-apply/${id}/switch-to-checkr`, { method: 'POST', credentials: 'include' })
-      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed')
-      onDone()
-    } catch (e) { setSwitchErr((e as Error).message) } finally { setBusy(false) }
-  }
-
   const isCheckr = provider === 'maia_checkr'
   return (
     <div style={{ margin: '4px 0 14px', border: `1px solid ${isCheckr ? '#bfdbfe' : '#e5e7eb'}`, background: isCheckr ? '#eff6ff' : '#f9fafb', borderRadius: 10, padding: 12 }}>
@@ -968,13 +904,18 @@ function CheckrRequestSender({ id, provider, hasExisting, paid, onDone }: { id: 
           )}
         </>
       ) : (
-        <>
-          <div style={{ font: '12.5px system-ui', color: '#6b7280', marginBottom: 8 }}>This application started on Tenant Evaluation and stays there even if the association has since switched — flipping the association&apos;s toggle won&apos;t move it. Switch just this one, or use the Rentvine fallback below.</div>
-          <button onClick={switchToCheckr} disabled={busy} style={{ font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#1d4ed8', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: busy ? 'default' : 'pointer' }}>
-            {busy ? 'Switching…' : '🔍 Switch this application to Checkr'}
-          </button>
-          {switchErr && <div style={{ marginTop: 8, font: '12px system-ui', color: '#b91c1c' }}>{switchErr}</div>}
-        </>
+        // User direction, 2026-09-06: every association now defaults to
+        // Checkr, and the old manual "Tenant Evaluation" process (renamed
+        // "Rentvine Screening" in the association setup UI) is retired going
+        // forward -- this branch only ever renders for an application
+        // already snapshotted onto it before that flip, so there is nothing
+        // active left to offer here. Real background/credit reports for
+        // these still need a place to live -- that's the ordinary
+        // "Background / Credit Reports" staff-upload row in this
+        // applicant's own document checklist below, unaffected by this.
+        <div style={{ font: '12.5px system-ui', color: '#6b7280' }}>
+          This application started before Checkr was this association&apos;s default and stays on the retired manual process — nothing to trigger here. Upload the background/credit report directly on the applicant&apos;s own &quot;Background / Credit Reports&quot; row below.
+        </div>
       )}
       {result && <div style={{ marginTop: 8, font: '12px system-ui', color: result.ok ? '#166534' : '#b91c1c' }}>{result.text}</div>}
     </div>

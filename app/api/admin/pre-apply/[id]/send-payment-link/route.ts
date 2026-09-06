@@ -2,10 +2,9 @@
 //
 // Emails the primary applicant the same /apply?listingApp=... payment link
 // app/pre-apply/[code]/page.tsx's ScreeningPaymentGate already shows her --
-// for the case that gate was never shown at all: an application that
-// started on Tenant Evaluation and only later got switched to Checkr (see
-// switch-to-checkr/route.ts) already had her pass through her checklist
-// page before the gate existed for her, so payment was never in her
+// for the case that gate was never shown at all: an application already had
+// her pass through her checklist page before the gate existed for her (or
+// before this association defaulted to Checkr), so payment was never in her
 // workflow. Staff-only.
 
 import { NextResponse } from 'next/server'
