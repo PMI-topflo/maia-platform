@@ -67,6 +67,14 @@ export default function AdminToolsPage() {
   const [setupSqlOpen,      setSetupSqlOpen]      = useState(false)
   const [applyingKey,       setApplyingKey]       = useState<string | null>(null)
   const [applyErrors,       setApplyErrors]       = useState<Record<string, string>>({})
+  // Staff report, 2026-09-06: the list of every migration ever registered
+  // got too long to scan for the handful still missing. Hidden by default
+  // once there's at least one missing one to actually look at; toggle
+  // reveals the rest (e.g. to re-copy an already-applied migration's SQL --
+  // see showApplied below, this was also the ONLY way to retrieve the SQL
+  // for a data-only migration whose artifact column already existed before
+  // it ran, which always reads "applied" even on a fresh, un-run copy).
+  const [showApplied,       setShowApplied]       = useState(false)
 
   // Email association code cleanup state
   const [cleanRunning, setCleanRunning] = useState(false)
@@ -478,8 +486,19 @@ export default function AdminToolsPage() {
               })()}
             </h2>
             <p style={{ color: '#6b7280', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
-              Tracks which recent migrations are live in Supabase. Click <em>Apply</em> to run a missing one server-side, or <em>Show SQL</em> to copy it for the Supabase SQL Editor.
+              Tracks which recent migrations are live in Supabase. Click <em>Apply</em> to run one server-side, or <em>Show SQL</em> to copy it for the Supabase SQL Editor.
             </p>
+            {!migrationsLoading && migrations.some(m => m.applied) && (
+              <button
+                onClick={() => setShowApplied(v => !v)}
+                style={{
+                  marginTop: '0.5rem', padding: '0.25rem 0.6rem', border: '1px solid #d1d5db',
+                  borderRadius: 4, background: '#fff', color: '#374151', fontSize: '0.72rem', cursor: 'pointer',
+                }}
+              >
+                {showApplied ? 'Hide' : 'Show'} {migrations.filter(m => m.applied).length} already-applied
+              </button>
+            )}
           </div>
 
           {!migrationsLoading && !canAutoApply && migrations.some(m => !m.applied) && (
@@ -516,8 +535,10 @@ export default function AdminToolsPage() {
               <div style={{ padding: '1rem 1.25rem', color: '#9ca3af', fontSize: '0.85rem' }}>Checking…</div>
             ) : migrations.length === 0 ? (
               <div style={{ padding: '1rem 1.25rem', color: '#9ca3af', fontSize: '0.85rem' }}>No migrations to track.</div>
+            ) : migrations.filter(m => showApplied || !m.applied).length === 0 ? (
+              <div style={{ padding: '1rem 1.25rem', color: '#9ca3af', fontSize: '0.85rem' }}>Nothing missing — everything&apos;s applied.</div>
             ) : (
-              migrations.map((m: MigrationRow) => (
+              migrations.filter(m => showApplied || !m.applied).map((m: MigrationRow) => (
                 <div key={m.key} style={{ borderTop: '1px solid #f3f4f6', padding: '0.6rem 1.25rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <span style={{
@@ -535,38 +556,45 @@ export default function AdminToolsPage() {
                         {m.filename}
                       </div>
                     </div>
-                    {!m.applied && (
-                      <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
-                        {canAutoApply && (
-                          <button
-                            onClick={() => applyMigration(m.key)}
-                            disabled={applyingKey !== null}
-                            style={{
-                              padding: '0.3rem 0.8rem', border: '1px solid #16a34a',
-                              borderRadius: 4, background: '#16a34a', color: '#fff',
-                              fontSize: '0.7rem', whiteSpace: 'nowrap',
-                              cursor: applyingKey !== null ? 'default' : 'pointer',
-                              opacity: applyingKey !== null && applyingKey !== m.key ? 0.5 : 1,
-                            }}
-                          >
-                            {applyingKey === m.key ? 'Applying…' : 'Apply'}
-                          </button>
-                        )}
+                    {/* Always shown, not just !m.applied -- a data-only
+                        migration (e.g. one that only ALTERs a default or
+                        UPDATEs rows on a column that already existed) reads
+                        "applied" the instant its artifact column exists,
+                        even on a fresh copy that never actually ran. Without
+                        this, staff had no way to retrieve or re-run its SQL
+                        at all once that happened. Idempotent by convention
+                        (CLAUDE.md), so re-running an already-applied one is
+                        always safe. */}
+                    <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
+                      {canAutoApply && (
                         <button
-                          onClick={() => setOpenedSqlKey(openedSqlKey === m.key ? null : m.key)}
+                          onClick={() => applyMigration(m.key)}
+                          disabled={applyingKey !== null}
                           style={{
-                            padding: '0.3rem 0.6rem', border: '1px solid #f26a1b',
-                            borderRadius: 4, background: openedSqlKey === m.key ? '#f26a1b' : '#fff',
-                            color: openedSqlKey === m.key ? '#fff' : '#f26a1b',
-                            fontSize: '0.7rem', cursor: 'pointer', whiteSpace: 'nowrap',
+                            padding: '0.3rem 0.8rem', border: '1px solid #16a34a',
+                            borderRadius: 4, background: '#16a34a', color: '#fff',
+                            fontSize: '0.7rem', whiteSpace: 'nowrap',
+                            cursor: applyingKey !== null ? 'default' : 'pointer',
+                            opacity: applyingKey !== null && applyingKey !== m.key ? 0.5 : 1,
                           }}
                         >
-                          {openedSqlKey === m.key ? 'Hide SQL' : 'Show SQL'}
+                          {applyingKey === m.key ? 'Applying…' : m.applied ? 'Re-apply' : 'Apply'}
                         </button>
-                      </div>
-                    )}
+                      )}
+                      <button
+                        onClick={() => setOpenedSqlKey(openedSqlKey === m.key ? null : m.key)}
+                        style={{
+                          padding: '0.3rem 0.6rem', border: '1px solid #f26a1b',
+                          borderRadius: 4, background: openedSqlKey === m.key ? '#f26a1b' : '#fff',
+                          color: openedSqlKey === m.key ? '#fff' : '#f26a1b',
+                          fontSize: '0.7rem', cursor: 'pointer', whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {openedSqlKey === m.key ? 'Hide SQL' : 'Show SQL'}
+                      </button>
+                    </div>
                   </div>
-                  {!m.applied && openedSqlKey === m.key && (
+                  {openedSqlKey === m.key && (
                     <div style={{ marginTop: 6 }}>
                       <pre style={{
                         background: '#0d0d0d', color: '#e5e7eb',
