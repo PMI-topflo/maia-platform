@@ -4,6 +4,14 @@
 import { checkOutboundRateLimit, recordOutboundAttempt } from '@/lib/outbound-rate-limit'
 
 const FROM = 'MAIA | PMI Top Florida Properties <maia@pmitop.com>'
+// User direction, 2026-09-06: every MAIA email should let the board/applicant
+// reply somewhere a person actually reads, not silently back to maia@pmitop.com
+// itself -- the same inbox app/api/maia-email/webhook watches for inbound
+// "@maia ..." commands. Several flows already set their own considered
+// reply-to (board review's own SUPPORT constant, vendor-specific addresses,
+// Jonathan directly for application hand-offs) -- those are left alone. This
+// is only the fallback for every OTHER call site that set none at all.
+const DEFAULT_REPLY_TO = 'support@topfloridaproperties.com'
 
 /** Readable plain-text fallback from our HTML emails. Keeps link targets (so the
  *  text part is actually useful) and collapses the markup. Used whenever a
@@ -125,10 +133,12 @@ async function getAccessToken(): Promise<string> {
   return tokenCache.value
 }
 
-function buildRaw({ to, subject, html }: { to: string[]; subject: string; html: string }): string {
+function buildRaw({ to, subject, html, replyTo }: { to: string[]; subject: string; html: string; replyTo?: string | string[] }): string {
+  const replyToLine = replyTo ? [`Reply-To: ${Array.isArray(replyTo) ? replyTo.join(', ') : replyTo}`] : []
   const mime = [
     `From: ${FROM}`,
     `To: ${to.join(', ')}`,
+    ...replyToLine,
     `Subject: ${subject}`,
     'MIME-Version: 1.0',
     'Content-Type: text/html; charset=utf-8',
@@ -140,7 +150,7 @@ function buildRaw({ to, subject, html }: { to: string[]; subject: string; html: 
   return Buffer.from(mime, 'utf-8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-async function sendViaGmail({ to, subject, html }: { to: string[]; subject: string; html: string }): Promise<void> {
+async function sendViaGmail({ to, subject, html, replyTo }: { to: string[]; subject: string; html: string; replyTo?: string | string[] }): Promise<void> {
   const hasGmail = process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN
   if (!hasGmail) throw new Error('[Gmail] Credentials not configured')
 
@@ -148,7 +158,7 @@ async function sendViaGmail({ to, subject, html }: { to: string[]; subject: stri
   const res = await fetch(SEND_URL, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ raw: buildRaw({ to, subject, html }) }),
+    body: JSON.stringify({ raw: buildRaw({ to, subject, html, replyTo }) }),
   })
 
   if (!res.ok) throw new Error(`[Gmail] Send failed: ${await res.text()}`)
@@ -606,15 +616,16 @@ export async function sendEmail({
   // well-known spam signal — Yahoo and Gmail both weight multipart/alternative,
   // and Yahoo in particular junks HTML-only transactional mail from newer domains.
   const textBody = text ?? htmlToPlainText(body)
+  const finalReplyTo = replyTo ?? DEFAULT_REPLY_TO
 
   try {
     if (process.env.RESEND_API_KEY) {
-      messageId = await sendViaResend({ to: addresses, cc: ccAddresses, bcc: bccAddresses, subject, html: body, text: textBody, replyTo, headers, attachments })
+      messageId = await sendViaResend({ to: addresses, cc: ccAddresses, bcc: bccAddresses, subject, html: body, text: textBody, replyTo: finalReplyTo, headers, attachments })
     } else {
       // Gmail fallback has no separate CC/BCC header here — fold CC into recipients.
       // BCC is intentionally NOT folded in (it would make staff visible to the
       // recipient, defeating the point); the fallback simply omits the blind copy.
-      await sendViaGmail({ to: [...addresses, ...ccAddresses], subject, html: body })
+      await sendViaGmail({ to: [...addresses, ...ccAddresses], subject, html: body, replyTo: finalReplyTo })
     }
   } catch (err) {
     // Most callers do `.catch(() => null)` on sendEmail() for their own

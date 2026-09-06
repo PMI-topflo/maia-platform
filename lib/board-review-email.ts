@@ -28,8 +28,10 @@ export const OFFICE_EMAILS = (process.env.BOARD_REVIEW_OFFICE_EMAILS
  *  signature reminder, and the initial signer invitation (decision-page/send)
  *  — so staff can watch what's actually going out and adjust the system if
  *  something looks wrong, now that these go out automatically. User
- *  direction, 2026-08-20. */
-export const BOARD_EMAIL_CC = (process.env.BOARD_EMAIL_CC ?? 'PMI@topfloridaproperties.com')
+ *  direction, 2026-08-20 (PMI only); extended to include Jonathan 2026-09-06
+ *  per explicit user request, matching OFFICE_EMAILS' own PMI+Jonathan pair
+ *  above. */
+export const BOARD_EMAIL_CC = (process.env.BOARD_EMAIL_CC ?? 'PMI@topfloridaproperties.com,jonathan@topfloridaproperties.com')
   .split(',').map(s => s.trim()).filter(e => e.includes('@'))
 
 const TYPE_LABEL: Record<string, string> = {
