@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { sendEmail } from "@/lib/gmail";
 import { logEmail } from "@/lib/email-logger";
 import { supabaseAdmin as supabase } from "@/lib/supabase-admin";
+import { resolveScreeningProvider } from "@/lib/preapply";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2023-10-16" });
 
@@ -55,14 +56,36 @@ export async function POST(req: NextRequest) {
 
       if (error) throw new Error("Supabase update failed: " + error.message);
 
-      await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/trigger-screening`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-internal-secret": process.env.INTERNAL_API_SECRET || "",
-        },
-        body: JSON.stringify({ applicationId }),
-      });
+      // Real incident, 2026-09-06: this used to call trigger-screening
+      // unconditionally, regardless of the application's actual screening
+      // provider -- meaning an applicant on an association/application still
+      // running the OLD manual process (screening_provider snapshotted as
+      // tenant_evaluation, aka "Rentvine Screening" -- see
+      // lib/preapply.ts's resolveScreeningProvider) got a REAL, PAID Checkr
+      // order created and consent-linked to them at the exact moment
+      // lib/application-handoff.ts's handoffOnApproval() separately told
+      // staff to "proceed on the current Tenant Evaluation system" -- two
+      // disconnected trigger points that never checked each other. Only
+      // applications actually linked back to a maia_checkr application
+      // should ever reach Checkr here; anything else (including no bridge
+      // found at all) is left for handoffOnApproval() to route at approval
+      // time instead, exactly as resolveScreeningProvider's own "unknown
+      // means tenant_evaluation" default already assumes elsewhere.
+      const { data: bridged } = await supabase.from("listing_applications")
+        .select("screening_provider").eq("detailed_application_id", applicationId).maybeSingle();
+      const provider = resolveScreeningProvider((bridged?.screening_provider as string | null) ?? null);
+      if (provider === "maia_checkr") {
+        await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/trigger-screening`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-internal-secret": process.env.INTERNAL_API_SECRET || "",
+          },
+          body: JSON.stringify({ applicationId }),
+        });
+      } else {
+        console.log(`[stripe-webhook] Skipping Checkr trigger for ${applicationId} -- provider is ${provider}`);
+      }
 
       await sendApplicantEmail(app, session, lang || "en");
       await sendTeamEmail(app, session);
@@ -98,21 +121,26 @@ async function handleRescreeningPayment(session: Stripe.Checkout.Session) {
       .eq("id", rescreeningPaymentId);
 
     const { data: listingApp } = await supabase.from("listing_applications")
-      .select("detailed_application_id, association_code, unit_label")
+      .select("detailed_application_id, association_code, unit_label, screening_provider")
       .eq("id", listingApplicationId).maybeSingle();
     const detailedId = listingApp?.detailed_application_id as string | null;
+    const provider = resolveScreeningProvider((listingApp?.screening_provider as string | null) ?? null);
 
     // A fresh Checkr order for every subject on the application -- same
     // endpoint the original screening used, so there's exactly one place
     // that knows how to build a Checkr order from an application's roster.
-    if (detailedId) {
+    // Same guard as the main payment path above: never fire a real, paid
+    // Checkr order for an application still resolved to tenant_evaluation.
+    if (detailedId && provider === "maia_checkr") {
       await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/trigger-screening`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-internal-secret": process.env.INTERNAL_API_SECRET || "" },
         body: JSON.stringify({ applicationId: detailedId }),
       });
-    } else {
+    } else if (!detailedId) {
       console.error(`[stripe-webhook] rescreening: no detailed_application_id for listing_application ${listingApplicationId}`);
+    } else {
+      console.log(`[stripe-webhook] rescreening: skipping Checkr trigger for ${listingApplicationId} -- provider is ${provider}`);
     }
 
     const { data: primary } = await supabase.from("application_stakeholders")

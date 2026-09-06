@@ -4179,6 +4179,17 @@ ALTER TABLE public.application_stakeholders ADD COLUMN IF NOT EXISTS tax_returns
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'associations_default_maia_checkr',
+    label:       'associations — default screening_provider to maia_checkr',
+    description: "User direction, 2026-09-06: \"put all associations as Checkr as default.\" Every new application snapshots its association's LIVE screening_provider at creation (lib/preapply.ts's createIntake()), so flipping the column default plus updating every existing row here means every application started from today forward goes straight to MAIA's own Checkr pipeline instead of the old manual \"Rentvine Screening\" process (DB value tenant_evaluation). Applications already in flight are unaffected -- resolveScreeningProvider always reads an application's own frozen snapshot, never a live lookup.",
+    filename:    '20260906b_associations_default_maia_checkr.sql',
+    artifact:    { type: 'column', table: 'associations', column: 'screening_provider' },
+    sql: `ALTER TABLE public.associations ALTER COLUMN screening_provider SET DEFAULT 'maia_checkr';
+UPDATE public.associations SET screening_provider = 'maia_checkr' WHERE screening_provider = 'tenant_evaluation';
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
