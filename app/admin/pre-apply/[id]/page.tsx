@@ -1416,7 +1416,18 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', flexShrink: 0 }}>
-          {na ? <span style={{ font: '600 12px system-ui', color: '#6b7280', background: '#f3f4f6', borderRadius: 6, padding: '2px 8px' }}>N/A — not applicable</span> : (
+          {na ? (
+            <>
+              <span style={{ font: '600 12px system-ui', color: '#6b7280', background: '#f3f4f6', borderRadius: 6, padding: '2px 8px' }}>N/A — not applicable</span>
+              {/* Staff report, 2026-09-06: an item retired to N/A (e.g. Pet
+                  Registration superseded by the reasonable-accommodation
+                  flow) that was ALREADY fully e-signed beforehand looked
+                  identical to one nobody ever touched — same grey badge, no
+                  completion signal. Same dot every other approved item
+                  shows, so a genuinely done item still reads as done. */}
+              {c.esign && c.esign.pending.length === 0 && <span style={{ fontSize: 15, width: 18, textAlign: 'center' }} title="approved">{FLAG.approved}</span>}
+            </>
+          ) : (
             <>
               {doc && <button onClick={() => setOpen(o => !o)} style={{ ...link, color: '#4338ca' }}>{open ? 'Hide' : '👁 Preview'}</button>}
               {!decided && doc && (
@@ -1494,10 +1505,14 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
           {extraDocs.map(ed => (
             <div key={ed.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#374151', background: '#f9fafb', border: '1px solid #eef0f3', borderRadius: 6, padding: '4px 8px' }}>
               <span>{ed.suggestedName || ed.filename}</span>
-              <span style={{ display: 'flex', gap: 10 }}>
+              <span style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <a href={ed.url ?? '#'} target="_blank" rel="noreferrer" style={{ font: '600 12px system-ui', color: '#166534', textDecoration: 'none' }}>View ↗</a>
                 {!decided && <RefileSelect docId={ed.id} small />}
                 {!decided && <button onClick={async () => { if (!confirm('Remove this file?')) return; await fetch(`/api/admin/pre-apply/${id}/doc/${ed.id}`, { method: 'DELETE', credentials: 'include' }); onDone() }} style={{ ...link, color: '#b91c1c', fontSize: 12 }}>Ignore</button>}
+                {/* Same status dot the primary file's row shows — this extra
+                    file shares the same item-level review decision (there's
+                    no per-extra-file review), so it should read the same. */}
+                <span style={{ fontSize: 15, width: 18, textAlign: 'center' }} title={rState}>{FLAG[rState]}</span>
               </span>
             </div>
           ))}
