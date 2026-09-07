@@ -135,12 +135,24 @@ async function buildReviewRoundEmail(applicationId: string, token: string, note:
   const ready = state.rows.filter(r => r.state !== 'waiting')
   const waiting = state.rows.filter(r => r.state === 'waiting')
 
+  // Real case, 2026-09-07: this round can now go out (ensureBoardReviewRoundSent,
+  // lib/board-decision-letter.ts) for an application whose documents are
+  // ALREADY all decided and whose 30-day decision window is ALREADY ticking
+  // -- the generic "may decide up to 30 days" sentence alone would hide that
+  // the clock already started, possibly days ago. Show the real due date and
+  // days left whenever the window is actually open; the generic sentence
+  // still covers the normal case (round sent before completion).
+  const daysLeft = state.dueAt ? Math.ceil((new Date(state.dueAt).getTime() - Date.now()) / 86400000) : null
+  const windowLine = state.windowOpenedAt && state.dueAt
+    ? `This application's ${state.windowDays}-day decision window is already open — a decision is due ${fmtET(state.dueAt)}${daysLeft !== null ? ` (${daysLeft} day${daysLeft === 1 ? '' : 's'} left)` : ''}.`
+    : boardWindowSentence(state.windowDays)
+
   const link = `${APP}/board-review/${token}`
   const html = renderMaiaEmail({
     associationName: c.legal, associationCode: c.code, unit: c.unit, propertyAddress: c.address,
     applicantNames: c.applicants, applicationType: c.typeLabel,
     heading: `Documents to review — ${c.unit ? `Unit ${c.unit}` : c.legal}`,
-    intro: `${note?.trim() || `${c.applicants.join(' and ') || 'The applicant'} applied for a ${c.typeLabel.toLowerCase()}. Please review each document below and approve it, or refuse it with a short reason the applicant will read.`}\n\nAny one of you can settle a document — a board member or the on-site manager. ${boardWindowSentence(state.windowDays)}`,
+    intro: `${note?.trim() || `${c.applicants.join(' and ') || 'The applicant'} applied for a ${c.typeLabel.toLowerCase()}. Please review each document below and approve it, or refuse it with a short reason the applicant will read.`}\n\nAny one of you can settle a document — a board member or the on-site manager. ${windowLine}`,
     items: ready.map(r => ({
       label: r.perApplicantName ? `${r.label} — ${r.perApplicantName}` : r.label,
       // A document staff already pre-checked reads as a real board decision if
