@@ -9,6 +9,7 @@ import { use, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { APPLICANT_ROLES, applicantRoleLabel } from '@/lib/applicant-roles'
 import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger'
+import ScreeningReportSummary from '@/components/ScreeningReportSummary'
 
 interface Doc { id: string; doc_key: string | null; doc_label: string | null; filename: string; mime_type: string | null; url: string | null; suggestedName: string | null; expirationDate: string | null; noExpiration: boolean; bySource: string | null; stakeholderId: string | null; createdAt: string | null }
 interface Detail {
@@ -472,6 +473,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                   </button>
                 )}
               </div>
+              {s.status === 'complete' && <ScreeningReportSummary reportData={s.reportData} />}
               {/* Every webhook delivery Checkr has actually sent for this
                   subject, oldest first — so staff can see e.g. "nothing since
                   order.applicant.visited" instead of guessing from one badge. */}
@@ -2242,6 +2244,8 @@ function ResendRequest({ id, requestId }: { id: string; requestId: string }) {
 function BoardReviewSender({ id, onDone }: { id: string; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [previewBusy, setPreviewBusy] = useState(false)
+  const [previewMsg, setPreviewMsg] = useState<string | null>(null)
   async function send() {
     setBusy(true); setMsg(null)
     try {
@@ -2251,12 +2255,24 @@ function BoardReviewSender({ id, onDone }: { id: string; onDone: () => void }) {
       onDone()
     } catch (e) { setMsg(`Could not send: ${(e as Error).message}`) } finally { setBusy(false) }
   }
+  async function preview() {
+    setPreviewBusy(true); setPreviewMsg(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/board-review/preview-email`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setPreviewMsg(`Sent to ${j.to}`)
+    } catch (e) { setPreviewMsg(`Could not send: ${(e as Error).message}`) } finally { setPreviewBusy(false) }
+  }
   return (
     <>
       <button disabled={busy} onClick={send} style={{ font: '600 13px system-ui', color: '#fff', background: busy ? '#9ca3af' : '#1f2a44', border: 'none', borderRadius: 8, padding: '9px 14px', cursor: busy ? 'default' : 'pointer' }}>
         {busy ? 'Sending…' : '🏛 Send to the board to review'}
       </button>
       {msg && <span style={{ font: '12.5px system-ui', color: msg.startsWith('Could not') ? '#b91c1c' : '#166534', alignSelf: 'center' }}>{msg}</span>}
+      <button disabled={previewBusy} onClick={preview} style={{ font: '600 13px system-ui', color: '#1f2a44', background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, padding: '9px 14px', cursor: previewBusy ? 'default' : 'pointer' }}>
+        {previewBusy ? 'Sending…' : '👁 Preview this email (sends only to you)'}
+      </button>
+      {previewMsg && <span style={{ font: '12.5px system-ui', color: previewMsg.startsWith('Could not') ? '#b91c1c' : '#166534', alignSelf: 'center' }}>{previewMsg}</span>}
     </>
   )
 }

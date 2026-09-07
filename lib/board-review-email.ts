@@ -62,30 +62,25 @@ async function context(applicationId: string) {
   }
 }
 
-/** 1. Send the review out to the board + on-site manager. */
-export async function sendReviewRound(roundId: string): Promise<{ sent: boolean; to: string[] }> {
-  const { data: round } = await supabaseAdmin.from('document_review_rounds')
-    .select('id, application_id, token, recipients, note').eq('id', roundId).maybeSingle()
-  if (!round) return { sent: false, to: [] }
-  const c = await context(String(round.application_id))
-  const state = await getReviewState(String(round.application_id))
-  if (!c || !state) return { sent: false, to: [] }
-
-  const recipients = (Array.isArray(round.recipients) ? round.recipients : []) as { name?: string; email?: string; role?: string }[]
-  const to = [...new Set(recipients.map(r => String(r.email ?? '').trim()).filter(e => e.includes('@')))]
-  if (!to.length) return { sent: false, to: [] }
+/** Builds the exact subject + HTML the board round email sends — shared by
+ *  the real send (below) and the staff preview send, so a preview is
+ *  guaranteed to look like the real thing rather than a hand-approximated copy. */
+async function buildReviewRoundEmail(applicationId: string, token: string, note: string | null): Promise<{ subject: string; html: string } | null> {
+  const c = await context(applicationId)
+  const state = await getReviewState(applicationId)
+  if (!c || !state) return null
 
   // Everything that has ARRIVED is reviewable; what hasn't is listed separately
   // so nobody wonders why a required document has no buttons.
   const ready = state.rows.filter(r => r.state !== 'waiting')
   const waiting = state.rows.filter(r => r.state === 'waiting')
 
-  const link = `${APP}/board-review/${round.token}`
+  const link = `${APP}/board-review/${token}`
   const html = renderMaiaEmail({
     associationName: c.legal, associationCode: c.code, unit: c.unit, propertyAddress: c.address,
     applicantNames: c.applicants, applicationType: c.typeLabel,
     heading: `Documents to review — ${c.unit ? `Unit ${c.unit}` : c.legal}`,
-    intro: `${(round.note as string | null)?.trim() || `${c.applicants.join(' and ') || 'The applicant'} applied for a ${c.typeLabel.toLowerCase()}. Please review each document below and approve it, or refuse it with a short reason the applicant will read.`}\n\nAny one of you can settle a document — a board member or the on-site manager. ${boardWindowSentence(state.windowDays)}`,
+    intro: `${note?.trim() || `${c.applicants.join(' and ') || 'The applicant'} applied for a ${c.typeLabel.toLowerCase()}. Please review each document below and approve it, or refuse it with a short reason the applicant will read.`}\n\nAny one of you can settle a document — a board member or the on-site manager. ${boardWindowSentence(state.windowDays)}`,
     items: ready.map(r => ({
       label: r.perApplicantName ? `${r.label} — ${r.perApplicantName}` : r.label,
       // A document staff already pre-checked reads as a real board decision if
@@ -105,9 +100,51 @@ export async function sendReviewRound(roundId: string): Promise<{ sent: boolean;
     footerReason: `You're receiving this as an approver for ${c.legal}.`,
   })
 
-  await sendEmail({ to, cc: BOARD_EMAIL_CC, replyTo: SUPPORT, subject: `Documents to review — ${c.unit ? `Unit ${c.unit}` : c.legal} (${c.typeLabel})`, html })
+  return { subject: `Documents to review — ${c.unit ? `Unit ${c.unit}` : c.legal} (${c.typeLabel})`, html }
+}
+
+/** 1. Send the review out to the board + on-site manager. */
+export async function sendReviewRound(roundId: string): Promise<{ sent: boolean; to: string[] }> {
+  const { data: round } = await supabaseAdmin.from('document_review_rounds')
+    .select('id, application_id, token, recipients, note').eq('id', roundId).maybeSingle()
+  if (!round) return { sent: false, to: [] }
+
+  const recipients = (Array.isArray(round.recipients) ? round.recipients : []) as { name?: string; email?: string; role?: string }[]
+  const to = [...new Set(recipients.map(r => String(r.email ?? '').trim()).filter(e => e.includes('@')))]
+  if (!to.length) return { sent: false, to: [] }
+
+  const built = await buildReviewRoundEmail(String(round.application_id), String(round.token), (round.note as string | null) ?? null)
+  if (!built) return { sent: false, to: [] }
+
+  await sendEmail({ to, cc: BOARD_EMAIL_CC, replyTo: SUPPORT, subject: built.subject, html: built.html })
   await supabaseAdmin.from('document_review_rounds').update({ updated_at: new Date().toISOString() }).eq('id', roundId)
   return { sent: true, to }
+}
+
+/** Staff preview — sends the SAME email a real round would send, to ONE
+ *  address only (the requesting staff member's own login email), never to
+ *  the real board/on-site manager and never cc'd to the office (they're
+ *  already the recipient). User direction, 2026-09-07: "I want also to see
+ *  the email that the board receives for final approval... send one only
+ *  for my email to view." Reuses the most recent real round's token if one
+ *  exists so the CTA link actually opens the live review page; when no
+ *  round has been started yet, the link is inert (nothing to review yet)
+ *  and the banner below says so. */
+export async function previewReviewRoundEmail(applicationId: string, toEmail: string): Promise<{ sent: boolean }> {
+  const { data: latestRound } = await supabaseAdmin.from('document_review_rounds')
+    .select('token, note').eq('application_id', applicationId).order('created_at', { ascending: false }).limit(1).maybeSingle()
+  const token = (latestRound?.token as string | null) ?? 'preview'
+  const note = (latestRound?.note as string | null) ?? null
+
+  const built = await buildReviewRoundEmail(applicationId, token, note)
+  if (!built) return { sent: false }
+
+  const banner = `<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-family:Helvetica,Arial,sans-serif;font-size:13px;color:#3730a3">
+    👁 <strong>Preview only</strong> — this is exactly what the board/on-site manager receive. Sent only to you${!latestRound ? '; the button below won’t open a live review yet since no round has been started.' : '.'}
+  </div>`
+
+  await sendEmail({ to: [toEmail], replyTo: SUPPORT, subject: `[Preview] ${built.subject}`, html: banner + built.html })
+  return { sent: true }
 }
 
 /** 2. One email to the office per response. */
