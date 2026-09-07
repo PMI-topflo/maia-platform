@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { data: subject, error: fetchErr } = await supabase.from('screening_subjects')
-    .select('id, application_id, result').eq('checkr_order_id', event.orderId).maybeSingle()
+    .select('id, application_id, name, result').eq('checkr_order_id', event.orderId).maybeSingle()
 
   if (fetchErr || !subject) {
     // Let Checkr retry — the subject row should exist by the time events land.
@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
 
   if (event.reportId) {
     try {
-      await storeAndLinkReport({ id: subject.id, application_id: subject.application_id }, event.reportId)
+      await storeAndLinkReport({ id: subject.id, application_id: subject.application_id, name: (subject.name as string | null) ?? null }, event.reportId)
     } catch (e) {
       // Don't fail the webhook over this -- status is already recorded above;
       // the PDF link can be backfilled separately if this errors.
