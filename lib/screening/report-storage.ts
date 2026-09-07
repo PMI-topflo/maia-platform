@@ -9,6 +9,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { screening } from './index'
 import { INTAKE_BUCKET } from '@/lib/preapply'
+import { normalizeName } from './stakeholder-match'
 
 const BUCKET = 'screening-reports'
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 30 // 30 days -- board/staff review window
@@ -34,7 +35,7 @@ async function ensureBucket(): Promise<void> {
  *  below) -- neither ever fails the whole function, since the PDF stored
  *  on screening_subjects is the authoritative record staff/board already
  *  rely on regardless of whether either extra step lands. */
-export async function storeAndLinkReport(subject: { id: string; application_id: string; name: string | null }, reportId: string): Promise<void> {
+export async function storeAndLinkReport(subject: { id: string; application_id: string; name: string | null; stakeholder_id: string | null }, reportId: string): Promise<void> {
   await ensureBucket()
   const pdf = await screening.getReportPdf(reportId)
   const path = `${subject.application_id}/${subject.id}_${reportId}.pdf`
@@ -78,34 +79,29 @@ export async function storeAndLinkReport(subject: { id: string; application_id: 
 // other filed document assumes) and files it as that applicant's own
 // background_credit document.
 //
-// screening_subjects carries no stakeholder_id -- only a name and
-// subject_index -- so the match back to application_stakeholders is
-// necessarily best-effort by name, same limitation the (now-removed)
-// Drive-scan classifier had. A miss just means the report isn't
-// auto-filed; it's still fully visible on the summary card either way, so
-// nothing is lost, only the convenience.
-const normalizeName = (s: string | null | undefined) => (s ?? '').trim().toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ')
-
-export async function fileReportAsDocument(subject: { id: string; application_id: string; name: string | null }, pdf: Buffer): Promise<void> {
+// screening_subjects.stakeholder_id is set once, at order-creation time
+// (app/api/trigger-screening/route.ts), from the applicant MAIA was
+// actually placing the order for -- exact, no guessing. The name/single-
+// applicant fallback below only matters for a subject created before that
+// column existed.
+export async function fileReportAsDocument(subject: { id: string; application_id: string; name: string | null; stakeholder_id: string | null }, pdf: Buffer): Promise<void> {
   const { data: listingApp } = await supabaseAdmin.from('listing_applications')
     .select('id, listing_id').eq('detailed_application_id', subject.application_id).maybeSingle()
   if (!listingApp) return   // no staff-side application to file onto (e.g. a pure legacy /apply-only record)
 
-  // background_credit is a per_applicant checklist item — a document filed
-  // with the wrong (or no) stakeholder_id is invisible on that applicant's
-  // own row even though Checkr shows complete (real case, 2026-09-07:
-  // Querline Pinckney's row stayed empty because her Checkr subject.name
-  // didn't byte-for-byte match application_stakeholders.name). The single-
-  // applicant case -- by far the common one -- needs no name match at all:
-  // there is only one person it could possibly be.
-  const { data: stakeholders } = await supabaseAdmin.from('application_stakeholders')
-    .select('id, name').eq('application_id', listingApp.id).eq('role', 'applicant')
-  const people = stakeholders ?? []
-  const name = normalizeName(subject.name)
-  const stakeholderId = (people.length === 1
-    ? people[0]
-    : name ? people.find(s => normalizeName(s.name as string | null) === name) : undefined
-  )?.id as string | null ?? null
+  let stakeholderId = subject.stakeholder_id
+  if (!stakeholderId) {
+    const { data: stakeholders } = await supabaseAdmin.from('application_stakeholders')
+      .select('id, name').eq('application_id', listingApp.id).eq('role', 'applicant')
+    const people = stakeholders ?? []
+    const name = normalizeName(subject.name)
+    // The single-applicant case -- by far the common one -- needs no name
+    // match at all: there is only one person it could possibly be.
+    stakeholderId = (people.length === 1
+      ? people[0]
+      : name ? people.find(s => normalizeName(s.name as string | null) === name) : undefined
+    )?.id as string | null ?? null
+  }
 
   const path = `intake/${listingApp.id}/background_credit/${crypto.randomUUID()}.pdf`
   const { error: upErr } = await supabaseAdmin.storage.from(INTAKE_BUCKET)

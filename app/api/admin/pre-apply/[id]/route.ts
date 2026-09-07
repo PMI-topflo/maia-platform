@@ -152,7 +152,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const [{ data: screeningRows }, { data: paymentRow }] = detailedId
     ? await Promise.all([
         supabaseAdmin.from('screening_subjects')
-          .select('id, subject_index, name, status, report_url, report_data, completed_at, result')
+          .select('id, subject_index, name, stakeholder_id, status, report_url, report_data, completed_at, result')
           .eq('application_id', detailedId).order('subject_index', { ascending: true }),
         supabaseAdmin.from('applications')
           .select('stripe_payment_status, stripe_amount_paid').eq('id', detailedId).maybeSingle(),
@@ -173,7 +173,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       .map(h => (h && typeof h === 'object' ? { type: String((h as Record<string, unknown>).type ?? 'unknown'), receivedAt: String((h as Record<string, unknown>).received_at ?? '') } : null))
       .filter((h): h is { type: string; receivedAt: string } => !!h)
     return {
-      id: String(s.id), name: (s.name as string | null) ?? null, status: (s.status as string | null) ?? null,
+      id: String(s.id), name: (s.name as string | null) ?? null, stakeholderId: (s.stakeholder_id as string | null) ?? null,
+      status: (s.status as string | null) ?? null,
       reportUrl: (s.report_url as string | null) ?? null, reportData: (s.report_data as Record<string, unknown> | null) ?? null,
       completedAt, validThrough: screeningValidThrough(completedAt)?.toISOString() ?? null,
       expired: isScreeningExpired(completedAt), history,

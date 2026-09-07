@@ -33,7 +33,7 @@ interface Detail {
   declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null; taxReturns?: { has: boolean; at?: string } | null }
   declarationReminders: Record<string, string>
   declaredNa: string[]
-  screeningSubjects: { id: string; name: string | null; status: string | null; reportUrl: string | null; reportData: Record<string, unknown> | null; completedAt: string | null; validThrough: string | null; expired: boolean; history: { type: string; receivedAt: string }[] }[]
+  screeningSubjects: { id: string; name: string | null; stakeholderId: string | null; status: string | null; reportUrl: string | null; reportData: Record<string, unknown> | null; completedAt: string | null; validThrough: string | null; expired: boolean; history: { type: string; receivedAt: string }[] }[]
   payment: { status: string; amountPaid: number | null } | null
   petsAllowed: boolean | null
   petsProhibitedNotice: boolean
@@ -585,15 +585,18 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                     {/* Staff report, 2026-09-06 (Querline Pinckney, MANXI 912):
                         wanted the same Checkr status/history/payment info
                         shown right on this row too, not only in the summary
-                        card up top -- screening_subjects has no stakeholder_id
-                        column, so matched by name (best-effort; a name typo
-                        between the lease and Checkr's own applicant record
-                        would miss this, same limitation the summary card has).
-                        A single-applicant application (the common case) skips
-                        the name match entirely -- there's only one subject it
-                        could possibly be. */}
+                        card up top. Matched by stakeholderId -- set exactly,
+                        at order-creation time, for every order placed since
+                        2026-09-07 (lib/screening/stakeholder-match.ts). Older
+                        orders that predate that column fall back to a
+                        single-applicant application (no ambiguity to
+                        resolve) or a best-effort name match. */}
                     {c.doc_key === 'background_credit' && (
-                      <CheckrStatusInline subject={applicants.length === 1 ? d.screeningSubjects[0] : d.screeningSubjects.find(s => (s.name ?? '').trim().toLowerCase() === (a.name ?? '').trim().toLowerCase())} payment={d.payment} />
+                      <CheckrStatusInline subject={
+                        d.screeningSubjects.find(s => s.stakeholderId === a.id)
+                        ?? (applicants.length === 1 ? d.screeningSubjects[0] : undefined)
+                        ?? d.screeningSubjects.find(s => (s.name ?? '').trim().toLowerCase() === (a.name ?? '').trim().toLowerCase())
+                      } payment={d.payment} />
                     )}
                   </div>
                 ))}
