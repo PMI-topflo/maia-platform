@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import SiteHeader from '@/components/SiteHeader';
 import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger';
 import ScreeningReportSummary from '@/components/ScreeningReportSummary';
+import { summarizeReport } from '@/lib/screening/report-summary';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,7 +52,7 @@ interface Documents { marriageCert: string | null; lease: string | null }
 interface GovIdDoc { url: string; name: string | null }
 interface AckDoc { id: string; filename: string | null; category: string | null; effective_date: string | null }
 interface Stakeholder { role: string; name: string | null; email: string | null; phone: string | null }
-interface ScreeningSubjectSummary { name: string | null; status: string | null; report_url: string | null; report_data: Record<string, unknown> | null; valid_through: string | null; expired: boolean }
+interface ScreeningSubjectSummary { id: string; name: string | null; status: string | null; report_url: string | null; report_data: Record<string, unknown> | null; valid_through: string | null; expired: boolean }
 
 type LoadState = 'loading' | 'invalid' | 'decided' | 'ready';
 
@@ -112,6 +113,7 @@ export default function BoardReviewPage() {
   const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
   const [subjects, setSubjects] = useState<ScreeningSubjectSummary[]>([]);
   const [token, setToken] = useState<string | null>(null);
+  const [authQs, setAuthQs] = useState<string | null>(null);
   const [isPreview, setIsPreview] = useState(false);
 
   const [decision, setDecision] = useState<'approved' | 'rejected' | 'more_info' | null>(null);
@@ -134,6 +136,7 @@ export default function BoardReviewPage() {
     }
 
     const qs = previewId ? `preview=${encodeURIComponent(previewId)}` : `token=${encodeURIComponent(t!)}`;
+    setAuthQs(qs);
     fetch(`/api/board/review?${qs}`)
       .then((r) => r.json())
       .then((json) => {
@@ -395,6 +398,13 @@ export default function BoardReviewPage() {
                         {subject?.report_url
                           ? <DocumentPreviewTrigger label="View background check report ↗" previewUrl={`/api/document-preview?url=${encodeURIComponent(subject.report_url)}`} downloadUrl={subject.report_url} style={{ color: '#f26a1b', fontWeight: 700 }} />
                           : <span style={{ color: '#92400e' }}>Background check — {subject?.status ?? 'pending'}</span>}
+                        {/* Separate colorful export, alongside Checkr's own
+                            report above -- never a replacement for it. */}
+                        {subject?.status === 'complete' && authQs && summarizeReport(subject.report_data) && (
+                          <a href={`/api/board/review/screening-summary-pdf?${authQs}&subjectId=${subject.id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#c0571a', fontWeight: 700, textDecoration: 'none' }}>
+                            🖨 Colorful summary (PDF)
+                          </a>
+                        )}
                         {subject?.status === 'complete' && subject.valid_through && (
                           subject.expired
                             ? <span style={{ font: '700 10px system-ui', color: '#fff', background: '#b91c1c', borderRadius: 5, padding: '2px 7px' }}>🚨 SCREENING EXPIRED {new Date(subject.valid_through).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
