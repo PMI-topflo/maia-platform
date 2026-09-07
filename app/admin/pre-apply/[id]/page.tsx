@@ -588,9 +588,12 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                         card up top -- screening_subjects has no stakeholder_id
                         column, so matched by name (best-effort; a name typo
                         between the lease and Checkr's own applicant record
-                        would miss this, same limitation the summary card has). */}
+                        would miss this, same limitation the summary card has).
+                        A single-applicant application (the common case) skips
+                        the name match entirely -- there's only one subject it
+                        could possibly be. */}
                     {c.doc_key === 'background_credit' && (
-                      <CheckrStatusInline subject={d.screeningSubjects.find(s => (s.name ?? '').trim().toLowerCase() === (a.name ?? '').trim().toLowerCase())} payment={d.payment} />
+                      <CheckrStatusInline subject={applicants.length === 1 ? d.screeningSubjects[0] : d.screeningSubjects.find(s => (s.name ?? '').trim().toLowerCase() === (a.name ?? '').trim().toLowerCase())} payment={d.payment} />
                     )}
                   </div>
                 ))}
@@ -1830,7 +1833,7 @@ function CarryOverButton({ id, onDone }: { id: string; onDone: () => void }) {
 // summary card above the checklist, repeated inline on this applicant's own
 // Background / Credit Reports row — see the render-site comment for why.
 function CheckrStatusInline({ subject, payment }: {
-  subject: { status: string | null; history: { type: string; receivedAt: string }[] } | undefined
+  subject: { status: string | null; reportData: Record<string, unknown> | null; history: { type: string; receivedAt: string }[] } | undefined
   payment: { status: string; amountPaid: number | null } | null
 }) {
   if (!subject && !payment) return null
@@ -1854,6 +1857,7 @@ function CheckrStatusInline({ subject, payment }: {
           }}>Checkr: {subject.status ?? 'pending'}</span>
         )}
       </div>
+      {subject && subject.status === 'complete' && <ScreeningReportSummary reportData={subject.reportData} />}
       {subject && subject.history.length > 0 && (
         <div style={{ marginTop: 4 }}>
           {subject.history.map((h, hi) => (
