@@ -1,8 +1,9 @@
 // POST /api/admin/pre-apply/[id]/decision-page
 //   { decision?, conditions?, leaseStart?, leaseEnd?, occupants?, signers?[] }
-// Creates the Board Decision Page. The number of signers follows the
-// association's required_signatures (e.g. MANXI needs 2). Signers default to the
-// top board officers (President first); any with an on-file signature are signed
+// Creates the Board Decision Page. Signers default to the association's
+// configured "Committee — Application Approval" deciders when one exists;
+// otherwise the top required_signatures board officers by title (President
+// first, e.g. MANXI needs 2). Any signer with an on-file signature is signed
 // immediately, the rest get a signing link. Staff-only.
 // GET → prefill (default signers, full address, applicant, lease term, occupants).
 //
@@ -41,11 +42,16 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     }))),
   } : null
 
+  const sigByEmail = new Map(c.board.map(m => [String(m.email ?? '').toLowerCase(), m]))
+  const defaultSigners = c.committeeDeciders.length > 0
+    ? c.committeeDeciders.map(d => { const m = sigByEmail.get(String(d.email ?? '').toLowerCase()); return { name: d.name, email: d.email, role: m?.role ?? null, hasSignature: !!m?.signature_image } })
+    : c.board.slice(0, c.required).map(m => ({ name: m.name, email: m.email, role: m.role, hasSignature: !!m.signature_image }))
+
   return NextResponse.json({
     pending,
     applicationType: c.applicationType, propertyAddress: c.propertyAddress, applicant: c.applicant,
     requiredSignatures: c.required,
-    defaultSigners: c.board.slice(0, c.required).map(m => ({ name: m.name, email: m.email, role: m.role, hasSignature: !!m.signature_image })),
+    defaultSigners,
     allBoard: c.board.map(m => ({ name: m.name, email: m.email, role: m.role, hasSignature: !!m.signature_image })),
     leaseStart: c.leaseStart, leaseEnd: c.leaseEnd,
     occupants: c.occupants, applicantAsOccupant: c.applicant,
@@ -74,7 +80,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       decision: b.decision?.trim() || 'Approved', conditions: b.conditions?.trim() || null,
       leaseStart: b.leaseStart || c.leaseStart || null, leaseEnd: b.leaseEnd || c.leaseEnd || null,
     }
-    const previewSigners = (b.signers && b.signers.length ? b.signers : c.board.slice(0, c.required).map(m => ({ name: m.name as string | null, email: m.email as string | null })))
+    const previewSigners = (b.signers && b.signers.length ? b.signers
+      : c.committeeDeciders.length > 0 ? c.committeeDeciders
+      : c.board.slice(0, c.required).map(m => ({ name: m.name as string | null, email: m.email as string | null })))
       .map((x, i) => ({ role: `approver_${i + 1}`, name: x.name?.trim() || null, email: (x.email ?? '').trim(), phone: null as string | null }))
     const doc = { id: 'preview', kind: 'board_decision' as const, association_code: c.code, unit_ref: c.unitLabel as string | null,
       title: 'Board Decision (preview)', payload, signers: previewSigners, status: 'sent' as const, compliance_item: null as string | null, created_at: new Date().toISOString(), application_id: null as string | null }
@@ -86,7 +94,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return new Response(pdf as unknown as BodyInit, { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="board-approval-letter-preview.pdf"', 'Cache-Control': 'no-store' } })
   }
 
-  const chosen = b.signers && b.signers.length ? b.signers : c.board.slice(0, c.required).map(m => ({ name: m.name as string | null, email: m.email as string | null }))
+  const chosen = b.signers && b.signers.length ? b.signers
+    : c.committeeDeciders.length > 0 ? c.committeeDeciders
+    : c.board.slice(0, c.required).map(m => ({ name: m.name as string | null, email: m.email as string | null }))
   const created = await createBoardDecisionLetter(c, {
     decision: b.decision, conditions: b.conditions, leaseStart: b.leaseStart, leaseEnd: b.leaseEnd, occupants: b.occupants,
     signers: chosen, createdBy: `staff:${session.displayName}`,

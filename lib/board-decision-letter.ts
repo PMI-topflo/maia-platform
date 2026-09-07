@@ -52,6 +52,11 @@ export interface DecisionContext {
   interviewRequired: boolean
   interviewRequestedAt: string | null
   interviewCompletedAt: string | null
+  /** Deciders from the association's "Committee — Application Approval"
+   *  config (board_approval_members, purpose='application'), substitute
+   *  resolved -- empty when no committee has been configured for this
+   *  association, in which case the role-priority fallback below applies. */
+  committeeDeciders: { name: string | null; email: string | null }[]
 }
 
 export async function loadDecisionContext(applicationId: string): Promise<DecisionContext | null> {
@@ -60,13 +65,34 @@ export async function loadDecisionContext(applicationId: string): Promise<Decisi
   if (!app) return null
   const code = String(app.association_code)
   const type = String(app.application_type)
-  const [{ data: assoc }, { data: sh }, { data: members }, { data: cfg }, { data: tenant }] = await Promise.all([
+  const [{ data: assoc }, { data: sh }, { data: members }, { data: cfg }, { data: tenant }, { data: committee }] = await Promise.all([
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip, requires_interview_lease, requires_interview_purchase').eq('association_code', code).maybeSingle(),
     supabaseAdmin.from('application_stakeholders').select('name, email, is_primary').eq('application_id', applicationId).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('association_board_members').select('name, email, role, signature_image').eq('association_code', code).eq('active', true),
     supabaseAdmin.from('association_config').select('required_signatures').eq('association_code', code).maybeSingle(),
     supabaseAdmin.from('unit_tenant_contacts').select('occupants, lease_start, lease_end').eq('association_code', code).eq('unit_ref', app.unit_label ?? '').maybeSingle(),
+    // Same "Committee — Application Approval" config app/api/admin/applications/[id]/send-to-board/route.ts
+    // already reads for the older whole-application decision flow. Real
+    // case, 2026-09-07: the automatic decision letter below picked its
+    // signers by board-title priority alone, with no awareness of this
+    // committee at all -- a member configured as a Voter (advisory-only)
+    // got a real, decisive "please sign" link, while a configured Decider
+    // was skipped. Deciders only here; a Voter's vote is advisory and was
+    // never meant to close the approval.
+    supabaseAdmin.from('board_approval_members')
+      .select('member_type, association_board_members(name, email, active, substitute_name, substitute_email, substitute_active)')
+      .eq('association_code', code).eq('purpose', 'application').eq('member_type', 'decider'),
   ])
+  type CommitteeRow = { member_type: string; association_board_members: { name: string | null; email: string | null; active: boolean; substitute_name: string | null; substitute_email: string | null; substitute_active: boolean } | null }
+  const committeeDeciders = ((committee ?? []) as unknown as CommitteeRow[])
+    .filter(c => c.association_board_members?.active)
+    .map(c => {
+      const m = c.association_board_members!
+      return {
+        name: m.substitute_active && m.substitute_name ? m.substitute_name : m.name,
+        email: m.substitute_active && m.substitute_email ? m.substitute_email : m.email,
+      }
+    })
   const legal = (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || code
   const addr = [assoc?.principal_address, app.unit_label ? `Unit ${app.unit_label}` : null, [assoc?.city, [assoc?.state, assoc?.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ')
   const applicantRows = (sh ?? []) as { name: string | null; email: string | null }[]
@@ -99,6 +125,7 @@ export async function loadDecisionContext(applicationId: string): Promise<Decisi
     occupants: occ, leaseStart, leaseEnd, interviewRequired,
     interviewRequestedAt: (app.interview_requested_at as string | null) ?? null,
     interviewCompletedAt: (app.interview_completed_at as string | null) ?? null,
+    committeeDeciders,
   }
 }
 
@@ -250,7 +277,14 @@ export async function advanceToApprovalSent(applicationId: string): Promise<void
       return
     }
 
-    const defaultSigners = c.board.slice(0, c.required).map(m => ({ name: m.name, email: m.email }))
+    // Prefer the configured "Committee — Application Approval" deciders when
+    // one exists for this association; fall back to picking the top
+    // c.required board officers by title (President, VP, ...) only when no
+    // committee has been set up, so an association that never configured one
+    // keeps behaving exactly as before.
+    const defaultSigners = c.committeeDeciders.length > 0
+      ? c.committeeDeciders
+      : c.board.slice(0, c.required).map(m => ({ name: m.name, email: m.email }))
     const created = await createBoardDecisionLetter(c, { signers: defaultSigners, createdBy: 'auto' })
     if ('error' in created) return
 
