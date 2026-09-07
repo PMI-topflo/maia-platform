@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { APPLICANT_ROLES, applicantRoleLabel } from '@/lib/applicant-roles'
 import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger'
 import ScreeningReportSummary from '@/components/ScreeningReportSummary'
+import { summarizeReport } from '@/lib/screening/report-summary'
 
 interface Doc { id: string; doc_key: string | null; doc_label: string | null; filename: string; mime_type: string | null; url: string | null; suggestedName: string | null; expirationDate: string | null; noExpiration: boolean; bySource: string | null; stakeholderId: string | null; createdAt: string | null }
 interface Detail {
@@ -471,6 +472,17 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                   }} disabled={busy} style={{ font: '600 12px system-ui', color: '#5b21b6', background: 'none', border: 'none', padding: 0, cursor: busy ? 'default' : 'pointer' }}>
                     📄 File as document
                   </button>
+                )}
+                {/* User direction, 2026-09-07: "let's also use it for the PDF
+                    download" -- a SEPARATE colorful export alongside Checkr's
+                    own report PDF above, never a replacement for it (that one
+                    stays the retained FCRA consumer report). Only offered
+                    once there's real report data to summarize. */}
+                {s.status === 'complete' && summarizeReport(s.reportData) && (
+                  <a href={`/api/admin/pre-apply/${id}/screening-summary-pdf?subjectId=${s.id}`} target="_blank" rel="noopener noreferrer"
+                    style={{ font: '600 12px system-ui', color: '#c0571a', textDecoration: 'none' }}>
+                    🖨 Colorful summary (PDF)
+                  </a>
                 )}
               </div>
               {s.status === 'complete' && <ScreeningReportSummary reportData={s.reportData} />}
