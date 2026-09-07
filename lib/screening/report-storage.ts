@@ -84,18 +84,28 @@ export async function storeAndLinkReport(subject: { id: string; application_id: 
 // Drive-scan classifier had. A miss just means the report isn't
 // auto-filed; it's still fully visible on the summary card either way, so
 // nothing is lost, only the convenience.
+const normalizeName = (s: string | null | undefined) => (s ?? '').trim().toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ')
+
 export async function fileReportAsDocument(subject: { id: string; application_id: string; name: string | null }, pdf: Buffer): Promise<void> {
   const { data: listingApp } = await supabaseAdmin.from('listing_applications')
     .select('id, listing_id').eq('detailed_application_id', subject.application_id).maybeSingle()
   if (!listingApp) return   // no staff-side application to file onto (e.g. a pure legacy /apply-only record)
 
-  const name = (subject.name ?? '').trim().toLowerCase()
-  let stakeholderId: string | null = null
-  if (name) {
-    const { data: stakeholders } = await supabaseAdmin.from('application_stakeholders')
-      .select('id, name').eq('application_id', listingApp.id).eq('role', 'applicant')
-    stakeholderId = (stakeholders ?? []).find(s => (s.name ?? '').trim().toLowerCase() === name)?.id as string | null ?? null
-  }
+  // background_credit is a per_applicant checklist item — a document filed
+  // with the wrong (or no) stakeholder_id is invisible on that applicant's
+  // own row even though Checkr shows complete (real case, 2026-09-07:
+  // Querline Pinckney's row stayed empty because her Checkr subject.name
+  // didn't byte-for-byte match application_stakeholders.name). The single-
+  // applicant case -- by far the common one -- needs no name match at all:
+  // there is only one person it could possibly be.
+  const { data: stakeholders } = await supabaseAdmin.from('application_stakeholders')
+    .select('id, name').eq('application_id', listingApp.id).eq('role', 'applicant')
+  const people = stakeholders ?? []
+  const name = normalizeName(subject.name)
+  const stakeholderId = (people.length === 1
+    ? people[0]
+    : name ? people.find(s => normalizeName(s.name as string | null) === name) : undefined
+  )?.id as string | null ?? null
 
   const path = `intake/${listingApp.id}/background_credit/${crypto.randomUUID()}.pdf`
   const { error: upErr } = await supabaseAdmin.storage.from(INTAKE_BUCKET)
@@ -119,5 +129,13 @@ export async function fileReportAsDocument(subject: { id: string; application_id
       storage_path: path, filename, suggested_name: filename, mime_type: 'application/pdf',
       uploaded_by_role: 'checkr', stakeholder_id: stakeholderId,
     })
+    // Clean up a stale unscoped copy from before this stakeholder could be
+    // resolved (e.g. an earlier click of "File as document" pre-dating this
+    // fix) -- otherwise it lingers as an orphaned row nothing points to.
+    if (stakeholderId) {
+      await supabaseAdmin.from('application_documents')
+        .delete().eq('application_id', listingApp.id).eq('doc_key', 'background_credit')
+        .eq('uploaded_by_role', 'checkr').is('stakeholder_id', null)
+    }
   }
 }
