@@ -21,7 +21,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { signEsignToken } from '@/lib/esign-token'
 import { extractLeaseDetails } from '@/lib/lease-extract'
 import { sendEmail } from '@/lib/gmail'
-import { BOARD_EMAIL_CC } from '@/lib/board-review-email'
+import { BOARD_EMAIL_CC, ensureBoardReviewRoundSent } from '@/lib/board-review-email'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
@@ -276,6 +276,15 @@ export async function advanceToApprovalSent(applicationId: string): Promise<void
       await requestInterview(c)
       return
     }
+
+    // Real case, 2026-09-07 (4174 Inverrary Drive, Unit 912): every document
+    // had been approved directly by staff on the admin page, and the letter
+    // fired asking board members to sign a final approval without the board
+    // ever having been sent the per-document review round at all. Require
+    // one to have gone out first -- if none has, send it now (identical to
+    // the manual "Send to the board to review" button) and wait for a later
+    // re-trigger once a real round exists, instead of the letter.
+    if (!await ensureBoardReviewRoundSent(applicationId, c.code, c.unitLabel)) return
 
     // Prefer the configured "Committee — Application Approval" deciders when
     // one exists for this association; fall back to picking the top

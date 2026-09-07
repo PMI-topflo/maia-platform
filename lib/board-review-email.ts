@@ -34,6 +34,66 @@ export const OFFICE_EMAILS = (process.env.BOARD_REVIEW_OFFICE_EMAILS
 export const BOARD_EMAIL_CC = (process.env.BOARD_EMAIL_CC ?? 'PMI@topfloridaproperties.com,jonathan@topfloridaproperties.com')
   .split(',').map(s => s.trim()).filter(e => e.includes('@'))
 
+/** The people who may decide: active board members + the association's on-site
+ *  manager. Staff pick from these rather than typing addresses, so a decision
+ *  is always attributable to a named approver. Shared by the manual "Send to
+ *  the board to review" button (app/api/admin/pre-apply/[id]/board-review/
+ *  route.ts) and ensureBoardReviewRoundSent below, so both pick the same
+ *  people the same way. */
+export async function approversFor(code: string): Promise<{ name: string; email: string; role: ReviewerRole }[]> {
+  // Both tables store first_name/last_name, not a single name column.
+  const [{ data: board }, { data: mgrs }] = await Promise.all([
+    supabaseAdmin.from('board_members').select('first_name, last_name, email, position, active').eq('association_code', code),
+    supabaseAdmin.from('building_managers').select('first_name, last_name, email, active').eq('association_code', code),
+  ])
+  const full = (a: unknown, b: unknown) => `${String(a ?? '').trim()} ${String(b ?? '').trim()}`.trim()
+  const out: { name: string; email: string; role: ReviewerRole }[] = []
+  for (const b of board ?? []) {
+    if (b.active === false) continue
+    const email = String(b.email ?? '').trim()
+    const name = full(b.first_name, b.last_name)
+    if (email.includes('@') && name) out.push({ name: b.position ? `${name} (${b.position})` : name, email, role: 'board' })
+  }
+  for (const m of mgrs ?? []) {
+    if (m.active === false) continue
+    const email = String(m.email ?? '').trim()
+    const name = full(m.first_name, m.last_name)
+    if (email.includes('@') && name) out.push({ name, email, role: 'onsite_manager' })
+  }
+  // Dedupe by address — one person wearing two hats gets one email.
+  const seen = new Set<string>()
+  return out.filter(p => !seen.has(p.email.toLowerCase()) && seen.add(p.email.toLowerCase()))
+}
+
+/** Real case, 2026-09-07 (4174 Inverrary Drive, Unit 912): the automatic
+ *  decision letter fired and asked board members to SIGN a final approval
+ *  without the board ever having been sent the per-document review round at
+ *  all — staff had approved every document directly on the admin page, and
+ *  nothing ever prompted anyone to press "Send to the board to review."
+ *  advanceToApprovalSent (lib/board-decision-letter.ts) now calls this
+ *  FIRST: if no document_review_round has ever gone out for this
+ *  application, it sends one now (identical to the manual button) instead
+ *  of the letter, and the letter waits for a later re-trigger once a real
+ *  round exists. Returns true once a round already existed (or was just
+ *  sent) so the letter can proceed. */
+export async function ensureBoardReviewRoundSent(applicationId: string, code: string, unitLabel: string | null): Promise<boolean> {
+  const { count } = await supabaseAdmin.from('document_review_rounds')
+    .select('id', { count: 'exact', head: true }).eq('application_id', applicationId).eq('purpose', 'document_review')
+  if ((count ?? 0) > 0) return true
+
+  const approvers = await approversFor(code)
+  if (!approvers.length) return false   // nothing to send to — leave the application waiting rather than sending a letter with no board involvement
+
+  const { data: round, error } = await supabaseAdmin.from('document_review_rounds').insert({
+    application_id: applicationId, association_code: code, unit_label: unitLabel,
+    token: crypto.randomUUID(), recipients: approvers, started_by: 'auto', purpose: 'document_review',
+  }).select('id').single()
+  if (error || !round) return false
+
+  await sendReviewRound(String(round.id))
+  return false   // just sent now — the board hasn't had a chance to decide yet
+}
+
 const TYPE_LABEL: Record<string, string> = {
   lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease Renewal', additional_occupant: 'Additional Occupant',
 }

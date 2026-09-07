@@ -7,40 +7,12 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
-import { getReviewState, boardWindowSentence, REVIEW_REMINDER_DAYS, type ReviewerRole } from '@/lib/board-review'
-import { sendReviewRound, OFFICE_EMAILS } from '@/lib/board-review-email'
+import { getReviewState, boardWindowSentence, REVIEW_REMINDER_DAYS } from '@/lib/board-review'
+import { sendReviewRound, approversFor, OFFICE_EMAILS } from '@/lib/board-review-email'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
-
-/** The people who may decide: active board members + the association's on-site
- *  manager. Staff pick from these rather than typing addresses, so a decision
- *  is always attributable to a named approver. */
-async function approversFor(code: string): Promise<{ name: string; email: string; role: ReviewerRole }[]> {
-  // Both tables store first_name/last_name, not a single name column.
-  const [{ data: board }, { data: mgrs }] = await Promise.all([
-    supabaseAdmin.from('board_members').select('first_name, last_name, email, position, active').eq('association_code', code),
-    supabaseAdmin.from('building_managers').select('first_name, last_name, email, active').eq('association_code', code),
-  ])
-  const full = (a: unknown, b: unknown) => `${String(a ?? '').trim()} ${String(b ?? '').trim()}`.trim()
-  const out: { name: string; email: string; role: ReviewerRole }[] = []
-  for (const b of board ?? []) {
-    if (b.active === false) continue
-    const email = String(b.email ?? '').trim()
-    const name = full(b.first_name, b.last_name)
-    if (email.includes('@') && name) out.push({ name: b.position ? `${name} (${b.position})` : name, email, role: 'board' })
-  }
-  for (const m of mgrs ?? []) {
-    if (m.active === false) continue
-    const email = String(m.email ?? '').trim()
-    const name = full(m.first_name, m.last_name)
-    if (email.includes('@') && name) out.push({ name, email, role: 'onsite_manager' })
-  }
-  // Dedupe by address — one person wearing two hats gets one email.
-  const seen = new Set<string>()
-  return out.filter(p => !seen.has(p.email.toLowerCase()) && seen.add(p.email.toLowerCase()))
-}
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!await requireStaffSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
