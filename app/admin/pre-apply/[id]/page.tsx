@@ -676,6 +676,12 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           <div style={{ fontSize: 13.5, color: '#7f1d1d', marginTop: 4, lineHeight: 1.5 }}>
             More than 45 days have passed since the background check completed and the checklist still isn&apos;t fully approved. A fresh screening (re-charged, not waived) is required before this can move forward.
           </div>
+          {/* Staff report, 2026-09-07: this only ever went out from the daily
+              cron the moment it expired -- no way to resend it on demand
+              (e.g. it landed in spam, or staff wants to reactivate this now
+              instead of waiting). Reuses the exact same link/token/email the
+              cron sends. */}
+          <ResendRescreenLinkButton id={id} />
         </div>
       )}
       {!decided && d.review && (
@@ -2242,6 +2248,31 @@ function ResendRequest({ id, requestId }: { id: string; requestId: string }) {
         {busy ? 'Re-sending…' : '📨 Re-send (includes any examples attached since)'}
       </button>
       {msg && <div style={{ font: '12px system-ui', color: msg.startsWith('Re-sent') ? '#166534' : '#b91c1c', marginTop: 3 }}>{msg}</div>}
+    </div>
+  )
+}
+
+// Manual trigger for the $150 re-screening payment link -- normally only
+// sent by the daily screening-expiry-warnings cron the moment a screening
+// actually expires. Reuses an existing unpaid token if one's already out
+// there instead of minting a second link.
+function ResendRescreenLinkButton({ id }: { id: string }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  async function send() {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/resend-rescreen-link`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setMsg(`Sent to ${j.to}`)
+    } catch (e) { setMsg(`Could not send: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+  return (
+    <div style={{ marginTop: 10 }}>
+      <button disabled={busy} onClick={send} style={{ font: '600 12.5px system-ui', color: '#fff', background: busy ? '#9ca3af' : '#b91c1c', border: 'none', borderRadius: 7, padding: '7px 13px', cursor: busy ? 'default' : 'pointer' }}>
+        {busy ? 'Sending…' : '📧 Resend the $150 re-screening link now'}
+      </button>
+      {msg && <div style={{ font: '12px system-ui', color: msg.startsWith('Could not') ? '#b91c1c' : '#166534', marginTop: 5 }}>{msg}</div>}
     </div>
   )
 }
