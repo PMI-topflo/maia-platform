@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { screening } from '@/lib/screening'
 import { computeAggregateStatus } from '@/lib/screening/aggregate'
+import { matchStakeholders } from '@/lib/screening/stakeholder-match'
 import type { ScreeningProperty } from '@/lib/screening/types'
 import { sendEmail } from '@/lib/gmail'
 
@@ -88,12 +89,35 @@ export async function POST(req: NextRequest) {
     })
   })
 
+  // Resolve each applicant/principal subject to its real
+  // application_stakeholders row now, while we still know exactly who we're
+  // placing each order for -- everything downstream (the webhook's
+  // auto-file, the manual re-file button, the checklist row) then reads
+  // this stored id directly instead of re-guessing by name later against
+  // Checkr's own (sometimes differently-formatted) applicant name. Adult
+  // occupants have no application_stakeholders row at all (role is
+  // constrained to listing_agent/owner/applicant_agent/applicant), so they
+  // stay unresolved -- expected, not a gap.
+  const stakeholderIdBySubjectIndex = new Map<number, string>()
+  const { data: listingApp } = await supabase.from('listing_applications')
+    .select('id').eq('detailed_application_id', applicationId).maybeSingle()
+  if (listingApp) {
+    const { data: stakeholders } = await supabase.from('application_stakeholders')
+      .select('id, name').eq('application_id', listingApp.id).eq('role', 'applicant')
+      .order('is_primary', { ascending: false }).order('created_at', { ascending: true })
+    const applicantSubjects = subjects.slice(0, occupantIndexBase)
+    matchStakeholders(applicantSubjects, stakeholders ?? []).forEach((id, i) => {
+      if (id) stakeholderIdBySubjectIndex.set(applicantSubjects[i].index, id)
+    })
+  }
+
   const results = await Promise.allSettled(
     subjects.map(async s => {
       const { orderId, status } = await screening.createOrder(s, property)
       const { error: upErr } = await supabase.from('screening_subjects').upsert({
         application_id: applicationId, subject_index: s.index, name: s.name, email: s.email ?? null,
         is_commercial: s.isCommercial, is_international: s.isInternational, checkr_order_id: orderId,
+        stakeholder_id: stakeholderIdBySubjectIndex.get(s.index) ?? null,
         status: status === 'completed' ? 'complete' : 'awaiting_applicant',
         updated_at: new Date().toISOString(),
       }, { onConflict: 'application_id,subject_index' })

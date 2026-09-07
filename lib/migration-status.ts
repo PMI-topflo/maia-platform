@@ -4190,6 +4190,17 @@ UPDATE public.associations SET screening_provider = 'maia_checkr' WHERE screenin
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'screening_subjects_stakeholder_id',
+    label:       'screening_subjects — stakeholder_id column',
+    description: "User report, 2026-09-07: filing a completed Checkr report onto its applicant's own \"Background / Credit Reports\" checklist row was guessing which applicant it belonged to by comparing Checkr's own subject.name against application_stakeholders.name -- a mismatch (case, punctuation, spacing, a nickname) silently left the report unscoped and invisible on every applicant's row. Adds a real column set once, at order-creation time (app/api/trigger-screening/route.ts), from the applicant MAIA already knows it's placing the order for -- no guessing needed from then on. Adult occupants have no application_stakeholders row at all (role is constrained to listing_agent/owner/applicant_agent/applicant) so this stays null for them, same as before.",
+    filename:    '20260907_screening_subjects_stakeholder_id.sql',
+    artifact:    { type: 'column', table: 'screening_subjects', column: 'stakeholder_id' },
+    sql: `ALTER TABLE public.screening_subjects
+  ADD COLUMN IF NOT EXISTS stakeholder_id uuid REFERENCES public.application_stakeholders(id);
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

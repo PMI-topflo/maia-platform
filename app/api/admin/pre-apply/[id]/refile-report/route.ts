@@ -33,14 +33,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!app?.detailed_application_id) return NextResponse.json({ error: 'no linked application' }, { status: 404 })
 
   const { data: subject } = await supabaseAdmin.from('screening_subjects')
-    .select('id, application_id, name, checkr_report_id, status')
+    .select('id, application_id, name, stakeholder_id, checkr_report_id, status')
     .eq('id', b.subjectId).eq('application_id', app.detailed_application_id).maybeSingle()
   if (!subject) return NextResponse.json({ error: 'subject not found' }, { status: 404 })
   if (!subject.checkr_report_id) return NextResponse.json({ error: 'No completed report on file for this applicant yet.' }, { status: 400 })
 
   try {
     const pdf = await screening.getReportPdf(String(subject.checkr_report_id))
-    await fileReportAsDocument({ id: String(subject.id), application_id: String(subject.application_id), name: (subject.name as string | null) ?? null }, pdf)
+    await fileReportAsDocument({ id: String(subject.id), application_id: String(subject.application_id), name: (subject.name as string | null) ?? null, stakeholder_id: (subject.stakeholder_id as string | null) ?? null }, pdf)
   } catch (e) {
     return NextResponse.json({ error: `Could not re-file: ${(e as Error).message}` }, { status: 502 })
   }
