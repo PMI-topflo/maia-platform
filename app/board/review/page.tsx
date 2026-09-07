@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import SiteHeader from '@/components/SiteHeader';
 import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger';
+import ScreeningReportSummary from '@/components/ScreeningReportSummary';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,7 +51,7 @@ interface Documents { marriageCert: string | null; lease: string | null }
 interface GovIdDoc { url: string; name: string | null }
 interface AckDoc { id: string; filename: string | null; category: string | null; effective_date: string | null }
 interface Stakeholder { role: string; name: string | null; email: string | null; phone: string | null }
-interface ScreeningSubjectSummary { name: string | null; status: string | null; report_url: string | null; valid_through: string | null; expired: boolean }
+interface ScreeningSubjectSummary { name: string | null; status: string | null; report_url: string | null; report_data: Record<string, unknown> | null; valid_through: string | null; expired: boolean }
 
 type LoadState = 'loading' | 'invalid' | 'decided' | 'ready';
 
@@ -400,6 +401,7 @@ export default function BoardReviewPage() {
                             : <span style={{ color: '#6b7280', fontSize: '0.75rem' }}>Valid through {new Date(subject.valid_through).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                         )}
                       </div>
+                      {subject?.status === 'complete' && <ScreeningReportSummary reportData={subject.report_data} />}
                     </div>
                   );
                 })}

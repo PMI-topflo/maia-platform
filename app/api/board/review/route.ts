@@ -111,13 +111,14 @@ async function assembleBoardPackage(application: Record<string, unknown>, applic
   //    applicants/principals array order.
   const { data: subjectRows } = await supabaseAdmin
     .from('screening_subjects')
-    .select('subject_index, name, status, report_url, completed_at')
+    .select('subject_index, name, status, report_url, report_data, completed_at')
     .eq('application_id', applicationId)
     .order('subject_index', { ascending: true });
   const subjects = (subjectRows ?? []).map(s => {
     const completedAt = s.completed_at as string | null
     return {
       name: s.name as string | null, status: s.status as string | null, report_url: s.report_url as string | null,
+      report_data: (s.report_data as Record<string, unknown> | null) ?? null,
       valid_through: screeningValidThrough(completedAt)?.toISOString() ?? null, expired: isScreeningExpired(completedAt),
     }
   });
