@@ -1,6 +1,8 @@
 'use server'
 
+import { cookies } from 'next/headers'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { verifySession, SESSION_COOKIE } from '@/lib/session'
 
 export type Owner = {
   id: number
@@ -89,9 +91,30 @@ export async function getOwners(
   return { owners: data ?? [], total: count ?? 0 }
 }
 
+/** Best-effort staff identity for the contact-history log below -- never
+ *  blocks the actual update if the session can't be resolved. */
+async function staffEmailForHistory(): Promise<string> {
+  try {
+    const token = (await cookies()).get(SESSION_COOKIE)?.value
+    const s = token ? await verifySession(token) : null
+    if (s?.persona === 'staff' && typeof s.userId === 'string' && s.userId.includes('@')) return s.userId.toLowerCase()
+  } catch { /* best-effort */ }
+  return 'staff'
+}
+
 export async function updateOwner(id: number, fields: Partial<Owner>): Promise<{ error?: string }> {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { id: _id, created_at: _ca, ...updateFields } = fields as Owner & { id: number }
+
+  // Real incident, 2026-09-08 (MANXI 802): a wrong owners.emails value was
+  // only ever discoverable by someone noticing the wrong recipient -- no
+  // change history existed at all. Snapshot the current emails/phone before
+  // writing so a real change can be logged (owner_contact_history,
+  // 20260908_owner_contact_history.sql).
+  const touchesTracked = 'emails' in updateFields || 'phone' in updateFields
+  const before = touchesTracked
+    ? (await supabaseAdmin.from('owners').select('emails, phone, association_code, unit_number').eq('id', id).maybeSingle()).data
+    : null
 
   const { error } = await supabaseAdmin
     .from('owners')
@@ -102,6 +125,23 @@ export async function updateOwner(id: number, fields: Partial<Owner>): Promise<{
     console.error('[updateOwner]', error)
     return { error: error.message }
   }
+
+  if (before) {
+    const changedBy = await staffEmailForHistory()
+    for (const field of ['emails', 'phone'] as const) {
+      if (!(field in updateFields)) continue
+      const oldValue = before[field] as string | null
+      const newValue = updateFields[field] ?? null
+      if (oldValue === newValue) continue
+      try {
+        await supabaseAdmin.from('owner_contact_history').insert({
+          owner_id: id, association_code: before.association_code, unit_number: before.unit_number,
+          field, old_value: oldValue, new_value: newValue, changed_by: changedBy,
+        })
+      } catch { /* history logging must never fail the actual update */ }
+    }
+  }
+
   return {}
 }
 

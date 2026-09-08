@@ -4252,6 +4252,49 @@ NOTIFY pgrst, 'reload schema';`,
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'owner_contact_history',
+    label:       'owners — updated_at + owner_contact_history audit log',
+    description: "Real incident, 2026-09-08: MANXI 802's owner (Jorge Enrique Hernandez) had a Shoreland owner's email sitting in his own `emails` field. Traced as far as code archaeology allows: `owners.created_at` shows the affected rows (MANXI 207/505/708/711/802, SP 10B) were all bulk-inserted in two exact-timestamp batches on 2026-04-16 -- a row-misalignment bug in whatever one-time import script originally populated the table, predating this repo's tracked history. `owners` had no `updated_at` at all, so there was no way to even ask when a row was last touched, let alone by what. Adds updated_at (trigger-stamped on every UPDATE, not just set-and-forget at write time) and owner_contact_history -- one row per changed emails/phone value, old vs new, who/what changed it (a staff login email, or 'cinc_sync'), and when. Populated from lib/cinc-sync.ts's applySync() and app/admin/actions.ts's updateOwner() -- the only two places owners.emails/phone can actually change.",
+    filename:    '20260908_owner_contact_history.sql',
+    artifact:    { type: 'table', table: 'owner_contact_history' },
+    sql: `ALTER TABLE public.owners
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+
+UPDATE public.owners SET updated_at = created_at WHERE updated_at IS NULL;
+
+ALTER TABLE public.owners ALTER COLUMN updated_at SET DEFAULT now();
+
+CREATE OR REPLACE FUNCTION public.set_owners_updated_at()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_owners_updated_at ON public.owners;
+CREATE TRIGGER trg_owners_updated_at
+  BEFORE UPDATE ON public.owners
+  FOR EACH ROW EXECUTE FUNCTION public.set_owners_updated_at();
+
+CREATE TABLE IF NOT EXISTS public.owner_contact_history (
+  id                bigint generated always as identity primary key,
+  owner_id          integer not null references public.owners(id) on delete cascade,
+  association_code  text,
+  unit_number       text,
+  field             text not null,
+  old_value         text,
+  new_value         text,
+  changed_by        text not null,
+  changed_at        timestamptz not null default now()
+);
+
+CREATE INDEX IF NOT EXISTS owner_contact_history_owner_id_idx ON public.owner_contact_history(owner_id);
+CREATE INDEX IF NOT EXISTS owner_contact_history_unit_idx ON public.owner_contact_history(association_code, unit_number);
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
