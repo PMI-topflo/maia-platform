@@ -82,7 +82,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
       .filter(r => r.name && isReviewerVerified(round.reviewer_verifications, r.name))
       .map(r => String(r.name)),
     roleLabels: REVIEWER_ROLE_LABEL,
-    windowSentence: boardWindowSentence(state.windowDays),
+    windowSentence: boardWindowSentence(state.windowDays, state.windowUnit),
     interviewPending: interviewRequired && !app?.interview_completed_at,
     ...state,
   })

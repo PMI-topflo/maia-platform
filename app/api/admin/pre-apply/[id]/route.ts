@@ -279,7 +279,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     review: review ? {
       rows: review.rows.map(r => ({ scopeKey: r.scopeKey, docKey: r.docKey, state: r.state, decision: r.decision, perApplicantName: r.perApplicantName })),
       totals: review.totals, complete: review.complete,
-      windowOpenedAt: review.windowOpenedAt, windowDays: review.windowDays, dueAt: review.dueAt,
+      windowOpenedAt: review.windowOpenedAt, windowDays: review.windowDays, windowUnit: review.windowUnit, dueAt: review.dueAt,
       screeningValidThrough: review.screeningValidThrough, screeningExpired: review.screeningExpired,
     } : null,
     declarations,

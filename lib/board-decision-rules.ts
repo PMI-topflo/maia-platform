@@ -45,3 +45,35 @@ const BOARD_DECISION_RULE: Record<string, string> = {
 export function boardDecisionRuleFor(associationCode: string): string | null {
   return BOARD_DECISION_RULE[associationCode.trim().toUpperCase()] ?? null
 }
+
+export interface BoardWindowOverride { days: number; businessDays: boolean }
+
+// An association whose Declaration runs the clock differently from the
+// codebase-wide default (30 CALENDAR days, listing_applications.
+// board_window_days) -- lib/board-review.ts's dueAt derivation consults
+// this FIRST, so it applies to every application for that association,
+// past and future, with nothing to backfill (dueAt is always computed
+// fresh, never stored). User direction, 2026-09-08: "Fix VPCI's
+// Declaration actually gives the Board 10 business days."
+const BOARD_DECISION_WINDOW: Record<string, BoardWindowOverride> = {
+  VPCI: { days: 10, businessDays: true },
+}
+
+export function boardWindowOverrideFor(associationCode: string): BoardWindowOverride | null {
+  return BOARD_DECISION_WINDOW[associationCode.trim().toUpperCase()] ?? null
+}
+
+/** Adds N business days (Mon-Fri) to a date. Federal/observed holidays are
+ *  NOT accounted for -- none of the governing-document language sourced
+ *  above defines a holiday calendar, so this is the plain "business day =
+ *  not a weekend" reading of the phrase. */
+export function addBusinessDays(from: Date | string, n: number): Date {
+  const d = new Date(from)
+  let added = 0
+  while (added < n) {
+    d.setUTCDate(d.getUTCDate() + 1)
+    const day = d.getUTCDay()
+    if (day !== 0 && day !== 6) added++
+  }
+  return d
+}

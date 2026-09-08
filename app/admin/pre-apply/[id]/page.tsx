@@ -27,7 +27,7 @@ interface Detail {
   review: {
     rows: { scopeKey: string; docKey: string; state: 'waiting' | 'received' | 'approved' | 'refused'; decision: { by: string; role: string; at: string; reason: string | null } | null; perApplicantName: string | null }[]
     totals: { required: number; received: number; decided: number; approved: number; refused: number; waiting: number }
-    complete: boolean; windowOpenedAt: string | null; windowDays: number; dueAt: string | null
+    complete: boolean; windowOpenedAt: string | null; windowDays: number; windowUnit: 'calendar' | 'business'; dueAt: string | null
     screeningValidThrough: string | null; screeningExpired: boolean
   } | null
   declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null; taxReturns?: { has: boolean; at?: string } | null }
@@ -695,7 +695,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                   : `${d.review.totals.decided} of ${d.review.totals.required} decided${d.review.totals.waiting ? ` · ${d.review.totals.waiting} still to arrive` : ''}${d.review.totals.refused ? ` · ${d.review.totals.refused} refused` : ''}`}
               </div>
               <div style={{ fontSize: 13.5, color: '#4a5265', marginTop: 3 }}>
-                The Board may decide up to {d.review.windowDays} days after the last requested document is received.
+                The Board may decide up to {d.review.windowDays} {d.review.windowUnit === 'business' ? 'business ' : ''}days after the last requested document is received.
                 {!d.review.complete && ' The window opens once every document is in and approved.'}
               </div>
             </div>

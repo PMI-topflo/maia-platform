@@ -21,6 +21,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getIntakeChecklist, getIntakeChecklistAll, isApplicationType, parseDeclarations, declaredNaKeysPerApplicant, type IntakeDoc, type StakeholderDeclarationFields } from '@/lib/intake-documents'
 import { screeningValidThrough, isScreeningExpired } from '@/lib/screening/validity'
+import { boardWindowOverrideFor, addBusinessDays } from '@/lib/board-decision-rules'
 
 export type ReviewDecision = 'approved' | 'refused'
 export type ReviewerRole = 'board' | 'onsite_manager' | 'staff'
@@ -55,8 +56,13 @@ export interface ReviewState {
   totals: { required: number; received: number; decided: number; approved: number; refused: number; waiting: number }
   /** Every required document received AND decided, none refused. */
   complete: boolean
+  associationCode: string
   windowOpenedAt: string | null
   windowDays: number
+  /** 'business' when the association's own governing documents run the clock
+   *  in business days (see lib/board-decision-rules.ts's boardWindowOverrideFor)
+   *  -- 'calendar' otherwise, the codebase-wide default. */
+  windowUnit: 'calendar' | 'business'
   dueAt: string | null
   /** Null until every screening_subjects row on the bridged legacy application
    *  has completed_at set -- an in-progress screening never "expires". See
@@ -77,6 +83,7 @@ const scoped = (docKey: string, sid: string | null) => sid ? `${docKey}#${sid}` 
 
 export interface ReviewInputs {
   app: {
+    association_code: string
     na_items: unknown
     declarations: unknown
     board_window_opened_at: string | null
@@ -128,7 +135,7 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
 
   return deriveReviewState({
     app: {
-      na_items: app.na_items, declarations: app.declarations,
+      association_code: code, na_items: app.na_items, declarations: app.declarations,
       board_window_opened_at: (app.board_window_opened_at as string | null) ?? null,
       board_window_days: (app.board_window_days as number | null) ?? null,
     },
@@ -143,6 +150,21 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
     petsAllowed: (assoc?.pets_allowed as boolean | null) ?? null,
     screeningCompletedAt: (subjects ?? []).map(s => (s.completed_at as string | null) ?? null),
   })
+}
+
+/** The Board's decision deadline: windowDays after windowOpenedAt, in
+ *  calendar days by default, or business days for an association whose own
+ *  governing documents say so (lib/board-decision-rules.ts). The ONE place
+ *  this arithmetic happens — deriveReviewState and syncBoardWindow both call
+ *  this rather than each doing their own date math, so they cannot drift. */
+function computeBoardWindow(associationCode: string, windowOpenedAt: string | null, storedWindowDays: number | null): { windowDays: number; windowUnit: 'calendar' | 'business'; dueAt: string | null } {
+  const override = boardWindowOverrideFor(associationCode)
+  const windowDays = override?.days ?? storedWindowDays ?? 30
+  const windowUnit: 'calendar' | 'business' = override?.businessDays ? 'business' : 'calendar'
+  const dueAt = windowOpenedAt
+    ? (windowUnit === 'business' ? addBusinessDays(windowOpenedAt, windowDays) : new Date(new Date(windowOpenedAt).getTime() + windowDays * 86400000)).toISOString()
+    : null
+  return { windowDays, windowUnit, dueAt }
 }
 
 /** The derivation itself — pure, so it cannot drift between the one-application
@@ -227,10 +249,7 @@ export function deriveReviewState({ app, checklist, docs, reviews, people, petsA
   const complete = req.length > 0 && totals.approved === req.length
 
   const windowOpenedAt = app.board_window_opened_at
-  const windowDays = app.board_window_days ?? 30
-  const dueAt = windowOpenedAt
-    ? new Date(new Date(windowOpenedAt).getTime() + windowDays * 86400000).toISOString()
-    : null
+  const { windowDays, windowUnit, dueAt } = computeBoardWindow(app.association_code, windowOpenedAt, app.board_window_days)
 
   // Every subject has to have actually completed before the application-level
   // clock starts -- a screening still in progress is never "expired", it's
@@ -243,7 +262,7 @@ export function deriveReviewState({ app, checklist, docs, reviews, people, petsA
   const screeningValidThroughIso = screeningValidThrough(latestCompletedAt)?.toISOString() ?? null
   const screeningExpired = !complete && isScreeningExpired(latestCompletedAt)
 
-  return { rows, totals, complete, windowOpenedAt, windowDays, dueAt, screeningValidThrough: screeningValidThroughIso, screeningExpired }
+  return { rows, totals, complete, associationCode: app.association_code, windowOpenedAt, windowDays, windowUnit, dueAt, screeningValidThrough: screeningValidThroughIso, screeningExpired }
 }
 
 /** The same state for MANY applications, in a fixed number of queries rather
@@ -307,7 +326,7 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
     const detailedId = (a.detailed_application_id as string | null) ?? null
     out.set(id, deriveReviewState({
       app: {
-        na_items: a.na_items, declarations: a.declarations,
+        association_code: code, na_items: a.na_items, declarations: a.declarations,
         board_window_opened_at: (a.board_window_opened_at as string | null) ?? null,
         board_window_days: (a.board_window_days as number | null) ?? null,
       },
@@ -352,7 +371,8 @@ export async function syncBoardWindow(applicationId: string): Promise<{ opened: 
     if (!flipped?.length) {
       await supabaseAdmin.from('listing_applications').update({ board_window_opened_at: now, updated_at: now }).eq('id', applicationId)
     }
-    return { opened: true, closed: false, state: { ...state, windowOpenedAt: now, dueAt: new Date(Date.now() + state.windowDays * 86400000).toISOString() } }
+    const { dueAt } = computeBoardWindow(state.associationCode, now, state.windowDays)
+    return { opened: true, closed: false, state: { ...state, windowOpenedAt: now, dueAt } }
   }
   if (!state.complete && state.windowOpenedAt) {
     await supabaseAdmin.from('listing_applications').update({ board_window_opened_at: null, updated_at: now }).eq('id', applicationId)
@@ -362,8 +382,8 @@ export async function syncBoardWindow(applicationId: string): Promise<{ opened: 
 }
 
 /** The applicant-facing sentence, identical everywhere it appears. */
-export function boardWindowSentence(days = 30): string {
-  return `The Board may decide up to ${days} days after the last requested document is received.`
+export function boardWindowSentence(days = 30, unit: 'calendar' | 'business' = 'calendar'): string {
+  return `The Board may decide up to ${days} ${unit === 'business' ? 'business ' : ''}days after the last requested document is received.`
 }
 
 export const REVIEW_REMINDER_DAYS = 5

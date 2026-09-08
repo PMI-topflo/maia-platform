@@ -36,7 +36,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     approvers, blockers,
     officeNotified: OFFICE_EMAILS,
     reminderDays: REVIEW_REMINDER_DAYS,
-    windowSentence: boardWindowSentence(state.windowDays),
+    windowSentence: boardWindowSentence(state.windowDays, state.windowUnit),
     rounds: (rounds ?? []).map(r => ({
       id: String(r.id), createdAt: r.created_at, reminderCount: r.reminder_count, lastReminderAt: r.last_reminder_at,
       link: `${APP}/board-review/${r.token}`,

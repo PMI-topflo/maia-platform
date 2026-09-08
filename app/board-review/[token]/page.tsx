@@ -28,7 +28,7 @@ interface Info {
   interviewPending: boolean
   rows: Row[]
   totals: { required: number; received: number; decided: number; approved: number; refused: number; waiting: number }
-  complete: boolean; windowOpenedAt: string | null; windowDays: number; dueAt: string | null
+  complete: boolean; windowOpenedAt: string | null; windowDays: number; windowUnit: 'calendar' | 'business'; dueAt: string | null
 }
 
 const TYPE: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
@@ -309,7 +309,7 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
             {info.complete
               ? `Every document has been received and approved. The approval letter is next, and anyone who has not signed is reminded every 5 days.`
               : t.waiting > 0
-                ? `The ${info.windowDays}-day window begins when the last requested document is received and reviewed.`
+                ? `The ${info.windowDays}-${info.windowUnit === 'business' ? 'business-day' : 'day'} window begins when the last requested document is received and reviewed.`
                 : t.refused > 0
                   ? `${t.refused} document${t.refused === 1 ? ' was' : 's were'} refused — the window stays shut until ${t.refused === 1 ? 'it is' : 'they are'} replaced.`
                   : `${t.required - t.decided} still to review.`}

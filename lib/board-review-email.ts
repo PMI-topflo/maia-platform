@@ -177,8 +177,8 @@ async function buildReviewRoundEmail(applicationId: string, token: string, note:
   // association not yet confirmed there.
   const rule = boardDecisionRuleFor(c.code)
   const windowLine = (state.windowOpenedAt && state.dueAt
-    ? `This application's ${state.windowDays}-day decision window is already open — a decision is due ${fmtET(state.dueAt)}${daysLeft !== null ? ` (${daysLeft} day${daysLeft === 1 ? '' : 's'} left)` : ''}.`
-    : boardWindowSentence(state.windowDays)) + (rule ? ` Per the association's governing documents: "${rule}"` : '')
+    ? `This application's ${state.windowDays}-${state.windowUnit === 'business' ? 'business-day' : 'day'} decision window is already open — a decision is due ${fmtET(state.dueAt)}${daysLeft !== null ? ` (${daysLeft} day${daysLeft === 1 ? '' : 's'} left)` : ''}.`
+    : boardWindowSentence(state.windowDays, state.windowUnit)) + (rule ? ` Per the association's governing documents: "${rule}"` : '')
 
   const ownerBalance = await ownerBalanceInfo(c.code, c.unit)
 
@@ -278,7 +278,7 @@ export async function notifyOfficeOfReviewResponse(o: {
       <p><strong>${esc(o.label)}</strong> was <strong style="color:${o.decision === 'approved' ? '#0f7a4d' : '#b42318'}">${verb}</strong> by ${who}.</p>
       ${o.reason ? `<div style="border-left:3px solid #b42318;background:#fdf2f0;padding:10px 13px;margin:12px 0"><em>“${esc(o.reason)}”</em></div>` : ''}
       <p style="color:#6b7280">${esc(c.typeLabel)} · ${esc(c.address ?? c.legal)}<br>${esc(progress)}</p>
-      ${o.windowOpened ? `<p style="background:#eef8f2;border:1px solid #cdeedd;border-radius:8px;padding:11px 13px;color:#166534"><strong>All documents are now approved.</strong> The ${state.windowDays}-day board window opened ${fmtET(state.windowOpenedAt ?? new Date().toISOString())}${state.dueAt ? ` — a decision is due ${fmtET(state.dueAt)}` : ''}.</p>` : ''}
+      ${o.windowOpened ? `<p style="background:#eef8f2;border:1px solid #cdeedd;border-radius:8px;padding:11px 13px;color:#166534"><strong>All documents are now approved.</strong> The ${state.windowDays}-${state.windowUnit === 'business' ? 'business-day' : 'day'} board window opened ${fmtET(state.windowOpenedAt ?? new Date().toISOString())}${state.dueAt ? ` — a decision is due ${fmtET(state.dueAt)}` : ''}.</p>` : ''}
       <p style="margin-top:18px"><a href="${APP}/admin/pre-apply/${o.applicationId}" style="color:#f26a1b;font-weight:600;text-decoration:none">Open the application →</a></p>
       <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p></div>`,
   })
