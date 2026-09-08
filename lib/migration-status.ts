@@ -4204,12 +4204,12 @@ NOTIFY pgrst, 'reload schema';`,
   {
     key:         'backfill_open_applications_checkr',
     label:       'listing_applications — backfill open applications onto maia_checkr',
-    description: "User report, 2026-09-08 (Quentin Jamal Smith & Timothy Dean Walker, MANXI Unit 706): \"some open applications still have the Rentvine info and I can't send them to Checkr.\" screening_provider is a snapshot frozen once, at creation, from the association's LIVE value at that moment -- flipping every association's default to maia_checkr (20260906b) only changed what NEW applications snapshot; anything already open from before that flip is stuck reading tenant_evaluation forever, which (since PR #796 retired the manual \"Switch this application to Checkr\" button) now shows a dead-end informational note with no way to trigger Checkr at all. One-time backfill: any application still open (not approved/declined/withdrawn) moves onto maia_checkr now; anything already decided is left untouched.",
+    description: "User report, 2026-09-08 (Quentin Jamal Smith & Timothy Dean Walker, MANXI Unit 706): \"some open applications still have the Rentvine info and I can't send them to Checkr.\" screening_provider is a snapshot frozen once, at creation, from the association's LIVE value at that moment -- flipping every association's default to maia_checkr (20260906b) only changed what NEW applications snapshot; anything already open from before that flip is stuck reading tenant_evaluation forever, which (since PR #796 retired the manual \"Switch this application to Checkr\" button) now shows a dead-end informational note with no way to trigger Checkr at all. CORRECTED same day, after the first version ran with zero visible effect: resolveScreeningProvider() treats a NULL screening_provider exactly like the literal string 'tenant_evaluation' (its own fallback default), but the first version's WHERE clause only matched the literal string -- SQL's = never matches NULL -- silently skipping every application whose screening_provider had never been populated at all, which was apparently most or all of the stuck ones. One-time backfill: any application still open (not approved/declined/withdrawn) with screening_provider NULL or 'tenant_evaluation' moves onto maia_checkr now; anything already decided is left untouched.",
     filename:    '20260908_backfill_open_applications_checkr.sql',
     artifact:    { type: 'column', table: 'listing_applications', column: 'screening_provider' },
     sql: `UPDATE public.listing_applications
    SET screening_provider = 'maia_checkr'
- WHERE screening_provider = 'tenant_evaluation'
+ WHERE (screening_provider = 'tenant_evaluation' OR screening_provider IS NULL)
    AND status NOT IN ('approved', 'declined', 'withdrawn');
 
 NOTIFY pgrst, 'reload schema';`,
