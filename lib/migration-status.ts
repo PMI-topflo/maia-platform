@@ -4214,6 +4214,29 @@ NOTIFY pgrst, 'reload schema';`,
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'backfill_application_stakeholders_phone_e164',
+    label:       'application_stakeholders — backfill phone to E.164',
+    description: "User report, 2026-09-08 (screenshot, the staff Agents card): \"Maia is not normalizing phone numbers from agents for WhatsApp format\" -- e.g. \"954 830 2930\" and \"954-303-6111\" shown side by side, neither in the +1XXXXXXXXXX form the rest of the app already standardizes on (lib/cinc-sync.ts's normalizePhone, used for owner/tenant phones). Root cause: three of the four write paths into application_stakeholders (the applicant's-agent and listing-agent self-serve forms, and the mid-intake \"add a collaborator\" flow) never ran the phone through normalizePhone at all -- only the staff Edit-agent route did. Those code paths are now fixed to normalize on every future write (lib/applications.ts's addStakeholder, lib/preapply.ts's addStakeholders); this is the one-time catch-up for rows already stored raw. Applies the exact same normalizePhone logic in SQL: 10 digits -> +1-prefixed, 11 digits starting with 1 -> +-prefixed, already-+-prefixed left as-is, anything else -> +-prefixed digits-only. Scoped to rows not already in clean +digits form, so a second run is a no-op; a phone that strips to zero digits (garbage, not a real number) is left completely untouched rather than guessed at or nulled.",
+    filename:    '20260908_backfill_stakeholder_phone_e164.sql',
+    artifact:    { type: 'column', table: 'application_stakeholders', column: 'phone' },
+    sql: `UPDATE public.application_stakeholders
+   SET phone = CASE
+     WHEN length(regexp_replace(phone, '\\D', '', 'g')) = 10
+       THEN '+1' || regexp_replace(phone, '\\D', '', 'g')
+     WHEN length(regexp_replace(phone, '\\D', '', 'g')) = 11
+      AND left(regexp_replace(phone, '\\D', '', 'g'), 1) = '1'
+       THEN '+' || regexp_replace(phone, '\\D', '', 'g')
+     WHEN trim(phone) LIKE '+%'
+       THEN trim(phone)
+     ELSE '+' || regexp_replace(phone, '\\D', '', 'g')
+   END
+ WHERE phone IS NOT NULL
+   AND phone !~ '^\\+[0-9]+$'
+   AND regexp_replace(phone, '\\D', '', 'g') <> '';
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

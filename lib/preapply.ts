@@ -24,6 +24,7 @@ import { quickDocScan } from '@/lib/quick-doc-classify'
 import { suggestedIntakeName } from '@/lib/intake-naming'
 import { sendEmail } from '@/lib/gmail'
 import { notifyDelinquencyOnApplicationOpen } from '@/lib/application-delinquency-notice'
+import { normalizePhone } from '@/lib/cinc-sync'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
@@ -423,7 +424,13 @@ export async function addStakeholders(
   const { data } = await supabaseAdmin.from('application_stakeholders').insert(
     fresh.map(p => ({
       application_id: applicationId, role: p.role, name: p.name.trim(), email: p.email?.trim() || null,
-      phone: p.phone?.trim() || null, is_primary: false, status: 'invited', added_by_role: addedByRole,
+      // Normalized to E.164 (lib/cinc-sync.ts's normalizePhone, the same
+      // convention owner/tenant phones already use) so a phone-only
+      // collaborator -- an agent added mid-intake, most commonly -- is
+      // actually dialable by the SMS invite this function's own caller
+      // sends them, not whatever format they were typed in.
+      phone: p.phone ? normalizePhone(p.phone) ?? (p.phone.trim() || null) : null,
+      is_primary: false, status: 'invited', added_by_role: addedByRole,
     })),
   ).select(STAKEHOLDER_COLS)
   return (data ?? []).map(toRow)

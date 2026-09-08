@@ -15,6 +15,7 @@ import { sendEmail } from '@/lib/gmail'
 import { getPortalDocuments } from '@/lib/portal-documents'
 import { PUBLIC_RESTRICTED_CATEGORIES } from '@/lib/portal-documents'
 import { signApplicationToken } from '@/lib/application-token'
+import { normalizePhone } from '@/lib/cinc-sync'
 
 const BASE          = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const STAFF_LEASING = process.env.MAIA_LEASING_ALERT_TO ?? 'service@topfloridaproperties.com'  // Paola
@@ -74,9 +75,17 @@ export async function addStakeholder(args: {
   name?: string | null; email?: string | null; phone?: string | null
   isPrimary?: boolean; addedByRole?: string; status?: string
 }): Promise<Stakeholder> {
+  // Normalize to E.164 on the way in -- same convention as owner/tenant phones
+  // (lib/cinc-sync.ts's normalizePhone) -- so a stakeholder's number is dialable
+  // by WhatsApp/SMS from here on, not just whatever format they typed it in
+  // (real case, 2026-09-08: an agent's phone showing as "954 830 2930" here vs
+  // "954-303-6111" there, neither normalized). Falls back to a trimmed raw
+  // string on anything normalizePhone can't parse, rather than silently
+  // dropping it.
+  const phone = args.phone ? normalizePhone(args.phone) ?? (args.phone.trim() || null) : null
   const { data, error } = await supabaseAdmin.from('application_stakeholders').insert({
     listing_id: args.listingId ?? null, application_id: args.applicationId ?? null,
-    role: args.role, name: args.name ?? null, email: args.email ?? null, phone: args.phone ?? null,
+    role: args.role, name: args.name ?? null, email: args.email ?? null, phone,
     is_primary: args.isPrimary ?? false, added_by_role: args.addedByRole ?? null,
     status: args.status ?? 'invited',
   }).select('*').single()
