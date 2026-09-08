@@ -27,16 +27,20 @@ export async function POST(
   if (!session || session.persona !== 'staff') {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const me = typeof session.userId === 'string' && session.userId.includes('@') ? session.userId.toLowerCase() : null
 
   let body: RejectBody = {}
   try { body = await req.json() } catch { /* allow empty body */ }
 
+  const now = new Date().toISOString()
   const { error } = await supabaseAdmin
     .from('invoice_intake_drafts')
     .update({
       status:          'rejected',
       rejected_reason: body.reason?.slice(0, 500) ?? null,
-      updated_at:      new Date().toISOString(),
+      rejected_by:     me,
+      rejected_at:     now,
+      updated_at:      now,
     })
     .eq('id', id)
     // Any pre-CINC state can be rejected — including ready_to_push and

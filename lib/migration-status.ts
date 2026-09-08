@@ -4237,6 +4237,21 @@ NOTIFY pgrst, 'reload schema';`,
 
 NOTIFY pgrst, 'reload schema';`,
   },
+  {
+    key:         'invoice_intake_step_tracking',
+    label:       'invoice_intake_drafts — record who/when for reject + hold',
+    description: "User direction, 2026-09-08: \"make sure to register the user that is pushing every step so we know if the staff member work, show in the top of the card the name and datestamp of each step.\" audit_ready_by/at and pushed_by/pushed_at already recorded who/when; reject only ever wrote rejected_reason (never who/when), put-on-hold only wrote hold_requested_at (never who), and release-from-hold recorded nothing at all -- worse, the DELETE handler actively NULLED hold_requested_at on release, destroying the one piece of history that step already had (fixed in the same PR to stop doing that). Adds rejected_by, rejected_at, hold_requested_by, hold_released_by, hold_released_at -- single \"latest step\" columns, same convention as audit_ready_by/pushed_by, not an append-only log.",
+    filename:    '20260908_invoice_intake_step_tracking.sql',
+    artifact:    { type: 'column', table: 'invoice_intake_drafts', column: 'rejected_by' },
+    sql: `ALTER TABLE public.invoice_intake_drafts
+  ADD COLUMN IF NOT EXISTS rejected_by       text,
+  ADD COLUMN IF NOT EXISTS rejected_at       timestamptz,
+  ADD COLUMN IF NOT EXISTS hold_requested_by text,
+  ADD COLUMN IF NOT EXISTS hold_released_by  text,
+  ADD COLUMN IF NOT EXISTS hold_released_at  timestamptz;
+
+NOTIFY pgrst, 'reload schema';`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

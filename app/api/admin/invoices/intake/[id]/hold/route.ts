@@ -85,6 +85,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     status:               'on_hold',
     hold_requested_items: items,
     hold_ticket_id:       ticketId,
+    hold_requested_by:    me,
     hold_requested_at:    new Date().toISOString(),
     hold_note:            note,
     updated_at:           new Date().toISOString(),
@@ -131,8 +132,12 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   const id = parseInt(idStr, 10)
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'invalid id' }, { status: 400 })
 
+  // hold_requested_by/at are left in place -- that's the record of who put
+  // it on hold and when, and this step is who released it, not who asked
+  // for it. Wiping hold_requested_at here used to destroy that history the
+  // moment a hold ended, which is exactly backwards for "who did what."
   const { error } = await supabaseAdmin.from('invoice_intake_drafts')
-    .update({ status: 'pending_review', hold_requested_at: null, updated_at: new Date().toISOString() })
+    .update({ status: 'pending_review', hold_released_by: me, hold_released_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq('id', id).eq('status', 'on_hold')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
