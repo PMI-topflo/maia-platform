@@ -158,13 +158,22 @@ export async function GET(req: Request) {
   }))
 
   // Side counts per status so the dashboard tabs can show pill numbers.
-  const { data: counts } = await supabaseAdmin
-    .from('invoice_intake_drafts')
-    .select('status')
+  // One exact COUNT per status (head: true -- no row data returned), not a
+  // single unbounded `.select('status')` over the whole table: that select
+  // had no limit, so it silently hit Supabase's default ~1000-row response
+  // cap once invoice_intake_drafts grew past that -- and always lost the
+  // small, active-workflow buckets (ready_to_push, on_hold, rejected) while
+  // the huge, long-lived 'pushed_to_cinc'/Archived bucket ate the whole
+  // truncated batch. Real case, 2026-09-08: 3 same-day 'ready_to_push'
+  // invoices showed no pill at all while Archived read exactly 999.
   const countsByStatus: Record<string, number> = {}
-  for (const row of (counts ?? [])) {
-    countsByStatus[row.status as string] = (countsByStatus[row.status as string] ?? 0) + 1
-  }
+  await Promise.all([...VALID_STATUSES].map(async s => {
+    const { count } = await supabaseAdmin
+      .from('invoice_intake_drafts')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', s)
+    countsByStatus[s] = count ?? 0
+  }))
 
   return NextResponse.json({ drafts: draftsWithUrls, counts: countsByStatus })
 }
