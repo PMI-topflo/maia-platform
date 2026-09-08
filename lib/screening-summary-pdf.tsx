@@ -1,21 +1,26 @@
 // =====================================================================
 // lib/screening-summary-pdf.tsx
 //
-// A colorful, MAIA-branded ONE-PAGE SUMMARY of a completed Checkr report
-// (@react-pdf/renderer, same pattern as lib/monthly-report-pdf.tsx) --
-// built from the exact same parsed data as components/
+// A colorful, MAIA-branded SUMMARY COVER PAGE for a completed Checkr
+// report (@react-pdf/renderer, same pattern as lib/monthly-report-pdf.tsx)
+// -- built from the exact same parsed data as components/
 // ScreeningReportSummary.tsx (lib/screening/report-summary.ts's
 // summarizeReport()), so the numbers here always match what's on screen.
 //
-// This is explicitly NOT a replacement for Checkr's own report PDF --
-// that PDF is the actual FCRA consumer report (required disclosures,
-// dispute-rights language, the CRA's own exact wording) and stays the
-// retained record, downloaded unchanged via the existing "View report"
-// link. This is a supplementary at-a-glance export for staff/board, and
-// says so in its own footer.
+// User direction, 2026-09-08, after a first version shipped this as a
+// SEPARATE downloadable PDF next to Checkr's own: "my idea was having the
+// new colourful in the same PDF and preview as the original, so both
+// could be seen by the board while approving, not a new button that I
+// will never use." mergeWithOriginalPdf below (same splice-verbatim
+// pattern as lib/rules-ack-pdf.ts's mergeRulesIntoWrapper) puts this
+// cover page in FRONT of Checkr's own report pages, byte-for-byte
+// unmodified -- one PDF, one "View report" link, the full original
+// consumer report still fully intact and retained right behind the
+// summary.
 // =====================================================================
 
 import { Document, Page, View, Text, Svg, Path, Circle, Line, StyleSheet } from '@react-pdf/renderer'
+import { PDFDocument } from 'pdf-lib'
 import type { ReportSummary, CreditSummary } from '@/lib/screening/report-summary'
 import { creditScoreBand, sectionStatusColors } from '@/lib/screening/report-summary'
 
@@ -310,13 +315,27 @@ export function ScreeningSummaryPdf({ applicantName, unitLine, reportId, pulledA
 
         <View style={s.footer}>
           <Text style={s.footerText}>
-            This is a MAIA-generated summary for quick staff/board review — it is not the consumer report. The full report,
-            prepared by Checkr, Inc. (CRA) under the Fair Credit Reporting Act (FCRA) with all required disclosures, is filed
-            separately and is the retained record of this screening. Screening decisions must comply with applicable federal,
-            state, and local fair-housing laws.
+            This cover page is a MAIA-generated summary for quick staff/board review — it is not the consumer report. The full
+            report prepared by Checkr, Inc. (CRA) under the Fair Credit Reporting Act (FCRA), with all required disclosures,
+            follows immediately after this page, unmodified, and is the retained record of this screening. Screening decisions
+            must comply with applicable federal, state, and local fair-housing laws.
           </Text>
         </View>
       </Page>
     </Document>
   )
+}
+
+/** Splices the colorful summary in FRONT of Checkr's own report, byte-for-
+ *  byte unmodified -- same pattern as lib/rules-ack-pdf.ts's
+ *  mergeRulesIntoWrapper (retyping or re-rendering a regulated document
+ *  is exactly the kind of transcription risk that surfaces in a dispute;
+ *  the original's actual pages are copied verbatim, never re-created). */
+export async function mergeWithOriginalPdf(summaryPdf: Buffer, originalPdf: Buffer): Promise<Buffer> {
+  const out = await PDFDocument.create()
+  const summary = await PDFDocument.load(summaryPdf)
+  for (const p of await out.copyPages(summary, summary.getPageIndices())) out.addPage(p)
+  const original = await PDFDocument.load(originalPdf, { ignoreEncryption: true })
+  for (const p of await out.copyPages(original, original.getPageIndices())) out.addPage(p)
+  return Buffer.from(await out.save())
 }

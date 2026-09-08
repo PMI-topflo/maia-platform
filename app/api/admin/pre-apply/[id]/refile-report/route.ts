@@ -1,19 +1,19 @@
 // POST /api/admin/pre-apply/[id]/refile-report   { subjectId }
 //
-// Re-files an ALREADY-completed Checkr report onto its applicant's own
+// Re-generates the merged (colorful cover + Checkr's original) PDF for an
+// ALREADY-completed report and re-files it onto its applicant's own
 // "Background / Credit Reports" checklist row -- the recovery path for a
-// report that finished before app/api/checkr-webhook's own auto-file
-// (lib/screening/report-storage.ts's fileReportAsDocument, added
-// 2026-09-07) existed. Re-downloads the PDF from Checkr by
-// checkr_report_id rather than trusting the already-stored screening-reports
-// copy's path guess, then reuses the exact same filing logic the webhook
-// itself calls. Staff-only.
+// report that finished before either the auto-file (lib/screening/report-
+// storage.ts's fileReportAsDocument, added 2026-09-07) or the colorful
+// cover page (added 2026-09-08) existed. Re-downloads the PDF from Checkr
+// by checkr_report_id rather than trusting the already-stored screening-
+// reports copy's path guess, then reuses the exact same regeneration
+// logic the webhook itself calls on a fresh completion. Staff-only.
 
 import { NextResponse } from 'next/server'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { screening } from '@/lib/screening'
-import { fileReportAsDocument } from '@/lib/screening/report-storage'
+import { regenerateMergedReport } from '@/lib/screening/report-storage'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -39,8 +39,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!subject.checkr_report_id) return NextResponse.json({ error: 'No completed report on file for this applicant yet.' }, { status: 400 })
 
   try {
-    const pdf = await screening.getReportPdf(String(subject.checkr_report_id))
-    await fileReportAsDocument({ id: String(subject.id), application_id: String(subject.application_id), name: (subject.name as string | null) ?? null, stakeholder_id: (subject.stakeholder_id as string | null) ?? null }, pdf)
+    await regenerateMergedReport({
+      id: String(subject.id), application_id: String(subject.application_id),
+      name: (subject.name as string | null) ?? null, stakeholder_id: (subject.stakeholder_id as string | null) ?? null,
+      checkr_report_id: String(subject.checkr_report_id),
+    })
   } catch (e) {
     return NextResponse.json({ error: `Could not re-file: ${(e as Error).message}` }, { status: 502 })
   }
