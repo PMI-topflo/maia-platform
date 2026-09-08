@@ -159,6 +159,7 @@ function RosterRow({ token, item, people, applicationType, onDone }: { token: st
 // A message the owner/tenant can leave for us — registered as communication history.
 function MessageBox({ token, initial }: { token: string; initial: string }) {
   const [note, setNote] = useState(initial)
+  const [lastSaved, setLastSaved] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   // Real incident, 2026-09-03: an owner used this box to relay a tenant's
@@ -176,6 +177,7 @@ function MessageBox({ token, initial }: { token: string; initial: string }) {
       const d = await r.json()
       if (!r.ok) throw new Error(d.error || 'failed')
       setSaved(true)
+      setLastSaved(note)
       if (d.sensitive) setSensitiveWarning(true)
     } catch { /* */ } finally { setBusy(false) }
   }
@@ -184,7 +186,12 @@ function MessageBox({ token, initial }: { token: string; initial: string }) {
       <div style={{ font: '600 13px system-ui', color: '#1c2333', marginBottom: 6 }}>Leave us a message (optional)</div>
       <textarea value={note} onChange={e => { setNote(e.target.value); setSaved(false); setSensitiveWarning(false) }} placeholder="Anything we should know? e.g. a document is on its way, a question…" style={{ width: '100%', boxSizing: 'border-box', minHeight: 70, padding: 10, border: '1px solid #d1d5db', borderRadius: 8, font: '14px system-ui' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
-        <button onClick={save} disabled={busy} style={{ cursor: busy ? 'default' : 'pointer', font: '700 13px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#1c2333', border: 'none', borderRadius: 8, padding: '8px 16px' }}>{busy ? 'Sending…' : 'Send message'}</button>
+        {/* Real case, 2026-09-08: nothing stopped "Send message" from being
+            clicked again and again with the exact same unsent-looking text
+            (no visible change once already sent), which sent 24 identical
+            staff notification emails for one message. Disabled once the
+            current text matches what's already been sent. */}
+        <button onClick={save} disabled={busy || note.trim() === lastSaved.trim()} style={{ cursor: busy || note.trim() === lastSaved.trim() ? 'default' : 'pointer', font: '700 13px system-ui', color: '#fff', background: busy || note.trim() === lastSaved.trim() ? '#c9ccd3' : '#1c2333', border: 'none', borderRadius: 8, padding: '8px 16px' }}>{busy ? 'Sending…' : 'Send message'}</button>
         {saved && !sensitiveWarning && <span style={{ font: '600 12.5px system-ui', color: '#166534' }}>✓ Sent — thank you</span>}
       </div>
       {sensitiveWarning && <p style={{ font: '600 12.5px system-ui', color: '#b45309', marginTop: 8, lineHeight: 1.5 }}>
