@@ -7,9 +7,9 @@ _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** aft
 
 ---
 
-## 🔴 PLANNED — Checkr-first application pipeline redesign (decided 2026-09-01, not yet implemented)
+## 🟡 MOSTLY LIVE — Checkr-first application pipeline redesign (decided 2026-09-01, Phases 1–4/6/7 shipped 2026-09-02, Phase 5 still 🔴)
 
-Full redesign of the applicant-facing flow, driven by two real operational problems: too many open applications for staff to hand-manage one at a time, and Checkr's screening cost currently only gets paid (if at all) at the very END of the process, after staff has already done most of the compliance work. Decided in detail with the user 2026-09-01; nothing below is built yet. This section is the authoritative spec — implement against THIS, not the conversation that produced it.
+Full redesign of the applicant-facing flow, driven by two real operational problems: too many open applications for staff to hand-manage one at a time, and Checkr's screening cost currently only gets paid (if at all) at the very END of the process, after staff has already done most of the compliance work. Decided in detail with the user 2026-09-01. This section is the authoritative spec — implement against THIS, not the conversation that produced it. **Status correction, 2026-09-08 (backfilled from git history — see the "Phasing" list below, which the individual PRs already kept current in near-real-time even though this header itself was never flipped):** every phase except **5 (Lease non-renewal escalation)** is shipped — the header used to read "not yet implemented" long after that stopped being true.
 
 ### The target flow
 
@@ -377,9 +377,14 @@ Detail in `docs/SESSION-HANDOFF.md` (top section) and memory [[venetian_i_onboar
 - ✅ **Closed (#698):** `rules_knowledge_ack` can be created and sent; MANXI now has content + stored packet + a `governing_docs_ack` item.
 - ✅ **Closed (#698):** rows restyled to the previewed design — one ✎ Edit, four flag states, expiration inside the drawer.
 
-## ⚠️ Checkr — Blocker 2 RESOLVED 2026-09-03, Blocker 1 (key mode) still open
+## ✅ RESOLVED — Checkr (both blockers), all associations defaulted to it, Tenant Evaluation fully retired
 
-**RESOLVED 2026-09-03 — Blocker 2.** A live sandbox order came back with real, populated `credit_report` and `eviction_history` (not null), and Checkr support confirmed in writing that both are included on this account's package. This is the re-verification the 2026-09-01 update below was waiting on. `lib/screening/checkr.ts` and `.env.example` updated to match — the `add_on_products` 422 finding two paragraphs down is unrelated and still accurate (credit/eviction come bundled in the package, not addable by name; the real applicant code path never requests them as add-ons anyway). MANXI has **not** been flipped to `screening_provider: maia_checkr` yet — that's a staff-only UI action (Association Hub → MANXI → "On approval, screen via:") this codebase cannot perform on its own; check Blocker 1 below first.
+**RESOLVED 2026-09-03 — Blocker 2.** A live sandbox order came back with real, populated `credit_report` and `eviction_history` (not null), and Checkr support confirmed in writing that both are included on this account's package. This is the re-verification the 2026-09-01 update below was waiting on. `lib/screening/checkr.ts` and `.env.example` updated to match — the `add_on_products` 422 finding two paragraphs down is unrelated and still accurate (credit/eviction come bundled in the package, not addable by name; the real applicant code path never requests them as add-ons anyway). MANXI flipped to `screening_provider: maia_checkr` 2026-09-03 (PR #761) on the strength of this.
+
+**Both blockers resolved as of 2026-09-06 — status update, 2026-09-08 (backfilled from git history):**
+- **Every association now defaults to `maia_checkr`** (PR #796, 2026-09-06) — the `associations.screening_provider` column default itself was flipped and every existing row updated, per explicit user direction ("put all associations as Checkr as default"). Since `lib/preapply.ts`'s `createIntake()` snapshots an application's provider from its association's LIVE value **at creation** (`listing_applications.screening_provider`, added PR #761, resolved via `resolveScreeningProvider()`), this means every application started from 2026-09-06 forward — any association — goes straight to Checkr; applications already in flight are unaffected (always reads their own frozen snapshot, never re-derives live).
+- **Tenant Evaluation is fully retired, not just hidden** (PR #796) — `TenantEvalSender`, its backing route, and `lib/tenant-evaluation.ts` are deleted outright (UI-only retirement, 2026-09-03, was the first step). Staff can still manually upload a background-check file for an old application already started under the retired process (the ordinary "Background / Credit Reports" checklist row, untouched); the "Rentvine fallback" manual-link option (a separate, still-useful path for when Checkr itself has an issue) is untouched too.
+- **A real double-trigger bug was fixed in the same PR**: the Stripe webhook fired a real, paid Checkr order **unconditionally** on payment, regardless of an application's resolved `screening_provider` — so an applicant on an association/application still running the old manual process got a real Checkr order and consent link at the same moment `lib/application-handoff.ts`'s `handoffOnApproval()` separately told staff to proceed on Tenant Evaluation, neither path aware of the other. Both Stripe webhook paths (payment and re-screening charge) now check the bridged `listing_applications` row's own snapshot before firing Checkr.
 
 **Blocker 1 (known since 2026-08-14) — RESOLVED 2026-09-06, the hard way (and revisited the same day).** A real MANXI applicant (Querline Pinckney, PMI-5A648107) paid and got a screening_subjects row stuck at `awaiting_applicant` forever — confirmed live that `CHECKR_API_KEY` was still the Jul 6 test-mode key: a test-mode order returns canned/sandbox results for a real applicant, worse than an error, because nothing looks wrong on the surface, but the real background check never ran and Checkr never emailed her. A live key + live webhook were generated and set.
 
@@ -417,7 +422,8 @@ The staff workflow on **`/admin/pre-apply`** and the board view on **`/units/app
 - ✅ Approval letter: preview → email board for e-signature → auto-file → **BCC the signed PDF to all parties** (#676/#677).
 - ✅ Applicant uploads mirror to Drive + notify staff **on arrival** (#683), resume instead of duplicating (#684), multi-page "+ Add page" (#687), "Move to:" re-file (#688), and **every upload reads its expiration** (#689).
 - ✅ Delivery observability: plain-text alternative (#672), provider message id (#674), **Resend webhook** (#675) — ⚠️ needs `RESEND_WEBHOOK_SECRET` + the webhook registered in Resend.
-- 🔴 **Open:** full row-restyle to the approved mockup; on-site manager page; dedicated occupant-affidavit template; background-check consent → Checkr wiring; owner-outreach emails into the comms timeline.
+- 🔴 **Open:** full row-restyle to the approved mockup; on-site manager page; dedicated occupant-affidavit template; owner-outreach emails into the comms timeline.
+- ✅ **Closed** (2026-09-01/06, see the Checkr-first pipeline redesign section above): background-check consent → Checkr wiring — was the whole point of that redesign, shipped as Phases 1/2/3/4/6/7.
 
 ## ✅ LIVE — production fixes found via the Vercel MCP (2026-08-12)
 
