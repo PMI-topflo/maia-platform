@@ -735,8 +735,26 @@ export async function applySync(
       }
       if (Object.keys(patch).length === 0) continue
       const { error } = await supabaseAdmin.from('owners').update(patch).eq('id', cmp.owners_id)
-      if (error) errors.push(`owner update (id=${cmp.owners_id}): ${error.message}`)
-      else      ownersUpdated++
+      if (error) {
+        errors.push(`owner update (id=${cmp.owners_id}): ${error.message}`)
+      } else {
+        ownersUpdated++
+        // Real incident, 2026-09-08 (MANXI 802): a wrong owners.emails value
+        // was only ever discoverable by someone noticing the wrong
+        // recipient -- no change history existed at all. Log every
+        // emails/phone change this sync actually applies (see
+        // owner_contact_history, 20260908_owner_contact_history.sql).
+        for (const field of ['emails', 'phone'] as const) {
+          const diff = cmp.changes[field]
+          if (!diff) continue
+          try {
+            await supabaseAdmin.from('owner_contact_history').insert({
+              owner_id: cmp.owners_id, association_code: code, unit_number: cmp.unit_number,
+              field, old_value: diff.current, new_value: diff.proposed, changed_by: actorEmail ?? 'cinc_sync',
+            })
+          } catch { /* history logging must never fail the sync */ }
+        }
+      }
     }
   }
 
