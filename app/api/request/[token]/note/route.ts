@@ -26,6 +26,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // warning below so whoever typed it learns not to do it again.
   const { text: note, found: sensitive } = redactSSN(rawNote)
 
+  // Real case, 2026-09-08 (MANXI, Unit 706): the form re-POSTs the exact
+  // same unchanged text on every click of "Send message" (nothing clears or
+  // disables it after a successful send), and this route had no guard at
+  // all -- 24 identical notify emails went out for one message. A resend of
+  // the SAME text is a no-op: already stored, nothing new for staff to see.
+  const previousNote = (r.role === 'owner' ? r.req.owner_note : r.req.tenant_note) as string | null
+  if (note && note === (previousNote ?? '')) return NextResponse.json({ ok: true, sensitive })
+
   const { error } = await supabaseAdmin.from('document_requests')
     .update(r.role === 'owner' ? { owner_note: note || null } : { tenant_note: note || null }).eq('id', r.req.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
