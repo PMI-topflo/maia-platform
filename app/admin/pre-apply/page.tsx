@@ -152,9 +152,20 @@ export default function PreApplyQueue() {
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', padding: 24, fontFamily: 'system-ui' }}>
-      <div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Applications</h1>
-        <p style={{ color: '#6b7280', fontSize: 14, margin: '4px 0 0' }}>Every open application and its stage. Click one to review, upload documents you received, and approve.</p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Applications</h1>
+          <p style={{ color: '#6b7280', fontSize: 14, margin: '4px 0 0' }}>Every open application and its stage. Click one to review, upload documents you received, and approve.</p>
+        </div>
+        {/* User direction, 2026-09-08: a quick shortcut into Checkr's own
+            dashboard for staff to look up any applicant's screening directly —
+            deliberately the generic screening-hub URL, not one specific
+            report's link (a report link only ever points at ONE applicant,
+            which makes no sense pinned to the whole list page). */}
+        <a href="https://tenant.checkr.com/screening-hub" target="_blank" rel="noreferrer"
+          style={{ flexShrink: 0, font: '600 13px system-ui', color: '#374151', background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 14px', textDecoration: 'none' }}>
+          🔗 Checkr Dashboard ↗
+        </a>
       </div>
 
       {/* Pre-Application Compliance reference — required documents per type, per association.
