@@ -41,7 +41,7 @@ const BEN = { id: 'p2', name: 'Ben', applicant_role: 'co_applicant', is_primary:
 const KID = { id: 'p3', name: 'Kid', applicant_role: 'minor_dependent', is_primary: false, vehicle_has: null, vehicle_declared_at: null, tax_returns_has: null, tax_returns_declared_at: null }
 
 const state = (over: Partial<ReviewInputs> = {}) => deriveReviewState({
-  app: { na_items: [], declarations: {}, board_window_opened_at: null, board_window_days: null },
+  app: { association_code: 'TEST', na_items: [], declarations: {}, board_window_opened_at: null, board_window_days: null },
   checklist: [doc('drivers_license'), doc('signed_lease')],
   docs: [], reviews: [], people: [ANNA], petsAllowed: true, screeningCompletedAt: [], ...over,
 })
@@ -115,14 +115,28 @@ eq('a decision made after the current document still applies', states(decidedAft
 
 // ── 6. The 30-day window is opened+days, and days are configurable ───
 const open30 = state({
-  app: { na_items: [], declarations: {}, board_window_opened_at: '2026-08-01T00:00:00.000Z', board_window_days: null },
+  app: { association_code: 'TEST', na_items: [], declarations: {}, board_window_opened_at: '2026-08-01T00:00:00.000Z', board_window_days: null },
 })
-eq('default window is 30 days', open30.windowDays, 30)
+eq('default window is 30 calendar days', open30.windowDays, 30)
+eq('default window unit is calendar', open30.windowUnit, 'calendar')
 eq('due = opened + 30 days', open30.dueAt, '2026-08-31T00:00:00.000Z')
 const open45 = state({
-  app: { na_items: [], declarations: {}, board_window_opened_at: '2026-08-01T00:00:00.000Z', board_window_days: 45 },
+  app: { association_code: 'TEST', na_items: [], declarations: {}, board_window_opened_at: '2026-08-01T00:00:00.000Z', board_window_days: 45 },
 })
 eq('a longer window is honoured', open45.dueAt, '2026-09-15T00:00:00.000Z')
+
+// ── 6b. VPCI's Declaration overrides the default with a BUSINESS-day window
+//        (lib/board-decision-rules.ts) -- the stored board_window_days (still
+//        30, nobody has backfilled it) must be ignored in favor of the
+//        override, and dueAt must skip weekends, not just add 10*86400000ms.
+//        2026-08-01 is a Saturday: 10 business days lands on 2026-08-14
+//        (Fri), i.e. 13 calendar days later (two weekends fall inside it).
+const vpciWindow = state({
+  app: { association_code: 'VPCI', na_items: [], declarations: {}, board_window_opened_at: '2026-08-01T00:00:00.000Z', board_window_days: 30 },
+})
+eq('VPCI: the override wins over the stored calendar-day value', vpciWindow.windowDays, 10)
+eq('VPCI: the window unit is business days', vpciWindow.windowUnit, 'business')
+eq('VPCI: due = opened + 10 BUSINESS days (weekends skipped)', vpciWindow.dueAt, '2026-08-14T00:00:00.000Z')
 
 // ── 7. Optional items never hold the window shut ─────────────────────
 const optional = state({
@@ -136,7 +150,7 @@ eq('a missing optional item still completes', optional.complete, true)
 
 // ── 8. Marked N/A drops out entirely ─────────────────────────────────
 const na = state({
-  app: { na_items: ['signed_lease'], declarations: {}, board_window_opened_at: null, board_window_days: null },
+  app: { association_code: 'TEST', na_items: ['signed_lease'], declarations: {}, board_window_opened_at: null, board_window_days: null },
   docs: [file('drivers_license')],
   reviews: [review('drivers_license', 'approved')],
 })
@@ -147,7 +161,7 @@ eq('an N/A item cannot hold the window shut', na.complete, true)
 // "I keep no vehicle" — the bug this gate was built for: a car-free applicant
 // who could never reach complete.
 const carFree = state({
-  app: { na_items: [], declarations: { vehicle: { has: false } }, board_window_opened_at: null, board_window_days: null },
+  app: { association_code: 'TEST', na_items: [], declarations: { vehicle: { has: false } }, board_window_opened_at: null, board_window_days: null },
   checklist: [doc('drivers_license'), doc('car_registration', { condition_key: 'vehicle' })],
   docs: [file('drivers_license')],
   reviews: [review('drivers_license', 'approved')],
@@ -211,7 +225,7 @@ eq('tax-returns: one buyer with U.S. returns, one without → only the internati
 //         existed (shared declarations.vehicle, no per-stakeholder columns
 //         set) still reads correctly for the PRIMARY applicant only.
 const legacySharedVehicle = state({
-  app: { na_items: [], declarations: { vehicle: { has: false } }, board_window_opened_at: null, board_window_days: null },
+  app: { association_code: 'TEST', na_items: [], declarations: { vehicle: { has: false } }, board_window_opened_at: null, board_window_days: null },
   checklist: [doc('car_registration', { condition_key: 'vehicle', per_applicant: true })],
   people: [ANNA, BEN],
 })
