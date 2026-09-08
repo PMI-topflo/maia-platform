@@ -24,6 +24,7 @@
 
 const esc = (s: string) => String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
 const SUPPORT = 'support@topfloridaproperties.com'
+const money = (n: number) => `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 export interface MaiaEmailCtx {
   associationName: string                 // legal name, e.g. "The Manors of Inverrary XI Association, Inc."
@@ -43,6 +44,13 @@ export interface MaiaEmailCtx {
   footerReason?: string | null
   onFile?: { label: string; note: string | null; expired?: boolean }[]   // already-received items + expiry
   alsoRequested?: { who: string; items: string[] } | null                // "we also emailed the tenant for X"
+  /** The unit OWNER's live account balance (not the applicant's) — the board
+   *  won't approve a lease/sale onto a unit whose owner isn't current, so the
+   *  board review card shows it up front, fetched fresh on every send (see
+   *  lib/board-review-email.ts's ownerBalanceInfo). `ledgerUrl` is a login-free
+   *  link to that owner's live CINC ledger (lib/owner-portal-token.ts's
+   *  signLedgerToken + app/api/owner/ledger/[token]/route.ts). */
+  ownerBalance?: { amount: number; current: boolean; ledgerUrl: string | null } | null
 }
 
 /** Render the standard MAIA email as an HTML string. */
@@ -69,6 +77,12 @@ export function renderMaiaEmail(c: MaiaEmailCtx): string {
        </table>`
     : ''
 
+  const ownerBalanceHtml = c.ownerBalance
+    ? `<div style="font-size:13px;color:${c.ownerBalance.current ? '#166534' : '#b42318'};background:${c.ownerBalance.current ? '#eef8f2' : '#fdf2f0'};border:1px solid ${c.ownerBalance.current ? '#cdeedd' : '#f3cbc3'};border-radius:8px;padding:11px 13px;margin:0 0 20px">
+        🧾 <b>Unit owner's account: ${c.ownerBalance.current ? 'current' : `balance due ${money(c.ownerBalance.amount)}`}</b>${c.ownerBalance.ledgerUrl ? ` — <a href="${esc(c.ownerBalance.ledgerUrl)}" style="color:${c.ownerBalance.current ? '#166534' : '#b42318'};font-weight:700;text-decoration:underline">View the owner's ledger →</a>` : ''}
+      </div>`
+    : ''
+
   const alsoHtml = c.alsoRequested && c.alsoRequested.items.length
     ? `<div style="font-size:13px;color:#3f4756;background:#eef4fb;border-radius:8px;padding:11px 13px;margin:0 0 20px">📨 We've also emailed <b>${esc(c.alsoRequested.who)}</b> requesting: ${c.alsoRequested.items.map(esc).join(', ')}.</div>`
     : ''
@@ -82,6 +96,7 @@ export function renderMaiaEmail(c: MaiaEmailCtx): string {
       <div style="font:700 11px system-ui;letter-spacing:.14em;text-transform:uppercase;color:#c0571a;margin-bottom:10px">PMI Top Florida Properties</div>
       <h1 style="font:800 24px/1.2 Georgia,serif;color:#1c2333;margin:0 0 12px">${esc(c.heading)}</h1>
       <table role="presentation" width="100%" style="border-collapse:collapse;border:1px solid #e7e2d9;border-radius:10px;overflow:hidden;margin:0 0 20px">${rows.join('')}</table>
+      ${ownerBalanceHtml}
       <p style="font-size:14.5px;color:#3f4756;margin:0 0 16px">${esc(c.intro)}</p>
       ${itemsHtml}
       ${cta}

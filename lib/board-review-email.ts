@@ -15,6 +15,9 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { renderMaiaEmail } from '@/lib/maia-email'
 import { getReviewState, boardWindowSentence, REVIEWER_ROLE_LABEL, type ReviewerRole } from '@/lib/board-review'
+import { resolveUnit } from '@/lib/application-delinquency-notice'
+import { getHomeownerPaymentBlockStatus } from '@/lib/integrations/cinc'
+import { signLedgerToken } from '@/lib/owner-portal-token'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const SUPPORT = 'support@topfloridaproperties.com'
@@ -122,6 +125,29 @@ async function context(applicationId: string) {
   }
 }
 
+/** The unit OWNER's live account balance — the board card user direction,
+ *  2026-09-08: "board wants to see in the card they receive with the files
+ *  for them to verify and approve... the unit owner balance and a link with
+ *  his ledger, since they won't approve if the unit is not current." Fetched
+ *  fresh every time the card is built (never cached), so a resend — the
+ *  5-day document-review reminder cron included, since it re-runs this same
+ *  builder — always shows the CURRENT balance, not a stale one from when the
+ *  round first went out. Best-effort: a CINC outage or a unit with no
+ *  resolvable owner account just omits the banner, never blocks the email. */
+async function ownerBalanceInfo(code: string, unit: string | null): Promise<{ amount: number; current: boolean; ledgerUrl: string | null } | null> {
+  if (!unit) return null
+  try {
+    const { accountNumber } = await resolveUnit(code, unit)
+    if (!accountNumber) return null
+    const status = await getHomeownerPaymentBlockStatus(accountNumber)
+    if (!status || status.balance === null) return null
+    const token = await signLedgerToken(code, accountNumber)
+    return { amount: status.balance, current: status.balance <= 0, ledgerUrl: `${APP}/api/owner/ledger/${token}` }
+  } catch {
+    return null
+  }
+}
+
 /** Builds the exact subject + HTML the board round email sends — shared by
  *  the real send (below) and the staff preview send, so a preview is
  *  guaranteed to look like the real thing rather than a hand-approximated copy. */
@@ -147,12 +173,15 @@ async function buildReviewRoundEmail(applicationId: string, token: string, note:
     ? `This application's ${state.windowDays}-day decision window is already open — a decision is due ${fmtET(state.dueAt)}${daysLeft !== null ? ` (${daysLeft} day${daysLeft === 1 ? '' : 's'} left)` : ''}.`
     : boardWindowSentence(state.windowDays)
 
+  const ownerBalance = await ownerBalanceInfo(c.code, c.unit)
+
   const link = `${APP}/board-review/${token}`
   const html = renderMaiaEmail({
     associationName: c.legal, associationCode: c.code, unit: c.unit, propertyAddress: c.address,
     applicantNames: c.applicants, applicationType: c.typeLabel,
     heading: `Documents to review — ${c.unit ? `Unit ${c.unit}` : c.legal}`,
     intro: `${note?.trim() || `${c.applicants.join(' and ') || 'The applicant'} applied for a ${c.typeLabel.toLowerCase()}. Please review each document below and approve it, or refuse it with a short reason the applicant will read.`}\n\nAny one of you can settle a document — a board member or the on-site manager. ${windowLine}`,
+    ownerBalance,
     items: ready.map(r => ({
       label: r.perApplicantName ? `${r.label} — ${r.perApplicantName}` : r.label,
       // A document staff already pre-checked reads as a real board decision if

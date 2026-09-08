@@ -58,7 +58,7 @@ export async function isOpenBalanceOver30Days(assoc: string, account: string): P
 
 interface OwnerContact { name: string; email: string }
 
-async function resolveUnit(assoc: string, unit: string): Promise<{ owners: OwnerContact[]; accountNumber: string | null; assocName: string }> {
+export async function resolveUnit(assoc: string, unit: string): Promise<{ owners: OwnerContact[]; accountNumber: string | null; assocName: string }> {
   const code = assoc.toUpperCase()
   const [{ data: ownerRows }, { data: assocRow }] = await Promise.all([
     supabaseAdmin.from('owners').select('first_name, last_name, entity_name, emails, unit_number, account_number, status').eq('association_code', code),
