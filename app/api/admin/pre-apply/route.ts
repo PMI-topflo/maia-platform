@@ -90,6 +90,16 @@ export async function GET() {
       // visibility the board/on-site-manager portal has always had. User
       // report, 2026-09-06: "I am totally blind" to this.
       daysLeft: r.daysLeft, alarm: r.alarm, letter: r.letter,
+      // User report, 2026-09-08: "I still can't see in my dashboard when
+      // someone approved all files and finalize this step" -- windowOpenedAt
+      // is set the instant every required document is individually approved
+      // (lib/board-review.ts's syncBoardWindow), already computed here but
+      // never surfaced to this list before.
+      windowOpenedAt: r.windowOpenedAt,
+      // "we have the name and timestamp of who approved, don't we have?" --
+      // the newest document decision on record, which is what finalized the
+      // checklist and opened the window above.
+      finalizedBy: r.finalizedBy, finalizedByRole: r.finalizedByRole,
     })),
   })
 }

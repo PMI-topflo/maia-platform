@@ -98,6 +98,11 @@ export interface DashboardRow {
   windowOpenedAt: string | null
   dueAt: string | null
   daysLeft: number | null
+  /** Who made the decision that finished the checklist -- the newest document
+   *  decision on record, which is what opened the window above. Null until
+   *  windowOpenedAt is set (nobody has finalized anything yet). */
+  finalizedBy: string | null
+  finalizedByRole: string | null
 
   alarm: Alarm | null
 
@@ -255,7 +260,7 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
   const codes = [...new Set(apps.map(a => String(a.association_code ?? '').toUpperCase()).filter(Boolean))]
   const units = [...new Set(apps.map(a => String(a.unit_label ?? '')).filter(Boolean))]
 
-  const [states, { data: people }, { data: rounds }, { data: assocs }, { data: letters }] = await Promise.all([
+  const [states, { data: people }, { data: rounds }, { data: assocs }, { data: letters }, { data: decisions }] = await Promise.all([
     getReviewStates(ids),
     supabaseAdmin.from('application_stakeholders').select('application_id, name').eq('role', 'applicant').in('application_id', ids)
       .order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
@@ -270,6 +275,14 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
           .eq('kind', 'board_decision').in('association_code', codes).in('unit_ref', units)
           .neq('status', 'void').order('created_at', { ascending: false })
       : Promise.resolve({ data: [] }),
+    // Who actually finalized the checklist -- the decision with the newest
+    // decided_at is, by construction, the one that flipped state.complete
+    // true and opened the window (syncBoardWindow runs synchronously right
+    // after it's recorded). User report, 2026-09-08: "we have the name and
+    // timestamp of who approved, don't we have?"
+    supabaseAdmin.from('application_document_reviews').select('application_id, decided_by, decided_by_role, decided_at')
+      .in('application_id', ids).order('decided_at', { ascending: false })
+      .then(r => r, () => ({ data: [] as { application_id: string; decided_by: string; decided_by_role: string; decided_at: string }[] })),
   ])
 
   const nameBy = new Map<string, string[]>()
@@ -296,6 +309,12 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
   for (const l of letters ?? []) {
     const k = `${String(l.association_code).toUpperCase()}|${String(l.unit_ref ?? '')}`
     if (!letterBy.has(k)) letterBy.set(k, { status: String(l.status), signers: (Array.isArray(l.signers) ? l.signers : []) as { signed_at?: string }[], created_at: String(l.created_at) })
+  }
+  // Newest decision per application (the query is already newest-first).
+  const finalizedBy = new Map<string, { name: string; role: string }>()
+  for (const d of decisions ?? []) {
+    const k = String(d.application_id)
+    if (!finalizedBy.has(k)) finalizedBy.set(k, { name: String(d.decided_by ?? ''), role: String(d.decided_by_role ?? '') })
   }
 
   const base = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
@@ -365,6 +384,8 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
       stage, owner: STAGE_OWNER[stage], detail, outstanding: outstanding.slice(0, 4),
       sinceAt, waitingDays,
       windowOpenedAt: state?.windowOpenedAt ?? null, dueAt: state?.dueAt ?? null, daysLeft,
+      finalizedBy: state?.windowOpenedAt ? finalizedBy.get(id)?.name ?? null : null,
+      finalizedByRole: state?.windowOpenedAt ? finalizedBy.get(id)?.role ?? null : null,
       alarm, totals,
       reviewUrl: round ? `${base}/board-review/${round.token}` : null,
       reviewSentAt: round?.created_at ?? null,
