@@ -20,7 +20,14 @@ interface App {
   daysLeft: number | null
   alarm: 'overdue' | 'due_soon' | 'stalled' | null
   letter: { status: string; signed: number; of: number } | null
+  // Set the instant every required document is individually approved --
+  // user report, 2026-09-08: "I still can't see in my dashboard when
+  // someone approved all files and finalize this step."
+  windowOpenedAt: string | null
+  finalizedBy: string | null
+  finalizedByRole: string | null
 }
+const FINALIZED_ROLE_LABEL: Record<string, string> = { staff: 'Staff', board: 'Board', onsite_manager: 'On-site manager' }
 const isDecided = (status: string) => status === 'approved' || status === 'declined'
 interface ChecklistItem { label: string; provided_by: string; required: boolean; notarized: boolean; exampleUrl: string | null }
 interface TypeChecklist { type: string; label: string; blurb: string; items: ChecklistItem[] }
@@ -331,6 +338,18 @@ export default function PreApplyQueue() {
                           instead of the status column: it can SAY what's
                           missing, not just report a status word. */}
                       {!isDecided(a.status) && a.detail && <div style={{ font: '11px system-ui', color: '#6b7280', marginTop: 3, maxWidth: 260 }}>{a.detail}</div>}
+                      {/* The moment every required document was individually
+                          approved (documents finished, board window opened) --
+                          user report, 2026-09-08: "I still can't see in my
+                          dashboard when someone approved all files and
+                          finalize this step." Only the derived days-left
+                          countdown showed before; this is the actual event. */}
+                      {!isDecided(a.status) && a.windowOpenedAt && (
+                        <div style={{ font: '11px system-ui', color: '#166534', marginTop: 3, whiteSpace: 'nowrap' }}>
+                          ✓ Documents approved {fmt(a.windowOpenedAt)}
+                          {a.finalizedBy && ` by ${a.finalizedBy}${a.finalizedByRole ? ` (${FINALIZED_ROLE_LABEL[a.finalizedByRole] ?? a.finalizedByRole})` : ''}`}
+                        </div>
+                      )}
                       {/* Days left on the 30-day board decision window, once
                           it's open — the same clock shown to the board, now
                           visible to staff too instead of only appearing after
