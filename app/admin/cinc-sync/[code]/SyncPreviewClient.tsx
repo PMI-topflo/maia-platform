@@ -53,6 +53,7 @@ interface OwnerCmp {
   maia:             OwnerSnap | null
   cinc:             OwnerSnap | null
   changes?:         Record<string, { current: string | null; proposed: string | null }>
+  unverified?:      string[]
 }
 interface BoardCmp {
   status:               'insert' | 'update' | 'match' | 'only_in_maia'
@@ -340,7 +341,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
                   <OwnerSide snap={cmp.cinc} hidden={!cmp.cinc} />
                 </td>
                 <td className="px-3 py-2 align-top text-right">
-                  <StatusBadge status={cmp.status} />
+                  <StatusBadge status={cmp.status} unverified={cmp.unverified} />
                 </td>
               </tr>
               {cmp.changes && (
@@ -604,7 +605,7 @@ function Stat({ label, value, color, mono }: { label: string; value: number | st
   )
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, unverified }: { status: string; unverified?: string[] }) {
   // SYNCED gets a saturated green ring so staff can SEE post-apply that
   // a row really did land. Greys read as "neutral / nothing happened"
   // and were hard to distinguish from disabled rows.
@@ -619,6 +620,23 @@ function StatusBadge({ status }: { status: string }) {
     update:       'UPDATE',
     match:        '✓ SYNCED',
     only_in_maia: 'KEEP (not in CINC)',
+  }
+  // Real incident, 2026-09-08: a 'match' row got the SAME green "✓ SYNCED"
+  // badge whether CINC actually confirmed the value or simply had nothing
+  // on file to compare it against (MANXI 802's owner had a completely wrong
+  // email, unrelated to his own name, sitting behind this exact badge for
+  // months). 'match' only ever meant "nothing to propose" — never
+  // "confirmed correct" — so a row with no real CINC value to check against
+  // gets its own distinct, honest badge instead of borrowing the green one.
+  if (status === 'match' && unverified && unverified.length > 0) {
+    return (
+      <span
+        className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-800"
+        title={`CINC has no ${unverified.join('/')} on file for this owner — MAIA's value has never been checked against it.`}
+      >
+        ⚠ Unverified ({unverified.join(', ')})
+      </span>
+    )
   }
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${styles[status] ?? 'bg-gray-100 text-gray-500'}`}>
