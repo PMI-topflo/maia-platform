@@ -18,6 +18,7 @@ import { getReviewState, boardWindowSentence, REVIEWER_ROLE_LABEL, type Reviewer
 import { resolveUnit } from '@/lib/application-delinquency-notice'
 import { getHomeownerPaymentBlockStatus } from '@/lib/integrations/cinc'
 import { signLedgerToken } from '@/lib/owner-portal-token'
+import { boardDecisionRuleFor } from '@/lib/board-decision-rules'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const SUPPORT = 'support@topfloridaproperties.com'
@@ -169,9 +170,15 @@ async function buildReviewRoundEmail(applicationId: string, token: string, note:
   // days left whenever the window is actually open; the generic sentence
   // still covers the normal case (round sent before completion).
   const daysLeft = state.dueAt ? Math.ceil((new Date(state.dueAt).getTime() - Date.now()) / 86400000) : null
-  const windowLine = state.windowOpenedAt && state.dueAt
+  // The association's OWN rule, quoted verbatim, when confirmed (see
+  // lib/board-decision-rules.ts) -- user direction, 2026-09-08: "we need to
+  // tell also to the board in the email every day" what the governing
+  // documents say about the decision timeframe. Nothing is asserted for an
+  // association not yet confirmed there.
+  const rule = boardDecisionRuleFor(c.code)
+  const windowLine = (state.windowOpenedAt && state.dueAt
     ? `This application's ${state.windowDays}-day decision window is already open — a decision is due ${fmtET(state.dueAt)}${daysLeft !== null ? ` (${daysLeft} day${daysLeft === 1 ? '' : 's'} left)` : ''}.`
-    : boardWindowSentence(state.windowDays)
+    : boardWindowSentence(state.windowDays)) + (rule ? ` Per the association's governing documents: "${rule}"` : '')
 
   const ownerBalance = await ownerBalanceInfo(c.code, c.unit)
 
