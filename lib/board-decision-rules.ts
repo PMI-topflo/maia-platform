@@ -20,10 +20,23 @@
 // No consequence for a missed deadline is stated in that document -- so
 // none is asserted here either; this is quoted exactly as written, nothing
 // added.
+//
+// VPCI confirmed 2026-09-08 -- ALREADY extracted, from VPCI_INSTRUCTIONS[1]
+// in lib/vpci-rules-ack.ts (the same text the rules-knowledge-acknowledgment
+// e-sign document shows applicants, sourced from the Declaration itself),
+// not a fresh document: "The Board of Directors reviews every completed
+// application and, per the Declaration (Article XXII), must approve or
+// disapprove it IN WRITING within ten (10) business days of receiving it
+// (plus any additional information the Board requests) — if the Board does
+// not respond within that window, the application is deemed approved." Note
+// this is TEN BUSINESS DAYS, not the 30-CALENDAR-DAY window lib/board-
+// review.ts otherwise assumes as the default (board_window_days) -- worth
+// confirming VPCI's own board_window_days matches its Declaration.
 // =====================================================================
 
 const BOARD_DECISION_RULE: Record<string, string> = {
   MANXI: 'The Board of Directors must process the application and either approve or disapprove the transaction within thirty (30) days upon receipt of all required documents and fees. This timeframe applies to both sales and rentals.',
+  VPCI: 'Per the Declaration (Article XXII), the Board must approve or disapprove the application IN WRITING within ten (10) business days of receiving it (plus any additional information the Board requests). If the Board does not respond within that window, the application is deemed approved.',
 }
 
 /** The association's own verbatim rule on the Board's decision timeframe, or
