@@ -13,19 +13,29 @@
 -- Checkr" button) now shows a dead-end informational note with no way to
 -- actually trigger Checkr at all.
 --
--- One-time backfill: any application still open (not approved, declined,
--- or withdrawn) gets moved onto maia_checkr now. Anything already
--- decided is left untouched -- its screening is done, real work has
--- already happened against whatever provider it used, and there is
--- nothing left for a provider flip to unlock for it.
+-- CORRECTED 2026-09-08 (same day, after the first version of this
+-- migration ran with zero visible effect): resolveScreeningProvider()
+-- (lib/preapply.ts) treats a NULL screening_provider exactly like the
+-- literal string 'tenant_evaluation' -- its own fallback default when the
+-- value isn't recognized. The first version of this migration only
+-- matched the literal string, so it silently skipped every application
+-- whose screening_provider had never been populated at all (rows from
+-- before this column existed, or otherwise never set) -- which, per the
+-- user's report, was apparently most or all of the stuck ones.
 --
--- Idempotent -- re-running only touches rows that still say
--- tenant_evaluation.
+-- One-time backfill: any application still open (not approved, declined,
+-- or withdrawn) with screening_provider NULL or 'tenant_evaluation' gets
+-- moved onto maia_checkr now. Anything already decided is left untouched
+-- -- its screening is done, real work has already happened against
+-- whatever provider it used, and there is nothing left for a provider
+-- flip to unlock for it.
+--
+-- Idempotent -- re-running only touches rows that still qualify.
 -- =====================================================================
 
 UPDATE public.listing_applications
    SET screening_provider = 'maia_checkr'
- WHERE screening_provider = 'tenant_evaluation'
+ WHERE (screening_provider = 'tenant_evaluation' OR screening_provider IS NULL)
    AND status NOT IN ('approved', 'declined', 'withdrawn');
 
 NOTIFY pgrst, 'reload schema';
