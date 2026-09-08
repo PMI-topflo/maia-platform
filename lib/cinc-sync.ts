@@ -84,6 +84,17 @@ export interface OwnerComparison {
    *  before / after we'd write. Lets the UI highlight exactly which
    *  fields differ. */
   changes?:           Record<string, { current: string | null; proposed: string | null }>
+  /** Fields where CINC reported NOTHING to compare against (a blank
+   *  Email/phone on CINC's own PropertyInfo), so MAIA's value here has
+   *  never actually been verified — it could be correct, stale, or
+   *  outright wrong, and this sync has no way to tell. Real incident,
+   *  2026-09-08 (MANXI 802 and 4 other units): each of these showed the
+   *  same "✓ SYNCED" badge as a row CINC had genuinely confirmed, purely
+   *  because CINC had no email on file at all — 'match' only ever meant
+   *  "nothing to propose," never "confirmed correct." Distinct from
+   *  `changes`, which only exists on status='update'; this can be set
+   *  on 'match' too, which is exactly the case that was hiding. */
+  unverified?:        string[]
 }
 
 export type BoardStatus = 'insert' | 'update' | 'match' | 'only_in_maia'
@@ -470,8 +481,20 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
         changes.cinc_property_id = { current: null, proposed: String(prop.PropertyID) }
       }
 
+      // Every change above is gated on `cincSnap.<field>` being truthy — CINC
+      // has nothing there, so there is nothing to compare, let alone propose.
+      // That's correct for deciding whether to WRITE a change, but it means
+      // 'match' conflates two very different situations: "CINC confirmed
+      // this is correct" and "CINC has no opinion, so this was never
+      // actually checked." Track the second case explicitly so the UI can
+      // tell them apart instead of showing the same green badge for both.
+      const unverified: string[] = []
+      if (!cincSnap.emails && maiaSnap.emails) unverified.push('emails')
+      if (!cincSnap.phone  && maiaSnap.phone)  unverified.push('phone')
+
       owners.push({
         status:           Object.keys(changes).length === 0 ? 'match' : 'update',
+        unverified:       unverified.length > 0 ? unverified : undefined,
         selection_key:    selectionKey,
         account_number:   cincSnap.account_number ?? maiaSnap.account_number,
         unit_number:      prop.UnitNo ?? existing.unit_number ?? null,
