@@ -17,7 +17,7 @@ import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
-import { resolveStaffByLoginEmail, trustedDomainVariants } from '@/lib/staff-lookup'
+import { resolveStaffByLoginEmail, trustedDomainVariants, loadStaffNameMap, staffNameFor } from '@/lib/staff-lookup'
 
 export const dynamic = 'force-dynamic'
 
@@ -90,10 +90,11 @@ const SELECT_COLUMNS = `
   gl_account_id, gl_account_name,
   pay_by_type, observation_note, work_order_number, wo_partial_payment,
   pay_from_bank_account_id,
-  extraction_confidence, status, rejected_reason,
+  extraction_confidence, status, rejected_reason, rejected_by, rejected_at,
   audit_checklist, audit_ready_by, audit_ready_at,
   cinc_invoice_id, cinc_dup_invoice_id, pushed_at, pushed_by, drive_file_id,
-  hold_requested_items, hold_ticket_id, hold_requested_at, hold_note,
+  hold_requested_items, hold_ticket_id, hold_requested_by, hold_requested_at, hold_note,
+  hold_released_by, hold_released_at,
   created_at, updated_at
 `.replace(/\s+/g, ' ').trim()
 
@@ -152,9 +153,19 @@ export async function GET(req: Request) {
   const signed = await buildSignedUrls(
     rows.map(d => d.pdf_storage_key).filter(Boolean) as string[],
   )
+  // One staff roster fetch for the whole page (not per-row, not per-field) —
+  // resolves every "who did this" email to a display name for the card's
+  // top-of-card step history. Falls back to the raw email via staffNameFor
+  // when nobody in pmi_staff matches (a departed login, e.g.).
+  const staffNames = await loadStaffNameMap()
   const draftsWithUrls = rows.map(d => ({
     ...d,
-    pdf_signed_url: d.pdf_storage_key ? (signed.get(d.pdf_storage_key) ?? null) : null,
+    pdf_signed_url:      d.pdf_storage_key ? (signed.get(d.pdf_storage_key) ?? null) : null,
+    audit_ready_by_name: staffNameFor(staffNames, d.audit_ready_by as string | null),
+    pushed_by_name:      staffNameFor(staffNames, d.pushed_by as string | null),
+    rejected_by_name:    staffNameFor(staffNames, d.rejected_by as string | null),
+    hold_requested_by_name: staffNameFor(staffNames, d.hold_requested_by as string | null),
+    hold_released_by_name:  staffNameFor(staffNames, d.hold_released_by as string | null),
   }))
 
   // Side counts per status so the dashboard tabs can show pill numbers.

@@ -45,16 +45,26 @@ interface Draft {
   status:                      string
   audit_checklist:             Record<string, boolean> | null
   audit_ready_by:              string | null
+  audit_ready_by_name:         string | null
   audit_ready_at:              string | null
   rejected_reason:             string | null
+  rejected_by:                 string | null
+  rejected_by_name:            string | null
+  rejected_at:                 string | null
   cinc_invoice_id:             string | null
   cinc_dup_invoice_id:         string | null
   drive_file_id:               string | null
   pushed_at:                   string | null
   pushed_by:                   string | null
+  pushed_by_name:              string | null
   hold_requested_items:        string[] | null
   hold_ticket_id:              number | null
+  hold_requested_by:           string | null
+  hold_requested_by_name:      string | null
   hold_requested_at:           string | null
+  hold_released_by:            string | null
+  hold_released_by_name:       string | null
+  hold_released_at:            string | null
   hold_note:                   string | null
   created_at:                  string
   updated_at:                  string
@@ -1115,8 +1125,31 @@ function DraftCard(props: {
       ? <CheckToggle on={!!checked[id]} present={present} disabled={auditBusy} onToggle={() => toggleCheck(id, present)} />
       : undefined
 
+  // "Register the user pushing every step... show the name and datestamp of
+  // each step" — user direction, 2026-09-08. Every staff-driven step on this
+  // draft, in the order they actually happened, so it's visible regardless of
+  // which single status banner is showing below. Steps with no data yet
+  // (never happened) are simply absent, not shown blank.
+  const stepHistory: { label: string; name: string | null; at: string }[] = [
+    draft.hold_requested_at ? { label: '⏸ Put on hold',        name: draft.hold_requested_by_name, at: draft.hold_requested_at } : null,
+    draft.hold_released_at  ? { label: '▸ Released from hold',  name: draft.hold_released_by_name,  at: draft.hold_released_at }  : null,
+    draft.audit_ready_at    ? { label: '✓ Marked ready',        name: draft.audit_ready_by_name,    at: draft.audit_ready_at }    : null,
+    draft.pushed_at         ? { label: '↑ Pushed to CINC',      name: draft.pushed_by_name,         at: draft.pushed_at }         : null,
+    draft.rejected_at       ? { label: '✕ Rejected',            name: draft.rejected_by_name,       at: draft.rejected_at }       : null,
+  ].filter((s): s is { label: string; name: string | null; at: string } => s !== null)
+    .sort((a, b) => a.at.localeCompare(b.at))
+
   return (
     <div style={{ border: '1px solid #e5e7eb', borderRadius: 6, padding: 16, background: '#fff' }}>
+      {stepHistory.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, fontSize: 11.5 }}>
+          {stepHistory.map((s, i) => (
+            <span key={i} style={{ padding: '3px 8px', borderRadius: 10, background: '#f3f4f6', color: '#4b5563', whiteSpace: 'nowrap' }}>
+              {s.label} — <strong style={{ color: '#1f2937' }}>{s.name ?? 'unknown staff'}</strong> · {new Date(s.at).toLocaleString()}
+            </span>
+          ))}
+        </div>
+      )}
       {draft.status === 'needs_vendor' && !vendorId && (
         <div style={{ padding: 8, marginBottom: 12, background: '#fef3c7', borderLeft: '3px solid #f59e0b', fontSize: 13 }}>
           No CINC vendor auto-matched for <strong>{draft.extracted_vendor_name ?? '(unknown vendor)'}</strong>.
@@ -1138,7 +1171,7 @@ function DraftCard(props: {
       {isPushed && (
         <div style={{ padding: 8, marginBottom: 12, background: '#ecfdf5', borderLeft: '3px solid #10b981', fontSize: 13 }}>
           Pushed to CINC as invoice <strong>{draft.cinc_invoice_id}</strong>
-          {draft.pushed_by && ` by ${draft.pushed_by}`}
+          {draft.pushed_by && ` by ${draft.pushed_by_name ?? draft.pushed_by}`}
           {draft.pushed_at && ` at ${new Date(draft.pushed_at).toLocaleString()}`}.
           {draft.gl_account_name && (
             <>
@@ -1826,7 +1859,7 @@ function DraftCard(props: {
           allReady={allReady}
           requiredOk={requiredOk}
           isReady={isReady}
-          readyBy={draft.audit_ready_by}
+          readyBy={draft.audit_ready_by_name ?? draft.audit_ready_by}
           busy={auditBusy}
           msg={auditMsg}
           onMarkReady={() => persistChecklist(checked, { statusChange: 'ready_to_push' })}

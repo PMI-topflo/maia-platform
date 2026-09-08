@@ -158,3 +158,39 @@ async function attachAltEmails(row: StaffRow): Promise<StaffRow> {
   const alt = await fetchAltEmails(row.id)
   return { ...row, alt_emails: alt }
 }
+
+/** Bulk email -> display name, for screens resolving MANY stored "who did
+ *  this" emails at once (e.g. an invoice card's audit/push/hold/reject
+ *  history) — one query total, not resolveStaffByLoginEmail's per-call
+ *  round trip repeated for every field on every row. Covers email,
+ *  personal_email, alt_emails, and each of those expanded across the
+ *  trusted PMI domains, same matching surface as the single-lookup path
+ *  (minus the name-derived fallback, which needs a real login attempt to
+ *  disambiguate safely — not appropriate for a bulk, best-effort map). */
+export async function loadStaffNameMap(): Promise<Map<string, string>> {
+  const withAlt = await supabaseAdmin.from('pmi_staff').select(`${BASE_COLS}, alt_emails`).eq('active', true)
+  const rows: StaffRow[] = !withAlt.error
+    ? ((withAlt.data ?? []) as StaffRow[])
+    : ((await supabaseAdmin.from('pmi_staff').select(BASE_COLS).eq('active', true)).data ?? [])
+        .map((r): StaffRow => ({ ...(r as StaffRow), alt_emails: [] }))
+  const map = new Map<string, string>()
+  for (const row of rows) {
+    const name = (row.name ?? '').trim()
+    if (!name) continue
+    for (const e of staffCandidateEmails(row, '')) map.set(e, name)
+  }
+  return map
+}
+
+/** Look up a display name in a loadStaffNameMap() result, trying every
+ *  trusted-domain variant of the given email. Falls back to the raw email
+ *  (never blanks out an identity that's on file just because it isn't in
+ *  pmi_staff — a stale/departed login is still worth showing). */
+export function staffNameFor(map: Map<string, string>, email: string | null | undefined): string | null {
+  if (!email) return null
+  for (const e of trustedDomainVariants(email)) {
+    const name = map.get(e)
+    if (name) return name
+  }
+  return email
+}
