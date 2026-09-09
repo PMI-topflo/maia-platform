@@ -19,6 +19,8 @@ import { handoffOnApproval } from '@/lib/application-handoff'
 import { ESIGN_CHECKLIST_ITEMS } from '@/lib/application-esign-forms'
 import { findUnitLeasePacket } from '@/lib/lease-packet'
 import { DECLARATION_REMINDER_SUBJECT_PREFIX } from '@/lib/application-comm-log'
+import { getOutstandingSummary } from '@/lib/application-outstanding-summary'
+import { missingLines } from '@/lib/application-reminder'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -244,6 +246,25 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     }
   }
 
+  // Missing-docs reminder pending PMI/Jonathan's one-time approval (see
+  // lib/application-reminder.ts) -- surfaced here so the dashboard is the
+  // thing the approval email actually links to now, instead of a
+  // standalone no-login card. Live, not the frozen snapshot taken when the
+  // draft was first sent, for the same reason app/api/reminder-approval/
+  // [token] recomputes it: a checklist item retired between draft and
+  // review must never show as still outstanding here.
+  const { data: pendingApprovalRow } = await supabaseAdmin.from('application_reminder_approvals')
+    .select('id, missing_summary, recipients').eq('application_id', id).eq('status', 'pending').maybeSingle()
+  let pendingReminderApproval: { id: string; missingSummary: string[]; recipients: { name: string | null; email: string; role: string }[] } | null = null
+  if (pendingApprovalRow) {
+    const live = await getOutstandingSummary(id)
+    pendingReminderApproval = {
+      id: String(pendingApprovalRow.id),
+      missingSummary: !('error' in live) ? missingLines(live) : ((pendingApprovalRow.missing_summary as string[] | null) ?? []),
+      recipients: (pendingApprovalRow.recipients as { name: string | null; email: string; role: string }[] | null) ?? [],
+    }
+  }
+
   return NextResponse.json({
     id: app.id, associationCode: app.association_code, type: app.application_type, unit: app.unit_label,
     status: app.status, submittedAt: app.submitted_at,
@@ -292,6 +313,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     assistanceAnimalDecisionDays: ASSISTANCE_ANIMAL_DECISION_DAYS,
     checklist: checklist.map(c => ({ doc_key: c.doc_key, label: c.label, required: c.required, provided_by: c.provided_by, per_applicant: c.per_applicant, allow_multiple: c.allow_multiple, uploaded: uploaded.has(c.doc_key), condition_key: c.condition_key, template_path: c.template_path, esign: esignStatusFor(c.doc_key) })),
     documents: withUrls,
+    pendingReminderApproval,
   })
 }
 
