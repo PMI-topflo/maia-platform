@@ -42,7 +42,7 @@ interface BoardSnap {
   phone: string | null
 }
 interface OwnerCmp {
-  status:           'insert' | 'update' | 'match' | 'only_in_maia'
+  status:           'insert' | 'update' | 'match' | 'only_in_maia' | 'non_billable'
   selection_key:    string
   account_number:   string | null
   unit_number:      string | null
@@ -54,6 +54,9 @@ interface OwnerCmp {
   cinc:             OwnerSnap | null
   changes?:         Record<string, { current: string | null; proposed: string | null }>
   unverified?:      string[]
+  /** CINC's own record-level Status when it's not a real billable owner
+   *  (e.g. "Developer - NonBillable") — never proposed for insert/update. */
+  nonBillableStatus?: string
 }
 interface BoardCmp {
   status:               'insert' | 'update' | 'match' | 'only_in_maia'
@@ -341,7 +344,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
                   <OwnerSide snap={cmp.cinc} hidden={!cmp.cinc} />
                 </td>
                 <td className="px-3 py-2 align-top text-right">
-                  <StatusBadge status={cmp.status} unverified={cmp.unverified} />
+                  <StatusBadge status={cmp.status} unverified={cmp.unverified} nonBillableStatus={cmp.nonBillableStatus} />
                 </td>
               </tr>
               {cmp.changes && (
@@ -605,7 +608,7 @@ function Stat({ label, value, color, mono }: { label: string; value: number | st
   )
 }
 
-function StatusBadge({ status, unverified }: { status: string; unverified?: string[] }) {
+function StatusBadge({ status, unverified, nonBillableStatus }: { status: string; unverified?: string[]; nonBillableStatus?: string }) {
   // SYNCED gets a saturated green ring so staff can SEE post-apply that
   // a row really did land. Greys read as "neutral / nothing happened"
   // and were hard to distinguish from disabled rows.
@@ -635,6 +638,22 @@ function StatusBadge({ status, unverified }: { status: string; unverified?: stri
         title={`CINC has no ${unverified.join('/')} on file for this owner — MAIA's value has never been checked against it.`}
       >
         ⚠ Unverified ({unverified.join(', ')})
+      </span>
+    )
+  }
+  // Real incident, 2026-09-09 (Elena Mosiyash, VPREC): a CINC account added
+  // only to enable mass communications ("Status: Developer - NonBillable")
+  // still showed up as a plain INSERT/UPDATE candidate. This account was
+  // never proposed as a change (no checkbox, never auto-selected) — this
+  // badge just makes the "why" visible instead of the row silently
+  // disappearing from the preview.
+  if (status === 'non_billable') {
+    return (
+      <span
+        className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-gray-100 text-gray-500"
+        title={`CINC's own record-level Status is "${nonBillableStatus}" — not a real billable owner, so this was never proposed as a change.`}
+      >
+        ⏭ Non-billable{nonBillableStatus ? ` (${nonBillableStatus})` : ''}
       </span>
     )
   }
