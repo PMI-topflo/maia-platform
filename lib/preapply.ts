@@ -338,6 +338,7 @@ export interface StakeholderRow {
   id: string; role: StakeholderRole; name: string | null; email: string | null; phone: string | null
   isPrimary: boolean; status: string; signs: boolean; signedAt: string | null; emailVerifiedAt: string | null
   checklistAckSignedAt: string | null
+  applicantRole: string | null
   // This stakeholder's OWN answers to the vehicle / tax-returns declarations
   // (each applicant/buyer answers their own — see lib/intake-documents.ts's
   // stakeholderVehicleAnswer/stakeholderTaxReturnsAnswer).
@@ -345,7 +346,7 @@ export interface StakeholderRow {
   taxReturnsHas: boolean | null; taxReturnsDeclaredAt: string | null
 }
 
-const STAKEHOLDER_COLS = 'id, role, name, email, phone, is_primary, status, signed_at, email_verified_at, checklist_ack_signed_at, vehicle_has, vehicle_declared_at, tax_returns_has, tax_returns_declared_at'
+const STAKEHOLDER_COLS = 'id, role, name, email, phone, is_primary, status, signed_at, email_verified_at, checklist_ack_signed_at, applicant_role, vehicle_has, vehicle_declared_at, tax_returns_has, tax_returns_declared_at'
 
 function toRow(r: Record<string, unknown>): StakeholderRow {
   const role = String(r.role) as StakeholderRole
@@ -355,6 +356,7 @@ function toRow(r: Record<string, unknown>): StakeholderRow {
     signs: roleSigns(role), signedAt: (r.signed_at as string | null) ?? null,
     emailVerifiedAt: (r.email_verified_at as string | null) ?? null,
     checklistAckSignedAt: (r.checklist_ack_signed_at as string | null) ?? null,
+    applicantRole: (r.applicant_role as string | null) ?? null,
     vehicleHas: (r.vehicle_has as boolean | null) ?? null, vehicleDeclaredAt: (r.vehicle_declared_at as string | null) ?? null,
     taxReturnsHas: (r.tax_returns_has as boolean | null) ?? null, taxReturnsDeclaredAt: (r.tax_returns_declared_at as string | null) ?? null,
   }
@@ -502,8 +504,17 @@ export async function completeStakeholder(stakeholderId: string): Promise<void> 
 export async function recordIntakeDoc(applicationId: string, stakeholderId: string | null, doc: { doc_key: string; doc_label: string; storage_path: string; filename: string; mime_type: string | null; uploaded_by_role: string }): Promise<{ ok: boolean; error?: string }> {
   const { data: app } = await supabaseAdmin.from('listing_applications').select('listing_id').eq('id', applicationId).maybeSingle()
   if (!app) return { ok: false, error: 'not found' }
-  // Replace any prior upload for the same checklist item (latest wins).
-  await supabaseAdmin.from('application_documents').delete().eq('application_id', applicationId).eq('doc_key', doc.doc_key)
+  // Replace any prior upload for the SAME PERSON's same checklist item
+  // (latest wins) -- scoped by stakeholder_id, not just doc_key. Real bug
+  // ("second applicant can't upload their own document"): a per_applicant
+  // item (car_registration, etc.) legitimately has one row PER STAKEHOLDER
+  // sharing the same doc_key (see lib/board-review.ts's scopeKey convention,
+  // `${doc_key}#${stakeholderId}`) -- this used to delete ANY row for the
+  // doc_key regardless of whose it was, so a co-applicant uploading their OWN
+  // per-applicant document silently deleted a DIFFERENT co-applicant's
+  // already-uploaded document for that same item.
+  const del = supabaseAdmin.from('application_documents').delete().eq('application_id', applicationId).eq('doc_key', doc.doc_key)
+  await (stakeholderId ? del.eq('stakeholder_id', stakeholderId) : del.is('stakeholder_id', null))
   // Read the document for its expiration date. Only the Drive scan used to do
   // this, so anything an applicant uploaded through the link arrived with no
   // expiry at all — which is exactly what the expiry tracking exists for.
@@ -543,6 +554,11 @@ export interface IntakeState {
   submittedAt: string | null
   applicant: { name: string | null; email: string | null; phone: string | null } | null
   docKeys: string[]
+  /** Same documents as docKeys, but WHO uploaded each one -- needed to
+   *  correctly gate a per_applicant checklist item per-stakeholder rather
+   *  than "has anyone at all uploaded this doc_key" (see route.ts and
+   *  submit/route.ts's own comments for the real bug this fixes). */
+  docs: { docKey: string; stakeholderId: string | null }[]
   // Set once the primary applicant has paid + consented to screening via the
   // /apply wizard hand-off (app/api/apply/link-listing) — the gate on
   // app/pre-apply/[code]/page.tsx clears once this is non-null.
@@ -556,7 +572,7 @@ export async function getIntake(applicationId: string): Promise<IntakeState | nu
   if (!app) return null
   const [{ data: sh }, { data: docs }] = await Promise.all([
     supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', applicationId).eq('is_primary', true).maybeSingle(),
-    supabaseAdmin.from('application_documents').select('doc_key').eq('application_id', applicationId),
+    supabaseAdmin.from('application_documents').select('doc_key, stakeholder_id').eq('application_id', applicationId),
   ])
   return {
     applicationId: app.id, listingId: app.listing_id, associationCode: String(app.association_code),
@@ -564,6 +580,7 @@ export async function getIntake(applicationId: string): Promise<IntakeState | nu
     unitLabel: (app.unit_label as string | null) ?? null, status: String(app.status), submittedAt: (app.submitted_at as string | null) ?? null,
     applicant: sh ? { name: sh.name as string | null, email: sh.email as string | null, phone: sh.phone as string | null } : null,
     docKeys: (docs ?? []).map(d => String(d.doc_key)).filter(Boolean),
+    docs: (docs ?? []).filter(d => d.doc_key).map(d => ({ docKey: String(d.doc_key), stakeholderId: (d.stakeholder_id as string | null) ?? null })),
     detailedApplicationId: (app.detailed_application_id as string | null) ?? null,
   }
 }

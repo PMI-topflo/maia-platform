@@ -10,7 +10,7 @@
 // locking the others out.
 
 import { NextResponse } from 'next/server'
-import { getIntake, resolveToken, roleSigns, signStakeholderRules, completeStakeholder, submitIntake } from '@/lib/preapply'
+import { getIntake, resolveToken, roleSigns, signStakeholderRules, completeStakeholder, submitIntake, listStakeholders } from '@/lib/preapply'
 import { getIntakeChecklist } from '@/lib/intake-documents'
 import { mirrorIntakeToDrive } from '@/lib/drive-application-mirror'
 import { sendEmail } from '@/lib/gmail'
@@ -48,8 +48,29 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // Submit the whole application for audit once every required document is in.
   const checklist = await getIntakeChecklist(intake.associationCode, intake.type)
   const fresh = await getIntake(r.applicationId)               // re-read: this upload may have completed the set
-  const uploaded = new Set(fresh?.docKeys ?? intake.docKeys)
-  const missing = checklist.filter(d => d.required && !uploaded.has(d.doc_key)).map(d => d.label)
+  const uploaded = new Set((fresh?.docKeys ?? intake.docKeys))
+  // Real bug ("second applicant can't upload their own document"): a
+  // per_applicant required item (car_registration, etc.) needs ITS OWN copy
+  // from EVERY eligible applicant, not just "does at least one exist
+  // anywhere" -- the flat `uploaded` set used to let the whole application
+  // submit the moment ONE co-applicant's copy landed, even though a second
+  // co-applicant's own upload had never actually happened (or, combined with
+  // the recordIntakeDoc bug fixed alongside this, had been silently deleted).
+  const stakeholders = await listStakeholders(r.applicationId)
+  const eligibleApplicants = stakeholders.filter(s => s.role === 'applicant' && s.applicantRole !== 'minor_dependent')
+  const uploadedByStakeholder = new Map<string, Set<string>>()
+  for (const d of (fresh?.docs ?? intake.docs)) {
+    if (!d.stakeholderId) continue
+    if (!uploadedByStakeholder.has(d.stakeholderId)) uploadedByStakeholder.set(d.stakeholderId, new Set())
+    uploadedByStakeholder.get(d.stakeholderId)!.add(d.docKey)
+  }
+  const missing = checklist.filter(d => {
+    if (!d.required) return false
+    if (d.per_applicant && eligibleApplicants.length) {
+      return eligibleApplicants.some(s => !uploadedByStakeholder.get(s.id)?.has(d.doc_key))
+    }
+    return !uploaded.has(d.doc_key)
+  }).map(d => d.label)
 
   let appSubmitted = !!intake.submittedAt
   if (missing.length === 0 && !intake.submittedAt) {

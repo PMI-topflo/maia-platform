@@ -32,6 +32,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     supabaseAdmin.from('listing_applications').select('declarations, lease_start, lease_end').eq('id', r.applicationId).maybeSingle(),
   ])
   const uploaded = new Set(intake.docKeys)
+  // Real bug ("second applicant can't upload their own document"): a
+  // per_applicant item (car_registration, etc.) legitimately has one row PER
+  // STAKEHOLDER sharing the same doc_key -- `uploaded` above is a flat,
+  // application-wide set, so once ANY co-applicant uploaded theirs, every
+  // OTHER co-applicant's own checklist showed the item as already done and
+  // never offered them an upload slot at all. Scoped alternative, used only
+  // for per_applicant items below: has THIS stakeholder specifically uploaded
+  // their own copy.
+  const uploadedByMe = new Set(intake.docs.filter(d => d.stakeholderId === me.id).map(d => d.docKey))
   const myProvidedBy = roleToProvidedBy(me.role)
 
   // Conditional items (vehicle / pet / assistance animal) only reach the
@@ -149,7 +158,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     // Every checklist item, flagged "mine" (this stakeholder provides it) + uploaded
     checklist: await Promise.all(visible.map(async d => {
       const mine = d.provided_by === myProvidedBy
-      const alreadyDone = uploaded.has(d.doc_key)
+      const alreadyDone = d.per_applicant ? uploadedByMe.has(d.doc_key) : uploaded.has(d.doc_key)
       // Mint (or reuse) the real signing link right here rather than leaving
       // this as an uploadable slot — see the LIVE_ESIGN_KEYS note above.
       const esign = mine && !alreadyDone && LIVE_ESIGN_KEYS.has(d.doc_key)
