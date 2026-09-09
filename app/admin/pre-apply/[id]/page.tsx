@@ -570,7 +570,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
           for elsewhere. Only applies while no real Checkr order exists yet
           -- an application that already has one goes through the normal
           hasExisting path regardless. */}
-      {!decided && d.screeningSubjects.every(s => s.status !== 'complete') && <CheckrRequestSender id={id} provider={d.screeningProvider} hasExisting={d.screeningSubjects.length > 0} paid={d.payment?.status === 'paid'}
+      {!decided && d.screeningSubjects.every(s => s.status !== 'complete') && <CheckrRequestSender id={id} provider={d.screeningProvider} hasExisting={d.screeningSubjects.length > 0} paid={d.payment?.status === 'paid'} amountPaid={d.payment?.amountPaid ?? null}
         resolvedManually={applicants.length > 0 && applicants.every(a => !!docFor('background_credit', a.id) && reviewFor('background_credit', a.id)?.state === 'approved')}
         onDone={load} />}
       {!decided && d.screeningSubjects.length === 0 && <RentvineFallbackSender id={id} />}
@@ -910,7 +910,7 @@ function RentvineFallbackSender({ id }: { id: string }) {
 // comment above for why this isn't gated on "any row exists" anymore).
 // Real orders cost money and email the applicant a consent link, so this
 // confirms before firing rather than being a single accidental click.
-function CheckrRequestSender({ id, provider, hasExisting, paid, resolvedManually, onDone }: { id: string; provider: string; hasExisting: boolean; paid: boolean; resolvedManually: boolean; onDone: () => void }) {
+function CheckrRequestSender({ id, provider, hasExisting, paid, amountPaid, resolvedManually, onDone }: { id: string; provider: string; hasExisting: boolean; paid: boolean; amountPaid: number | null; resolvedManually: boolean; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
   // Set when request-screening's reason:'payment_pending' comes back --
@@ -980,7 +980,7 @@ function CheckrRequestSender({ id, provider, hasExisting, paid, resolvedManually
             summary card above shows this too, but not every staff member
             scrolls back up before clicking. */}
         <span style={{ font: '600 11px system-ui', borderRadius: 999, padding: '2px 9px', color: paid ? '#065f46' : '#92400e', background: paid ? '#d1fae5' : '#fef3c7' }}>
-          {paid ? '✓ Application fee paid' : 'Application fee not yet paid'}
+          {paid ? `✓ Application fee paid${amountPaid != null ? ` ($${amountPaid.toFixed(2)})` : ''}` : 'Application fee not yet paid'}
         </span>
       </div>
       {isCheckr ? (
