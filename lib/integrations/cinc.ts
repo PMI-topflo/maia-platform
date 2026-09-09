@@ -775,6 +775,22 @@ export async function debugHomeownerDetailsForIVRPaymentRaw(hoId: string): Promi
   })
 }
 
+/** Raw, untyped dump of GET /management/1/homeowners/homeownerLookup — a
+ *  flexible per-account search (by hoId/name/email/phone/propertyId/
+ *  associationName/propertyAddress/assocCode/zipCode) whose documented
+ *  Swagger schema lists BOTH `PropertyStatusDescr` and `HomeownerStatus`.
+ *  `PropertyStatusDescr` matches the same field name the (aggregate-only)
+ *  billableCounts endpoint groups real, populated counts by — a much
+ *  stronger signal than associationWithProperty's always-null
+ *  HomeownerStatus. v1 only; matches our tenant (Contacts and Consent
+ *  OFF). hoId = owners.account_number = CINC PropertyHOID. */
+export async function debugHomeownerLookupRaw(hoId: string): Promise<unknown> {
+  return call('/management/1/homeowners/homeownerLookup', {
+    method: 'GET',
+    query:  { hoId },
+  })
+}
+
 export async function listAssociationProperties(assocCode: string): Promise<CincPropertyInfo[]> {
   // Best-effort: log once if CINC has enabled the Contacts and Consent
   // feature but we haven't shipped the v2 path yet. Don't throw — we
