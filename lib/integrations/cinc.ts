@@ -742,6 +742,19 @@ export interface CincAssociationWithProperty {
  *  Currently OFF on PMITFP (probed 2026-05-29: IsContactsFlagOn=false).
  *  Until enabled, v1 stays correct. We also warn loudly if the flag
  *  flips so we get advance notice instead of a silent break. */
+
+/** Raw, untyped dump of the same endpoint listAssociationProperties calls —
+ *  for diagnosing what CINC ACTUALLY returns (vs what our types capture, or
+ *  what Swagger's generic example schema shows, which can overstate a
+ *  shared response-model's fields). Debug-only; not used by the sync path
+ *  itself. See app/api/admin/cinc-debug/[code]/route.ts. */
+export async function debugAssociationWithPropertyRaw(assocCode: string): Promise<unknown> {
+  return call('/management/1/homeowners/associationWithProperty', {
+    method: 'GET',
+    query:  { assocCode: assocCode.toUpperCase() },
+  })
+}
+
 export async function listAssociationProperties(assocCode: string): Promise<CincPropertyInfo[]> {
   // Best-effort: log once if CINC has enabled the Contacts and Consent
   // feature but we haven't shipped the v2 path yet. Don't throw — we
