@@ -109,6 +109,33 @@ function idempotencyKey(subject: ScreeningSubject, property: ScreeningProperty):
   return `screening-${property.unit ?? 'unit'}-${subject.index}-${subject.name}`.replace(/\s+/g, '_').slice(0, 255)
 }
 
+/** Real bug, found 2026-09-09 (MANXI 706): every order for a given
+ *  association sent the SAME `property.name` (just the association's
+ *  name, e.g. "The Manors of Inverrary XI Association, Inc") for every
+ *  unit AND every co-applicant on that unit. Checkr's /orders derives a
+ *  `property.normalized_name` from the property it's given and rejects a
+ *  second order whose property normalizes to a name already on file (422
+ *  "Normalized name has already been taken" at /property.normalized_name)
+ *  -- confirmed live via GET /properties: MANXI had exactly one property
+ *  on record, from Unit 912's order days earlier, with the bare
+ *  association name and no per-unit distinction. Unit 706's two
+ *  applicants both collided with THAT record (not with each other) --
+ *  this isn't a same-unit-only or concurrency-only bug, it's every
+ *  second-and-later Checkr order for any given association. Checkr's
+ *  Orders API has no confirmed way in this codebase to reference an
+ *  existing property by id instead of resending fields inline, so rather
+ *  than guess at an undocumented reuse mechanism, every order now sends a
+ *  property name that's unique to it (unit + applicant) -- guaranteed
+ *  collision-free regardless of what Checkr derives normalized_name from.
+ *  Cosmetic-only tradeoff: Checkr's own dashboard will show one property
+ *  entry per screening instead of grouping co-applicants under one -- we
+ *  never read property.name back for anything on our side. */
+function propertyName(property: ScreeningProperty, subject: ScreeningSubject): string | undefined {
+  if (!property.name) return undefined
+  const unitPart = property.unit ? ` — Unit ${property.unit}` : ''
+  return `${property.name}${unitPart} — ${subject.name}`.slice(0, 255)
+}
+
 async function checkrFetch(path: string, method: 'GET' | 'POST', body?: Record<string, unknown>, extraHeaders?: Record<string, string>): Promise<Record<string, unknown>> {
   const res = await fetch(`${API_BASE}${path}`, {
     method,
@@ -146,7 +173,7 @@ export const checkrProvider: ScreeningProvider = {
         package: packageFor(),
         ...(subject.addOnProducts?.length ? { add_on_products: subject.addOnProducts } : {}),
         property: {
-          name: property.name ?? undefined,
+          name: propertyName(property, subject),
           street: property.street,
           unit: property.unit ?? undefined,
           city: property.city,
