@@ -16,7 +16,7 @@ import { requireStaffSession } from '@/lib/staff-auth'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendDocumentRequestEmails, splitEmails } from '@/lib/document-request-email'
 import { isEsignItem, sendEsignFormsForItems, ESIGN_CHECKLIST_ITEMS } from '@/lib/application-esign-forms'
-import { sendLeasePacket, findUnitLeasePacket } from '@/lib/lease-packet'
+import { sendLeasePacket, findUnitLeasePacket, resendLeasePacketInvite } from '@/lib/lease-packet'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -93,6 +93,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // /request/[token] card can trigger the same send, so staff re-requesting
   // it here must not double-invite.
   const primaryApplicant = (applicants ?? []).find(a => a.is_primary) ?? (applicants ?? [])[0]
+  // Staff report, 2026-09-09: owner said he never received it, but re-ticking
+  // this item just bounced off "Already sent" -- there was no way to actually
+  // resend the invite short of digging up the original email or waiting on
+  // the owner to find it (spam folder, etc). A packet already existing must
+  // still block CREATING A SECOND ONE (two live signing links for the same
+  // unit is its own mess), but it should never be a dead end -- re-emailing
+  // whichever party hasn't signed yet is exactly what staff need here.
   const existingPacket = packetItems.length && unit ? await findUnitLeasePacket(code, unit) : null
   const packet = packetItems.length && unit && !existingPacket
     ? await sendLeasePacket(code, unit, `staff:${session.displayName}`, {
@@ -102,7 +109,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         leaseStart: (app.lease_start as string | null) ?? null,
         leaseEnd: (app.lease_end as string | null) ?? null,
       })
-    : existingPacket ? { ok: false as const, error: 'Already sent — check the unit\'s lease packet status.' } : null
+    : existingPacket ? await resendLeasePacketInvite(existingPacket.id) : null
 
   // Owner emails: a staff override wins; else EVERY email on the matched owner
   // record (owners often carry several — don't silently pick just the first).

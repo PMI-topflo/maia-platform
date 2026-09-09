@@ -150,6 +150,40 @@ export async function findUnitLeasePacket(associationCode: string, account: stri
   }
 }
 
+/** Re-sends the sign-invite email(s) for an EXISTING, not-yet-completed
+ *  packet -- the "owner says he never received it" case (email bounced,
+ *  went to spam, or was just missed). Does NOT create a new packet row:
+ *  that would orphan the original and leave two different signing links
+ *  live for the same unit at once, which is exactly what
+ *  findUnitLeasePacket's "already sent" guard above exists to prevent.
+ *  Only re-emails whichever role(s) haven't signed yet, with a freshly
+ *  signed token (the old link, if the owner still has it, keeps working
+ *  too -- both resolve to the same packet). */
+export async function resendLeasePacketInvite(id: string): Promise<
+  { ok: true; sent: string[]; skipped: string[] } | { ok: false; error: string }
+> {
+  const p = await getLeasePacket(id)
+  if (!p) return { ok: false, error: 'Lease packet not found.' }
+  if (p.status === 'void') return { ok: false, error: 'This lease packet has been voided.' }
+  if (p.status === 'completed') return { ok: false, error: 'Both parties have already signed — nothing to resend.' }
+
+  const legal = p.association_legal_name || p.association_code
+  const unitLabel = p.unit_number || p.unit_ref
+  const sent: string[] = [], skipped: string[] = []
+  for (const [role, name, email, signedAt] of [
+    ['owner', p.owner_name, p.owner_email, p.owner_signed_at],
+    ['tenant', p.tenant_name, p.tenant_email, p.tenant_signed_at],
+  ] as [LeasePacketRole, string | null, string | null, string | null][]) {
+    if (signedAt) { skipped.push(`${role} (already signed)`); continue }
+    if (!email) { skipped.push(`${role} (no email on file)`); continue }
+    const link = `${APP}/lease-packet/${await signLeasePacketToken(id, role)}`
+    const { subject, html } = inviteHtml(role, { name, legal, unit: unitLabel, link })
+    try { await sendEmail({ to: email, subject, html }); sent.push(`${role} → ${email}`) }
+    catch (e) { skipped.push(`${role} (send failed: ${e instanceof Error ? e.message : 'error'})`) }
+  }
+  return { ok: true, sent, skipped }
+}
+
 /** Self-service equivalent of application-esign-forms.ts's
  *  getOrCreateEsignLink, for the Landlord-Tenant Agreement -- it lives on
  *  its own two-party lease_packets table/token system, not the generic
