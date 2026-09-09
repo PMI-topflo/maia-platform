@@ -1,6 +1,6 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-09-08**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-09-09**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
@@ -388,6 +388,8 @@ Detail in `docs/SESSION-HANDOFF.md` (top section) and memory [[venetian_i_onboar
 
 **Blocker 1 (known since 2026-08-14) — RESOLVED 2026-09-06, the hard way (and revisited the same day).** A real MANXI applicant (Querline Pinckney, PMI-5A648107) paid and got a screening_subjects row stuck at `awaiting_applicant` forever — confirmed live that `CHECKR_API_KEY` was still the Jul 6 test-mode key: a test-mode order returns canned/sandbox results for a real applicant, worse than an error, because nothing looks wrong on the surface, but the real background check never ran and Checkr never emailed her. A live key + live webhook were generated and set.
 
+**Real order-creation bug, fixed 2026-09-09 (PR #842).** Every Checkr order sent the SAME `property.name` (just the bare association name) for every unit and every co-applicant. Checkr's `/orders` derives a `property.normalized_name` and rejects a second order whose property normalizes to a name already on file — confirmed live via `GET /properties` that this wasn't unit-706-specific or a concurrency issue: any second-and-later Checkr order for a given association would 422 this way, since the association name never changed between orders. Fixed by making every order's `property.name` unique (association + unit + applicant name) — Checkr's Orders API has no confirmed property-reuse-by-id mechanism in this codebase to use instead.
+
 **Key-prefix false start, same day.** `/api/admin/checkr-key-status` (PR #747, 2026-09-03) originally checked for a `ckr_sk_test_`/`ckr_sk_live_` prefix — this was CORRECT. It got "fixed" to `sk_test_`/`sk_live_` (no `ckr_`) based on Checkr's dashboard table showing a truncated `sk_live_••••xxxx` for a key row — that's a shortened display, not the real secret. A raw copy-to-clipboard of an actual live key confirmed the true prefix genuinely is `ckr_sk_live_` (52 characters total, `ckr_sk_live_` + 40 hex chars). The wrong fix then had staff strip the real `ckr_` prefix to satisfy the broken check, which made the status panel report "live" while the actual value sent to Checkr was mangled — surfacing downstream as a real `401 Invalid token` from Checkr's own `/orders` endpoint on a live re-request attempt. Reverted back to the original, correct `ckr_sk_test_`/`ckr_sk_live_` check the same day. Lesson: never trust a masked/truncated key display as the literal secret format — only a raw copy-to-clipboard proves it. Check that panel (or `/admin/tools`'s "Checkr key mode") after any future key rotation, and re-paste `CHECKR_API_KEY` in Vercel with its full `ckr_` prefix intact.
 
 <details>
@@ -406,6 +408,14 @@ The integration is **live-verified end to end in production** (real sandbox orde
 Also added along the way, independent of the outcome: MAIA never had a code path that read the structured report body at all (`getReportPdf` only ever fetched the rendered PDF) — `lib/screening/checkr.ts` now has `getReport()` (`GET /reports/{id}`, raw JSON passthrough), stored in `screening_subjects.report_data` and viewable per-applicant in `/admin/applications`; `ScreeningSubject.addOnProducts` plumbing (undefined for real applicants) for testing future add-on hypotheses; and `/api/trigger-screening` now surfaces real order-creation errors in the UI instead of only logging them server-side — this last one is what made the 422 above visible at all.
 
 </details>
+
+## ✅ RESOLVED — CINC sync: unit_number cross-wiring + non-billable accounts (2026-09-09, PRs #835–#839)
+
+**Real incident, MACO:** Hispania Entertainment LLC's CINC data was silently overwriting unrelated owners (Carlos Fleites, Daniel Fernandez, Richard Garcia...) on every sync. `owners.unit_number` is just the bare trailing digit and is **NOT unique across an association** — MACO's `unit_number = '1'` is shared by six unrelated accounts (MCCA1/B1/C1/D1/E1/F1) across different building sections. `lib/cinc-sync.ts`'s matching used to fall back to a `unit_number`-keyed match when `account_number`/`cinc_property_id` didn't resolve — removed entirely. **`owners.account_number` is now the only safe identity key for CINC matching** (also saved to `CLAUDE.md`, with a standing instruction to confirm "unit number" means `account_number` before writing any future matching/identifying code against it).
+
+Separately, CINC's non-billable ("Developer - NonBillable") accounts are now excluded from the sync entirely — found by probing CINC's actual live responses with the user (no CINC API access in-session, so staff-only debug routes were built for them to hit and paste back): the one endpoint that actually exposes per-account Status is `GET /management/1/homeowners/homeownerLookup?hoId=` (`PropertyStatusDescr`/`HomeownerStatus`); the bulk `associationWithProperty` endpoint's status fields are always `null` at runtime. A non-billable account now shows a distinct gray badge and is never proposed as insert/update.
+
+**Still open:** 4 CINC sync leads flagged in an earlier session, not revisited — `apueyoruiz56@gmail.com`, `victorzje@yahoo.com`, `aimtransportnj@gmail.com` (VPC5 1J vs VPCI 27M/VPREC #27 — user said "ask me later"), `mfelipe@marcellfelipe.com`.
 
 ## 🔴 Rentvine tenant sync — dead since 2026-06-17
 
