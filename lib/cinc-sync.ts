@@ -373,9 +373,24 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
 
   // Many-to-many maps. cinc_property_id / account_number can repeat
   // across joint-owner rows on our side too, so values are arrays.
+  //
+  // Real incident, 2026-09-09 (MACO): there used to be a `maiaByUnit` map
+  // here, keyed by the bare `unit_number` column, used as a matching
+  // fallback below `account_number`. For an association whose account
+  // numbers embed a building/section prefix (MCCA1, MCCB1, MCCC1, MCCD1,
+  // MCCE1, MCCF1...) but whose `unit_number` column is just the bare
+  // trailing digit ("1" for every one of those), that fallback grouped
+  // SIX UNRELATED ACCOUNTS across different sections under the same key —
+  // findLooseMatch's "any unclaimed row in this bucket" then paired
+  // Hispania Entertainment LLC's CINC property records onto whichever
+  // unrelated MACO owner happened to be unclaimed first (Carlos Fleites,
+  // Daniel Fernandez, Richard Garcia...), proposing to overwrite their
+  // real data. User direction: `account_number` is the only identity key
+  // safe to match on here — `unit_number` is not guaranteed unique across
+  // an association and must never be used for matching, insert/update
+  // targeting, or any other identity decision in this file.
   const maiaByCincId  = new Map<number, MaiaOwnerRow[]>()
   const maiaByAcct    = new Map<string, MaiaOwnerRow[]>()
-  const maiaByUnit    = new Map<string, MaiaOwnerRow[]>()
   const maiaByNameKey = new Map<string, MaiaOwnerRow[]>()
   function push<K>(m: Map<K, MaiaOwnerRow[]>, k: K | null | undefined, v: MaiaOwnerRow) {
     if (k == null) return
@@ -386,7 +401,6 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
   for (const row of maiaOwners) {
     if (row.cinc_property_id != null) push(maiaByCincId, row.cinc_property_id, row)
     if (row.account_number)           push(maiaByAcct,   row.account_number.toUpperCase(), row)
-    if (row.unit_number)              push(maiaByUnit,   String(row.unit_number).trim(), row)
     const nk = nameKey(row.first_name ?? row.entity_name, row.last_name)
     if (nk !== '|') push(maiaByNameKey, nk, row)
   }
@@ -395,8 +409,8 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
   const owners: OwnerComparison[] = []
 
   // Helper: best STRICT (name-aware) match for one CINC snapshot.
-  // Precedence: same cinc_property_id → same account_number → same unit
-  // → any same-name row in the association. Doesn't claim — caller does.
+  // Precedence: same cinc_property_id → same account_number → any
+  // same-name row in the association. Doesn't claim — caller does.
   function findStrictMatch(prop: CincPropertyInfo, snap: OwnerSnapshot): MaiaOwnerRow | null {
     const nk = nameKey(snap.first_name, snap.last_name)
     if (nk === '|') return null
@@ -404,12 +418,11 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
       rows.find(r => !maiaIdsMatched.has(r.id) && nameKey(r.first_name ?? r.entity_name, r.last_name) === nk) ?? null
     let m = tryMatch(maiaByCincId.get(prop.PropertyID) ?? [])
     if (!m && snap.account_number) m = tryMatch(maiaByAcct.get(snap.account_number.toUpperCase()) ?? [])
-    if (!m && prop.UnitNo)         m = tryMatch(maiaByUnit.get(String(prop.UnitNo).trim()) ?? [])
     if (!m)                        m = tryMatch(maiaByNameKey.get(nk) ?? [])
     return m
   }
 
-  // Helper: LOOSE fallback (any unclaimed MAIA row at this PID/account/unit,
+  // Helper: LOOSE fallback (any unclaimed MAIA row at this PID/account,
   // regardless of name). Only safe for the primary slot — the secondary
   // slot's name must line up exactly or it becomes an INSERT.
   function findLooseMatch(prop: CincPropertyInfo, snap: OwnerSnapshot): MaiaOwnerRow | null {
@@ -417,7 +430,6 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
       rows.find(r => !maiaIdsMatched.has(r.id)) ?? null
     let m = tryAny(maiaByCincId.get(prop.PropertyID) ?? [])
     if (!m && snap.account_number) m = tryAny(maiaByAcct.get(snap.account_number.toUpperCase()) ?? [])
-    if (!m && prop.UnitNo)         m = tryAny(maiaByUnit.get(String(prop.UnitNo).trim()) ?? [])
     return m
   }
 
