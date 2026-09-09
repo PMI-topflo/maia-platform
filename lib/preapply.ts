@@ -421,17 +421,35 @@ export async function addStakeholders(
     return true
   })
   if (fresh.length === 0) return []
+  // Real bug, 2026-09-09 (Ashlee Elizabeth Muthra, MANXI 702): every "who is
+  // the primary applicant" read in this codebase filters
+  // .eq('role','applicant').eq('is_primary', true) -- is_primary is scoped
+  // PER ROLE by design, not a single whole-application flag. But this
+  // unconditionally inserted every new person with is_primary: false, even
+  // the first real applicant added to an application an agent/owner
+  // started (whose OWN row, a different role, already has is_primary=true
+  // from createIntake). No role='applicant' row ever became primary, so
+  // the admin dashboard header, the Checkr payment-safeguard email, the
+  // board-approval handoff, and every other role-scoped lookup silently
+  // found nobody. A role already having a primary (added earlier, in a
+  // previous call) is untouched; within THIS batch, only the first person
+  // of a given role becomes its primary.
+  const primaryTakenByRole = new Set(existing.filter(s => s.isPrimary).map(s => s.role))
   const { data } = await supabaseAdmin.from('application_stakeholders').insert(
-    fresh.map(p => ({
-      application_id: applicationId, role: p.role, name: p.name.trim(), email: p.email?.trim() || null,
-      // Normalized to E.164 (lib/cinc-sync.ts's normalizePhone, the same
-      // convention owner/tenant phones already use) so a phone-only
-      // collaborator -- an agent added mid-intake, most commonly -- is
-      // actually dialable by the SMS invite this function's own caller
-      // sends them, not whatever format they were typed in.
-      phone: p.phone ? normalizePhone(p.phone) ?? (p.phone.trim() || null) : null,
-      is_primary: false, status: 'invited', added_by_role: addedByRole,
-    })),
+    fresh.map(p => {
+      const isPrimary = !primaryTakenByRole.has(p.role)
+      if (isPrimary) primaryTakenByRole.add(p.role)
+      return {
+        application_id: applicationId, role: p.role, name: p.name.trim(), email: p.email?.trim() || null,
+        // Normalized to E.164 (lib/cinc-sync.ts's normalizePhone, the same
+        // convention owner/tenant phones already use) so a phone-only
+        // collaborator -- an agent added mid-intake, most commonly -- is
+        // actually dialable by the SMS invite this function's own caller
+        // sends them, not whatever format they were typed in.
+        phone: p.phone ? normalizePhone(p.phone) ?? (p.phone.trim() || null) : null,
+        is_primary: isPrimary, status: 'invited', added_by_role: addedByRole,
+      }
+    }),
   ).select(STAKEHOLDER_COLS)
   return (data ?? []).map(toRow)
 }
