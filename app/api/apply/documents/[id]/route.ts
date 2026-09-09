@@ -27,6 +27,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const MAX_BYTES = 25 * 1024 * 1024
 const ALLOWED = /\.(pdf|jpe?g|png|heic|webp)$/i
 const NOTIFY = (process.env.UNIT_UPLOAD_NOTIFY_EMAILS ?? 'PMI@topfloridaproperties.com,ar@topfloridaproperties.com')
@@ -99,12 +100,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // 30-day link — same duration lib/document-request-email.ts already uses
     // for staff-facing notification emails on this same bucket.
     const { data: signed } = await supabaseAdmin.storage.from(INTAKE_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 30)
+    // User report, 2026-09-09: every upload for the same application used
+    // this exact same subject, so Gmail (and most clients) threaded them
+    // together and collapsed repeats down to a bare one-line snippet —
+    // making it LOOK like the association/account# was missing, when it
+    // was only ever hidden by the thread collapse. Folding the label (or
+    // filename) into the subject keeps each notification distinct so it
+    // renders in full every time. Also add a real link back to the
+    // application, not just the raw file — this old `applications` table
+    // has no dedicated admin detail page, but /admin/applications renders
+    // every row with a stable id it can deep-link to.
     void sendEmail({
       to: NOTIFY,
-      subject: `Additional document uploaded — ${app.association} · ${refNum}`,
+      subject: `Additional document uploaded — ${app.association} · ${refNum} — ${label || file.name}`,
       html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6">
         <p>The applicant uploaded an additional document for <strong>${refNum}</strong> (${app.association}).</p>
         ${label ? `<p><strong>Label:</strong> ${label}</p>` : ''}
+        <p><a href="${APP_URL}/admin/applications#app-row-${id}">Open application →</a></p>
         ${signed?.signedUrl ? `<p><a href="${signed.signedUrl}">View the file →</a></p>` : ''}
       </div>`,
     }).catch(() => null)
