@@ -359,7 +359,7 @@ A car-free applicant could never reach complete: vehicle documents were uncondit
 
 ## 🔴 Bugs fixed this round — watch for recurrence
 
-- **`.maybeSingle()` on a lookup that can legitimately return several rows.** Any co-owned unit lost its owner name AND email (header + request recipient): **231 of 521 units, 37 at MANXI**. Grep for `.maybeSingle()` on `owners` before adding another.
+- **`.maybeSingle()` on a lookup that can legitimately return several rows.** Any co-owned unit lost its owner name AND email (header + request recipient): **231 of 521 units, 37 at MANXI**. This standing note didn't stop it recurring — `lib/lease-packet.ts` and ~20 other call sites across owner self-service, tenant compliance, cron digests, and pre-apply unit lookup all had the same bug, three of them live user-facing hard failures (the owner's own compliance portal included). Full audit + fix, 2026-09-09 (PR #850): new shared `lib/owner-lookup.ts` (`findOwnerRows`/`findMergedOwner`) is now the one correct way to query `owners` by unit/account — **use it, don't write a fresh `.eq('account_number', ...).maybeSingle()` query.** `account_number` is exactly as vulnerable as `unit_number` here (it identifies the account, not the owner) — grepping for `unit_number` alone would have missed most of these.
 - **Editors seeded from props once** never re-sync after the server normalises a value — `dirty` never clears and saves look like they failed.
 - **An approved application could not be corrected** — the fix is confirm-then-edit with an audit stamp, not "start a new one" (which discards uploaded documents and the signed approval letter).
 
