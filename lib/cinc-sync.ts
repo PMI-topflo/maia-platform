@@ -14,6 +14,7 @@ import {
   listAssociationBoardMembers,
   getAssociationMeta,
   type CincPropertyInfo,
+  type CincPropertyAddress,
   type CincBoardMember,
 } from '@/lib/integrations/cinc'
 
@@ -199,20 +200,23 @@ function snapshotsFromCincProperty(p: CincPropertyInfo): Array<{ slot: number; s
     }]
   }
 
-  const street   = streetSrc ? ([streetSrc.StreetNumber, streetSrc.Address].filter(Boolean).join(' ').trim() || null) : null
-  const rawPhone = nameSrc ? (nameSrc.MobilePhone || nameSrc.HomePhone || nameSrc.WorkPhone || null) : null
+  const street = streetSrc ? ([streetSrc.StreetNumber, streetSrc.Address].filter(Boolean).join(' ').trim() || null) : null
+
+  // Real incident, 2026-09-09 (MANXI 505/207/708, SP 10B): nameSrc
+  // (property address) was the ONLY source ever checked for Email and
+  // phone, so a property whose contact info lives only on the
+  // offsite/billing address row (as CINC's own Homeowner Information page
+  // showed for all four of these accounts) read as "CINC has nothing" —
+  // which is what produced the false "⚠ Unverified" badge (#829) instead
+  // of a real proposed match/update. Offsite carries its own contact
+  // fields (see function doc above); fall back to it, then to the first
+  // address row, before giving up.
+  const anyPhone = (a: CincPropertyAddress | null) => a ? (a.MobilePhone || a.HomePhone || a.WorkPhone || null) : null
+  const rawPhone = anyPhone(nameSrc) || anyPhone(offsite) || anyPhone(fallback)
   // Normalize at the boundary — CINC stores phones in mixed formats
   // (raw digits, parenthesized, etc.) but we always want the E.164 form
   // (+1XXXXXXXXXX) in our DB so WhatsApp / SMS APIs can dial.
   const phone    = normalizePhone(rawPhone)
-  // Real incident, 2026-09-09 (MANXI 802): nameSrc (property address) was
-  // the ONLY source ever checked for Email, so a property whose email
-  // lives only on the offsite/billing address row (as CINC's own
-  // Homeowner Listing showed for this account) read as "CINC has no
-  // email" here — which is what produced the false "⚠ Unverified"
-  // badge (#829) instead of a real proposed match/update. Offsite
-  // carries its own single billing email (see function doc above); fall
-  // back to it, then to the first address row, before giving up.
   const rawEmail = nameSrc?.Email || offsite?.Email || fallback?.Email || null
   const emails   = (rawEmail ?? '').trim().toLowerCase() || null
 
