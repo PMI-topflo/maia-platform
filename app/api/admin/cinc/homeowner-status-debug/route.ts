@@ -17,8 +17,16 @@
 // getHomeownerDetailsForIVRPayment is a genuine PER-ACCOUNT lookup
 // (hoId=account_number) our code already calls for a different purpose
 // (lib/integrations/cinc.ts's getHomeownerPaymentBlockStatus) but only
-// reads 3 fields from -- pass &hoId= to dump everything else it returns,
-// in case Status rides along there instead.
+// reads 3 fields from -- pass &hoId= to dump everything else it returns.
+// Its Swagger schema has no Status field at all, so this came up empty.
+//
+// homeownerLookup's documented Swagger schema lists BOTH
+// PropertyStatusDescr and HomeownerStatus -- PropertyStatusDescr matches
+// the field name the (aggregate-only) billableCounts endpoint groups
+// real, populated counts by, a much stronger signal than
+// associationWithProperty's always-null HomeownerStatus. Also dumped
+// here when &hoId= is passed, to confirm live whether it's actually
+// populated.
 //
 // No terminal/probe-script access needed — just visit this URL while
 // logged into /admin. Debug-only; nothing reads from this route.
@@ -27,7 +35,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
-import { debugAssociationWithPropertyRaw, debugHomeownerDetailsForIVRPaymentRaw } from '@/lib/integrations/cinc'
+import { debugAssociationWithPropertyRaw, debugHomeownerDetailsForIVRPaymentRaw, debugHomeownerLookupRaw } from '@/lib/integrations/cinc'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -51,6 +59,9 @@ export async function GET(req: Request) {
     const ivr = hoId ? await debugHomeownerDetailsForIVRPaymentRaw(hoId) : null
     const ivrArr = Array.isArray(ivr) ? ivr as Record<string, unknown>[] : []
 
+    const lookup = hoId ? await debugHomeownerLookupRaw(hoId) : null
+    const lookupArr = Array.isArray(lookup) ? lookup as Record<string, unknown>[] : []
+
     return NextResponse.json({
       ok: true,
       assoc,
@@ -67,6 +78,15 @@ export async function GET(req: Request) {
         hoId,
         ivrTopLevelKeys: ivrArr[0] ? Object.keys(ivrArr[0]) : [],
         ivrRaw: ivr,
+        // The real candidate: homeownerLookup's documented schema lists
+        // BOTH PropertyStatusDescr and HomeownerStatus.
+        lookupSummary: lookupArr[0] ? {
+          PropertyStatusDescr: lookupArr[0].PropertyStatusDescr ?? null,
+          HomeownerStatus: lookupArr[0].HomeownerStatus ?? null,
+          isCurrentOwner: lookupArr[0].isCurrentOwner ?? null,
+          BillingTypeDescr: lookupArr[0].BillingTypeDescr ?? null,
+        } : null,
+        lookupRaw: lookup,
       } : {}),
     })
   } catch (err) {
