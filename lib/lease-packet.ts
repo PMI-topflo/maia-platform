@@ -19,6 +19,33 @@ const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;',
 const firstEmail = (e: string | null) => (e ?? '').split(/[,;\s]+/).map(s => s.trim()).find(x => x.includes('@')) ?? null
 const firstNonEmpty = (...vals: (string | null | undefined)[]) => vals.map(v => (v ?? '').trim()).find(Boolean) ?? null
 
+/** Resolve a unit's current owner(s). NOT maybeSingle() -- a co-owned unit
+ *  has one `owners` row PER OWNER (e.g. MANXI 103, Andre + Marcia Danford;
+ *  MANXI 706, "1125 Digital LLC & Rodrigo Campos"). maybeSingle() throws
+ *  PGRST116 "multiple rows returned" on that shape and the caller silently
+ *  got back null -- exactly why unit 706's lease packet was created with
+ *  no owner email on file at all, despite the owner clearly being on
+ *  file. Same co-owner fix already applied in
+ *  app/api/admin/pre-apply/[id]/route.ts's owner query; joins every
+ *  co-owner's name with " & " and uses the first valid email/mobile found
+ *  across all of them. */
+async function resolveUnitOwner(associationCode: string, account: string): Promise<{ name: string | null; email: string | null; mobile: string | null; unitNumber: string | null }> {
+  const accountGuess = `${associationCode}${account}`.toUpperCase()
+  const { data: owners } = await supabaseAdmin.from('owners')
+    .select('first_name, last_name, entity_name, emails, phone, phone_e164, unit_number')
+    .eq('association_code', associationCode)
+    .or(`unit_number.eq.${account},account_number.eq.${account},account_number.eq.${accountGuess}`)
+    .or('status.neq.previous,status.is.null')
+  const rows = owners ?? []
+  const name = rows
+    .map(o => (o.entity_name as string | null)?.trim() || [o.first_name, o.last_name].filter(Boolean).join(' ').trim())
+    .filter(Boolean).join(' & ') || null
+  const email = firstEmail(rows.map(o => (o.emails as string | null) ?? '').join(','))
+  const mobile = firstNonEmpty(...rows.flatMap(o => [(o.phone as string | null), (o.phone_e164 as string | null)]))
+  const unitNumber = firstNonEmpty(...rows.map(o => (o.unit_number as string | null)))
+  return { name, email, mobile, unitNumber }
+}
+
 function composeAddress(a: { street: string | null; unit: string | null; city: string | null; state: string | null; zip: string | null }): string | null {
   const street = (a.street ?? '').trim()
   const unit = (a.unit ?? '').trim()
@@ -81,24 +108,21 @@ export async function sendLeasePacket(
   // stores it as the full account number), so the same two-way match applies
   // there.
   const accountGuess = `${associationCode}${account}`.toUpperCase()
-  const [{ data: owner }, { data: tenant }, { data: assoc }] = await Promise.all([
-    supabaseAdmin.from('owners').select('first_name, last_name, entity_name, emails, phone, phone_e164, unit_number')
-      .eq('association_code', associationCode)
-      .or(`unit_number.eq.${account},account_number.eq.${account},account_number.eq.${accountGuess}`)
-      .or('status.neq.previous,status.is.null').maybeSingle(),
+  const [ownerInfo, { data: tenant }, { data: assoc }] = await Promise.all([
+    resolveUnitOwner(associationCode, account),
     supabaseAdmin.from('unit_tenant_contacts').select('tenant_name, tenant_email, tenant_phone, lease_start, lease_end')
       .eq('association_code', associationCode).or(`unit_ref.eq.${account},unit_ref.eq.${accountGuess}`).maybeSingle(),
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', associationCode).maybeSingle(),
   ])
 
   const legal = (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || associationCode
-  const ownerName = (owner?.entity_name as string | null) || [owner?.first_name, owner?.last_name].filter(Boolean).join(' ').trim() || null
-  const ownerEmail = firstEmail((owner?.emails as string | null) ?? null)
-  const ownerMobile = firstNonEmpty((owner?.phone as string | null), (owner?.phone_e164 as string | null))
+  const ownerName = ownerInfo.name
+  const ownerEmail = ownerInfo.email
+  const ownerMobile = ownerInfo.mobile
   const tenantName = firstNonEmpty(tenantOverride?.name, tenant?.tenant_name as string | null)
   const tenantEmail = firstEmail(tenantOverride?.email ?? (tenant?.tenant_email as string | null) ?? null)
   const tenantMobile = firstNonEmpty(tenantOverride?.phone, tenant?.tenant_phone as string | null)
-  const unitLabel = (owner?.unit_number as string | null) || account
+  const unitLabel = ownerInfo.unitNumber || account
   const propertyAddress = composeAddress({
     street: (assoc?.principal_address as string | null) ?? null, unit: unitLabel,
     city: (assoc?.city as string | null) ?? null, state: (assoc?.state as string | null) ?? null, zip: (assoc?.zip as string | null) ?? null,
@@ -167,11 +191,30 @@ export async function resendLeasePacketInvite(id: string): Promise<
   if (p.status === 'void') return { ok: false, error: 'This lease packet has been voided.' }
   if (p.status === 'completed') return { ok: false, error: 'Both parties have already signed — nothing to resend.' }
 
+  // Real bug, 2026-09-09 (unit 706, "1125 Digital LLC & Rodrigo Campos"):
+  // the packet's OWN snapshotted owner_email can be permanently null if it
+  // was created before resolveUnitOwner's co-owner fix above -- staff kept
+  // hitting "owner (no email on file)" on resend even though the owner was
+  // clearly on file elsewhere in MAIA. Re-resolve live and persist it onto
+  // this packet if found, so this resend (and the filed PDF, and every
+  // resend after) has the correct address instead of repeating the same
+  // stale failure forever.
+  let ownerName = p.owner_name, ownerEmail = p.owner_email, ownerMobile = p.owner_mobile
+  if (!ownerEmail && !p.owner_signed_at) {
+    const fresh = await resolveUnitOwner(p.association_code, p.unit_ref)
+    if (fresh.email) {
+      ownerName = fresh.name ?? ownerName; ownerEmail = fresh.email; ownerMobile = fresh.mobile ?? ownerMobile
+      await supabaseAdmin.from('lease_packets')
+        .update({ owner_name: ownerName, owner_email: ownerEmail, owner_mobile: ownerMobile, updated_at: new Date().toISOString() })
+        .eq('id', id)
+    }
+  }
+
   const legal = p.association_legal_name || p.association_code
   const unitLabel = p.unit_number || p.unit_ref
   const sent: string[] = [], skipped: string[] = []
   for (const [role, name, email, signedAt] of [
-    ['owner', p.owner_name, p.owner_email, p.owner_signed_at],
+    ['owner', ownerName, ownerEmail, p.owner_signed_at],
     ['tenant', p.tenant_name, p.tenant_email, p.tenant_signed_at],
   ] as [LeasePacketRole, string | null, string | null, string | null][]) {
     if (signedAt) { skipped.push(`${role} (already signed)`); continue }
