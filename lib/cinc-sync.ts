@@ -13,6 +13,7 @@ import {
   listAssociationProperties,
   listAssociationBoardMembers,
   getAssociationMeta,
+  getHomeownerStatusDescr,
   type CincPropertyInfo,
   type CincPropertyAddress,
   type CincBoardMember,
@@ -53,7 +54,7 @@ export interface BoardSnapshot {
 // Per-unit / per-board-member comparison rows
 // ─────────────────────────────────────────────────────────────────────
 
-export type OwnerStatus = 'insert' | 'update' | 'match' | 'only_in_maia'
+export type OwnerStatus = 'insert' | 'update' | 'match' | 'only_in_maia' | 'non_billable'
 
 export interface OwnerComparison {
   status:             OwnerStatus
@@ -96,6 +97,14 @@ export interface OwnerComparison {
    *  `changes`, which only exists on status='update'; this can be set
    *  on 'match' too, which is exactly the case that was hiding. */
   unverified?:        string[]
+  /** Set (and status forced to 'non_billable') when CINC's own record-level
+   *  Status field (GET .../homeowners/homeownerLookup — confirmed live,
+   *  2026-09-09, the ONE v1 endpoint that actually populates it) says this
+   *  account isn't a real billable owner (e.g. "Developer - NonBillable" —
+   *  added to CINC only to enable mass communications, per user direction).
+   *  Never proposed as an insert/update, and never auto-selected — staff
+   *  said explicitly these shouldn't be treated as MAIA owners at all. */
+  nonBillableStatus?: string
 }
 
 export type BoardStatus = 'insert' | 'update' | 'match' | 'only_in_maia'
@@ -552,6 +561,27 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
     })
   }
 
+  // Real incident, 2026-09-09 (Elena Mosiyash, VPREC): a CINC account added
+  // ONLY to enable mass communications ("Status: Developer - NonBillable"
+  // on the Homeowner Information page) still showed up as a normal owner
+  // insert/update candidate here -- user direction: don't propose treating
+  // these as real MAIA owners at all. getHomeownerStatusDescr is a
+  // per-account lookup (the one v1 endpoint confirmed to actually populate
+  // this field -- associationWithProperty's HomeownerStatus is always
+  // null), so this only fires for rows that would otherwise become an
+  // insert/update -- bounded to the actual diff, not every property in the
+  // association. Best-effort: a lookup failure leaves the row as-is rather
+  // than blocking the sync.
+  await Promise.all(owners.map(async cmp => {
+    if (cmp.status !== 'insert' && cmp.status !== 'update') return
+    if (!cmp.account_number) return
+    const cincStatus = await getHomeownerStatusDescr(cmp.account_number).catch(() => null)
+    if (cincStatus && /non.?billable/i.test(cincStatus)) {
+      cmp.status = 'non_billable'
+      cmp.nonBillableStatus = cincStatus
+    }
+  }))
+
   // Sort: by account_number first (so joint-owner rows for the same
   // unit group together), then owner_number, then unit_number.
   function acctSortKey(s: string | null): string {
@@ -568,7 +598,7 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
     const kb = acctSortKey(b.account_number)
     if (ka !== kb) return ka < kb ? -1 : 1
     // Same account number → put insert/update before match/only_in_maia
-    const order: Record<OwnerStatus, number> = { insert: 0, update: 1, only_in_maia: 2, match: 3 }
+    const order: Record<OwnerStatus, number> = { insert: 0, update: 1, only_in_maia: 2, match: 3, non_billable: 4 }
     const so = order[a.status] - order[b.status]
     if (so !== 0) return so
     return (a.owner_number ?? 99) - (b.owner_number ?? 99)

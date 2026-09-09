@@ -791,6 +791,26 @@ export async function debugHomeownerLookupRaw(hoId: string): Promise<unknown> {
   })
 }
 
+interface HomeownerLookupRow { PropertyStatusDescr?: string | null; HomeownerStatus?: string | null }
+
+/** GET /management/1/homeowners/homeownerLookup?hoId= — the one CINC v1
+ *  endpoint confirmed (live probe, VPREC, 2026-09-09) to actually populate
+ *  the record-level "Status" field (Owner / Previous Owner / Developer-
+ *  NonBillable — the dropdown on CINC's Homeowner Information page).
+ *  associationWithProperty's HomeownerStatus is always null; this one's
+ *  PropertyStatusDescr/HomeownerStatus come back real. Best-effort: a
+ *  lookup failure returns null rather than throwing, since this is a
+ *  secondary check layered onto the sync, not something that should ever
+ *  block it. hoId = owners.account_number = CINC PropertyHOID. */
+export async function getHomeownerStatusDescr(hoId: string): Promise<string | null> {
+  const rows = await call<HomeownerLookupRow[]>('/management/1/homeowners/homeownerLookup', {
+    method: 'GET',
+    query:  { hoId },
+  }).catch(() => [] as HomeownerLookupRow[])
+  const row = rows[0]
+  return row ? ((row.PropertyStatusDescr ?? row.HomeownerStatus) || null) : null
+}
+
 export async function listAssociationProperties(assocCode: string): Promise<CincPropertyInfo[]> {
   // Best-effort: log once if CINC has enabled the Contacts and Consent
   // feature but we haven't shipped the v2 path yet. Don't throw — we
