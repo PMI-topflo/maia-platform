@@ -216,6 +216,7 @@ export function buildApplicationReviewDigestEmail(data: ApplicationReviewDigestD
 export interface SendApplicationReviewDigestResult {
   ok: boolean
   dry?: boolean
+  skipped?: boolean
   recipients: string[]
   subject: string
   toReviewCount: number
@@ -232,6 +233,15 @@ export async function sendApplicationReviewDigest(opts: { appUrl: string; dry?: 
     overdueCount: data.overdue.length, stalledInterviewCount: data.stalledInterview.length,
   }
   if (!RECIPIENTS.length) return { ok: false, ...base }
+  // User report, 2026-09-09: the subject only ever counted `toReview` ("X
+  // waiting"), so a day with zero unreviewed documents but a nonempty
+  // `refused` section still sent a "0 waiting" email with real content in
+  // it -- confusing, since refused items are on the APPLICANT to act on
+  // next, not staff. Only toReview/overdue/stalledInterview are actually
+  // "waiting on you"; skip the send entirely when none of those have
+  // anything, even if refused does.
+  const actionable = data.toReview.length + data.overdue.length + data.stalledInterview.length
+  if (actionable === 0) return { ok: true, skipped: true, ...base }
   if (opts.dry) return { ok: true, dry: true, ...base }
   await sendEmail({ to: RECIPIENTS, subject: email.subject, html: email.html, text: email.text })
   return { ok: true, ...base }

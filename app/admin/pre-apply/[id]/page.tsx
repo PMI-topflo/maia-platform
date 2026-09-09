@@ -42,6 +42,7 @@ interface Detail {
   assistanceAnimalDecisionDays: number
   checklist: { doc_key: string; label: string; required: boolean; provided_by: string; per_applicant: boolean; allow_multiple: boolean; uploaded: boolean; condition_key: string | null; template_path: string | null; esign: { status: string; signed: { name: string; at: string }[]; pending: string[] } | null }[]
   documents: Doc[]
+  pendingReminderApproval: { id: string; missingSummary: string[]; recipients: { name: string | null; email: string; role: string }[] } | null
 }
 
 const TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
@@ -75,6 +76,15 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
   // "Request it" on a row opens the request panel with that item preselected —
   // staff still choose WHO it goes to.
   const [requestFor, setRequestFor] = useState<{ doc_key: string; label: string } | null>(null)
+  const [reminderBusy, setReminderBusy] = useState<'approve' | 'decline' | null>(null)
+  async function decideReminder(action: 'approve' | 'decline') {
+    setReminderBusy(action)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/reminder-approval`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }) })
+      if (!r.ok) throw new Error((await r.json()).error || 'failed')
+      load()
+    } catch (e) { alert(`Could not ${action} the reminder: ${(e as Error).message}`) } finally { setReminderBusy(null) }
+  }
 
   const loadDriveFiles = useCallback(async () => {
     setDriveFilesErr(null)
@@ -252,6 +262,39 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       </div>
       <p style={{ color: '#6b7280', fontSize: 14, margin: '2px 0 0' }}>{d.associationCode}{d.unit ? ` · Unit ${d.unit}` : ''} · submitted {fmt(d.submittedAt)}</p>
       <p style={{ fontSize: 13, color: '#374151', margin: '4px 0 0' }}>{d.applicant?.email}{d.applicant?.phone ? ` · ${d.applicant.phone}` : ''}</p>
+
+      {/* Missing-docs reminder pending your one-time approval — the email
+          that used to link to a standalone no-login card now lands you
+          straight here instead, so the decision is made with the whole
+          application in view. Approving sends the reminder to everyone on
+          file right now; every 3-day cycle after that sends automatically. */}
+      {d.pendingReminderApproval && (
+        <div style={{ marginTop: 12, border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 10, padding: '14px 16px' }}>
+          <div style={{ font: '700 13px system-ui', color: '#92400e' }}>⏳ Missing-documents reminder awaiting your approval</div>
+          <p style={{ font: '12.5px system-ui', color: '#78350f', margin: '4px 0 10px' }}>
+            Approving emails {d.pendingReminderApproval.recipients.length} {d.pendingReminderApproval.recipients.length === 1 ? 'person' : 'people'} on this application right now, then MAIA sends the same reminder automatically every 3 days until nothing&apos;s missing — no further approval needed.
+          </p>
+          <div style={{ font: '700 11.5px system-ui', color: '#78350f', marginBottom: 4 }}>Still missing:</div>
+          <ul style={{ margin: '0 0 10px', paddingLeft: 18, font: '12.5px system-ui', color: '#78350f', lineHeight: 1.6 }}>
+            {d.pendingReminderApproval.missingSummary.map((m, i) => <li key={i}>{m}</li>)}
+          </ul>
+          <div style={{ font: '700 11.5px system-ui', color: '#78350f', marginBottom: 4 }}>Will be sent to:</div>
+          <ul style={{ margin: '0 0 12px', paddingLeft: 18, font: '12.5px system-ui', color: '#78350f', lineHeight: 1.6 }}>
+            {d.pendingReminderApproval.recipients.map((r, i) => <li key={i}>{r.name || r.email} <span style={{ color: '#b45309' }}>· {r.role} · {r.email}</span></li>)}
+          </ul>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => decideReminder('approve')} disabled={!!reminderBusy}
+              style={{ cursor: reminderBusy ? 'default' : 'pointer', font: '700 13px system-ui', color: '#fff', background: reminderBusy === 'approve' ? '#9ca3af' : '#166534', border: 'none', borderRadius: 8, padding: '9px 16px' }}>
+              {reminderBusy === 'approve' ? 'Sending…' : '✓ Approve & send now'}
+            </button>
+            <button onClick={() => decideReminder('decline')} disabled={!!reminderBusy}
+              style={{ cursor: reminderBusy ? 'default' : 'pointer', font: '700 13px system-ui', color: '#92400e', background: '#fff', border: '1px solid #fde68a', borderRadius: 8, padding: '9px 16px' }}>
+              {reminderBusy === 'decline' ? '…' : 'Not yet'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* `name` is the LEAD applicant, which is what this editor renames. The
           others are named beside it so the line matches the roster. */}
       <MetaEditor id={id} name={d.applicant?.name ?? ''} others={applicants.slice(1).map(a => a.name).filter((n): n is string => !!n)} type={d.type} onDone={load} onEditAll={() => setApplicantsOpenTrigger(t => t + 1)} />

@@ -8,10 +8,19 @@
 // all stakeholders."
 //
 // Gated behind a ONE-TIME approval from PMI + Jonathan: the first cycle
-// drafts and waits for a click (app/api/reminder-approval/[token]); every
-// cycle after that auto-sends with no further approval needed ("approve
-// once, then auto-send"). See app/api/cron/missing-docs-reminders for the
-// cadence/gating logic that decides when to call these.
+// drafts and waits for a decision; every cycle after that auto-sends with
+// no further approval needed ("approve once, then auto-send"). See
+// app/api/cron/missing-docs-reminders for the cadence/gating logic that
+// decides when to call these.
+//
+// The approval email links into the staff admin dashboard
+// (/admin/pre-apply/[id]), where the pending approval renders as a card —
+// user direction, 2026-09-09: PMI/Jonathan want the full application in
+// front of them when deciding, not a standalone approve/decline page with
+// no other context. The no-login token page (app/reminder-approval/[token],
+// app/api/reminder-approval/[token]) still exists and still works — it's
+// just no longer what NEW drafts link to, so any approval already in
+// someone's inbox from before this change keeps working.
 //
 // Reuses getOutstandingSummary — the exact same "what's missing" computation
 // lib/application-standard-reply.ts uses for its single-recipient draft —
@@ -106,7 +115,9 @@ export async function draftReminderApproval(
   const token = String(data.id)
 
   const assocName = await associationName(summary.associationCode)
-  const link = `${APP}/reminder-approval/${token}`
+  // Straight into the staff dashboard, not the standalone no-login card —
+  // see the module comment above.
+  const link = `${APP}/admin/pre-apply/${applicationId}`
   await sendEmail({
     to: OFFICE_EMAILS,
     subject: `Approve reminder — ${assocName}${summary.unitLabel ? ` Unit ${summary.unitLabel}` : ''} still missing documents`,
@@ -116,7 +127,7 @@ export async function draftReminderApproval(
       <p><strong>${esc(assocName)}</strong>${summary.unitLabel ? `, Unit ${esc(summary.unitLabel)}` : ''} is still missing:</p>
       <ul>${missingSummary.map(l => `<li>${esc(l)}</li>`).join('')}</ul>
       <p>Approving will email ${recipients.length} ${recipients.length === 1 ? 'person' : 'people'} on the application (applicant, owner, and any agent on file) right now. After that, MAIA sends this same reminder automatically every 3 days until nothing's missing — no further approval needed.</p>
-      <p style="text-align:center;margin:20px 0"><a href="${link}" style="background:#166534;color:#fff;text-decoration:none;font-weight:700;padding:13px 26px;border-radius:10px;display:inline-block">Review &amp; decide →</a></p>
+      <p style="text-align:center;margin:20px 0"><a href="${link}" style="background:#166534;color:#fff;text-decoration:none;font-weight:700;padding:13px 26px;border-radius:10px;display:inline-block">Review the application →</a></p>
     </div>`,
   }).catch(() => null)
   return token
