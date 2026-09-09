@@ -205,7 +205,16 @@ function snapshotsFromCincProperty(p: CincPropertyInfo): Array<{ slot: number; s
   // (raw digits, parenthesized, etc.) but we always want the E.164 form
   // (+1XXXXXXXXXX) in our DB so WhatsApp / SMS APIs can dial.
   const phone    = normalizePhone(rawPhone)
-  const emails   = (nameSrc?.Email ?? '').trim().toLowerCase() || null
+  // Real incident, 2026-09-09 (MANXI 802): nameSrc (property address) was
+  // the ONLY source ever checked for Email, so a property whose email
+  // lives only on the offsite/billing address row (as CINC's own
+  // Homeowner Listing showed for this account) read as "CINC has no
+  // email" here — which is what produced the false "⚠ Unverified"
+  // badge (#829) instead of a real proposed match/update. Offsite
+  // carries its own single billing email (see function doc above); fall
+  // back to it, then to the first address row, before giving up.
+  const rawEmail = nameSrc?.Email || offsite?.Email || fallback?.Email || null
+  const emails   = (rawEmail ?? '').trim().toLowerCase() || null
 
   const first1 = (nameSrc?.FirstName  ?? '').trim() || null
   const last1  = (nameSrc?.LastName   ?? '').trim() || null
