@@ -415,7 +415,7 @@ Also added along the way, independent of the outcome: MAIA never had a code path
 
 Separately, CINC's non-billable ("Developer - NonBillable") accounts are now excluded from the sync entirely — found by probing CINC's actual live responses with the user (no CINC API access in-session, so staff-only debug routes were built for them to hit and paste back): the one endpoint that actually exposes per-account Status is `GET /management/1/homeowners/homeownerLookup?hoId=` (`PropertyStatusDescr`/`HomeownerStatus`); the bulk `associationWithProperty` endpoint's status fields are always `null` at runtime. A non-billable account now shows a distinct gray badge and is never proposed as insert/update.
 
-**Still open:** 4 CINC sync leads flagged in an earlier session, not revisited — `apueyoruiz56@gmail.com`, `victorzje@yahoo.com`, `aimtransportnj@gmail.com` (VPC5 1J vs VPCI 27M/VPREC #27 — user said "ask me later"), `mfelipe@marcellfelipe.com`.
+The 4 CINC sync leads flagged earlier this session (`apueyoruiz56@gmail.com`, `victorzje@yahoo.com`, `aimtransportnj@gmail.com` — VPC5 1J vs VPCI 27M/VPREC #27, `mfelipe@marcellfelipe.com`) are **resolved** (user confirmation, 2026-09-09).
 
 ## 🔴 Rentvine tenant sync — dead since 2026-06-17
 
