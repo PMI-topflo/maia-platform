@@ -930,7 +930,7 @@ function CheckrRequestSender({ id, provider, hasExisting, paid, resolvedManually
     // staff don't hesitate to use this out of fear of double-billing them.
     const costNote = paid
       ? 'The application fee is already paid — this does NOT charge the applicant again. It only costs PMI the Checkr per-report fee.'
-      : 'This costs PMI the Checkr per-report fee (not a charge to the applicant).'
+      : 'If she has already paid, this costs PMI the Checkr per-report fee (not a charge to the applicant). If she hasn’t paid yet, no order is created and no fee is charged — MAIA sends her the confirm & pay link instead.'
     const msg = hasExisting
       ? `Create a fresh real Checkr order for every applicant/occupant on this application, replacing any existing one? ${costNote} Each of them gets a new consent link by email.`
       : `Create a real Checkr order for every applicant/occupant on this application? ${costNote} Each of them gets a consent link by email.`
@@ -941,6 +941,18 @@ function CheckrRequestSender({ id, provider, hasExisting, paid, resolvedManually
       const j = await r.json()
       if (!r.ok || j.error) {
         if (j.reason === 'payment_pending') setPaymentPending(true)
+        // Real safeguard, user direction 2026-09-09: Checkr has no payment
+        // collection of its own, so this route now auto-sends the confirm &
+        // pay link the instant it sees payment hasn't happened yet, instead
+        // of a dead-end error. That's a successful outcome, not a failure —
+        // show it as one instead of a red error box, even though it arrives
+        // on the same 400 (no Checkr order — and no PMI charge — actually
+        // happened this time).
+        if (j.paymentLinkSent) {
+          setResult({ ok: true, text: `Payment hasn’t been completed yet — no Checkr order was created and PMI wasn’t charged. Sent ${j.sentTo} the confirm & pay link instead.` })
+          onDone()
+          return
+        }
         throw new Error(j.error || 'failed')
       }
       setResult({ ok: true, text: `✓ Requested ${j.succeeded}/${j.subjects} order${j.subjects === 1 ? '' : 's'}.${j.failed ? ` ${j.failed} failed — see below.` : ''}${j.errors?.length ? ` ${j.errors.join(' · ')}` : ''}` })
