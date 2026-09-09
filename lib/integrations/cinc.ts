@@ -747,11 +747,31 @@ export interface CincAssociationWithProperty {
  *  for diagnosing what CINC ACTUALLY returns (vs what our types capture, or
  *  what Swagger's generic example schema shows, which can overstate a
  *  shared response-model's fields). Debug-only; not used by the sync path
- *  itself. See app/api/admin/cinc-debug/[code]/route.ts. */
+ *  itself. See app/api/admin/cinc/homeowner-status-debug/route.ts.
+ *  CONFIRMED 2026-09-09 (VPREC probe): HomeownerStatus/AccountNumber/
+ *  BillingType are always null here — this endpoint does NOT expose the
+ *  per-account "Status" field (Owner / Previous Owner / Developer-
+ *  NonBillable) shown on CINC's Homeowner Information page. See
+ *  debugHomeownerDetailsForIVRPaymentRaw below for the per-account
+ *  endpoint that might carry it instead. */
 export async function debugAssociationWithPropertyRaw(assocCode: string): Promise<unknown> {
   return call('/management/1/homeowners/associationWithProperty', {
     method: 'GET',
     query:  { assocCode: assocCode.toUpperCase() },
+  })
+}
+
+/** Raw, untyped dump of getHomeownerPaymentBlockStatus's own endpoint (a
+ *  genuine per-account lookup, unlike associationWithProperty's bulk
+ *  per-association shape) — that function only reads BlockPaymentsFlag/
+ *  IsHomeownerOrAssociationBlocked/Balance; this exposes whatever else the
+ *  response actually carries, in case the homeowner "Status" field
+ *  (Owner / Developer-NonBillable / ...) rides along here instead.
+ *  hoId = owners.account_number = CINC PropertyHOID (e.g. "VP1M2304#27"). */
+export async function debugHomeownerDetailsForIVRPaymentRaw(hoId: string): Promise<unknown> {
+  return call('/management/1/homeowners/getHomeownerDetailsForIVRPayment', {
+    method: 'GET',
+    query:  { hoId },
   })
 }
 
