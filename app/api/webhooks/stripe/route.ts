@@ -200,7 +200,14 @@ async function sendTeamEmail(app: Record<string, unknown>, session: Stripe.Check
     ? (principals || []).map((p, i) => `Principal ${i + 1}: ${p.name}`).join("\n")
     : (applicants || []).map((a, i) => `Applicant ${i + 1}: ${a.firstName} ${a.lastName} · ${a.email}`).join("\n");
   const subject = `[New Application] ${app.association} · ${refNum}`;
-  const text = `NEW APPLICATION — ${refNum}\nAssociation: ${app.association}\nType: ${app.app_type}\nPaid: $${((session.amount_total || 0) / 100).toFixed(2)}\n\n${list}\n\nSupabase ID: ${app.id}`;
+  // User report, 2026-09-09: this email had no way back to the application
+  // at all — just a raw Supabase id at the bottom, nothing clickable. Same
+  // fix as the additional-document-upload notification (app/api/apply/
+  // documents/[id]/route.ts): deep-link into /admin/applications' stable
+  // per-row anchor, since this old `applications` table has no dedicated
+  // admin detail page.
+  const appLink = `${process.env.NEXT_PUBLIC_APP_URL}/admin/applications#app-row-${app.id}`;
+  const text = `NEW APPLICATION — ${refNum}\nAssociation: ${app.association}\nType: ${app.app_type}\nPaid: $${((session.amount_total || 0) / 100).toFixed(2)}\n\n${list}\n\nOpen application: ${appLink}\n\nSupabase ID: ${app.id}`;
   try {
     const { messageId } = await sendEmail({ to: "support@topfloridaproperties.com", subject, text });
     void logEmail({ toEmail: "support@topfloridaproperties.com", subject, fullBody: text, persona: 'buyer', resendMessageId: messageId });
