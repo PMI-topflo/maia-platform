@@ -25,6 +25,7 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { findOrCreateCheck, isSatisfied, hasOpenApplication } from '@/lib/lease-renewal-check'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -97,8 +98,8 @@ export async function GET(req: Request) {
 
     const rows: Row[] = []
     for (const l of leases) {
-      const { data: o } = await supabaseAdmin.from('owners').select('first_name, last_name, entity_name, unit_number, emails').eq('association_code', assoc).eq('account_number', l.unit_ref).or('status.neq.previous,status.is.null').maybeSingle()
-      const unitLabel = (o?.unit_number as string | null) || l.unit_ref
+      const o = await findMergedOwner(assoc, l.unit_ref)
+      const unitLabel = o?.unitNumber || l.unit_ref
       // A unit already being actively worked (any non-terminal application)
       // doesn't need the nag — staff already has it.
       if (await hasOpenApplication(assoc, unitLabel)) continue
@@ -106,9 +107,9 @@ export async function GET(req: Request) {
       rows.push({
         unit: unitLabel,
         tenant: (l.tenant_name as string | null) || '—',
-        owner: (o?.entity_name as string | null) || [o?.first_name, o?.last_name].filter(Boolean).join(' ').trim() || '—',
+        owner: o?.name || '—',
         end: l.lease_end, daysAgo,
-        ownerEmail: firstEmail((o?.emails as string | null) ?? null),
+        ownerEmail: o?.firstEmail ?? null,
         tenantEmail: firstEmail((l.tenant_email as string | null) ?? null),
         tenantName: (l.tenant_name as string | null) ?? null,
       })

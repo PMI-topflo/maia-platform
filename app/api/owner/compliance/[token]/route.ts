@@ -14,6 +14,7 @@ import { getUnitComplianceState, setUnitOccupancy, setCommercialUseType, OCCUPAN
 import { propertyAppraiser } from '@/lib/property-appraiser'
 import { signEsignToken } from '@/lib/esign-token'
 import { sendEmergencyContactForm } from '@/lib/emergency-contact-campaign'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,19 +23,15 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 async function ownerContext(token: string) {
   const t = await verifyOwnerComplianceToken(token)
   if (!t) return null
-  const { data: o } = await supabaseAdmin.from('owners')
-    .select('first_name, last_name, entity_name, unit_number, association_name, emails, phone, phone_2')
-    .eq('association_code', t.assoc).eq('account_number', t.account).maybeSingle()
+  const o = await findMergedOwner(t.assoc, t.account)
   const { data: assocRow } = await supabaseAdmin.from('associations')
     .select('city').eq('association_code', t.assoc).maybeSingle()
-  const ownerName = (o?.entity_name as string) || [o?.first_name, o?.last_name].filter(Boolean).join(' ').trim() || null
-  const emails = String(o?.emails ?? '').split(/[,;]/).map(s => s.trim()).filter(Boolean)
-  const phones = [o?.phone, o?.phone_2].filter(Boolean).map(String)
+  const phones = [o?.phone, o?.phone2].filter((p): p is string => !!p)
   return {
-    assoc: t.assoc, account: t.account, ownerName,
-    unit: (o?.unit_number as string | null) ?? null,
-    associationName: (o?.association_name as string | null) ?? t.assoc,
-    emails, phones,
+    assoc: t.assoc, account: t.account, ownerName: o?.name ?? null,
+    unit: o?.unitNumber ?? null,
+    associationName: o?.associationName ?? t.assoc,
+    emails: o?.allEmails ?? [], phones,
     appraiser: propertyAppraiser(assocRow?.city as string | null),
   }
 }

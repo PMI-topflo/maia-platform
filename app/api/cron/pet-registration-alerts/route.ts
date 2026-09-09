@@ -16,6 +16,7 @@ import { sendEmail } from '@/lib/gmail'
 import { petRegistrationExpiry } from '@/lib/esign-forms'
 import type { PetPayload } from '@/lib/esign-forms'
 import type { EsignSigner } from '@/lib/esign'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -88,17 +89,17 @@ export async function GET(req: Request) {
 
     const assoc = String(d.association_code); const account = String(d.unit_ref)
     const petsLabel = (payload.pets ?? []).map(p => p.name || p.type).filter(Boolean).join(', ') || 'pet(s)'
-    const [{ data: owner }, { data: assocRow }, { data: mgrs }, { data: board }, { data: tenant }] = await Promise.all([
-      supabaseAdmin.from('owners').select('first_name, last_name, entity_name, emails, unit_number').eq('association_code', assoc).eq('account_number', account).or('status.neq.previous,status.is.null').maybeSingle(),
+    const [owner, { data: assocRow }, { data: mgrs }, { data: board }, { data: tenant }] = await Promise.all([
+      findMergedOwner(assoc, account),
       supabaseAdmin.from('associations').select('association_name').eq('association_code', assoc).maybeSingle(),
       supabaseAdmin.from('building_managers').select('email').eq('association_code', assoc).eq('active', true),
       supabaseAdmin.from('association_board_members').select('email').eq('association_code', assoc).eq('active', true),
       supabaseAdmin.from('unit_tenant_contacts').select('tenant_name, tenant_email').eq('association_code', assoc).eq('unit_ref', account).maybeSingle(),
     ])
     const assocName = (assocRow?.association_name as string | null) ?? assoc
-    const unit = (owner?.unit_number as string | null) || account
-    const ownerName = (owner?.entity_name as string | null) || [owner?.first_name, owner?.last_name].filter(Boolean).join(' ').trim() || '—'
-    const ownerEmail = firstEmail((owner?.emails as string | null) ?? null)
+    const unit = owner?.unitNumber || account
+    const ownerName = owner?.name || '—'
+    const ownerEmail = owner?.firstEmail ?? null
     const tenantEmail = firstEmail((tenant?.tenant_email as string | null) ?? null)
     const tenantName = (tenant?.tenant_name as string | null) ?? 'Resident'
 

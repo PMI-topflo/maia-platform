@@ -257,13 +257,16 @@ async function saveLeaseToDrive(
   let accountNumber: string | null = null
 
   if (unitNumber && matched) {
-    const { data: hw } = await supabaseAdmin
+    // Not maybeSingle() -- a co-owned unit has one owners row PER OWNER
+    // (account_number/address are the same across all of them for one
+    // unit), so take the first row rather than erroring/returning null on
+    // more than one.
+    const { data: hwRows } = await supabaseAdmin
       .from('owners')
       .select('account_number, street_number, address')
       .eq('association_code', matched.association_code)
       .eq('unit_number', unitNumber)
-      .limit(1)
-      .maybeSingle()
+    const hw = hwRows?.[0]
     if (hw?.account_number) {
       const acct: string = hw.account_number
       accountNumber = acct

@@ -16,6 +16,7 @@ import { getPortalDocuments } from '@/lib/portal-documents'
 import { PUBLIC_RESTRICTED_CATEGORIES } from '@/lib/portal-documents'
 import { signApplicationToken } from '@/lib/application-token'
 import { normalizePhone } from '@/lib/cinc-sync'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 const BASE          = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const STAFF_LEASING = process.env.MAIA_LEASING_ALERT_TO ?? 'service@topfloridaproperties.com'  // Paola
@@ -144,19 +145,15 @@ export async function lookupUnitOccupancy(assocCode: string, unitLabel: string |
 /** Notify the owner their unit was listed + ask them to validate occupancy.
  *  Resolves the owner email from the owners table when not supplied. */
 export async function notifyOwnerOfListing(listing: UnitListing, ownerStakeholder: Stakeholder): Promise<void> {
-  let email = ownerStakeholder.email
-  if (!email) {
-    const { data } = await supabaseAdmin.from('owners')
-      .select('emails, association_name')
-      .eq('association_code', listing.association_code)
-      .eq('account_number', listing.account_number ?? '').limit(1).maybeSingle()
-    const emails = Array.isArray(data?.emails) ? (data!.emails as string[]) : String(data?.emails ?? '').split(/[;,]/).map(s => s.trim()).filter(Boolean)
-    email = emails[0] ?? null
+  let emails: string[] = ownerStakeholder.email ? [ownerStakeholder.email] : []
+  if (!emails.length && listing.account_number) {
+    const owner = await findMergedOwner(listing.association_code, listing.account_number)
+    emails = owner?.allEmails ?? []
   }
   const link  = await stakeholderLink(ownerStakeholder, '/apply/owner-validate')
   const what  = listing.listing_type === 'sale' ? 'for SALE' : listing.listing_type === 'rent' ? 'for RENT' : 'on the market'
   const unit  = listing.unit_label ?? listing.account_number ?? 'your unit'
-  const to    = [STAFF_LEASING, ...(email ? [email] : [])]
+  const to    = [STAFF_LEASING, ...emails]
   await sendEmail({
     to,
     subject: `Your unit ${unit} was listed ${what} — please confirm`,

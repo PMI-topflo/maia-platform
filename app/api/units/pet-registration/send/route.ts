@@ -10,6 +10,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { signEsignToken } from '@/lib/esign-token'
 import { PET_ACK } from '@/lib/esign-forms'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,23 +30,21 @@ export async function POST(req: Request) {
   if (!account) return NextResponse.json({ error: 'account required' }, { status: 400 })
   if (auth.managedUnits && !auth.managedUnits.includes(account)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
-  const [{ data: owner }, { data: tenant }, { data: assoc }] = await Promise.all([
-    supabaseAdmin.from('owners').select('first_name, last_name, entity_name, emails, phone, unit_number')
-      .eq('association_code', auth.assoc).eq('account_number', account).or('status.neq.previous,status.is.null').maybeSingle(),
+  const [owner, { data: tenant }, { data: assoc }] = await Promise.all([
+    findMergedOwner(auth.assoc, account),
     supabaseAdmin.from('unit_tenant_contacts').select('tenant_name, tenant_email, tenant_phone')
       .eq('association_code', auth.assoc).eq('unit_ref', account).maybeSingle(),
     supabaseAdmin.from('associations').select('legal_name, association_name, pet_limit').eq('association_code', auth.assoc).maybeSingle(),
   ])
 
   // The applicant is the tenant when leased, else the owner.
-  const applicantName = (tenant?.tenant_name as string | null)
-    || (owner?.entity_name as string | null) || [owner?.first_name, owner?.last_name].filter(Boolean).join(' ').trim() || null
-  const applicantEmail = firstEmail((tenant?.tenant_email as string | null) ?? null) || firstEmail((owner?.emails as string | null) ?? null)
-  const applicantPhone = (tenant?.tenant_phone as string | null) || (owner?.phone as string | null) || null
+  const applicantName = (tenant?.tenant_name as string | null) || owner?.name || null
+  const applicantEmail = firstEmail((tenant?.tenant_email as string | null) ?? null) || owner?.firstEmail || null
+  const applicantPhone = (tenant?.tenant_phone as string | null) || owner?.phone || null
   if (!applicantEmail) return NextResponse.json({ error: 'No email on file for the tenant or owner — add one first.' }, { status: 400 })
 
   const legal = (assoc?.legal_name as string | null) || (assoc?.association_name as string | null) || auth.assoc
-  const unitLabel = (owner?.unit_number as string | null) || account
+  const unitLabel = owner?.unitNumber || account
 
   const { data: created, error } = await supabaseAdmin.from('esign_documents').insert({
     kind: 'pet_registration', association_code: auth.assoc, unit_ref: account,

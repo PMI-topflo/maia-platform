@@ -95,11 +95,9 @@ export async function resolveUnitRef(associationCode: string, unitLabel: string 
 /** The unit's street address from CINC, used to name its folder. Same source
  *  that drove the Venetian I folder renames correctly. */
 export async function unitAddress(associationCode: string, unitRef: string): Promise<string | null> {
-  const { supabaseAdmin } = await import('@/lib/supabase-admin')
-  const { data } = await supabaseAdmin.from('owners')
-    .select('address').eq('association_code', associationCode.toUpperCase())
-    .eq('account_number', unitRef).limit(1).maybeSingle()
-  return (data?.address as string | null) ?? null
+  const { findMergedOwner } = await import('@/lib/owner-lookup')
+  const owner = await findMergedOwner(associationCode.toUpperCase(), unitRef)
+  return owner?.address ?? null
 }
 
 /** Find (or create, when create=true) the folder for a unit directly under

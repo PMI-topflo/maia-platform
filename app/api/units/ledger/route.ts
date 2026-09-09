@@ -6,10 +6,10 @@
 // to the caller's association (unit_manager narrowed to managed units).
 
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getHomeownerLedger } from '@/lib/integrations/cinc'
 import { ledgerDateRange, normalizeLedger, renderLedgerPdf } from '@/lib/owner-ledger'
 import { resolveUnitsAuth } from '@/lib/units-portal-auth'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,22 +22,17 @@ export async function GET(req: Request) {
   if (!account) return new NextResponse('account required', { status: 400 })
   if (auth.managedUnits && !auth.managedUnits.includes(account)) return new NextResponse('Forbidden', { status: 403 })
 
-  const { data: o } = await supabaseAdmin.from('owners')
-    .select('first_name, last_name, entity_name, unit_number, address, association_name')
-    .eq('association_code', auth.assoc).eq('account_number', account).limit(1).maybeSingle()
+  const o = await findMergedOwner(auth.assoc, account)
 
   const range = ledgerDateRange()
   const rows  = await getHomeownerLedger({ assocCode: auth.assoc, hoId: account, fromDate: range.fromDate, toDate: range.toDate })
   const lines = normalizeLedger(rows, range.fromDate, range.toDate)
 
-  const ownerName = (o?.entity_name as string) ||
-    `${(o?.first_name as string) ?? ''} ${(o?.last_name as string) ?? ''}`.trim() || 'Owner'
-
   const pdf = await renderLedgerPdf({
-    ownerName,
-    unit:        (o?.unit_number as string) ?? null,
-    address:     (o?.address as string) ?? null,
-    association: (o?.association_name as string) || auth.assoc,
+    ownerName: o?.name || 'Owner',
+    unit:        o?.unitNumber ?? null,
+    address:     o?.address ?? null,
+    association: o?.associationName || auth.assoc,
     periodLabel: range.label,
     generatedOn: range.toDate,
   }, lines)

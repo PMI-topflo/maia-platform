@@ -18,6 +18,7 @@ import { requireStaffSession } from '@/lib/staff-auth'
 import { getDrive } from '@/lib/drive-invoice-mirror'
 import { downloadDriveFile } from '@/lib/drive-import'
 import { extractLeaseDetails } from '@/lib/lease-extract'
+import { findOwnerRows } from '@/lib/owner-lookup'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { DRIVE_FOLDERS, resolveUnitFolder, resolveDatedSubfolder, approvalCategoryFolder, stripNoFilesTag } from '@/lib/drive-organize-folders'
 
@@ -68,13 +69,18 @@ export async function POST(req: Request) {
       const buf = await downloadDriveFile(row.fileId)
       const details = await extractLeaseDetails(buf, 'application/pdf')
 
-      // Owner on file (for the swap-guard) — never write the owner's name as the tenant.
-      const { data: owner } = await supabaseAdmin.from('owners')
-        .select('first_name, last_name, entity_name').eq('association_code', 'MANXI').eq('account_number', unit)
-        .or('status.neq.previous,status.is.null').maybeSingle()
-      const ownerName = ((owner?.entity_name as string | null) || [owner?.first_name, owner?.last_name].filter(Boolean).join(' ')).trim()
-      const tenants = (details.tenantNames || []).filter(t => !(ownerName && norm(t) === norm(ownerName)))
-      const swapFlag = ownerName && (details.tenantNames || []).some(t => norm(t) === norm(ownerName))
+      // Owner(s) on file (for the swap-guard) — never write an owner's name as
+      // the tenant. Checked per co-owner (not maybeSingle()/joined-with-"&"):
+      // a co-owned unit has one owners row PER OWNER, and a joined "A & B"
+      // string would never match either individual name in `details.tenantNames`.
+      const ownerRows = await findOwnerRows('MANXI', unit)
+      const ownerNames = ownerRows
+        .map(o => (o.entityName || [o.firstName, o.lastName].filter(Boolean).join(' ')).trim())
+        .filter(Boolean)
+      const isOwnerName = (t: string) => ownerNames.some(n => norm(t) === norm(n))
+      const tenants = (details.tenantNames || []).filter(t => !isOwnerName(t))
+      const swapFlag = (details.tenantNames || []).some(t => isOwnerName(t))
+      const ownerName = ownerNames.join(' & ')
       const tenantName = tenants.join(', ') || null
       const leaseEnd = details.leaseEnd || (kind === 'purchase' ? null : row.expiry || plusOneYear(row.approvalDate))
       const leaseStart = details.leaseStart || null

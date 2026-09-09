@@ -10,6 +10,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { signOwnerComplianceToken } from '@/lib/owner-portal-token'
 import { getUnitComplianceState } from '@/lib/unit-required-docs'
 import { sendEmail } from '@/lib/gmail'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const REMINDER_DAYS = 14
@@ -97,11 +98,8 @@ export async function runEmergencyContactRenewal(opts: { assoc?: string | null; 
 
   for (const r of rows ?? []) {
     const assoc = String(r.association_code); const account = String(r.unit_ref)
-    const { data: o } = await supabaseAdmin.from('owners')
-      .select('emails, first_name, last_name, association_name')
-      .eq('association_code', assoc).eq('account_number', account).maybeSingle()
-    const email = firstEmail((o?.emails as string | null) ?? null)
-    if (!o || !email) continue
+    const o = await findMergedOwner(assoc, account)
+    if (!o || !o.allEmails.length) continue
 
     // Pace: skip if this unit was emailed within the cooldown window.
     const { data: req } = await supabaseAdmin.from('owner_compliance_requests')
@@ -110,17 +108,16 @@ export async function runEmergencyContactRenewal(opts: { assoc?: string | null; 
 
     res.eligible++
     const expired = String(r.expiry_date) < todayISO
-    if (opts.dryRun) { if (res.samples.length < 25) res.samples.push({ account, email, expired }); res.sent++; continue }
+    if (opts.dryRun) { if (res.samples.length < 25) res.samples.push({ account, email: o.firstEmail, expired }); res.sent++; continue }
 
-    const name = [o.first_name, o.last_name].filter(Boolean).join(' ').trim()
     const link = `${APP}/owner/compliance/${await signOwnerComplianceToken(assoc, account)}`
-    const { subject, html } = emergencyRenewalHtml({ name, associationName: (o.association_name as string | null) ?? assoc, link, expired })
-    try { await sendEmail({ to: email, subject, html }) } catch { continue }
+    const { subject, html } = emergencyRenewalHtml({ name: o.name ?? '', associationName: o.associationName ?? assoc, link, expired })
+    try { await sendEmail({ to: o.allEmails, subject, html }) } catch { continue }
     await supabaseAdmin.from('owner_compliance_requests').upsert(
       { association_code: assoc, unit_ref: account, last_sent_at: new Date().toISOString(), send_count: (req?.send_count ?? 0) + 1 },
       { onConflict: 'association_code,unit_ref' },
     ).then(() => null, () => null)
-    if (res.samples.length < 25) res.samples.push({ account, email, expired })
+    if (res.samples.length < 25) res.samples.push({ account, email: o.firstEmail, expired })
     res.sent++
   }
   return res
@@ -132,19 +129,16 @@ export async function runEmergencyContactRenewal(opts: { assoc?: string | null; 
  *  to go out now regardless of the 14-day cooldown. Still records the send
  *  so the automated audit's own pacing stays accurate afterward. */
 export async function sendOwnerComplianceLinkNow(assoc: string, account: string): Promise<{ ok: true; sentTo: string } | { ok: false; error: string }> {
-  const { data: o } = await supabaseAdmin.from('owners')
-    .select('emails, first_name, last_name, association_name').eq('association_code', assoc).eq('account_number', account).maybeSingle()
+  const o = await findMergedOwner(assoc, account)
   if (!o) return { ok: false, error: 'owner not found' }
-  const email = firstEmail(o.emails as string | null)
-  if (!email) return { ok: false, error: 'owner has no email on file' }
+  if (!o.allEmails.length) return { ok: false, error: 'owner has no email on file' }
 
   const { missing } = await getUnitComplianceState(assoc, account)
-  const name = [o.first_name, o.last_name].filter(Boolean).join(' ').trim()
   const link = `${APP}/owner/compliance/${await signOwnerComplianceToken(assoc, account)}`
-  const { subject, html } = complianceEmailHtml({ name, associationName: (o.association_name as string | null) ?? assoc, missing, link })
+  const { subject, html } = complianceEmailHtml({ name: o.name ?? '', associationName: o.associationName ?? assoc, missing, link })
 
   try {
-    await sendEmail({ to: email, subject, html })
+    await sendEmail({ to: o.allEmails, subject, html })
   } catch (e) {
     return { ok: false, error: `send failed: ${e instanceof Error ? e.message : String(e)}` }
   }
@@ -156,7 +150,7 @@ export async function sendOwnerComplianceLinkNow(assoc: string, account: string)
     { onConflict: 'association_code,unit_ref' },
   ).then(() => null, () => null)
 
-  return { ok: true, sentTo: email }
+  return { ok: true, sentTo: o.allEmails.join(', ') }
 }
 
 /** opts.surveyMode: sends to EVERY active owner regardless of whether their

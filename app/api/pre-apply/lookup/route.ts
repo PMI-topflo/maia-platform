@@ -13,6 +13,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { findOwnerRows } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -34,9 +35,7 @@ export async function GET(req: Request) {
   // applicant to double-check the number, it doesn't stop them.
   let unitFound: boolean | null = null
   if (unit) {
-    const { data: owner } = await supabaseAdmin.from('owners')
-      .select('id').eq('association_code', code).eq('unit_number', unit).maybeSingle()
-    unitFound = !!owner
+    unitFound = (await findOwnerRows(code, unit)).length > 0
   }
 
   return NextResponse.json({

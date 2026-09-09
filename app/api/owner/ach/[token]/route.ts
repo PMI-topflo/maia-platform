@@ -15,6 +15,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { listAssociationProperties } from '@/lib/integrations/cinc'
 import { sendEmail } from '@/lib/gmail'
 import { renderAchAuthorizationPdf } from '@/lib/ach-form'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -25,11 +26,8 @@ const BASE     = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const last4 = (s: string) => s.replace(/\D/g, '').slice(-4)
 
 async function ownerInfo(assoc: string, account: string) {
-  const { data } = await supabaseAdmin.from('owners')
-    .select('first_name, last_name, entity_name, unit_number, address, association_name')
-    .eq('association_code', assoc).eq('account_number', account).limit(1).maybeSingle()
-  const name = (data?.entity_name as string) || [data?.first_name, data?.last_name].filter(Boolean).join(' ').trim() || 'Owner'
-  return { name, unit: (data?.unit_number as string) ?? null, address: (data?.address as string) ?? null, association: (data?.association_name as string) ?? assoc }
+  const o = await findMergedOwner(assoc, account)
+  return { name: o?.name ?? 'Owner', unit: o?.unitNumber ?? null, address: o?.address ?? null, association: o?.associationName ?? assoc }
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {
