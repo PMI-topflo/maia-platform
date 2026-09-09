@@ -11,6 +11,7 @@ import { verifyOwnerComplianceToken } from '@/lib/owner-portal-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { ingestStagedDocument } from '@/lib/document-intake-ingest'
 import { sendEmail } from '@/lib/gmail'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -28,9 +29,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const t = await verifyOwnerComplianceToken(token)
   if (!t) return NextResponse.json({ error: 'invalid or expired link' }, { status: 401 })
 
-  const { data: o } = await supabaseAdmin.from('owners')
-    .select('first_name, last_name, unit_number').eq('association_code', t.assoc).eq('account_number', t.account).maybeSingle()
-  const ownerName = [o?.first_name, o?.last_name].filter(Boolean).join(' ').trim() || 'Owner'
+  const o = await findMergedOwner(t.assoc, t.account)
+  const ownerName = o?.name || 'Owner'
+  const ownerUnit = o?.unitNumber ?? t.account
 
   let form: FormData
   try { form = await req.formData() } catch { return NextResponse.json({ error: 'invalid form' }, { status: 400 }) }
@@ -46,7 +47,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const itemHint = declaredItem
     ? `. The owner is submitting this specifically as their "${declaredType || declaredItem}" document (compliance item ${declaredItem}).`
     : ''
-  const hint = `Owner ${ownerName}, unit ${o?.unit_number ?? t.account}, account ${t.account}, association ${t.assoc} — owner-uploaded unit document${itemHint}`
+  const hint = `Owner ${ownerName}, unit ${ownerUnit}, account ${t.account}, association ${t.assoc} — owner-uploaded unit document${itemHint}`
   let saved = 0
   const failed: string[] = []
   for (const f of files) {
@@ -66,8 +67,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   // Tell staff to review (it's sitting in the Compliance Hub "Needs review" queue).
   await sendEmail({
     to: COMPLIANCE_NOTIFY,
-    subject: `Owner uploaded documents — ${ownerName} (${t.assoc} unit ${o?.unit_number ?? t.account})`,
-    html: `<p><strong>${ownerName}</strong> uploaded <strong>${saved}</strong> document(s) for ${t.assoc} unit ${o?.unit_number ?? t.account} via the owner portal.</p>
+    subject: `Owner uploaded documents — ${ownerName} (${t.assoc} unit ${ownerUnit})`,
+    html: `<p><strong>${ownerName}</strong> uploaded <strong>${saved}</strong> document(s) for ${t.assoc} unit ${ownerUnit} via the owner portal.</p>
            <p>Review and file them in the Compliance Hub:</p>
            <p><a href="${APP}/admin/audit">Open the Compliance Hub →</a></p>`,
   }).catch(() => null)

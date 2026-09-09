@@ -7,16 +7,11 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
-import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getUnitComplianceState, OCCUPANCY_LABEL } from '@/lib/unit-required-docs'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-function firstEmail(emails: string | null): string | null {
-  if (!emails) return null
-  return emails.split(/[,;\s]+/).map(s => s.trim()).find(e => e.includes('@')) ?? null
-}
 
 export async function GET(req: Request) {
   const token = (await cookies()).get(SESSION_COOKIE)?.value
@@ -28,16 +23,12 @@ export async function GET(req: Request) {
   const account = searchParams.get('account')
   if (!assoc || !account) return NextResponse.json({ error: 'assoc and account are required' }, { status: 400 })
 
-  const { data: o } = await supabaseAdmin.from('owners')
-    .select('unit_number, association_name, first_name, last_name, entity_name, emails')
-    .eq('association_code', assoc).eq('account_number', account).limit(1).maybeSingle()
+  const o = await findMergedOwner(assoc, account)
 
   const { occupancy, missing } = await getUnitComplianceState(assoc, account)
-  const ownerName = o?.entity_name || [o?.first_name, o?.last_name].filter(Boolean).join(' ')
-  const email = firstEmail((o?.emails as string | null) ?? null)
 
   return NextResponse.json({
-    associationName: o?.association_name ?? assoc, unit: o?.unit_number ?? null, ownerName, ownerEmail: email,
+    associationName: o?.associationName ?? assoc, unit: o?.unitNumber ?? null, ownerName: o?.name, ownerEmail: o?.firstEmail ?? null,
     occupancy, occupancyLabel: occupancy ? OCCUPANCY_LABEL[occupancy] : null, missing,
   })
 }

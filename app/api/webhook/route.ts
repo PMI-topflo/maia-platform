@@ -24,6 +24,7 @@ import {
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildOfficeHoursBlock } from '@/lib/office-hours'
 import { signAchToken } from '@/lib/owner-portal-token'
+import { findMergedOwner } from '@/lib/owner-lookup'
 import { sendEmail } from '@/lib/gmail'
 import { signVendorUploadToken } from '@/lib/vendor-upload-token'
 import { classifyMessageIntent, VALID_INTENTS, type MaiaIntent } from '@/lib/intent-classifier'
@@ -2837,10 +2838,8 @@ async function handlePaymentInquiry(ctx: CallerContext): Promise<string> {
 const maskEmail = (e: string) => e.replace(/^(.{1,2})[^@]*(@.*)$/, '$1***$2')
 
 async function ownerEmailsFor(assoc: string, account: string): Promise<string[]> {
-  const { data } = await getSupabase().from('owners').select('emails')
-    .eq('association_code', assoc).eq('account_number', account).limit(1).maybeSingle()
-  const list = String(data?.emails ?? '').split(/[,;\s]+/).map(s => s.trim().toLowerCase()).filter(s => s.includes('@'))
-  return [...new Set(list)]
+  const owner = await findMergedOwner(assoc, account)
+  return owner?.allEmails ?? []
 }
 
 async function sendAchToEmail(assoc: string, account: string, email: string): Promise<void> {

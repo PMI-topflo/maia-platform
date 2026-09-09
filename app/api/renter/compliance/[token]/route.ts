@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server'
 import { verifyTenantComplianceToken } from '@/lib/owner-portal-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getTenantComplianceState } from '@/lib/unit-required-docs'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -16,9 +17,8 @@ export const dynamic = 'force-dynamic'
 async function ctxOf(token: string) {
   const t = await verifyTenantComplianceToken(token)
   if (!t) return null
-  const { data: o } = await supabaseAdmin.from('owners')
-    .select('unit_number, association_name').eq('association_code', t.assoc).eq('account_number', t.account).maybeSingle()
-  return { assoc: t.assoc, account: t.account, unit: (o?.unit_number as string | null) ?? null, associationName: (o?.association_name as string | null) ?? t.assoc }
+  const o = await findMergedOwner(t.assoc, t.account)
+  return { assoc: t.assoc, account: t.account, unit: o?.unitNumber ?? null, associationName: o?.associationName ?? t.assoc }
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {

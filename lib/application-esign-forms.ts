@@ -25,6 +25,7 @@ import { rulesAckContentFor } from '@/lib/rules-ack-content'
 import { hasRulesPdf } from '@/lib/rules-ack-pdf'
 import { PET_ACK, EMERGENCY_CERTIFICATION } from '@/lib/esign-forms'
 import { getHomeownerLedger } from '@/lib/integrations/cinc'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const esc = (s: string) => String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
@@ -132,11 +133,8 @@ export async function esignItemBlocker(docKey: string, c: AppCtx): Promise<strin
 async function currentQuarterlyAssessment(code: string, unit: string | null): Promise<{ amount: number; asOf: string } | null> {
   if (!unit) return null
   try {
-    const { data: owner } = await supabaseAdmin.from('owners')
-      .select('account_number').eq('association_code', code)
-      .or(`unit_number.eq.${unit},account_number.eq.${code}${unit}`)
-      .or('status.neq.previous,status.is.null').limit(1).maybeSingle()
-    const hoId = owner?.account_number as string | null
+    const owner = await findMergedOwner(code, unit)
+    const hoId = owner?.accountNumber ?? null
     if (!hoId) return null
     const today = new Date()
     const from = new Date(today); from.setDate(from.getDate() - 120)

@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server'
 import { verifyAchConfirmToken } from '@/lib/owner-portal-token'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -30,15 +31,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   if (!data) return page('⚠ Link expired', '<p>This confirmation link has expired or is invalid.</p>')
 
   // Owner info + email on file.
-  const { data: o } = await supabaseAdmin.from('owners')
-    .select('first_name, last_name, entity_name, unit_number, association_name, emails')
-    .eq('association_code', data.assoc).eq('account_number', data.account).limit(1).maybeSingle()
+  const o = await findMergedOwner(data.assoc, data.account)
 
-  const ownerName = (o?.entity_name as string) || [o?.first_name, o?.last_name].filter(Boolean).join(' ').trim() || 'Owner'
-  const assoc     = (o?.association_name as string) || data.assoc
-  const unit      = (o?.unit_number as string) || data.account
-  const emails    = Array.isArray(o?.emails) ? (o!.emails as string[]) : String(o?.emails ?? '').split(/[;,]/).map(s => s.trim()).filter(Boolean)
-  const ownerEmail = emails[0] || null
+  const ownerName = o?.name || 'Owner'
+  const assoc     = o?.associationName || data.assoc
+  const unit      = o?.unitNumber || data.account
+  const ownerEmails = o?.allEmails ?? []
 
   // Mark confirmed (best-effort).
   try {
@@ -47,12 +45,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
       .eq('association_code', data.assoc).eq('account_number', data.account)
   } catch { /* best-effort */ }
 
-  if (!ownerEmail) {
+  if (!ownerEmails.length) {
     return page('✅ Marked confirmed', `<p>Autopay for <strong>Unit ${unit}</strong> at ${assoc} is marked set up, but we have <strong>no email on file</strong> for the owner — please reach out to them directly.</p>`)
   }
 
   await sendEmail({
-    to: [ownerEmail],
+    to: ownerEmails,
     subject: `Your automatic payments are set up — Unit ${unit}, ${assoc}`,
     html: `<div style="font-family:system-ui,sans-serif;color:#1a1a1a;max-width:560px">
       <p>Hi ${ownerName.split(' ')[0]},</p>
@@ -66,5 +64,5 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     </div>`,
   }).catch(() => null)
 
-  return page('✅ Owner notified', `<p>We emailed <strong>${ownerEmail}</strong> to confirm autopay is set up for <strong>Unit ${unit}</strong> at ${assoc}, including the reminder to check that next month's payment was withdrawn.</p><p style="color:#6b7280;font-size:13px">You can close this tab.</p>`)
+  return page('✅ Owner notified', `<p>We emailed <strong>${ownerEmails.join(', ')}</strong> to confirm autopay is set up for <strong>Unit ${unit}</strong> at ${assoc}, including the reminder to check that next month's payment was withdrawn.</p><p style="color:#6b7280;font-size:13px">You can close this tab.</p>`)
 }

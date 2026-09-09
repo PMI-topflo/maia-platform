@@ -10,9 +10,9 @@
 
 import { NextResponse } from 'next/server'
 import { verifyLedgerToken } from '@/lib/owner-portal-token'
-import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getHomeownerLedger } from '@/lib/integrations/cinc'
 import { ledgerDateRange, normalizeLedger, renderLedgerPdf } from '@/lib/owner-ledger'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -25,22 +25,17 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   }
 
   // Owner display details (best-effort; the token already authorizes access).
-  const { data: o } = await supabaseAdmin.from('owners')
-    .select('first_name, last_name, entity_name, unit_number, address, association_name')
-    .eq('association_code', data.assoc).eq('account_number', data.account).limit(1).maybeSingle()
+  const o = await findMergedOwner(data.assoc, data.account)
 
   const range = ledgerDateRange()
   const rows  = await getHomeownerLedger({ assocCode: data.assoc, hoId: data.account, fromDate: range.fromDate, toDate: range.toDate })
   const lines = normalizeLedger(rows, range.fromDate, range.toDate)
 
-  const ownerName = (o?.entity_name as string) ||
-    `${(o?.first_name as string) ?? ''} ${(o?.last_name as string) ?? ''}`.trim() || 'Owner'
-
   const pdf = await renderLedgerPdf({
-    ownerName,
-    unit:        (o?.unit_number as string) ?? null,
-    address:     (o?.address as string) ?? null,
-    association: (o?.association_name as string) || data.assoc,
+    ownerName: o?.name || 'Owner',
+    unit:        o?.unitNumber ?? null,
+    address:     o?.address ?? null,
+    association: o?.associationName || data.assoc,
     periodLabel: range.label,
     generatedOn: range.toDate,
   }, lines)

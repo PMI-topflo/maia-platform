@@ -9,9 +9,9 @@
 
 import { NextResponse } from 'next/server'
 import { verifyAchToken } from '@/lib/owner-portal-token'
-import { supabaseAdmin } from '@/lib/supabase-admin'
 import { renderAchAuthorizationPdf } from '@/lib/ach-form'
 import { listAssociationProperties } from '@/lib/integrations/cinc'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -23,13 +23,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     return new NextResponse('This ACH form link has expired or is invalid. Please request a new one.', { status: 401 })
   }
 
-  const { data: o } = await supabaseAdmin.from('owners')
-    .select('first_name, last_name, entity_name, unit_number, address, association_name')
-    .eq('association_code', data.assoc).eq('account_number', data.account).limit(1).maybeSingle()
-
-  const ownerName = (o?.entity_name as string)
-    || [o?.first_name, o?.last_name].filter(Boolean).join(' ').trim()
-    || 'Owner'
+  const o = await findMergedOwner(data.assoc, data.account)
 
   // Contact info on file (email / phone / mailing) from CINC, for pre-fill.
   const props = await listAssociationProperties(data.assoc).catch(() => [])
@@ -38,10 +32,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   const mailing = addr ? [addr.StreetNumber, addr.Address].filter(Boolean).join(' ').trim() || null : null
 
   const pdf = await renderAchAuthorizationPdf({
-    ownerName,
-    unit:        (o?.unit_number as string) ?? null,
-    address:     (o?.address as string) ?? null,
-    association: (o?.association_name as string) ?? data.assoc,
+    ownerName: o?.name || 'Owner',
+    unit:        o?.unitNumber ?? null,
+    address:     o?.address ?? null,
+    association: o?.associationName ?? data.assoc,
     account:     data.account,
     generatedOn: new Date().toISOString().slice(0, 10),
     email:          addr?.Email ?? null,

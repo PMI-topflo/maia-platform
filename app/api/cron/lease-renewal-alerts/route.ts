@@ -24,6 +24,7 @@ import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { findOrCreateCheck, isSatisfied, hasOpenApplication } from '@/lib/lease-renewal-check'
+import { findMergedOwner } from '@/lib/owner-lookup'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -86,16 +87,16 @@ export async function GET(req: Request) {
       .eq('lease_end', w.date)
     for (const l of leases ?? []) {
       const assoc = String(l.association_code); const account = String(l.unit_ref)
-      const [{ data: owner }, { data: assocRow }, { data: mgrs }, { data: board }] = await Promise.all([
-        supabaseAdmin.from('owners').select('first_name, last_name, entity_name, emails, unit_number').eq('association_code', assoc).eq('account_number', account).or('status.neq.previous,status.is.null').maybeSingle(),
+      const [owner, { data: assocRow }, { data: mgrs }, { data: board }] = await Promise.all([
+        findMergedOwner(assoc, account),
         supabaseAdmin.from('associations').select('association_name').eq('association_code', assoc).maybeSingle(),
         supabaseAdmin.from('building_managers').select('email').eq('association_code', assoc).eq('active', true),
         supabaseAdmin.from('association_board_members').select('email').eq('association_code', assoc).eq('active', true),
       ])
       const assocName = (assocRow?.association_name as string | null) ?? assoc
-      const unit = (owner?.unit_number as string | null) || account
-      const ownerName = (owner?.entity_name as string | null) || [owner?.first_name, owner?.last_name].filter(Boolean).join(' ').trim() || '—'
-      const ownerEmail = firstEmail((owner?.emails as string | null) ?? null)
+      const unit = owner?.unitNumber || account
+      const ownerName = owner?.name || '—'
+      const ownerEmail = owner?.firstEmail ?? null
       const tenantEmail = firstEmail((l.tenant_email as string | null) ?? null)
       const tenantName = (l.tenant_name as string | null) ?? '—'
 
