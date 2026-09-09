@@ -1,3 +1,57 @@
+# Session handoff — 2026-09-09
+
+## CINC cross-wiring bug (unit_number → account_number), non-billable CINC filter, Checkr order/property collision, and two silent-primary-applicant bugs (PRs #830–#846)
+
+Long session, almost entirely real staff/owner reports worked one at a time. Chronological:
+
+### CINC sync (PRs #830, #831, #835–#839)
+
+- **#830, #831** — the offsite-owner-address email/phone fallback in `lib/cinc-sync.ts` had a real bug in how it chose between the mailing and offsite address blocks; fixed.
+- **#835 — the big one: MACO cross-wiring.** Hispania Entertainment LLC's CINC data was silently overwriting unrelated MACO owners (Carlos Fleites, Daniel Fernandez, Richard Garcia...) on every sync. Root cause, found only after the first diagnosis (bad/corrupted CINC data) was disproven by the user pasting CINC's own real Homeowner Listing: `owners.unit_number` is just the bare trailing digit and is **not unique across an association** — MACO's `unit_number = '1'` is shared by six unrelated accounts (MCCA1, MCCB1, MCCC1, MCCD1, MCCE1, MCCF1) across different building sections. `lib/cinc-sync.ts`'s matching helpers used to fall back to a `unit_number`-keyed match when `account_number`/`cinc_property_id` didn't resolve — removed entirely; matching is now `cinc_property_id` → `account_number` → name only. **User direction, saved to `CLAUDE.md`:** `account_number` is the only safe identity key for CINC matching; when a future request says "unit number" for matching/identifying purposes, confirm they mean `account_number` first.
+- **#836–#839 — CINC "non-billable" (Developer-owned) accounts now excluded from the sync.** User: "I wouldn't include all non billable units in Maia, are you able to trace this?" Found collaboratively with the user (they have no terminal/CINC-API access, so staff-only debug routes were built so they could hit raw CINC endpoints from the browser and paste results back): `associationWithProperty`'s `HomeownerStatus`/`BillingType` wrapper fields are always `null` at runtime; `getHomeownerDetailsForIVRPayment` has no Status field in its schema at all; **`GET /management/1/homeowners/homeownerLookup?hoId=`** is the one endpoint that actually populates `PropertyStatusDescr`/`HomeownerStatus` (e.g. `"Developer - NonBillable"`), confirmed live. New `OwnerStatus: 'non_billable'` — a non-billable CINC account gets a distinct gray badge in the sync preview and is never auto-selected/proposed as insert/update.
+- **Still open, not revisited this session:** 4 CINC sync leads flagged earlier and not yet resolved — `apueyoruiz56@gmail.com`, `victorzje@yahoo.com`, `aimtransportnj@gmail.com` (user: "we need to fix something here — ask me later," re: VPC5 1J vs VPCI 27M/VPREC #27), `mfelipe@marcellfelipe.com`.
+
+### Reminder-approval dashboard redirect + digest over-sending (PR #832)
+
+Two small, independent user reports resolved together: a missing-docs reminder approval email used to land on a standalone card instead of the admin dashboard (user picked "send me straight to the admin dashboard" via `AskUserQuestion`) — fixed. Separately, the daily digest email could show "0 waiting" in its own subject line while still carrying real content in other sections, because the subject count used `toReview.length` instead of a true actionable total — fixed by skipping the send entirely when nothing is actually actionable, not just fixing the subject wording (user's chosen option).
+
+### Upload-notification email bugs (PRs #833, #834)
+
+Two document-upload notification emails fixed: the subject line was collapsing separate uploads into one Gmail thread instead of staying distinguishable, and a notification was missing the application link entirely.
+
+### Checkr: unpaid-order safeguard + pricing correction (PR #840)
+
+User: *"the blue button should trigger the first step with payment if there is not payment shoing yet... Checkr does not have a payment system and I will be ending paying Background checks withouth collecting, also, why you say $300? it is one person applying for this particular case, so it would be $150."* Two fixes: (1) "Request background check via Checkr" on an application with no payment on file now auto-sends the same confirm-&-pay link instead of a dead-end error (new `lib/application-payment-link.ts`, shared between this and the existing standalone "send payment link" button) — real gap found via MANXI 912 (Querline Pinckney), whose application predated the payment gate entirely; (2) corrected my own earlier wrong "$300" statement — pricing is genuinely **$150 per person**, confirmed by reading `ApplicationForm.tsx`'s `calcBaseTotal()` and the server-side Stripe line-item logic directly, not assumed.
+
+### Checkr `/orders` 422 "Normalized name has already been taken" (PRs #841, #842)
+
+User reported unit 706's "Requested 0/2 orders. 2 failed," both failing with a Checkr `422` on `/property.normalized_name`. No live Checkr credentials in this session, so — same collaborative pattern as the CINC investigation — a read-only staff debug route (`/api/admin/checkr-debug`, PR #841) was built first and the user ran it live. Confirmed: `GET /properties` showed MANXI already had exactly ONE property on record — created by an *earlier, different unit's* order (912) — with `name` set to the bare association name and no per-unit distinction; unit 706's two applicants both collided against that pre-existing record, not against each other. This meant **every second-and-later Checkr order for any given association** was silently broken, not just multi-applicant units. Fixed (#842) by making every order's `property.name` unique (association + unit + applicant), since Checkr's Orders API has no confirmed property-reuse-by-id mechanism in this codebase to rely on instead.
+
+### Amount-paid badge (PR #843)
+
+Small UI gap: the "✓ Application fee paid" badge above the Checkr request button didn't show how much was paid, even though `d.payment.amountPaid` was already tracked and shown elsewhere on the same page — just never threaded into this one component.
+
+### Lease packet: resend dead-end + co-owned-unit owner email (PRs #844, #846)
+
+- **#844** — "owner said he didn't receive it" but re-requesting the Landlord–Tenant Agreement just returned "Already sent," with no way to actually resend — the only code path that ever emailed the invite was packet *creation*, deliberately blocked once a packet exists (to avoid two live signing links for one unit). New `resendLeasePacketInvite()` re-emails whichever party hasn't signed yet, against the SAME packet row. `lib/application-standard-reply.ts`'s fully-automated flow deliberately keeps its old silent-skip behavior — this only changes the staff-initiated manual button.
+- **#846 — same unit (706), new failure: "owner (no email on file)."** Root cause: `sendLeasePacket`'s owner lookup used `.maybeSingle()` against `owners` — a co-owned unit ("1125 Digital LLC & Rodrigo Campos") has one `owners` row PER OWNER, so `.maybeSingle()` throws on multiple rows and the caller silently got `null` back, forever. Same co-owner gotcha already documented in `CLAUDE.md` and already fixed once elsewhere in this codebase (`app/api/admin/pre-apply/[id]/route.ts`'s owner query) — `lease-packet.ts` just never got it. Extracted a corrected `resolveUnitOwner()` (joins every co-owner's name/email), used for all future packets; `resendLeasePacketInvite` also now re-resolves live and persists the result for an already-broken packet, so it self-heals on next resend instead of repeating the same failure.
+
+### Two "primary applicant" bugs, both real, both silent (PR #845 + this entry's own #846 above)
+
+**#845 — "Applicant: not set" despite a clearly-filled-in roster.** Ashlee Elizabeth Muthra's application (MANXI 702), started by an agent, showed no applicant name in the dashboard header. Root cause: `is_primary` on `application_stakeholders` is scoped **per role**, by design — all 14 "who is the primary applicant" reads in this codebase filter `.eq('role','applicant').eq('is_primary', true)` — but `lib/preapply.ts`'s `addStakeholders()` (used whenever someone is added to an application already in progress) unconditionally inserted every new person with `is_primary: false`. When an agent starts the intake, `is_primary=true` sits on the AGENT's own row (a different role); the real applicant added afterward never became primary. Fixed at the source (a role's first-added member becomes its own primary) + a one-time backfill migration for applications already affected. This bug was silently breaking more than the header — also `lib/application-payment-link.ts`'s `sendApplicationPaymentLink` (shipped earlier this same session, #840) and 12 other call sites.
+
+### ⏳ NEXT
+
+1. The 4 still-open CINC sync leads above — none revisited this session.
+2. `aimtransportnj@gmail.com` — user explicitly said "ask me later," never revisited.
+3. The "second applicant can't upload their own document" bug (reported in an earlier session, out of scope again this session) — still unfixed, unscoped.
+4. No live Supabase/CINC/Checkr credentials in this session at any point — every fix here was either verified by the user running staff-only debug routes and pasting results back (the CINC status field, the Checkr `/orders`/`/properties` investigation), or reasoned from code alone (the two `is_primary`/`.maybeSingle()` bugs) and confirmed working only via the user's own live testing afterward ("it worked" ×2, unit 706's Checkr orders and its lease-packet resend).
+5. Worth a wider audit, not done this session: `.maybeSingle()` against the `owners` table has now caused two separate real bugs (the admin dashboard header, previously; `lib/lease-packet.ts`, this session) — worth grepping for any other `owners` queries still using it.
+
+Memory: [[cinc_unit_number_not_unique]], [[cinc_non_billable_filter]], [[checkr_payment_safeguard]], [[checkr_property_normalized_name_collision]], [[application_stakeholders_is_primary_per_role]], [[owners_table_maybeSingle_coowner_bug]].
+
+---
+
 # Session handoff — 2026-09-08
 
 ## Checkr report display reworked into one merged PDF, board-review correctness fixes, and owner-balance/decision-rule visibility on the board card (PRs #800–#820)
