@@ -46,6 +46,10 @@ User (MANXI 706, Quentin Smith + Tim Walker, both reports complete 9:33 AM ET): 
 - **Self-heal on page load**: `GET /api/admin/pre-apply/[id]` files any completed report that isn't on its applicant's card yet (max 2 per load) and returns `filing` per subject; the card shows "✓ filed on X's card" or a red "⚠ Report stored, but could not tell which applicant … belongs to (applicants on file: …)". The manual "File as document" button and its `refile-report` route are deleted.
 - Not verified live (no staff session). Opening MANXI 706 after merge should file both reports onto Quentin's and Timothy's cards as pending-review (orange) documents.
 
+### Signing invite bounced on a "a;b" email + "Documents to review" chip (PR, 2026-09-10)
+- **Resend 422 "Invalid `to` field"** on "Please sign — Board Decision — 801 NE 25th Ave, Unit 97M" (VPCI): the signer's stored email was two addresses joined with `;`. `lib/gmail.ts` `toAddresses()` only split on commas, so the whole string went to Resend as one address. Now splits on `,` and `;`, drops anything without `@`, dedupes case-insensitively — global, so every stored multi-address contact field works everywhere. The failed invite is re-sent by the existing `signature_reminder` round via `/api/cron/board-review-reminders` (daily 10 AM ET, after the cadence days) — no data fix needed.
+- **"I can't see which applications have uploaded documents for my review"**: `/api/admin/pre-apply` rows now carry `toReview` (= `totals.received − totals.decided`, i.e. documents on file with no approve/refuse yet). `/admin/pre-apply` Open tab gets a leading "📥 Documents to review · N" chip (a filter across all stages, not a stage) and an orange "📥 N to review" badge in the Docs column.
+
 ### ⏳ NEXT
 1. User: apply the migration from `/admin/tools`, run TROP through the questionnaire, adopt on a test date, confirm the live settings changed (Association Setup page rules, Board Setup committee, Hub details).
 2. Then section 2 (governing docs → proposals) and the board portal page.

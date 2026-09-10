@@ -29,6 +29,8 @@ interface App {
   // One chip per application from screening_subjects (via the legacy row the
   // pipeline application bridges to). Detail + actions stay on the app page.
   checkr: { status: 'pending' | 'partial' | 'complete'; n: number; done: number } | null
+  /** Documents on file awaiting an approve/refuse decision. */
+  toReview: number
 }
 // A row from the old self-serve /apply form that no pipeline application
 // points at. Shown in the Open tab with a "legacy form" badge; the only
@@ -148,6 +150,11 @@ export default function PreApplyQueue() {
   const openCount = (apps ?? []).filter(a => !isDecided(a.status)).length + legacy.length
   const closedCount = (apps ?? []).filter(a => isDecided(a.status)).length
   const tabChips = STAGE_ORDER.filter(k => (tab === 'closed') === (k === 'approved' || k === 'declined'))
+  // Not a stage: any open application with at least one uploaded document
+  // nobody has decided on yet, whatever stage it's in.
+  const REVIEW_FILTER = 'to_review'
+  const toReviewCount = (apps ?? []).filter(a => !isDecided(a.status) && a.toReview > 0).length
+  const rowPassesFilter = (a: App) => !filter ? true : filter === REVIEW_FILTER ? a.toReview > 0 : a.chipKey === filter
   const switchTab = (t: Tab) => {
     setTab(t); setFilter(null)
     if (typeof window !== 'undefined') { const u = new URL(window.location.href); if (t === 'closed') u.searchParams.set('tab', 'closed'); else u.searchParams.delete('tab'); window.history.replaceState(null, '', u.toString()) }
@@ -287,6 +294,12 @@ export default function PreApplyQueue() {
       {/* Stage summary chips (click to filter) */}
       {apps && apps.length > 0 && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '14px 0 18px' }}>
+          {tab === 'open' && (
+            <button onClick={() => setFilter(filter === REVIEW_FILTER ? null : REVIEW_FILTER)}
+              style={{ cursor: 'pointer', border: filter === REVIEW_FILTER ? '2px solid #9a3412' : '1px solid #fdba74', background: '#fff7ed', color: '#9a3412', borderRadius: 10, padding: '6px 12px', font: '700 13px system-ui' }}>
+              📥 Documents to review · {toReviewCount}
+            </button>
+          )}
           {tabChips.map(key => {
             const s = STAGE_META[key]
             return (
@@ -341,8 +354,8 @@ export default function PreApplyQueue() {
         )
       })()}
 
-      {!apps ? <p style={{ color: '#9ca3af' }}>Loading…</p> : apps.length === 0 && legacy.length === 0 ? <p style={{ color: '#9ca3af' }}>No applications yet.</p> : apps.filter(a => inTab(a) && (!filter || a.chipKey === filter) && matchesSearch(a)).length === 0 ? (
-        <p style={{ color: '#9ca3af' }}>{tab === 'closed' ? 'No approved or closed applications' : 'No open applications'} match{search ? ` “${search}”` : ''}{filter ? ` in ${STAGE_META[filter]?.label ?? filter}` : ''}.</p>
+      {!apps ? <p style={{ color: '#9ca3af' }}>Loading…</p> : apps.length === 0 && legacy.length === 0 ? <p style={{ color: '#9ca3af' }}>No applications yet.</p> : apps.filter(a => inTab(a) && rowPassesFilter(a) && matchesSearch(a)).length === 0 ? (
+        <p style={{ color: '#9ca3af' }}>{tab === 'closed' ? 'No approved or closed applications' : 'No open applications'} match{search ? ` “${search}”` : ''}{filter ? ` in ${filter === REVIEW_FILTER ? 'Documents to review' : (STAGE_META[filter]?.label ?? filter)}` : ''}.</p>
       ) : (
         <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 12 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -350,7 +363,7 @@ export default function PreApplyQueue() {
               {['Applicant', 'Assoc', 'Unit', 'Type', 'Docs', 'Signed', 'Checkr', tab === 'closed' ? 'Decided' : 'Started', tab === 'closed' ? 'Decision' : 'Stage', 'Drive', ''].map(h => <th key={h} style={{ padding: '10px 12px', color: '#6b7280', fontWeight: 600, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {apps.filter(a => inTab(a) && (!filter || a.chipKey === filter) && matchesSearch(a))
+              {apps.filter(a => inTab(a) && rowPassesFilter(a) && matchesSearch(a))
                 // Open tab keeps the API's order (startedAt desc); the archive
                 // shows the most recently decided first.
                 .slice().sort((a, b) => tab === 'closed' ? String(b.reviewedAt ?? '').localeCompare(String(a.reviewedAt ?? '')) : 0)
@@ -369,7 +382,12 @@ export default function PreApplyQueue() {
                     <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{a.associationCode}</td>
                     <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{a.unit || '—'}</td>
                     <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{TYPE_LABEL[a.type] ?? a.type}</td>
-                    <td style={{ ...td, textAlign: 'center' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{a.docCount}</td>
+                    <td style={{ ...td, textAlign: 'center', whiteSpace: 'nowrap' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>
+                      {a.docCount}
+                      {!isDecided(a.status) && a.toReview > 0 && (
+                        <div title={`${a.toReview} document${a.toReview === 1 ? '' : 's'} uploaded, waiting on your approve/refuse`} style={{ font: '700 10.5px system-ui', color: '#9a3412', background: '#ffedd5', borderRadius: 6, padding: '2px 6px', marginTop: 3 }}>📥 {a.toReview} to review</div>
+                      )}
+                    </td>
                     <td style={{ ...td, textAlign: 'center' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{a.signed ? '✓' : '—'}</td>
                     <td style={{ ...td, whiteSpace: 'nowrap' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>
                       {a.checkr
