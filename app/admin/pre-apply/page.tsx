@@ -185,7 +185,7 @@ export default function PreApplyQueue() {
   }
 
   return (
-    <div style={{ maxWidth: 1000, margin: '0 auto', padding: 24, fontFamily: 'system-ui' }}>
+    <div style={{ maxWidth: 1400, margin: '0 auto', padding: 24, fontFamily: 'system-ui' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Applications</h1>
@@ -397,7 +397,7 @@ export default function PreApplyQueue() {
                           point of computing stage from real document state
                           instead of the status column: it can SAY what's
                           missing, not just report a status word. */}
-                      {!isDecided(a.status) && a.detail && <div style={{ font: '11px system-ui', color: '#6b7280', marginTop: 3, maxWidth: 260 }}>{a.detail}</div>}
+                      {!isDecided(a.status) && a.detail && <div style={{ font: '11px system-ui', color: '#6b7280', marginTop: 3, maxWidth: 340 }}>{a.detail}</div>}
                       {/* The moment every required document was individually
                           approved (documents finished, board window opened) --
                           user report, 2026-09-08: "I still can't see in my

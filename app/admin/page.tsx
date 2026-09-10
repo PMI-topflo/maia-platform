@@ -72,7 +72,8 @@ export default async function OverviewPage() {
 
   const [
     { count: unidentified },
-    { count: pendingApps },
+    { count: openApps },
+    { count: submittedApps },
     { count: pendingAgents },
     { count: pendingVendors },
     { count: totalTickets },
@@ -96,7 +97,11 @@ export default async function OverviewPage() {
     { data: sunbizFilingsRaw },
   ] = await Promise.all([
     supabaseAdmin.from('general_conversations').select('id', { count: 'exact', head: true }).eq('status', 'unidentified'),
-    supabaseAdmin.from('applications').select('id', { count: 'exact', head: true }).eq('board_approval_status', 'pending').eq('stripe_payment_status', 'paid'),
+    // Pipeline applications, not the legacy `applications` table (user
+    // report, 2026-09-10: the tile's number didn't match the Applications
+    // screen). Open = submitted / under review / letter out.
+    supabaseAdmin.from('listing_applications').select('id', { count: 'exact', head: true }).in('status', ['submitted', 'under_review', 'approval_sent']),
+    supabaseAdmin.from('listing_applications').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
     supabaseAdmin.from('real_estate_agents').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     supabaseAdmin.from('vendors').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     supabaseAdmin.from('tickets').select('id', { count: 'exact', head: true }).in('status', ['open', 'pending', 'waiting_external']),
@@ -311,7 +316,7 @@ export default async function OverviewPage() {
   // Team-wide attention items surfaced as their own instrument drawer.
   const teamAlerts: TeamAlert[] = [
     unidentified    && { key: 'unidentified', label: 'Unidentified visitors waiting for review', count: unidentified,    href: '/admin/pending-approvals', urgent: true  },
-    pendingApps     && { key: 'apps',         label: 'Applications awaiting board approval',      count: pendingApps,     href: '/admin/pre-apply',         urgent: true  },
+    submittedApps   && { key: 'apps',         label: 'Applications submitted — waiting on your review', count: submittedApps, href: '/admin/pre-apply',         urgent: true  },
     maiaErrors      && { key: 'maia',         label: 'MAIA command errors',                       count: maiaErrors,      href: '/admin/communications',    urgent: true  },
     pendingReg      && { key: 'reg',          label: 'Agent / vendor registrations pending',      count: pendingReg,      href: '/admin/registrations',     urgent: false },
     complianceCount && { key: 'compliance',   label: 'Unresolved compliance alerts',              count: complianceCount, href: '/admin/audit',             urgent: false },
@@ -330,7 +335,7 @@ export default async function OverviewPage() {
             overdue:            overdueCount,
             workOrders:         workOrders.length,
             invoices:           invoicesCount,
-            applications:       pendingApps ?? 0,
+            applications:       openApps ?? 0,
             registrations:      pendingReg,
             unidentified:       unidentified ?? 0,
             tickets:            totalTickets ?? 0,

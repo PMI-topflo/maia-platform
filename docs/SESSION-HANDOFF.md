@@ -34,6 +34,11 @@ User (with a Gmail screenshot of four "Additional document uploaded — … · P
 - **Stripe fee-paid staff email** rewritten: subject `Application fee paid — {association} · Unit {unit} · {applicant}`; body has association (+code), unit, type, applicants, amount, and a link to the pipeline application when the legacy row is bridged (`listing_applications.detailed_application_id`), else the legacy screen. The re-screening staff notice got the same link. Recipient unchanged (support@).
 - Verified by `tsc`/eslint only; the digest has a `?dry=1` mode on `/api/cron/daily-applications-review` for a live preview.
 
+### Applications tile count, clipped Stage column, and "waiting on interview" beating "awaiting signatures" (PR, 2026-09-10)
+- Dashboard "Applications" tile counted the LEGACY `applications` table (pending + paid) — never matched the Applications screen. Now counts pipeline `listing_applications` open (submitted / under_review / approval_sent); the team-alert row counts `submitted` ("waiting on your review").
+- `/admin/pre-apply` container widened 1000 → 1400 so the Stage column no longer clips at the right edge.
+- **Stage rule change** (`lib/application-dashboard.ts` decideStage): a required interview not yet marked held is the stage even when a Board Decision letter row already exists. MANXI 303 (purchase) showed "Awaiting board signatures — 0/2" while the association requires the interview first; the letter had been created ahead of it. Detail text says the letter is out and must not be signed before the interview. Affects the staff list, board/on-site dashboards and the digest's stalled-interview section consistently (one library).
+
 ### ⏳ NEXT
 1. User: apply the migration from `/admin/tools`, run TROP through the questionnaire, adopt on a test date, confirm the live settings changed (Association Setup page rules, Board Setup committee, Hub details).
 2. Then section 2 (governing docs → proposals) and the board portal page.

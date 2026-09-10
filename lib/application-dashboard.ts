@@ -206,7 +206,13 @@ export function decideStage(i: StageInput): { stage: Stage; outstanding: string[
     }
   }
   if (i.state?.complete) {
-    if (!i.hasLetter && i.interviewRequired && !i.interviewCompletedAt) {
+    // A required interview that hasn't been marked held is the stage, letter
+    // or no letter. User report, 2026-09-10 (MANXI 303, purchase): the row
+    // read "Awaiting board signatures" because a Board Decision letter row
+    // already existed, while the association's own rule is interview first —
+    // the letter must not be signed before the interview, so the interview
+    // is what is actually owed.
+    if (i.interviewRequired && !i.interviewCompletedAt) {
       return { stage: 'interview', outstanding: [], sinceAt: i.interviewRequestedAt ?? i.state.windowOpenedAt }
     }
     return { stage: i.hasLetter ? 'signature' : 'letter', outstanding: [], sinceAt: i.state.windowOpenedAt }
@@ -366,7 +372,7 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
       : stage === 'applicant' ? `Still to come: ${list(outstanding)}`
       : stage === 'not_sent' ? `${totals.received - totals.decided} document${totals.received - totals.decided === 1 ? '' : 's'} on file that nobody has been asked to review`
       : stage === 'review' ? `${outstanding.length} to decide: ${list(outstanding)}`
-      : stage === 'interview' ? 'Interview required before the Board Decision — mark it held once it happens'
+      : stage === 'interview' ? (letter ? 'Interview required — mark it held once it happens; a Board Decision letter is already out and must not be signed before it' : 'Interview required before the Board Decision — mark it held once it happens')
       : stage === 'letter' ? 'Every document approved — write the Board Decision'
       : letter ? `${letter.signed} of ${letter.of} signatures` : 'Awaiting signatures'
 
