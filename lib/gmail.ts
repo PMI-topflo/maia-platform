@@ -45,7 +45,20 @@ export function htmlToPlainText(html: string): string {
 // instead of a silent failure.
 function toAddresses(to: string | string[]): string[] {
   const raw = Array.isArray(to) ? to : [to]
-  return raw.flatMap(t => t.split(',').map(s => s.replace(/\s+/g, ''))).filter(Boolean)
+  // Split on commas AND semicolons: stored contact fields sometimes hold two
+  // addresses joined with ";" (real failure, 2026-09-10: a VPCI board member's
+  // email "a@comcast.net;b@gmail.com" was sent to Resend as ONE address and
+  // the "Please sign — Board Decision" invite bounced with a 422). Keep only
+  // things that look like an address, deduplicated case-insensitively.
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const addr of raw.flatMap(t => String(t ?? '').split(/[,;]/)).map(s => s.replace(/\s+/g, ''))) {
+    if (!addr || !addr.includes('@')) continue
+    const key = addr.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key); out.push(addr)
+  }
+  return out
 }
 
 // ── Resend ───────────────────────────────────────────────────────────────────

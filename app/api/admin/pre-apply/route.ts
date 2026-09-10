@@ -149,6 +149,12 @@ export async function GET() {
       // checklist and opened the window above.
       finalizedBy: r.finalizedBy, finalizedByRole: r.finalizedByRole,
       checkr: checkrFor(r.id),
+      // Documents on file that nobody has approved or refused yet -- what
+      // staff actually need to open the application for. User report,
+      // 2026-09-10: "I can't see which applications have uploaded documents
+      // for my review." received counts every required row with a document;
+      // decided counts approved + refused; the difference is awaiting review.
+      toReview: Math.max(0, (r.totals?.received ?? 0) - (r.totals?.decided ?? 0)),
     })),
     legacy,
   })
