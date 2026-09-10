@@ -13,7 +13,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { requireStaffSession } from '@/lib/staff-auth'
+import { requireStaffSession, staffLabel } from '@/lib/staff-auth'
 import { signEsignToken } from '@/lib/esign-token'
 import { loadDecisionContext, createBoardDecisionLetter } from '@/lib/board-decision-letter'
 
@@ -99,7 +99,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     : c.board.slice(0, c.required).map(m => ({ name: m.name as string | null, email: m.email as string | null }))
   const created = await createBoardDecisionLetter(c, {
     decision: b.decision, conditions: b.conditions, leaseStart: b.leaseStart, leaseEnd: b.leaseEnd, occupants: b.occupants,
-    signers: chosen, createdBy: `staff:${session.displayName}`,
+    signers: chosen, createdBy: `staff:${staffLabel(session)}`,
   })
   if ('error' in created) return NextResponse.json({ error: created.error }, { status: created.error.startsWith('No signer') ? 400 : 500 })
 

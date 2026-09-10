@@ -9,7 +9,7 @@
 // =====================================================================
 
 import { NextResponse } from 'next/server'
-import { requireStaffSession } from '@/lib/staff-auth'
+import { requireStaffSession, staffLabel } from '@/lib/staff-auth'
 import { adoptSession } from '@/lib/onboarding'
 
 export const runtime = 'nodejs'
@@ -26,7 +26,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
       meetingDate: String(body.meetingDate ?? ''),
       motionBy: String(body.motionBy ?? '').trim() || null,
       vote: String(body.vote ?? '').trim() || null,
-      adoptedBy: session.displayName,
+      adoptedBy: staffLabel(session),
     })
     return NextResponse.json({ ok: true, ...result })
   } catch (e) {

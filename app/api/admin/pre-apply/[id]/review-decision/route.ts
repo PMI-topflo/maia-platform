@@ -12,7 +12,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { requireStaffSession } from '@/lib/staff-auth'
+import { requireStaffSession, staffLabel } from '@/lib/staff-auth'
 import { getReviewState, syncBoardWindow } from '@/lib/board-review'
 import { notifyOfficeOfReviewResponse } from '@/lib/board-review-email'
 import { advanceToApprovalSent } from '@/lib/board-decision-letter'
@@ -54,7 +54,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { error } = await supabaseAdmin.from('application_document_reviews').upsert({
     application_id: id, doc_key: row.docKey, scope_key: scopeKey,
     decision, reason: decision === 'refused' ? reason : null,
-    decided_by: session.displayName, decided_by_role: 'staff',
+    decided_by: staffLabel(session), decided_by_role: 'staff',
     decided_at: new Date().toISOString(),
   }, { onConflict: 'application_id,scope_key' })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -74,7 +74,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   await notifyOfficeOfReviewResponse({
     applicationId: id, roundId: '', label: row.perApplicantName ? `${row.label} — ${row.perApplicantName}` : row.label,
     decision, reason: decision === 'refused' ? reason : null,
-    reviewerName: session.displayName, reviewerRole: 'staff', windowOpened: opened,
+    reviewerName: staffLabel(session), reviewerRole: 'staff', windowOpened: opened,
   }).catch(() => null)
 
   return NextResponse.json({ ok: true, windowOpened: opened, ...(after ?? {}) })
