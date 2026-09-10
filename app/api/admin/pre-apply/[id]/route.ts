@@ -14,6 +14,7 @@ import {
 import { roleLabel, roleSigns, resolveScreeningProvider } from '@/lib/preapply'
 import { getReviewState } from '@/lib/board-review'
 import { screeningValidThrough, isScreeningExpired } from '@/lib/screening/validity'
+import { regenerateMergedReport } from '@/lib/screening/report-storage'
 import { getCurrentLease, getRelatedOccupantApplications } from '@/lib/occupant-sponsorship'
 import { handoffOnApproval } from '@/lib/application-handoff'
 import { ESIGN_CHECKLIST_ITEMS } from '@/lib/application-esign-forms'
@@ -154,7 +155,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const [{ data: screeningRows }, { data: paymentRow }] = detailedId
     ? await Promise.all([
         supabaseAdmin.from('screening_subjects')
-          .select('id, subject_index, name, stakeholder_id, status, report_url, report_data, completed_at, result')
+          .select('id, subject_index, name, stakeholder_id, status, report_url, report_data, completed_at, result, checkr_report_id')
           .eq('application_id', detailedId).order('subject_index', { ascending: true }),
         supabaseAdmin.from('applications')
           .select('stripe_payment_status, stripe_amount_paid').eq('id', detailedId).maybeSingle(),
@@ -168,6 +169,39 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   // pushes {received_at, type, payload} onto for every delivery -- surfaced
   // here as a compact type+timestamp history, raw payloads left out to keep
   // the response small.
+  // A completed report must sit on its applicant's own "Background / Credit
+  // Reports" card, automatically -- user direction, 2026-09-10 ("make it
+  // this way automatically applying for each applicant the background check
+  // to their card"; the manual "File as document" button is gone). The
+  // webhook files it on completion; this is the safety net for anything it
+  // missed (an unmatched name at the time, a webhook that errored): file it
+  // now, on the way to the page, and tell the card when it still can't
+  // resolve which applicant the report belongs to.
+  const filingBySubject = new Map<string, { filedFor: string | null; warning: string | null }>()
+  if (detailedId && screeningRows?.length) {
+    const { data: filedDocs } = await supabaseAdmin.from('application_documents')
+      .select('stakeholder_id').eq('application_id', id).eq('doc_key', 'background_credit').eq('uploaded_by_role', 'checkr')
+    const filedFor = new Set((filedDocs ?? []).map(d => (d.stakeholder_id as string | null) ?? '__unscoped__'))
+    let attempts = 0
+    for (const s of screeningRows) {
+      if (s.status !== 'complete' || !s.checkr_report_id || attempts >= 2) continue
+      const key = (s.stakeholder_id as string | null) ?? '__unscoped__'
+      // Already on a card (scoped) -> nothing to do. An unscoped copy with an
+      // unknown applicant is exactly the case to retry: the matcher may
+      // resolve it now that names/emails have been corrected.
+      if (s.stakeholder_id && filedFor.has(key)) continue
+      attempts++
+      try {
+        const r = await regenerateMergedReport({
+          id: String(s.id), application_id: detailedId, name: (s.name as string | null) ?? null,
+          stakeholder_id: (s.stakeholder_id as string | null) ?? null, checkr_report_id: String(s.checkr_report_id),
+        })
+        filingBySubject.set(String(s.id), { filedFor: r.stakeholderName, warning: r.warning })
+      } catch (e) {
+        filingBySubject.set(String(s.id), { filedFor: null, warning: `could not be filed: ${(e as Error).message}` })
+      }
+    }
+  }
   const screeningSubjects = (screeningRows ?? []).map(s => {
     const completedAt = (s.completed_at as string | null) ?? null
     const rawHistory = Array.isArray(s.result) ? s.result : s.result ? [s.result] : []
@@ -180,6 +214,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       reportUrl: (s.report_url as string | null) ?? null, reportData: (s.report_data as Record<string, unknown> | null) ?? null,
       completedAt, validThrough: screeningValidThrough(completedAt)?.toISOString() ?? null,
       expired: isScreeningExpired(completedAt), history,
+      filing: filingBySubject.get(String(s.id)) ?? null,
     }
   })
   // "Was it paid or not" -- the same stripe_payment_status/stripe_amount_paid

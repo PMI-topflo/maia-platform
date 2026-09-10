@@ -29,26 +29,66 @@ export const normalizeName = (s: string | null | undefined) =>
  *  normalize to an exact match (a nickname, a Checkr-added middle name)
  *  without guessing across a list of more than one genuine ambiguity. */
 export function matchStakeholders(
-  subjects: { name: string | null }[],
-  stakeholders: { id: string; name: string | null }[],
+  subjects: { name: string | null; email?: string | null }[],
+  stakeholders: { id: string; name: string | null; email?: string | null }[],
 ): (string | null)[] {
   const result: (string | null)[] = new Array(subjects.length).fill(null)
   const used = new Set<string>()
+  const claim = (i: number, id: string) => { result[i] = id; used.add(id) }
+  const email = (e: string | null | undefined) => (e ?? '').trim().toLowerCase()
 
+  // Pass 0: same email -- the one identifier both forms actually share.
   subjects.forEach((s, i) => {
-    const n = normalizeName(s.name)
-    if (!n) return
-    const match = stakeholders.find(h => !used.has(h.id) && normalizeName(h.name) === n)
-    if (match) { result[i] = match.id; used.add(match.id) }
+    const e = email(s.email); if (!e) return
+    const match = stakeholders.find(h => !used.has(h.id) && email(h.email) === e)
+    if (match) claim(i, match.id)
   })
 
+  // Pass 1: exact normalized-name match.
+  subjects.forEach((s, i) => {
+    if (result[i]) return
+    const n = normalizeName(s.name); if (!n) return
+    const match = stakeholders.find(h => !used.has(h.id) && normalizeName(h.name) === n)
+    if (match) claim(i, match.id)
+  })
+
+  // Pass 1b: loose name -- same last name and the first names agree as a
+  // prefix either way ("Tim Walker" ~ "Timothy Dean Walker", "Quentin Smith"
+  // ~ "Quentin Jamal Smith"). Real case, 2026-09-10 (MANXI 706): the Checkr
+  // subject names came from the payment form and were shorter than the
+  // applicants' full legal names, so nothing matched and both reports were
+  // filed under nobody.
+  subjects.forEach((s, i) => {
+    if (result[i]) return
+    const match = stakeholders.find(h => !used.has(h.id) && looseNameMatch(s.name, h.name))
+    if (match) claim(i, match.id)
+  })
+
+  // Pass 2: same overall length -> pair whatever's left in order (both lists
+  // are primary-first).
   if (subjects.length === stakeholders.length) {
     const unmatchedIdx = result.map((v, i) => (v === null ? i : -1)).filter(i => i >= 0)
     const unmatchedStakeholders = stakeholders.filter(h => !used.has(h.id))
     if (unmatchedIdx.length === unmatchedStakeholders.length) {
-      unmatchedIdx.forEach((idx, k) => { result[idx] = unmatchedStakeholders[k].id })
+      unmatchedIdx.forEach((idx, k) => claim(idx, unmatchedStakeholders[k].id))
     }
   }
 
+  // Pass 3: exactly one subject and exactly one stakeholder left -> they are
+  // each other, whatever the lists' overall lengths.
+  const leftIdx = result.map((v, i) => (v === null ? i : -1)).filter(i => i >= 0)
+  const leftStakeholders = stakeholders.filter(h => !used.has(h.id))
+  if (leftIdx.length === 1 && leftStakeholders.length === 1) claim(leftIdx[0], leftStakeholders[0].id)
+
   return result
+}
+
+/** Same last name, and one first name is a prefix of the other (>= 3 chars). */
+export function looseNameMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  const ta = normalizeName(a).split(' ').filter(Boolean), tb = normalizeName(b).split(' ').filter(Boolean)
+  if (ta.length < 2 || tb.length < 2) return false
+  if (ta[ta.length - 1] !== tb[tb.length - 1]) return false
+  const fa = ta[0], fb = tb[0]
+  if (fa.length < 3 || fb.length < 3) return false
+  return fa.startsWith(fb) || fb.startsWith(fa)
 }
