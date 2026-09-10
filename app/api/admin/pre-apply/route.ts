@@ -43,8 +43,56 @@ export async function GET() {
     // changes listing_applications.status at all today), surface the most
     // recent request date so staff can tell the two apart at a glance.
     ids.length ? supabaseAdmin.from('document_requests').select('application_id, created_at').in('application_id', ids) : Promise.resolve({ data: [] }),
-    ids.length ? supabaseAdmin.from('listing_applications').select('id, rules_ack').in('id', ids) : Promise.resolve({ data: [] }),
+    ids.length ? supabaseAdmin.from('listing_applications').select('id, rules_ack, detailed_application_id').in('id', ids) : Promise.resolve({ data: [] }),
   ])
+
+  // ── Checkr, per row ─────────────────────────────────────────────────
+  // The legacy `applications` row (detailed_application_id) is what
+  // screening_subjects foreign-keys to. One chip per application: none /
+  // pending / partial / complete — the detail lives on the application page.
+  const detailedByApp = new Map<string, string>()
+  for (const a of rulesAck ?? []) if (a.detailed_application_id) detailedByApp.set(String(a.id), String(a.detailed_application_id))
+  const detailedIds = [...new Set(detailedByApp.values())]
+  const { data: subjects } = detailedIds.length
+    ? await supabaseAdmin.from('screening_subjects').select('application_id, status, completed_at').in('application_id', detailedIds)
+    : { data: [] as { application_id: string; status: string | null; completed_at: string | null }[] }
+  const subjectsByDetailed = new Map<string, { n: number; done: number }>()
+  for (const s of subjects ?? []) {
+    const k = String(s.application_id)
+    const cur = subjectsByDetailed.get(k) ?? { n: 0, done: 0 }
+    cur.n++; if (s.completed_at || s.status === 'complete' || s.status === 'completed') cur.done++
+    subjectsByDetailed.set(k, cur)
+  }
+  const checkrFor = (appId: string) => {
+    const d = detailedByApp.get(appId); const c = d ? subjectsByDetailed.get(d) : undefined
+    if (!c || c.n === 0) return null
+    return { status: c.done === 0 ? 'pending' : c.done < c.n ? 'partial' : 'complete', n: c.n, done: c.done }
+  }
+
+  // ── Legacy self-serve form rows ─────────────────────────────────────
+  // The old /apply form wrote straight to `applications`. Rows that were
+  // never bridged to a pipeline application (no listing_applications row
+  // points at them) used to be visible ONLY on the separate "Applications
+  // (Checkr)" screen. User direction, 2026-09-10: one Applications screen —
+  // so they show here with a "legacy form" badge until staff link or close
+  // them. Test rows stay out.
+  const [{ data: bridged }, { data: legacyRows }] = await Promise.all([
+    supabaseAdmin.from('listing_applications').select('detailed_application_id').not('detailed_application_id', 'is', null),
+    supabaseAdmin.from('applications').select('id, association, app_type, applicants, entity_name, created_at, stripe_payment_status, board_decision, screening_status, is_test')
+      .order('created_at', { ascending: false }).limit(200),
+  ])
+  const bridgedIds = new Set((bridged ?? []).map(b => String(b.detailed_application_id)))
+  const legacy = (legacyRows ?? [])
+    .filter(r => !r.is_test && !bridgedIds.has(String(r.id)))
+    .map(r => {
+      const first = (r.applicants as { firstName?: string; lastName?: string; email?: string }[] | null)?.[0]
+      const name = r.app_type === 'commercial' && r.entity_name ? String(r.entity_name) : [first?.firstName, first?.lastName].filter(Boolean).join(' ') || null
+      return {
+        id: String(r.id), reference: `PMI-${String(r.id).slice(0, 8).toUpperCase()}`, association: (r.association as string | null) ?? null,
+        applicant: { name, email: first?.email ?? null }, createdAt: String(r.created_at),
+        paid: r.stripe_payment_status === 'paid', boardDecision: (r.board_decision as string | null) ?? 'pending', screening: (r.screening_status as string | null) ?? null,
+      }
+    })
   // Same lesson as the 2026-09-05 incident (see lib/board-review.ts): a
   // failed query here must never read back identical to "no applicants".
   if (shError) console.error('[admin/pre-apply] stakeholders query failed:', shError.message)
@@ -100,6 +148,8 @@ export async function GET() {
       // the newest document decision on record, which is what finalized the
       // checklist and opened the window above.
       finalizedBy: r.finalizedBy, finalizedByRole: r.finalizedByRole,
+      checkr: checkrFor(r.id),
     })),
+    legacy,
   })
 }

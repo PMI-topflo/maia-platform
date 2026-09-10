@@ -287,7 +287,7 @@ export default function ControlPanel(props: Props) {
       id: 'applications', label: 'Applications', value: counts.applications,
       sub: counts.applications > 0 ? 'awaiting board' : 'none pending',
       sev: counts.applications > 0 ? 'caution' : 'nominal',
-      href: '/admin/applications',
+      href: '/admin/pre-apply',
     },
     {
       id: 'registrations', label: 'Registrations', value: counts.registrations,

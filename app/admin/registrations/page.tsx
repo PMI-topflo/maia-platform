@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../components/AdminNav'
+import PeopleTabs from '../components/PeopleTabs'
 import RegistrationsDashboard from './components/RegistrationsDashboard'
 
 export const dynamic = 'force-dynamic'
@@ -33,6 +34,7 @@ export default async function RegistrationsPage() {
       </SiteHeader>
 
       <div style={{ padding: '1.5rem', maxWidth: '1100px', margin: '0 auto' }}>
+        <PeopleTabs current="/admin/registrations" />
 
         {/* Summary cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>

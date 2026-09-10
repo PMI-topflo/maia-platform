@@ -997,9 +997,9 @@ function TestEnvironmentPanel() {
 // Main table component
 // ---------------------------------------------------------------------------
 
-export function ApplicationsTable({ applications: initialApps, documentLookup, subjectsByApplication }: Props) {
+export function ApplicationsTable({ applications: initialApps, documentLookup, subjectsByApplication, initialTab }: Props & { initialTab?: FilterTab }) {
   const [apps, setApps] = useState<Application[]>(initialApps);
-  const [filter, setFilter] = useState<FilterTab>('all');
+  const [filter, setFilter] = useState<FilterTab>(initialTab ?? 'all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {

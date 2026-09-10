@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../components/AdminNav'
+import PeopleTabs from '../components/PeopleTabs'
 import PendingApprovalsDashboard from './components/PendingApprovalsDashboard'
 
 export const metadata = { title: 'Pending Approvals — PMI Top Florida' }
@@ -23,6 +24,7 @@ export default async function PendingApprovalsPage() {
       </SiteHeader>
 
       <main className="max-w-screen-2xl mx-auto px-6 py-6">
+        <PeopleTabs current="/admin/pending-approvals" />
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-lg font-semibold text-gray-900">Pending Approvals</h1>

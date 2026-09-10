@@ -311,7 +311,7 @@ export default async function OverviewPage() {
   // Team-wide attention items surfaced as their own instrument drawer.
   const teamAlerts: TeamAlert[] = [
     unidentified    && { key: 'unidentified', label: 'Unidentified visitors waiting for review', count: unidentified,    href: '/admin/pending-approvals', urgent: true  },
-    pendingApps     && { key: 'apps',         label: 'Applications awaiting board approval',      count: pendingApps,     href: '/admin/applications',      urgent: true  },
+    pendingApps     && { key: 'apps',         label: 'Applications awaiting board approval',      count: pendingApps,     href: '/admin/pre-apply',         urgent: true  },
     maiaErrors      && { key: 'maia',         label: 'MAIA command errors',                       count: maiaErrors,      href: '/admin/communications',    urgent: true  },
     pendingReg      && { key: 'reg',          label: 'Agent / vendor registrations pending',      count: pendingReg,      href: '/admin/registrations',     urgent: false },
     complianceCount && { key: 'compliance',   label: 'Unresolved compliance alerts',              count: complianceCount, href: '/admin/audit',             urgent: false },
