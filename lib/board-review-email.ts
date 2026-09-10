@@ -45,18 +45,23 @@ export const BOARD_EMAIL_CC = (process.env.BOARD_EMAIL_CC ?? 'PMI@topfloridaprop
  *  route.ts) and ensureBoardReviewRoundSent below, so both pick the same
  *  people the same way. */
 export async function approversFor(code: string): Promise<{ name: string; email: string; role: ReviewerRole }[]> {
-  // Both tables store first_name/last_name, not a single name column.
+  // association_board_members is the CINC-synced roster (the one Board Setup,
+  // the decision letter and the committee all use). This used to read the
+  // OLD `board_members` table, which nobody maintains -- real symptom,
+  // 2026-09-10 (MANXI 706): the review round went to Jorge Manzano, inactive
+  // on the real roster, with everyone's titles a term out of date.
   const [{ data: board }, { data: mgrs }] = await Promise.all([
-    supabaseAdmin.from('board_members').select('first_name, last_name, email, position, active').eq('association_code', code),
+    supabaseAdmin.from('association_board_members').select('name, email, role, active, substitute_name, substitute_email, substitute_active').eq('association_code', code).eq('active', true).order('sort_order'),
     supabaseAdmin.from('building_managers').select('first_name, last_name, email, active').eq('association_code', code),
   ])
   const full = (a: unknown, b: unknown) => `${String(a ?? '').trim()} ${String(b ?? '').trim()}`.trim()
   const out: { name: string; email: string; role: ReviewerRole }[] = []
   for (const b of board ?? []) {
-    if (b.active === false) continue
-    const email = String(b.email ?? '').trim()
-    const name = full(b.first_name, b.last_name)
-    if (email.includes('@') && name) out.push({ name: b.position ? `${name} (${b.position})` : name, email, role: 'board' })
+    // A member with an active substitute is represented by the substitute.
+    const useSub = !!b.substitute_active && String(b.substitute_email ?? '').includes('@')
+    const email = String((useSub ? b.substitute_email : b.email) ?? '').trim()
+    const name = String((useSub ? b.substitute_name : b.name) ?? '').trim() || String(b.name ?? '').trim()
+    if (email.includes('@') && name) out.push({ name: b.role ? `${name} (${b.role})` : name, email, role: 'board' })
   }
   for (const m of mgrs ?? []) {
     if (m.active === false) continue

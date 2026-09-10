@@ -2530,9 +2530,11 @@ async function getMaiaIntelligentResponse(ctx: CallerContext, message: string, f
   }
 
   if (isBoard && ctx.associationId) {
-    const { data: board } = await getSupabase().from('board_members')
-      .select('first_name, last_name, position, email').eq('association_code', ctx.associationId).eq('active', true)
-    if (board?.length) dbContext += `\nBoard: ${board.map(b => `${b.first_name} ${b.last_name} (${b.position}) ${b.email}`).join(', ')}`
+    // association_board_members is the CINC-synced roster; the legacy
+    // board_members table still lists people who left (2026-09-10).
+    const { data: board } = await getSupabase().from('association_board_members')
+      .select('name, role, email').eq('association_code', ctx.associationId).eq('active', true)
+    if (board?.length) dbContext += `\nBoard: ${board.map(b => `${b.name} (${b.role ?? 'Board Member'}) ${b.email}`).join(', ')}`
   }
 
   if (!isMaintenance && !isPayment && !isParking) {
@@ -2578,7 +2580,7 @@ async function getMaiaIntelligentResponse(ctx: CallerContext, message: string, f
       (await getSupabase().from('associations').select('service_type').eq('association_code', ctx.associationId).single()).data?.service_type === 'bookkeeping'
 
     if (isBookkeeping) {
-      const { data: board } = await getSupabase().from('board_members').select('email').eq('association_code', ctx.associationId ?? '').eq('active', true)
+      const { data: board } = await getSupabase().from('association_board_members').select('email').eq('association_code', ctx.associationId ?? '').eq('active', true)
       if (board?.length) {
         await notifyTeamByEmail(board.map(b => b.email).filter(Boolean).join(','),
           `Maintenance Request — Unit ${ctx.unitId ?? 'Unknown'} — ${ctx.name}`,

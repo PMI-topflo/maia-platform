@@ -62,11 +62,14 @@ async function boardRecipients(code: string): Promise<FeedbackRecipient[]> {
     })
   }
 
-  const { data: bm } = await supabaseAdmin
+  // The legacy board_members table is unmaintained -- its "active" rows can
+  // include people who left the board (MANXI: Jorge Manzano, 2026-09-10).
+  // Only consult it when the real roster has nobody at all.
+  const { data: bm } = seen.size === 0 ? await supabaseAdmin
     .from('board_members')
     .select('first_name, last_name, email, position')
     .eq('association_code', code)
-    .eq('active', true)
+    .eq('active', true) : { data: [] }
   for (const r of (bm ?? []) as Array<{ first_name: string|null; last_name: string|null; email: string|null; position: string|null }>) {
     if (!r.email) continue
     const key = r.email.toLowerCase()

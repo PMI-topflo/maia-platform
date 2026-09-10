@@ -36,12 +36,12 @@ async function findBoardRecipient(assoc: string): Promise<Recipient | null> {
   const abmPres = abmRows.find(r => /president/i.test(r.role ?? ''))
   if (abmPres) return { email: abmPres.email, name: abmPres.name ?? 'Board President', role: abmPres.role ?? 'President' }
 
-  // Legacy table.
-  const { data: bm } = await supabaseAdmin
+  // Legacy table -- unmaintained; only when the real roster is empty.
+  const { data: bm } = abmRows.length === 0 ? await supabaseAdmin
     .from('board_members')
     .select('first_name, last_name, email, position')
     .eq('association_code', assoc)
-    .eq('active', true)
+    .eq('active', true) : { data: [] }
   const bmRows = (bm ?? []).filter(r => r.email) as Array<{ first_name: string | null; last_name: string | null; email: string; position: string | null }>
   const bmPres = bmRows.find(r => /president/i.test(r.position ?? ''))
   if (bmPres) {
