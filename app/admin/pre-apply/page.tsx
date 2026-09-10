@@ -26,6 +26,23 @@ interface App {
   windowOpenedAt: string | null
   finalizedBy: string | null
   finalizedByRole: string | null
+  // One chip per application from screening_subjects (via the legacy row the
+  // pipeline application bridges to). Detail + actions stay on the app page.
+  checkr: { status: 'pending' | 'partial' | 'complete'; n: number; done: number } | null
+}
+// A row from the old self-serve /apply form that no pipeline application
+// points at. Shown in the Open tab with a "legacy form" badge; the only
+// screen that can act on it is the (now unlisted) /admin/applications page.
+interface LegacyApp {
+  id: string; reference: string; association: string | null
+  applicant: { name: string | null; email: string | null }; createdAt: string
+  paid: boolean; boardDecision: string; screening: string | null
+}
+type Tab = 'open' | 'closed'
+const CHECKR_META: Record<string, { label: string; c: string; b: string }> = {
+  pending:  { label: 'pending',  c: '#92400e', b: '#fef3c7' },
+  partial:  { label: 'partial',  c: '#92400e', b: '#fef3c7' },
+  complete: { label: 'complete', c: '#166534', b: '#dcfce7' },
 }
 const FINALIZED_ROLE_LABEL: Record<string, string> = { staff: 'Staff', board: 'Board', onsite_manager: 'On-site manager' }
 const isDecided = (status: string) => status === 'approved' || status === 'declined'
@@ -76,6 +93,10 @@ const ALARM_META: Record<string, { label: string; c: string; b: string }> = {
 
 export default function PreApplyQueue() {
   const [apps, setApps] = useState<App[] | null>(null)
+  const [legacy, setLegacy] = useState<LegacyApp[]>([])
+  // Open vs Approved & closed — user direction, 2026-09-10: "we can create
+  // one tab to move all approved applications." Deep-linkable (?tab=closed).
+  const [tab, setTab] = useState<Tab>(() => (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tab') === 'closed') ? 'closed' : 'open')
   const [err, setErr] = useState<string | null>(null)
   const [filter, setFilter] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -119,10 +140,23 @@ export default function PreApplyQueue() {
   useEffect(() => {
     fetch('/api/admin/pre-apply', { credentials: 'include' })
       .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j })
-      .then(d => setApps(d.applications)).catch(e => setErr(String(e.message ?? e)))
+      .then(d => { setApps(d.applications); setLegacy(Array.isArray(d.legacy) ? d.legacy : []) }).catch(e => setErr(String(e.message ?? e)))
   }, [])
 
   const count = (k: string) => (apps ?? []).filter(a => a.chipKey === k).length
+  const inTab = (a: App) => (tab === 'closed') === isDecided(a.status)
+  const openCount = (apps ?? []).filter(a => !isDecided(a.status)).length + legacy.length
+  const closedCount = (apps ?? []).filter(a => isDecided(a.status)).length
+  const tabChips = STAGE_ORDER.filter(k => (tab === 'closed') === (k === 'approved' || k === 'declined'))
+  const switchTab = (t: Tab) => {
+    setTab(t); setFilter(null)
+    if (typeof window !== 'undefined') { const u = new URL(window.location.href); if (t === 'closed') u.searchParams.set('tab', 'closed'); else u.searchParams.delete('tab'); window.history.replaceState(null, '', u.toString()) }
+  }
+  const legacyMatches = (l: LegacyApp) => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return [l.applicant.name, l.applicant.email, l.association, l.reference, 'legacy form'].some(v => (v ?? '').toLowerCase().includes(q))
+  }
 
   // One free-text box searching across every column title shown in the row —
   // applicant, email, association, unit, type, and stage — instead of five
@@ -155,7 +189,7 @@ export default function PreApplyQueue() {
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Applications</h1>
-          <p style={{ color: '#6b7280', fontSize: 14, margin: '4px 0 0' }}>Every open application and its stage. Click one to review, upload documents you received, and approve.</p>
+          <p style={{ color: '#6b7280', fontSize: 14, margin: '4px 0 0' }}>Every application, every association. Open ones need something; approved and closed ones are the archive. Click one to review, upload documents you received, and approve.</p>
         </div>
         {/* User direction, 2026-09-08: a quick shortcut into Checkr's own
             dashboard for staff to look up any applicant's screening directly —
@@ -238,10 +272,22 @@ export default function PreApplyQueue() {
       <StaffCreate />
       <LinkGenerator />
 
+      {/* Open / Approved & closed */}
+      {apps && (
+        <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e5e7eb', margin: '18px 0 0' }}>
+          {([['open', 'Open', openCount], ['closed', 'Approved & closed', closedCount]] as [Tab, string, number][]).map(([k, label, n]) => (
+            <button key={k} onClick={() => switchTab(k)}
+              style={{ cursor: 'pointer', background: 'none', border: 'none', borderBottom: tab === k ? '2px solid #f26a1b' : '2px solid transparent', padding: '10px 14px', font: '600 14px system-ui', color: tab === k ? '#c0571a' : '#6b7280' }}>
+              {label} <span style={{ fontWeight: 400, color: '#9ca3af' }}>{n}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Stage summary chips (click to filter) */}
       {apps && apps.length > 0 && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '14px 0 18px' }}>
-          {STAGE_ORDER.map(key => {
+          {tabChips.map(key => {
             const s = STAGE_META[key]
             return (
               <button key={key} onClick={() => setFilter(filter === key ? null : key)}
@@ -276,7 +322,7 @@ export default function PreApplyQueue() {
           invisible on the board view and easy to miss in the table, which is how
           MANXI 1002's three documents sat unnoticed. */}
       {(() => {
-        const inFlight = (apps ?? []).filter(a => a.status === 'started' && a.docCount > 0)
+        const inFlight = tab === 'open' ? (apps ?? []).filter(a => a.status === 'started' && a.docCount > 0) : []
         if (inFlight.length === 0) return null
         return (
           <div style={{ margin: '4px 0 18px', border: '1px solid #fbbf24', borderLeft: '4px solid #f59e0b', background: '#fffbeb', borderRadius: 10, padding: '12px 14px' }}>
@@ -295,21 +341,19 @@ export default function PreApplyQueue() {
         )
       })()}
 
-      {!apps ? <p style={{ color: '#9ca3af' }}>Loading…</p> : apps.length === 0 ? <p style={{ color: '#9ca3af' }}>No applications yet.</p> : apps.filter(a => (!filter || a.chipKey === filter) && matchesSearch(a)).length === 0 ? (
-        <p style={{ color: '#9ca3af' }}>No applications match{search ? ` “${search}”` : ''}{filter ? ` in ${STAGE_META[filter]?.label ?? filter}` : ''}.</p>
+      {!apps ? <p style={{ color: '#9ca3af' }}>Loading…</p> : apps.length === 0 && legacy.length === 0 ? <p style={{ color: '#9ca3af' }}>No applications yet.</p> : apps.filter(a => inTab(a) && (!filter || a.chipKey === filter) && matchesSearch(a)).length === 0 ? (
+        <p style={{ color: '#9ca3af' }}>{tab === 'closed' ? 'No approved or closed applications' : 'No open applications'} match{search ? ` “${search}”` : ''}{filter ? ` in ${STAGE_META[filter]?.label ?? filter}` : ''}.</p>
       ) : (
         <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 12 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead><tr style={{ background: '#f9fafb', textAlign: 'left' }}>
-              {['Applicant', 'Assoc', 'Unit', 'Type', 'Docs', 'Signed', 'Started', 'Stage', 'Drive', ''].map(h => <th key={h} style={{ padding: '10px 12px', color: '#6b7280', fontWeight: 600, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>)}
+              {['Applicant', 'Assoc', 'Unit', 'Type', 'Docs', 'Signed', 'Checkr', tab === 'closed' ? 'Decided' : 'Started', tab === 'closed' ? 'Decision' : 'Stage', 'Drive', ''].map(h => <th key={h} style={{ padding: '10px 12px', color: '#6b7280', fontWeight: 600, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {apps.filter(a => (!filter || a.chipKey === filter) && matchesSearch(a))
-                // Decided (approved/declined) applications sink to the end —
-                // staff report, 2026-08-20: "Put the approved in the final
-                // of the list." Array.sort is stable, so within each group
-                // the API's own order (startedAt desc) is unchanged.
-                .slice().sort((a, b) => Number(isDecided(a.status)) - Number(isDecided(b.status)))
+              {apps.filter(a => inTab(a) && (!filter || a.chipKey === filter) && matchesSearch(a))
+                // Open tab keeps the API's order (startedAt desc); the archive
+                // shows the most recently decided first.
+                .slice().sort((a, b) => tab === 'closed' ? String(b.reviewedAt ?? '').localeCompare(String(a.reviewedAt ?? '')) : 0)
                 .map(a => {
                 const st = STAGE_META[a.chipKey] ?? { label: a.stageLabel, c: '#374151', b: '#f3f4f6' }
                 return (
@@ -327,7 +371,12 @@ export default function PreApplyQueue() {
                     <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{TYPE_LABEL[a.type] ?? a.type}</td>
                     <td style={{ ...td, textAlign: 'center' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{a.docCount}</td>
                     <td style={{ ...td, textAlign: 'center' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{a.signed ? '✓' : '—'}</td>
-                    <td style={{ ...td, whiteSpace: 'nowrap' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{fmt(a.startedAt)}</td>
+                    <td style={{ ...td, whiteSpace: 'nowrap' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>
+                      {a.checkr
+                        ? <span title={`${a.checkr.done} of ${a.checkr.n} report${a.checkr.n === 1 ? '' : 's'} complete`} style={{ font: '600 11px system-ui', color: CHECKR_META[a.checkr.status].c, background: CHECKR_META[a.checkr.status].b, borderRadius: 6, padding: '2px 7px' }}>{CHECKR_META[a.checkr.status].label}{a.checkr.n > 1 ? ` ${a.checkr.done}/${a.checkr.n}` : ''}</span>
+                        : <span style={{ color: '#d1d5db' }}>—</span>}
+                    </td>
+                    <td style={{ ...td, whiteSpace: 'nowrap' }} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>{tab === 'closed' ? fmt(a.reviewedAt) : fmt(a.startedAt)}</td>
                     <td style={td} onClick={() => { window.location.href = `/admin/pre-apply/${a.id}` }}>
                       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
                         <span style={{ font: '600 11px system-ui', color: st.c, background: st.b, borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap' }}>{a.stageLabel}</span>
@@ -402,6 +451,38 @@ export default function PreApplyQueue() {
                   </tr>
                 )
               })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Rows from the old self-serve form that never became a pipeline
+          application. They used to live only on the separate "Applications
+          (Checkr)" screen; that screen is now unlisted, so they surface here
+          until staff link or close them. */}
+      {tab === 'open' && legacy.filter(legacyMatches).length > 0 && (
+        <div style={{ marginTop: 18, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, padding: '10px 13px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+            <span style={{ font: '600 13px system-ui', color: '#374151' }}>Legacy form applications — {legacy.filter(legacyMatches).length}</span>
+            <span style={{ font: '11.5px system-ui', color: '#9ca3af' }}>Came in through the old self-serve form and are not linked to a unit application. Open in the legacy screen to review, decide, or resend the resume link.</span>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr style={{ background: '#fff', textAlign: 'left' }}>
+              {['Applicant', 'Association', 'Reference', 'Paid', 'Checkr', 'Decision', 'Started', ''].map(h => <th key={h} style={{ padding: '8px 12px', color: '#6b7280', fontWeight: 600, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap', fontSize: 12 }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {legacy.filter(legacyMatches).map(l => (
+                <tr key={l.id} style={{ cursor: 'pointer' }} onClick={() => { window.location.href = '/admin/applications' }}>
+                  <td style={td}><div style={{ fontWeight: 600, color: '#1d4ed8' }}>{l.applicant.name || '—'}</div>{l.applicant.email && <div style={{ color: '#9ca3af', fontSize: 12 }}>{l.applicant.email}</div>}</td>
+                  <td style={td}>{l.association ?? '—'}</td>
+                  <td style={{ ...td, fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{l.reference}</td>
+                  <td style={td}>{l.paid ? <span style={{ font: '600 11px system-ui', color: '#166534', background: '#dcfce7', borderRadius: 6, padding: '2px 7px' }}>paid</span> : <span style={{ color: '#9ca3af' }}>unpaid</span>}</td>
+                  <td style={td}>{l.screening ? <span style={{ font: '600 11px system-ui', color: '#92400e', background: '#fef3c7', borderRadius: 6, padding: '2px 7px' }}>{l.screening}</span> : <span style={{ color: '#d1d5db' }}>—</span>}</td>
+                  <td style={td}><span style={{ font: '600 11px system-ui', color: '#374151', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, padding: '2px 7px' }}>{l.boardDecision}</span></td>
+                  <td style={{ ...td, whiteSpace: 'nowrap' }}>{fmt(l.createdAt)}</td>
+                  <td style={td}><span style={{ font: '600 10.5px system-ui', color: '#6b7280', border: '1px dashed #d1d5db', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>legacy form ↗</span></td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

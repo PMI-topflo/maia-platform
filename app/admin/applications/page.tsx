@@ -102,8 +102,10 @@ async function getData() {
   return { applications: applicationsWithCode, documentLookup, subjectsByApplication };
 }
 
-export default async function ApplicationsPage() {
+export default async function ApplicationsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { applications, documentLookup, subjectsByApplication } = await getData();
+  const { tab } = await searchParams;
+  const initialTab = tab === 'test' ? 'test' : tab === 'approved' ? 'approved' : tab === 'rejected' ? 'rejected' : tab === 'pending' ? 'pending' : 'all';
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -113,13 +115,13 @@ export default async function ApplicationsPage() {
 
       <main className="max-w-screen-2xl mx-auto px-6 py-6">
         <header className="mb-6 border-l-4 border-[#f26a1b] pl-4">
-          <h1 className="text-xl font-semibold text-gray-900">Applications (Checkr)</h1>
+          <h1 className="text-xl font-semibold text-gray-900">Legacy applications &amp; Checkr test environment</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Detailed applications with background screening (Checkr). For the day-to-day intake, documents, stages, and approvals, use <Link href="/admin/pre-apply" className="text-[#f26a1b] font-medium hover:underline">Applications</Link>.
+            The old self-serve form&apos;s records and the Checkr Test Environment. Not in the menu any more — every real application lives in <Link href="/admin/pre-apply" className="text-[#f26a1b] font-medium hover:underline">Applications</Link>; legacy rows not linked to one are listed there with a &quot;legacy form&quot; badge and open here.
           </p>
         </header>
 
-        <ApplicationsTable applications={applications} documentLookup={documentLookup} subjectsByApplication={subjectsByApplication} />
+        <ApplicationsTable applications={applications} documentLookup={documentLookup} subjectsByApplication={subjectsByApplication} initialTab={initialTab} />
       </main>
     </div>
   );

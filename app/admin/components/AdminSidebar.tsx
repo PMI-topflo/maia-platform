@@ -35,6 +35,7 @@ const NAV: Node[] = [
     { label: 'Compliance Outreach', href: '/admin/compliance-outreach' },
     { label: 'Vendor Onboarding', href: '/admin/vendor-onboarding' },
     { label: 'Owners', href: '/admin/owners' },
+    { label: 'People to identify', href: '/admin/pre-registrations' },
     { label: 'Board Setup', href: '/admin/board-setup' },
     { label: 'Ownership History', href: '/admin/ownership-history' },
     { label: 'Tenancy History', href: '/admin/tenancy-history' },
@@ -45,13 +46,15 @@ const NAV: Node[] = [
     { label: 'Reconciliation', href: '/admin/reconciliation' },
     { label: 'Monthly Report', href: '/admin/reports/monthly' },
   ] },
+  // User direction, 2026-09-10: one Applications screen (Open / Approved &
+  // closed tabs) — the "Applications (Checkr)" list is folded into it and
+  // its page is unlisted (Test Environment reachable from Tools). The
+  // people-triage pages (pre-registrations, agent/vendor registrations,
+  // unidentified visitors) are not applications; they live under
+  // Associations as one "People to identify" entry with tabs.
   { type: 'group', label: 'Leasing', icon: '📝', items: [
     { label: 'Applications', href: '/admin/pre-apply' },
-    { label: 'Applications (Checkr)', href: '/admin/applications' },
-    { label: 'Pre-Registrations', href: '/admin/pre-registrations' },
-    { label: 'Registrations', href: '/admin/registrations' },
-    { label: 'Approvals', href: '/admin/pending-approvals' },
-    { label: 'Association Document Setup', href: '/admin/association-document-setup' },
+    { label: 'Association Setup', href: '/admin/association-document-setup' },
   ] },
   { type: 'group', label: 'Flows', icon: '🔀', items: [
     { label: 'Voice & Text Routing', href: '/admin/voice-flow' },
@@ -69,6 +72,7 @@ const NAV: Node[] = [
     { label: 'Ideas', href: '/admin/ideas' },
     { label: 'Skills', href: '/admin/skills' },
     { label: 'Tools', href: '/admin/tools' },
+    { label: 'Checkr Test Environment', href: '/admin/applications?tab=test' },
   ] },
   { type: 'item', label: 'Help', icon: '?', href: '/admin/help' },
   { type: 'item', label: 'Operating Manuals', icon: '📘', href: '/admin/help/manuals' },
