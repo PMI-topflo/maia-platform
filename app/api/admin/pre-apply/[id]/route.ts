@@ -48,6 +48,55 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     supabaseAdmin.from('unit_tenant_contacts').select('tenant_email').eq('association_code', code).eq('unit_ref', unit).maybeSingle(),
   ])
 
+  // Screening subjects are loaded -- and any completed Checkr report not yet
+  // on its applicant's card is FILED -- before the document list below is
+  // read. User report, 2026-09-10 (MANXI 706, twice): the card said "filed on
+  // X's card" while the checklist row stayed empty, because the filing ran
+  // after this route had already read application_documents for that same
+  // response. Order matters: file first, then read.
+  const detailedId = app.detailed_application_id as string | null
+  const [{ data: screeningRows }, { data: paymentRow }] = detailedId
+    ? await Promise.all([
+        supabaseAdmin.from('screening_subjects')
+          .select('id, subject_index, name, stakeholder_id, status, report_url, report_data, completed_at, result, checkr_report_id')
+          .eq('application_id', detailedId).order('subject_index', { ascending: true }),
+        supabaseAdmin.from('applications')
+          .select('stripe_payment_status, stripe_amount_paid').eq('id', detailedId).maybeSingle(),
+      ])
+    : [{ data: null }, { data: null }]
+  // A completed report must sit on its applicant's own "Background / Credit
+  // Reports" card, automatically -- user direction, 2026-09-10 ("make it
+  // this way automatically applying for each applicant the background check
+  // to their card"; the manual "File as document" button is gone). The
+  // webhook files it on completion; this is the safety net for anything it
+  // missed (an unmatched name at the time, a webhook that errored): file it
+  // now, on the way to the page, and tell the card when it still can't
+  // resolve which applicant the report belongs to.
+  const filingBySubject = new Map<string, { filedFor: string | null; warning: string | null }>()
+  if (detailedId && screeningRows?.length) {
+    const { data: filedDocs } = await supabaseAdmin.from('application_documents')
+      .select('stakeholder_id').eq('application_id', id).eq('doc_key', 'background_credit').eq('uploaded_by_role', 'checkr')
+    const filedFor = new Set((filedDocs ?? []).map(d => (d.stakeholder_id as string | null) ?? '__unscoped__'))
+    let attempts = 0
+    for (const s of screeningRows) {
+      if (s.status !== 'complete' || !s.checkr_report_id || attempts >= 2) continue
+      const key = (s.stakeholder_id as string | null) ?? '__unscoped__'
+      // Already on a card (scoped) -> nothing to do. An unscoped copy with an
+      // unknown applicant is exactly the case to retry: the matcher may
+      // resolve it now that names/emails have been corrected.
+      if (s.stakeholder_id && filedFor.has(key)) continue
+      attempts++
+      try {
+        const r = await regenerateMergedReport({
+          id: String(s.id), application_id: detailedId, name: (s.name as string | null) ?? null,
+          stakeholder_id: (s.stakeholder_id as string | null) ?? null, checkr_report_id: String(s.checkr_report_id),
+        })
+        filingBySubject.set(String(s.id), { filedFor: r.stakeholderName, warning: r.warning })
+      } catch (e) {
+        filingBySubject.set(String(s.id), { filedFor: null, warning: `could not be filed: ${(e as Error).message}` })
+      }
+    }
+  }
   const [shRes, stakeholdersRes, docsRes, checklist] = await Promise.all([
     supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', id).eq('role', 'applicant').eq('is_primary', true).maybeSingle(),
     supabaseAdmin.from('application_stakeholders').select('id, role, name, email, phone, is_primary, status, signed_at, rules_ack_name, email_verified_at, applicant_role, credit_score, vehicle_has, vehicle_declared_at, tax_returns_has, tax_returns_declared_at').eq('application_id', id).order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
@@ -151,16 +200,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   // app/api/board/review/route.ts already use, just walked in the other
   // direction). Nothing to show until an association is on maia_checkr AND
   // this application has actually been handed off.
-  const detailedId = app.detailed_application_id as string | null
-  const [{ data: screeningRows }, { data: paymentRow }] = detailedId
-    ? await Promise.all([
-        supabaseAdmin.from('screening_subjects')
-          .select('id, subject_index, name, stakeholder_id, status, report_url, report_data, completed_at, result, checkr_report_id')
-          .eq('application_id', detailedId).order('subject_index', { ascending: true }),
-        supabaseAdmin.from('applications')
-          .select('stripe_payment_status, stripe_amount_paid').eq('id', detailedId).maybeSingle(),
-      ])
-    : [{ data: null }, { data: null }]
   // Staff report, 2026-09-06 (Querline Pinckney, MANXI 912): the badge only
   // ever showed the LATEST status, with no way to see what Checkr actually
   // sent over time (was there ever a report.completed event, or has it sat
@@ -169,39 +208,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   // pushes {received_at, type, payload} onto for every delivery -- surfaced
   // here as a compact type+timestamp history, raw payloads left out to keep
   // the response small.
-  // A completed report must sit on its applicant's own "Background / Credit
-  // Reports" card, automatically -- user direction, 2026-09-10 ("make it
-  // this way automatically applying for each applicant the background check
-  // to their card"; the manual "File as document" button is gone). The
-  // webhook files it on completion; this is the safety net for anything it
-  // missed (an unmatched name at the time, a webhook that errored): file it
-  // now, on the way to the page, and tell the card when it still can't
-  // resolve which applicant the report belongs to.
-  const filingBySubject = new Map<string, { filedFor: string | null; warning: string | null }>()
-  if (detailedId && screeningRows?.length) {
-    const { data: filedDocs } = await supabaseAdmin.from('application_documents')
-      .select('stakeholder_id').eq('application_id', id).eq('doc_key', 'background_credit').eq('uploaded_by_role', 'checkr')
-    const filedFor = new Set((filedDocs ?? []).map(d => (d.stakeholder_id as string | null) ?? '__unscoped__'))
-    let attempts = 0
-    for (const s of screeningRows) {
-      if (s.status !== 'complete' || !s.checkr_report_id || attempts >= 2) continue
-      const key = (s.stakeholder_id as string | null) ?? '__unscoped__'
-      // Already on a card (scoped) -> nothing to do. An unscoped copy with an
-      // unknown applicant is exactly the case to retry: the matcher may
-      // resolve it now that names/emails have been corrected.
-      if (s.stakeholder_id && filedFor.has(key)) continue
-      attempts++
-      try {
-        const r = await regenerateMergedReport({
-          id: String(s.id), application_id: detailedId, name: (s.name as string | null) ?? null,
-          stakeholder_id: (s.stakeholder_id as string | null) ?? null, checkr_report_id: String(s.checkr_report_id),
-        })
-        filingBySubject.set(String(s.id), { filedFor: r.stakeholderName, warning: r.warning })
-      } catch (e) {
-        filingBySubject.set(String(s.id), { filedFor: null, warning: `could not be filed: ${(e as Error).message}` })
-      }
-    }
-  }
   const screeningSubjects = (screeningRows ?? []).map(s => {
     const completedAt = (s.completed_at as string | null) ?? null
     const rawHistory = Array.isArray(s.result) ? s.result : s.result ? [s.result] : []
