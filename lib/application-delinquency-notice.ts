@@ -37,7 +37,21 @@ const firstEmail = (raw: unknown) => {
  *  the CURRENT balance is still positive, it's aged past 30 days. Fails
  *  CLOSED (treats as not delinquent) on any CINC error or empty ledger — an
  *  outage or a unit CINC has no history for must never scare an applicant. */
-export async function isOpenBalanceOver30Days(assoc: string, account: string): Promise<boolean> {
+export interface BalanceAging {
+  /** Balance owed today (positive means the owner owes). */
+  balance: number
+  /** ISO date the balance has been continuously above zero since (the day
+   *  after the last $0 line, or the first ledger line in the lookback). */
+  since: string
+  /** Whole days from `since` to today. */
+  days: number
+}
+
+/** The balance-aging facts behind the notices: current owed balance and how
+ *  long it has been continuously above zero. Null when there is nothing
+ *  owed, the ledger is empty, or CINC errors — fails CLOSED, same as the
+ *  boolean below. */
+export async function openBalanceAging(assoc: string, account: string): Promise<BalanceAging | null> {
   try {
     const today = new Date()
     const from = new Date(today); from.setUTCFullYear(from.getUTCFullYear() - 2)
@@ -45,15 +59,25 @@ export async function isOpenBalanceOver30Days(assoc: string, account: string): P
     const toDate = today.toISOString().slice(0, 10)
     const rows = await getHomeownerLedger({ assocCode: assoc, hoId: account, fromDate, toDate })
     const lines = normalizeLedger(rows, fromDate, toDate)
-    if (!lines.length) return false
+    if (!lines.length) return null
     const current = lines[lines.length - 1].balance
-    if (current <= 0) return false
+    if (current <= 0) return null
     let lastZero: string | null = null
     for (const l of lines) if (l.balance <= 0) lastZero = l.date
-    const since = lastZero ?? lines[0].date
-    const days = (Date.now() - new Date(`${since}T00:00:00Z`).getTime()) / 86_400_000
-    return days > 30
-  } catch { return false }
+    // The balance became positive on the first charge AFTER the last $0 line
+    // (that is the date the owner will recognise on their statement).
+    const firstOwed = lastZero ? lines.find(l => l.date > lastZero! && l.balance > 0)?.date ?? lastZero : lines[0].date
+    const days = (Date.now() - new Date(`${firstOwed}T00:00:00Z`).getTime()) / 86_400_000
+    return { balance: current, since: firstOwed, days }
+  } catch { return null }
+}
+
+/** True once an account has been continuously in a positive (owed) balance
+ *  for more than 30 days — not just "has some balance right now." User
+ *  decision, 2026-09-10: this threshold stays at 30 days. */
+export async function isOpenBalanceOver30Days(assoc: string, account: string): Promise<boolean> {
+  const aging = await openBalanceAging(assoc, account)
+  return !!aging && aging.days > 30
 }
 
 interface OwnerContact { name: string; email: string }
@@ -78,11 +102,21 @@ export async function resolveUnit(assoc: string, unit: string): Promise<{ owners
   return { owners, accountNumber, assocName }
 }
 
-function ownerNoticeHtml(o: { unit: string; assocName: string }): string {
+const money = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const longDate = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' })
+
+// User direction, 2026-09-10 (MANXI 603): the OWNER's notice states the
+// amount and since when, so nobody has to guess what "account issue" means.
+// The applicant/agent risk notice deliberately stays vague — the owner's
+// balance is the owner's business.
+function ownerNoticeHtml(o: { unit: string; assocName: string; aging: BalanceAging | null }): string {
+  const detail = o.aging
+    ? `Your account currently shows an open balance of <strong>${esc(money(o.aging.balance))}</strong>, unpaid since <strong>${esc(longDate(o.aging.since))}</strong> (${Math.floor(o.aging.days)} days).`
+    : `Your account currently shows an <strong>open balance more than 30 days past due</strong>.`
   return `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
     <p>Dear Owner,</p>
     <p>We've received a new application for <strong>Unit ${esc(o.unit)}</strong> at <strong>${esc(o.assocName)}</strong>.</p>
-    <p>Your account currently shows an <strong>open balance more than 30 days past due</strong>. This application <strong>cannot be approved until the balance is settled</strong>.</p>
+    <p>${detail} This application <strong>cannot be approved until the balance is settled</strong>.</p>
     <p>Please contact us to resolve this so the application can move forward.</p>
     <p style="margin:4px 0">✉ <a href="mailto:ar@topfloridaproperties.com">ar@topfloridaproperties.com</a> · ☎ (305) 900-5077</p>
     <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p>
@@ -108,10 +142,11 @@ export async function notifyDelinquencyOnApplicationOpen(input: {
   try {
     const { owners, accountNumber, assocName } = await resolveUnit(input.associationCode, input.unitLabel)
     if (!accountNumber) return
-    if (!(await isOpenBalanceOver30Days(input.associationCode, accountNumber))) return
+    const aging = await openBalanceAging(input.associationCode, accountNumber)
+    if (!aging || aging.days <= 30) return
 
     for (const o of owners) {
-      try { await sendEmail({ to: o.email, subject: `Application on Unit ${input.unitLabel} — outstanding balance must be resolved`, html: ownerNoticeHtml({ unit: input.unitLabel, assocName }) }) } catch { /* continue */ }
+      try { await sendEmail({ to: o.email, subject: `Application on Unit ${input.unitLabel} — outstanding balance of ${money(aging.balance)} must be resolved`, html: ownerNoticeHtml({ unit: input.unitLabel, assocName, aging }) }) } catch { /* continue */ }
     }
     if (input.applicant.email) {
       try { await sendEmail({ to: input.applicant.email, subject: `Application on Unit ${input.unitLabel} — important notice`, html: riskNoticeHtml({ unit: input.unitLabel, assocName }) }) } catch { /* continue */ }
