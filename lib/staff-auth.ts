@@ -30,3 +30,12 @@ export async function requireOwnerSession(): Promise<SessionData | null> {
   const email = typeof session.userId === 'string' ? session.userId.trim().toLowerCase() : ''
   return OWNER_EMAILS.has(email) ? session : null
 }
+
+/** The staff member's name for audit fields (decided_by, created_by, recorded_by).
+ *  Sessions minted before 2026-09-10 carry no name (only the login email in
+ *  userId), so fall back to that rather than writing an empty string. */
+export function staffLabel(session: SessionData): string {
+  const name = (session.contactName || session.displayName || '').trim()
+  if (name) return name
+  return typeof session.userId === 'string' && session.userId.includes('@') ? session.userId : 'staff'
+}

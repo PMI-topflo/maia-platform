@@ -66,7 +66,17 @@ export async function POST(req: NextRequest) {
   let sessionPersona: 'owner' | 'board' | 'staff' | 'tenant' | 'unit_manager' | 'building_manager' = 'owner'
 
   if (role) {
-    if (role.type === 'staff')            { userId = identifier.trim();          sessionPersona = 'staff';            assocCode = 'PMI' }
+    if (role.type === 'staff') {
+      userId = identifier.trim(); sessionPersona = 'staff'; assocCode = 'PMI'
+      // Staff sessions used to carry NO name at all (displayName/contactName
+      // empty), so every "decided_by: session.displayName" wrote a blank —
+      // real symptom, 2026-09-10: "approved a document — Unit 801" with
+      // nobody in front of it, and letters created by "staff:". Resolve the
+      // person from the staff directory; fall back to the login email.
+      const staffRow = await resolveStaffByLoginEmail(identifier.trim()).catch(() => null)
+      contactName = staffRow?.name?.trim() || identifier.trim()
+      displayName = contactName
+    }
     if (role.type === 'owner')            { userId = role.owner_id;              sessionPersona = 'owner';            assocCode = role.association_code; displayName = role.association_name; contactName = [role.firstName, role.lastName].filter(Boolean).join(' ') }
     if (role.type === 'board')            { userId = role.board_member_id;       sessionPersona = 'board';            assocCode = role.association_code; displayName = role.association_name; contactName = [role.firstName, role.lastName].filter(Boolean).join(' ') }
     if (role.type === 'tenant')           { userId = identifier.trim();          sessionPersona = 'tenant';           assocCode = role.association_code; displayName = role.association_name }

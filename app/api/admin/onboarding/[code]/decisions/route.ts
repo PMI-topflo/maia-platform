@@ -20,7 +20,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { requireStaffSession } from '@/lib/staff-auth'
+import { requireStaffSession, staffLabel } from '@/lib/staff-auth'
 import { recordDecisions, type Attribution } from '@/lib/onboarding'
 import { isFactKey } from '@/lib/onboarding-catalog'
 
@@ -50,7 +50,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
   const allFacts = items.every(i => isFactKey(i.key))
   let attribution: Attribution
   if (allFacts) {
-    attribution = { decidedBy: session.displayName, role: 'staff', source: 'staff_confirmed', sourceRef: null }
+    attribution = { decidedBy: staffLabel(session), role: 'staff', source: 'staff_confirmed', sourceRef: null }
   } else if (a.kind === 'board') {
     const id = String(a.boardMemberId ?? '')
     if (!id) return NextResponse.json({ error: 'Choose the board member who decided' }, { status: 400 })
@@ -63,14 +63,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     if (!sourceRef) return NextResponse.json({ error: source === 'meeting' ? 'Enter the meeting date' : 'Enter the date of the consent email' }, { status: 400 })
     attribution = { decidedBy: `${m.name}${m.role ? ` (${m.role})` : ''}`, role: 'board', source, sourceRef }
   } else if (a.kind === 'existing_config') {
-    attribution = { decidedBy: session.displayName, role: 'staff', source: 'existing_config', sourceRef: null }
+    attribution = { decidedBy: staffLabel(session), role: 'staff', source: 'existing_config', sourceRef: null }
   } else {
     // Facts only — recordDecisions rejects a non-fact item under this attribution.
-    attribution = { decidedBy: session.displayName, role: 'staff', source: 'staff_confirmed', sourceRef: null }
+    attribution = { decidedBy: staffLabel(session), role: 'staff', source: 'staff_confirmed', sourceRef: null }
   }
 
   try {
-    const decisions = await recordDecisions(upper, items, attribution, session.displayName)
+    const decisions = await recordDecisions(upper, items, attribution, staffLabel(session))
     return NextResponse.json({ ok: true, decisions })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 })

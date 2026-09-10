@@ -9,7 +9,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { requireStaffSession } from '@/lib/staff-auth'
+import { requireStaffSession, staffLabel } from '@/lib/staff-auth'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../../../components/AdminNav'
 import OnboardingClient from './OnboardingClient'
@@ -32,7 +32,7 @@ export default async function OnboardingPage({ params }: { params: Promise<{ cod
         <div className="mb-1 text-xs text-gray-400">
           <Link href="/admin/cinc-sync" className="hover:text-[#f26a1b]">Associations</Link> / <Link href={`/admin/cinc-sync/${upper}`} className="hover:text-[#f26a1b]">{assoc.association_name}</Link> / Onboarding
         </div>
-        <OnboardingClient code={upper} name={String(assoc.association_name ?? upper)} staffName={session.displayName} />
+        <OnboardingClient code={upper} name={String(assoc.association_name ?? upper)} staffName={staffLabel(session)} />
       </main>
     </div>
   )

@@ -101,7 +101,14 @@ export interface BoardApproveResult {
 }
 export type BoardApproveOutcome = BoardApprovePreview | BoardApproveResult | { error: string }
 
-export async function runBoardApprove(applicationId: string, opts: { dryRun?: boolean; approvedByRole?: 'onsite_manager' | 'board' | 'staff' } = {}): Promise<BoardApproveOutcome> {
+export async function runBoardApprove(applicationId: string, opts: {
+  dryRun?: boolean; approvedByRole?: 'onsite_manager' | 'board' | 'staff'
+  /** Staff uploaded a letter the board signed OUTSIDE MAIA (paper / email).
+   *  The uploaded PDF is the signed decision, so the e-sign "fully signed"
+   *  gate below is satisfied by it. Only /api/admin/pre-apply/[id]/signed-
+   *  letter sets this, after filing the PDF as board_approval_letter. */
+  signedLetterUploaded?: boolean
+} = {}): Promise<BoardApproveOutcome> {
   const { data: app } = await supabaseAdmin.from('listing_applications')
     .select('id, association_code, unit_label, application_type, status, drive_folder_id').eq('id', applicationId).maybeSingle()
   if (!app) return { error: 'application not found' }
@@ -117,7 +124,7 @@ export async function runBoardApprove(applicationId: string, opts: { dryRun?: bo
   // anything, which defeats the point of the automatic, signature-driven
   // trigger. Preview (dryRun) is unaffected — it's read-only and useful to
   // sanity-check before the board has signed.
-  if (!opts.dryRun) {
+  if (!opts.dryRun && !opts.signedLetterUploaded) {
     const unitLabel = String(app.unit_label ?? '')
     const { data: letter } = await supabaseAdmin.from('esign_documents')
       .select('status').eq('kind', 'board_decision')

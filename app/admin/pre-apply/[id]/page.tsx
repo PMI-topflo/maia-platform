@@ -1161,6 +1161,7 @@ function DecisionPageSender({ id, unit }: { id: string; unit: string | null }) {
               alert(`Sent the signed approval letter to ${j.sent} recipient(s).`)
             } catch (e) { alert((e as Error).message) } finally { setBusy(false) }
           }} disabled={busy} style={{ ...btn('#0f766e'), alignSelf: 'flex-start' }}>📤 Send signed letter to all parties</button>
+          <SignedLetterUpload id={id} />
         </div>
       ) : (
         <div>
@@ -3004,3 +3005,45 @@ const wrap: React.CSSProperties = { maxWidth: 780, margin: '0 auto', padding: 24
 const h2: React.CSSProperties = { fontSize: 15, fontWeight: 700, color: '#1f2a44', margin: '22px 0 6px' }
 const btn = (bg: string): React.CSSProperties => ({ padding: '9px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', background: bg, color: '#fff', font: '600 13px system-ui' })
 const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 8, boxSizing: 'border-box' }
+
+// The board signed OUTSIDE MAIA (paper, email) — staff upload that letter and
+// MAIA does everything the last e-signature would have: files it as the Board
+// Approval Letter, voids the unsigned MAIA letter, runs the Official/Archive
+// filing, marks the application approved, and (optionally) emails it to all
+// parties. User report, 2026-09-10 (MANXI 801): "can't find where to upload
+// the approval letter."
+function SignedLetterUpload({ id }: { id: string }) {
+  const [busy, setBusy] = useState(false)
+  const [distribute, setDistribute] = useState(true)
+  const [msg, setMsg] = useState<string | null>(null)
+  const inputId = `signed-letter-${id}`
+  async function onFile(file: File | null) {
+    if (!file) return
+    if (!confirm(`Upload "${file.name}" as the board-signed approval letter? MAIA will file it, cancel the unsigned MAIA letter, file to Official/Archive and mark this application APPROVED${distribute ? ', then email it to all parties' : ''}.`)) return
+    setBusy(true); setMsg(null)
+    try {
+      const u = await fetch(`/api/admin/pre-apply/${id}/upload-url`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doc_key: 'board_approval_letter', filename: file.name }) })
+      const uj = await u.json(); if (!u.ok) throw new Error(uj.error || 'could not start upload')
+      const put = await fetch(uj.signedUrl, { method: 'PUT', body: file, headers: { 'content-type': file.type || 'application/pdf' } })
+      if (!put.ok) throw new Error('upload to storage failed')
+      const r = await fetch(`/api/admin/pre-apply/${id}/signed-letter`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ storage_path: uj.path, filename: file.name, mime_type: file.type, distribute }) })
+      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed')
+      alert(`Signed letter filed and the application is approved.${j.distributed != null ? ` Emailed to ${j.distributed} recipient(s).` : ''}`)
+      window.location.reload()
+    } catch (e) { setMsg((e as Error).message) } finally { setBusy(false) }
+  }
+  return (
+    <div style={{ marginTop: 6, border: '1px dashed #d1d5db', borderRadius: 10, padding: '10px 12px', background: '#fafafa' }}>
+      <div style={{ font: '600 12.5px system-ui', color: '#374151' }}>Board signed outside MAIA?</div>
+      <div style={{ font: '12px system-ui', color: '#6b7280', margin: '2px 0 8px' }}>Upload the signed letter (PDF or photo). MAIA files it, cancels the unsigned MAIA letter, files to Official/Archive and marks this application approved.</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <input id={inputId} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.webp" style={{ display: 'none' }} onChange={e => onFile(e.target.files?.[0] ?? null)} />
+        <label htmlFor={inputId} style={{ cursor: busy ? 'default' : 'pointer', font: '600 12.5px system-ui', color: '#fff', background: busy ? '#c9ccd3' : '#4338ca', borderRadius: 8, padding: '7px 12px' }}>{busy ? 'Filing…' : '📎 Upload signed approval letter'}</label>
+        <label style={{ font: '12px system-ui', color: '#374151', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <input type="checkbox" checked={distribute} onChange={e => setDistribute(e.target.checked)} /> Also email it to all parties
+        </label>
+      </div>
+      {msg && <div style={{ font: '12px system-ui', color: '#b91c1c', marginTop: 6 }}>{msg}</div>}
+    </div>
+  )
+}
