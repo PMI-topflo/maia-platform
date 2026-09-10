@@ -82,9 +82,24 @@ export async function POST(req: Request) {
       const swapFlag = (details.tenantNames || []).some(t => isOwnerName(t))
       const ownerName = ownerNames.join(' & ')
       const tenantName = tenants.join(', ') || null
-      const leaseEnd = details.leaseEnd || (kind === 'purchase' ? null : row.expiry || plusOneYear(row.approvalDate))
-      const leaseStart = details.leaseStart || null
-      const expiry = kind === 'purchase' ? null : leaseEnd
+      // An "Additional Resident" certificate is NOT a lease. Real case,
+      // 2026-09-10 (MANXI 608): the owner (a board member) added her fiancé;
+      // this import dropped her name as "the owner", kept him as the tenant,
+      // invented a lease end of approval + 1 year and marked the unit LEASED
+      // -- so the weekly expired-leases digest listed an owner-occupied unit.
+      //   - owner named on the letter  -> owner-occupied; no tenant record,
+      //     no lease dates, no approval-letter expiry
+      //   - otherwise (leased unit adding a resident) -> keep the existing
+      //     tenant record's dates; add the name; never invent an end date
+      const additionalOwnerOccupied = kind === 'additional' && swapFlag
+      const existingTenant = kind === 'additional' && !additionalOwnerOccupied
+        ? (await supabaseAdmin.from('unit_tenant_contacts').select('tenant_name, lease_start, lease_end').eq('association_code', 'MANXI').eq('unit_ref', unit).maybeSingle()).data
+        : null
+      const leaseEnd = kind === 'additional'
+        ? (details.leaseEnd || row.expiry || (existingTenant?.lease_end as string | null) || null)
+        : (details.leaseEnd || (kind === 'purchase' ? null : row.expiry || plusOneYear(row.approvalDate)))
+      const leaseStart = details.leaseStart || (existingTenant?.lease_start as string | null) || null
+      const expiry = kind === 'purchase' || additionalOwnerOccupied ? null : leaseEnd
 
       Object.assign(res, {
         tenant: tenantName, tenantEmail: details.tenantEmail, tenantPhone: details.tenantPhone,
@@ -99,11 +114,22 @@ export async function POST(req: Request) {
       // 2. tenant record + mark the unit LEASED (leases/renewals/additional —
       //    not purchases). The occupancy flag is what the audit counts as
       //    "Leased" and what makes the unit page show its tenancy section.
-      if (kind !== 'purchase') {
-        if (tenantName || leaseStart || leaseEnd || details.tenantEmail || details.tenantPhone) {
+      if (additionalOwnerOccupied) {
+        await supabaseAdmin.from('unit_occupancy').upsert({
+          association_code: 'MANXI', unit_ref: unit, status: 'owner_occupied',
+          updated_by: `staff:${session.displayName} (approval move — additional resident, owner-occupied)`, updated_at: new Date().toISOString(),
+        }, { onConflict: 'association_code,unit_ref' })
+        res.note = 'additional resident on an owner-occupied unit — no tenant record, no lease dates'
+      } else if (kind !== 'purchase') {
+        // On an additional-resident letter, merge the new name onto the
+        // existing tenant list instead of replacing it.
+        const mergedTenantName = kind === 'additional' && existingTenant?.tenant_name
+          ? [...new Set([...String(existingTenant.tenant_name).split(',').map(x => x.trim()), ...tenants])].filter(Boolean).join(', ')
+          : tenantName
+        if (mergedTenantName || leaseStart || leaseEnd || details.tenantEmail || details.tenantPhone) {
           await supabaseAdmin.from('unit_tenant_contacts').upsert({
             association_code: 'MANXI', unit_ref: unit,
-            tenant_name: tenantName, lease_start: leaseStart, lease_end: leaseEnd,
+            tenant_name: mergedTenantName, lease_start: leaseStart, lease_end: leaseEnd,
             ...(details.tenantEmail ? { tenant_email: details.tenantEmail } : {}),
             ...(details.tenantPhone ? { tenant_phone: details.tenantPhone } : {}),
             updated_by: `staff:${session.displayName} (approval move)`, updated_at: new Date().toISOString(),
