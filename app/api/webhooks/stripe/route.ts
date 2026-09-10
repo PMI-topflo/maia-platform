@@ -158,7 +158,7 @@ async function handleRescreeningPayment(session: Stripe.Checkout.Session) {
 
     const staffTo = "support@topfloridaproperties.com";
     const staffSubject = `[Re-screening paid] ${listingApp?.association_code ?? "—"} · Unit ${listingApp?.unit_label ?? "—"}`;
-    const staffText = `Re-screening payment received.\nAssociation: ${listingApp?.association_code}\nUnit: ${listingApp?.unit_label}\nPaid: $${((session.amount_total || 0) / 100).toFixed(2)}\nlisting_applications.id: ${listingApplicationId}`;
+    const staffText = `Re-screening payment received.\nAssociation: ${listingApp?.association_code}\nUnit: ${listingApp?.unit_label}\nPaid: $${((session.amount_total || 0) / 100).toFixed(2)}\n\nOpen application: ${process.env.NEXT_PUBLIC_APP_URL ?? "https://www.pmitop.com"}/admin/pre-apply/${listingApplicationId}`;
     try {
       const { messageId } = await sendEmail({ to: staffTo, subject: staffSubject, text: staffText });
       void logEmail({ toEmail: staffTo, subject: staffSubject, fullBody: staffText, persona: "buyer", resendMessageId: messageId });
@@ -193,21 +193,40 @@ async function sendApplicantEmail(app: Record<string, unknown>, session: Stripe.
 }
 
 async function sendTeamEmail(app: Record<string, unknown>, session: Stripe.Checkout.Session) {
+  // User direction, 2026-09-10: staff emails must always carry the
+  // association, the unit/account and a link to the application — not an
+  // opaque "PMI-XXXXXXXX" code. The pipeline application (listing_applications)
+  // that bridges to this legacy row is what staff actually work in, so link
+  // there whenever one exists; fall back to the legacy screen only for an
+  // unbridged old-form application.
   const refNum = "PMI-" + (app.id as string).slice(0, 8).toUpperCase();
   const applicants = app.applicants as Array<Record<string, string>> | null;
   const principals = app.principals as Array<Record<string, string>> | null;
+  const names = app.app_type === "commercial"
+    ? (principals || []).map(p => p.name).filter(Boolean)
+    : (applicants || []).map(a => [a.firstName, a.lastName].filter(Boolean).join(" ")).filter(Boolean);
   const list = app.app_type === "commercial"
     ? (principals || []).map((p, i) => `Principal ${i + 1}: ${p.name}`).join("\n")
     : (applicants || []).map((a, i) => `Applicant ${i + 1}: ${a.firstName} ${a.lastName} · ${a.email}`).join("\n");
-  const subject = `[New Application] ${app.association} · ${refNum}`;
-  // User report, 2026-09-09: this email had no way back to the application
-  // at all — just a raw Supabase id at the bottom, nothing clickable. Same
-  // fix as the additional-document-upload notification (app/api/apply/
-  // documents/[id]/route.ts): deep-link into /admin/applications' stable
-  // per-row anchor, since this old `applications` table has no dedicated
-  // admin detail page.
-  const appLink = `${process.env.NEXT_PUBLIC_APP_URL}/admin/applications#app-row-${app.id}`;
-  const text = `NEW APPLICATION — ${refNum}\nAssociation: ${app.association}\nType: ${app.app_type}\nPaid: $${((session.amount_total || 0) / 100).toFixed(2)}\n\n${list}\n\nOpen application: ${appLink}\n\nSupabase ID: ${app.id}`;
+  const { data: bridged } = await supabase.from("listing_applications")
+    .select("id, association_code, unit_label, application_type").eq("detailed_application_id", app.id as string).maybeSingle();
+  const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.pmitop.com";
+  const appLink = bridged ? `${base}/admin/pre-apply/${bridged.id}` : `${base}/admin/applications#app-row-${app.id}`;
+  const unit = (bridged?.unit_label as string | null) ?? null;
+  const amount = `$${((session.amount_total || 0) / 100).toFixed(2)}`;
+  const subject = `Application fee paid — ${app.association}${unit ? ` · Unit ${unit}` : ""} · ${names[0] ?? refNum}`;
+  const text = [
+    `APPLICATION FEE PAID — ${amount}`,
+    ``,
+    `Association: ${app.association}${bridged?.association_code ? ` (${bridged.association_code})` : ""}`,
+    `Unit: ${unit ?? "not linked to a unit application yet"}`,
+    `Type: ${(bridged?.application_type as string | null) ?? app.app_type}`,
+    `Reference: ${refNum}`,
+    ``,
+    list,
+    ``,
+    `Open application: ${appLink}`,
+  ].join("\n");
   try {
     const { messageId } = await sendEmail({ to: "support@topfloridaproperties.com", subject, text });
     void logEmail({ toEmail: "support@topfloridaproperties.com", subject, fullBody: text, persona: 'buyer', resendMessageId: messageId });

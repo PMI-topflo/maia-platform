@@ -9,7 +9,6 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { resolveUnitsAuth } from '@/lib/units-portal-auth'
 import { INTAKE_BUCKET } from '@/lib/preapply'
 import { mirrorFileToOngoing } from '@/lib/drive-application-mirror'
-import { sendEmail } from '@/lib/gmail'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -17,8 +16,6 @@ export const maxDuration = 120
 
 const MAX_BYTES = 25 * 1024 * 1024
 const ALLOWED = /\.(pdf|jpe?g|png|heic|webp)$/i
-const NOTIFY = (process.env.UNIT_UPLOAD_NOTIFY_EMAILS ?? 'PMI@topfloridaproperties.com,ar@topfloridaproperties.com')
-  .split(',').map(s => s.trim()).filter(Boolean)
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   let form: FormData
@@ -70,21 +67,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     associationCode: String(app.association_code),
   }).catch(() => null)
 
-  // Tell PMI + Jonathan so they scan, read, and confirm it into MAIA.
-  if (NOTIFY.length) {
-    const whoLabel = auth.persona === 'board' ? 'A board member' : auth.persona === 'building_manager' ? 'The on-site manager' : 'Staff'
-    void sendEmail({
-      to: NOTIFY,
-      subject: `Application document uploaded — ${auth.assoc} Unit ${app.unit_label ?? '—'} · ${docLabel}`,
-      html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6;max-width:520px">
-        <p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#f26a1b;font-weight:700;margin:0 0 4px">PMI Top Florida Properties</p>
-        <h2 style="margin:0 0 8px;color:#1f2a44">A document was uploaded for review</h2>
-        <p>${whoLabel} uploaded <strong>${docLabel}</strong> for <strong>${auth.assoc}, Unit ${app.unit_label ?? '—'}</strong> (${sh?.name ? String(sh.name) : 'applicant'}).</p>
-        <p>Please scan, read, and confirm it into MAIA.</p>
-        <p><a href="${process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'}/admin/pre-apply/${id}" style="color:#2563eb;font-weight:600">Open the application →</a></p>
-      </div>`,
-    }).catch(() => null)
-  }
+  // No per-document email (user direction, 2026-09-10) — the daily
+  // Applications-to-review digest lists applications with new documents.
 
   return NextResponse.json({ ok: true })
 }
