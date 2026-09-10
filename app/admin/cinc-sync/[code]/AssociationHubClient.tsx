@@ -69,6 +69,7 @@ export interface AssociationHubData {
   documentRequirementsCount: number
   recurringServicesCount:    number
   insurancePoliciesCount:    number
+  onboarding:                { status: 'not_started' | 'draft' | 'adopted'; decided: number; pending: number; adoptedAt: string | null } | null
 }
 
 // Friendly labels for the association_type stored in the associations table
@@ -676,6 +677,7 @@ function OnboardingChecklistCard({ data, onOpenTab }: { data: AssociationHubData
   ]
   return (
     <Card title="Onboarding Checklist">
+      <OnboardingQuestionnaireLink data={data} />
       <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Required</div>
       <ul className="mb-3 space-y-1 text-sm">
         {required.map(r => (
@@ -870,5 +872,25 @@ function LinkVendorModal({ assocCode, assocName, onClose, onLinked }: { assocCod
         </div>
       </div>
     </div>
+  )
+}
+
+// The guided questionnaire (/admin/cinc-sync/[code]/onboarding) — every
+// answer a timestamped board decision, applied to live settings only on
+// adoption. Applications scope today; compliance/operations sections later.
+function OnboardingQuestionnaireLink({ data }: { data: AssociationHubData }) {
+  const o = data.onboarding
+  const status = !o || o.status === 'not_started' ? 'Not started'
+    : o.status === 'adopted' && o.pending === 0 ? `Adopted · ${o.decided} decisions`
+    : `${o.decided} decided · ${o.pending} pending adoption`
+  const tone = !o || o.status === 'not_started' ? 'text-gray-500' : o.status === 'adopted' && o.pending === 0 ? 'text-emerald-700' : 'text-amber-700'
+  return (
+    <Link href={`/admin/cinc-sync/${data.code}/onboarding`} className="mb-3 block rounded border border-[#f26a1b]/40 bg-orange-50 px-3 py-2 hover:border-[#f26a1b]">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-gray-900">Onboarding questionnaire</span>
+        <span className="text-[10px] text-[#f26a1b]">→</span>
+      </div>
+      <div className={`text-[11px] ${tone}`}>{status}</div>
+    </Link>
   )
 }

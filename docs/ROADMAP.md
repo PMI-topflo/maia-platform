@@ -158,6 +158,12 @@ Real Citizens "Dwelling Fire DP-3 Unit Owners Special Form" policy (MANXI unit 9
 
 ---
 
+## 🟡 PARTIAL — association onboarding questionnaire (applications scope built 2026-09-09, not yet run live)
+
+Guided setup per association: every answer a timestamped, attributed board decision (append-only `association_onboarding_decisions`), applied to the live config tables only on adoption at a board meeting. Built: identity facts, applications & screening, eligibility rules, document checklist grid, board & approvals, review & adopt. `/admin/cinc-sync/[code]/onboarding`. 🔴 Not built: governing-documents upload → MAIA rule proposals, board-side self-answering page, Rules & Regulations redraft (staff review before publish — user decision), compliance/operations/residents sections. Migration `20260909_association_onboarding.sql` must be applied from `/admin/tools` first. Detail: `docs/SESSION-HANDOFF.md` top entry.
+
+---
+
 ## ✅ LIVE — never let two people open separate applications for one unit (MANXI 802/1002, 2026-08-30)
 
 Real incident: MANXI 802 ended up with 4 separate `listing_applications` rows because the existing "resume instead of duplicate" check only caught the SAME email reopening the link — a genuinely different person (owner, second tenant, co-tenant) still got their own parallel application. `POST /api/pre-apply/start` now checks for an already-open primary-occupancy application on the unit before creating anything (`8fe38db`): a verified owner (real `owners.emails`/`owners.phone` match) or any non-owner role (agent, tenant, co-applicant) auto-joins the existing application directly instead of spawning a new one — they already self-identified their role on the initial persona card (`7cfa397`, extending `8fe38db`'s owner-only auto-join to every role). An unverified owner claim is the one case that still blocks and routes to staff, since that's the one role MAIA can actually check against real data and a false claim carries real financial/legal stakes. Every auto-join sends a lightweight FYI notification (staff + best-effort the existing lead) so it stays visible and reversible.

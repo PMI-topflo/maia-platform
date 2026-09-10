@@ -112,14 +112,20 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
   const type = String(app.application_type ?? '')
   const code = String(app.association_code ?? '')
   const detailedId = (app.detailed_application_id as string | null) ?? null
-  const [checklist, docsRes, reviewsRes, peopleRes, assocRes, subjectsRes] = await Promise.all([
+  const [checklist, docsRes, reviewsRes, peopleRes, assocRes, subjectsRes, boardCfgRes] = await Promise.all([
     isApplicationType(type) ? getIntakeChecklist(code, type) : Promise.resolve([] as IntakeDoc[]),
     supabaseAdmin.from('application_documents').select('id, doc_key, filename, stakeholder_id, created_at').eq('application_id', applicationId),
     supabaseAdmin.from('application_document_reviews').select('scope_key, decision, reason, decided_by, decided_by_role, decided_at').eq('application_id', applicationId),
     supabaseAdmin.from('application_stakeholders').select('id, name, applicant_role, is_primary, vehicle_has, vehicle_declared_at, tax_returns_has, tax_returns_declared_at').eq('application_id', applicationId).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('associations').select('pets_allowed').eq('association_code', code).maybeSingle(),
     detailedId ? supabaseAdmin.from('screening_subjects').select('completed_at').eq('application_id', detailedId) : Promise.resolve({ data: [] as { completed_at: string | null }[], error: null }),
+    supabaseAdmin.from('board_approval_config').select('decision_window_days').eq('association_code', code).eq('purpose', 'application').maybeSingle(),
   ])
+  // The board's own decision window from the onboarding questionnaire
+  // (board_approval_config.decision_window_days). Consulted before the
+  // per-application column, which only ever carries the DB default (30) --
+  // nothing writes it -- so a per-association answer would otherwise never win.
+  const configWindowDays = (boardCfgRes.data?.decision_window_days as number | null) ?? null
   const { data: docs } = docsRes, { data: reviews } = reviewsRes, { data: people } = peopleRes, { data: assoc } = assocRes, { data: subjects } = subjectsRes
   // A failed query here (e.g. a column a migration hasn't added yet) must
   // never look identical to "no rows" -- that's exactly how a co-applicant's
@@ -137,7 +143,7 @@ export async function getReviewState(applicationId: string): Promise<ReviewState
     app: {
       association_code: code, na_items: app.na_items, declarations: app.declarations,
       board_window_opened_at: (app.board_window_opened_at as string | null) ?? null,
-      board_window_days: (app.board_window_days as number | null) ?? null,
+      board_window_days: configWindowDays ?? (app.board_window_days as number | null) ?? null,
     },
     checklist,
     docs: (docs ?? []).map(d => ({ id: String(d.id), doc_key: String(d.doc_key), filename: (d.filename as string | null) ?? null, stakeholder_id: d.stakeholder_id ? String(d.stakeholder_id) : null, created_at: String(d.created_at) })),
@@ -283,7 +289,7 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
 
   const codes = [...new Set(apps.map(a => String(a.association_code ?? '').toUpperCase()).filter(Boolean))]
   const detailedIds = [...new Set(apps.map(a => (a.detailed_application_id as string | null)).filter((v): v is string => !!v))]
-  const [docsRes, reviewsRes, peopleRes, assocsRes, checklistsByCode, subjectsRes] = await Promise.all([
+  const [docsRes, reviewsRes, peopleRes, assocsRes, checklistsByCode, subjectsRes, boardCfgsRes] = await Promise.all([
     supabaseAdmin.from('application_documents').select('id, application_id, doc_key, filename, stakeholder_id, created_at').in('application_id', ids),
     supabaseAdmin.from('application_document_reviews').select('application_id, scope_key, decision, reason, decided_by, decided_by_role, decided_at').in('application_id', ids),
     supabaseAdmin.from('application_stakeholders').select('id, application_id, name, applicant_role, is_primary, vehicle_has, vehicle_declared_at, tax_returns_has, tax_returns_declared_at').eq('role', 'applicant').in('application_id', ids)
@@ -292,6 +298,7 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
     // One checklist read per ASSOCIATION, not per application.
     Promise.all(codes.map(async c => [c, await getIntakeChecklistAll(c)] as const)).then(e => new Map(e)),
     detailedIds.length ? supabaseAdmin.from('screening_subjects').select('application_id, completed_at').in('application_id', detailedIds) : Promise.resolve({ data: [] as { application_id: string; completed_at: string | null }[], error: null }),
+    codes.length ? supabaseAdmin.from('board_approval_config').select('association_code, decision_window_days').in('association_code', codes).eq('purpose', 'application') : Promise.resolve({ data: [] as { association_code: string; decision_window_days: number | null }[], error: null }),
   ])
   const { data: docs } = docsRes, { data: reviews } = reviewsRes, { data: people } = peopleRes, { data: assocs } = assocsRes, { data: subjects } = subjectsRes
   // Same reasoning as getReviewState() above -- a failed query must never
@@ -304,6 +311,8 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
   }
 
   const petsBy = new Map((assocs ?? []).map(a => [String(a.association_code).toUpperCase(), (a.pets_allowed as boolean | null) ?? null]))
+  // Same precedence as getReviewState(): questionnaire window before the per-application column.
+  const windowBy = new Map((boardCfgsRes.data ?? []).map(c => [String(c.association_code).toUpperCase(), (c.decision_window_days as number | null) ?? null]))
   const group = <T extends { application_id: unknown }>(rows: T[] | null) => {
     const m = new Map<string, T[]>()
     for (const r of rows ?? []) {
@@ -328,7 +337,7 @@ export async function getReviewStates(applicationIds: string[]): Promise<Map<str
       app: {
         association_code: code, na_items: a.na_items, declarations: a.declarations,
         board_window_opened_at: (a.board_window_opened_at as string | null) ?? null,
-        board_window_days: (a.board_window_days as number | null) ?? null,
+        board_window_days: windowBy.get(code) ?? (a.board_window_days as number | null) ?? null,
       },
       checklist,
       docs: (docsBy.get(id) ?? []).map(d => ({ id: String(d.id), doc_key: String(d.doc_key), filename: (d.filename as string | null) ?? null, stakeholder_id: d.stakeholder_id ? String(d.stakeholder_id) : null, created_at: String(d.created_at) })),

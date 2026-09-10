@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { getOnboardingSummary } from '@/lib/onboarding'
 import { getContactsAndConsentFlag, getAssociationMeta, listAssociationBankAccounts, getAssociationBudget } from '@/lib/integrations/cinc'
 import SiteHeader from '@/components/SiteHeader'
 import AdminNav from '../../components/AdminNav'
@@ -94,6 +95,7 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
       docsByTicket.set(r.id as number, (r.vendor_docs_requested_at as string | null) ?? null)
     }
   }
+  const onboarding = await getOnboardingSummary(upperCode).catch(() => null)
   const workOrders = woBase.map(w => ({ ...w, payment_state: payByTicket.get(w.id) ?? null, vendor_docs_requested_at: docsByTicket.get(w.id) ?? null })) as AssociationHubData['workOrders']
   const data: AssociationHubData = {
     code:           assocRow.association_code,
@@ -126,6 +128,7 @@ export default async function AssociationHubPage(props: { params: Promise<{ code
     documentRequirementsCount: documentRequirementsCount ?? 0,
     recurringServicesCount:    recurringServicesCount ?? 0,
     insurancePoliciesCount:    insurancePoliciesCount ?? 0,
+    onboarding,
   }
 
   return (

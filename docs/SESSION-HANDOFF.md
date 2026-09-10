@@ -1,3 +1,37 @@
+# Session handoff — 2026-09-09 (later)
+
+## Board pitch guide, then the onboarding questionnaire built (applications scope)
+
+Continuation of the same day's session below. Three user decisions reset the plan, then two deliverables.
+
+### Scope reset (user, 2026-09-09)
+- "Manors XI is only using the application part of Maia and this is what we will replicate as base to the other associations, all other compliance features still have not being implemented, VP1 nothing is running in Maia for now." → **applications first, for every association; compliance later.**
+- Board decision stamps go through OTP like board-review links (yes). Rules-acknowledgment summary text: **staff still review before it goes live** (the questionnaire may draft it; it never publishes directly).
+
+### "MAIA for Your Board" — 7-page sales PDF (not committed)
+User: "prepare a beautiful document, in PDF so I can sell the idea to all associations." Built as one print-ready HTML file rendered with headless Chrome. **Per-association versions are made by the user in a Claude chat Project, NOT here** — the Project instructions (voice, fixed claims, per-association variables, 26-association table, brand), the HTML template and the PDF live under the memory folder's `assets/`, not in the repo. See memory [[maia_board_pitch_guide]]. No live counts in it (the stats script reading `.env.local` was blocked by the permission classifier — deliberately not worked around).
+
+### Onboarding questionnaire — applications sections, built (this branch)
+Design was previewed as an Artifact first and approved with the scope reset above. What shipped:
+- **Migration `20260909_association_onboarding.sql`** (registered in `lib/migration-status.ts`, apply from `/admin/tools`): `association_onboarding_sessions` (one per association, draft → adopted, meeting/motion/vote), `association_onboarding_decisions` (**append-only register** — item_key, value, decided_by, decided_by_role board|staff, source meeting|email_consent|staff_confirmed|existing_config, source_ref, decided_at, recorded_by, supersedes_id, applied_at, apply_error), and `board_approval_config.decision_window_days`.
+- **`lib/onboarding-catalog.ts`** — the question catalog (5 sections, 24 static items + dynamic `checklist.<type>.<doc_key>` cells). Adding a question = one entry + one `applyDecision` branch.
+- **`lib/onboarding.ts`** — `getOnboardingState`, `recordDecisions` (validates per kind; facts forced to staff-confirmed; board decisions need a named active board member + meeting/consent date), `adoptSession` → `applyDecision` writes each CURRENT unapplied decision to the table that already drives behaviour: `associations` (identity, statute derived from type, screening provider, interviews), `association_config.hide_application_forms` (inverse of "run applications"), `association_application_rules` (7 known rule keys, block/warn, label interpolated), `association_intake_documents` (required/active per cell), `board_approval_config` (signatures, cadence, decision window), `board_approval_members` (committee, replace-all). Per-item failure is recorded on the row and does not stop the rest; session becomes `adopted` only when nothing failed. A decision recorded after adoption reopens the session as an amendment.
+- **Routes** `GET /api/admin/onboarding/[code]`, `POST …/decisions`, `POST …/adopt` (staff-only). **Page** `/admin/cinc-sync/[code]/onboarding` + `OnboardingClient.tsx`; the Hub's Onboarding Checklist card links to it with status.
+- **`lib/board-review.ts`**: `board_approval_config.decision_window_days` now feeds `computeBoardWindow` *before* the per-application `board_window_days` column — that column only ever carries the DB default (30), nothing writes it, so a per-association answer would otherwise never win. VPCI's 10-business-day code override still wins over both.
+- Checklist grid loads `association_intake_documents` directly **including inactive rows** — `getIntakeChecklistAll` hides them, which would have made an "Off" document impossible to turn back on.
+
+**Verified:** `tsc --noEmit` clean (ignoring stale `.next/` validator entries), eslint clean, dev-server smoke test: the three API routes return 401 unauthenticated and the page redirects to `/admin/login`. **NOT verified live**: no staff session locally and the migration isn't applied yet — first real run is the user's, on `/admin/tools` → Apply, then `/admin/cinc-sync/TROP/onboarding`.
+
+**Deliberately NOT in this PR (next):** governing-documents upload + MAIA rule proposals (section 2 of the preview), board-side `/board/onboarding` self-answering (design: board session already OTP-established; decided_by from `board_member_id`), the Rules & Regulations redraft, compliance/operations/residents sections, a flows diagram for this new admin flow, and the `lib/board-decision-letter.ts:67` legacy `association_config.required_signatures` read (still points at the superseded table — fix alongside).
+
+### ⏳ NEXT
+1. User: apply the migration from `/admin/tools`, run TROP through the questionnaire, adopt on a test date, confirm the live settings changed (Association Setup page rules, Board Setup committee, Hub details).
+2. Then section 2 (governing docs → proposals) and the board portal page.
+
+Memory: [[board_onboarding_questionnaire]], [[maia_board_pitch_guide]].
+
+---
+
 # Session handoff — 2026-09-09
 
 ## CINC cross-wiring bug (unit_number → account_number), non-billable CINC filter, Checkr order/property collision, and two silent-primary-applicant bugs (PRs #830–#846)
