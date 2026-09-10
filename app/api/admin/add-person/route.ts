@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { addBoardMember } from '@/lib/board-roster'
 
 export async function POST(req: NextRequest) {
   const { type, data } = await req.json()
@@ -28,11 +29,8 @@ export async function POST(req: NextRequest) {
     if (!first_name || !last_name || !association_code) {
       return NextResponse.json({ ok: false, error: 'First name, last name, and association are required' }, { status: 400 })
     }
-    const { error } = await supabaseAdmin.from('board_members').insert({
-      first_name, last_name, email: email || null, phone: phone || null,
-      association_code, position: position || null, active: true,
-    })
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+    const { error } = await addBoardMember({ association_code, first_name, last_name, email: email || null, phone: phone || null, position: position || null })
+    if (error) return NextResponse.json({ ok: false, error }, { status: 500 })
     return NextResponse.json({ ok: true })
   }
 

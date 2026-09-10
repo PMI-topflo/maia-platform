@@ -9,6 +9,7 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server'
+import { activeBoardByPhone } from '@/lib/board-roster'
 import twilio from 'twilio'
 import { createClient } from '@supabase/supabase-js'
 import { findOrCreateTicket, appendMessage, createTicket } from '@/lib/tickets'
@@ -1804,11 +1805,11 @@ async function buildCallerContext(phone: string, channel: Channel): Promise<Call
     language: t.language ?? 'en', name: `${t.first_name ?? ''} ${t.last_name ?? ''}`.trim() || 'there',
     unitId: t.unit_number, associationId: t.association_code }
 
-  const { data: b } = await getSupabase().from('board_members')
-    .select('first_name, last_name, language, association_code')
-    .or(`phone.eq.${phone},phone.eq.${plusPhone},phone.eq.${shortPhone}`).limit(1).maybeSingle()
+  // Roster-verified: a phone only identifies a board member while that
+  // person is ACTIVE on association_board_members (lib/board-roster.ts).
+  const b = (await activeBoardByPhone([phone, plusPhone, shortPhone]))[0]
   if (b) return { phone, channel, division: 'association', persona: 'board_member',
-    language: b.language ?? 'en', name: `${b.first_name ?? ''} ${b.last_name ?? ''}`.trim() || 'there',
+    language: b.language ?? 'en', name: b.name || 'there',
     associationId: b.association_code }
 
   // vendor_directory never existed on this DB and nothing populated it; the
@@ -1981,7 +1982,7 @@ async function findCallerRoles(phone: string): Promise<CallerRole[]> {
   const [owners, tenants, boards, vendors, agents, staff] = await Promise.all([
     getSupabase().from('owners').select('unit_number, association_code').or(ownerOr).limit(5),
     getSupabase().from('association_tenants').select('unit_number, association_code').or(simpleOr).limit(5),
-    getSupabase().from('board_members').select('association_code').or(simpleOr).limit(5),
+    activeBoardByPhone([phone, plusPhone, shortPhone]).then(rows => ({ data: rows.map(r => ({ association_code: r.association_code })) })),
     getSupabase().from('vendors').select('id').eq('phone', phone).limit(5),
     getSupabase().from('real_estate_agents').select('id').eq('phone', phone).limit(5),
     getSupabase().from('pmi_staff').select('id').eq('active', true).or(staffOr).limit(1),
@@ -2644,8 +2645,8 @@ async function getMaiaIntelligentResponse(ctx: CallerContext, message: string, f
   // Board member check
   let isBoardMember = false, boardPosition = ''
   const cleanP = ctx.phone.replace(/\D/g, '')
-  const { data: bm } = await getSupabase().from('board_members').select('position')
-    .or(`phone.eq.${ctx.phone},phone.eq.+${cleanP}`).limit(1).maybeSingle()
+  const bmRow = (await activeBoardByPhone([ctx.phone, `+${cleanP}`]))[0]
+  const bm = bmRow ? { position: bmRow.role } : null
   if (bm) { isBoardMember = true; boardPosition = bm.position ?? 'Board Member' }
 
   const isVoiceCall = ctx.channel === 'voice'
