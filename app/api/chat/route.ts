@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
-import { assertClaudeBudget } from '@/lib/anthropic-guard'
+import { assertClaudeBudget, logClaudeUsage } from '@/lib/anthropic-guard'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { buildSkillsPromptBlock } from '@/lib/skills'
 import { buildKnowledgePromptBlock } from '@/lib/maia-knowledge'
@@ -231,7 +231,7 @@ RESPONSE RULES:
 - If you don't know the answer, say so honestly and direct them to call (305) 900-5077, WhatsApp (786) 686-3223, or email maia@pmitop.com.
 - Never invent specific dollar amounts, dates, or policy details you are not certain about.
 - For urgent maintenance (flooding, no AC, safety hazards), always include the service email and phone number.
-- Plain text only — the chat widget does not render markdown. Never use **bold**, _italics_, #headings, or [links](url); numbered/lettered lists (1. 2. 3.) and line breaks are fine.${buildOfficeHoursBlock()}${knowledgeBlock}${skillsBlock}`
+- Plain text only — the chat widget does not render markdown. Never use **bold**, _italics_, #headings, or [links](url); numbered/lettered lists (1. 2. 3.) and line breaks are fine.${knowledgeBlock}${skillsBlock}`
 
   let reply = ''
   try {
@@ -245,12 +245,19 @@ RESPONSE RULES:
       // Prompt caching: the system prompt (instructions + skills block) is
       // identical across every turn of a conversation, so cache it — turns
       // 2+ within the 5-min window bill its input tokens at ~10% on a hit.
-      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+      // The office-hours block embeds the current time to the minute, so it
+      // goes AFTER the breakpoint as its own uncached block — inside the
+      // cached text it broke the cache on nearly every request (2026-09-09).
+      system: [
+        { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: buildOfficeHoursBlock() },
+      ],
       messages: messages.map((m: { role: string; content: string }) => ({
         role: m.role as 'user' | 'assistant',
         content: m.content,
       })),
     })
+    logClaudeUsage('chat', response)
     // Sonnet 5 runs adaptive thinking by default (unset `thinking` param), so
     // content[0] may be an empty-text thinking block, not the reply — find by type.
     reply = response.content.find((b) => b.type === 'text')?.text ?? ''

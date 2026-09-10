@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { assertClaudeBudget } from '@/lib/anthropic-guard'
+import { assertClaudeBudget, logClaudeUsage } from '@/lib/anthropic-guard'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { logEmail } from '@/lib/email-logger'
@@ -1336,13 +1336,16 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
     const skillsBlock = await buildSkillsPromptBlock('internal')
     const officeBlock = buildOfficeHoursBlock()
     await assertClaudeBudget('maia-command-processor')
-    // Prompt caching: the big static prefix (general instructions + office
-    // hours + skills + escalation) is identical across freeform calls, so we
-    // mark it cache_control:ephemeral — repeated calls within the 5-min cache
-    // window bill its input tokens at ~10% on a hit (this is Sonnet, the
-    // priciest model). The per-email DETECTED ASSOCIATION block varies, so it
-    // goes last as a separate, uncached block (keeping the cached prefix stable).
-    const staticSystem = GENERAL_SYSTEM_PROMPT + officeBlock + skillsBlock + ESCALATION_INSTRUCTION
+    // Prompt caching: the big static prefix (general instructions + skills +
+    // escalation) is identical across freeform calls, so we mark it
+    // cache_control:ephemeral — repeated calls within the 5-min cache window
+    // bill its input tokens at ~10% on a hit (this is Sonnet, the priciest
+    // model). Everything that varies goes AFTER the breakpoint as separate,
+    // uncached blocks: the office-hours block (it embeds the current time to
+    // the minute — it used to sit INSIDE the cached prefix, which invalidated
+    // the cache on practically every call, 2026-09-09) and the per-email
+    // DETECTED ASSOCIATION block.
+    const staticSystem = GENERAL_SYSTEM_PROMPT + skillsBlock + ESCALATION_INSTRUCTION
     const message = await anthropic.messages.create({
       model:      'claude-sonnet-5',
       // Generous headroom: Sonnet 5 runs adaptive thinking by default, which
@@ -1351,10 +1354,12 @@ async function handleGeneralEmailQuery(parsed: ParsedEmail): Promise<void> {
       max_tokens: 2000,
       system: [
         { type: 'text', text: staticSystem, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: officeBlock },
         ...(assocBlock ? [{ type: 'text' as const, text: assocBlock }] : []),
       ],
       messages,
     })
+    logClaudeUsage('maia-command-processor', message)
 
     // Parse the structured response. action tells us whether to mark
     // the auto-ticket resolved or open it for the routed department;
