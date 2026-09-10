@@ -133,11 +133,17 @@ async function loadContactSets(associationCode: string): Promise<ContactSets> {
   }
 
   const [boardRes, ownerRes, tenantRes] = await Promise.all([
-    supabaseAdmin
-      .from('board_members')
-      .select('email, phone')
-      .eq('association_code', associationCode)
-      .eq('active', true),
+    // Roster emails (association_board_members); phones come from the legacy
+    // phone book but only for people still active on the roster.
+    (async () => {
+      const [{ data: roster }, { data: legacy }] = await Promise.all([
+        supabaseAdmin.from('association_board_members').select('email').eq('association_code', associationCode).eq('active', true),
+        supabaseAdmin.from('board_members').select('email, phone').eq('association_code', associationCode),
+      ])
+      const active = new Set((roster ?? []).map(r => String(r.email ?? '').toLowerCase()).filter(Boolean))
+      const phones = (legacy ?? []).filter(l => active.has(String(l.email ?? '').toLowerCase()))
+      return { data: [...(roster ?? []).map(r => ({ email: r.email as string | null, phone: null as string | null })), ...phones.map(l => ({ email: l.email as string | null, phone: l.phone as string | null }))] }
+    })(),
     supabaseAdmin
       .from('owners')
       .select('emails, phone, phone_e164, phone_2')

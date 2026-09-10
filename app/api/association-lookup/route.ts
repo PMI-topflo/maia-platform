@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { activeBoardByEmail, activeBoardByPhoneFragment, type RosterMember } from '@/lib/board-roster'
 
 export type AssocMatchedRole =
   | { type: 'staff' }
@@ -39,18 +40,12 @@ export async function POST(req: NextRequest) {
           .neq('status', 'previous').limit(5)
       : Promise.resolve({ data: [] }),
 
-    // Board members — this association only, active
-    email
-      ? supabaseAdmin.from('board_members')
-          .select('id, association_code, first_name, last_name, position')
-          .eq('association_code', code).eq('active', true).ilike('email', `%${email}%`).limit(5)
-      : Promise.resolve({ data: [] }),
-
-    digits.length >= 7
-      ? supabaseAdmin.from('board_members')
-          .select('id, association_code, first_name, last_name, position')
-          .eq('association_code', code).eq('active', true).ilike('phone', `%${digits}%`).limit(5)
-      : Promise.resolve({ data: [] }),
+    // Board members — the CINC-synced roster (association_board_members),
+    // active only; the legacy board_members table is consulted only for a
+    // phone match and only when that email is active on the roster. An
+    // ex-member can no longer log in as board (2026-09-10).
+    email ? activeBoardByEmail(email, code).then(rows => ({ data: rows })) : Promise.resolve({ data: [] }),
+    digits.length >= 7 ? activeBoardByPhoneFragment(digits, code).then(rows => ({ data: rows })) : Promise.resolve({ data: [] }),
 
     // Tenants — this association only, active
     email
@@ -95,16 +90,15 @@ export async function POST(req: NextRequest) {
   }
 
   // Board members
-  type BoardRow = { id: string; association_code: string; first_name?: string | null; last_name?: string | null; position?: string | null }
-  const boardRows: BoardRow[] = [
-    ...((boardEmailRes as { data: BoardRow[] }).data ?? []),
-    ...((boardPhoneRes  as { data: BoardRow[] }).data ?? []),
+  const boardRows: RosterMember[] = [
+    ...((boardEmailRes as { data: RosterMember[] }).data ?? []),
+    ...((boardPhoneRes  as { data: RosterMember[] }).data ?? []),
   ]
   const seenBoard = new Set<string>()
   for (const row of boardRows) {
     if (seenBoard.has(row.id)) continue
     seenBoard.add(row.id)
-    roles.push({ type: 'board', board_member_id: row.id, association_code: row.association_code, association_name: assocName, position: row.position ?? null, firstName: row.first_name ?? undefined, lastName: row.last_name ?? undefined })
+    roles.push({ type: 'board', board_member_id: row.id, association_code: row.association_code, association_name: assocName, position: row.role ?? null, firstName: row.first_name ?? undefined, lastName: row.last_name ?? undefined })
   }
 
   // Tenants
