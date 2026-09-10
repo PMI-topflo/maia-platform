@@ -19,6 +19,7 @@
 // lib/staff-news.ts's Daily News (table-based HTML, same brand colors).
 // =====================================================================
 
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getApplicationDashboard, type DashboardRow } from '@/lib/application-dashboard'
 import { sendEmail } from '@/lib/gmail'
 
@@ -52,6 +53,14 @@ export interface ApplicationReviewDigestData {
   // portal — this is the first time staff's own daily email surfaces it.
   overdue: DashboardRow[]         // alarm 'overdue' — past the 30-day window, any stage
   stalledInterview: DashboardRow[] // stage 'interview' AND alarm 'stalled' — 14+ days since the intro email, never marked held
+  // Documents that arrived in the last 24 hours, per application. This
+  // replaces the per-document staff emails removed 2026-09-10 (user
+  // direction: "don't need to send an email for each document uploaded,
+  // let's leave in the daily email"). `arrived` = pipeline applications
+  // (any open stage, including ones still being filled in); `arrivedLegacy`
+  // = old self-serve-form applications not linked to a pipeline one.
+  arrived: { row: DashboardRow; docs: { label: string; at: string }[] }[]
+  arrivedLegacy: { id: string; ref: string; association: string; applicant: string | null; docs: { label: string; at: string }[] }[]
 }
 
 function groupByAssociationThenUnit(rows: DashboardRow[]): { code: string; name: string; units: { unit: string; rows: DashboardRow[] }[] }[] {
@@ -73,12 +82,59 @@ function groupByAssociationThenUnit(rows: DashboardRow[]): { code: string; name:
 
 export async function gatherApplicationReviewDigest(): Promise<ApplicationReviewDigestData> {
   const dash = await getApplicationDashboard({ includeDecided: false })
+  const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const rowById = new Map(dash.rows.map(r => [r.id, r]))
+
+  // Pipeline uploads in the last 24 h (every upload path writes
+  // application_documents: applicant intake, request links, staff/board
+  // uploads).
+  const { data: newDocs } = await supabaseAdmin.from('application_documents')
+    .select('application_id, doc_label, doc_key, created_at').gte('created_at', sinceIso).order('created_at', { ascending: true })
+  const docsByApp = new Map<string, { label: string; at: string }[]>()
+  for (const d of newDocs ?? []) {
+    const k = String(d.application_id)
+    const arr = docsByApp.get(k) ?? []
+    arr.push({ label: String(d.doc_label ?? d.doc_key ?? 'document'), at: String(d.created_at) })
+    docsByApp.set(k, arr)
+  }
+  const arrived = [...docsByApp.entries()].flatMap(([id, docs]) => { const row = rowById.get(id); return row ? [{ row, docs }] : [] })
+
+  // Legacy self-serve-form uploads (applications.supplemental_documents) in
+  // the last 24 h. If the legacy row is bridged to a pipeline application,
+  // fold its documents into that application's entry; otherwise list it on
+  // its own with a link to the legacy screen.
+  const { data: legacyRows } = await supabaseAdmin.from('applications')
+    .select('id, association, applicants, entity_name, app_type, supplemental_documents').not('supplemental_documents', 'is', null).limit(300)
+  const legacyIds = (legacyRows ?? []).map(r => String(r.id))
+  const { data: bridges } = legacyIds.length
+    ? await supabaseAdmin.from('listing_applications').select('id, detailed_application_id').in('detailed_application_id', legacyIds)
+    : { data: [] as { id: string; detailed_application_id: string }[] }
+  const listingByLegacy = new Map((bridges ?? []).map(b => [String(b.detailed_application_id), String(b.id)]))
+  const arrivedLegacy: ApplicationReviewDigestData['arrivedLegacy'] = []
+  for (const r of legacyRows ?? []) {
+    const recent = ((r.supplemental_documents as { label: string | null; filename: string; uploaded_at: string }[] | null) ?? [])
+      .filter(d => d.uploaded_at >= sinceIso).map(d => ({ label: d.label || d.filename, at: d.uploaded_at }))
+    if (!recent.length) continue
+    const listingId = listingByLegacy.get(String(r.id))
+    const row = listingId ? rowById.get(listingId) : undefined
+    if (row) {
+      const entry = arrived.find(a => a.row.id === row.id)
+      if (entry) entry.docs.push(...recent); else arrived.push({ row, docs: recent })
+      continue
+    }
+    const first = (r.applicants as { firstName?: string; lastName?: string }[] | null)?.[0]
+    const applicant = r.app_type === 'commercial' && r.entity_name ? String(r.entity_name) : [first?.firstName, first?.lastName].filter(Boolean).join(' ') || null
+    arrivedLegacy.push({ id: String(r.id), ref: `PMI-${String(r.id).slice(0, 8).toUpperCase()}`, association: String(r.association ?? '—'), applicant, docs: recent })
+  }
+
   return {
     generatedIso: dash.generatedAt,
     toReview: dash.rows.filter(r => r.stage === 'not_sent'),
     refused: dash.rows.filter(r => r.stage === 'refused'),
     overdue: dash.rows.filter(r => r.alarm === 'overdue'),
     stalledInterview: dash.rows.filter(r => r.stage === 'interview' && r.alarm === 'stalled'),
+    arrived,
+    arrivedLegacy,
   }
 }
 
@@ -146,12 +202,40 @@ function groupBlock(title: string, subtitle: string, rows: DashboardRow[], appUr
 
 export function buildApplicationReviewDigestEmail(data: ApplicationReviewDigestData, appUrl: string): { subject: string; html: string; text: string } {
   const dateLabel = etDateLabel(data.generatedIso)
-  const total = data.toReview.length + data.refused.length + data.overdue.length + data.stalledInterview.length
+  const arrivedCount = data.arrived.length + data.arrivedLegacy.length
+  const total = data.toReview.length + data.refused.length + data.overdue.length + data.stalledInterview.length + arrivedCount
+  const parts = [
+    data.toReview.length ? `${data.toReview.length} waiting` : '',
+    arrivedCount ? `${arrivedCount} with new documents` : '',
+  ].filter(Boolean).join(' · ')
   const subject = data.overdue.length > 0
     ? `🚨 ${data.overdue.length} application${data.overdue.length === 1 ? '' : 's'} past the 30-day window — ${dateLabel}`
     : total > 0
-    ? `Applications to review — ${data.toReview.length} waiting — ${dateLabel}`
+    ? `Applications to review — ${parts || 'see inside'} — ${dateLabel}`
     : `Applications to review — all clear — ${dateLabel}`
+
+  const docList = (docs: { label: string; at: string }[]) => docs.map(d => esc(d.label)).join(', ')
+  const arrivedLine = (r: DashboardRow, appUrl: string, tone: string): string => {
+    const docs = data.arrived.find(a => a.row.id === r.id)?.docs ?? []
+    const link = `${appUrl}/admin/pre-apply/${r.id}`
+    const who = r.applicants.length ? esc(r.applicants.join(', ')) : '<span style="color:#9ca3af">no applicant name on file</span>'
+    return `<tr><td style="padding:9px 0;border-top:1px solid #f3f4f6">
+    <div style="font-size:13.5px;font-weight:700;color:${NAVY}">${who} <span style="font-weight:400;color:#6b7280">· ${esc(TYPE_LABEL[r.type] ?? r.type)}</span></div>
+    <div style="font-size:12.5px;color:${tone};margin-top:2px">📥 ${docs.length} new document${docs.length === 1 ? '' : 's'}: ${docList(docs)}</div>
+    <div style="font-size:12px;color:#6b7280;margin-top:2px">${esc(r.detail)}</div>
+    <div style="margin-top:5px"><a href="${esc(link)}" style="font-size:12.5px;font-weight:700;color:${ORANGE};text-decoration:none">Open application &rarr;</a></div>
+  </td></tr>`
+  }
+  const legacyBlock = data.arrivedLegacy.length ? `<tr><td style="padding:18px 28px 0">
+    <div style="font-size:11px;font-weight:700;color:${NAVY};text-transform:uppercase;letter-spacing:.03em">New documents — legacy form applications <span style="color:#9ca3af;font-weight:600;text-transform:none">(${data.arrivedLegacy.length})</span></div>
+    <div style="font-size:12px;color:#6b7280;margin:2px 0 8px">Came in through the old self-serve form and are not linked to a unit application yet.</div>
+    ${data.arrivedLegacy.map(l => `<div style="border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:800;color:${NAVY}">${esc(l.association)}</div>
+      <div style="font-size:13.5px;font-weight:700;color:${NAVY};margin-top:4px">${esc(l.applicant ?? 'applicant')} <span style="font-weight:400;color:#6b7280">· ${esc(l.ref)}</span></div>
+      <div style="font-size:12.5px;color:${AMBER};margin-top:2px">📥 ${l.docs.length} new document${l.docs.length === 1 ? '' : 's'}: ${docList(l.docs)}</div>
+      <div style="margin-top:5px"><a href="${esc(appUrl)}/admin/applications#app-row-${esc(l.id)}" style="font-size:12.5px;font-weight:700;color:${ORANGE};text-decoration:none">Open legacy application &rarr;</a></div>
+    </div>`).join('')}
+  </td></tr>` : ''
 
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${esc(subject)}</title></head>
@@ -179,6 +263,8 @@ export function buildApplicationReviewDigestEmail(data: ApplicationReviewDigestD
     ${groupBlock('🚨 Past the 30-day decision window', 'The Board may decide up to 30 days after the last requested document is received — that window has already passed with no letter yet.', data.overdue, appUrl, '#b42318', overdueLine)}
     ${groupBlock('Waiting on an interview', 'A required board/buyer interview was requested 14+ days ago and still hasn’t been marked held.', data.stalledInterview, appUrl, AMBER, stalledInterviewLine)}
     ${groupBlock('Documents on file — not yet reviewed', 'Uploaded, waiting on a staff Approve/Refuse before the board pipeline can move.', data.toReview, appUrl, AMBER)}
+    ${groupBlock('New documents in the last 24 hours', 'Every application that received a document since yesterday — replaces the one-email-per-upload notices.', data.arrived.map(a => a.row), appUrl, AMBER, arrivedLine)}
+    ${legacyBlock}
     ${groupBlock('Sent back to the applicant', 'Refused, with a reason — worth a glance once they resubmit.', data.refused, appUrl, '#b42318')}
 
     <tr><td style="padding:16px 28px 22px;border-top:1px solid #eceff4">
@@ -206,6 +292,8 @@ export function buildApplicationReviewDigestEmail(data: ApplicationReviewDigestD
     ...textSection('PAST THE 30-DAY DECISION WINDOW', data.overdue, r => textLine(r, r.daysLeft != null ? `${-r.daysLeft} day(s) past the window` : 'past the window')),
     ...textSection('Waiting on an interview', data.stalledInterview, r => textLine(r, r.waitingDays != null ? `${r.waitingDays} days since the interview intro email` : 'interview not yet held')),
     ...textSection('Documents on file — not yet reviewed', data.toReview),
+    ...textSection('New documents in the last 24 hours', data.arrived.map(a => a.row), r => textLine(r, `${data.arrived.find(a => a.row.id === r.id)?.docs.map(d => d.label).join(', ') ?? ''}`)),
+    ...(data.arrivedLegacy.length ? [`New documents — legacy form applications (${data.arrivedLegacy.length})`, ...data.arrivedLegacy.map(l => `    - ${l.applicant ?? 'applicant'} · ${l.association} · ${l.ref} — ${l.docs.map(d => d.label).join(', ')} — ${appUrl}/admin/applications#app-row-${l.id}`), ''] : []),
     ...textSection('Sent back to the applicant', data.refused),
     'Maia · by PMI Top Florida Properties',
   ].join('\n')
@@ -223,6 +311,7 @@ export interface SendApplicationReviewDigestResult {
   refusedCount: number
   overdueCount: number
   stalledInterviewCount: number
+  arrivedCount: number
 }
 
 export async function sendApplicationReviewDigest(opts: { appUrl: string; dry?: boolean }): Promise<SendApplicationReviewDigestResult> {
@@ -231,6 +320,7 @@ export async function sendApplicationReviewDigest(opts: { appUrl: string; dry?: 
   const base = {
     recipients: RECIPIENTS, subject: email.subject, toReviewCount: data.toReview.length, refusedCount: data.refused.length,
     overdueCount: data.overdue.length, stalledInterviewCount: data.stalledInterview.length,
+    arrivedCount: data.arrived.length + data.arrivedLegacy.length,
   }
   if (!RECIPIENTS.length) return { ok: false, ...base }
   // User report, 2026-09-09: the subject only ever counted `toReview` ("X
@@ -240,7 +330,7 @@ export async function sendApplicationReviewDigest(opts: { appUrl: string; dry?: 
   // next, not staff. Only toReview/overdue/stalledInterview are actually
   // "waiting on you"; skip the send entirely when none of those have
   // anything, even if refused does.
-  const actionable = data.toReview.length + data.overdue.length + data.stalledInterview.length
+  const actionable = data.toReview.length + data.overdue.length + data.stalledInterview.length + data.arrived.length + data.arrivedLegacy.length
   if (actionable === 0) return { ok: true, skipped: true, ...base }
   if (opts.dry) return { ok: true, dry: true, ...base }
   await sendEmail({ to: RECIPIENTS, subject: email.subject, html: email.html, text: email.text })

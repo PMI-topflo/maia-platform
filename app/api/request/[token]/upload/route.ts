@@ -8,7 +8,6 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { INTAKE_BUCKET } from '@/lib/preapply'
 import { mirrorFileToOngoing } from '@/lib/drive-application-mirror'
-import { sendEmail } from '@/lib/gmail'
 import { quickDocScan } from '@/lib/quick-doc-classify'
 import { loadRequest } from '../route'
 
@@ -18,8 +17,6 @@ export const maxDuration = 120
 
 const MAX_BYTES = 25 * 1024 * 1024
 const ALLOWED = /\.(pdf|jpe?g|png|heic|webp)$/i
-const NOTIFY = (process.env.UNIT_UPLOAD_NOTIFY_EMAILS ?? 'PMI@topfloridaproperties.com,ar@topfloridaproperties.com')
-  .split(',').map(s => s.trim()).filter(Boolean)
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
@@ -87,14 +84,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   void mirrorFileToOngoing({ unitLabel: String(app.unit_label ?? appId.slice(0, 8)), applicantName: null, label: item.label, filename: file.name, mime: file.type || 'application/pdf', buffer: buf, associationCode: r.req.association_code ? String(r.req.association_code) : null }).catch(() => null)
 
-  if (NOTIFY.length) {
-    void sendEmail({ to: NOTIFY, subject: `Requested document uploaded — ${r.req.association_code} Unit ${app.unit_label ?? '—'} · ${item.label}`,
-      html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6">
-        <p>The ${r.role} uploaded <strong>${item.label}</strong> for <strong>${r.req.association_code}, Unit ${app.unit_label ?? '—'}</strong> via the request link.</p>
-        <p>Please scan, read, and confirm it into MAIA.</p>
-        <p><a href="${process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'}/admin/pre-apply/${appId}">Open the application →</a></p>
-      </div>` }).catch(() => null)
-  }
+  // No per-document email (user direction, 2026-09-10) — the daily
+  // Applications-to-review digest lists applications with new documents.
 
   return NextResponse.json({ ok: true })
 }

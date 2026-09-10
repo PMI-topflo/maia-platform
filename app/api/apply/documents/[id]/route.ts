@@ -21,17 +21,13 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { INTAKE_BUCKET } from '@/lib/preapply'
-import { sendEmail } from '@/lib/gmail'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const MAX_BYTES = 25 * 1024 * 1024
 const ALLOWED = /\.(pdf|jpe?g|png|heic|webp)$/i
-const NOTIFY = (process.env.UNIT_UPLOAD_NOTIFY_EMAILS ?? 'PMI@topfloridaproperties.com,ar@topfloridaproperties.com')
-  .split(',').map(s => s.trim()).filter(Boolean)
 
 // INTAKE_BUCKET is private (every other reader in this codebase signs a URL
 // on demand — see lib/document-request-email.ts, lib/intake-documents.ts —
@@ -95,32 +91,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { error: updErr } = await supabaseAdmin.from('applications').update({ supplemental_documents: documents }).eq('id', id)
   if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 })
 
-  const refNum = 'PMI-' + (app.id as string).slice(0, 8).toUpperCase()
-  if (NOTIFY.length) {
-    // 30-day link — same duration lib/document-request-email.ts already uses
-    // for staff-facing notification emails on this same bucket.
-    const { data: signed } = await supabaseAdmin.storage.from(INTAKE_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 30)
-    // User report, 2026-09-09: every upload for the same application used
-    // this exact same subject, so Gmail (and most clients) threaded them
-    // together and collapsed repeats down to a bare one-line snippet —
-    // making it LOOK like the association/account# was missing, when it
-    // was only ever hidden by the thread collapse. Folding the label (or
-    // filename) into the subject keeps each notification distinct so it
-    // renders in full every time. Also add a real link back to the
-    // application, not just the raw file — this old `applications` table
-    // has no dedicated admin detail page, but /admin/applications renders
-    // every row with a stable id it can deep-link to.
-    void sendEmail({
-      to: NOTIFY,
-      subject: `Additional document uploaded — ${app.association} · ${refNum} — ${label || file.name}`,
-      html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6">
-        <p>The applicant uploaded an additional document for <strong>${refNum}</strong> (${app.association}).</p>
-        ${label ? `<p><strong>Label:</strong> ${label}</p>` : ''}
-        <p><a href="${APP_URL}/admin/applications#app-row-${id}">Open application →</a></p>
-        ${signed?.signedUrl ? `<p><a href="${signed.signedUrl}">View the file →</a></p>` : ''}
-      </div>`,
-    }).catch(() => null)
-  }
+  // No per-document email. User direction, 2026-09-10: "don't need to send
+  // an email for each document uploaded" — the daily Applications-to-review
+  // digest (lib/application-review-digest.ts) lists every application with
+  // documents that arrived in the last 24 hours instead, including these
+  // legacy-form uploads.
 
   return NextResponse.json({ ok: true, documents: await signDocs(documents) })
 }
