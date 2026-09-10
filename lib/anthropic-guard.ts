@@ -57,3 +57,37 @@ export async function assertClaudeBudget(label = 'claude'): Promise<void> {
     console.warn(`[ai-guard] budget check errored, failing open (${label}): ${err instanceof Error ? err.message : err}`)
   }
 }
+
+// ── Usage / cache statistics ─────────────────────────────────────────
+//
+// One structured log line per Claude call so prompt-cache health can be
+// read from the Vercel runtime logs (search "[claude-usage]"): how many
+// input tokens were served from cache vs written vs billed in full. Added
+// 2026-09-09 after the Console's "prompt cache hit rate is low" notice —
+// until then nothing recorded these fields, so hit rate was unmeasurable.
+//
+// hit = cache_read / (cache_read + cache_write + input). A cached call site
+// in steady state should show hit near 1 with cache_write near 0; writes on
+// every call with zero reads mean the prefix is changing between calls.
+
+interface UsageLike {
+  input_tokens?: number | null
+  output_tokens?: number | null
+  cache_read_input_tokens?: number | null
+  cache_creation_input_tokens?: number | null
+}
+
+/** Log a Claude response's token usage. Never throws — logging only. */
+export function logClaudeUsage(label: string, response: { model?: string; usage?: UsageLike | null } | null | undefined): void {
+  try {
+    const u = response?.usage
+    if (!u) return
+    const input = u.input_tokens ?? 0
+    const read  = u.cache_read_input_tokens ?? 0
+    const write = u.cache_creation_input_tokens ?? 0
+    const out   = u.output_tokens ?? 0
+    const denom = input + read + write
+    const hit   = denom > 0 ? Math.round((read / denom) * 100) : 0
+    console.log(`[claude-usage] ${JSON.stringify({ label, model: response?.model ?? null, input, cache_read: read, cache_write: write, output: out, cache_hit_pct: hit })}`)
+  } catch { /* logging must never affect the call */ }
+}
