@@ -19,7 +19,7 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { screening } from './index'
 import { INTAKE_BUCKET } from '@/lib/preapply'
-import { normalizeName } from './stakeholder-match'
+import { matchStakeholders } from './stakeholder-match'
 import { summarizeReport } from './report-summary'
 import { ScreeningSummaryPdf, mergeWithOriginalPdf } from '@/lib/screening-summary-pdf'
 
@@ -43,8 +43,11 @@ type Subject = { id: string; application_id: string; name: string | null; stakeh
  *  effort only, never fatal (a missing address just leaves the header
  *  blanker, not broken). */
 async function unitLineFor(applicationId: string): Promise<string | null> {
-  const { data: la } = await supabaseAdmin.from('listing_applications')
-    .select('unit_label, association_code').eq('detailed_application_id', applicationId).maybeSingle()
+  // Never .maybeSingle() here -- a unit that has been re-applied for can have
+  // more than one listing_applications row bridged to the same legacy id.
+  const { data: las } = await supabaseAdmin.from('listing_applications')
+    .select('unit_label, association_code').eq('detailed_application_id', applicationId).order('created_at', { ascending: false }).limit(1)
+  const la = las?.[0]
   if (!la) return null
   const unit = (la.unit_label as string | null) ?? null
   const { data: assoc } = await supabaseAdmin.from('associations')
@@ -132,7 +135,7 @@ export async function storeAndLinkReport(subject: Subject, reportId: string): Pr
  *  BOTH the stored report_url ("View report" link) and the filed
  *  checklist document, so backfilling one old report fixes everywhere it
  *  shows. */
-export async function regenerateMergedReport(subject: Subject & { checkr_report_id: string }): Promise<void> {
+export async function regenerateMergedReport(subject: Subject & { checkr_report_id: string }): Promise<FileReportResult> {
   await ensureBucket()
   const originalPdf = await screening.getReportPdf(subject.checkr_report_id)
   const { data: row } = await supabaseAdmin.from('screening_subjects').select('report_data').eq('id', subject.id).maybeSingle()
@@ -157,7 +160,7 @@ export async function regenerateMergedReport(subject: Subject & { checkr_report_
     await supabaseAdmin.from('applications').update({ screening_report_url: signed.signedUrl }).eq('id', subject.application_id)
   }
 
-  await fileReportAsDocument(subject, pdf)
+  return fileReportAsDocument(subject, pdf)
 }
 
 // Staff report, 2026-09-07 (Querline Pinckney, MANXI 912 -- the first real
@@ -176,54 +179,89 @@ export async function regenerateMergedReport(subject: Subject & { checkr_report_
 // actually placing the order for -- exact, no guessing. The name/single-
 // applicant fallback below only matters for a subject created before that
 // column existed.
-export async function fileReportAsDocument(subject: Subject, pdf: Buffer): Promise<void> {
-  const { data: listingApp } = await supabaseAdmin.from('listing_applications')
-    .select('id, listing_id').eq('detailed_application_id', subject.application_id).maybeSingle()
-  if (!listingApp) return   // no staff-side application to file onto (e.g. a pure legacy /apply-only record)
+export interface FileReportResult {
+  filed: boolean
+  /** The applicant the report was filed under, when it could be resolved. */
+  stakeholderId: string | null
+  stakeholderName: string | null
+  /** Set when the report was stored but NOT attached to a specific applicant --
+   *  on a per-applicant checklist item that means it is invisible on every
+   *  applicant's card until someone resolves it. */
+  warning: string | null
+}
 
+export async function fileReportAsDocument(subject: Subject, pdf: Buffer): Promise<FileReportResult> {
+  // The bridge from the legacy applications row to the pipeline application.
+  // Not .maybeSingle(): a unit re-applied for can carry several
+  // listing_applications rows pointing at one legacy id (real case, 2026-09-10
+  // MANXI 706) and .maybeSingle() then errors -> the auto-file silently did
+  // nothing. Prefer the newest still-open one.
+  const { data: las } = await supabaseAdmin.from('listing_applications')
+    .select('id, listing_id, status, created_at').eq('detailed_application_id', subject.application_id)
+    .order('created_at', { ascending: false }).limit(10)
+  const listingApp = (las ?? []).find(a => !['approved', 'declined', 'canceled'].includes(String(a.status))) ?? las?.[0]
+  if (!listingApp) return { filed: false, stakeholderId: null, stakeholderName: null, warning: 'no pipeline application is linked to this screening' }
+
+  // Which applicant is this report for? Stored at order time when possible;
+  // otherwise resolve now -- by email, exact name, loose name, or elimination
+  // against the applicants the OTHER subjects on this screening already own.
+  const { data: stakeholders } = await supabaseAdmin.from('application_stakeholders')
+    .select('id, name, email').eq('application_id', listingApp.id).eq('role', 'applicant')
+    .order('is_primary', { ascending: false }).order('created_at', { ascending: true })
+  const people = (stakeholders ?? []).map(p => ({ id: String(p.id), name: (p.name as string | null) ?? null, email: (p.email as string | null) ?? null }))
   let stakeholderId = subject.stakeholder_id
   if (!stakeholderId) {
-    const { data: stakeholders } = await supabaseAdmin.from('application_stakeholders')
-      .select('id, name').eq('application_id', listingApp.id).eq('role', 'applicant')
-    const people = stakeholders ?? []
-    const name = normalizeName(subject.name)
-    // The single-applicant case -- by far the common one -- needs no name
-    // match at all: there is only one person it could possibly be.
-    stakeholderId = (people.length === 1
-      ? people[0]
-      : name ? people.find(s => normalizeName(s.name as string | null) === name) : undefined
-    )?.id as string | null ?? null
+    const { data: me } = await supabaseAdmin.from('screening_subjects').select('email').eq('id', subject.id).maybeSingle()
+    const { data: siblings } = await supabaseAdmin.from('screening_subjects').select('id, stakeholder_id')
+      .eq('application_id', subject.application_id).neq('id', subject.id)
+    const taken = new Set((siblings ?? []).map(x => x.stakeholder_id as string | null).filter((v): v is string => !!v))
+    const candidates = people.filter(p => !taken.has(p.id))
+    stakeholderId = matchStakeholders([{ name: subject.name, email: (me?.email as string | null) ?? null }], candidates)[0]
+    if (stakeholderId) {
+      // Remember it -- the manual re-file and every later webhook read this.
+      await supabaseAdmin.from('screening_subjects').update({ stakeholder_id: stakeholderId }).eq('id', subject.id)
+    }
   }
+  const stakeholderName = people.find(p => p.id === stakeholderId)?.name ?? null
 
   const path = `intake/${listingApp.id}/background_credit/${crypto.randomUUID()}.pdf`
   const { error: upErr } = await supabaseAdmin.storage.from(INTAKE_BUCKET)
     .upload(path, pdf, { contentType: 'application/pdf', upsert: true })
-  if (upErr) { console.error('[report-storage] copy to application-docs failed:', upErr.message); return }
+  if (upErr) throw new Error(`copy to application-docs failed: ${upErr.message}`)
 
   const filename = `Checkr Report${subject.name ? ` - ${subject.name}` : ''}.pdf`
-  // Replace a PREVIOUS Checkr-filed copy for this same slot rather than
-  // piling up a new row on every webhook redelivery (Checkr's own delivery
-  // guarantee is at-least-once, per their Webhooks guide).
+  // Replace any PREVIOUS Checkr-filed copy for this same slot (Checkr's
+  // delivery is at-least-once) -- as a list, never .maybeSingle(), so a
+  // duplicate from an earlier attempt can't error this out.
   let existingQuery = supabaseAdmin.from('application_documents')
     .select('id').eq('application_id', listingApp.id).eq('doc_key', 'background_credit').eq('uploaded_by_role', 'checkr')
   existingQuery = stakeholderId ? existingQuery.eq('stakeholder_id', stakeholderId) : existingQuery.is('stakeholder_id', null)
-  const { data: existing } = await existingQuery.maybeSingle()
-  if (existing) {
-    await supabaseAdmin.from('application_documents').update({ storage_path: path, filename, suggested_name: filename, mime_type: 'application/pdf' }).eq('id', existing.id)
+  const { data: existing } = await existingQuery.order('created_at', { ascending: true })
+  const [keep, ...extras] = existing ?? []
+  if (keep) {
+    const { error } = await supabaseAdmin.from('application_documents')
+      .update({ storage_path: path, filename, suggested_name: filename, mime_type: 'application/pdf' }).eq('id', keep.id)
+    if (error) throw new Error(`update filed report: ${error.message}`)
+    if (extras.length) await supabaseAdmin.from('application_documents').delete().in('id', extras.map(e => e.id))
   } else {
-    await supabaseAdmin.from('application_documents').insert({
+    const { error } = await supabaseAdmin.from('application_documents').insert({
       application_id: listingApp.id, listing_id: listingApp.listing_id, kind: 'other',
       doc_key: 'background_credit', doc_label: 'Background / Credit Reports',
       storage_path: path, filename, suggested_name: filename, mime_type: 'application/pdf',
       uploaded_by_role: 'checkr', stakeholder_id: stakeholderId,
     })
-    // Clean up a stale unscoped copy from before this stakeholder could be
-    // resolved (e.g. an earlier click of "File as document" pre-dating this
-    // fix) -- otherwise it lingers as an orphaned row nothing points to.
+    if (error) throw new Error(`insert filed report: ${error.message}`)
+    // An unscoped copy from before the applicant could be resolved is now an
+    // orphan nothing points to -- remove it.
     if (stakeholderId) {
       await supabaseAdmin.from('application_documents')
         .delete().eq('application_id', listingApp.id).eq('doc_key', 'background_credit')
         .eq('uploaded_by_role', 'checkr').is('stakeholder_id', null)
     }
   }
+
+  const warning = stakeholderId ? null
+    : `stored, but could not tell which applicant "${subject.name ?? 'this report'}" belongs to (applicants on file: ${people.map(p => p.name ?? '?').join(', ') || 'none'})`
+  if (warning) console.warn(`[report-storage] ${warning} -- application ${listingApp.id}`)
+  return { filed: true, stakeholderId, stakeholderName, warning }
 }

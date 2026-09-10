@@ -33,7 +33,7 @@ interface Detail {
   declarations: { vehicle?: { has: boolean; at?: string } | null; animal?: { has: boolean; kind?: 'pet' | 'service' | 'esa' | 'unsure' | null; at?: string } | null; taxReturns?: { has: boolean; at?: string } | null }
   declarationReminders: Record<string, string>
   declaredNa: string[]
-  screeningSubjects: { id: string; name: string | null; stakeholderId: string | null; status: string | null; reportUrl: string | null; reportData: Record<string, unknown> | null; completedAt: string | null; validThrough: string | null; expired: boolean; history: { type: string; receivedAt: string }[] }[]
+  screeningSubjects: { id: string; name: string | null; stakeholderId: string | null; status: string | null; reportUrl: string | null; reportData: Record<string, unknown> | null; completedAt: string | null; validThrough: string | null; expired: boolean; filing: { filedFor: string | null; warning: string | null } | null; history: { type: string; receivedAt: string }[] }[]
   payment: { status: string; amountPaid: number | null } | null
   petsAllowed: boolean | null
   petsProhibitedNotice: boolean
@@ -495,26 +495,16 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
                     style={{ font: '600 12px system-ui', color: '#2563eb', background: 'none', border: 'none', padding: 0 }}
                   />
                 )}
-                {/* Staff report, 2026-09-07 (Querline Pinckney's first real
-                    completed report): the report lived here but never in her
-                    own "Background / Credit Reports" checklist row -- staff
-                    had no preview/approve flow for it like every other filed
-                    document gets. New completions now auto-file (see
-                    lib/screening/report-storage.ts); this backfills one
-                    that finished before that existed. Idempotent -- safe to
-                    click again if it's already filed. */}
-                {s.status === 'complete' && s.reportUrl && (
-                  <button onClick={async () => {
-                    setBusy(true)
-                    try {
-                      const r = await fetch(`/api/admin/pre-apply/${id}/refile-report`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ subjectId: s.id }) })
-                      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed')
-                      load()
-                    } catch (e) { alert(`Could not file as document: ${(e as Error).message}`) } finally { setBusy(false) }
-                  }} disabled={busy} style={{ font: '600 12px system-ui', color: '#5b21b6', background: 'none', border: 'none', padding: 0, cursor: busy ? 'default' : 'pointer' }}>
-                    📄 File as document
-                  </button>
-                )}
+                {/* No manual "File as document" button any more (user direction,
+                    2026-09-10): a completed report is filed onto its applicant's
+                    own "Background / Credit Reports" card automatically -- by
+                    the webhook on completion, and by this page's data route
+                    on load for anything missed. Only the outcome shows here. */}
+                {s.filing?.warning
+                  ? <span style={{ font: '600 11.5px system-ui', color: '#991b1b', background: '#fee2e2', borderRadius: 6, padding: '2px 8px' }}>⚠ Report {s.filing.warning}</span>
+                  : s.filing?.filedFor
+                    ? <span style={{ font: '600 11.5px system-ui', color: '#065f46' }}>✓ filed on {s.filing.filedFor}&apos;s card</span>
+                    : null}
               </div>
               {s.status === 'complete' && <ScreeningReportSummary reportData={s.reportData} />}
               {/* Every webhook delivery Checkr has actually sent for this
