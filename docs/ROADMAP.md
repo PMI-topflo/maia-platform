@@ -1,9 +1,19 @@
 # MAIA Platform — Open Items / Roadmap
 
-_Last updated: **2026-09-09**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
+_Last updated: **2026-09-11**. Status key: ✅ Live · 🟡 Partial · 🔴 Not built · ⚠️ Blocked · ⛔ Decided off._
 _Companion to `docs/SESSION-HANDOFF.md`. **This doc was rebuilt 2026-06-30** after the prior version drifted badly — verify against the codebase before quoting a status; squash-merges land features without anyone updating this file._
 
 > **How to keep this honest:** before quoting a status, grep the codebase. When you ship something here, flip its status in the same PR.
+
+---
+
+## ✅ LIVE — applications real-usage sweep, PRs #854–#869 (2026-09-10 → 09-11)
+
+One Applications screen (Open / Approved & closed, Checkr column, search kept; #854, tile count #856) · staff application emails cut to association + unit + link, no per-document mails, daily digest (#855) · Checkr report auto-filed onto EACH applicant card, "File as document" removed (#857, #862) · `a;b` recipient split + "Documents to review" chip (#858) · upload a board-signed approval letter + staff sessions carry a real name (#859) · owner delinquency notice with amount + since-date, 30-day rule kept (#860) · board identity + emails via `lib/board-roster.ts`, legacy `board_members` demoted to phone book; Drive import stops reading Additional-Resident letters as leases (#863, #864) · board card shows unit balance + ledger link (#865) · MANXI purchase letter states advance maintenance by credit score, "paid at closing, title company holds/remits per estoppel" (#866) · missing-docs reminder approval gate removed (#868) · duplicate applicant rows merge on Remove; signature reminders carry per-signer links + "AI Pre-Audited by MAIA" / named board approvals; board card gets a Sign button (#869).
+
+**⛔ Decided off (2026-09-11):** passing the Stripe processing fee to applicants — condo $150 cap (718.112(2)(i)); checkout stays $150 flat, fee absorbed. Only viable later paths: ACH alongside card (needs async-payment hold on the Checkr link) or a per-association surcharge switch for HOAs.
+
+**🔴 Open from the sweep:** 903's second "Shoodlyne Deus" (different email) may have been a real second person — staff to confirm; VPCI board member Nona Fried's bouncing juno.com address — user to update in Board Setup; Checkr key mode still unverified (see below).
 
 ---
 
@@ -158,9 +168,9 @@ Real Citizens "Dwelling Fire DP-3 Unit Owners Special Form" policy (MANXI unit 9
 
 ---
 
-## 🟡 PARTIAL — association onboarding questionnaire (applications scope built 2026-09-09, not yet run live)
+## 🟡 PARTIAL — association onboarding questionnaire (applications scope built 2026-09-09, migration applied 2026-09-11, not yet run live)
 
-Guided setup per association: every answer a timestamped, attributed board decision (append-only `association_onboarding_decisions`), applied to the live config tables only on adoption at a board meeting. Built: identity facts, applications & screening, eligibility rules, document checklist grid, board & approvals, review & adopt. `/admin/cinc-sync/[code]/onboarding`. 🔴 Not built: governing-documents upload → MAIA rule proposals, board-side self-answering page, Rules & Regulations redraft (staff review before publish — user decision), compliance/operations/residents sections. Migration `20260909_association_onboarding.sql` must be applied from `/admin/tools` first. Detail: `docs/SESSION-HANDOFF.md` top entry.
+Guided setup per association: every answer a timestamped, attributed board decision (append-only `association_onboarding_decisions`), applied to the live config tables only on adoption at a board meeting. Built: identity facts, applications & screening, eligibility rules, document checklist grid, board & approvals, review & adopt. `/admin/cinc-sync/[code]/onboarding`. 🔴 Not built: governing-documents upload → MAIA rule proposals, board-side self-answering page, Rules & Regulations redraft (staff review before publish — user decision), compliance/operations/residents sections. Migration `20260909_association_onboarding.sql` is applied (verified 2026-09-11). Detail: `docs/SESSION-HANDOFF.md`.
 
 ---
 
