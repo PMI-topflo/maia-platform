@@ -18,6 +18,8 @@
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { advanceMaintenanceFor, advanceMaintenanceSentence, type AdvanceMaintenance } from '@/lib/advance-maintenance'
+import { currentQuarterlyAssessment } from '@/lib/application-esign-forms'
 import { signEsignToken } from '@/lib/esign-token'
 import { extractLeaseDetails } from '@/lib/lease-extract'
 import { sendEmail } from '@/lib/gmail'
@@ -57,17 +59,20 @@ export interface DecisionContext {
    *  resolved -- empty when no committee has been configured for this
    *  association, in which case the role-priority fallback below applies. */
   committeeDeciders: { name: string | null; email: string | null }[]
+  /** Purchase only, from the association's advance-maintenance rules
+   *  (lib/advance-maintenance.ts); null when no rule applies. */
+  advanceMaintenance: AdvanceMaintenance | null
 }
 
 export async function loadDecisionContext(applicationId: string): Promise<DecisionContext | null> {
   const { data: app } = await supabaseAdmin.from('listing_applications')
-    .select('association_code, application_type, unit_label, interview_requested_at, interview_completed_at').eq('id', applicationId).maybeSingle()
+    .select('association_code, application_type, unit_label, interview_requested_at, interview_completed_at, declarations').eq('id', applicationId).maybeSingle()
   if (!app) return null
   const code = String(app.association_code)
   const type = String(app.application_type)
   const [{ data: assoc }, { data: sh }, { data: members }, { data: cfg }, { data: tenant }, { data: committee }] = await Promise.all([
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip, requires_interview_lease, requires_interview_purchase').eq('association_code', code).maybeSingle(),
-    supabaseAdmin.from('application_stakeholders').select('name, email, is_primary').eq('application_id', applicationId).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
+    supabaseAdmin.from('application_stakeholders').select('name, email, is_primary, credit_score, tax_returns_has').eq('application_id', applicationId).eq('role', 'applicant').order('is_primary', { ascending: false }).order('created_at', { ascending: true }),
     supabaseAdmin.from('association_board_members').select('name, email, role, signature_image').eq('association_code', code).eq('active', true),
     supabaseAdmin.from('association_config').select('required_signatures').eq('association_code', code).maybeSingle(),
     supabaseAdmin.from('unit_tenant_contacts').select('occupants, lease_start, lease_end').eq('association_code', code).eq('unit_ref', app.unit_label ?? '').maybeSingle(),
@@ -119,6 +124,22 @@ export async function loadDecisionContext(applicationId: string): Promise<Decisi
   const interviewRequired = type === 'purchase' ? !!assoc?.requires_interview_purchase
     : type === 'lease' ? !!assoc?.requires_interview_lease
     : false
+
+  // Advance maintenance for a purchase, from the association's own rule rows
+  // -- the primary applicant's credit score (staff-entered from the Checkr
+  // report), or the international path when they declared no 2 years of
+  // U.S. tax returns. The unit's quarterly assessment comes from the CINC
+  // ledger, same reader the Maintenance Assessment Acknowledgment uses.
+  let advanceMaintenance: AdvanceMaintenance | null = null
+  if (type === 'purchase') {
+    const primary = (sh ?? [])[0] as { credit_score?: number | null; tax_returns_has?: boolean | null } | undefined
+    const decl = (app.declarations as { taxReturns?: boolean | null } | null) ?? null
+    const international = primary?.tax_returns_has === false || decl?.taxReturns === false
+    const quarterly = await currentQuarterlyAssessment(code, (app.unit_label as string | null) ?? null).catch(() => null)
+    advanceMaintenance = await advanceMaintenanceFor({
+      associationCode: code, creditScore: primary?.credit_score ?? null, international, quarterlyAmount: quarterly?.amount ?? null,
+    }).catch(() => null)
+  }
   return {
     applicationId, unitLabel: (app.unit_label as string | null) ?? null, applicationType: type,
     code, legal, propertyAddress: addr || null, applicant, applicantEmails, required, board: ordered,
@@ -126,6 +147,7 @@ export async function loadDecisionContext(applicationId: string): Promise<Decisi
     interviewRequestedAt: (app.interview_requested_at as string | null) ?? null,
     interviewCompletedAt: (app.interview_completed_at as string | null) ?? null,
     committeeDeciders,
+    advanceMaintenance,
   }
 }
 
@@ -183,6 +205,7 @@ export async function createBoardDecisionLetter(c: DecisionContext, opts: {
     unit: c.unitLabel, applicationType: c.applicationType,
     decision: opts.decision?.trim() || 'Approved', conditions: opts.conditions?.trim() || null,
     leaseStart: opts.leaseStart || c.leaseStart || null, leaseEnd: opts.leaseEnd || c.leaseEnd || null,
+    advanceMaintenance: c.advanceMaintenance ? { ...c.advanceMaintenance, sentence: advanceMaintenanceSentence(c.advanceMaintenance) } : null,
   }
 
   const now = new Date().toISOString()

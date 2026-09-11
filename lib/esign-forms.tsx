@@ -621,6 +621,13 @@ export interface BoardDecisionPayload {
   leaseStart?: string
   leaseEnd?: string
   reason?: string
+  /** Purchase only, when the association has a credit-score / international
+   *  advance-maintenance rule (lib/advance-maintenance.ts). Board direction,
+   *  Manors XI 2026-09-10: the letter shows the pre-paid assessments. */
+  advanceMaintenance?: {
+    quarters: number; months: number; basis: string
+    quarterlyAmount: number | null; total: number | null; sentence: string
+  } | null
 }
 
 const APP_TYPE_LABEL: Record<string, string> = { lease: 'Lease', purchase: 'Purchase', lease_renewal: 'Lease renewal', additional_occupant: 'Additional occupant' }
@@ -654,6 +661,13 @@ const boardDecision: EsignFormDef = {
             <View style={s.row}><Text style={s.rowKey}>Expires</Text><Text style={{ ...s.rowVal, color: '#b45309' }}>{end}</Text></View>
           )}
           <View style={s.row}><Text style={s.rowKey}>Decision</Text><Text style={{ ...s.rowVal, color: declined ? '#991b1b' : '#166534' }}>{p.decision ?? 'Approved'}</Text></View>
+          {p.advanceMaintenance && !declined && (
+            <View style={s.row}><Text style={s.rowKey}>Advance maintenance</Text><Text style={{ ...s.rowVal, color: p.advanceMaintenance.quarters > 0 ? '#b45309' : '#166534' }}>
+              {p.advanceMaintenance.quarters === 0
+                ? 'None required'
+                : `${p.advanceMaintenance.quarters} quarterly assessment${p.advanceMaintenance.quarters === 1 ? '' : 's'} (${p.advanceMaintenance.months} months)${p.advanceMaintenance.total != null ? ` — $${p.advanceMaintenance.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}`}
+            </Text></View>
+          )}
 
           <Text style={s.sectionTitle}>Approved occupants</Text>
           {(p.occupants ?? []).length > 0
@@ -663,6 +677,7 @@ const boardDecision: EsignFormDef = {
           <Text style={s.para}>
             The Association&apos;s Board of Directors (or authorized approver) hereby {declined ? 'DECLINES' : 'APPROVES'} the {APP_TYPE_LABEL[p.applicationType ?? '']?.toLowerCase() ?? ''} application of {p.applicant ?? 'the applicant'} to {verb} the property identified above{isLease && start && end ? `, for the term ${start} through ${end}` : ''}, for the occupant(s) listed.
           </Text>
+          {p.advanceMaintenance && !declined ? <Text style={s.para}>{p.advanceMaintenance.sentence}</Text> : null}
           {p.conditions ? <Text style={s.para}>Conditions: {p.conditions}</Text> : null}
           {p.reason ? <Text style={s.para}>{p.reason}</Text> : null}
           <SignatureRow doc={doc} def={boardDecision} />
