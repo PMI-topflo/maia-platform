@@ -130,7 +130,7 @@ export async function esignItemBlocker(docKey: string, c: AppCtx): Promise<strin
  *  this form is about) could silently stand in for it. Excluding anything
  *  whose description also matches /special/i keeps only the regular,
  *  recurring quarterly maintenance assessment this field is meant to show. */
-async function currentQuarterlyAssessment(code: string, unit: string | null): Promise<{ amount: number; asOf: string } | null> {
+export async function currentQuarterlyAssessment(code: string, unit: string | null): Promise<{ amount: number; asOf: string } | null> {
   if (!unit) return null
   try {
     const owner = await findMergedOwner(code, unit)
