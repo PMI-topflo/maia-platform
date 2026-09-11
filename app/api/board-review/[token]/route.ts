@@ -15,6 +15,7 @@ import { getReviewState, syncBoardWindow, boardWindowSentence, REVIEWER_ROLE_LAB
 import { notifyOfficeOfReviewResponse } from '@/lib/board-review-email'
 import { advanceToApprovalSent } from '@/lib/board-decision-letter'
 import { isReviewerVerified, type ReviewerVerifications } from '@/lib/board-review-verify'
+import { signEsignToken } from '@/lib/esign-token'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -53,6 +54,25 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   if (!state) return NextResponse.json({ error: 'This application could not be found.' }, { status: 404 })
 
   const appType = (app?.application_type as string | null) ?? null
+
+  // Once the letter exists, a VERIFIED reviewer who is one of its unsigned
+  // signers gets their own signing link right on this card — the reminder
+  // email sends people here as "the full application", so the card must
+  // finish the job (user direction, 2026-09-11).
+  const letterSignLinks: Record<string, string> = {}
+  let letterStatus: string | null = null
+  const { data: letter } = await supabaseAdmin.from('esign_documents')
+    .select('id, status, signers').eq('kind', 'board_decision').eq('association_code', round.association_code).eq('unit_ref', round.unit_label ?? '')
+    .neq('status', 'void').order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (letter) {
+    letterStatus = String(letter.status)
+    const signers = (Array.isArray(letter.signers) ? letter.signers : []) as { role?: string; email?: string; signed_at?: string | null }[]
+    for (const r of round.recipients) {
+      if (!r.name || !r.email || !isReviewerVerified(round.reviewer_verifications, r.name)) continue
+      const sg = signers.find(x => x.role && String(x.email ?? '').toLowerCase() === String(r.email).toLowerCase())
+      if (sg && !sg.signed_at) letterSignLinks[String(r.name)] = `/esign/${await signEsignToken(String(letter.id), String(sg.role))}`
+    }
+  }
   // Whether the OVERALL "Approve" action on this round will actually send the
   // letter, or instead request the board/buyer interview some associations
   // require first (lib/board-decision-letter.ts) — the reviewer needs to know
@@ -82,6 +102,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
       .filter(r => r.name && isReviewerVerified(round.reviewer_verifications, r.name))
       .map(r => String(r.name)),
     roleLabels: REVIEWER_ROLE_LABEL,
+    letterStatus, letterSignLinks,
     windowSentence: boardWindowSentence(state.windowDays, state.windowUnit),
     interviewPending: interviewRequired && !app?.interview_completed_at,
     ...state,

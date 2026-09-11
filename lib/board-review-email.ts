@@ -336,24 +336,33 @@ export async function notifyOfficeOfSendBack(o: {
 }
 
 
-/** "Documents approved by: PMI staff (Fabio Setton) — 15 of 15." Grouped by
- *  reviewer, so the reader sees at a glance whether the board or the on-site
- *  manager took part or only the office approved. */
-function reviewedBySentence(state: ReviewState): string {
+/** What the board sees about who reviewed the documents. Staff decisions
+ *  are shown as "AI Pre-Audited by MAIA" (same wording as the board-review
+ *  card) — never a staff member's name (user direction, 2026-09-11: "I want
+ *  to show more technology"). A board member's or on-site manager's own
+ *  approvals are listed by name with the time stamp (ET). */
+export function reviewedByBlock(state: ReviewState): string {
   const decided = state.rows.filter(r => r.required && r.decision)
   if (!decided.length) return ''
-  const groups = new Map<string, { label: string; names: Set<string>; n: number }>()
-  for (const r of decided) {
+  const ai = decided.filter(r => r.decision!.role === 'staff')
+  const human = decided.filter(r => r.decision!.role !== 'staff')
+  const byPerson = new Map<string, { name: string; role: string; approved: number; refused: number; last: string }>()
+  for (const r of human) {
     const d = r.decision!
-    const g = groups.get(d.role) ?? { label: REVIEWER_ROLE_LABEL[d.role] ?? d.role, names: new Set<string>(), n: 0 }
-    if (d.by && d.by.trim()) g.names.add(d.by.trim())
-    g.n += 1
-    groups.set(d.role, g)
+    const key = `${d.role}|${d.by.trim().toLowerCase()}`
+    const g = byPerson.get(key) ?? { name: d.by.trim() || REVIEWER_ROLE_LABEL[d.role], role: REVIEWER_ROLE_LABEL[d.role] ?? d.role, approved: 0, refused: 0, last: d.at }
+    if (r.state === 'refused') g.refused += 1; else g.approved += 1
+    if (d.at > g.last) g.last = d.at
+    byPerson.set(key, g)
   }
-  const parts = [...groups.values()].map(g => `${esc(g.label)}${g.names.size ? ` (${esc([...g.names].join(', '))})` : ''} — ${g.n}`)
-  const others = (['board', 'onsite_manager'] as ReviewerRole[]).filter(k => groups.has(k))
-  const note = others.length ? '' : ' No board member or on-site manager has reviewed a document; the office approved them all.'
-  return `<p style="color:#6b7280;font-size:13px;margin:8px 0">Documents approved by: ${parts.join(' · ')} (${decided.length} of ${state.totals.required} required).${note}</p>`
+  const rows: string[] = []
+  if (ai.length) rows.push(`<tr><td style="padding:4px 8px 4px 0;vertical-align:middle"><img src="${APP}/maia-mark-email.png" width="22" height="22" alt="MAIA" style="vertical-align:middle;border:0"></td><td style="padding:4px 0;vertical-align:middle"><strong>AI Pre-Audited by MAIA</strong> — ${ai.length} document${ai.length === 1 ? '' : 's'}</td></tr>`)
+  for (const g of byPerson.values()) {
+    const what = [g.approved ? `approved ${g.approved}` : null, g.refused ? `refused ${g.refused}` : null].filter(Boolean).join(', ')
+    rows.push(`<tr><td style="padding:4px 8px 4px 0;vertical-align:middle;font-size:18px;line-height:22px">🟢</td><td style="padding:4px 0;vertical-align:middle"><strong>${esc(g.name)}</strong> <span style="color:#6b7280">(${esc(g.role)})</span> — ${what} · <span style="color:#6b7280">${esc(fmtET(g.last))}</span></td></tr>`)
+  }
+  const note = human.length ? '' : `<p style="margin:6px 0 0;color:#92400e;font-size:12.5px">No board member or on-site manager has approved a document yet — open the application to review and approve.</p>`
+  return `<div style="margin:12px 0"><p style="margin:0 0 4px;color:#6b7280;font-size:12px;letter-spacing:.06em;text-transform:uppercase">Document review</p><table cellpadding="0" cellspacing="0" style="font-size:13.5px;color:#3a3f4a">${rows.join('')}</table>${note}</div>`
 }
 
 /** 3. The 5-day nudge, once the window is open and the letter is unsigned.
@@ -391,11 +400,13 @@ export async function sendSignatureReminder(roundId: string): Promise<{ sent: bo
   const daysLeft = state.dueAt ? Math.ceil((new Date(state.dueAt).getTime() - Date.now()) / 86400000) : null
   const dueBlock = due ? `<p style="background:${daysLeft !== null && daysLeft <= 7 ? '#fff8ec' : '#f9fafb'};border:1px solid ${daysLeft !== null && daysLeft <= 7 ? '#fde68a' : '#e5e7eb'};border-radius:8px;padding:11px 13px"><strong>A decision is due ${esc(due)}</strong>${daysLeft !== null ? ` — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : ''}.</p>` : ''
   const subject = `Still needs your signature — ${c.unit ? `Unit ${c.unit}` : c.legal}`
-  // Who approved the documents — so a signer can tell whether the board /
-  // on-site manager reviewed them or only the office did (user question,
-  // 2026-09-11: "how can I know that the board or the onsite manager reviewed
-  // the applicant in this email?").
-  const reviewedBlock = reviewedBySentence(state)
+  // Who reviewed the documents (MAIA vs. named board / on-site approvals) —
+  // user question, 2026-09-11: "how can I know that the board or the onsite
+  // manager reviewed the applicant in this email?"
+  // The round's own token opens the FULL application card (/board-review),
+  // where they can still approve any document not yet approved.
+  const cardLink = `${APP}/board-review/${String(round.token)}`
+  const reviewedBlock = reviewedByBlock(state)
 
   const to: string[] = []
   for (const r of pending) {
@@ -410,8 +421,9 @@ export async function sendSignatureReminder(roundId: string): Promise<{ sent: bo
           <p>Hello ${esc(r.name ?? 'Board Member')}, every document for <strong>${esc(c.address ?? c.legal)}</strong> has been reviewed and approved. The approval letter is waiting for your signature.</p>
           ${reviewedBlock}
           ${dueBlock}
-          <p style="margin:20px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Review &amp; sign the letter →</a></p>
-          <p style="color:#9ca3af;font-size:12px">You'll see the full letter before you sign. This link is unique to you. You're getting this because you haven't signed yet; anyone who has already signed is not reminded.</p>
+          <p style="margin:20px 0 8px"><a href="${cardLink}" style="display:inline-block;background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Open the application →</a>
+            &nbsp; <a href="${link}" style="display:inline-block;background:#059669;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Sign the approval letter →</a></p>
+          <p style="color:#9ca3af;font-size:12px">The application opens the full card — every document, the applicant, and Approve on anything not yet approved. The letter link shows the full letter before you sign and is unique to you. You're getting this because you haven't signed yet; anyone who has already signed is not reminded.</p>
           <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p></div>`,
       })
       to.push(r.email)
