@@ -61,6 +61,10 @@ export interface ApplicationReviewDigestData {
   // = old self-serve-form applications not linked to a pipeline one.
   arrived: { row: DashboardRow; docs: { label: string; at: string }[] }[]
   arrivedLegacy: { id: string; ref: string; association: string; applicant: string | null; docs: { label: string; at: string }[] }[]
+  /** Missing-documents reminders MAIA sent on its own in the last 24 hours
+   *  (the approval gate was removed 2026-09-11; this is the visibility that
+   *  replaces it). */
+  reminded: { row: DashboardRow; to: string[]; at: string }[]
 }
 
 function groupByAssociationThenUnit(rows: DashboardRow[]): { code: string; name: string; units: { unit: string; rows: DashboardRow[] }[] }[] {
@@ -127,6 +131,17 @@ export async function gatherApplicationReviewDigest(): Promise<ApplicationReview
     arrivedLegacy.push({ id: String(r.id), ref: `PMI-${String(r.id).slice(0, 8).toUpperCase()}`, association: String(r.association ?? '—'), applicant, docs: recent })
   }
 
+  const { data: remRows } = await supabaseAdmin.from('application_reminder_approvals')
+    .select('application_id, sent_to, decided_at').gte('decided_at', sinceIso).not('sent_to', 'is', null).order('decided_at', { ascending: false })
+  const reminded: ApplicationReviewDigestData['reminded'] = []
+  const remSeen = new Set<string>()
+  for (const r of remRows ?? []) {
+    const id = String(r.application_id); const row = rowById.get(id)
+    const to = Array.isArray(r.sent_to) ? (r.sent_to as string[]) : []
+    if (!row || !to.length || remSeen.has(id)) continue
+    remSeen.add(id); reminded.push({ row, to, at: String(r.decided_at) })
+  }
+
   return {
     generatedIso: dash.generatedAt,
     toReview: dash.rows.filter(r => r.stage === 'not_sent'),
@@ -135,6 +150,7 @@ export async function gatherApplicationReviewDigest(): Promise<ApplicationReview
     stalledInterview: dash.rows.filter(r => r.stage === 'interview' && r.alarm === 'stalled'),
     arrived,
     arrivedLegacy,
+    reminded,
   }
 }
 
@@ -265,6 +281,15 @@ export function buildApplicationReviewDigestEmail(data: ApplicationReviewDigestD
     ${groupBlock('Documents on file — not yet reviewed', 'Uploaded, waiting on a staff Approve/Refuse before the board pipeline can move.', data.toReview, appUrl, AMBER)}
     ${groupBlock('New documents in the last 24 hours', 'Every application that received a document since yesterday — replaces the one-email-per-upload notices.', data.arrived.map(a => a.row), appUrl, AMBER, arrivedLine)}
     ${legacyBlock}
+    ${groupBlock('Reminders MAIA sent in the last 24 hours', 'The 3-day "what is still missing" reminder, sent automatically to the applicant, owner and agents on file. Nothing to do — for your awareness.', data.reminded.map(x => x.row), appUrl, '#6b7280', (r, u) => {
+      const x = data.reminded.find(y => y.row.id === r.id)
+      const who = r.applicants.length ? esc(r.applicants.join(', ')) : '<span style="color:#9ca3af">no applicant name on file</span>'
+      return `<tr><td style="padding:9px 0;border-top:1px solid #f3f4f6">
+    <div style="font-size:13.5px;font-weight:700;color:${NAVY}">${who} <span style="font-weight:400;color:#6b7280">· ${esc(TYPE_LABEL[r.type] ?? r.type)}</span></div>
+    <div style="font-size:12.5px;color:#6b7280;margin-top:2px">📨 Reminded ${esc((x?.to ?? []).join(', '))}</div>
+    <div style="margin-top:5px"><a href="${esc(`${u}/admin/pre-apply/${r.id}`)}" style="font-size:12.5px;font-weight:700;color:${ORANGE};text-decoration:none">Open application &rarr;</a></div>
+  </td></tr>`
+    })}
     ${groupBlock('Sent back to the applicant', 'Refused, with a reason — worth a glance once they resubmit.', data.refused, appUrl, '#b42318')}
 
     <tr><td style="padding:16px 28px 22px;border-top:1px solid #eceff4">
@@ -294,6 +319,7 @@ export function buildApplicationReviewDigestEmail(data: ApplicationReviewDigestD
     ...textSection('Documents on file — not yet reviewed', data.toReview),
     ...textSection('New documents in the last 24 hours', data.arrived.map(a => a.row), r => textLine(r, `${data.arrived.find(a => a.row.id === r.id)?.docs.map(d => d.label).join(', ') ?? ''}`)),
     ...(data.arrivedLegacy.length ? [`New documents — legacy form applications (${data.arrivedLegacy.length})`, ...data.arrivedLegacy.map(l => `    - ${l.applicant ?? 'applicant'} · ${l.association} · ${l.ref} — ${l.docs.map(d => d.label).join(', ')} — ${appUrl}/admin/applications#app-row-${l.id}`), ''] : []),
+    ...textSection('Reminders MAIA sent in the last 24 hours', data.reminded.map(x => x.row), r => textLine(r, `reminded ${data.reminded.find(x => x.row.id === r.id)?.to.join(', ') ?? ''}`)),
     ...textSection('Sent back to the applicant', data.refused),
     'Maia · by PMI Top Florida Properties',
   ].join('\n')

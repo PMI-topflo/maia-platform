@@ -5,20 +5,24 @@
 // emailed in. User direction, 2026-08-20 (Rule 2): "start sending the list
 // of all missing files and info every 3 days to all stakeholders."
 //
-// Gated behind a ONE-TIME approval from PMI + Jonathan per application:
-//   • no prior application_reminder_approvals row → draft one, email the
-//     office a link to approve, and stop (this cycle sends nothing further).
-//   • newest row is 'approved' → send now, and log a new 'approved' row for
-//     the audit trail — no re-asking, ever, for this application.
-//   • newest row is 'pending' → already waiting on the office; don't nag by
-//     drafting a second one.
-//   • newest row is 'declined' → try again once another 3 days have passed.
-// Stops entirely once nothing is missing (checked fresh every cycle).
+// No approval gate any more — user direction, 2026-09-11 ("remove the
+// gate, send the first reminder automatically"): the one-time "Approve the
+// missing-documents reminder?" email read as if staff owed a document
+// review, and after the same-week push to cut staff emails it was noise.
+//   • no prior application_reminder_approvals row → send now, log an
+//     'approved' row (decided_by 'auto') so the 3-day cadence has a clock.
+//   • newest row is 'pending' (drafted under the old gate, never decided)
+//     → send now and close that row as auto-approved.
+//   • newest row is 'approved' or 'declined' → send once 3 days have passed
+//     since it, logging a new row. A decline only ever held one cycle.
+// Stops entirely once nothing is missing (checked fresh every cycle). The
+// daily Applications-to-review digest lists what was reminded (visibility
+// in place of the gate).
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getOutstandingSummary } from '@/lib/application-outstanding-summary'
-import { getReminderRecipients, sendMissingDocsReminder, draftReminderApproval } from '@/lib/application-reminder'
+import { getReminderRecipients, sendMissingDocsReminder } from '@/lib/application-reminder'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -39,23 +43,24 @@ export async function GET(req: Request) {
 
   const { data: rows } = await supabaseAdmin.from('application_reminder_approvals')
     .select('id, application_id, status, created_at').in('application_id', appIds).order('created_at', { ascending: false })
-  const newestByApp = new Map<string, { status: string; createdAt: number }>()
+  const newestByApp = new Map<string, { id: string; status: string; createdAt: number }>()
   for (const r of rows ?? []) {
     const appId = String(r.application_id)
-    if (!newestByApp.has(appId)) newestByApp.set(appId, { status: String(r.status), createdAt: new Date(String(r.created_at)).getTime() })
+    if (!newestByApp.has(appId)) newestByApp.set(appId, { id: String(r.id), status: String(r.status), createdAt: new Date(String(r.created_at)).getTime() })
   }
 
   const cutoff = Date.now() - REMINDER_DAYS * 86400000
-  let drafted = 0, sent = 0, checked = 0
-  const detail: { applicationId: string; action: 'drafted' | 'sent' | 'skipped'; to?: string[] }[] = []
+  const drafted = 0
+  let sent = 0, checked = 0
+  const detail: { applicationId: string; action: 'sent'; to?: string[] }[] = []
 
   for (const appId of appIds) {
     const newest = newestByApp.get(appId)
+    const pendingFromOldGate = newest?.status === 'pending'
 
-    // Already waiting on the office — don't draft a second one.
-    if (newest?.status === 'pending') continue
-    // Declined recently, or approved-but-not-due — wait for the cadence.
-    if (newest && newest.createdAt > cutoff) continue
+    // Sent (or declined) within the last 3 days — wait for the cadence. A
+    // 'pending' draft from the old gate is due now regardless of its age.
+    if (newest && !pendingFromOldGate && newest.createdAt > cutoff) continue
 
     checked++
     const summary = await getOutstandingSummary(appId)
@@ -64,24 +69,22 @@ export async function GET(req: Request) {
     const recipients = await getReminderRecipients(appId)
     if (!recipients.length) continue
 
-    if (newest?.status === 'approved') {
-      // Approved once, ever — every later cycle auto-sends, logging its own
-      // row so the audit trail (and this same cutoff check) stays accurate.
-      const res = await sendMissingDocsReminder(appId, summary, recipients)
-      await supabaseAdmin.from('application_reminder_approvals').insert({
-        application_id: appId, status: 'approved',
-        missing_summary: [...summary.rows.filter(r => !r.gatedBy).map(r => r.label), ...summary.declineQuestions],
-        recipients: recipients.map(r => ({ name: r.name, email: r.email, role: r.role })),
-        decided_by: 'auto (previously approved)', decided_at: new Date().toISOString(),
-        sent_to: res.sent,
-      })
-      sent++
-      detail.push({ applicationId: appId, action: 'sent', to: res.sent })
-    } else {
-      // First cycle ever, or trying again after a decline — draft and wait.
-      const token = await draftReminderApproval(appId, summary, recipients)
-      if (token) { drafted++; detail.push({ applicationId: appId, action: 'drafted' }) }
+    const res = await sendMissingDocsReminder(appId, summary, recipients)
+    const row = {
+      status: 'approved',
+      missing_summary: [...summary.rows.filter(r => !r.gatedBy).map(r => r.label), ...summary.declineQuestions],
+      recipients: recipients.map(r => ({ name: r.name, email: r.email, role: r.role })),
+      decided_by: newest ? 'auto (3-day cadence)' : 'auto (first reminder, no gate)', decided_at: new Date().toISOString(),
+      sent_to: res.sent,
     }
+    if (pendingFromOldGate && newest) {
+      // Close the old gate's draft as the record of this send.
+      await supabaseAdmin.from('application_reminder_approvals').update({ ...row, decided_by: 'auto (gate removed 2026-09-11)' }).eq('id', newest.id)
+    } else {
+      await supabaseAdmin.from('application_reminder_approvals').insert({ application_id: appId, ...row })
+    }
+    sent++
+    detail.push({ applicationId: appId, action: 'sent', to: res.sent })
   }
 
   return NextResponse.json({ ok: true, checked, drafted, sent, detail })
