@@ -24,6 +24,8 @@ interface Info {
   reviewers: { name: string; role: string }[]
   verifiedReviewers: string[]
   roleLabels: Record<string, string>
+  letterStatus: string | null
+  letterSignLinks: Record<string, string>
   windowSentence: string
   interviewPending: boolean
   rows: Row[]
@@ -307,13 +309,19 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
           </div>
           <div style={{ fontSize: 14, color: '#4a5265', marginTop: 3 }}>
             {info.complete
-              ? `Every document has been received and approved. The approval letter is next, and anyone who has not signed is reminded every 5 days.`
+              ? info.letterStatus === 'completed' ? `Every document has been received and approved, and the approval letter is fully signed.`
+                : `Every document has been received and approved. The approval letter is next, and anyone who has not signed is reminded every 5 days.`
               : t.waiting > 0
                 ? `The ${info.windowDays}-${info.windowUnit === 'business' ? 'business-day' : 'day'} window begins when the last requested document is received and reviewed.`
                 : t.refused > 0
                   ? `${t.refused} document${t.refused === 1 ? ' was' : 's were'} refused — the window stays shut until ${t.refused === 1 ? 'it is' : 'they are'} replaced.`
                   : `${t.required - t.decided} still to review.`}
           </div>
+          {me && verified && info.letterSignLinks[me.name] && (
+            <a href={info.letterSignLinks[me.name]} style={{ display: 'inline-block', marginTop: 10, font: '600 13.5px system-ui', background: '#059669', color: '#fff', textDecoration: 'none', padding: '10px 16px', borderRadius: 8 }}>
+              Sign the approval letter →
+            </a>
+          )}
         </div>
       </div>
 

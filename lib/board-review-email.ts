@@ -14,11 +14,12 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { renderMaiaEmail } from '@/lib/maia-email'
-import { getReviewState, boardWindowSentence, REVIEWER_ROLE_LABEL, type ReviewerRole } from '@/lib/board-review'
+import { getReviewState, boardWindowSentence, REVIEWER_ROLE_LABEL, type ReviewerRole, type ReviewState } from '@/lib/board-review'
 import { resolveUnit } from '@/lib/application-delinquency-notice'
 import { getHomeownerPaymentBlockStatus, getHomeownerLedger } from '@/lib/integrations/cinc'
 import { signLedgerToken } from '@/lib/owner-portal-token'
 import { boardDecisionRuleFor } from '@/lib/board-decision-rules'
+import { signEsignToken } from '@/lib/esign-token'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const SUPPORT = 'support@topfloridaproperties.com'
@@ -334,7 +335,44 @@ export async function notifyOfficeOfSendBack(o: {
   })
 }
 
-/** 3. The 5-day nudge, once the window is open and the letter is unsigned. */
+
+/** What the board sees about who reviewed the documents. Staff decisions
+ *  are shown as "AI Pre-Audited by MAIA" (same wording as the board-review
+ *  card) — never a staff member's name (user direction, 2026-09-11: "I want
+ *  to show more technology"). A board member's or on-site manager's own
+ *  approvals are listed by name with the time stamp (ET). */
+export function reviewedByBlock(state: ReviewState): string {
+  const decided = state.rows.filter(r => r.required && r.decision)
+  if (!decided.length) return ''
+  const ai = decided.filter(r => r.decision!.role === 'staff')
+  const human = decided.filter(r => r.decision!.role !== 'staff')
+  const byPerson = new Map<string, { name: string; role: string; approved: number; refused: number; last: string }>()
+  for (const r of human) {
+    const d = r.decision!
+    const key = `${d.role}|${d.by.trim().toLowerCase()}`
+    const g = byPerson.get(key) ?? { name: d.by.trim() || REVIEWER_ROLE_LABEL[d.role], role: REVIEWER_ROLE_LABEL[d.role] ?? d.role, approved: 0, refused: 0, last: d.at }
+    if (r.state === 'refused') g.refused += 1; else g.approved += 1
+    if (d.at > g.last) g.last = d.at
+    byPerson.set(key, g)
+  }
+  const rows: string[] = []
+  if (ai.length) rows.push(`<tr><td style="padding:4px 8px 4px 0;vertical-align:middle"><img src="${APP}/maia-mark-email.png" width="22" height="22" alt="MAIA" style="vertical-align:middle;border:0"></td><td style="padding:4px 0;vertical-align:middle"><strong>AI Pre-Audited by MAIA</strong> — ${ai.length} document${ai.length === 1 ? '' : 's'}</td></tr>`)
+  for (const g of byPerson.values()) {
+    const what = [g.approved ? `approved ${g.approved}` : null, g.refused ? `refused ${g.refused}` : null].filter(Boolean).join(', ')
+    rows.push(`<tr><td style="padding:4px 8px 4px 0;vertical-align:middle;font-size:18px;line-height:22px">🟢</td><td style="padding:4px 0;vertical-align:middle"><strong>${esc(g.name)}</strong> <span style="color:#6b7280">(${esc(g.role)})</span> — ${what} · <span style="color:#6b7280">${esc(fmtET(g.last))}</span></td></tr>`)
+  }
+  const note = human.length ? '' : `<p style="margin:6px 0 0;color:#92400e;font-size:12.5px">No board member or on-site manager has approved a document yet — open the application to review and approve.</p>`
+  return `<div style="margin:12px 0"><p style="margin:0 0 4px;color:#6b7280;font-size:12px;letter-spacing:.06em;text-transform:uppercase">Document review</p><table cellpadding="0" cellspacing="0" style="font-size:13.5px;color:#3a3f4a">${rows.join('')}</table>${note}</div>`
+}
+
+/** 3. The 5-day nudge, once the window is open and the letter is unsigned.
+ *
+ *  Each board member gets THEIR OWN signing link (/esign/<token>, the same
+ *  one the invitation carried) — this used to send everyone to
+ *  /admin/pre-apply/<id>, the staff dashboard, which a board member cannot
+ *  open (user report, 2026-09-11, MANXI 706). One office copy goes to
+ *  BOARD_EMAIL_CC with the staff link and the list of who was reminded,
+ *  rather than a CC on every signer's email. */
 export async function sendSignatureReminder(roundId: string): Promise<{ sent: boolean; to: string[] }> {
   const { data: round } = await supabaseAdmin.from('document_review_rounds')
     .select('id, application_id, token, recipients, reminder_count').eq('id', roundId).maybeSingle()
@@ -343,30 +381,69 @@ export async function sendSignatureReminder(roundId: string): Promise<{ sent: bo
   const state = await getReviewState(String(round.application_id))
   if (!c || !state || !state.windowOpenedAt) return { sent: false, to: [] }
 
-  // Only chase people who have NOT signed the approval letter yet.
+  // The letter itself: who signs it, and who already has.
   const { data: letter } = await supabaseAdmin.from('esign_documents')
-    .select('signers').eq('kind', 'board_decision').eq('association_code', c.code).eq('unit_ref', c.unit ?? '')
+    .select('id, signers').eq('kind', 'board_decision').eq('association_code', c.code).eq('unit_ref', c.unit ?? '')
     .neq('status', 'void').order('created_at', { ascending: false }).limit(1).maybeSingle()
-  const signed = new Set(((letter?.signers ?? []) as { email?: string; signed_at?: string | null }[])
-    .filter(s => s.signed_at).map(s => String(s.email ?? '').toLowerCase()))
+  const signers = ((letter?.signers ?? []) as { role?: string; email?: string; name?: string | null; signed_at?: string | null }[])
+  const signed = new Set(signers.filter(s => s.signed_at).map(s => String(s.email ?? '').toLowerCase()))
+  const roleByEmail = new Map(signers.filter(s => s.role && s.email).map(s => [String(s.email).toLowerCase(), String(s.role)]))
 
   const recipients = (Array.isArray(round.recipients) ? round.recipients : []) as { name?: string; email?: string }[]
-  const to = [...new Set(recipients.map(r => String(r.email ?? '').trim()).filter(e => e.includes('@') && !signed.has(e.toLowerCase())))]
-  if (!to.length) return { sent: false, to: [] }
+  const seen = new Set<string>()
+  const pending = recipients
+    .map(r => ({ name: String(r.name ?? '').trim() || null, email: String(r.email ?? '').trim() }))
+    .filter(r => r.email.includes('@') && !signed.has(r.email.toLowerCase()) && !seen.has(r.email.toLowerCase()) && seen.add(r.email.toLowerCase()))
+  if (!pending.length) return { sent: false, to: [] }
 
   const due = state.dueAt ? fmtET(state.dueAt) : null
   const daysLeft = state.dueAt ? Math.ceil((new Date(state.dueAt).getTime() - Date.now()) / 86400000) : null
+  const dueBlock = due ? `<p style="background:${daysLeft !== null && daysLeft <= 7 ? '#fff8ec' : '#f9fafb'};border:1px solid ${daysLeft !== null && daysLeft <= 7 ? '#fde68a' : '#e5e7eb'};border-radius:8px;padding:11px 13px"><strong>A decision is due ${esc(due)}</strong>${daysLeft !== null ? ` — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : ''}.</p>` : ''
+  const subject = `Still needs your signature — ${c.unit ? `Unit ${c.unit}` : c.legal}`
+  // Who reviewed the documents (MAIA vs. named board / on-site approvals) —
+  // user question, 2026-09-11: "how can I know that the board or the onsite
+  // manager reviewed the applicant in this email?"
+  // The round's own token opens the FULL application card (/board-review),
+  // where they can still approve any document not yet approved.
+  const cardLink = `${APP}/board-review/${String(round.token)}`
+  const reviewedBlock = reviewedByBlock(state)
 
-  await sendEmail({
-    to, cc: BOARD_EMAIL_CC, replyTo: SUPPORT,
-    subject: `Still needs your signature — ${c.unit ? `Unit ${c.unit}` : c.legal}`,
-    html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.55">
-      <p>Every document for <strong>${esc(c.address ?? c.legal)}</strong> has been reviewed and approved. The approval letter is waiting for your signature.</p>
-      ${due ? `<p style="background:${daysLeft !== null && daysLeft <= 7 ? '#fff8ec' : '#f9fafb'};border:1px solid ${daysLeft !== null && daysLeft <= 7 ? '#fde68a' : '#e5e7eb'};border-radius:8px;padding:11px 13px"><strong>A decision is due ${esc(due)}</strong>${daysLeft !== null ? ` — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : ''}.</p>` : ''}
-      <p style="margin:20px 0"><a href="${APP}/admin/pre-apply/${round.application_id}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Open the approval letter →</a></p>
-      <p style="color:#9ca3af;font-size:12px">You're getting this because you haven't signed yet. Anyone who has already signed is not reminded.</p>
-      <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p></div>`,
-  })
+  const to: string[] = []
+  for (const r of pending) {
+    const role = roleByEmail.get(r.email.toLowerCase())
+    // No signer slot for this address on the current letter (letter re-issued
+    // with different signers): send them to the board portal, never to /admin.
+    const link = letter && role ? `${APP}/esign/${await signEsignToken(String(letter.id), role)}` : `${APP}/board`
+    try {
+      await sendEmail({
+        to: [r.email], replyTo: SUPPORT, subject,
+        html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.55">
+          <p>Hello ${esc(r.name ?? 'Board Member')}, every document for <strong>${esc(c.address ?? c.legal)}</strong> has been reviewed and approved. The approval letter is waiting for your signature.</p>
+          ${reviewedBlock}
+          ${dueBlock}
+          <p style="margin:20px 0 8px"><a href="${cardLink}" style="display:inline-block;background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Open the application →</a>
+            &nbsp; <a href="${link}" style="display:inline-block;background:#059669;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Sign the approval letter →</a></p>
+          <p style="color:#9ca3af;font-size:12px">The application opens the full card — every document, the applicant, and Approve on anything not yet approved. The letter link shows the full letter before you sign and is unique to you. You're getting this because you haven't signed yet; anyone who has already signed is not reminded.</p>
+          <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p></div>`,
+      })
+      to.push(r.email)
+    } catch { /* keep going; the others still get theirs */ }
+  }
+  if (!to.length) return { sent: false, to: [] }
+
+  // One copy for the office, with the staff link.
+  if (BOARD_EMAIL_CC.length) {
+    await sendEmail({
+      to: BOARD_EMAIL_CC, replyTo: SUPPORT, subject: `${subject} (office copy — ${to.length} reminded)`,
+      html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.55">
+        <p>MAIA reminded these signers of the approval letter for <strong>${esc(c.address ?? c.legal)}</strong> (${esc(c.code)}${c.unit ? ` · Unit ${esc(c.unit)}` : ''}):</p>
+        <ul style="margin:0 0 12px;padding-left:18px">${pending.filter(p => to.includes(p.email)).map(p => `<li>${esc(p.name ?? '')} · ${esc(p.email)}</li>`).join('')}</ul>
+        ${reviewedBlock}
+        ${dueBlock}
+        <p style="margin-top:18px"><a href="${APP}/admin/pre-apply/${round.application_id}" style="color:#f26a1b;font-weight:600;text-decoration:none">Open the application →</a></p>
+        <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p></div>`,
+    }).catch(() => null)
+  }
 
   await supabaseAdmin.from('document_review_rounds')
     .update({ last_reminder_at: new Date().toISOString(), reminder_count: (Number(round.reminder_count) || 0) + 1 })
