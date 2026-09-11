@@ -275,7 +275,7 @@ export default function BoardReviewPage({ params }: { params: Promise<{ token: s
               {row.decision && (
                 <div style={{ marginTop: 7, fontSize: 13, color: '#4a5265' }}>
                   {!boardDecided
-                    ? <>{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/maia-mark.svg" alt="" width={18} height={18} style={{ verticalAlign: 'text-bottom', marginRight: 4 }} /> <strong>AI Pre-Audited by MAIA</strong></>
+                    ? <>{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/maia-mark.svg" alt="" width={18} height={18} style={{ display: 'inline-block', verticalAlign: 'text-bottom', marginRight: 4 }} /> <strong>AI Pre-Audited by MAIA</strong></>
                     : <>{row.state === 'approved' ? '🟢' : '🔴'} <strong>{row.state === 'approved' ? 'Approved' : 'Refused'} by {row.decision.by}</strong></>}
                   {' · '}<span style={{ color: '#7c8496', fontVariantNumeric: 'tabular-nums' }}>{fmt(row.decision.at)}</span>
                   {row.decision.reason && (
