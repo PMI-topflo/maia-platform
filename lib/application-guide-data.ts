@@ -22,6 +22,10 @@ import {
   MANXI_GUIDE_RENEWAL_NOTE, MANXI_GUIDE_AFTER_APPROVAL, MANXI_GUIDE_FOOTER,
   type GuideMasthead, type GuideNote, type GuideStep, type GuideRegistration,
 } from '@/lib/manxi-application-guide'
+import {
+  VPCI_GUIDE_MASTHEAD, VPCI_RULE_GROUPS, VPCI_GUIDE_NOTES, VPCI_GUIDE_STEPS,
+  VPCI_GUIDE_RENEWAL_NOTE, VPCI_GUIDE_AFTER_APPROVAL, VPCI_GUIDE_FOOTER,
+} from '@/lib/vpci-application-guide'
 
 export interface GuideRuleGroup {
   key: 'all' | 'lease' | 'purchase' | 'international' | 'other'
@@ -50,6 +54,10 @@ export interface ApplicationGuideData {
   internationalChecklist: GuideChecklistRow[]
   afterApproval: GuideRegistration[]
   footer: string
+  /** Section 2 / 3 sub-headings — per association, since e.g. VPCI interviews
+   *  every applicant while MANXI interviews purchasers only. */
+  processDek: string
+  checklistDek: string
   generatedAt: string
 }
 
@@ -61,13 +69,25 @@ interface GuideContent {
   renewalNote: string
   afterApproval: GuideRegistration[]
   footer: string
+  processDek?: string
+  checklistDek?: string
 }
+
+const DEFAULT_PROCESS_DEK = 'The same steps for every application type; purchases add an interview and one document-ordering step.'
+const DEFAULT_CHECKLIST_DEK = 'What\'s needed, by application type. "if applic." items only apply if you have a vehicle, a pet, or (for renewals) an expired ID.'
 
 const GUIDE_CONTENT: Record<string, GuideContent> = {
   MANXI: {
     masthead: MANXI_GUIDE_MASTHEAD, ruleGroups: MANXI_RULE_GROUPS, notes: MANXI_GUIDE_NOTES,
     steps: MANXI_GUIDE_STEPS, renewalNote: MANXI_GUIDE_RENEWAL_NOTE,
     afterApproval: MANXI_GUIDE_AFTER_APPROVAL, footer: MANXI_GUIDE_FOOTER,
+  },
+  VPCI: {
+    masthead: VPCI_GUIDE_MASTHEAD, ruleGroups: VPCI_RULE_GROUPS, notes: VPCI_GUIDE_NOTES,
+    steps: VPCI_GUIDE_STEPS, renewalNote: VPCI_GUIDE_RENEWAL_NOTE,
+    afterApproval: VPCI_GUIDE_AFTER_APPROVAL, footer: VPCI_GUIDE_FOOTER,
+    processDek: 'The same steps for every application type; every application includes a Board interview, and purchases add an estoppel step.',
+    checklistDek: 'What\'s needed, by application type. "if applic." items only apply if you have a vehicle or a pet.',
   },
 }
 
@@ -162,7 +182,9 @@ export async function buildApplicationGuideData(associationCodeRaw: string): Pro
   return {
     associationCode, masthead: content.masthead, ruleGroups, steps: content.steps,
     renewalNote: content.renewalNote, checklist, internationalChecklist, afterApproval: content.afterApproval,
-    footer: content.footer, generatedAt: new Date().toISOString(),
+    footer: content.footer,
+    processDek: content.processDek ?? DEFAULT_PROCESS_DEK,
+    checklistDek: content.checklistDek ?? DEFAULT_CHECKLIST_DEK, generatedAt: new Date().toISOString(),
   }
 }
 

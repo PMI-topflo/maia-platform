@@ -135,7 +135,7 @@ export function ApplicationGuidePdf({ data }: { data: ApplicationGuideData }) {
         ))}
 
         <View style={s.sectionHead}><Text style={s.sectionNum}>§2</Text><Text style={s.sectionTitle}>Application Process</Text></View>
-        <Text style={s.sectionDek}>The same steps for every application type; purchases add an interview and one document-ordering step.</Text>
+        <Text style={s.sectionDek}>{data.processDek}</Text>
         {data.steps.map((st, i) => (
           <View key={i} style={s.step} wrap={false}>
             <Text style={s.stepNum}>{i + 1}</Text>
@@ -148,7 +148,7 @@ export function ApplicationGuidePdf({ data }: { data: ApplicationGuideData }) {
         <View style={s.factBox} wrap={false}><Text>{data.renewalNote}</Text></View>
 
         <View style={s.sectionHead}><Text style={s.sectionNum}>§3</Text><Text style={s.sectionTitle}>Document Checklist</Text></View>
-        <Text style={s.sectionDek}>What&apos;s needed, by application type. &quot;if applic.&quot; items only apply if you have a vehicle, a pet, or (for renewals) an expired ID.</Text>
+        <Text style={s.sectionDek}>{data.checklistDek}</Text>
         <View style={s.tableHead} wrap={false}>
           <Text style={{ ...s.colDoc, ...s.headText }}>Document</Text>
           <Text style={{ ...s.colFrom, ...s.headText }}>From</Text>
