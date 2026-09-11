@@ -17,9 +17,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SECTIONS, SOURCE_LABEL, isChecklistKey, sectionOf, type CatalogItem, type ChecklistState, type OnboardingSection } from '@/lib/onboarding-catalog'
 import type { OnboardingState, OnboardingDecision, RuleValue, CommitteeValue } from '@/lib/onboarding'
+import TodayPanel from './TodayPanel'
 
-type Panel = OnboardingSection | 'review'
+type Panel = OnboardingSection | 'review' | 'today'
 const PANELS: { key: Panel; number: string; title: string }[] = [
+  { key: 'today', number: '★', title: 'What they have today' },
   ...SECTIONS.map(s => ({ key: s.key as Panel, number: String(s.number), title: s.title })),
   { key: 'review', number: '6', title: 'Review & adopt' },
 ]
@@ -43,7 +45,7 @@ const primaryCls = 'rounded bg-[#f26a1b] px-3 py-1.5 text-sm font-medium text-wh
 export default function OnboardingClient({ code, name, staffName }: { code: string; name: string; staffName: string }) {
   const [state, setState] = useState<OnboardingState | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [panel, setPanel] = useState<Panel>('identity')
+  const [panel, setPanel] = useState<Panel>('today')
   const [att, setAtt] = useState<Attribution>({ kind: 'board', boardMemberId: '', source: 'meeting', sourceRef: '' })
   const [busy, setBusy] = useState<Set<string>>(new Set())
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -143,7 +145,8 @@ export default function OnboardingClient({ code, name, staffName }: { code: stri
         </aside>
 
         <main>
-          {panel !== 'review' && (
+          {panel === 'today' && <TodayPanel code={code} state={state} onApplied={load} />}
+          {panel !== 'review' && panel !== 'today' && (
             <SectionPanel section={panel} state={state} save={save} busy={busy} errors={errors} />
           )}
           {panel === 'review' && <ReviewPanel state={state} code={code} onAdopted={load} />}
