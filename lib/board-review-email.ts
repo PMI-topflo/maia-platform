@@ -373,7 +373,7 @@ export function reviewedByBlock(state: ReviewState): string {
  *  open (user report, 2026-09-11, MANXI 706). One office copy goes to
  *  BOARD_EMAIL_CC with the staff link and the list of who was reminded,
  *  rather than a CC on every signer's email. */
-export async function sendSignatureReminder(roundId: string): Promise<{ sent: boolean; to: string[] }> {
+export async function sendSignatureReminder(roundId: string): Promise<{ sent: boolean; to: string[]; variant?: 'approve' | 'sign' }> {
   const { data: round } = await supabaseAdmin.from('document_review_rounds')
     .select('id, application_id, token, recipients, reminder_count').eq('id', roundId).maybeSingle()
   if (!round) return { sent: false, to: [] }
@@ -389,17 +389,29 @@ export async function sendSignatureReminder(roundId: string): Promise<{ sent: bo
   const signed = new Set(signers.filter(s => s.signed_at).map(s => String(s.email ?? '').toLowerCase()))
   const roleByEmail = new Map(signers.filter(s => s.role && s.email).map(s => [String(s.email).toLowerCase(), String(s.role)]))
 
-  const recipients = (Array.isArray(round.recipients) ? round.recipients : []) as { name?: string; email?: string }[]
+  // The round's stored recipients are a snapshot from when it went out. Check
+  // them against TODAY's approvers (active roster + on-site manager) so an
+  // ex-member is never chased — real case, 2026-09-11 (MANXI 706): the
+  // reminder still went to Jorge Manzano, removed from the board.
+  const current = new Map((await approversFor(c.code)).map(a => [a.email.toLowerCase(), a]))
+  const recipients = (Array.isArray(round.recipients) ? round.recipients : []) as { name?: string; email?: string; role?: string }[]
   const seen = new Set<string>()
   const pending = recipients
-    .map(r => ({ name: String(r.name ?? '').trim() || null, email: String(r.email ?? '').trim() }))
-    .filter(r => r.email.includes('@') && !signed.has(r.email.toLowerCase()) && !seen.has(r.email.toLowerCase()) && seen.add(r.email.toLowerCase()))
+    .map(r => ({ name: String(r.name ?? '').trim() || null, email: String(r.email ?? '').trim(), role: String(r.role ?? 'board') }))
+    .filter(r => r.email.includes('@') && current.has(r.email.toLowerCase()) && !signed.has(r.email.toLowerCase()) && !seen.has(r.email.toLowerCase()) && seen.add(r.email.toLowerCase()))
   if (!pending.length) return { sent: false, to: [] }
+
+  // No letter yet means the board has not given its final approval on the
+  // card — the letter is only generated after that. Sending "sign the
+  // letter" then is wrong (706, 2026-09-11: there was no letter at all).
+  const variant: 'approve' | 'sign' = letter ? 'sign' : 'approve'
 
   const due = state.dueAt ? fmtET(state.dueAt) : null
   const daysLeft = state.dueAt ? Math.ceil((new Date(state.dueAt).getTime() - Date.now()) / 86400000) : null
   const dueBlock = due ? `<p style="background:${daysLeft !== null && daysLeft <= 7 ? '#fff8ec' : '#f9fafb'};border:1px solid ${daysLeft !== null && daysLeft <= 7 ? '#fde68a' : '#e5e7eb'};border-radius:8px;padding:11px 13px"><strong>A decision is due ${esc(due)}</strong>${daysLeft !== null ? ` — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : ''}.</p>` : ''
-  const subject = `Still needs your signature — ${c.unit ? `Unit ${c.unit}` : c.legal}`
+  const subject = variant === 'sign'
+    ? `Still needs your signature — ${c.unit ? `Unit ${c.unit}` : c.legal}`
+    : `Waiting for your approval — ${c.unit ? `Unit ${c.unit}` : c.legal}`
   // Who reviewed the documents (MAIA vs. named board / on-site approvals) —
   // user question, 2026-09-11: "how can I know that the board or the onsite
   // manager reviewed the applicant in this email?"
@@ -415,15 +427,24 @@ export async function sendSignatureReminder(roundId: string): Promise<{ sent: bo
     // with different signers): send them to the board portal, never to /admin.
     const link = letter && role ? `${APP}/esign/${await signEsignToken(String(letter.id), role)}` : `${APP}/board`
     try {
+      const intro = variant === 'sign'
+        ? `every document for <strong>${esc(c.address ?? c.legal)}</strong> has been reviewed and approved. The approval letter is waiting for your signature.`
+        : `every document for <strong>${esc(c.address ?? c.legal)}</strong> has been received and pre-audited. The application is waiting for the board's final approval — open it, verify it's you, approve anything still pending and press the final approval. The approval letter is generated and sent for signature right after.`
+      const buttons = variant === 'sign'
+        ? `<a href="${cardLink}" style="display:inline-block;background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Open the application →</a>
+            &nbsp; <a href="${link}" style="display:inline-block;background:#059669;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Sign the approval letter →</a>`
+        : `<a href="${cardLink}" style="display:inline-block;background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Open the application and approve →</a>`
+      const why = variant === 'sign'
+        ? `The application opens the full card — every document, the applicant, and Approve on anything not yet approved. The letter link shows the full letter before you sign and is unique to you. You're getting this because you haven't signed yet; anyone who has already signed is not reminded.`
+        : `The link opens the full card — every document, the applicant, the unit's balance — and any one approver can settle it. You're getting this because the board's final approval has not been given yet.`
       await sendEmail({
         to: [r.email], replyTo: SUPPORT, subject,
         html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.55">
-          <p>Hello ${esc(r.name ?? 'Board Member')}, every document for <strong>${esc(c.address ?? c.legal)}</strong> has been reviewed and approved. The approval letter is waiting for your signature.</p>
+          <p>Hello ${esc(r.name ?? 'Board Member')}, ${intro}</p>
           ${reviewedBlock}
           ${dueBlock}
-          <p style="margin:20px 0 8px"><a href="${cardLink}" style="display:inline-block;background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Open the application →</a>
-            &nbsp; <a href="${link}" style="display:inline-block;background:#059669;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Sign the approval letter →</a></p>
-          <p style="color:#9ca3af;font-size:12px">The application opens the full card — every document, the applicant, and Approve on anything not yet approved. The letter link shows the full letter before you sign and is unique to you. You're getting this because you haven't signed yet; anyone who has already signed is not reminded.</p>
+          <p style="margin:20px 0 8px">${buttons}</p>
+          <p style="color:#9ca3af;font-size:12px">${why}</p>
           <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p></div>`,
       })
       to.push(r.email)
@@ -436,7 +457,7 @@ export async function sendSignatureReminder(roundId: string): Promise<{ sent: bo
     await sendEmail({
       to: BOARD_EMAIL_CC, replyTo: SUPPORT, subject: `${subject} (office copy — ${to.length} reminded)`,
       html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.55">
-        <p>MAIA reminded these signers of the approval letter for <strong>${esc(c.address ?? c.legal)}</strong> (${esc(c.code)}${c.unit ? ` · Unit ${esc(c.unit)}` : ''}):</p>
+        <p>MAIA reminded these approvers ${variant === 'sign' ? 'to sign the approval letter' : 'to give the final approval (no letter exists yet)'} for <strong>${esc(c.address ?? c.legal)}</strong> (${esc(c.code)}${c.unit ? ` · Unit ${esc(c.unit)}` : ''}):</p>
         <ul style="margin:0 0 12px;padding-left:18px">${pending.filter(p => to.includes(p.email)).map(p => `<li>${esc(p.name ?? '')} · ${esc(p.email)}</li>`).join('')}</ul>
         ${reviewedBlock}
         ${dueBlock}
@@ -448,5 +469,5 @@ export async function sendSignatureReminder(roundId: string): Promise<{ sent: bo
   await supabaseAdmin.from('document_review_rounds')
     .update({ last_reminder_at: new Date().toISOString(), reminder_count: (Number(round.reminder_count) || 0) + 1 })
     .eq('id', roundId)
-  return { sent: true, to }
+  return { sent: true, to, variant }
 }

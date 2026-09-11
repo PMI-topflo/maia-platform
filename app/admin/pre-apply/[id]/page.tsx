@@ -2330,6 +2330,18 @@ function BoardReviewSender({ id, onDone }: { id: string; onDone: () => void }) {
   const [msg, setMsg] = useState<string | null>(null)
   const [previewBusy, setPreviewBusy] = useState(false)
   const [previewMsg, setPreviewMsg] = useState<string | null>(null)
+  const [remindBusy, setRemindBusy] = useState(false)
+  const [remindMsg, setRemindMsg] = useState<string | null>(null)
+  async function remind() {
+    if (!confirm('Send the reminder to the board / on-site manager now?')) return
+    setRemindBusy(true); setRemindMsg(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/board-review/remind`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setRemindMsg(`Sent (${j.variant === 'sign' ? 'sign the letter' : 'give final approval'}) to ${(j.to ?? []).join(', ')}`)
+      onDone()
+    } catch (e) { setRemindMsg(`Could not send: ${(e as Error).message}`) } finally { setRemindBusy(false) }
+  }
   async function send() {
     setBusy(true); setMsg(null)
     try {
@@ -2357,6 +2369,10 @@ function BoardReviewSender({ id, onDone }: { id: string; onDone: () => void }) {
         {previewBusy ? 'Sending…' : '👁 Preview this email (sends only to you)'}
       </button>
       {previewMsg && <span style={{ font: '12.5px system-ui', color: previewMsg.startsWith('Could not') ? '#b91c1c' : '#166534', alignSelf: 'center' }}>{previewMsg}</span>}
+      <button disabled={remindBusy} onClick={remind} title="Sends today's reminder to everyone on the newest round who is still on the roster and has not approved / signed" style={{ font: '600 13px system-ui', color: '#1f2a44', background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, padding: '9px 14px', cursor: remindBusy ? 'default' : 'pointer' }}>
+        {remindBusy ? 'Sending…' : '🔔 Remind the board now'}
+      </button>
+      {remindMsg && <span style={{ font: '12.5px system-ui', color: remindMsg.startsWith('Could not') ? '#b91c1c' : '#166534', alignSelf: 'center' }}>{remindMsg}</span>}
     </>
   )
 }
