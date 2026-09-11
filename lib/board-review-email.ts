@@ -188,7 +188,7 @@ async function buildReviewRoundEmail(applicationId: string, token: string, note:
   // the clock already started, possibly days ago. Show the real due date and
   // days left whenever the window is actually open; the generic sentence
   // still covers the normal case (round sent before completion).
-  const daysLeft = state.dueAt ? Math.ceil((new Date(state.dueAt).getTime() - Date.now()) / 86400000) : null
+  const daysLeft = state.dueAt ? Math.floor((new Date(state.dueAt).getTime() - Date.now()) / 86400000) : null  // whole days only (user, 2026-09-11)
   // The association's OWN rule, quoted verbatim, when confirmed (see
   // lib/board-decision-rules.ts) -- user direction, 2026-09-08: "we need to
   // tell also to the board in the email every day" what the governing
@@ -407,7 +407,7 @@ export async function sendSignatureReminder(roundId: string): Promise<{ sent: bo
   const variant: 'approve' | 'sign' = letter ? 'sign' : 'approve'
 
   const due = state.dueAt ? fmtET(state.dueAt) : null
-  const daysLeft = state.dueAt ? Math.ceil((new Date(state.dueAt).getTime() - Date.now()) / 86400000) : null
+  const daysLeft = state.dueAt ? Math.floor((new Date(state.dueAt).getTime() - Date.now()) / 86400000) : null  // whole days only (user, 2026-09-11)
   const dueBlock = due ? `<p style="background:${daysLeft !== null && daysLeft <= 7 ? '#fff8ec' : '#f9fafb'};border:1px solid ${daysLeft !== null && daysLeft <= 7 ? '#fde68a' : '#e5e7eb'};border-radius:8px;padding:11px 13px"><strong>A decision is due ${esc(due)}</strong>${daysLeft !== null ? ` — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : ''}.</p>` : ''
   const subject = variant === 'sign'
     ? `Still needs your signature — ${c.unit ? `Unit ${c.unit}` : c.legal}`
