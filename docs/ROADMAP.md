@@ -13,7 +13,7 @@ One Applications screen (Open / Approved & closed, Checkr column, search kept; #
 
 **⛔ Decided off (2026-09-11):** passing the Stripe processing fee to applicants — condo $150 cap (718.112(2)(i)); checkout stays $150 flat, fee absorbed. Only viable later paths: ACH alongside card (needs async-payment hold on the Checkr link) or a per-association surcharge switch for HOAs.
 
-**🔴 Open from the sweep:** 903's second "Shoodlyne Deus" (different email) may have been a real second person — staff to confirm; VPCI board member Nona Fried's bouncing juno.com address — user to update in Board Setup; Checkr key mode still unverified (see below).
+**✅ Closed 2026-09-11 (user):** 903's second "Shoodlyne Deus" was the same person's secondary email (merged); Nona Fried's juno.com address delivers (a direct email did not bounce — the Resend bounce was transient); **Checkr production key is LIVE mode, confirmed by real order confirmations** — other associations may be moved to `maia_checkr`.
 
 ---
 
