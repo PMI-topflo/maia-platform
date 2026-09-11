@@ -165,12 +165,12 @@ export default function TodayPanel({ code, state, onApplied }: { code: string; s
       {view?.run && (
         <>
           <div className="grid grid-cols-1 gap-5 border-b border-gray-200 px-5 py-4 md:grid-cols-[1.6fr_1fr]">
-            <div>
+            <div className="min-w-0">
               <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">How they handle applications today</div>
               <p className="mt-1 max-w-[64ch] text-sm text-gray-800">{view.run.today_summary}</p>
               <div className="mt-2 text-[11px] text-gray-400">Read {fmtET(view.run.created_at)}{view.run.created_by ? ` by ${view.run.created_by}` : ''}</div>
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Documents read</div>
               <ul className="mt-1 space-y-1 text-[13px]">
                 {view.run.documents.map(d => (
@@ -192,7 +192,7 @@ export default function TodayPanel({ code, state, onApplied }: { code: string; s
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[960px] border-collapse text-sm">
+            <table className="w-full min-w-[860px] border-collapse text-sm">
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
                   <th className="border-b border-gray-200 px-4 py-2">Item</th>
@@ -214,7 +214,7 @@ export default function TodayPanel({ code, state, onApplied }: { code: string; s
                     const isRej = rejected.has(p.id)
                     return (
                       <tr key={p.id} className={`align-top ${isRej ? 'opacity-40' : ''} ${!isPending ? 'text-gray-400' : ''}`}>
-                        <td className="w-[24%] border-t border-gray-100 px-4 py-2.5">
+                        <td className="w-[20%] border-t border-gray-100 px-4 py-2.5">
                           <div className={isPending ? 'text-gray-900' : ''}>{labelFor(state, key)}</div>
                           <div className="font-mono text-[10px] text-gray-400">{key}</div>
                         </td>
@@ -224,7 +224,7 @@ export default function TodayPanel({ code, state, onApplied }: { code: string; s
                           {p.invalid_reason && <div className="mt-1 text-[11px] text-red-700">Not usable as-is: {p.invalid_reason}</div>}
                         </td>
                         <td className="w-[13%] border-t border-gray-100 px-4 py-2.5 text-gray-500">{today}</td>
-                        <td className="w-[32%] border-t border-gray-100 px-4 py-2.5">
+                        <td className="w-[36%] border-t border-gray-100 px-4 py-2.5">
                           {p.quote && <blockquote className="rounded-r border-l-[3px] border-gray-200 bg-[#f9f8f5] px-2.5 py-1.5 text-[13px] text-gray-800">“{p.quote.length > 240 ? p.quote.slice(0, 240) + '…' : p.quote}”</blockquote>}
                           <div className="mt-1 text-[11px] text-gray-400">{(p.source ?? '').replace(/\.pdf$/i, '')}</div>
                           {p.rationale && <div className="mt-0.5 text-[12px] text-gray-500">{p.rationale}</div>}
