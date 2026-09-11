@@ -50,7 +50,7 @@ export interface MaiaEmailCtx {
    *  lib/board-review-email.ts's ownerBalanceInfo). `ledgerUrl` is a login-free
    *  link to that owner's live CINC ledger (lib/owner-portal-token.ts's
    *  signLedgerToken + app/api/owner/ledger/[token]/route.ts). */
-  ownerBalance?: { amount: number; current: boolean; ledgerUrl: string | null } | null
+  ownerBalance?: { amount: number | null; current: boolean | null; ledgerUrl: string | null } | null
 }
 
 /** Render the standard MAIA email as an HTML string. */
@@ -77,9 +77,14 @@ export function renderMaiaEmail(c: MaiaEmailCtx): string {
        </table>`
     : ''
 
-  const ownerBalanceHtml = c.ownerBalance
-    ? `<div style="font-size:13px;color:${c.ownerBalance.current ? '#166534' : '#b42318'};background:${c.ownerBalance.current ? '#eef8f2' : '#fdf2f0'};border:1px solid ${c.ownerBalance.current ? '#cdeedd' : '#f3cbc3'};border-radius:8px;padding:11px 13px;margin:0 0 20px">
-        🧾 <b>Unit owner's account: ${c.ownerBalance.current ? 'current' : `balance due ${money(c.ownerBalance.amount)}`}</b>${c.ownerBalance.ledgerUrl ? ` — <a href="${esc(c.ownerBalance.ledgerUrl)}" style="color:${c.ownerBalance.current ? '#166534' : '#b42318'};font-weight:700;text-decoration:underline">View the owner's ledger →</a>` : ''}
+  // Three states: current (green), balance due (red), unknown (gray -- CINC
+  // could not be read; the ledger link still works so the board can check).
+  const ob = c.ownerBalance
+  const obTone = !ob ? null : ob.current === null ? { fg: '#4b5563', bg: '#f3f4f6', bd: '#e5e7eb' } : ob.current ? { fg: '#166534', bg: '#eef8f2', bd: '#cdeedd' } : { fg: '#b42318', bg: '#fdf2f0', bd: '#f3cbc3' }
+  const obText = !ob ? '' : ob.current === null ? 'balance could not be read from CINC right now' : ob.current ? `current — $0.00 balance` : `balance due ${money(ob.amount ?? 0)}`
+  const ownerBalanceHtml = ob && obTone
+    ? `<div style="font-size:13px;color:${obTone.fg};background:${obTone.bg};border:1px solid ${obTone.bd};border-radius:8px;padding:11px 13px;margin:0 0 20px">
+        🧾 <b>Unit owner's account: ${obText}</b>${ob.ledgerUrl ? ` — <a href="${esc(ob.ledgerUrl)}" style="color:${obTone.fg};font-weight:700;text-decoration:underline">View the owner's ledger →</a>` : ''}
       </div>`
     : ''
 

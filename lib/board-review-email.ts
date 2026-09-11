@@ -16,7 +16,7 @@ import { sendEmail } from '@/lib/gmail'
 import { renderMaiaEmail } from '@/lib/maia-email'
 import { getReviewState, boardWindowSentence, REVIEWER_ROLE_LABEL, type ReviewerRole } from '@/lib/board-review'
 import { resolveUnit } from '@/lib/application-delinquency-notice'
-import { getHomeownerPaymentBlockStatus } from '@/lib/integrations/cinc'
+import { getHomeownerPaymentBlockStatus, getHomeownerLedger } from '@/lib/integrations/cinc'
 import { signLedgerToken } from '@/lib/owner-portal-token'
 import { boardDecisionRuleFor } from '@/lib/board-decision-rules'
 
@@ -140,15 +140,28 @@ async function context(applicationId: string) {
  *  builder — always shows the CURRENT balance, not a stale one from when the
  *  round first went out. Best-effort: a CINC outage or a unit with no
  *  resolvable owner account just omits the banner, never blocks the email. */
-async function ownerBalanceInfo(code: string, unit: string | null): Promise<{ amount: number; current: boolean; ledgerUrl: string | null } | null> {
+async function ownerBalanceInfo(code: string, unit: string | null): Promise<{ amount: number | null; current: boolean | null; ledgerUrl: string | null } | null> {
   if (!unit) return null
   try {
     const { accountNumber } = await resolveUnit(code, unit)
     if (!accountNumber) return null
-    const status = await getHomeownerPaymentBlockStatus(accountNumber)
-    if (!status || status.balance === null) return null
-    const token = await signLedgerToken(code, accountNumber)
-    return { amount: status.balance, current: status.balance <= 0, ledgerUrl: `${APP}/api/owner/ledger/${token}` }
+    // The ledger link never depends on the balance call succeeding -- board
+    // report, 2026-09-10 (MANXI 409): the banner was missing entirely on a
+    // CINC hiccup, and the board wrote in to ask whether the unit is current.
+    const ledgerUrl = `${APP}/api/owner/ledger/${await signLedgerToken(code, accountNumber)}`
+    let balance: number | null = null
+    try { balance = (await getHomeownerPaymentBlockStatus(accountNumber))?.balance ?? null } catch { balance = null }
+    if (balance === null) {
+      // Fallback: the running balance on the last ledger line.
+      try {
+        const today = new Date(); const from = new Date(today); from.setUTCFullYear(from.getUTCFullYear() - 1)
+        const rows = await getHomeownerLedger({ assocCode: code, hoId: accountNumber, fromDate: from.toISOString().slice(0, 10), toDate: today.toISOString().slice(0, 10) })
+        const last = rows.filter(r => r.Date && String(r.Date).slice(0, 10) <= today.toISOString().slice(0, 10)).sort((a, b) => String(a.Date).localeCompare(String(b.Date))).pop()
+        const rb = last ? Number((last as { RunningBalance?: unknown }).RunningBalance ?? NaN) : NaN
+        if (Number.isFinite(rb)) balance = rb
+      } catch { /* leave unknown */ }
+    }
+    return { amount: balance, current: balance === null ? null : balance <= 0, ledgerUrl }
   } catch {
     return null
   }
