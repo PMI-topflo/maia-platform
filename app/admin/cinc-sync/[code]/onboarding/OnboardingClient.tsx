@@ -144,7 +144,7 @@ export default function OnboardingClient({ code, name, staffName }: { code: stri
           </nav>
         </aside>
 
-        <main>
+        <main className="min-w-0">
           {panel === 'today' && <TodayPanel code={code} state={state} onApplied={load} />}
           {panel !== 'review' && panel !== 'today' && (
             <SectionPanel section={panel} state={state} save={save} busy={busy} errors={errors} />
