@@ -14,11 +14,12 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { renderMaiaEmail } from '@/lib/maia-email'
-import { getReviewState, boardWindowSentence, REVIEWER_ROLE_LABEL, type ReviewerRole } from '@/lib/board-review'
+import { getReviewState, boardWindowSentence, REVIEWER_ROLE_LABEL, type ReviewerRole, type ReviewState } from '@/lib/board-review'
 import { resolveUnit } from '@/lib/application-delinquency-notice'
 import { getHomeownerPaymentBlockStatus, getHomeownerLedger } from '@/lib/integrations/cinc'
 import { signLedgerToken } from '@/lib/owner-portal-token'
 import { boardDecisionRuleFor } from '@/lib/board-decision-rules'
+import { signEsignToken } from '@/lib/esign-token'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const SUPPORT = 'support@topfloridaproperties.com'
@@ -334,7 +335,35 @@ export async function notifyOfficeOfSendBack(o: {
   })
 }
 
-/** 3. The 5-day nudge, once the window is open and the letter is unsigned. */
+
+/** "Documents approved by: PMI staff (Fabio Setton) — 15 of 15." Grouped by
+ *  reviewer, so the reader sees at a glance whether the board or the on-site
+ *  manager took part or only the office approved. */
+function reviewedBySentence(state: ReviewState): string {
+  const decided = state.rows.filter(r => r.required && r.decision)
+  if (!decided.length) return ''
+  const groups = new Map<string, { label: string; names: Set<string>; n: number }>()
+  for (const r of decided) {
+    const d = r.decision!
+    const g = groups.get(d.role) ?? { label: REVIEWER_ROLE_LABEL[d.role] ?? d.role, names: new Set<string>(), n: 0 }
+    if (d.by && d.by.trim()) g.names.add(d.by.trim())
+    g.n += 1
+    groups.set(d.role, g)
+  }
+  const parts = [...groups.values()].map(g => `${esc(g.label)}${g.names.size ? ` (${esc([...g.names].join(', '))})` : ''} — ${g.n}`)
+  const others = (['board', 'onsite_manager'] as ReviewerRole[]).filter(k => groups.has(k))
+  const note = others.length ? '' : ' No board member or on-site manager has reviewed a document; the office approved them all.'
+  return `<p style="color:#6b7280;font-size:13px;margin:8px 0">Documents approved by: ${parts.join(' · ')} (${decided.length} of ${state.totals.required} required).${note}</p>`
+}
+
+/** 3. The 5-day nudge, once the window is open and the letter is unsigned.
+ *
+ *  Each board member gets THEIR OWN signing link (/esign/<token>, the same
+ *  one the invitation carried) — this used to send everyone to
+ *  /admin/pre-apply/<id>, the staff dashboard, which a board member cannot
+ *  open (user report, 2026-09-11, MANXI 706). One office copy goes to
+ *  BOARD_EMAIL_CC with the staff link and the list of who was reminded,
+ *  rather than a CC on every signer's email. */
 export async function sendSignatureReminder(roundId: string): Promise<{ sent: boolean; to: string[] }> {
   const { data: round } = await supabaseAdmin.from('document_review_rounds')
     .select('id, application_id, token, recipients, reminder_count').eq('id', roundId).maybeSingle()
@@ -343,30 +372,66 @@ export async function sendSignatureReminder(roundId: string): Promise<{ sent: bo
   const state = await getReviewState(String(round.application_id))
   if (!c || !state || !state.windowOpenedAt) return { sent: false, to: [] }
 
-  // Only chase people who have NOT signed the approval letter yet.
+  // The letter itself: who signs it, and who already has.
   const { data: letter } = await supabaseAdmin.from('esign_documents')
-    .select('signers').eq('kind', 'board_decision').eq('association_code', c.code).eq('unit_ref', c.unit ?? '')
+    .select('id, signers').eq('kind', 'board_decision').eq('association_code', c.code).eq('unit_ref', c.unit ?? '')
     .neq('status', 'void').order('created_at', { ascending: false }).limit(1).maybeSingle()
-  const signed = new Set(((letter?.signers ?? []) as { email?: string; signed_at?: string | null }[])
-    .filter(s => s.signed_at).map(s => String(s.email ?? '').toLowerCase()))
+  const signers = ((letter?.signers ?? []) as { role?: string; email?: string; name?: string | null; signed_at?: string | null }[])
+  const signed = new Set(signers.filter(s => s.signed_at).map(s => String(s.email ?? '').toLowerCase()))
+  const roleByEmail = new Map(signers.filter(s => s.role && s.email).map(s => [String(s.email).toLowerCase(), String(s.role)]))
 
   const recipients = (Array.isArray(round.recipients) ? round.recipients : []) as { name?: string; email?: string }[]
-  const to = [...new Set(recipients.map(r => String(r.email ?? '').trim()).filter(e => e.includes('@') && !signed.has(e.toLowerCase())))]
-  if (!to.length) return { sent: false, to: [] }
+  const seen = new Set<string>()
+  const pending = recipients
+    .map(r => ({ name: String(r.name ?? '').trim() || null, email: String(r.email ?? '').trim() }))
+    .filter(r => r.email.includes('@') && !signed.has(r.email.toLowerCase()) && !seen.has(r.email.toLowerCase()) && seen.add(r.email.toLowerCase()))
+  if (!pending.length) return { sent: false, to: [] }
 
   const due = state.dueAt ? fmtET(state.dueAt) : null
   const daysLeft = state.dueAt ? Math.ceil((new Date(state.dueAt).getTime() - Date.now()) / 86400000) : null
+  const dueBlock = due ? `<p style="background:${daysLeft !== null && daysLeft <= 7 ? '#fff8ec' : '#f9fafb'};border:1px solid ${daysLeft !== null && daysLeft <= 7 ? '#fde68a' : '#e5e7eb'};border-radius:8px;padding:11px 13px"><strong>A decision is due ${esc(due)}</strong>${daysLeft !== null ? ` — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : ''}.</p>` : ''
+  const subject = `Still needs your signature — ${c.unit ? `Unit ${c.unit}` : c.legal}`
+  // Who approved the documents — so a signer can tell whether the board /
+  // on-site manager reviewed them or only the office did (user question,
+  // 2026-09-11: "how can I know that the board or the onsite manager reviewed
+  // the applicant in this email?").
+  const reviewedBlock = reviewedBySentence(state)
 
-  await sendEmail({
-    to, cc: BOARD_EMAIL_CC, replyTo: SUPPORT,
-    subject: `Still needs your signature — ${c.unit ? `Unit ${c.unit}` : c.legal}`,
-    html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.55">
-      <p>Every document for <strong>${esc(c.address ?? c.legal)}</strong> has been reviewed and approved. The approval letter is waiting for your signature.</p>
-      ${due ? `<p style="background:${daysLeft !== null && daysLeft <= 7 ? '#fff8ec' : '#f9fafb'};border:1px solid ${daysLeft !== null && daysLeft <= 7 ? '#fde68a' : '#e5e7eb'};border-radius:8px;padding:11px 13px"><strong>A decision is due ${esc(due)}</strong>${daysLeft !== null ? ` — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : ''}.</p>` : ''}
-      <p style="margin:20px 0"><a href="${APP}/admin/pre-apply/${round.application_id}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Open the approval letter →</a></p>
-      <p style="color:#9ca3af;font-size:12px">You're getting this because you haven't signed yet. Anyone who has already signed is not reminded.</p>
-      <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p></div>`,
-  })
+  const to: string[] = []
+  for (const r of pending) {
+    const role = roleByEmail.get(r.email.toLowerCase())
+    // No signer slot for this address on the current letter (letter re-issued
+    // with different signers): send them to the board portal, never to /admin.
+    const link = letter && role ? `${APP}/esign/${await signEsignToken(String(letter.id), role)}` : `${APP}/board`
+    try {
+      await sendEmail({
+        to: [r.email], replyTo: SUPPORT, subject,
+        html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.55">
+          <p>Hello ${esc(r.name ?? 'Board Member')}, every document for <strong>${esc(c.address ?? c.legal)}</strong> has been reviewed and approved. The approval letter is waiting for your signature.</p>
+          ${reviewedBlock}
+          ${dueBlock}
+          <p style="margin:20px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600">Review &amp; sign the letter →</a></p>
+          <p style="color:#9ca3af;font-size:12px">You'll see the full letter before you sign. This link is unique to you. You're getting this because you haven't signed yet; anyone who has already signed is not reminded.</p>
+          <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p></div>`,
+      })
+      to.push(r.email)
+    } catch { /* keep going; the others still get theirs */ }
+  }
+  if (!to.length) return { sent: false, to: [] }
+
+  // One copy for the office, with the staff link.
+  if (BOARD_EMAIL_CC.length) {
+    await sendEmail({
+      to: BOARD_EMAIL_CC, replyTo: SUPPORT, subject: `${subject} (office copy — ${to.length} reminded)`,
+      html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.55">
+        <p>MAIA reminded these signers of the approval letter for <strong>${esc(c.address ?? c.legal)}</strong> (${esc(c.code)}${c.unit ? ` · Unit ${esc(c.unit)}` : ''}):</p>
+        <ul style="margin:0 0 12px;padding-left:18px">${pending.filter(p => to.includes(p.email)).map(p => `<li>${esc(p.name ?? '')} · ${esc(p.email)}</li>`).join('')}</ul>
+        ${reviewedBlock}
+        ${dueBlock}
+        <p style="margin-top:18px"><a href="${APP}/admin/pre-apply/${round.application_id}" style="color:#f26a1b;font-weight:600;text-decoration:none">Open the application →</a></p>
+        <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p></div>`,
+    }).catch(() => null)
+  }
 
   await supabaseAdmin.from('document_review_rounds')
     .update({ last_reminder_at: new Date().toISOString(), reminder_count: (Number(round.reminder_count) || 0) + 1 })

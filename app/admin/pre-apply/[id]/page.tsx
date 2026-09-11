@@ -2817,7 +2817,10 @@ function ApplicantsCard({ id, applicants, onDone, ownerName, ownerEmails, listin
       const r = await fetch(`/api/admin/pre-apply/${id}/applicants`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ applicants: people.map(p => ({ name: p.name, applicant_role: p.role, email: p.email, phone: p.phone })) }) })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
       setRemoved(null)
-      setEditing(false)
+      // The server may keep someone you removed (signed, or their documents
+      // would be orphaned) — say so instead of silently showing them again.
+      const warnings: string[] = Array.isArray(j.warnings) ? j.warnings : []
+      if (warnings.length) setMsg(warnings.join(' ')); else setEditing(false)
       onDone()
     } catch (e) { setMsg(`Could not save: ${(e as Error).message}`) } finally { setBusy(null) }
   }
