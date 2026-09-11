@@ -12,7 +12,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getReviewState, syncBoardWindow, boardWindowSentence, REVIEWER_ROLE_LABEL, type ReviewerRole } from '@/lib/board-review'
-import { notifyOfficeOfReviewResponse } from '@/lib/board-review-email'
+import { notifyOfficeOfReviewResponse, approversFor } from '@/lib/board-review-email'
 import { advanceToApprovalSent } from '@/lib/board-decision-letter'
 import { isReviewerVerified, type ReviewerVerifications } from '@/lib/board-review-verify'
 import { signEsignToken } from '@/lib/esign-token'
@@ -40,10 +40,40 @@ async function loadRound(token: string): Promise<Round | null> {
   }
 }
 
+/** The round's recipients are a snapshot from the day it went out. Bring
+ *  them in line with TODAY's approvers (active roster + on-site manager):
+ *  drop ex-members, refresh names / titles, add new members, and re-key any
+ *  verification that was stored under an old name so nobody re-verifies
+ *  just because their title changed. Persisted, so send-otp / verify-otp /
+ *  decide (which read the round by token) see the same list. Real case,
+ *  2026-09-11 (MANXI 706): the card still offered "Jorge Manzano
+ *  (Treasurer)", removed from the board, and showed last term's titles. */
+async function refreshRecipients(round: Round): Promise<Round> {
+  const current = await approversFor(round.association_code)
+  if (!current.length) return round
+  const byEmail = new Map(round.recipients.map(r => [String(r.email ?? '').toLowerCase(), r]))
+  const next: Round['recipients'] = current.map(a => ({ name: a.name, email: a.email, role: a.role }))
+  const verifications: ReviewerVerifications = { ...round.reviewer_verifications }
+  let changed = next.length !== round.recipients.length
+  for (const a of current) {
+    const old = byEmail.get(a.email.toLowerCase())
+    if (!old) { changed = true; continue }
+    const oldKey = String(old.name ?? '').trim().toLowerCase(), newKey = a.name.trim().toLowerCase()
+    if (oldKey !== newKey) {
+      changed = true
+      if (verifications[oldKey] && !verifications[newKey]) { verifications[newKey] = verifications[oldKey]; delete verifications[oldKey] }
+    }
+  }
+  if (!changed) return round
+  await supabaseAdmin.from('document_review_rounds').update({ recipients: next, reviewer_verifications: verifications }).eq('id', round.id)
+  return { ...round, recipients: next, reviewer_verifications: verifications }
+}
+
 export async function GET(_req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
-  const round = await loadRound(token)
-  if (!round) return NextResponse.json({ error: 'This link has expired or is invalid.' }, { status: 401 })
+  const loaded = await loadRound(token)
+  if (!loaded) return NextResponse.json({ error: 'This link has expired or is invalid.' }, { status: 401 })
+  const round = await refreshRecipients(loaded)
 
   const [state, { data: assoc }, { data: app }, { data: people }] = await Promise.all([
     getReviewState(round.application_id),
