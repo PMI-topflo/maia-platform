@@ -12,6 +12,7 @@
 // staff-created letter and an auto-created one can never diverge.
 
 import { NextResponse } from 'next/server'
+import { advanceMaintenanceSentence } from '@/lib/advance-maintenance'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession, staffLabel } from '@/lib/staff-auth'
 import { signEsignToken } from '@/lib/esign-token'
@@ -79,6 +80,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       unit: c.unitLabel, applicationType: c.applicationType,
       decision: b.decision?.trim() || 'Approved', conditions: b.conditions?.trim() || null,
       leaseStart: b.leaseStart || c.leaseStart || null, leaseEnd: b.leaseEnd || c.leaseEnd || null,
+      // Same advance-maintenance block the real letter prints (#866) — the
+      // preview used to omit it, so staff previewed a different letter.
+      advanceMaintenance: c.advanceMaintenance ? { ...c.advanceMaintenance, sentence: advanceMaintenanceSentence(c.advanceMaintenance) } : null,
     }
     const previewSigners = (b.signers && b.signers.length ? b.signers
       : c.committeeDeciders.length > 0 ? c.committeeDeciders
