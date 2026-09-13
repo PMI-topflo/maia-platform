@@ -17,6 +17,8 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/api/admin/invoices/**': ['./node_modules/@napi-rs/canvas*/**', './node_modules/pdfjs-dist/**'],
     '/api/maia-email/**':     ['./node_modules/@napi-rs/canvas*/**', './node_modules/pdfjs-dist/**'],
+    // Checkr receipt PDFs are read with pdf.js (pdf-parse returns nothing for them).
+    '/api/admin/payment-reconciliation/**': ['./node_modules/pdfjs-dist/**'],
   },
   typescript: {
     // Pre-existing TS infrastructure errors (missing react types, implicit any in
