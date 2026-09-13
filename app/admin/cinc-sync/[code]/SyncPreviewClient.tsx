@@ -330,8 +330,18 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
           return (
             <Fragment key={cmp.selection_key}>
               <tr className={cmp.status === 'match' ? 'bg-green-50/40' : archiveSel ? 'bg-red-50/60' : ''}>
-                <td className="px-3 py-2 align-top w-8">
-                  {canPick && <input type="checkbox" checked={sel} onChange={onToggle} className="accent-[#f26a1b]" title={canArchive ? 'Tick to ARCHIVE this MAIA-only owner (marked previous) on Apply' : undefined} />}
+                <td className={`px-3 py-2 align-top ${canArchive ? 'w-28' : 'w-8'}`}>
+                  {canPick && !canArchive && <input type="checkbox" checked={sel} onChange={onToggle} className="accent-[#f26a1b]" />}
+                  {canArchive && (
+                    // An explicit, labelled control — a bare checkbox next to
+                    // "KEEP (not in CINC)" read as "keep", and staff could not
+                    // find how to remove a row (user, 2026-09-13).
+                    <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-[11px] font-semibold ${archiveSel ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-300 bg-white text-gray-600 hover:border-red-300 hover:text-red-700'}`}
+                      title="Marks this MAIA-only owner as a previous owner when you press Apply. Kept for history; drops out of emails and counts.">
+                      <input type="checkbox" checked={sel} onChange={onToggle} className="accent-red-600" />
+                      {archiveSel ? 'Archiving' : 'Archive'}
+                    </label>
+                  )}
                 </td>
                 <td className="px-3 py-2 align-top">
                   <UnitCell account={cmp.account_number} unit={cmp.unit_number} ownerNumber={cmp.owner_number} cincId={cmp.cinc_property_id} maiaId={cmp.owners_id} nameSlot={cmp.cinc_name_slot} />
