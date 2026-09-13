@@ -47,7 +47,7 @@ const CHECKR_META: Record<string, { label: string; c: string; b: string }> = {
   complete: { label: 'complete', c: '#166534', b: '#dcfce7' },
 }
 const FINALIZED_ROLE_LABEL: Record<string, string> = { staff: 'Staff', board: 'Board', onsite_manager: 'On-site manager' }
-const isDecided = (status: string) => status === 'approved' || status === 'declined'
+const isDecided = (status: string) => status === 'approved' || status === 'declined' || status === 'withdrawn'
 interface ChecklistItem { label: string; provided_by: string; required: boolean; notarized: boolean; exampleUrl: string | null }
 interface TypeChecklist { type: string; label: string; blurb: string; items: ChecklistItem[] }
 const TYPE_ORDER = ['lease', 'lease_renewal', 'purchase', 'additional_occupant']
@@ -85,8 +85,9 @@ const STAGE_META: Record<string, { label: string; c: string; b: string }> = {
   signature:  { label: 'Letter sent — awaiting signatures',  c: '#9a3412', b: '#ffedd5' },
   approved:   { label: 'Approved',                           c: '#166534', b: '#dcfce7' },
   declined:   { label: 'Declined',                           c: '#991b1b', b: '#fee2e2' },
+  withdrawn:  { label: 'Withdrawn',                          c: '#374151', b: '#e5e7eb' },
 }
-const STAGE_ORDER = ['refused', 'applicant', 'not_sent', 'review', 'interview', 'letter', 'signature', 'approved', 'declined']
+const STAGE_ORDER = ['refused', 'applicant', 'not_sent', 'review', 'interview', 'letter', 'signature', 'approved', 'declined', 'withdrawn']
 const ALARM_META: Record<string, { label: string; c: string; b: string }> = {
   overdue:   { label: '🚨 OVERDUE', c: '#fff', b: '#b91c1c' },
   due_soon:  { label: '⏳ Due soon', c: '#92400e', b: '#fef3c7' },
@@ -149,7 +150,7 @@ export default function PreApplyQueue() {
   const inTab = (a: App) => (tab === 'closed') === isDecided(a.status)
   const openCount = (apps ?? []).filter(a => !isDecided(a.status)).length + legacy.length
   const closedCount = (apps ?? []).filter(a => isDecided(a.status)).length
-  const tabChips = STAGE_ORDER.filter(k => (tab === 'closed') === (k === 'approved' || k === 'declined'))
+  const tabChips = STAGE_ORDER.filter(k => (tab === 'closed') === (k === 'approved' || k === 'declined' || k === 'withdrawn'))
   // Not a stage: any open application with at least one uploaded document
   // nobody has decided on yet, whatever stage it's in.
   const REVIEW_FILTER = 'to_review'
@@ -189,6 +190,23 @@ export default function PreApplyQueue() {
       const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || 'failed')
       setApps(prev => (prev ?? []).filter(x => x.id !== a.id))
     } catch (e) { alert(`Could not delete: ${(e as Error).message}`) } finally { setDeleting(null) }
+  }
+
+  // Withdraw: the application will not proceed (applicant backed out, sale
+  // fell through). Keeps everything for the record, voids pending
+  // signatures, archives the Drive folder. Silent — no email goes out.
+  async function withdrawApp(a: App) {
+    const requestedBy = prompt(`Withdraw ${a.associationCode} · Unit ${a.unit ?? '—'} (${a.applicant?.name ?? 'applicant'}).\n\nWho asked for it? (e.g. "agent Jorge Bavarese", "the applicant", "owner")`)
+    if (requestedBy === null) return
+    const reason = prompt('Reason (goes on the record; nobody is emailed):')
+    if (reason === null) return
+    setDeleting(a.id)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${a.id}/withdraw`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reason, requestedBy }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      alert(`Withdrawn. ${j.voidedEsign} e-sign document(s) voided, ${j.voidedPackets} lease packet(s) voided, ${j.driveMoved} Drive file(s) archived${j.driveError ? ` — Drive: ${j.driveError}` : ''}.`)
+      setApps(prev => (prev ?? []).map(x => x.id === a.id ? { ...x, status: 'withdrawn', chipKey: 'withdrawn', stageLabel: 'Withdrawn', detail: '' } : x))
+    } catch (e) { alert((e as Error).message) } finally { setDeleting(null) }
   }
 
   return (
@@ -458,13 +476,22 @@ export default function PreApplyQueue() {
                     </td>
                     <td style={td}>{a.driveFolderUrl ? <a href={a.driveFolderUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none' }}>📁</a> : <span style={{ color: '#d1d5db' }}>—</span>}</td>
                     <td style={td}>
-                      {a.docCount === 0 && (
-                        <button onClick={e => { e.stopPropagation(); deleteApp(a) }} disabled={deleting === a.id}
-                          title="Delete this empty application"
-                          style={{ cursor: deleting === a.id ? 'default' : 'pointer', font: '600 11px system-ui', color: '#b91c1c', background: 'none', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 8px' }}>
-                          {deleting === a.id ? '…' : '🗑 Delete'}
-                        </button>
-                      )}
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {!isDecided(a.status) && (
+                          <button onClick={e => { e.stopPropagation(); withdrawApp(a) }} disabled={deleting === a.id}
+                            title="Withdraw: the application will not proceed. Keeps everything on record, voids pending signatures, archives the Drive folder. No email is sent."
+                            style={{ cursor: deleting === a.id ? 'default' : 'pointer', font: '600 11px system-ui', color: '#374151', background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '3px 8px' }}>
+                            {deleting === a.id ? '…' : '⏏ Withdraw'}
+                          </button>
+                        )}
+                        {a.docCount === 0 && (
+                          <button onClick={e => { e.stopPropagation(); deleteApp(a) }} disabled={deleting === a.id}
+                            title="Delete this empty application"
+                            style={{ cursor: deleting === a.id ? 'default' : 'pointer', font: '600 11px system-ui', color: '#b91c1c', background: 'none', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 8px' }}>
+                            {deleting === a.id ? '…' : '🗑 Delete'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )

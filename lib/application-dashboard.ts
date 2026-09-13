@@ -182,7 +182,7 @@ export function decideStage(i: StageInput): { stage: Stage; outstanding: string[
   const reqRows = (i.state?.rows ?? []).filter(r => r.required)
   const submittedOrCreated = i.submittedAt ?? i.createdAt
 
-  if (i.status === 'approved' || i.status === 'declined') {
+  if (i.status === 'approved' || i.status === 'declined' || i.status === 'withdrawn') {
     return { stage: 'decided', outstanding: [], sinceAt: i.reviewedAt }
   }
   if (totals.refused > 0) {
@@ -245,7 +245,7 @@ export async function getApplicationDashboard(opts: DashboardOptions = {}): Prom
   const { associationCode = null, includeDecided = true, submittedOnly = false, limit = 300 } = opts
 
   const statuses = includeDecided
-    ? ['started', 'submitted', 'under_review', 'approval_sent', 'approved', 'declined']
+    ? ['started', 'submitted', 'under_review', 'approval_sent', 'approved', 'declined', 'withdrawn']
     : ['started', 'submitted', 'under_review', 'approval_sent']
 
   let q = supabaseAdmin.from('listing_applications')

@@ -4518,6 +4518,25 @@ ALTER TABLE public.owners ADD COLUMN IF NOT EXISTS cinc_status_checked_at timest
 NOTIFY pgrst, 'reload schema';
 `,
   },
+  {
+    key:         'listing_applications_withdrawn',
+    label:       'listing_applications.withdrawn_at / withdrawn_by / withdrawn_reason',
+    description: "Withdraw an application: status 'withdrawn' plus who asked and why (MANXI 411, 2026-09-13 — the agent cancelled for the applicant and MAIA had no cancel action; Delete only removes empty shells). Everything is kept for the record; pending e-sign documents are voided; the Drive folder moves to OLD/Archive.",
+    filename:    '20260913_listing_applications_withdrawn.sql',
+    artifact:    { type: 'column', table: 'listing_applications', column: 'withdrawn_at' },
+    sql: `-- =====================================================================
+-- 20260913_listing_applications_withdrawn.sql
+-- Withdraw an application (status 'withdrawn') with who asked and why.
+-- User request 2026-09-13 (MANXI 411: agent cancelled for the applicant).
+-- Existing table: no GRANT block needed. Idempotent; registered in
+-- lib/migration-status.ts.
+-- =====================================================================
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS withdrawn_at timestamptz;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS withdrawn_by text;
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS withdrawn_reason text;
+NOTIFY pgrst, 'reload schema';
+`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

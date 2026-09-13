@@ -258,6 +258,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {d.driveFolderUrl && <a href={d.driveFolderUrl} target="_blank" rel="noreferrer" style={{ font: '600 13px system-ui', color: '#2563eb', textDecoration: 'none', border: '1px solid #dbeafe', background: '#eff6ff', borderRadius: 8, padding: '5px 11px', whiteSpace: 'nowrap' }}>📁 Drive folder →</a>}
           <StatusPill status={d.status} />
+          {d.status !== 'approved' && d.status !== 'withdrawn' && d.status !== 'declined' && <WithdrawButton id={id} label={`${d.associationCode} · Unit ${d.unit ?? '—'}`} />}
         </div>
       </div>
       <p style={{ color: '#6b7280', fontSize: 14, margin: '2px 0 0' }}>{d.associationCode}{d.unit ? ` · Unit ${d.unit}` : ''} · submitted {fmt(d.submittedAt)}</p>
@@ -3031,6 +3032,32 @@ const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: '1
 // filing, marks the application approved, and (optionally) emails it to all
 // parties. User report, 2026-09-10 (MANXI 801): "can't find where to upload
 // the approval letter."
+// Withdraw: the application will not proceed. Keeps everything on record,
+// voids pending signatures, archives the Drive folder. Silent — staff reply
+// to the parties themselves (user direction, 2026-09-13).
+function WithdrawButton({ id, label }: { id: string; label: string }) {
+  const [busy, setBusy] = useState(false)
+  async function go() {
+    const requestedBy = prompt(`Withdraw ${label}.\n\nWho asked for it? (e.g. "agent Jorge Bavarese", "the applicant", "owner")`)
+    if (requestedBy === null) return
+    const reason = prompt('Reason (goes on the record; nobody is emailed):')
+    if (reason === null) return
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/withdraw`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reason, requestedBy }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      alert(`Withdrawn. ${j.voidedEsign} e-sign document(s) voided, ${j.voidedPackets} lease packet(s) voided, ${j.driveMoved} Drive file(s) archived${j.driveError ? ` — Drive: ${j.driveError}` : ''}.`)
+      window.location.reload()
+    } catch (e) { alert((e as Error).message) } finally { setBusy(false) }
+  }
+  return (
+    <button onClick={go} disabled={busy} title="The application will not proceed. Keeps everything on record, voids pending signatures, archives the Drive folder. No email is sent."
+      style={{ font: '600 12.5px system-ui', color: '#374151', background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, padding: '5px 11px', cursor: busy ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
+      {busy ? 'Withdrawing…' : '⏏ Withdraw'}
+    </button>
+  )
+}
+
 function SignedLetterUpload({ id }: { id: string }) {
   const [busy, setBusy] = useState(false)
   const [distribute, setDistribute] = useState(true)
