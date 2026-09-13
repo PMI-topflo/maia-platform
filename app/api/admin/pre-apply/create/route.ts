@@ -13,6 +13,7 @@
 // happened; the invite link is a separate, deliberate step.
 
 import { NextResponse } from 'next/server'
+import { ruleOnRenewal } from '@/lib/lease-renewal-rule'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireStaffSession } from '@/lib/staff-auth'
 import { createIntake } from '@/lib/preapply'
@@ -100,11 +101,24 @@ export async function POST(req: Request) {
     }, { status: 409 })
   }
 
+  // A renewal more than 30 days after the previous lease ended is a new
+  // lease (screening + fee) — lib/lease-renewal-rule.ts. Staff see the
+  // reason in the response and on the application's note.
+  let effectiveType = type as ApplicationType
+  let renewalNotice: string | null = null
+  if (effectiveType === 'lease_renewal') {
+    const ruling = await ruleOnRenewal(code, unit)
+    if (ruling.type === 'lease') { effectiveType = 'lease'; renewalNotice = ruling.notice }
+  }
+
   const created = await createIntake({
-    associationCode: code, type: type as ApplicationType, role: 'applicant', unitLabel: unit,
+    associationCode: code, type: effectiveType, role: 'applicant', unitLabel: unit,
     applicant: { name: people[0].name, email: people[0].email ?? '', phone: people[0].phone },
   })
   if ('error' in created) return NextResponse.json({ error: created.error }, { status: 500 })
+  if (renewalNotice) {
+    await supabaseAdmin.from('listing_applications').update({ review_note: `Requested as a renewal; opened as a new lease — ${renewalNotice}` }).eq('id', created.applicationId)
+  }
 
   // Purchase-only international-applicant declaration, set by staff at
   // creation time rather than left for the applicant to answer later —

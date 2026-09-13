@@ -4,6 +4,7 @@
 // returns a token the applicant uses to upload documents + submit. No account.
 
 import { NextResponse } from 'next/server'
+import { ruleOnRenewal } from '@/lib/lease-renewal-rule'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { createIntake, carryOverApprovedDocs, addStakeholders, isStakeholderRole, roleLabel } from '@/lib/preapply'
 import { signPreApplyToken } from '@/lib/preapply-token'
@@ -256,12 +257,24 @@ export async function POST(req: Request) {
     }
   }
 
+  // A "renewal" requested more than 30 days after the previous lease ended
+  // is a new lease (screening + fee) — see lib/lease-renewal-rule.ts.
+  let effectiveType = type
+  let renewalNotice: string | null = null
+  if (type === 'lease_renewal') {
+    const ruling = await ruleOnRenewal(code, unitLabel)
+    if (ruling.type === 'lease') { effectiveType = 'lease'; renewalNotice = ruling.notice }
+  }
+
   const created = await createIntake({
-    associationCode: code, type, role,
+    associationCode: code, type: effectiveType, role,
     unitLabel,
     applicant: { name, email, phone: String(b.phone ?? '').trim() || null },
   })
   if ('error' in created) return NextResponse.json({ error: created.error }, { status: 500 })
+  if (renewalNotice) {
+    await supabaseAdmin.from('listing_applications').update({ review_note: `Requested as a renewal; opened as a new lease — ${renewalNotice}` }).eq('id', created.applicationId)
+  }
 
   // Additional-occupant on an already-approved unit: carry the approved lease's
   // files (lease, Certificate of Use, HO-6, governing-docs ack, …) into this new
@@ -279,5 +292,5 @@ export async function POST(req: Request) {
   }
 
   const token = await signPreApplyToken(created.applicationId, created.stakeholderId)
-  return NextResponse.json({ ok: true, token })
+  return NextResponse.json({ ok: true, token, applicationType: effectiveType, notice: renewalNotice })
 }
