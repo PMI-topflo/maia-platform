@@ -29,6 +29,7 @@
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { providedByOkForRole } from '@/lib/intake-documents'
 import { sendEmail } from '@/lib/gmail'
 import { signPreApplyToken } from '@/lib/preapply-token'
 import { OFFICE_EMAILS } from '@/lib/board-review-email'
@@ -75,21 +76,25 @@ export async function sendMissingDocsReminder(
   applicationId: string, summary: OutstandingSummary, recipients: ReminderRecipient[],
 ): Promise<{ sent: string[] }> {
   const assocName = await associationName(summary.associationCode)
-  const lines = missingLines(summary)
   const sent: string[] = []
   for (const r of recipients) {
+    const { mine, theirs } = linesForRecipient(summary, r)
+    // Nothing is theirs to do and nothing to relay — no email.
+    if (!mine.length && !theirs.length) continue
     try {
       const t = await signPreApplyToken(applicationId, r.stakeholderId)
       const link = `${APP}/pre-apply/${encodeURIComponent(summary.associationCode)}?t=${encodeURIComponent(t)}`
+      const heading = mine.length ? 'A few things are still needed from you' : 'Your application is waiting on others'
       await sendEmail({
         to: [r.email],
         subject: `Reminder: documents still needed — ${assocName}${summary.unitLabel ? ` Unit ${summary.unitLabel}` : ''}`,
         html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6;max-width:520px;margin:0 auto">
           <p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#f26a1b;font-weight:700;margin:0 0 4px">PMI Top Florida Properties</p>
-          <h2 style="margin:0 0 8px;color:#1f2a44">A few things are still needed</h2>
-          <p>Hi${r.name ? ` ${esc(r.name)}` : ''}, the application for <strong>${esc(assocName)}</strong>${summary.unitLabel ? ` (Unit ${esc(summary.unitLabel)})` : ''} is still missing:</p>
-          <ul>${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul>
-          <p style="text-align:center;margin:20px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;font-weight:700;padding:13px 26px;border-radius:10px;display:inline-block">Open my part of the application →</a></p>
+          <h2 style="margin:0 0 8px;color:#1f2a44">${heading}</h2>
+          <p>Hi${r.name ? ` ${esc(r.name)}` : ''}, for the application at <strong>${esc(assocName)}</strong>${summary.unitLabel ? ` (Unit ${esc(summary.unitLabel)})` : ''}:</p>
+          ${mine.length ? `<p style="margin:10px 0 4px"><strong>Still needed from you</strong></p><ul style="margin:0 0 12px">${mine.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}
+          ${theirs.length ? `<p style="margin:10px 0 4px"><strong>Still needed from the ${r.role === 'owner' || r.role === 'listing_agent' ? 'applicant(s)' : 'other people on this application'}</strong> <span style="color:#6b7280;font-weight:400">— each of them has their own link and answers their own questions; you cannot complete these for them.</span></p><ul style="margin:0 0 12px;color:#6b7280">${theirs.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}
+          ${mine.length ? `<p style="text-align:center;margin:20px 0"><a href="${link}" style="background:#f26a1b;color:#fff;text-decoration:none;font-weight:700;padding:13px 26px;border-radius:10px;display:inline-block">Open my part of the application →</a></p>` : `<p style="text-align:center;margin:20px 0"><a href="${link}" style="background:#fff;color:#1f2a44;border:1px solid #d1d5db;text-decoration:none;font-weight:700;padding:12px 24px;border-radius:10px;display:inline-block">See the application →</a></p>`}
           <p style="color:#9ca3af;font-size:12px">You're receiving this because you're on file for this application. Already handled this? It may take a moment to update — questions, reply to this email.</p>
         </div>`,
       })
@@ -97,6 +102,39 @@ export async function sendMissingDocsReminder(
     } catch { /* one failed send shouldn't block the rest */ }
   }
   return { sent }
+}
+
+/** What THIS person is asked for, and what is waiting on the others.
+ *  Real case, 2026-09-12 (MANXI 1002): the unit owner was sent the tenants'
+ *  background checks, driver's licenses, rules acknowledgment and the
+ *  vehicle / pet questions as if they were his, then wrote in that "the
+ *  system says they have already been submitted" — he could not answer
+ *  another person's questions. An applicant sees their own per-applicant
+ *  items plus shared applicant items; the owner sees landlord items; an
+ *  agent sees agent items; everyone else's items are listed as "waiting on
+ *  others" so the relay still works, without a button that leads nowhere. */
+export function linesForRecipient(summary: OutstandingSummary, r: ReminderRecipient): { mine: string[]; theirs: string[] } {
+  const isApplicant = r.role === 'applicant'
+  const isOwner = r.role === 'owner'
+  const isAgent = r.role === 'listing_agent' || r.role === 'applicant_agent'
+  const sameName = (a: string | null) => !!a && !!r.name && a.trim().toLowerCase() === r.name.trim().toLowerCase()
+  const mine: string[] = [], theirs: string[] = []
+  for (const row of summary.rows) {
+    if (row.gatedBy) continue
+    let ownIt = false
+    if (isApplicant) ownIt = providedByOkForRole('tenant', row.providedBy) && (!row.perApplicantName || sameName(row.perApplicantName))
+    else if (isOwner) ownIt = providedByOkForRole('owner', row.providedBy)
+    else if (isAgent) ownIt = row.providedBy === 'agent'
+    if (row.providedBy === 'staff') continue           // obtained internally — nobody is asked
+    ;(ownIt ? mine : theirs).push(row.label)
+  }
+  // The yes/no questions are the applicant's own (vehicle per applicant,
+  // animal for the household) — never the owner's or an agent's.
+  for (const q of summary.declineQuestions) {
+    const text = q === 'vehicle' ? 'Do you keep a vehicle at the unit? (yes/no)' : 'Do you have a pet, service animal, or emotional support animal in the unit? (yes/no)'
+    ;(isApplicant ? mine : theirs).push(isApplicant ? text : text.replace('Do you', 'Applicant answer: do they'))
+  }
+  return { mine, theirs }
 }
 
 /** First cycle only: draft the reminder and email PMI + Jonathan a link to

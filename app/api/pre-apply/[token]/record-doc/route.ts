@@ -3,7 +3,7 @@
 // Records an uploaded intake document against its checklist item. Token auth.
 
 import { NextResponse } from 'next/server'
-import { getIntake, resolveToken, recordIntakeDoc } from '@/lib/preapply'
+import { getIntake, resolveToken, recordIntakeDoc, intakeClosed } from '@/lib/preapply'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { mirrorIntakeToDrive } from '@/lib/drive-application-mirror'
 
@@ -17,7 +17,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!r) return NextResponse.json({ error: 'This link has expired or is invalid.' }, { status: 401 })
   const intake = await getIntake(r.applicationId)
   if (!intake) return NextResponse.json({ error: 'Not found.' }, { status: 404 })
-  if (intake.submittedAt) return NextResponse.json({ error: 'This application has already been submitted.' }, { status: 400 })
+  if (intakeClosed(intake)) return NextResponse.json({ error: 'This application is closed — nothing more can be added to it. Questions? Reply to the email you received.' }, { status: 400 })
   if (!r.stakeholder.emailVerifiedAt) return NextResponse.json({ error: 'Please verify your email before uploading.' }, { status: 403 })
 
   let b: { doc_key?: string; doc_label?: string; storage_path?: string; filename?: string; mime_type?: string }

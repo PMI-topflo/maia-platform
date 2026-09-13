@@ -565,6 +565,19 @@ export interface IntakeState {
   detailedApplicationId: string | null
 }
 
+/** Statuses after which an applicant-side link may no longer change the
+ *  application. NOT 'submitted' / 'under_review': documents are legitimately
+ *  requested and reviewed after submission (per-document board review,
+ *  request-docs, expired IDs, items added to the checklist later). Real
+ *  case, 2026-09-12 (MANXI 1002 + four more lease renewals): the rows were
+ *  stamped submitted on creation, the reminder cron kept asking residents
+ *  for documents and answers, and every declare / upload was refused with
+ *  "already been submitted". */
+export const CLOSED_STATUSES = new Set(['approved', 'declined', 'denied', 'withdrawn', 'cancelled', 'canceled', 'archived', 'void'])
+export function intakeClosed(intake: Pick<IntakeState, 'status'>): boolean {
+  return CLOSED_STATUSES.has(String(intake.status ?? '').toLowerCase())
+}
+
 export async function getIntake(applicationId: string): Promise<IntakeState | null> {
   const { data: app } = await supabaseAdmin.from('listing_applications')
     .select('id, listing_id, association_code, application_type, applicant_role, unit_label, status, submitted_at, detailed_application_id')

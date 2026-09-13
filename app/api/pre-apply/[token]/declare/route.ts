@@ -13,7 +13,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { getIntake, resolveToken } from '@/lib/preapply'
+import { getIntake, resolveToken, intakeClosed } from '@/lib/preapply'
 import { getIntakeChecklist, parseDeclarations, stakeholderVehicleAnswer, stakeholderTaxReturnsAnswer, type Declarations } from '@/lib/intake-documents'
 import { type AnimalKind } from '@/lib/animal-accommodation'
 
@@ -28,7 +28,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!r) return NextResponse.json({ error: 'This link has expired or is invalid.' }, { status: 401 })
   const intake = await getIntake(r.applicationId)
   if (!intake) return NextResponse.json({ error: 'This application could not be found.' }, { status: 404 })
-  if (intake.submittedAt) return NextResponse.json({ error: 'This application has already been submitted.' }, { status: 400 })
+  if (intakeClosed(intake)) return NextResponse.json({ error: 'This application is closed — nothing more can be added to it. Questions? Reply to the email you received.' }, { status: 400 })
 
   let b: { vehicle?: unknown; animal?: unknown; animalKind?: unknown; usTaxReturns?: unknown }
   try { b = await req.json() } catch { return NextResponse.json({ error: 'invalid JSON' }, { status: 400 }) }
