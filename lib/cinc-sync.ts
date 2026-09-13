@@ -203,8 +203,21 @@ function lower(s: string | null | undefined): string {
  *  Now: names + email + phone come from PROPERTY ADDRESS, street comes
  *  from OFFSITE ADDRESS. Each returned snapshot carries its slot index
  *  (0 or 1) so the matcher can build a stable selection key. */
+/** CINC address-row types that are NOT the owner: a tenant's mailing row
+ *  (4) and a management company row (8). Real case, 2026-09-13 (BHB 5664):
+ *  the tenant Margaret Adelman sat on a "Tenant Mailings" row and was
+ *  proposed as a third owner. Property Address (0), Owner's Offsite
+ *  Address (2) and Additional Owners (7) are owner rows. */
+function isOwnerAddressRow(a: CincPropertyAddress): boolean {
+  const t = Number(a.AddressTypeId ?? 0)
+  const d = String(a.AddressTypeDescription ?? '').toLowerCase()
+  if (t === 4 || t === 8) return false
+  if (/tenant|management|manager|attorney|vendor/.test(d)) return false
+  return true
+}
+
 function snapshotsFromCincProperty(p: CincPropertyInfo): Array<{ slot: number; snap: OwnerSnapshot }> {
-  const addresses = p.Address ?? []
+  const addresses = (p.Address ?? []).filter(isOwnerAddressRow)
   const propAddr  = addresses.find(a => !a.OwnerAddress) ?? null  // owner names + contact
   const offsite   = addresses.find(a =>  a.OwnerAddress) ?? null  // billing street
   const fallback  = addresses[0] ?? null
