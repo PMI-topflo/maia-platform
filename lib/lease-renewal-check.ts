@@ -16,6 +16,7 @@
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { ruleOnRenewal, RENEWAL_GRACE_DAYS } from '@/lib/lease-renewal-rule'
 import { createIntake, type IntakeApplicant } from '@/lib/preapply'
 import { getIntakeChecklist, providedByOkForRole } from '@/lib/intake-documents'
 import { isEsignItem, sendEsignFormsForItems } from '@/lib/application-esign-forms'
@@ -138,11 +139,19 @@ async function ensureRenewalApplication(check: LeaseRenewalCheck, triggeredBy: '
     ? { name: check.tenant_name || 'Tenant', email: check.tenant_email, phone: null }
     : { name: check.owner_name || 'Owner', email: check.owner_email || '', phone: null }
 
+  // Past the 30-day grace window the "renewal" is a new lease — screening
+  // and fee apply (lib/lease-renewal-rule.ts). The check-in's own lease_end
+  // is the authority here.
+  const ruling = await ruleOnRenewal(check.association_code, check.unit_label, new Date())
+  const late = ruling.type === 'lease' || (Date.now() - new Date(check.lease_end + 'T23:59:59-04:00').getTime()) / 86400000 > RENEWAL_GRACE_DAYS
   const created = await createIntake({
-    associationCode: check.association_code, type: 'lease_renewal', role: 'applicant',
+    associationCode: check.association_code, type: late ? 'lease' : 'lease_renewal', role: 'applicant',
     unitLabel: check.unit_label, applicant,
   })
   if ('error' in created) throw new Error(created.error)
+  if (late) {
+    await supabaseAdmin.from('listing_applications').update({ review_note: `Requested as a renewal; opened as a new lease — ${ruling.notice ?? `the previous lease ended ${check.lease_end}, more than ${RENEWAL_GRACE_DAYS} days ago.`}` }).eq('id', created.applicationId)
+  }
 
   await supabaseAdmin.from('lease_renewal_checks').update({ application_id: created.applicationId }).eq('id', check.id)
   void triggeredBy
