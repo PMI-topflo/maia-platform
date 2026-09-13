@@ -362,7 +362,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
                 <tr>
                   <td colSpan={5} className="px-3 pb-3 pt-0 align-top">
                     <div className="ml-12 text-[11px] text-amber-800">
-                      Looks like a leftover of an earlier import — same {cmp.leftoverOf.via} as the synced owner <strong>{cmp.leftoverOf.name}</strong> on this account. Tick the box to archive it on Apply; leave it if this is a real co-owner CINC does not list.
+                      Not in CINC, but shares the {cmp.leftoverOf.via} of the synced owner <strong>{cmp.leftoverOf.name}</strong> on this account — an older spelling, a prior owner, or a contact person filed as an owner. Tick the box to archive it on Apply if this person is not an owner of record; leave it otherwise.
                     </div>
                   </td>
                 </tr>

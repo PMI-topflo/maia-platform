@@ -199,10 +199,20 @@ function snapshotsFromCincProperty(p: CincPropertyInfo): Array<{ slot: number; s
   const offsite   = addresses.find(a =>  a.OwnerAddress) ?? null  // billing street
   const fallback  = addresses[0] ?? null
 
-  // Names + email + phone — prefer property-address (dual-slot + multi-
-  // email), fall back to offsite or the first row if CINC stores data
-  // in a non-standard shape for this property.
-  const nameSrc = propAddr ?? offsite ?? fallback
+  // Names + email + phone — take the address row that carries the MOST
+  // name information; on a tie prefer the owner/mailing row (OwnerAddress
+  // = true), which is what CINC's own "Primary Homeowner Information" form
+  // shows. Real incident, 2026-09-13 (MANXI 1001, LFA 03): the property
+  // row held "" / "Marie Caroupin" and NO second owner, while the owner row
+  // held "Marie Line / Caroupin" + "JERRY & LORANG / GERMAIN" and all three
+  // emails — reading the property row first made the sync miss owner 2
+  // entirely and flag MAIA's correct row as a leftover to archive.
+  const nameScore = (a: CincPropertyAddress | null) => a
+    ? [a.FirstName, a.LastName, a.FirstName1, a.LastName1].filter(v => String(v ?? '').trim()).length
+    : -1
+  const nameSrc = [offsite, propAddr, fallback]
+    .filter((a): a is CincPropertyAddress => !!a)
+    .sort((a, b) => nameScore(b) - nameScore(a))[0] ?? null
   // Street address — prefer offsite (the owner's mailing address, which
   // is what CINC's UI surfaces), fall back to property address.
   const streetSrc = offsite ?? propAddr ?? fallback
