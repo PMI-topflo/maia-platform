@@ -6,7 +6,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { getIntake, resolveToken, listStakeholders, roleToProvidedBy, roleLabel, INTAKE_BUCKET } from '@/lib/preapply'
+import { getIntake, resolveToken, listStakeholders, roleToProvidedBy, roleLabel, INTAKE_BUCKET, intakeClosed } from '@/lib/preapply'
 import { getIntakeChecklist, PROVIDED_BY_LABEL, parseDeclarations, pendingDeclarations, stakeholderVehicleAnswer, stakeholderTaxReturnsAnswer, type Declarations } from '@/lib/intake-documents'
 import { activeConditions, declaredPetWhereProhibited, ANIMAL_KIND_LABEL, ANIMAL_KIND_BLURB, animalDocGuidance } from '@/lib/animal-accommodation'
 import { maskEmail, maskPhone } from '@/lib/esign-verify'
@@ -131,6 +131,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     // primary applicant has paid + consented via that hand-off.
     applicationId: intake.applicationId,
     detailedApplicationId: intake.detailedApplicationId,
+    // Closed (withdrawn / declined / approved): the page shows a notice and
+    // no controls; the write routes refuse anyway (intakeClosed).
+    closed: intakeClosed(intake) ? intake.status : null,
     // Landlord-Tenant Agreement, owner/tenant self-service (see comment
     // above) -- null for anyone else, or once this association/type doesn't
     // require it, or once this role has already signed their side.

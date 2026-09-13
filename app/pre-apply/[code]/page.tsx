@@ -83,6 +83,7 @@ interface Info {
   leaseAgreement: { label: string; url: string } | null
   me: { name: string | null; role: string; roleLabel: string; signs: boolean; isPrimary: boolean; status: string; emailVerified: boolean; emailMasked: string | null; signed: boolean; checklistAckSignedAt: string | null; verifyChannel: 'email' | 'phone'; verifyTargetMasked: string | null }
   canAddCollaborators: boolean; submitted: boolean
+  closed: string | null
   checklist: ChecklistItem[]; rules: { rule_key: string; label: string }[]; collaborators: Collaborator[]
   declarations: Declarations
   pendingDeclarations: ('vehicle' | 'animal' | 'taxReturns')[]
@@ -479,6 +480,22 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
       </div>
     )
   }
+
+  // Closed application: nothing more can be added. Withdrawn / declined /
+  // approved — say so plainly instead of showing dead controls.
+  if (info.closed) return (
+    <div style={wrap}>
+      <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6b7280', margin: 0 }}>{info.associationName}</p>
+      <h1 style={{ fontSize: 22, color: '#1f2a44', margin: '4px 0 8px' }}>
+        {info.closed === 'withdrawn' ? 'This application was withdrawn' : info.closed === 'approved' ? 'This application is approved' : 'This application is closed'}
+      </h1>
+      <p style={{ color: '#4a5265', fontSize: 14 }}>
+        {info.closed === 'withdrawn'
+          ? 'It was withdrawn at the request of one of the parties, so nothing more can be uploaded or signed here. If that is a mistake, or you want to apply again, contact PMI Top Florida Properties.'
+          : 'Nothing more can be added here. Questions? Contact PMI Top Florida Properties.'}
+      </p>
+    </div>
+  )
 
   // Verify email first (per person).
   if (!info.me.emailVerified) return (
