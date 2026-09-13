@@ -4592,6 +4592,19 @@ CREATE POLICY "service_role_all_checkr_receipts" ON public.checkr_receipts FOR A
 NOTIFY pgrst, 'reload schema';
 `,
   },
+  {
+    key:         'checkr_receipts_bank_debit',
+    label:       'checkr_receipts.bank_debited_at / bank_debited_by',
+    description: "Application payments: Karen ticks each Checkr bank debit (no order id on the bank line) against the oldest receipt not yet ticked (2026-09-13).",
+    filename:    '20260913_checkr_receipts_bank_debit.sql',
+    artifact:    { type: 'column', table: 'checkr_receipts', column: 'bank_debited_at' },
+    sql: `-- Karen ticks each "CHECKR TENANT CHECKR.COM" bank debit against the oldest
+-- receipt not yet ticked (the bank line carries no order id). 2026-09-13.
+ALTER TABLE public.checkr_receipts ADD COLUMN IF NOT EXISTS bank_debited_at timestamptz;
+ALTER TABLE public.checkr_receipts ADD COLUMN IF NOT EXISTS bank_debited_by text;
+NOTIFY pgrst, 'reload schema';
+`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

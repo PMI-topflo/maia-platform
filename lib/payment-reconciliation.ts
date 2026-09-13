@@ -54,11 +54,20 @@ export interface PayoutRow {
   bankReceivedAt: string | null; bankReceivedBy: string | null; note: string | null
 }
 
+export interface ReceiptRow {
+  orderId: string; amountCents: number; paidOn: string | null; applicant: string | null; property: string | null
+  unit: string | null; association: string | null
+  bankDebitedAt: string | null; bankDebitedBy: string | null
+}
+
 export interface Reconciliation {
   month: string
   rows: ReconRow[]
   payouts: PayoutRow[]
-  summary: { collectedCents: number; feesCents: number; netCents: number; reports: number; checkrCents: number; checkrExpectedCents: number; marginCents: number; payoutsReceivedCents: number; payoutsPendingCents: number }
+  /** Every Checkr receipt dated in the month, OLDEST FIRST — Karen ticks the
+   *  bank's "CHECKR TENANT" debits against them in that order. */
+  receipts: ReceiptRow[]
+  summary: { collectedCents: number; feesCents: number; netCents: number; reports: number; checkrCents: number; checkrExpectedCents: number; checkrDebitedCents: number; marginCents: number; payoutsReceivedCents: number; payoutsPendingCents: number }
   exceptions: string[]
   unmatchedReceipts: { orderId: string; applicant: string | null; amountCents: number; paidOn: string | null }[]
   stripeConfigured: boolean
@@ -135,7 +144,7 @@ export async function buildReconciliation(month: string): Promise<Reconciliation
   const appIds = (apps ?? []).map(a => String(a.id))
   const [{ data: subs }, { data: receipts }] = await Promise.all([
     appIds.length ? supabaseAdmin.from('screening_subjects').select('application_id, name, checkr_order_id, status, created_at').in('application_id', appIds).order('created_at') : Promise.resolve({ data: [] as { application_id: string; name: string | null; checkr_order_id: string | null; status: string; created_at: string }[] }),
-    supabaseAdmin.from('checkr_receipts').select('order_id, amount_cents, paid_on, applicant_name'),
+    supabaseAdmin.from('checkr_receipts').select('order_id, amount_cents, paid_on, applicant_name, property, bank_debited_at, bank_debited_by'),
   ])
   const receiptBy = new Map((receipts ?? []).map(r => [String(r.order_id), r]))
   const usedReceipts = new Set<string>()
@@ -178,15 +187,29 @@ export async function buildReconciliation(month: string): Promise<Reconciliation
     .map(r => ({ orderId: String(r.order_id), applicant: (r.applicant_name as string | null) ?? null, amountCents: Number(r.amount_cents), paidOn: (r.paid_on as string | null) ?? null }))
   for (const p of payouts) if (p.status === 'paid' && !p.bankReceivedAt && Date.now() - new Date(p.arrivalDate).getTime() > 7 * 86400000) exceptions.push(`Payout ${p.id} (${(p.amountCents / 100).toFixed(2)}, arrived ${p.arrivalDate}) not yet marked received in the bank`)
 
+  // Receipts of the month, oldest first, with the unit they belong to when known.
+  const unitByOrder = new Map<string, { unit: string | null; association: string | null }>()
+  for (const r of rows) for (const p of r.reports) if (p.orderId) unitByOrder.set(p.orderId, { unit: r.unit, association: r.association })
+  const receiptRows: ReceiptRow[] = (receipts ?? [])
+    .filter(r => String(r.paid_on ?? '').startsWith(month))
+    .map(r => ({
+      orderId: String(r.order_id), amountCents: Number(r.amount_cents), paidOn: (r.paid_on as string | null) ?? null,
+      applicant: (r.applicant_name as string | null) ?? null, property: (r.property as string | null) ?? null,
+      unit: unitByOrder.get(String(r.order_id))?.unit ?? null, association: unitByOrder.get(String(r.order_id))?.association ?? null,
+      bankDebitedAt: (r.bank_debited_at as string | null) ?? null, bankDebitedBy: (r.bank_debited_by as string | null) ?? null,
+    }))
+    .sort((a, b) => String(a.paidOn ?? '').localeCompare(String(b.paidOn ?? '')) || a.orderId.localeCompare(b.orderId))
+
   const sum = (f: (r: ReconRow) => number | null) => rows.reduce((n, r) => n + (f(r) ?? 0), 0)
   const summary = {
     collectedCents: sum(r => r.grossCents), feesCents: sum(r => r.feeCents), netCents: sum(r => r.netCents),
     reports: rows.reduce((n, r) => n + r.reports.length, 0), checkrCents: sum(r => r.checkrCents), checkrExpectedCents: sum(r => r.checkrExpectedCents),
+    checkrDebitedCents: receiptRows.filter(r => r.bankDebitedAt).reduce((n, r) => n + r.amountCents, 0),
     marginCents: sum(r => r.marginCents),
     payoutsReceivedCents: payouts.filter(p => p.bankReceivedAt).reduce((n, p) => n + p.amountCents, 0),
     payoutsPendingCents: payouts.filter(p => !p.bankReceivedAt).reduce((n, p) => n + p.amountCents, 0),
   }
-  return { month, rows, payouts, summary, exceptions, unmatchedReceipts, stripeConfigured }
+  return { month, rows, payouts, receipts: receiptRows, summary, exceptions, unmatchedReceipts, stripeConfigured }
 }
 
 /** Karen's tick: this payout landed in the bank (or un-tick). */
@@ -195,6 +218,13 @@ export async function markPayoutReceived(payoutId: string, received: boolean, by
   const { error } = await supabaseAdmin.from('stripe_payout_receipts').upsert({
     payout_id: payoutId, bank_received_at: received ? now : null, bank_received_by: received ? by : null, note: note ?? null, updated_at: now,
   }, { onConflict: 'payout_id' })
+  if (error) throw new Error(error.message)
+}
+
+/** Karen's tick on a Checkr receipt: its debit showed on the bank statement. */
+export async function markReceiptDebited(orderId: string, debited: boolean, by: string): Promise<void> {
+  const { error } = await supabaseAdmin.from('checkr_receipts')
+    .update({ bank_debited_at: debited ? new Date().toISOString() : null, bank_debited_by: debited ? by : null }).eq('order_id', orderId)
   if (error) throw new Error(error.message)
 }
 

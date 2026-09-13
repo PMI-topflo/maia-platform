@@ -45,6 +45,15 @@ export default function PaymentReconciliationPage() {
     } catch (e) { alert((e as Error).message) } finally { setBusyPayout(null) }
   }
 
+  async function toggleDebited(orderId: string, debited: boolean) {
+    setBusyPayout(orderId)
+    try {
+      const r = await fetch('/api/admin/payment-reconciliation/checkr-receipt', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orderId, debited }) })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      await load(month)
+    } catch (e) { alert((e as Error).message) } finally { setBusyPayout(null) }
+  }
+
   async function upload(files: FileList | null) {
     if (!files || !files.length) return
     setUploading(true); setUploadMsg(null)
@@ -78,7 +87,7 @@ export default function PaymentReconciliationPage() {
         <>
           {!data.stripeConfigured && <div style={{ marginTop: 14, border: '1px solid #fde68a', background: '#fffbeb', color: '#92400e', borderRadius: 8, padding: '10px 12px', font: '13px system-ui' }}>Stripe is not configured on this server: fees and payouts are unknown, amounts come from MAIA only.</div>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, margin: '16px 0' }}>
-            {[['Collected', s.collectedCents, '#1f2a44'], ['Stripe fees', s.feesCents, '#6b7280'], ['Net from Stripe', s.netCents, '#1f2a44'], ['Checkr paid', s.checkrCents, '#6b7280'], ['Margin', s.marginCents, '#166534'], ['In the bank', s.payoutsReceivedCents, '#166534'], ['Deposits pending', s.payoutsPendingCents, s.payoutsPendingCents ? '#b45309' : '#6b7280']].map(([label, v, color]) => (
+            {[['Collected', s.collectedCents, '#1f2a44'], ['Stripe fees', s.feesCents, '#6b7280'], ['Net from Stripe', s.netCents, '#1f2a44'], ['Checkr paid', s.checkrCents, '#6b7280'], ['Margin', s.marginCents, '#166534'], ['Deposits in bank', s.payoutsReceivedCents, '#166534'], ['Deposits pending', s.payoutsPendingCents, s.payoutsPendingCents ? '#b45309' : '#6b7280'], ['Checkr debits ticked', s.checkrDebitedCents, '#6b7280']].map(([label, v, color]) => (
               <div key={String(label)} style={{ border: '1px solid #e5e7eb', background: '#fff', borderRadius: 10, padding: '10px 12px' }}>
                 <div style={{ font: '600 10.5px system-ui', letterSpacing: '.08em', textTransform: 'uppercase', color: '#9ca3af' }}>{label}</div>
                 <div style={{ font: '700 18px system-ui', color: String(color), fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{money(v as number)}</div>
@@ -183,6 +192,25 @@ export default function PaymentReconciliationPage() {
                 )}
                 <div style={{ marginTop: 10, color: '#6b7280' }}>Expected Checkr cost this month: {money(s.checkrExpectedCents)} for {s.reports} report(s) · receipts on file: {money(s.checkrCents)}</div>
               </div>
+
+              {data.receipts.length > 0 && (
+                <div style={{ marginTop: 12, border: '1px solid #e5e7eb', borderRadius: 10, background: '#fff' }}>
+                  <div style={{ padding: '10px 14px', borderBottom: '1px solid #f3f4f6', font: '600 12.5px system-ui', color: '#1f2a44' }}>Checkr debits on the bank statement · oldest first</div>
+                  <p style={{ margin: 0, padding: '8px 14px 0', font: '12px system-ui', color: '#6b7280' }}>The bank line (&quot;CHECKR TENANT CHECKR.COM&quot;) carries no order number, so tick each debit against the oldest receipt still unticked.</p>
+                  {data.receipts.map(r => (
+                    <div key={r.orderId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 14px', borderTop: '1px solid #f3f4f6', font: '13px system-ui', opacity: r.bankDebitedAt ? 0.75 : 1 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        <input type="checkbox" checked={!!r.bankDebitedAt} disabled={busyPayout === r.orderId} onChange={e => toggleDebited(r.orderId, e.target.checked)} style={{ width: 16, height: 16, accentColor: '#166534' }} />
+                        <span style={{ fontWeight: 600 }}>Debited</span>
+                      </label>
+                      <div style={{ flex: 1 }}>
+                        <div><b style={{ fontVariantNumeric: 'tabular-nums' }}>−{money(r.amountCents)}</b> · {fmtDate(r.paidOn)} · {r.applicant ?? '?'}{r.unit ? ` · ${(r.association ?? '').replace(/ Association.*$|,? Inc\.?$/i, '')} unit ${r.unit}` : ''}</div>
+                        <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, color: '#9ca3af' }}>{r.orderId}{r.bankDebitedAt ? ` · ticked by ${r.bankDebitedBy} ${fmtET(r.bankDebitedAt)}` : ''}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
           </div>
         </>
