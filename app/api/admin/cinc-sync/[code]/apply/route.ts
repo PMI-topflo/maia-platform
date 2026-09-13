@@ -30,6 +30,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ code: string }
     insertBoardCincIds:  Array.isArray(body.insertBoardCincIds)  ? body.insertBoardCincIds .filter((n): n is number => typeof n === 'number') : [],
     updateBoardIds:      Array.isArray(body.updateBoardIds)      ? body.updateBoardIds     .filter((s): s is string => typeof s === 'string') : [],
     deactivateBoardIds:  Array.isArray(body.deactivateBoardIds)  ? body.deactivateBoardIds .filter((s): s is string => typeof s === 'string') : [],
+    archiveOwnerIds:     Array.isArray(body.archiveOwnerIds)     ? body.archiveOwnerIds    .filter((n): n is number => typeof n === 'number') : [],
   }
 
   const actorEmail = typeof session.userId === 'string' && session.userId.includes('@') ? session.userId.toLowerCase() : null
