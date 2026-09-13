@@ -86,7 +86,7 @@ export async function buildReconciliation(month: string): Promise<Reconciliation
   const stripeConfigured = !!process.env.STRIPE_SECRET_KEY
 
   // ── Stripe: charges in the month, sessions → application, payouts ────
-  type ChargeInfo = { id: string; created: number; gross: number; fee: number | null; net: number | null; paymentIntent: string | null; email: string | null }
+  type ChargeInfo = { id: string; created: number; gross: number; fee: number | null; net: number | null; paymentIntent: string | null; email: string | null; refunded: boolean }
   const charges = new Map<string, ChargeInfo>()
   const sessionByIntent = new Map<string, string>()
   const payoutByCharge = new Map<string, PayoutRow>()
@@ -96,7 +96,7 @@ export async function buildReconciliation(month: string): Promise<Reconciliation
     for await (const c of s.charges.list({ created: { gte: startTs, lt: endTs }, limit: 100, expand: ['data.balance_transaction'] })) {
       if (c.status !== 'succeeded') continue
       const bt = typeof c.balance_transaction === 'object' && c.balance_transaction ? c.balance_transaction : null
-      charges.set(c.id, { id: c.id, created: c.created, gross: c.amount_captured ?? c.amount, fee: bt?.fee ?? null, net: bt?.net ?? null, paymentIntent: typeof c.payment_intent === 'string' ? c.payment_intent : c.payment_intent?.id ?? null, email: c.billing_details?.email ?? c.receipt_email ?? null })
+      charges.set(c.id, { id: c.id, created: c.created, gross: c.amount_captured ?? c.amount, fee: bt?.fee ?? null, net: bt?.net ?? null, paymentIntent: typeof c.payment_intent === 'string' ? c.payment_intent : c.payment_intent?.id ?? null, email: c.billing_details?.email ?? c.receipt_email ?? null, refunded: !!c.refunded || (c.amount_refunded ?? 0) > 0 })
     }
     for await (const sess of s.checkout.sessions.list({ created: { gte: startTs - 7 * 86400, lt: endTs }, limit: 100 })) {
       const pi = typeof sess.payment_intent === 'string' ? sess.payment_intent : sess.payment_intent?.id
@@ -138,6 +138,7 @@ export async function buildReconciliation(month: string): Promise<Reconciliation
     const sess = c.paymentIntent ? sessionByIntent.get(c.paymentIntent) : null
     const app = sess ? appBySession.get(sess) : null
     if (app) chargeByApp.set(String(app.id), c)
+    else if (c.refunded) exceptions.push(`Stripe charge ${c.id} (${(c.gross / 100).toFixed(2)}, ${c.email ?? 'no email'}) was refunded — a test or cancelled payment; Stripe keeps its fee${c.fee != null ? ` (${(c.fee / 100).toFixed(2)})` : ''}`)
     else exceptions.push(`Stripe charge ${c.id} (${(c.gross / 100).toFixed(2)}, ${c.email ?? 'no email'}) is not linked to any application`)
   }
 
