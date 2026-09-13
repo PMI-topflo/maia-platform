@@ -354,6 +354,9 @@ interface MaiaOwnerRow {
   phone_2:          string | null
   address:          string | null
   language:         string | null
+  /** Cached CINC record-level status ("Developer - NonBillable"…), see
+   *  20260913_owners_cinc_homeowner_status.sql. */
+  cinc_homeowner_status?: string | null
 }
 
 function snapshotFromMaiaOwner(r: MaiaOwnerRow): OwnerSnapshot {
@@ -452,7 +455,7 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
   // ── Load MAIA owner side ──────────────────────────────────────────
   const { data: maiaOwnersRaw } = await supabaseAdmin
     .from('owners')
-    .select('id, cinc_property_id, account_number, unit_number, first_name, last_name, entity_name, emails, phone, phone_2, address, language')
+    .select('id, cinc_property_id, account_number, unit_number, first_name, last_name, entity_name, emails, phone, phone_2, address, language, cinc_homeowner_status')
     .eq('association_code', code)
     .or('status.neq.previous,status.is.null')
 
@@ -659,10 +662,24 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
   // insert/update -- bounded to the actual diff, not every property in the
   // association. Best-effort: a lookup failure leaves the row as-is rather
   // than blocking the sync.
+  // Checked for EVERY CINC-backed row (insert / update / match), not only
+  // the ones about to change — LCLUB "LVUnits" (2026-09-13) lost its
+  // Non-billable badge the moment it had nothing left to update. The
+  // status is cached on the MAIA row (owners.cinc_homeowner_status) so a
+  // matched row costs no lookup on later previews; a lookup that fails
+  // leaves the row as-is.
+  const maiaById = new Map(maiaOwners.map(r => [r.id, r]))
   await Promise.all(owners.map(async cmp => {
-    if (cmp.status !== 'insert' && cmp.status !== 'update') return
+    if (cmp.status !== 'insert' && cmp.status !== 'update' && cmp.status !== 'match') return
     if (!cmp.account_number) return
-    const cincStatus = await getHomeownerStatusDescr(cmp.account_number).catch(() => null)
+    const cached = cmp.owners_id != null ? maiaById.get(cmp.owners_id)?.cinc_homeowner_status ?? null : null
+    let cincStatus: string | null = cached
+    if (cincStatus == null) {
+      cincStatus = await getHomeownerStatusDescr(cmp.account_number).catch(() => null)
+      if (cincStatus != null && cmp.owners_id != null) {
+        void supabaseAdmin.from('owners').update({ cinc_homeowner_status: cincStatus, cinc_status_checked_at: new Date().toISOString() }).eq('id', cmp.owners_id).then(() => null, () => null)
+      }
+    }
     if (cincStatus && /non.?billable/i.test(cincStatus)) {
       cmp.status = 'non_billable'
       cmp.nonBillableStatus = cincStatus
