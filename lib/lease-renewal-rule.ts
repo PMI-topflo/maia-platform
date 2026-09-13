@@ -33,14 +33,18 @@ export interface RenewalRuling {
   notice: string | null
 }
 
-/** The end date of the unit's current / most recent lease, YYYY-MM-DD, or null. */
+/** The end date of the unit's current / most recent lease, YYYY-MM-DD, or
+ *  null. Both sources are read and the LATER date wins — the tenant record
+ *  can lag a year behind (MANXI 901/115 still carried 2025 dates in
+ *  2026-09) while the approved application holds the real current lease. */
 export async function previousLeaseEnd(associationCode: string, unitLabel: string): Promise<string | null> {
   const code = associationCode.toUpperCase()
+  const candidates: string[] = []
   try {
     const { accountNumber } = await resolveUnit(code, unitLabel)
     if (accountNumber) {
       const { data } = await supabaseAdmin.from('unit_tenant_contacts').select('lease_end').eq('association_code', code).eq('unit_ref', accountNumber).maybeSingle()
-      if (data?.lease_end) return String(data.lease_end).slice(0, 10)
+      if (data?.lease_end) candidates.push(String(data.lease_end).slice(0, 10))
     }
   } catch { /* fall through */ }
   const { data: apps } = await supabaseAdmin.from('listing_applications').select('id')
@@ -49,9 +53,9 @@ export async function previousLeaseEnd(associationCode: string, unitLabel: strin
   for (const a of apps ?? []) {
     const { data: doc } = await supabaseAdmin.from('application_documents').select('expiration_date')
       .eq('application_id', a.id).eq('doc_key', 'signed_lease').not('expiration_date', 'is', null).order('created_at', { ascending: false }).limit(1).maybeSingle()
-    if (doc?.expiration_date) return String(doc.expiration_date).slice(0, 10)
+    if (doc?.expiration_date) { candidates.push(String(doc.expiration_date).slice(0, 10)); break }
   }
-  return null
+  return candidates.length ? candidates.sort().pop()! : null
 }
 
 const fmt = (iso: string) => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
