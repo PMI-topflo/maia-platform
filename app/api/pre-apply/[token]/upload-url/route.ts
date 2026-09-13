@@ -4,7 +4,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { getIntake, resolveToken, INTAKE_BUCKET } from '@/lib/preapply'
+import { getIntake, resolveToken, INTAKE_BUCKET, intakeClosed } from '@/lib/preapply'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,7 +14,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (!r) return NextResponse.json({ error: 'This link has expired or is invalid.' }, { status: 401 })
   const intake = await getIntake(r.applicationId)
   if (!intake) return NextResponse.json({ error: 'Not found.' }, { status: 404 })
-  if (intake.submittedAt) return NextResponse.json({ error: 'This application has already been submitted.' }, { status: 400 })
+  if (intakeClosed(intake)) return NextResponse.json({ error: 'This application is closed — nothing more can be added to it. Questions? Reply to the email you received.' }, { status: 400 })
   if (!r.stakeholder.emailVerifiedAt) return NextResponse.json({ error: 'Please verify your email before uploading.' }, { status: 403 })
 
   let b: { doc_key?: string; filename?: string }
