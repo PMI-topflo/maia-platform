@@ -1,4 +1,4 @@
-# Session handoff — 2026-09-12 · previous entries below
+# Session handoff — 2026-09-13 · previous entries below
 
 ## Board pitch guide, then the onboarding questionnaire built (applications scope)
 
@@ -30,6 +30,10 @@ Design was previewed as an Artifact first and approved with the scope reset abov
 - User direction on that block: **never show a staff name** ("I want to show more technology"). Staff decisions render as **"AI Pre-Audited by MAIA"** with the MAIA mark (`public/maia-mark-email.png`, generated from `maia-mark.svg` with sharp — Gmail won't render SVG); board / on-site approvals are listed **by name with the ET time stamp**; an orange note says when no human has approved yet. `reviewedByBlock()` in `lib/board-review-email.ts` (exported).
 - The email's primary button is now **"Open the application"** → `/board-review/<round token>` (the round with `purpose: 'signature_reminder'` works with the existing page: recipients = the letter's signers), so they see the full card and can Approve anything still pending; second button **"Sign the approval letter"** → per-signer `/esign` link. The board-review GET now returns `letterStatus` + `letterSignLinks` (name → `/esign/<token>`, only for VERIFIED reviewers whose recipient email is an unsigned signer), and the page shows a green "Sign the approval letter" button in the window box; copy says "fully signed" when it is.
 - Verified after deploy: user re-ran Remove + Save on 903 → one card (their first attempt at 10:32 AM ET had hit the old code, 20 minutes before the deploy).
+
+### CINC sync: archive MAIA-only owner leftovers (PR #888, 2026-09-13)
+- MANXI 704 showed three owner records: the April import's owner 2 ("Henry Kedisha / Everton Kedisha", row 587, no CINC link) beside the two synced rows; when CINC renamed owner 2 in June the sync inserted a new row instead of updating, and `only_in_maia` owner rows had no action on the sync page. 15 accounts portfolio-wide have the same pattern; some are real co-owners CINC omits.
+- Now: `OwnerComparison.leftoverOf` (same account, shared email/phone with a synced row) → amber hint; a checkbox on MAIA-only rows → **ARCHIVE on apply** (`archiveOwnerIds` → status previous, active false, ownership_end_date today, owner_contact_history line). Never auto-selected. User archived 704's row 587 by SQL before the button existed.
 
 ### Manors XI does not re-screen renewals; 30-day late-renewal rule enforced (PR #883 + data, 2026-09-12)
 - User: "Manors XI does not re-screen on renewals, switch them off, only if the renewal was not requested until 30 days after expired." Matches roadmap "Option 2" (2026-09-01, T+30 grace window).
