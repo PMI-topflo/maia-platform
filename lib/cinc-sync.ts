@@ -31,6 +31,13 @@ export interface OwnerSnapshot {
   last_name:       string | null
   emails:          string | null
   phone:           string | null
+  /** CINC side only: which address row this name pair came from. CINC
+   *  keeps names on BOTH its owner/mailing row and its property row and
+   *  they can differ (ONE 603: owner row "Tross One LLC + Anthony Franco",
+   *  property row "Alfredo Fantoni + Tross One LLC"). A pair seen only on
+   *  the property row is real but weaker evidence, so it is proposed, not
+   *  pre-selected. */
+  source_row?:     'owner' | 'property'
   /** Secondary phone column on MAIA's owners table. CINC has no
    *  equivalent so the CINC side of every snapshot leaves this null;
    *  it's surfaced so the edit modal can pre-populate MAIA's current
@@ -114,6 +121,9 @@ export interface OwnerComparison {
    *  inserted a new row and the old one sat as "KEEP" forever. Staff decide;
    *  MAIA never archives on its own. */
   leftoverOf?:        { owners_id: number; name: string; via: 'email' | 'phone' }
+  /** status='insert' whose name pair exists only on CINC's property-address
+   *  row, not the owner/mailing row — proposed but never pre-selected. */
+  from_property_row?: boolean
 }
 
 export type BoardStatus = 'insert' | 'update' | 'match' | 'only_in_maia'
@@ -245,15 +255,15 @@ function snapshotsFromCincProperty(p: CincPropertyInfo): Array<{ slot: number; s
   // (raw digits, parenthesized, etc.) but we always want the E.164 form
   // (+1XXXXXXXXXX) in our DB so WhatsApp / SMS APIs can dial.
   const phone    = normalizePhone(rawPhone)
-  const rawEmail = nameSrc?.Email || offsite?.Email || fallback?.Email || null
-  const emails   = (rawEmail ?? '').trim().toLowerCase() || null
+  // Emails: the union across every address row — each row can carry a
+  // different subset (ONE 603: the owner row had only the manager's
+  // address, the property row both). CINC stays authoritative: an address
+  // on none of the rows is still pruned from MAIA.
+  const emailSet = new Set<string>()
+  for (const a of addresses) for (const e of String(a.Email ?? '').toLowerCase().split(/[,;]/)) { const t = e.trim(); if (t.includes('@')) emailSet.add(t) }
+  const emails   = emailSet.size ? [...emailSet].join(',') : null
 
-  const first1 = (nameSrc?.FirstName  ?? '').trim() || null
-  const last1  = (nameSrc?.LastName   ?? '').trim() || null
-  const first2 = (nameSrc?.FirstName1 ?? '').trim() || null
-  const last2  = (nameSrc?.LastName1  ?? '').trim() || null
-
-  const baseSnap = (first: string | null, last: string | null): OwnerSnapshot => ({
+  const baseSnap = (first: string | null, last: string | null, sourceRow: 'owner' | 'property'): OwnerSnapshot => ({
     account_number: p.PropertyHOID ?? null,
     unit_number:    p.UnitNo ?? null,
     first_name:     first,
@@ -266,20 +276,56 @@ function snapshotsFromCincProperty(p: CincPropertyInfo): Array<{ slot: number; s
     phone_2:        null,
     address:        street,
     language:       null,
+    source_row:     sourceRow,
   })
 
-  const out: Array<{ slot: number; snap: OwnerSnapshot }> = []
-  if (first1 || last1) out.push({ slot: 0, snap: baseSnap(first1, last1) })
-  // Only emit secondary slot when it carries a name distinct from the
-  // primary — CINC sometimes leaves the slot blank, sometimes duplicates
-  // the primary; both should collapse to a single row.
-  if ((first2 || last2) && nameKey(first1, last1) !== nameKey(first2, last2)) {
-    out.push({ slot: 1, snap: baseSnap(first2, last2) })
+  // Every distinct name pair across EVERY address row, owner rows first.
+  // Real incident, 2026-09-13 (ONE 402/603/702, ONE 502, PVV 2459): the
+  // rows disagree — the owner row lists the LLC + its manager, the property
+  // row lists the principal + the LLC — and reading only one of them made
+  // the sync flag MAIA's correct rows as leftovers. Pairs that are the same
+  // person spelled shorter/longer ("Marie Caroupin" vs "Marie Line
+  // Caroupin") collapse into one slot.
+  const ordered = [...addresses].sort((a, b) => Number(!!b.OwnerAddress) - Number(!!a.OwnerAddress))
+  const pairs: { first: string | null; last: string | null; sourceRow: 'owner' | 'property' }[] = []
+  for (const a of ordered) {
+    const sourceRow: 'owner' | 'property' = a.OwnerAddress ? 'owner' : 'property'
+    for (const [f, l] of [[a.FirstName, a.LastName], [a.FirstName1, a.LastName1]] as const) {
+      const first = (f ?? '').trim() || null, last = (l ?? '').trim() || null
+      if (!first && !last) continue
+      const dup = pairs.find(x => namesCompatible(x.first, x.last, first, last))
+      if (dup) {
+        // Keep the longer spelling, but never demote an owner-row pair.
+        if (fullNameTokens(first, last).length > fullNameTokens(dup.first, dup.last).length && dup.sourceRow === sourceRow) { dup.first = first; dup.last = last }
+        continue
+      }
+      pairs.push({ first, last, sourceRow })
+    }
   }
-  // Edge case: both name pairs are empty — still emit one row so the
+
+  const out: Array<{ slot: number; snap: OwnerSnapshot }> = pairs.map((x, i) => ({ slot: i, snap: baseSnap(x.first, x.last, x.sourceRow) }))
+  // Edge case: no names anywhere — still emit one row so the
   // address/email/phone show up in the diff.
-  if (out.length === 0) out.push({ slot: 0, snap: baseSnap(null, null) })
+  if (out.length === 0) out.push({ slot: 0, snap: baseSnap(null, null, 'owner') })
   return out
+}
+
+/** Lower-cased word tokens of a full name, punctuation stripped. */
+function fullNameTokens(first: string | null | undefined, last: string | null | undefined): string[] {
+  return `${first ?? ''} ${last ?? ''}`.toLowerCase().replace(/[^a-z0-9\u00c0-\u024f&]+/g, ' ').split(' ').filter(t => t && t !== '&')
+}
+
+/** Same person under a shorter / longer spelling: exact token set, or one
+ *  side's tokens (at least two of them) all contained in the other's.
+ *  "Marie Caroupin" ⊂ "Marie Line Caroupin" ✓; "Dino Rocco" ⊂ "Andrea V.
+ *  Burzaco Dino Rocco" ✓; "Richard Martin" vs "Suzanne Martin" ✗. */
+export function namesCompatible(f1: string | null | undefined, l1: string | null | undefined, f2: string | null | undefined, l2: string | null | undefined): boolean {
+  const a = fullNameTokens(f1, l1), b = fullNameTokens(f2, l2)
+  if (!a.length || !b.length) return false
+  const [small, big] = a.length <= b.length ? [a, b] : [b, a]
+  if (small.length === big.length) return small.every(t => big.includes(t)) && big.every(t => small.includes(t))
+  if (small.length < 2) return false
+  return small.every(t => big.includes(t))
 }
 
 interface MaiaOwnerRow {
@@ -479,6 +525,14 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
       const m = findStrictMatch(prop, snap)
       if (m) { slotMatches.set(slot, m); maiaIdsMatched.add(m.id) }
     }
+    // PASS 1b — same person, shorter/longer spelling, within this
+    // property's / account's own rows only (never association-wide).
+    for (const { slot, snap } of snaps) {
+      if (slotMatches.has(slot)) continue
+      const bucket = [...(maiaByCincId.get(prop.PropertyID) ?? []), ...(snap.account_number ? (maiaByAcct.get(snap.account_number.toUpperCase()) ?? []) : [])]
+      const m = bucket.find(r => !maiaIdsMatched.has(r.id) && namesCompatible(r.first_name ?? r.entity_name, r.last_name, snap.first_name, snap.last_name)) ?? null
+      if (m) { slotMatches.set(slot, m); maiaIdsMatched.add(m.id) }
+    }
     for (const { slot, snap } of snaps) {
       if (slotMatches.has(slot)) continue
       if (slot !== 0)            continue
@@ -502,6 +556,7 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
           owners_id:        null,
           maia:             null,
           cinc:             cincSnap,
+          from_property_row: cincSnap.source_row === 'property' ? true : undefined,
         })
         continue
       }
