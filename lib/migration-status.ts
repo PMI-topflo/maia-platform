@@ -4497,6 +4497,27 @@ CREATE POLICY "service_role_all_association_onboarding_proposals"
 NOTIFY pgrst, 'reload schema';
 `,
   },
+  {
+    key:         'owners_cinc_homeowner_status',
+    label:       'owners.cinc_homeowner_status + cinc_status_checked_at',
+    description: "Caches CINC's record-level homeowner status (e.g. 'Developer - NonBillable') on the MAIA owner row so the CINC sync preview can flag non-billable accounts on EVERY row, not just rows about to change (LCLUB LVUnits lost its badge once it had nothing to update, 2026-09-13).",
+    filename:    '20260913_owners_cinc_homeowner_status.sql',
+    artifact:    { type: 'column', table: 'owners', column: 'cinc_homeowner_status' },
+    sql: `-- =====================================================================
+-- 20260913_owners_cinc_homeowner_status.sql
+--
+-- Cache CINC's record-level homeowner status (e.g. "Developer -
+-- NonBillable") on the MAIA owner row. The CINC sync preview used to look
+-- it up only for rows about to be inserted/updated, so an existing row
+-- that had nothing to change (LCLUB "LVUnits", 2026-09-13) silently lost
+-- its Non-billable badge and showed as SYNCED. Existing table: no GRANT
+-- block needed. Idempotent; registered in lib/migration-status.ts.
+-- =====================================================================
+ALTER TABLE public.owners ADD COLUMN IF NOT EXISTS cinc_homeowner_status text;
+ALTER TABLE public.owners ADD COLUMN IF NOT EXISTS cinc_status_checked_at timestamptz;
+NOTIFY pgrst, 'reload schema';
+`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
