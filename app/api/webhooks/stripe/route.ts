@@ -73,7 +73,15 @@ export async function POST(req: NextRequest) {
       // means tenant_evaluation" default already assumes elsewhere.
       const { data: bridged } = await supabase.from("listing_applications")
         .select("screening_provider").eq("detailed_application_id", applicationId).maybeSingle();
-      const provider = resolveScreeningProvider((bridged?.screening_provider as string | null) ?? null);
+      // No bridge (the applicant came through /apply directly, not via the
+      // pre-apply gate) used to mean "unknown → tenant_evaluation" and the
+      // paid applicant never got a Checkr invite — MANXI 702, paid 2026-09-09,
+      // nothing ordered for 4 days. The application row carries its own
+      // provider snapshot ('checkr'); use it when there is no bridge.
+      const ownProvider = String((app as { screening_provider?: string | null }).screening_provider ?? "");
+      const provider = bridged
+        ? resolveScreeningProvider((bridged.screening_provider as string | null) ?? null)
+        : (ownProvider === "checkr" || ownProvider === "maia_checkr" ? "maia_checkr" : resolveScreeningProvider(null));
       if (provider === "maia_checkr") {
         await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/trigger-screening`, {
           method: "POST",

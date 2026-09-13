@@ -6,7 +6,7 @@ import { NextResponse } from 'next/server'
 import JSZip from 'jszip'
 import { requireStaffSession, staffLabel } from '@/lib/staff-auth'
 import { extractPdfText } from '@/lib/extract-pdf'
-import { parseCheckrReceipt, storeCheckrReceipt } from '@/lib/payment-reconciliation'
+import { parseCheckrReceipt, storeCheckrReceipt, pdfTextViaPdfjs } from '@/lib/payment-reconciliation'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -36,15 +36,18 @@ export async function POST(req: Request) {
   }
 
   const by = staffLabel(session)
-  const result = { read: 0, matched: [] as string[], unmatched: [] as string[], skipped: [] as string[] }
+  const result = { read: 0, new: 0, updated: 0, matched: [] as string[], unmatched: [] as string[], skipped: [] as string[] }
   for (const p of pdfs) {
     try {
-      const { text } = await extractPdfText(p.buf, 'application/pdf')
-      const parsed = parseCheckrReceipt(text ?? '')
-      if (!parsed || !parsed.amountCents) { result.skipped.push(p.name); continue }
+      let text = (await extractPdfText(p.buf, 'application/pdf')).text ?? ''
+      if (!/Order:\s*ord_/.test(text)) text = await pdfTextViaPdfjs(p.buf).catch(() => text)
+      const parsed = parseCheckrReceipt(text)
+      if (!parsed) { result.skipped.push(`${p.name} (no "Order: ord_…" line found)`); continue }
+      if (!parsed.amountCents) { result.skipped.push(`${p.name} (order ${parsed.orderId}: no amount found)`); continue }
       result.read++
       const m = await storeCheckrReceipt(parsed, p.name, by)
-      ;(m === 'matched' ? result.matched : result.unmatched).push(`${parsed.orderId} · ${parsed.applicantName ?? '?'} · $${(parsed.amountCents / 100).toFixed(2)}`)
+      if (m.existed) result.updated++; else result.new++
+      ;(m.match === 'matched' ? result.matched : result.unmatched).push(`${parsed.orderId} · ${parsed.applicantName ?? '?'} · $${(parsed.amountCents / 100).toFixed(2)}${m.existed ? ' (already on file)' : ''}`)
     } catch (e) { result.skipped.push(`${p.name} (${e instanceof Error ? e.message : String(e)})`) }
   }
   return NextResponse.json(result)
