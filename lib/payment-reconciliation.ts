@@ -201,10 +201,12 @@ export async function markPayoutReceived(payoutId: string, received: boolean, by
 /** Parse one Checkr receipt PDF's text. Format (2026-09): "Order: ord_…",
  *  "Sep 11, 2026 at 00:23 UTC", PROPERTY / APPLICANT blocks, "AMOUNT PAID
  *  $34.99", a package line. Returns null when it is not a Checkr receipt. */
-export function parseCheckrReceipt(text: string): { orderId: string; amountCents: number; paidOn: string | null; applicantName: string | null; applicantEmail: string | null; property: string | null; pkg: string | null } | null {
-  const order = /Order:\s*(ord_[A-Za-z0-9_-]+)/.exec(text)
+export function parseCheckrReceipt(text: string, filename?: string): { orderId: string; amountCents: number; paidOn: string | null; applicantName: string | null; applicantEmail: string | null; property: string | null; pkg: string | null } | null {
+  // The order id is in the text ("Order: ord_…") AND in Checkr's own file
+  // name ("checkr-receipt-ord_….pdf"); either is enough.
+  const order = /Order:\s*(ord_[A-Za-z0-9_-]+)/.exec(text) ?? /(ord_[A-Za-z0-9_-]{8,})/.exec(text) ?? (filename ? /(ord_[A-Za-z0-9_-]{8,})/.exec(filename) : null)
   if (!order) return null
-  const amt = /AMOUNT PAID\s*\$?\s*([\d,]+\.\d{2})/i.exec(text) ?? /Total\s*\$?\s*([\d,]+\.\d{2})/i.exec(text)
+  const amt = /AMOUNT PAID\s*\$?\s*([\d,]+\.\d{2})/i.exec(text) ?? /Total\s*\$?\s*([\d,]+\.\d{2})/i.exec(text) ?? /\$\s*([\d,]+\.\d{2})/.exec(text)
   const amountCents = amt ? Math.round(Number(amt[1].replace(/,/g, '')) * 100) : 0
   const date = /Card\s*·\s*([A-Z][a-z]{2} \d{1,2}, \d{4})/.exec(text) ?? /([A-Z][a-z]{2} \d{1,2}, \d{4}) at \d{2}:\d{2} UTC/.exec(text)
   const paidOn = date ? new Date(date[1] + ' 12:00:00 UTC').toISOString().slice(0, 10) : null
