@@ -43,6 +43,7 @@ interface BoardSnap {
 }
 interface OwnerCmp {
   status:           'insert' | 'update' | 'match' | 'only_in_maia' | 'non_billable'
+  leftoverOf?:      { owners_id: number; name: string; via: 'email' | 'phone' }
   selection_key:    string
   account_number:   string | null
   unit_number:      string | null
@@ -81,6 +82,7 @@ interface SyncPreview {
 interface ApplyResult {
   ownersInserted:   number
   ownersUpdated:    number
+  ownersArchived?:  number
   boardInserted:    number
   boardUpdated:     number
   boardDeactivated: number
@@ -92,6 +94,9 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
   const [selOwnerKeys, setSelOwnerKeys] = useState<Set<string>>(new Set())
+  // MAIA-only owner rows ticked for ARCHIVE (status previous). Never
+  // auto-selected — a MAIA-only row can be a real co-owner CINC omits.
+  const [selArchive, setSelArchive] = useState<Set<number>>(new Set())
   const [selBoardIns,  setSelBoardIns]  = useState<Set<number>>(new Set())
   const [selBoardUpd,  setSelBoardUpd]  = useState<Set<string>>(new Set())
   const [selBoardDe,   setSelBoardDe]   = useState<Set<string>>(new Set())
@@ -214,6 +219,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
           ownerKeys:          [...selOwnerKeys],
+          archiveOwnerIds:    [...selArchive],
           insertBoardCincIds: [...selBoardIns],
           updateBoardIds:     [...selBoardUpd],
           deactivateBoardIds: [...selBoardDe],
@@ -229,6 +235,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
       // placeholder with no detail.
       const fresh = await fetch(`/api/admin/cinc-sync/${assocCode}/preview`).then(r => r.json())
       setPreview(fresh)
+      setSelArchive(new Set())
       setShowMatched(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -250,7 +257,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
   if (error)   return <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-4 py-3">{error}</div>
   if (!preview) return null
 
-  const totalToApply = selOwnerKeys.size + selBoardIns.size + selBoardUpd.size + selBoardDe.size
+  const totalToApply = selOwnerKeys.size + selArchive.size + selBoardIns.size + selBoardUpd.size + selBoardDe.size
 
   return (
     <div className="space-y-4">
@@ -278,6 +285,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
           <ul className="list-disc pl-5 space-y-0.5 mt-2 text-green-800">
             <li>Owners inserted: {result.ownersInserted}</li>
             <li>Owners updated: {result.ownersUpdated}</li>
+            {(result.ownersArchived ?? 0) > 0 && <li>Owners archived (not in CINC): {result.ownersArchived}</li>}
             <li>Board members inserted: {result.boardInserted}</li>
             <li>Board members updated (position / email): {result.boardUpdated}</li>
             <li>Board members deactivated: {result.boardDeactivated}</li>
@@ -310,17 +318,20 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
           <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">{showMatched ? 'No owner rows.' : 'Everything in sync. Tick "Show units already in sync" to verify.'}</td></tr>
         )}
         {visibleOwners.map((cmp) => {
-          const canPick = cmp.status === 'insert' || cmp.status === 'update'
-          const sel     = canPick && selOwnerKeys.has(cmp.selection_key)
+          const canArchive = cmp.status === 'only_in_maia' && cmp.owners_id != null
+          const canPick = cmp.status === 'insert' || cmp.status === 'update' || canArchive
+          const archiveSel = canArchive && selArchive.has(cmp.owners_id as number)
+          const sel     = canArchive ? archiveSel : (canPick && selOwnerKeys.has(cmp.selection_key))
           const onToggle = () => {
             if (!canPick) return
-            setSelOwnerKeys(prev => toggleStr(prev, cmp.selection_key))
+            if (canArchive) setSelArchive(prev => toggleNum(prev, cmp.owners_id as number))
+            else setSelOwnerKeys(prev => toggleStr(prev, cmp.selection_key))
           }
           return (
             <Fragment key={cmp.selection_key}>
-              <tr className={cmp.status === 'match' ? 'bg-green-50/40' : ''}>
+              <tr className={cmp.status === 'match' ? 'bg-green-50/40' : archiveSel ? 'bg-red-50/60' : ''}>
                 <td className="px-3 py-2 align-top w-8">
-                  {canPick && <input type="checkbox" checked={sel} onChange={onToggle} className="accent-[#f26a1b]" />}
+                  {canPick && <input type="checkbox" checked={sel} onChange={onToggle} className="accent-[#f26a1b]" title={canArchive ? 'Tick to ARCHIVE this MAIA-only owner (marked previous) on Apply' : undefined} />}
                 </td>
                 <td className="px-3 py-2 align-top">
                   <UnitCell account={cmp.account_number} unit={cmp.unit_number} ownerNumber={cmp.owner_number} cincId={cmp.cinc_property_id} maiaId={cmp.owners_id} nameSlot={cmp.cinc_name_slot} />
@@ -344,9 +355,18 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
                   <OwnerSide snap={cmp.cinc} hidden={!cmp.cinc} />
                 </td>
                 <td className="px-3 py-2 align-top text-right">
-                  <StatusBadge status={cmp.status} unverified={cmp.unverified} nonBillableStatus={cmp.nonBillableStatus} />
+                  <StatusBadge status={archiveSel ? 'archive' : cmp.status} unverified={cmp.unverified} nonBillableStatus={cmp.nonBillableStatus} />
                 </td>
               </tr>
+              {cmp.status === 'only_in_maia' && cmp.leftoverOf && (
+                <tr>
+                  <td colSpan={5} className="px-3 pb-3 pt-0 align-top">
+                    <div className="ml-12 text-[11px] text-amber-800">
+                      Looks like a leftover of an earlier import — same {cmp.leftoverOf.via} as the synced owner <strong>{cmp.leftoverOf.name}</strong> on this account. Tick the box to archive it on Apply; leave it if this is a real co-owner CINC does not list.
+                    </div>
+                  </td>
+                </tr>
+              )}
               {cmp.changes && (
                 <tr>
                   <td colSpan={5} className="px-3 pb-3 pt-0 align-top">
@@ -617,12 +637,14 @@ function StatusBadge({ status, unverified, nonBillableStatus }: { status: string
     update:       'bg-amber-100 text-amber-800',
     match:        'bg-green-600 text-white',
     only_in_maia: 'bg-blue-100 text-blue-700',
+    archive:      'bg-red-100 text-red-700',
   }
   const labels: Record<string, string> = {
     insert:       'INSERT',
     update:       'UPDATE',
     match:        '✓ SYNCED',
     only_in_maia: 'KEEP (not in CINC)',
+    archive:      'ARCHIVE on apply',
   }
   // Real incident, 2026-09-08: a 'match' row got the SAME green "✓ SYNCED"
   // badge whether CINC actually confirmed the value or simply had nothing

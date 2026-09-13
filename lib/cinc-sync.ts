@@ -105,6 +105,15 @@ export interface OwnerComparison {
    *  Never proposed as an insert/update, and never auto-selected — staff
    *  said explicitly these shouldn't be treated as MAIA owners at all. */
   nonBillableStatus?: string
+  /** Only on status='only_in_maia': a SYNCED row on the same account shares
+   *  this row's email or phone, so this is almost certainly a leftover of an
+   *  earlier import (the same person under an older spelling) rather than a
+   *  co-owner CINC doesn't list. Real case, 2026-09-13 (MANXI 704): the
+   *  April import held owner 2 as "Henry Kedisha / Everton Kedisha"; when
+   *  CINC renamed him "Henry Kedisha / GRAYSON UNLIMITED, LLC" the sync
+   *  inserted a new row and the old one sat as "KEEP" forever. Staff decide;
+   *  MAIA never archives on its own. */
+  leftoverOf?:        { owners_id: number; name: string; via: 'email' | 'phone' }
 }
 
 export type BoardStatus = 'insert' | 'update' | 'match' | 'only_in_maia'
@@ -598,7 +607,26 @@ export async function buildSyncPreview(assocCode: string): Promise<SyncPreview> 
     const kb = acctSortKey(b.account_number)
     if (ka !== kb) return ka < kb ? -1 : 1
     // Same account number → put insert/update before match/only_in_maia
-    const order: Record<OwnerStatus, number> = { insert: 0, update: 1, only_in_maia: 2, match: 3, non_billable: 4 }
+    // Flag MAIA-only rows that look like leftovers of a synced row on the
+  // same account (see OwnerComparison.leftoverOf).
+  const syncedByAcct = new Map<string, OwnerComparison[]>()
+  for (const o of owners) {
+    if ((o.status === 'match' || o.status === 'update') && o.owners_id != null && o.account_number) {
+      const k = o.account_number.toUpperCase(); syncedByAcct.set(k, [...(syncedByAcct.get(k) ?? []), o])
+    }
+  }
+  for (const o of owners) {
+    if (o.status !== 'only_in_maia' || !o.account_number || !o.maia) continue
+    const mine = normalizeEmailList(o.maia.emails).split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+    for (const s of syncedByAcct.get(o.account_number.toUpperCase()) ?? []) {
+      const theirs = normalizeEmailList(s.maia?.emails).split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+      const name = [s.maia?.first_name, s.maia?.last_name].filter(Boolean).join(' ')
+      if (mine.some(e => theirs.includes(e))) { o.leftoverOf = { owners_id: s.owners_id as number, name, via: 'email' }; break }
+      if (o.maia.phone && phonesEqualByDigits(o.maia.phone, s.maia?.phone)) { o.leftoverOf = { owners_id: s.owners_id as number, name, via: 'phone' }; break }
+    }
+  }
+
+  const order: Record<OwnerStatus, number> = { insert: 0, update: 1, only_in_maia: 2, match: 3, non_billable: 4 }
     const so = order[a.status] - order[b.status]
     if (so !== 0) return so
     return (a.owner_number ?? 99) - (b.owner_number ?? 99)
@@ -726,11 +754,17 @@ export interface ApplySelection {
    *  drifted fields (role / email) should be pulled from CINC into MAIA. */
   updateBoardIds:      string[]
   deactivateBoardIds:  string[]
+  /** owners.id of status='only_in_maia' rows to ARCHIVE — status 'previous',
+   *  active false, ownership_end_date today. The row is kept for history and
+   *  drops out of the sync, the owner emails and the counts. Only rows the
+   *  preview itself reports as only_in_maia are honored. */
+  archiveOwnerIds?:    number[]
 }
 
 export interface ApplyResult {
   ownersInserted:   number
   ownersUpdated:    number
+  ownersArchived:   number
   boardInserted:    number
   boardUpdated:     number
   boardDeactivated: number
@@ -748,6 +782,7 @@ export async function applySync(
   const errors: string[] = []
   let ownersInserted   = 0
   let ownersUpdated    = 0
+  let ownersArchived   = 0
   let boardInserted    = 0
   let boardUpdated     = 0
   let boardDeactivated = 0
@@ -758,6 +793,27 @@ export async function applySync(
     .eq('association_code', code)
     .maybeSingle()
   const assocName = assocRow?.association_name ?? preview.associationName ?? code
+
+  // ── Owners: archive MAIA-only rows staff ticked ───────────────────
+  const archivable = new Map(preview.owners.filter(o => o.status === 'only_in_maia' && o.owners_id != null).map(o => [o.owners_id as number, o]))
+  for (const id of selection.archiveOwnerIds ?? []) {
+    const cmp = archivable.get(id)
+    if (!cmp) { errors.push(`owner archive (id=${id}): not a MAIA-only row on this association`); continue }
+    const today = new Date().toISOString().slice(0, 10)
+    const { error } = await supabaseAdmin.from('owners')
+      .update({ status: 'previous', active: false, ownership_end_date: today, updated_at: new Date().toISOString() })
+      .eq('id', id).eq('association_code', code)
+    if (error) { errors.push(`owner archive (id=${id}): ${error.message}`); continue }
+    ownersArchived++
+    try {
+      await supabaseAdmin.from('owner_contact_history').insert({
+        owner_id: id, association_code: code, unit_number: cmp.unit_number,
+        field: 'status', old_value: 'active',
+        new_value: `previous — archived from /admin/cinc-sync, not in CINC${cmp.leftoverOf ? `; same ${cmp.leftoverOf.via} as synced owner ${cmp.leftoverOf.name} (id ${cmp.leftoverOf.owners_id})` : ''}`,
+        changed_by: actorEmail ?? 'cinc_sync',
+      })
+    } catch { /* history is best-effort */ }
+  }
 
   // ── Owners (insert + update share one selection set) ───────────────
   const ownerKeySet = new Set(selection.ownerKeys)
@@ -877,5 +933,5 @@ export async function applySync(
     else      boardDeactivated++
   }
 
-  return { ownersInserted, ownersUpdated, boardInserted, boardUpdated, boardDeactivated, errors }
+  return { ownersInserted, ownersUpdated, ownersArchived, boardInserted, boardUpdated, boardDeactivated, errors }
 }
