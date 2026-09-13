@@ -44,6 +44,7 @@ interface BoardSnap {
 interface OwnerCmp {
   status:           'insert' | 'update' | 'match' | 'only_in_maia' | 'non_billable'
   leftoverOf?:      { owners_id: number; name: string; via: 'email' | 'phone' }
+  from_property_row?: boolean
   selection_key:    string
   account_number:   string | null
   unit_number:      string | null
@@ -196,7 +197,10 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
         if (cancelled) return
         setPreview(data)
         // Pre-select every actionable row (staff unticks what they don't want).
-        const ownerKeys = data.owners.filter(o => o.status === 'insert' || o.status === 'update').map(o => o.selection_key)
+        // Inserts whose name exists only on CINC's property-address row are
+        // proposed but not pre-selected — staff confirm them (see
+        // OwnerComparison.from_property_row).
+        const ownerKeys = data.owners.filter(o => (o.status === 'insert' && !o.from_property_row) || o.status === 'update').map(o => o.selection_key)
         const insBoard  = data.board.filter(b => b.status === 'insert' && b.cinc_board_member_id != null).map(b => b.cinc_board_member_id as number)
         const updBoard  = data.board.filter(b => b.status === 'update' && b.abm_id != null).map(b => b.abm_id as string)
         const deBoard   = data.board.filter(b => b.status === 'only_in_maia' && b.abm_id != null).map(b => b.abm_id as string)
@@ -344,7 +348,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
                   )}
                 </td>
                 <td className="px-3 py-2 align-top">
-                  <UnitCell account={cmp.account_number} unit={cmp.unit_number} ownerNumber={cmp.owner_number} cincId={cmp.cinc_property_id} maiaId={cmp.owners_id} nameSlot={cmp.cinc_name_slot} />
+                  <UnitCell account={cmp.account_number} unit={cmp.unit_number} ownerNumber={cmp.owner_number} cincId={cmp.cinc_property_id} maiaId={cmp.owners_id} nameSlot={cmp.cinc_name_slot} fromPropertyRow={cmp.from_property_row} />
                 </td>
                 <td className="px-3 py-2 align-top">
                   <OwnerSide
@@ -696,18 +700,21 @@ function StatusBadge({ status, unverified, nonBillableStatus }: { status: string
   )
 }
 
-function UnitCell({ account, unit, ownerNumber, cincId, maiaId, nameSlot }: { account: string | null; unit: string | null; ownerNumber: number | null; cincId: number | null; maiaId: number | null; nameSlot: number | null }) {
+function UnitCell({ account, unit, ownerNumber, cincId, maiaId, nameSlot, fromPropertyRow }: { account: string | null; unit: string | null; ownerNumber: number | null; cincId: number | null; maiaId: number | null; nameSlot: number | null; fromPropertyRow?: boolean }) {
   return (
     <div>
       <div className="text-sm font-semibold text-gray-900 font-mono">{account ?? '—'}</div>
       <div className="text-[11px] text-gray-500 leading-tight">
         Unit {unit ?? '—'}{ownerNumber != null && ownerNumber > 1 ? ` · Owner #${ownerNumber}` : ''}
-        {nameSlot === 1 && (
-          // CINC stores a second name pair on the same address row
-          // (FirstName1/LastName1) for joint owners — person + entity,
-          // two spouses, etc. Surface it so staff know this is the
-          // SECOND owner on the address record, not a duplicate.
-          <span className="ml-1 inline-flex items-center px-1.5 py-0 rounded text-[9px] font-semibold uppercase bg-purple-100 text-purple-700 align-middle">2nd name</span>
+        {nameSlot != null && nameSlot >= 1 && (
+          // CINC stores up to two name pairs per address row and keeps two
+          // address rows — joint owners, person + entity, an LLC + its
+          // manager. Surface the slot so staff know this is another name
+          // on the same account, not a duplicate.
+          <span className="ml-1 inline-flex items-center px-1.5 py-0 rounded text-[9px] font-semibold uppercase bg-purple-100 text-purple-700 align-middle">{nameSlot + 1}{nameSlot === 1 ? 'nd' : nameSlot === 2 ? 'rd' : 'th'} name</span>
+        )}
+        {fromPropertyRow && (
+          <span className="ml-1 inline-flex items-center px-1.5 py-0 rounded text-[9px] font-semibold uppercase bg-amber-100 text-amber-800 align-middle" title="This name appears only on CINC's property-address row, not on the owner/mailing row — confirm before inserting.">property row only</span>
         )}
       </div>
       <div className="text-[10px] font-mono text-gray-400 leading-tight mt-0.5">
