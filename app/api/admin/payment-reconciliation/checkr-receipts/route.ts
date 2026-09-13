@@ -40,10 +40,13 @@ export async function POST(req: Request) {
   for (const p of pdfs) {
     try {
       let text = (await extractPdfText(p.buf, 'application/pdf')).text ?? ''
-      if (!/Order:\s*ord_/.test(text)) text = await pdfTextViaPdfjs(p.buf).catch(() => text)
-      const parsed = parseCheckrReceipt(text)
-      if (!parsed) { result.skipped.push(`${p.name} (no "Order: ord_…" line found)`); continue }
-      if (!parsed.amountCents) { result.skipped.push(`${p.name} (order ${parsed.orderId}: no amount found)`); continue }
+      let fallbackErr: string | null = null
+      if (!/AMOUNT PAID/i.test(text)) {
+        try { const t2 = await pdfTextViaPdfjs(p.buf); if (t2.length > text.length) text = t2 } catch (e) { fallbackErr = e instanceof Error ? e.message : String(e) }
+      }
+      const parsed = parseCheckrReceipt(text, p.name)
+      if (!parsed) { result.skipped.push(`${p.name} (no order id in the text or the file name${fallbackErr ? `; pdf.js: ${fallbackErr}` : ''}; text starts "${text.slice(0, 80).replace(/\s+/g, ' ')}")`); continue }
+      if (!parsed.amountCents) { result.skipped.push(`${p.name} (order ${parsed.orderId}: no amount found${fallbackErr ? `; pdf.js: ${fallbackErr}` : ''}; text starts "${text.slice(0, 80).replace(/\s+/g, ' ')}")`); continue }
       result.read++
       const m = await storeCheckrReceipt(parsed, p.name, by)
       if (m.existed) result.updated++; else result.new++
