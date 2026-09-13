@@ -196,23 +196,31 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
       .then((data: SyncPreview) => {
         if (cancelled) return
         setPreview(data)
-        // Pre-select every actionable row (staff unticks what they don't want).
-        // Inserts whose name exists only on CINC's property-address row are
-        // proposed but not pre-selected — staff confirm them (see
-        // OwnerComparison.from_property_row).
-        const ownerKeys = data.owners.filter(o => (o.status === 'insert' && !o.from_property_row) || o.status === 'update').map(o => o.selection_key)
-        const insBoard  = data.board.filter(b => b.status === 'insert' && b.cinc_board_member_id != null).map(b => b.cinc_board_member_id as number)
-        const updBoard  = data.board.filter(b => b.status === 'update' && b.abm_id != null).map(b => b.abm_id as string)
-        const deBoard   = data.board.filter(b => b.status === 'only_in_maia' && b.abm_id != null).map(b => b.abm_id as string)
-        setSelOwnerKeys(new Set(ownerKeys))
-        setSelBoardIns(new Set(insBoard))
-        setSelBoardUpd(new Set(updBoard))
-        setSelBoardDe(new Set(deBoard))
+        applyDefaultSelections(data)
       })
       .catch(e => !cancelled && setError(e instanceof Error ? e.message : String(e)))
       .finally(() => !cancelled && setLoading(false))
     return () => { cancelled = true }
   }, [assocCode])
+
+  // Pre-select every actionable row (staff unticks what they don't want).
+  // Inserts whose name exists only on CINC's property-address row are
+  // proposed but not pre-selected — staff confirm them (see
+  // OwnerComparison.from_property_row). Called on first load AND after
+  // every Apply: the old ticks used to survive the re-fetch, so the button
+  // kept showing the previous count until a full page reload (user,
+  // 2026-09-13: "I need to hit Apply two more times").
+  function applyDefaultSelections(data: SyncPreview) {
+    const ownerKeys = data.owners.filter(o => (o.status === 'insert' && !o.from_property_row) || o.status === 'update').map(o => o.selection_key)
+    const insBoard  = data.board.filter(b => b.status === 'insert' && b.cinc_board_member_id != null).map(b => b.cinc_board_member_id as number)
+    const updBoard  = data.board.filter(b => b.status === 'update' && b.abm_id != null).map(b => b.abm_id as string)
+    const deBoard   = data.board.filter(b => b.status === 'only_in_maia' && b.abm_id != null).map(b => b.abm_id as string)
+    setSelOwnerKeys(new Set(ownerKeys))
+    setSelBoardIns(new Set(insBoard))
+    setSelBoardUpd(new Set(updBoard))
+    setSelBoardDe(new Set(deBoard))
+    setSelArchive(new Set())
+  }
 
   async function onApply() {
     if (!preview) return
@@ -239,7 +247,7 @@ export default function SyncPreviewClient({ assocCode }: { assocCode: string }) 
       // placeholder with no detail.
       const fresh = await fetch(`/api/admin/cinc-sync/${assocCode}/preview`).then(r => r.json())
       setPreview(fresh)
-      setSelArchive(new Set())
+      applyDefaultSelections(fresh)
       setShowMatched(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
