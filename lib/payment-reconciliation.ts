@@ -44,9 +44,13 @@ export interface ReconRow {
   marginCents: number | null
 }
 
+export interface PayoutItem { type: string; amountCents: number; feeCents: number; netCents: number; description: string | null; chargeId: string | null; email: string | null; created: string }
 export interface PayoutRow {
   id: string; amountCents: number; arrivalDate: string; status: string
   chargeIds: string[]; applications: number
+  /** Everything inside the payout — charges, refunds, adjustments — so a
+   *  deposit can be explained to the cent. */
+  items: PayoutItem[]
   bankReceivedAt: string | null; bankReceivedBy: string | null; note: string | null
 }
 
@@ -95,14 +99,19 @@ export async function buildReconciliation(month: string): Promise<Reconciliation
     for await (const p of s.payouts.list({ created: { gte: startTs, lt: endTs + 45 * 86400 }, limit: 100 })) {
       if (p.status === 'canceled' || p.status === 'failed') continue
       const chargeIds: string[] = []
-      for await (const bt of s.balanceTransactions.list({ payout: p.id, type: 'charge', limit: 100 })) {
-        const src = typeof bt.source === 'string' ? bt.source : bt.source?.id
-        if (src) chargeIds.push(src)
+      const items: PayoutItem[] = []
+      for await (const bt of s.balanceTransactions.list({ payout: p.id, limit: 100, expand: ['data.source'] })) {
+        if (bt.type === 'payout') continue
+        const srcObj = typeof bt.source === 'object' && bt.source ? bt.source as { id?: string; object?: string; billing_details?: { email?: string | null }; receipt_email?: string | null; charge?: string } : null
+        const srcId = typeof bt.source === 'string' ? bt.source : srcObj?.id ?? null
+        const chargeId = bt.type === 'charge' ? srcId : (srcObj?.object === 'refund' ? (srcObj.charge ?? null) : null)
+        if (bt.type === 'charge' && srcId) chargeIds.push(srcId)
+        items.push({ type: bt.type, amountCents: bt.amount, feeCents: bt.fee, netCents: bt.net, description: bt.description ?? null, chargeId, email: srcObj?.billing_details?.email ?? srcObj?.receipt_email ?? null, created: new Date(bt.created * 1000).toISOString() })
       }
       const f = flagBy.get(p.id)
       const row: PayoutRow = {
         id: p.id, amountCents: p.amount, arrivalDate: new Date(p.arrival_date * 1000).toISOString().slice(0, 10), status: p.status,
-        chargeIds, applications: chargeIds.filter(id => charges.has(id)).length,
+        chargeIds, applications: chargeIds.filter(id => charges.has(id)).length, items,
         bankReceivedAt: (f?.bank_received_at as string | null) ?? null, bankReceivedBy: (f?.bank_received_by as string | null) ?? null, note: (f?.note as string | null) ?? null,
       }
       if (row.applications > 0) { payouts.push(row); for (const id of chargeIds) payoutByCharge.set(id, row) }
@@ -210,12 +219,38 @@ export function parseCheckrReceipt(text: string): { orderId: string; amountCents
   }
 }
 
-export async function storeCheckrReceipt(parsed: NonNullable<ReturnType<typeof parseCheckrReceipt>>, filename: string, by: string): Promise<'matched' | 'unmatched'> {
+/** Upsert by order id — re-uploading a month (Checkr only offers whole-month
+ *  ZIPs) refreshes the same rows and never duplicates. Returns whether the
+ *  receipt was new or already on file, and whether a screening matches. */
+export async function storeCheckrReceipt(parsed: NonNullable<ReturnType<typeof parseCheckrReceipt>>, filename: string, by: string): Promise<{ match: 'matched' | 'unmatched'; existed: boolean }> {
+  const { data: prior } = await supabaseAdmin.from('checkr_receipts').select('order_id').eq('order_id', parsed.orderId).maybeSingle()
   const { error } = await supabaseAdmin.from('checkr_receipts').upsert({
     order_id: parsed.orderId, amount_cents: parsed.amountCents, paid_on: parsed.paidOn, applicant_name: parsed.applicantName, applicant_email: parsed.applicantEmail,
     property: parsed.property, package: parsed.pkg, filename, uploaded_by: by, uploaded_at: new Date().toISOString(),
   }, { onConflict: 'order_id' })
   if (error) throw new Error(error.message)
   const { data } = await supabaseAdmin.from('screening_subjects').select('id').eq('checkr_order_id', parsed.orderId).limit(1)
-  return data?.length ? 'matched' : 'unmatched'
+  return { match: data?.length ? 'matched' : 'unmatched', existed: !!prior }
+}
+
+/** Plain text of a small PDF via pdf.js — used when pdf-parse yields
+ *  nothing (Checkr receipts are one page; every line matters). */
+export async function pdfTextViaPdfjs(buf: Buffer): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), isEvalSupported: false }).promise
+  const lines: string[] = []
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i)
+    const content = await page.getTextContent()
+    let last: number | null = null, line = ''
+    for (const it of content.items as { str: string; transform: number[] }[]) {
+      const y = Math.round(it.transform[5])
+      if (last !== null && Math.abs(y - last) > 2) { lines.push(line.trim()); line = '' }
+      line += (line && !line.endsWith(' ') ? ' ' : '') + it.str
+      last = y
+    }
+    lines.push(line.trim())
+  }
+  return lines.filter(Boolean).join('\n')
 }

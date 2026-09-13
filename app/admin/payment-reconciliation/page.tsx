@@ -52,7 +52,7 @@ export default function PaymentReconciliationPage() {
       const fd = new FormData(); for (const f of Array.from(files)) fd.append('files', f)
       const r = await fetch('/api/admin/payment-reconciliation/checkr-receipts', { method: 'POST', credentials: 'include', body: fd })
       const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
-      setUploadMsg(`${j.read} receipt(s) read · ${j.matched.length} matched to a screening · ${j.unmatched.length} unmatched${j.skipped.length ? ` · ${j.skipped.length} skipped (not a Checkr receipt)` : ''}`)
+      setUploadMsg(`${j.read} receipt(s) read — ${j.new} new, ${j.updated} already on file (refreshed, never duplicated) · ${j.matched.length} matched to a screening · ${j.unmatched.length} unmatched${j.skipped.length ? ` · skipped: ${j.skipped.join('; ')}` : ''}`)
       await load(month)
     } catch (e) { setUploadMsg(`Could not read: ${(e as Error).message}`) } finally { setUploading(false) }
   }
@@ -144,6 +144,23 @@ export default function PaymentReconciliationPage() {
                     <div style={{ flex: 1 }}>
                       <div><b style={{ fontVariantNumeric: 'tabular-nums' }}>{money(p.amountCents)}</b> · arrives {fmtDate(p.arrivalDate)} · Stripe says <b>{p.status}</b> · {p.applications} application payment{p.applications === 1 ? '' : 's'}{p.chargeIds.length > p.applications ? ` + ${p.chargeIds.length - p.applications} other charge(s)` : ''}</div>
                       <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, color: '#9ca3af' }}>{p.id}{p.bankReceivedAt ? ` · confirmed by ${p.bankReceivedBy} ${fmtET(p.bankReceivedAt)}` : ''}</div>
+                      <details style={{ marginTop: 4 }}>
+                        <summary style={{ cursor: 'pointer', color: '#2563eb', fontSize: 12 }}>What is in this deposit</summary>
+                        <table style={{ borderCollapse: 'collapse', marginTop: 4, fontSize: 12 }}>
+                          <tbody>
+                            {p.items.map((it, i) => {
+                              const row = data.rows.find(r => r.chargeId && r.chargeId === it.chargeId)
+                              return (
+                                <tr key={i}>
+                                  <td style={{ padding: '2px 8px 2px 0', whiteSpace: 'nowrap', color: '#6b7280' }}>{fmtDate(it.created)}</td>
+                                  <td style={{ padding: '2px 8px 2px 0' }}>{it.type}{row ? ` · ${(row.association ?? '').replace(/ Association.*$|,? Inc\.?$/i, '')} unit ${row.unit ?? '?'} · ${row.applicants.join(' + ')}` : it.email ? ` · ${it.email}` : ''}{it.description ? ` · ${it.description}` : ''}</td>
+                                  <td style={{ padding: '2px 0 2px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{money(it.amountCents)} − {money(it.feeCents)} = <b>{money(it.netCents)}</b></td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </details>
                     </div>
                   </div>
                 ))}
