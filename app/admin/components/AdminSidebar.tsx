@@ -44,6 +44,7 @@ const NAV: Node[] = [
   { type: 'group', label: 'Accounting', icon: '$', items: [
     { label: 'Invoices', href: '/admin/invoices' },
     { label: 'Reconciliation', href: '/admin/reconciliation' },
+    { label: 'Application payments', href: '/admin/payment-reconciliation' },
     { label: 'Monthly Report', href: '/admin/reports/monthly' },
   ] },
   // User direction, 2026-09-10: one Applications screen (Open / Approved &
