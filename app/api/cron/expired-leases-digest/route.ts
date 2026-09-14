@@ -26,6 +26,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { findOrCreateCheck, isSatisfied, hasOpenApplication } from '@/lib/lease-renewal-check'
 import { findMergedOwner } from '@/lib/owner-lookup'
+import { leaseRenewalResidentHtml, type Role } from '@/lib/lease-renewal-email'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -40,15 +41,9 @@ const fmt = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.ge
 
 export interface Row { unit: string; tenant: string; owner: string; end: string; daysAgo: number; ownerEmail: string | null; tenantEmail: string | null; tenantName: string | null }
 
-export function residentHtml(o: { name: string; unit: string; assoc: string; end: string; daysAgo: number; link: string }): string {
-  return `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
-    <p>Dear ${o.name ? esc(o.name) : 'Resident'},</p>
-    <p>Our records show the lease for <strong>Unit ${esc(o.unit)}</strong> at <strong>${esc(o.assoc)}</strong> ended on <strong>${fmt(o.end)}</strong> — <strong>${o.daysAgo} day${o.daysAgo !== 1 ? 's' : ''} ago</strong>.</p>
-    <p>Please let us know what's happening so we can update our records:</p>
-    <p style="margin:10px 0"><a href="${o.link}" style="display:inline-block;background:#c0571a;color:#fff;text-decoration:none;font-weight:600;padding:11px 20px;border-radius:8px">Tell us what's next</a></p>
-    <p style="margin:4px 0">Or contact us directly — ✉ <a href="mailto:PMI@topfloridaproperties.com">PMI@topfloridaproperties.com</a> · ☎ (305) 900-5077</p>
-    <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p>
-  </div>`
+/** Resident email after the end date — one button per answer (lib/lease-renewal-email.ts). */
+export function residentHtml(o: { role: Role; name: string; unit: string; assoc: string; end: string; daysAgo: number; link: string }): string {
+  return leaseRenewalResidentHtml({ role: o.role, phase: 'expired', name: o.name, unit: o.unit, assoc: o.assoc, end: o.end, days: o.daysAgo, link: o.link })
 }
 
 export function digestHtml(assocName: string, rows: Row[]): string {
@@ -137,8 +132,8 @@ export async function GET(req: Request) {
       if (sendToOwner) residentsSent++
       if (sendToTenant) residentsSent++
       if (dryRun) continue
-      if (sendToOwner) { try { await sendEmail({ to: r.ownerEmail!, subject: `Lease renewal follow-up — Unit ${r.unit}, ${assocName}`, html: residentHtml({ name: r.owner, unit: r.unit, assoc: assocName, end: r.end, daysAgo: r.daysAgo, link: `${APP}/lease-renewal/${check.owner_token}` }) }) } catch { /* continue */ } }
-      if (sendToTenant) { try { await sendEmail({ to: r.tenantEmail!, subject: `Lease renewal follow-up — Unit ${r.unit}, ${assocName}`, html: residentHtml({ name: r.tenant, unit: r.unit, assoc: assocName, end: r.end, daysAgo: r.daysAgo, link: `${APP}/lease-renewal/${check.tenant_token}` }) }) } catch { /* continue */ } }
+      if (sendToOwner) { try { await sendEmail({ to: r.ownerEmail!, subject: `Lease renewal follow-up — Unit ${r.unit}, ${assocName}`, html: residentHtml({ role: 'owner', name: r.owner, unit: r.unit, assoc: assocName, end: r.end, daysAgo: r.daysAgo, link: `${APP}/lease-renewal/${check.owner_token}` }) }) } catch { /* continue */ } }
+      if (sendToTenant) { try { await sendEmail({ to: r.tenantEmail!, subject: `Lease renewal follow-up — Unit ${r.unit}, ${assocName}`, html: residentHtml({ role: 'tenant', name: r.tenant, unit: r.unit, assoc: assocName, end: r.end, daysAgo: r.daysAgo, link: `${APP}/lease-renewal/${check.tenant_token}` }) }) } catch { /* continue */ } }
     }
 
     out.push({ assoc: assocName, units: rows.length, to: recipients, residentsSent })

@@ -23,6 +23,7 @@ import { isEsignItem, sendEsignFormsForItems } from '@/lib/application-esign-for
 import { sendLeasePacket, findUnitLeasePacket } from '@/lib/lease-packet'
 import { sendDocumentRequestEmails, type RequestItem } from '@/lib/document-request-email'
 import { sendEmail } from '@/lib/gmail'
+import { setUnitOccupancy } from '@/lib/unit-required-docs'
 
 export type OwnerOccupancy = 'owner_occupied' | 'leased' | 'vacant'
 export type OwnerResponse = 'renew' | 'signed'
@@ -241,10 +242,10 @@ function notifyHtml(o: { headline: string; unit: string; assoc: string; detail: 
  *  the TENANT who reported the change — the owner already knows when they're
  *  the one reporting it). */
 async function updateOccupancyAndNotify(check: LeaseRenewalCheck, status: OwnerOccupancy, reportedBy: 'owner' | 'tenant', detail: string) {
-  await supabaseAdmin.from('unit_occupancy').upsert({
-    association_code: check.association_code, unit_ref: check.unit_label, status,
-    updated_by: `lease-renewal-check:${reportedBy}`, updated_at: new Date().toISOString(),
-  }, { onConflict: 'association_code,unit_ref' })
+  // Through setUnitOccupancy so the row lands under the ACCOUNT NUMBER the
+  // unit audit reads — writing check.unit_label directly created a row
+  // nobody read (MANXI 911 "Vacant" still showed Leased, 2026-09-14).
+  await setUnitOccupancy(check.association_code, check.unit_label, status, `lease-renewal-check:${reportedBy}`)
 
   const { data: assocRow } = await supabaseAdmin.from('associations').select('association_name').eq('association_code', check.association_code).maybeSingle()
   const assocName = (assocRow?.association_name as string | null) ?? check.association_code
