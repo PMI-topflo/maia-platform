@@ -504,6 +504,22 @@ export async function completeStakeholder(stakeholderId: string): Promise<void> 
 export async function recordIntakeDoc(applicationId: string, stakeholderId: string | null, doc: { doc_key: string; doc_label: string; storage_path: string; filename: string; mime_type: string | null; uploaded_by_role: string }): Promise<{ ok: boolean; error?: string }> {
   const { data: app } = await supabaseAdmin.from('listing_applications').select('listing_id').eq('id', applicationId).maybeSingle()
   if (!app) return { ok: false, error: 'not found' }
+  // The browser PUTs the file to Storage first, then calls us. An iPhone
+  // camera capture named "image.jpg" can arrive as a 0-byte object (MANXI
+  // 705, 2026-09-13: registration + licence both empty, shown as broken
+  // images). Refuse to record an empty file and remove it, so the item
+  // stays "waiting" and the person is asked again instead of a blank being
+  // filed as received.
+  {
+    const dir = doc.storage_path.slice(0, doc.storage_path.lastIndexOf('/')), name = doc.storage_path.slice(doc.storage_path.lastIndexOf('/') + 1)
+    const { data: list } = await supabaseAdmin.storage.from(INTAKE_BUCKET).list(dir, { search: name, limit: 10 })
+    const obj = (list ?? []).find(o => o.name === name)
+    const size = obj ? Number((obj.metadata as { size?: number } | null)?.size ?? -1) : -1
+    if (size === 0) {
+      await supabaseAdmin.storage.from(INTAKE_BUCKET).remove([doc.storage_path]).catch(() => null)
+      return { ok: false, error: 'The file arrived empty (0 bytes). Please upload it again — on an iPhone, pick the photo from your library instead of taking it with the camera in the browser.' }
+    }
+  }
   // Replace any prior upload for the SAME PERSON's same checklist item
   // (latest wins) -- scoped by stakeholder_id, not just doc_key. Real bug
   // ("second applicant can't upload their own document"): a per_applicant
