@@ -1,4 +1,4 @@
-# Session handoff — 2026-09-13 · previous entries below
+# Session handoff — 2026-09-14 · previous entries below
 
 ## Board pitch guide, then the onboarding questionnaire built (applications scope)
 
@@ -30,6 +30,12 @@ Design was previewed as an Artifact first and approved with the scope reset abov
 - User direction on that block: **never show a staff name** ("I want to show more technology"). Staff decisions render as **"AI Pre-Audited by MAIA"** with the MAIA mark (`public/maia-mark-email.png`, generated from `maia-mark.svg` with sharp — Gmail won't render SVG); board / on-site approvals are listed **by name with the ET time stamp**; an orange note says when no human has approved yet. `reviewedByBlock()` in `lib/board-review-email.ts` (exported).
 - The email's primary button is now **"Open the application"** → `/board-review/<round token>` (the round with `purpose: 'signature_reminder'` works with the existing page: recipients = the letter's signers), so they see the full card and can Approve anything still pending; second button **"Sign the approval letter"** → per-signer `/esign` link. The board-review GET now returns `letterStatus` + `letterSignLinks` (name → `/esign/<token>`, only for VERIFIED reviewers whose recipient email is an unsigned signer), and the page shows a green "Sign the approval letter" button in the window box; copy says "fully signed" when it is.
 - Verified after deploy: user re-ran Remove + Save on 903 → one card (their first attempt at 10:32 AM ET had hit the old code, 20 minutes before the deploy).
+
+### Document scan: expiration decided from the printed captions, Sonnet 5 (PRs #906–#908, 2026-09-14)
+- User: "Vehicle registration most of the time does not have a text saying Expiration, only Plate Issued or Issued and is valid for one year, MAIA is reading the Plate Issued date as the expiration"; then 705: "Insurance is written Effective date and not expiration and MAIA is reading as expired". **Rule (both types): an Expires / Expiration / Valid Through line wins; otherwise Issued / Effective + 1 year.**
+- `lib/quick-doc-classify.ts`: the prompt now returns every printed date with its caption (`{"label","dates":[{"text","date"}]}`); the code picks the expiration with caption regexes (`EXPIRY_RE`, `ISSUED_RE`, `IGNORE_RE`) and `plusOneYear` (#906 registration, #907 insurance, #908 the caption refactor). Asking the model for "expiration" directly made it echo the effective date.
+- **Model:** Sonnet 4.5 misread the digits on 706's registration ("4/12/2028" → 2028-02-01, twice) and 702's Date Issued. `claude-sonnet-5` read all three test documents right, twice each → `SCAN_MODEL = 'claude-sonnet-5'`; it rejects `temperature` (400), so none is sent. Test set: 702 reg 2026-11-19 (printed Expires), 706 reg 2028-04-12, 705 GEICO 2027-07-01, 705 HO-6 2027-07-17.
+- **705 data:** the car registration and driver's licence uploads were 0-byte Storage objects ("image is broken"); both rows deleted, `recordIntakeDoc` now refuses 0-byte objects and removes them (#907) — the applicant has to re-upload. GEICO card rescanned in prod after #908 deployed.
 
 ### Accounting → Application payments: Stripe vs Checkr reconciliation with Karen's bank ticks (PRs #901–#905, 2026-09-13 evening)
 - User asked for a tab reconciling application fees against Checkr charges, with a flag for Karen once the money shows in the bank. **Checkr has no billing API** (docs.checkr.com checked; packages carry a `price`); the dashboard offers a monthly ZIP of per-order receipt PDFs, which MAIA matches to `screening_subjects.checkr_order_id`. Stripe is read live (charges + balance transactions for real fee/net; payouts + their balance transactions = one bank deposit each).
