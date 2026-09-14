@@ -950,6 +950,8 @@ function EsignBox({ item }: { item: ChecklistItem }) {
   )
 }
 
+const EMPTY_FILE_MSG = 'the photo arrived empty (0 bytes). On an iPhone, take the picture with the Camera app first, then choose it from your Photos here instead of using the camera inside the browser.'
+
 function DocBox({ token, item, lang, onDone }: { token: string; item: ChecklistItem; lang: PortalLang; onDone: () => void }) {
   const f = preApplyFlow(lang)
   const [file, setFile] = useState<File | null>(null)
@@ -960,6 +962,12 @@ function DocBox({ token, item, lang, onDone }: { token: string; item: ChecklistI
     if (!file) return
     setBusy(true); setMsg(null)
     try {
+      // An iPhone camera capture taken inside the browser can hand us a
+      // 0-byte "image.jpg" (MANXI 705, 2026-09-13: registration + licence both
+      // arrived empty next to a good insurance photo). The server refuses it
+      // too (recordIntakeDoc), but catch it here before the upload so the
+      // person sees why straight away and knows what to do instead.
+      if (file.size === 0) throw new Error(EMPTY_FILE_MSG)
       const u = await fetch(`/api/pre-apply/${token}/upload-url`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ doc_key: item.doc_key, filename: file.name }) })
       const uj = await u.json(); if (!u.ok) throw new Error(uj.error || 'upload failed')
       const put = await fetch(uj.signedUrl, { method: 'PUT', body: file, headers: { 'content-type': file.type || 'application/octet-stream' } })

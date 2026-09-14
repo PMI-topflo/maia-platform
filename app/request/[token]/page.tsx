@@ -325,6 +325,10 @@ function ItemRow({ token, item, onDone }: { token: string; item: Item; onDone: (
     if (!file) return
     setBusy(append ? 'add' : 'replace'); setErr(null)
     try {
+      // Same guard as the applicant link: an in-browser iPhone camera capture
+      // can be a 0-byte file (MANXI 705, 2026-09-13). The route answers
+      // "no file" for it; say what happened and what to do instead.
+      if (file.size === 0) throw new Error('The photo arrived empty (0 bytes). On an iPhone, take the picture with the Camera app first, then choose it from your Photos here instead of using the camera inside the browser.')
       const fd = new FormData(); fd.append('doc_key', item.doc_key); fd.append('file', file)
       if (append) fd.append('append', '1')
       const r = await fetch(`/api/request/${token}/upload`, { method: 'POST', body: fd })
