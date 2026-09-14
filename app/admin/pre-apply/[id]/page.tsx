@@ -260,7 +260,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {d.driveFolderUrl && <a href={d.driveFolderUrl} target="_blank" rel="noreferrer" style={{ font: '600 13px system-ui', color: '#2563eb', textDecoration: 'none', border: '1px solid #dbeafe', background: '#eff6ff', borderRadius: 8, padding: '5px 11px', whiteSpace: 'nowrap' }}>📁 Drive folder →</a>}
           <StatusPill status={d.status} />
-          {d.status !== 'approved' && d.status !== 'withdrawn' && d.status !== 'declined' && <WithdrawButton id={id} label={`${d.associationCode} · Unit ${d.unit ?? '—'}`} />}
+          {d.status !== 'approved' && d.status !== 'withdrawn' && d.status !== 'expired' && d.status !== 'declined' && <WithdrawButton id={id} label={`${d.associationCode} · Unit ${d.unit ?? '—'}`} />}
         </div>
       </div>
       <p style={{ color: '#6b7280', fontSize: 14, margin: '2px 0 0' }}>{d.associationCode}{d.unit ? ` · Unit ${d.unit}` : ''} · submitted {fmt(d.submittedAt)}</p>
