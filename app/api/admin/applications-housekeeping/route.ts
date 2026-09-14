@@ -5,6 +5,8 @@
 //   merge_folders { survivorFolderId, loserFolderId }
 //   create_folder { applicationId }
 //   archive_folder{ assoc, unitLabel, folderId }   (orphan folder → unit's OLD/Archive, tagged ARCHIVED)
+//   screened_elsewhere { applicationId }  (fee paid / screened outside MAIA, e.g. Tenant
+//                 Evaluation → provider 'tenant_evaluation', open expiry notice cleared)
 
 import { NextResponse } from 'next/server'
 import { requireStaffSession, staffLabel } from '@/lib/staff-auth'
@@ -59,6 +61,22 @@ export async function POST(req: Request) {
       if (!assoc || !folderId) return NextResponse.json({ error: 'assoc and folderId required' }, { status: 400 })
       const r = await moveOngoingFolderToArchive(assoc, unitLabel, folderId, 'ARCHIVED')
       return r.driveError && !r.driveMoved ? NextResponse.json({ error: r.driveError }, { status: 400 }) : NextResponse.json({ ok: true, ...r })
+    }
+    case 'screened_elsewhere': {
+      // MANXI 1003 (2026-09-14): the unpaid-fee notice went to an applicant
+      // who had paid Tenant Evaluation directly. Recording the provider on
+      // the application keeps the 'unpaid' rule (and the Checkr auto-order
+      // after a Stripe payment) away from it.
+      const id = str('applicationId')
+      const { data: app } = await supabaseAdmin.from('listing_applications').select('id, review_note').eq('id', id).maybeSingle()
+      if (!app) return NextResponse.json({ error: 'application not found' }, { status: 404 })
+      const now = new Date().toISOString()
+      const { error } = await supabaseAdmin.from('listing_applications').update({
+        screening_provider: 'tenant_evaluation', expiry_notice_kind: null, expiry_notice_at: null, expiry_due_at: null,
+        review_note: `${now.slice(0, 10)} ${by}: background check paid / run outside MAIA (Tenant Evaluation) — no MAIA fee due. ${String(app.review_note ?? '')}`.trim(), updated_at: now,
+      }).eq('id', id)
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ ok: true })
     }
     default:
       return NextResponse.json({ error: 'unknown action' }, { status: 400 })
