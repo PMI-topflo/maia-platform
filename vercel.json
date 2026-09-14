@@ -85,6 +85,10 @@
       "schedule": "0 12 * * *"
     },
     {
+      "path": "/api/cron/application-auto-expiry",
+      "schedule": "0 10,11 * * *"
+    },
+    {
       "path": "/api/cron/daily-applications-review",
       "schedule": "0 11,12 * * *"
     },

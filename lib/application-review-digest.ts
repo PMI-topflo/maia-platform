@@ -65,6 +65,10 @@ export interface ApplicationReviewDigestData {
    *  (the approval gate was removed 2026-09-11; this is the visibility that
    *  replaces it). */
   reminded: { row: DashboardRow; to: string[]; at: string }[]
+  /** Applications MAIA expired on its own in the last 24 h (Reopen link) and
+   *  the ones under an expiry notice with the date it runs out. */
+  expiredAuto: { id: string; unit: string | null; association: string; applicants: string[]; reason: string | null; at: string }[]
+  expiringSoon: { id: string; unit: string | null; association: string; applicants: string[]; kind: string; dueAt: string }[]
 }
 
 function groupByAssociationThenUnit(rows: DashboardRow[]): { code: string; name: string; units: { unit: string; rows: DashboardRow[] }[] }[] {
@@ -142,8 +146,24 @@ export async function gatherApplicationReviewDigest(): Promise<ApplicationReview
     remSeen.add(id); reminded.push({ row, to, at: String(r.decided_at) })
   }
 
+  // Automatic expiry (lib/application-auto-expiry.ts): what closed since
+  // yesterday and what is on notice — the visibility that replaces manual
+  // housekeeping (user direction, 2026-09-14).
+  const [{ data: expiredRows }, { data: noticeRows }] = await Promise.all([
+    supabaseAdmin.from('listing_applications').select('id, unit_label, association_code, withdrawn_at, withdrawn_reason').eq('status', 'expired').eq('expired_auto', true).gte('withdrawn_at', sinceIso).order('withdrawn_at', { ascending: false }),
+    supabaseAdmin.from('listing_applications').select('id, unit_label, association_code, expiry_notice_kind, expiry_due_at').in('status', ['started', 'submitted']).not('expiry_due_at', 'is', null).order('expiry_due_at'),
+  ])
+  const assocNames = new Map<string, string>()
+  const nameOf = async (code: string) => { if (!assocNames.has(code)) { const { data } = await supabaseAdmin.from('associations').select('legal_name, association_name').eq('association_code', code).maybeSingle(); assocNames.set(code, String(data?.legal_name || data?.association_name || code)) } return assocNames.get(code)! }
+  const applicantsOf = async (id: string) => { const { data } = await supabaseAdmin.from('application_stakeholders').select('name').eq('application_id', id).eq('role', 'applicant'); return (data ?? []).map(s => String(s.name ?? '')).filter(Boolean) }
+  const expiredAuto: ApplicationReviewDigestData['expiredAuto'] = []
+  for (const r of expiredRows ?? []) expiredAuto.push({ id: String(r.id), unit: (r.unit_label as string | null) ?? null, association: await nameOf(String(r.association_code)), applicants: await applicantsOf(String(r.id)), reason: (r.withdrawn_reason as string | null) ?? null, at: String(r.withdrawn_at) })
+  const expiringSoon: ApplicationReviewDigestData['expiringSoon'] = []
+  for (const r of noticeRows ?? []) expiringSoon.push({ id: String(r.id), unit: (r.unit_label as string | null) ?? null, association: await nameOf(String(r.association_code)), applicants: await applicantsOf(String(r.id)), kind: String(r.expiry_notice_kind ?? ''), dueAt: String(r.expiry_due_at) })
+
   return {
     generatedIso: dash.generatedAt,
+    expiredAuto, expiringSoon,
     toReview: dash.rows.filter(r => r.stage === 'not_sent'),
     refused: dash.rows.filter(r => r.stage === 'refused'),
     overdue: dash.rows.filter(r => r.alarm === 'overdue'),
@@ -291,6 +311,20 @@ export function buildApplicationReviewDigestEmail(data: ApplicationReviewDigestD
   </td></tr>`
     })}
     ${groupBlock('Sent back to the applicant', 'Refused, with a reason — worth a glance once they resubmit.', data.refused, appUrl, '#b42318')}
+    ${data.expiredAuto.length ? `<tr><td style="padding:18px 28px 0">
+    <div style="font-size:11px;font-weight:700;color:${NAVY};text-transform:uppercase;letter-spacing:.03em">Expired automatically <span style="color:#9ca3af;font-weight:600;text-transform:none">(${data.expiredAuto.length})</span></div>
+    <div style="font-size:12px;color:#6b7280;margin:2px 0 8px">The notice ran out with no answer. Closed silently, files moved to the unit's Archive. Reopen brings everything back.</div>
+    ${data.expiredAuto.map(x => `<div style="border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-bottom:10px">
+      <div style="font-size:13.5px;font-weight:700;color:${NAVY}">${esc(x.applicants.join(', ') || 'no applicant name')} <span style="font-weight:400;color:#6b7280">· ${esc(x.association)}${x.unit ? ` · Unit ${esc(x.unit)}` : ''}</span></div>
+      <div style="font-size:12.5px;color:#6b7280;margin-top:2px">${esc(x.reason ?? '')}</div>
+      <div style="margin-top:5px"><a href="${esc(appUrl)}/admin/applications-housekeeping" style="font-size:12.5px;font-weight:700;color:${ORANGE};text-decoration:none">Reopen if needed &rarr;</a> <a href="${esc(appUrl)}/admin/pre-apply/${esc(x.id)}" style="font-size:12.5px;color:#6b7280;text-decoration:none;margin-left:12px">Open application &rarr;</a></div>
+    </div>`).join('')}
+  </td></tr>` : ''}
+    ${data.expiringSoon.length ? `<tr><td style="padding:18px 28px 0">
+    <div style="font-size:11px;font-weight:700;color:${NAVY};text-transform:uppercase;letter-spacing:.03em">On an expiry notice <span style="color:#9ca3af;font-weight:600;text-transform:none">(${data.expiringSoon.length})</span></div>
+    <div style="font-size:12px;color:#6b7280;margin:2px 0 8px">MAIA emailed the applicant. Each expires on the date shown unless they act — nothing to do unless you want to step in.</div>
+    ${data.expiringSoon.map(x => `<div style="font-size:12.5px;color:#374151;padding:5px 0;border-top:1px solid #f3f4f6"><strong>${esc(x.applicants.join(', ') || 'no applicant name')}</strong> · ${esc(x.association)}${x.unit ? ` · Unit ${esc(x.unit)}` : ''} — ${esc({ no_files: 'no document yet', unpaid: 'fee unpaid', stale: 'nothing received in 3 weeks', screening_expired: 'screening validity ended' }[x.kind] ?? x.kind)} · expires ${esc(new Date(x.dueAt).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric' }))} ET <a href="${esc(appUrl)}/admin/pre-apply/${esc(x.id)}" style="color:${ORANGE};text-decoration:none;font-weight:700;margin-left:6px">Open &rarr;</a></div>`).join('')}
+  </td></tr>` : ''}
 
     <tr><td style="padding:16px 28px 22px;border-top:1px solid #eceff4">
       <p style="font-size:11px;color:#9ca3af;margin:14px 0 0">
@@ -321,6 +355,8 @@ export function buildApplicationReviewDigestEmail(data: ApplicationReviewDigestD
     ...(data.arrivedLegacy.length ? [`New documents — legacy form applications (${data.arrivedLegacy.length})`, ...data.arrivedLegacy.map(l => `    - ${l.applicant ?? 'applicant'} · ${l.association} · ${l.ref} — ${l.docs.map(d => d.label).join(', ')} — ${appUrl}/admin/applications#app-row-${l.id}`), ''] : []),
     ...textSection('Reminders MAIA sent in the last 24 hours', data.reminded.map(x => x.row), r => textLine(r, `reminded ${data.reminded.find(x => x.row.id === r.id)?.to.join(', ') ?? ''}`)),
     ...textSection('Sent back to the applicant', data.refused),
+    ...(data.expiredAuto.length ? ['', `Expired automatically (${data.expiredAuto.length}):`, ...data.expiredAuto.map(x => `    - ${x.applicants.join(', ') || 'no applicant name'} — ${x.association}${x.unit ? ` Unit ${x.unit}` : ''} — ${x.reason ?? ''} — reopen: ${appUrl}/admin/applications-housekeeping`)] : []),
+    ...(data.expiringSoon.length ? ['', `On an expiry notice (${data.expiringSoon.length}):`, ...data.expiringSoon.map(x => `    - ${x.applicants.join(', ') || 'no applicant name'} — ${x.association}${x.unit ? ` Unit ${x.unit}` : ''} — ${x.kind} — expires ${x.dueAt.slice(0, 10)}`)] : []),
     'Maia · by PMI Top Florida Properties',
   ].join('\n')
 

@@ -71,7 +71,7 @@ export default function HousekeepingPage() {
         <label style={{ font: '12.5px system-ui', color: '#374151', display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={onlyFlagged} onChange={e => setOnlyFlagged(e.target.checked)} /> Only rows that need attention</label>
         <button onClick={() => load(assoc)} disabled={loading} style={btn()}>{loading ? 'Loading…' : 'Refresh'}</button>
       </div>
-      <p style={{ font: '12.5px system-ui', color: '#6b7280', margin: '0 0 14px' }}>Open applications that look dead, and On Going Drive folders that are duplicated, orphaned or missing. Expire is silent (no email) and reversible with Reopen. Tenant Evaluation is not part of this audit any more.</p>
+      <p style={{ font: '12.5px system-ui', color: '#6b7280', margin: '0 0 14px' }}>Open applications that look dead, and On Going Drive folders that are duplicated, orphaned or missing. Expire is silent (no email) and reversible with Reopen, which also brings the Drive files back. MAIA now expires dead applications on its own after an emailed notice (7 days with no file · 48 h unpaid fee · 7 days after 3 idle weeks · 7 days after the screening validity ends); the daily email lists them.</p>
       {err && <div style={{ ...box, borderColor: '#f3c9c3', background: '#fdf2f0', color: '#b42318' }}>{err}</div>}
       {msg && <div style={{ ...box, borderColor: msg.includes(': done') ? '#bbf7d0' : '#f3c9c3', background: msg.includes(': done') ? '#f0fdf4' : '#fdf2f0', color: msg.includes(': done') ? '#166534' : '#b42318', font: '13px system-ui' }}>{msg}</div>}
 
@@ -99,7 +99,7 @@ export default function HousekeepingPage() {
                         {a.driveFolderPresent && a.driveFolderUrl ? <a href={a.driveFolderUrl} target="_blank" rel="noreferrer" style={link}>Open ↗</a>
                           : data.folders.ok ? <button disabled={!!busy} onClick={() => act(`Create folder ${a.unitLabel}`, { action: 'create_folder', applicationId: a.id })} style={btn()}>Create folder</button> : <span style={{ color: '#9ca3af' }}>?</span>}
                       </td>
-                      <td style={{ padding: '6px 8px', color: '#92400e' }}>{a.flags.join(' · ') || <span style={{ color: '#9ca3af' }}>—</span>}</td>
+                      <td style={{ padding: '6px 8px', color: '#92400e' }}>{a.notice && <span style={{ display: 'inline-block', font: '600 11px system-ui', color: '#1e40af', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 999, padding: '1px 8px', marginRight: 6 }}>notice sent · expires {fmtD(a.notice.dueAt)}</span>}{a.flags.join(' · ') || (!a.notice && <span style={{ color: '#9ca3af' }}>—</span>)}</td>
                       <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
                         {(a.stage === 'applicant' || a.stage === 'refused' || a.documents === 0) && <button disabled={!!busy} onClick={() => expire(a)} style={btn(a.suggestExpire)}>{busy === `Expire ${a.unitLabel}` ? 'Closing…' : 'Mark expired'}</button>}
                       </td>

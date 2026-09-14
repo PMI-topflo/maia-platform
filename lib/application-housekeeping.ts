@@ -27,6 +27,7 @@ export interface HousekeepingApp {
   driveFolderId: string | null; driveFolderUrl: string | null; driveFolderPresent: boolean
   flags: string[]            // human-readable reasons this row needs attention
   suggestExpire: boolean
+  notice: { kind: string; dueAt: string } | null   // open automatic-expiry notice
 }
 export interface HousekeepingFolder { id: string; name: string; unitRef: string | null; fileCount: number; createdAt: string | null; url: string; openApplicationIds: string[] }
 export interface Housekeeping {
@@ -45,7 +46,7 @@ export async function buildHousekeeping(associationCode: string): Promise<Housek
   const now = new Date().toISOString()
   const [{ data: apps }, dash, { data: closedRows }] = await Promise.all([
     supabaseAdmin.from('listing_applications')
-      .select('id, unit_label, application_type, status, created_at, updated_at, drive_folder_id, drive_folder_url')
+      .select('id, unit_label, application_type, status, created_at, updated_at, drive_folder_id, drive_folder_url, expiry_notice_kind, expiry_due_at')
       .eq('association_code', code).in('status', OPEN).order('unit_label'),
     getApplicationDashboard({ associationCode: code }).catch(() => null),
     supabaseAdmin.from('listing_applications').select('id, unit_label, status, withdrawn_at, withdrawn_reason')
@@ -87,6 +88,7 @@ export async function buildHousekeeping(associationCode: string): Promise<Housek
       leaseEndOnFile: leaseEnd, leaseEndedDaysAgo,
       driveFolderId: (a.drive_folder_id as string | null) ?? null, driveFolderUrl: (a.drive_folder_url as string | null) ?? null, driveFolderPresent: false,
       flags, suggestExpire,
+      notice: a.expiry_notice_kind && a.expiry_due_at ? { kind: String(a.expiry_notice_kind), dueAt: String(a.expiry_due_at) } : null,
     })
   }
 
