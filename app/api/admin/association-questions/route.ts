@@ -1,6 +1,6 @@
 // =====================================================================
 // /api/admin/association-questions   (staff-only)
-// GET   → pets_allowed / requires_interview_lease / requires_interview_purchase
+// GET   → pets_allowed / requires_interview_lease / requires_interview_purchase / board_contact_email
 //         for every association — the "Association Questions" section on
 //         /admin/association-document-setup.
 // PATCH → { associationCode, ...fields } partial update of the same three
@@ -27,7 +27,7 @@ export async function GET() {
   if (!session || session.persona !== 'staff') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data, error } = await supabaseAdmin.from('associations')
-    .select('association_code, association_name, pets_allowed, requires_interview_lease, requires_interview_purchase')
+    .select('association_code, association_name, pets_allowed, requires_interview_lease, requires_interview_purchase, board_contact_email')
     .order('association_name')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ associations: data ?? [] })
@@ -43,8 +43,15 @@ export async function PATCH(req: Request) {
   const associationCode = String(body.associationCode ?? '').trim().toUpperCase()
   if (!associationCode) return NextResponse.json({ error: 'associationCode is required' }, { status: 400 })
 
-  const patch: Partial<Record<Field, boolean>> = {}
+  const patch: Partial<Record<Field, boolean>> & { board_contact_email?: string | null } = {}
   for (const f of FIELDS) if (typeof body[f] === 'boolean') patch[f] = body[f] as boolean
+  // The board's shared mailbox (text, or empty to clear). Validated loosely:
+  // one address, must contain @ — it is what applicants will see on CC.
+  if ('board_contact_email' in body) {
+    const v = String((body as { board_contact_email?: unknown }).board_contact_email ?? '').trim().toLowerCase()
+    if (v && !/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(v)) return NextResponse.json({ error: 'Enter one valid email address for the board mailbox (or leave it empty).' }, { status: 400 })
+    patch.board_contact_email = v || null
+  }
   if (Object.keys(patch).length === 0) return NextResponse.json({ error: 'no recognized fields in body' }, { status: 400 })
 
   const { data, error } = await supabaseAdmin.from('associations').update(patch)

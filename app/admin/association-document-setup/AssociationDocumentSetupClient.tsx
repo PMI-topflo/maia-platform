@@ -10,6 +10,7 @@ interface Requirement {
 interface AssocQuestions {
   association_code: string; association_name: string
   pets_allowed: boolean | null; requires_interview_lease: boolean; requires_interview_purchase: boolean
+  board_contact_email: string | null
 }
 
 // occupancy_filter value -> section (null/'' means "always required").
@@ -36,9 +37,15 @@ function AssociationQuestions({ assoc, questions, onSaved }: { assoc: string; qu
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const row = (questions ?? []).find(q => q.association_code === assoc)
+  const [boardEmail, setBoardEmail] = useState<string>('')
+  const [boardEmailLoaded, setBoardEmailLoaded] = useState<string | null>(null)
+  useEffect(() => {
+    const v = row?.board_contact_email ?? ''
+    if (row && boardEmailLoaded !== row.association_code) { setBoardEmail(v); setBoardEmailLoaded(row.association_code) }
+  }, [row, boardEmailLoaded])
   if (!row) return null
 
-  async function save(field: 'pets_allowed' | 'requires_interview_lease' | 'requires_interview_purchase', value: boolean) {
+  async function save(field: 'pets_allowed' | 'requires_interview_lease' | 'requires_interview_purchase' | 'board_contact_email', value: boolean | string) {
     setBusy(field); setMsg(null)
     try {
       const res = await fetch('/api/admin/association-questions', {
@@ -47,6 +54,7 @@ function AssociationQuestions({ assoc, questions, onSaved }: { assoc: string; qu
       })
       if (!res.ok) throw new Error((await res.json())?.error ?? 'failed')
       onSaved()
+      if (field === 'board_contact_email') setMsg(value ? `Saved — applicants will see ${String(value)} instead of the board members' own emails.` : 'Cleared — board members will be copied directly (their emails visible to applicants).')
     } catch (e) { setMsg(e instanceof Error ? e.message : String(e)) } finally { setBusy(null) }
   }
 
@@ -54,7 +62,7 @@ function AssociationQuestions({ assoc, questions, onSaved }: { assoc: string; qu
     <div className="rounded-lg border border-gray-200 bg-white p-4">
       <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Association questions</div>
       <p className="text-xs text-gray-400 mb-1">General answers about {assoc} that shape how MAIA runs applications here — not tied to any one document.</p>
-      {msg && <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 my-2">{msg}</div>}
+      {msg && <div className={`rounded border px-3 py-2 text-sm my-2 ${msg.startsWith('Saved') || msg.startsWith('Cleared') ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>{msg}</div>}
       <div className="divide-y divide-gray-100">
         <Toggle label="Is the association pet friendly?" checked={row.pets_allowed !== false} disabled={busy === 'pets_allowed'}
           onChange={v => save('pets_allowed', v)} />
@@ -68,6 +76,20 @@ function AssociationQuestions({ assoc, questions, onSaved }: { assoc: string; qu
           When the board hits Approve on {[row.requires_interview_lease && 'a lease', row.requires_interview_purchase && 'a purchase'].filter(Boolean).join(' or ')} here, MAIA holds the approval letter and instead emails the applicant (board CC&apos;d) to introduce them and schedule an interview. Staff mark it complete on the application page to release the letter.
         </p>
       )}
+      <div className="mt-3 border-t border-gray-100 pt-3">
+        <label className="block text-sm text-gray-700">Board mailbox — the address applicants see when the board is copied</label>
+        <p className="text-xs text-gray-400 mt-0.5 mb-1.5">Used on the interview introduction and on invites sent with “CC board”. The shared mailbox goes on CC; every board member and on-site manager is BCC&apos;d, so nobody&apos;s private email is shown to the applicant. Forwarding from this mailbox to the board is set up in the mailbox itself (e.g. Gmail), not here.</p>
+        <div className="flex gap-2">
+          <input type="email" value={boardEmail} onChange={e => setBoardEmail(e.target.value)} placeholder="e.g. themanorsbuildingxi@gmail.com"
+            className="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm" />
+          <button type="button" disabled={busy === 'board_contact_email' || boardEmail.trim().toLowerCase() === (row.board_contact_email ?? '')}
+            onClick={() => save('board_contact_email', boardEmail.trim())}
+            className="rounded bg-[#f26a1b] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40">Save</button>
+        </div>
+        {!row.board_contact_email && (row.requires_interview_lease || row.requires_interview_purchase) && (
+          <p className="text-xs text-red-700 mt-1.5">No board mailbox set — the interview introduction will show the board members&apos; own emails to the applicant.</p>
+        )}
+      </div>
     </div>
   )
 }

@@ -24,6 +24,7 @@ import { signEsignToken } from '@/lib/esign-token'
 import { extractLeaseDetails } from '@/lib/lease-extract'
 import { sendEmail } from '@/lib/gmail'
 import { BOARD_EMAIL_CC, ensureBoardReviewRoundSent } from '@/lib/board-review-email'
+import { boardCopyForApplicantEmail } from '@/lib/board-contact'
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.pmitop.com'
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
@@ -162,17 +163,21 @@ export async function loadDecisionContext(applicationId: string): Promise<Decisi
 async function requestInterview(c: DecisionContext): Promise<void> {
   if (c.interviewRequestedAt) return
   if (!c.applicantEmails.length) return
-  const boardCc = c.board.map(m => m.email).filter((e): e is string => !!e && e.includes('@'))
+  // Board on copy WITHOUT exposing private addresses: the association's
+  // shared board mailbox goes on CC, members + on-site managers on BCC
+  // (lib/board-contact.ts). User direction 2026-09-14 (MANXI board).
+  const copy = await boardCopyForApplicantEmail(c.code, c.applicantEmails)
   const typeLabel = c.applicationType === 'purchase' ? 'purchase' : 'lease'
   const who = c.applicant ? esc(c.applicant) : 'there'
+  const boardWord = copy.shared ? `the board's mailbox (<strong>${esc(copy.shared)}</strong>, copied above)` : 'the board (copied above)'
   await sendEmail({
-    to: c.applicantEmails, cc: boardCc.length ? boardCc : BOARD_EMAIL_CC,
+    to: c.applicantEmails, cc: copy.cc.length ? copy.cc : BOARD_EMAIL_CC, bcc: copy.bcc.length ? copy.bcc : undefined,
     subject: `Time to schedule your board interview — ${c.propertyAddress ?? (c.unitLabel ? `Unit ${c.unitLabel}` : c.legal)}`,
     html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6;max-width:560px">
       <p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#f26a1b;font-weight:700;margin:0 0 4px">PMI Top Florida Properties</p>
       <h2 style="margin:0 0 8px;color:#1f2a44">One more step before the approval letter</h2>
       <p>Hello ${who}, your documents for the ${esc(typeLabel)} at <strong>${esc(c.propertyAddress ?? (c.unitLabel ? `Unit ${c.unitLabel}` : c.legal))}</strong> are complete and approved. Before ${esc(c.legal)} can issue the final approval letter, its board requires a short interview with you.</p>
-      <p>This email introduces you to the board (copied above) so you can coordinate directly — please reply-all to find a time that works at your convenience.</p>
+      <p>This email introduces you to ${boardWord} so you can coordinate directly — please reply-all to find a time that works at your convenience.</p>
       <p style="color:#9aa0ab;font-size:12px">Once the interview is complete, PMI Top Florida Properties will release the signed approval letter.</p>
     </div>`,
   }).catch(() => null)

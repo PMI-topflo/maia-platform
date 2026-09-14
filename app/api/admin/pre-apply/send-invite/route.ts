@@ -11,6 +11,7 @@ import { sendEmail } from '@/lib/gmail'
 import { renderMaiaEmail } from '@/lib/maia-email'
 import { buildApplicationGuideData } from '@/lib/application-guide-data'
 import { ApplicationGuidePdf } from '@/lib/application-guide-pdf'
+import { boardCopyForApplicantEmail } from '@/lib/board-contact'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -35,18 +36,22 @@ export async function POST(req: Request, ctx?: unknown) {
   const qs = [unit ? `unit=${encodeURIComponent(unit)}` : '', lang ? `lang=${lang}` : ''].filter(Boolean).join('&')
   const link = `${APP}/pre-apply/${encodeURIComponent(assoc)}${qs ? `?${qs}` : ''}`
 
-  const [{ data: a }, { data: owners }, { data: board }] = await Promise.all([
+  const [{ data: a }, { data: owners }, board] = await Promise.all([
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', assoc).maybeSingle(),
     b.ccOwner && unit ? supabaseAdmin.from('owners').select('emails').eq('association_code', assoc).or(`unit_number.eq.${unit},account_number.eq.${assoc}${unit}`).or('status.neq.previous,status.is.null') : Promise.resolve({ data: [] }),
-    b.ccBoard ? supabaseAdmin.from('association_board_members').select('email').eq('association_code', assoc).eq('active', true) : Promise.resolve({ data: [] }),
+    b.ccBoard ? boardCopyForApplicantEmail(assoc, [email]) : Promise.resolve({ cc: [] as string[], bcc: [] as string[], shared: null as string | null }),
   ])
   const legal = (a?.legal_name as string | null) || (a?.association_name as string | null) || assoc
   const address = [a?.principal_address, unit ? `Unit ${unit}` : null, [a?.city, [a?.state, a?.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ') || null
+  // Board on copy through the shared board mailbox when the association
+  // has one (members + managers BCC'd), never their private emails in
+  // front of the applicant — lib/board-contact.ts, user direction 2026-09-14.
   const cc = [
     ...(owners ?? []).flatMap(o => splitEmails(o.emails as string | null)),
-    ...(board ?? []).map(m => String(m.email ?? '').trim()).filter(e => e.includes('@')),
+    ...board.cc,
   ].filter(e => e.toLowerCase() !== email.toLowerCase())
   const ccUniq = [...new Set(cc)]
+  const bccUniq = board.bcc.filter(e => !ccUniq.includes(e))
 
   // Best-effort: attach the live Application Guide PDF when one exists for
   // this association (MANXI only for now — buildApplicationGuideData
@@ -68,7 +73,7 @@ export async function POST(req: Request, ctx?: unknown) {
   }
 
   await sendEmail({
-    to: [email], cc: ccUniq.length ? ccUniq : undefined, replyTo: SUPPORT,
+    to: [email], cc: ccUniq.length ? ccUniq : undefined, bcc: bccUniq.length ? bccUniq : undefined, replyTo: SUPPORT,
     subject: `Start your application — ${legal}${unit ? `, Unit ${unit}` : ''}`,
     attachments: guideAttachment ? [guideAttachment] : undefined,
     html: renderMaiaEmail({
