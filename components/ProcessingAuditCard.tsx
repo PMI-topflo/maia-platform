@@ -15,7 +15,7 @@ export function fmtHours(h: number | null | undefined): string {
   if (h == null) return '—'
   if (h < 1 / 60) return 'under a minute'
   if (h < 1) return `${Math.round(h * 60)} min`
-  if (h < 48) return `${Math.round(h * 10) / 10} h`
+  if (h < 24) return `${Math.round(h * 10) / 10} h`
   return `${Math.round(h / 24 * 10) / 10} days`
 }
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
