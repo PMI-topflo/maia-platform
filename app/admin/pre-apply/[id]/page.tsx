@@ -10,6 +10,8 @@ import Link from 'next/link'
 import { APPLICANT_ROLES, applicantRoleLabel } from '@/lib/applicant-roles'
 import { DocumentPreviewTrigger } from '@/components/DocumentPreviewTrigger'
 import ScreeningReportSummary from '@/components/ScreeningReportSummary'
+import ProcessingAuditCard from '@/components/ProcessingAuditCard'
+import type { ProcessingAudit } from '@/lib/application-audit'
 
 interface Doc { id: string; doc_key: string | null; doc_label: string | null; filename: string; mime_type: string | null; url: string | null; suggestedName: string | null; expirationDate: string | null; noExpiration: boolean; bySource: string | null; stakeholderId: string | null; createdAt: string | null }
 interface Detail {
@@ -567,6 +569,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {!decided && d.screeningSubjects.length === 0 && <RentvineFallbackSender id={id} />}
       {!decided && <RulesAckSender id={id} />}
       {!decided && <PetRegSender id={id} />}
+      <ProcessingAuditBlock id={id} refreshKey={commsVersion} />
       <CommunicationsLog id={id} unit={d.unit} associationCode={d.associationCode} refreshKey={commsVersion} />
 
       {/* Shared documents — one for the whole unit / application. */}
@@ -2375,6 +2378,65 @@ function BoardReviewSender({ id, onDone }: { id: string; onDone: () => void }) {
       </button>
       {remindMsg && <span style={{ font: '12.5px system-ui', color: remindMsg.startsWith('Could not') ? '#b91c1c' : '#166534', alignSelf: 'center' }}>{remindMsg}</span>}
     </>
+  )
+}
+
+// Processing audit — the six facts for "you are taking too long" (created,
+// last file, emails asking for documents, approval speed, still missing,
+// sent to the board) plus a share link staff email to whoever complains.
+// User direction, 2026-09-14. Data: lib/application-audit.ts.
+function ProcessingAuditBlock({ id, refreshKey }: { id: string; refreshKey: number }) {
+  const [a, setA] = useState<ProcessingAudit | null>(null)
+  const [links, setLinks] = useState<{ id: string; url: string; created_at: string; created_by: string | null; view_count: number; last_viewed_at: string | null }[]>([])
+  const [open, setOpen] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  useEffect(() => {
+    fetch(`/api/admin/pre-apply/${id}/audit`, { credentials: 'include' }).then(r => r.json()).then(j => { if (j.audit) { setA(j.audit); setLinks(j.links ?? []) } }).catch(() => null)
+  }, [id, refreshKey])
+  async function createLink() {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await fetch(`/api/admin/pre-apply/${id}/audit`, { method: 'POST', credentials: 'include' })
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed')
+      setLinks(l => [{ id: j.id, url: j.url, created_at: j.createdAt, created_by: null, view_count: 0, last_viewed_at: null }, ...l])
+      try { await navigator.clipboard.writeText(j.url); setMsg('Link created and copied — paste it into your reply.') } catch { setMsg('Link created — copy it below.') }
+    } catch (e) { setMsg(`Could not create the link: ${(e as Error).message}`) } finally { setBusy(false) }
+  }
+  if (!a) return null
+  const subject = encodeURIComponent(`Application timeline — ${a.associationName}${a.unitLabel ? `, Unit ${a.unitLabel}` : ''}`)
+  const bodyFor = (url: string) => encodeURIComponent(`Hello,\n\nHere is the live timeline of this application, straight from our system: when it was created, when the last document arrived, how many times documents were requested, how quickly each file was approved, what is still missing, and when it went to the board.\n\n${url}\n\nPMI Top Florida Properties`)
+  return (
+    <div style={{ margin: '4px 0 14px' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', background: 'none', border: 'none', padding: 0, margin: '0 0 6px', cursor: 'pointer', textAlign: 'left' }}>
+        <span style={{ font: '700 11px system-ui', letterSpacing: '.06em', textTransform: 'uppercase', color: '#6b7280' }}>Processing audit · {a.daysInProcess} day{a.daysInProcess === 1 ? '' : 's'}</span>
+        <span style={{ font: '600 11px system-ui', color: '#2563eb' }}>{open ? '▲ Hide' : '▼ Show'}</span>
+      </button>
+      {open && (
+        <>
+          <ProcessingAuditCard a={a} showFiles />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+            <button onClick={createLink} disabled={busy} style={{ background: '#c0571a', color: '#fff', border: 0, borderRadius: 8, padding: '8px 14px', font: '700 12.5px system-ui', cursor: busy ? 'default' : 'pointer' }}>
+              {busy ? 'Creating…' : '🔗 Create a link to share this timeline'}
+            </button>
+            <span style={{ font: '12px system-ui', color: '#6b7280' }}>Anyone with the link sees this card (no login, no emails or file names). Send it when someone says the application is taking too long.</span>
+          </div>
+          {msg && <div style={{ font: '12.5px system-ui', color: msg.startsWith('Could not') ? '#b42318' : '#166534', marginTop: 6 }}>{msg}</div>}
+          {links.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+              {links.map(l => (
+                <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', font: '12px system-ui', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 10px', background: '#fff' }}>
+                  <code style={{ font: '11.5px ui-monospace,monospace', color: '#1f2937', background: '#f3f4f6', padding: '2px 6px', borderRadius: 4, overflowWrap: 'anywhere' }}>{l.url}</code>
+                  <button onClick={() => { navigator.clipboard.writeText(l.url).then(() => setMsg('Copied.'), () => setMsg('Select the link and copy it.')) }} style={{ background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, padding: '3px 9px', font: '600 11.5px system-ui', cursor: 'pointer' }}>Copy</button>
+                  <a href={`mailto:?subject=${subject}&body=${bodyFor(l.url)}`} style={{ font: '600 11.5px system-ui', color: '#2563eb', textDecoration: 'none' }}>✉ Email it</a>
+                  <span style={{ color: '#9ca3af' }}>created {fmt(l.created_at)}{l.created_by ? ` · ${l.created_by}` : ''} · opened {l.view_count}×{l.last_viewed_at ? `, last ${fmt(l.last_viewed_at)}` : ''}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 

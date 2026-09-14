@@ -4637,6 +4637,82 @@ UPDATE public.associations SET board_contact_email = 'themanorsbuildingxi@gmail.
 NOTIFY pgrst, 'reload schema';
 `,
   },
+  {
+    key:         'application_audit_links',
+    label:       'application_audit_links (share links for the Processing audit card)',
+    description: "Public, read-only share links for an application's Processing audit (created / last file / requests / approval speed / missing / sent to board). Staff create one on the application page and email it when someone says the process is taking too long. User direction 2026-09-14.",
+    filename:    '20260914_application_audit_links.sql',
+    artifact:    { type: 'table', table: 'application_audit_links' },
+    sql: `-- =====================================================================
+-- 20260914_application_audit_links.sql
+--
+-- Share links for an application's "Processing audit" card (created /
+-- last file / requests sent / approval speed / still missing / sent to
+-- board). Staff create one from the application page and email it to a
+-- realtor, applicant or board member who says "you are taking too long";
+-- the link opens a public, read-only timeline card (no login, like
+-- /request/[token]). The id IS the token. Revoke by setting revoked_at.
+-- User direction, 2026-09-14. CREATE TABLE is instant; idempotent.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.application_audit_links (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id   uuid NOT NULL,
+  created_by       text,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  view_count       integer NOT NULL DEFAULT 0,
+  last_viewed_at   timestamptz,
+  revoked_at       timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS application_audit_links_application_idx
+  ON public.application_audit_links (application_id);
+
+-- ── Data-API exposure (REQUIRED — see _TEMPLATE_new_table.sql) ──────
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.application_audit_links
+  TO anon, authenticated, service_role;
+
+-- ── Row-level security ───────────────────────────────────────────────
+ALTER TABLE public.application_audit_links ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all_application_audit_links" ON public.application_audit_links;
+CREATE POLICY "service_role_all_application_audit_links"
+  ON public.application_audit_links FOR ALL TO service_role USING (true);
+
+NOTIFY pgrst, 'reload schema';
+`,
+  },
+  {
+    key:         'listing_applications_screening_timeline',
+    label:       'listing_applications.screening_timeline (background check steps run outside MAIA)',
+    description: "Optional jsonb {provider, steps[{label, at}]} shown as a 'Background check' section on the Processing audit card. Seeds MANXI 303 with its four Tenant Evaluation steps (user screenshot, 2026-09-14).",
+    filename:    '20260914_listing_applications_screening_timeline.sql',
+    artifact:    { type: 'column', table: 'listing_applications', column: 'screening_timeline' },
+    sql: `-- =====================================================================
+-- 20260914_listing_applications_screening_timeline.sql
+--
+-- Optional per-application background-check timeline shown on the
+-- Processing audit card, for checks run OUTSIDE MAIA (Tenant Evaluation
+-- has no API; its "Application progress" steps are copied from its
+-- dashboard). Shape: {"provider":"Tenant Evaluation","steps":[{"label":
+-- "...","at":"2026-07-27T09:40:00-04:00"}]}. Seeds MANXI 303 only, per the
+-- user's screenshot (2026-09-14: "add only for this case"). Idempotent.
+-- =====================================================================
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS screening_timeline jsonb;
+
+UPDATE public.listing_applications SET screening_timeline = '{
+  "provider": "Tenant Evaluation",
+  "steps": [
+    {"label": "Application form completed", "at": "2026-07-27T09:40:00-04:00"},
+    {"label": "Applicants e-signatures",     "at": "2026-07-27T09:48:00-04:00"},
+    {"label": "Services completed",          "at": "2026-07-27T09:55:00-04:00"},
+    {"label": "Documents uploaded",          "at": "2026-07-28T09:24:00-04:00"}
+  ]
+}'::jsonb
+ WHERE id = '4c17d02b-00a0-4569-9939-748e70cb1489' AND screening_timeline IS NULL;
+
+NOTIFY pgrst, 'reload schema';
+`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button
