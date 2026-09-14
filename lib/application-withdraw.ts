@@ -87,18 +87,24 @@ export async function closeApplication(applicationId: string, input: WithdrawInp
   }
 
   // 3. Drive: On Going → OLD/Archive under the unit, tagged WITHDRAWN / EXPIRED.
+  //    What moved is recorded on the row so Reopen can bring it back.
   const onGoingId = String(app.drive_folder_id ?? '')
-  const { driveMoved, driveError } = onGoingId ? await moveOngoingFolderToArchive(code, unit, onGoingId, tag) : { driveMoved: 0, driveError: null }
+  const mv = onGoingId ? await moveOngoingFolderToArchive(code, unit, onGoingId, tag) : { driveMoved: 0, driveError: null, archiveFolderId: null, files: [] }
+  if (mv.files.length) {
+    await supabaseAdmin.from('listing_applications').update({ closed_drive: { archiveFolderId: mv.archiveFolderId, tag, files: mv.files } }).eq('id', applicationId).then(() => null, () => null)
+  }
 
-  return { ok: true, voidedEsign, voidedPackets, driveMoved, driveError }
+  return { ok: true, voidedEsign, voidedPackets, driveMoved: mv.driveMoved, driveError: mv.driveError }
 }
 
 /** Move every file of an On Going application folder into the unit's
  *  OLD/Archive folder (created if needed), tag each file name, trash the
  *  emptied folder. Shared by withdraw / expire and the housekeeping page
  *  (orphan folders of already-approved applications). Never throws. */
-export async function moveOngoingFolderToArchive(code: string, unit: string | null, onGoingId: string, tag: string): Promise<{ driveMoved: number; driveError: string | null }> {
+export async function moveOngoingFolderToArchive(code: string, unit: string | null, onGoingId: string, tag: string): Promise<{ driveMoved: number; driveError: string | null; archiveFolderId: string | null; files: { id: string; name: string }[] }> {
   let driveMoved = 0, driveError: string | null = null
+  let archiveFolderId: string | null = null
+  const files: { id: string; name: string }[] = []
   try {
     const drive = getDrive()
     const folders = await resolveAssocDriveFolders(code)
@@ -107,6 +113,7 @@ export async function moveOngoingFolderToArchive(code: string, unit: string | nu
     if (!archiveUnit) {
       driveError = 'no Archive folder configured for this association — the On Going folder was left in place'
     } else {
+      archiveFolderId = archiveUnit
       const { data: list } = await drive.files.list({ q: `'${onGoingId}' in parents and trashed = false`, fields: 'files(id,name,parents)', supportsAllDrives: true, includeItemsFromAllDrives: true })
       const re = new RegExp(tag, 'i')
       for (const f of list.files ?? []) {
@@ -117,28 +124,59 @@ export async function moveOngoingFolderToArchive(code: string, unit: string | nu
             ...(re.test(name) ? {} : { requestBody: { name: `${name}_${tag}` } }), supportsAllDrives: true,
           })
           driveMoved++
+          files.push({ id: String(f.id), name })
         } catch (e) { driveError = e instanceof Error ? e.message : String(e) }
       }
       await drive.files.update({ fileId: onGoingId, requestBody: { trashed: true }, supportsAllDrives: true }).catch(() => null)
     }
   } catch (e) { driveError = e instanceof Error ? e.message : String(e) }
-  return { driveMoved, driveError }
+  return { driveMoved, driveError, archiveFolderId, files }
 }
 
 /** Undo a withdraw / expire done by mistake: the application goes back to
  *  where it was (submitted if it ever was, else started). The Drive files
  *  are NOT moved back — they sit in the unit's Archive tagged; the next
  *  upload recreates an On Going folder. */
-export async function reopenApplication(applicationId: string, by: string): Promise<{ ok: true; status: string } | { error: string }> {
-  const { data: app } = await supabaseAdmin.from('listing_applications').select('id, status, submitted_at, review_note').eq('id', applicationId).maybeSingle()
+export async function reopenApplication(applicationId: string, by: string): Promise<{ ok: true; status: string; driveRestored: number; driveError: string | null } | { error: string }> {
+  const { data: app } = await supabaseAdmin.from('listing_applications').select('id, status, submitted_at, review_note, association_code, unit_label, closed_drive').eq('id', applicationId).maybeSingle()
   if (!app) return { error: 'application not found' }
   if (app.status !== 'withdrawn' && app.status !== 'expired') return { error: `Only a withdrawn or expired application can be reopened (this one is ${app.status}).` }
   const status = app.submitted_at ? 'submitted' : 'started'
   const now = new Date().toISOString()
+
+  // Bring the archived files back into a fresh On Going folder, tag removed.
+  // User condition, 2026-09-14: "I will be able to reactivate if needed and
+  // pull back the files in the Drive?" — yes, this is that.
+  let driveRestored = 0, driveError: string | null = null
+  let folderId: string | null = null, folderUrl: string | null = null
+  const closed = (app.closed_drive as { archiveFolderId?: string | null; tag?: string; files?: { id: string; name: string }[] } | null) ?? null
+  if (closed?.files?.length && app.unit_label) {
+    try {
+      const { ensureOngoingUnitFolder } = await import('@/lib/drive-application-mirror')
+      const { data: stk } = await supabaseAdmin.from('application_stakeholders').select('name').eq('application_id', applicationId).eq('role', 'applicant').limit(1)
+      const f = await ensureOngoingUnitFolder({ unitLabel: String(app.unit_label), applicantName: (stk?.[0]?.name as string | null) ?? null, associationCode: String(app.association_code) })
+      folderId = f.folderId; folderUrl = f.webViewLink
+      const drive = getDrive()
+      for (const file of closed.files) {
+        try {
+          const meta = await drive.files.get({ fileId: file.id, fields: 'id,name,parents,trashed', supportsAllDrives: true })
+          if (meta.data.trashed) continue
+          await drive.files.update({
+            fileId: file.id, addParents: folderId, removeParents: (meta.data.parents ?? []).join(',') || undefined,
+            requestBody: { name: file.name }, supportsAllDrives: true, fields: 'id',
+          })
+          driveRestored++
+        } catch (e) { driveError = e instanceof Error ? e.message : String(e) }
+      }
+    } catch (e) { driveError = e instanceof Error ? e.message : String(e) }
+  }
+
   const { error } = await supabaseAdmin.from('listing_applications').update({
-    status, withdrawn_at: null, withdrawn_by: null, withdrawn_reason: null, drive_folder_id: null, drive_folder_url: null,
-    review_note: `Reopened ${now.slice(0, 10)} by ${by} (was ${app.status}). ${String(app.review_note ?? '')}`.trim(), updated_at: now,
+    status, withdrawn_at: null, withdrawn_by: null, withdrawn_reason: null, expired_auto: false, closed_drive: null,
+    expiry_notice_kind: null, expiry_notice_at: null, expiry_due_at: null,
+    drive_folder_id: folderId, drive_folder_url: folderUrl,
+    review_note: `Reopened ${now.slice(0, 10)} by ${by} (was ${app.status}${driveRestored ? `, ${driveRestored} Drive file(s) restored` : ''}). ${String(app.review_note ?? '')}`.trim(), updated_at: now,
   }).eq('id', applicationId)
   if (error) return { error: error.message }
-  return { ok: true, status }
+  return { ok: true, status, driveRestored, driveError }
 }

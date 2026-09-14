@@ -82,8 +82,21 @@ export async function GET() {
       .order('created_at', { ascending: false }).limit(200),
   ])
   const bridgedIds = new Set((bridged ?? []).map(b => String(b.detailed_application_id)))
+  // Unpaid rows are abandoned checkouts (the same person's paid attempt is
+  // the one that gets bridged): hide them after 7 days, and hide staff's own
+  // test entries at once. A PAID form that never got linked to a unit stays
+  // visible whatever its age — that one is a $150 nobody followed up on.
+  // User direction, 2026-09-14 ("Hide abandoned rows").
+  const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString()
+  const isStaffEmail = (e: string | null | undefined) => /@(topfloridaproperties\.com|pmitop\.com)$/i.test(String(e ?? ''))
   const legacy = (legacyRows ?? [])
     .filter(r => !r.is_test && !bridgedIds.has(String(r.id)))
+    .filter(r => {
+      if (r.stripe_payment_status === 'paid') return true
+      const first = (r.applicants as { email?: string }[] | null)?.[0]
+      if (isStaffEmail(first?.email)) return false
+      return String(r.created_at) >= weekAgo
+    })
     .map(r => {
       const first = (r.applicants as { firstName?: string; lastName?: string; email?: string }[] | null)?.[0]
       const name = r.app_type === 'commercial' && r.entity_name ? String(r.entity_name) : [first?.firstName, first?.lastName].filter(Boolean).join(' ') || null
