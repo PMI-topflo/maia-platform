@@ -43,8 +43,8 @@ function mediaTypeFor(ct: string | null): 'image/jpeg' | 'image/png' | 'image/we
 const SCAN_PROMPT = `You are reading a single document for a condo leasing file. Return ONLY JSON:
 {"label":"<one label>","expiration":"<YYYY-MM-DD or null>","issued":"<YYYY-MM-DD or null>"}
 - "label": the ONE best match from this list: ${LABELS.join(', ')} (use "other" if none fit). A document titled "FLORIDA VEHICLE REGISTRATION" or similar, with a plate/tag number, VIN, and vehicle year/make, is "vehicle registration" — NOT "certificate of use" (that label is a municipal rental/occupancy certificate, a DMV document is never one).
-- "expiration": ANY expiration / valid-through / "EXP" date printed on the document, in YYYY-MM-DD. Look hard for it: a driver's license or state ID "EXP" date, a vehicle registration "Expires" date, an insurance policy expiration/period-end, a certificate-of-use expiry, or a lease end date. Dates are printed American-style, MONTH/DAY/YEAR — e.g. a Florida registration showing "Expires Midnight Mon 3/8/2027" means March 8 2027 → "2027-03-08", NOT August 3. Read every digit carefully; do not guess or invent a date that is not actually printed. If the document genuinely has no expiration (e.g. a deed, an affidavit, a tax return), return null. NEVER report an issue date as the expiration: on a vehicle registration, "Date Issued", "Plate Issued" and "Issued" are the day the registration was printed, NOT when it expires — the expiration is only the line that says "Expires" (e.g. "Expires Midnight Thu 11/13/2026"). When a registration shows an issued date but no "Expires" line at all, return expiration null and put the issued date in "issued".
-- "issued": the document's issue date ("Date Issued" / "Plate Issued" / "Issued" / "Issue Date") in YYYY-MM-DD when printed, else null.`
+- "expiration": ANY expiration / valid-through / "EXP" date printed on the document, in YYYY-MM-DD. Look hard for it: a driver's license or state ID "EXP" date, a vehicle registration "Expires" date, an insurance policy expiration/period-end, a certificate-of-use expiry, or a lease end date. Dates are printed American-style, MONTH/DAY/YEAR — e.g. a Florida registration showing "Expires Midnight Mon 3/8/2027" means March 8 2027 → "2027-03-08", NOT August 3. Read every digit carefully; do not guess or invent a date that is not actually printed. If the document genuinely has no expiration (e.g. a deed, an affidavit, a tax return), return null. NEVER report an issue date as the expiration: on a vehicle registration, "Date Issued", "Plate Issued" and "Issued" are the day the registration was printed, NOT when it expires — the expiration is only the line that says "Expires" (e.g. "Expires Midnight Thu 11/13/2026"). When a registration shows an issued date but no "Expires" line at all, return expiration null and put the issued date in "issued". Likewise an insurance card's "Effective Date" is when coverage STARTS, never the expiration — a Florida auto insurance ID card typically prints only "Effective Date 07/01/2026" plus "Not valid more than one year from effective date"; return expiration null and put the effective date in "issued".
+- "issued": the document's issue / effective date ("Date Issued" / "Plate Issued" / "Issued" / "Issue Date" / "Effective Date") in YYYY-MM-DD when printed, else null.`
 
 export interface DocScan { label: string; expiration: string | null; issued?: string | null }
 /** A scan that also says whether it actually READ the document. `ok: false`
@@ -91,7 +91,10 @@ export async function quickDocScanDetailed(buf: Buffer, contentType: string | nu
     // MANXI 702): when no "Expires" line was read, the expiration is the
     // issue date + 1 year; and an "expiration" equal to the issue date is
     // the model echoing the wrong field — treat it the same way.
-    if (finalLabel === 'vehicle registration' && issued && (!exp || exp === issued)) {
+    // Same for an auto insurance ID card: "Effective Date" + "not valid more
+    // than one year from effective date" (user, 2026-09-14, MANXI 705 —
+    // MAIA had marked a card effective 07/01/2026 as EXPIRED).
+    if ((finalLabel === 'vehicle registration' || finalLabel === 'vehicle insurance') && issued && (!exp || exp === issued)) {
       const d = new Date(issued + 'T12:00:00Z'); d.setUTCFullYear(d.getUTCFullYear() + 1)
       exp = d.toISOString().slice(0, 10)
     }
