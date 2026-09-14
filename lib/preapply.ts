@@ -589,7 +589,7 @@ export interface IntakeState {
  *  stamped submitted on creation, the reminder cron kept asking residents
  *  for documents and answers, and every declare / upload was refused with
  *  "already been submitted". */
-export const CLOSED_STATUSES = new Set(['approved', 'declined', 'denied', 'withdrawn', 'cancelled', 'canceled', 'archived', 'void'])
+export const CLOSED_STATUSES = new Set(['approved', 'declined', 'denied', 'withdrawn', 'expired', 'cancelled', 'canceled', 'archived', 'void'])
 export function intakeClosed(intake: Pick<IntakeState, 'status'>): boolean {
   return CLOSED_STATUSES.has(String(intake.status ?? '').toLowerCase())
 }

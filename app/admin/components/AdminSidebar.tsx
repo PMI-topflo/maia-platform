@@ -55,6 +55,7 @@ const NAV: Node[] = [
   // Associations as one "People to identify" entry with tabs.
   { type: 'group', label: 'Leasing', icon: '📝', items: [
     { label: 'Applications', href: '/admin/pre-apply' },
+    { label: 'Housekeeping', href: '/admin/applications-housekeeping' },
     { label: 'Association Setup', href: '/admin/association-document-setup' },
   ] },
   { type: 'group', label: 'Flows', icon: '🔀', items: [

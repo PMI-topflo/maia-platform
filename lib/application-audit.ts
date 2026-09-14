@@ -128,7 +128,7 @@ export async function buildProcessingAudit(applicationId: string): Promise<Proce
   const sentAt = (app.board_window_opened_at as string | null) ?? null
   const closedAt = (app.withdrawn_at as string | null) ?? (dist?.at ?? null) ?? (app.completed_at as string | null) ?? null
   const status = String(app.status ?? '')
-  const closed = ['approved', 'declined', 'withdrawn', 'cancelled', 'archived', 'void'].includes(status) ? { status, at: closedAt } : null
+  const closed = ['approved', 'declined', 'withdrawn', 'expired', 'cancelled', 'archived', 'void'].includes(status) ? { status, at: closedAt } : null
   const boardEnd = closed?.at ?? now
 
   const createdAt = String(app.created_at ?? app.started_at)

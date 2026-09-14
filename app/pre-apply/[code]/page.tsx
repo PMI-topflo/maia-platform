@@ -487,11 +487,13 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
     <div style={wrap}>
       <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6b7280', margin: 0 }}>{info.associationName}</p>
       <h1 style={{ fontSize: 22, color: '#1f2a44', margin: '4px 0 8px' }}>
-        {info.closed === 'withdrawn' ? 'This application was withdrawn' : info.closed === 'approved' ? 'This application is approved' : 'This application is closed'}
+        {info.closed === 'withdrawn' ? 'This application was withdrawn' : info.closed === 'expired' ? 'This application has expired' : info.closed === 'approved' ? 'This application is approved' : 'This application is closed'}
       </h1>
       <p style={{ color: '#4a5265', fontSize: 14 }}>
         {info.closed === 'withdrawn'
           ? 'It was withdrawn at the request of one of the parties, so nothing more can be uploaded or signed here. If that is a mistake, or you want to apply again, contact PMI Top Florida Properties.'
+          : info.closed === 'expired'
+          ? 'It was closed because it stayed incomplete for too long, so nothing more can be uploaded or signed here. To go ahead, contact PMI Top Florida Properties and we will reopen it or start a new one.'
           : 'Nothing more can be added here. Questions? Contact PMI Top Florida Properties.'}
       </p>
     </div>

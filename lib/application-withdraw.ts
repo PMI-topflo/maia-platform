@@ -26,12 +26,26 @@ import { resolveAssocDriveFolders, resolveUnitRef, resolveUnitFolder } from '@/l
 export interface WithdrawInput { reason: string; requestedBy: string; by: string }
 export interface WithdrawResult { ok: true; voidedEsign: number; voidedPackets: number; driveMoved: number; driveError: string | null }
 
+/** Withdrawn = one of the parties asked. Expired = nobody did: the request
+ *  went stale (lease long over, no answer to reminders, a mistaken start)
+ *  and staff close it during housekeeping (user, 2026-09-14). Same
+ *  mechanics, different word on the record and on the Drive folder. */
+export type CloseMode = 'withdrawn' | 'expired'
+
 export async function withdrawApplication(applicationId: string, input: WithdrawInput): Promise<WithdrawResult | { error: string }> {
+  return closeApplication(applicationId, { ...input, mode: 'withdrawn' })
+}
+
+export async function expireApplication(applicationId: string, input: { reason: string; by: string }): Promise<WithdrawResult | { error: string }> {
+  return closeApplication(applicationId, { reason: input.reason, requestedBy: 'PMI housekeeping', by: input.by, mode: 'expired' })
+}
+
+export async function closeApplication(applicationId: string, input: WithdrawInput & { mode: CloseMode }): Promise<WithdrawResult | { error: string }> {
   const { data: app } = await supabaseAdmin.from('listing_applications')
     .select('id, association_code, unit_label, status, drive_folder_id').eq('id', applicationId).maybeSingle()
   if (!app) return { error: 'application not found' }
-  if (app.status === 'approved') return { error: 'This application is already approved — an approved application is not withdrawn; contact the board about rescinding the approval.' }
-  if (app.status === 'withdrawn') return { error: 'This application is already withdrawn.' }
+  if (app.status === 'approved') return { error: 'This application is already approved — an approved application is not closed this way; contact the board about rescinding the approval.' }
+  if (app.status === 'withdrawn' || app.status === 'expired') return { error: `This application is already ${app.status}.` }
   const reason = input.reason.trim()
   const requestedBy = input.requestedBy.trim()
   if (!reason) return { error: 'A reason is required — it goes on the record.' }
@@ -40,11 +54,13 @@ export async function withdrawApplication(applicationId: string, input: Withdraw
   const now = new Date().toISOString()
   const code = String(app.association_code)
   const unit = (app.unit_label as string | null) ?? null
+  const word = input.mode === 'expired' ? 'Expired' : 'Withdrawn'
+  const tag = input.mode === 'expired' ? 'EXPIRED' : 'WITHDRAWN'
 
-  // 1. The status.
+  // 1. The status. (withdrawn_* columns hold the record for both modes.)
   const { error: upErr } = await supabaseAdmin.from('listing_applications').update({
-    status: 'withdrawn', withdrawn_at: now, withdrawn_by: input.by, withdrawn_reason: `${requestedBy}: ${reason}`,
-    review_note: `Withdrawn ${now.slice(0, 10)} by ${input.by} — requested by ${requestedBy}: ${reason}`, updated_at: now,
+    status: input.mode, withdrawn_at: now, withdrawn_by: input.by, withdrawn_reason: `${requestedBy}: ${reason}`,
+    review_note: `${word} ${now.slice(0, 10)} by ${input.by} — ${input.mode === 'expired' ? reason : `requested by ${requestedBy}: ${reason}`}`, updated_at: now,
   }).eq('id', applicationId)
   if (upErr) return { error: upErr.message }
 
@@ -70,33 +86,59 @@ export async function withdrawApplication(applicationId: string, input: Withdraw
     }
   }
 
-  // 3. Drive: On Going → OLD/Archive under the unit, tagged WITHDRAWN.
-  let driveMoved = 0, driveError: string | null = null
+  // 3. Drive: On Going → OLD/Archive under the unit, tagged WITHDRAWN / EXPIRED.
   const onGoingId = String(app.drive_folder_id ?? '')
-  if (onGoingId) {
-    try {
-      const drive = getDrive()
-      const folders = await resolveAssocDriveFolders(code)
-      const unitRef = await resolveUnitRef(code, unit)
-      const archiveUnit = folders.archive ? await resolveUnitFolder(folders.archive, unitRef, true) : null
-      if (!archiveUnit) {
-        driveError = 'no Archive folder configured for this association — the On Going folder was left in place'
-      } else {
-        const { data: list } = await drive.files.list({ q: `'${onGoingId}' in parents and trashed = false`, fields: 'files(id,name,parents)', supportsAllDrives: true, includeItemsFromAllDrives: true })
-        for (const f of list.files ?? []) {
-          try {
-            const name = String(f.name ?? '')
-            await drive.files.update({
-              fileId: String(f.id), addParents: archiveUnit, removeParents: (f.parents ?? []).join(',') || undefined,
-              ...(/withdrawn/i.test(name) ? {} : { requestBody: { name: `${name}_WITHDRAWN` } }), supportsAllDrives: true,
-            })
-            driveMoved++
-          } catch (e) { driveError = e instanceof Error ? e.message : String(e) }
-        }
-        await drive.files.update({ fileId: onGoingId, requestBody: { trashed: true }, supportsAllDrives: true }).catch(() => null)
-      }
-    } catch (e) { driveError = e instanceof Error ? e.message : String(e) }
-  }
+  const { driveMoved, driveError } = onGoingId ? await moveOngoingFolderToArchive(code, unit, onGoingId, tag) : { driveMoved: 0, driveError: null }
 
   return { ok: true, voidedEsign, voidedPackets, driveMoved, driveError }
+}
+
+/** Move every file of an On Going application folder into the unit's
+ *  OLD/Archive folder (created if needed), tag each file name, trash the
+ *  emptied folder. Shared by withdraw / expire and the housekeeping page
+ *  (orphan folders of already-approved applications). Never throws. */
+export async function moveOngoingFolderToArchive(code: string, unit: string | null, onGoingId: string, tag: string): Promise<{ driveMoved: number; driveError: string | null }> {
+  let driveMoved = 0, driveError: string | null = null
+  try {
+    const drive = getDrive()
+    const folders = await resolveAssocDriveFolders(code)
+    const unitRef = await resolveUnitRef(code, unit)
+    const archiveUnit = folders.archive ? await resolveUnitFolder(folders.archive, unitRef, true) : null
+    if (!archiveUnit) {
+      driveError = 'no Archive folder configured for this association — the On Going folder was left in place'
+    } else {
+      const { data: list } = await drive.files.list({ q: `'${onGoingId}' in parents and trashed = false`, fields: 'files(id,name,parents)', supportsAllDrives: true, includeItemsFromAllDrives: true })
+      const re = new RegExp(tag, 'i')
+      for (const f of list.files ?? []) {
+        try {
+          const name = String(f.name ?? '')
+          await drive.files.update({
+            fileId: String(f.id), addParents: archiveUnit, removeParents: (f.parents ?? []).join(',') || undefined,
+            ...(re.test(name) ? {} : { requestBody: { name: `${name}_${tag}` } }), supportsAllDrives: true,
+          })
+          driveMoved++
+        } catch (e) { driveError = e instanceof Error ? e.message : String(e) }
+      }
+      await drive.files.update({ fileId: onGoingId, requestBody: { trashed: true }, supportsAllDrives: true }).catch(() => null)
+    }
+  } catch (e) { driveError = e instanceof Error ? e.message : String(e) }
+  return { driveMoved, driveError }
+}
+
+/** Undo a withdraw / expire done by mistake: the application goes back to
+ *  where it was (submitted if it ever was, else started). The Drive files
+ *  are NOT moved back — they sit in the unit's Archive tagged; the next
+ *  upload recreates an On Going folder. */
+export async function reopenApplication(applicationId: string, by: string): Promise<{ ok: true; status: string } | { error: string }> {
+  const { data: app } = await supabaseAdmin.from('listing_applications').select('id, status, submitted_at, review_note').eq('id', applicationId).maybeSingle()
+  if (!app) return { error: 'application not found' }
+  if (app.status !== 'withdrawn' && app.status !== 'expired') return { error: `Only a withdrawn or expired application can be reopened (this one is ${app.status}).` }
+  const status = app.submitted_at ? 'submitted' : 'started'
+  const now = new Date().toISOString()
+  const { error } = await supabaseAdmin.from('listing_applications').update({
+    status, withdrawn_at: null, withdrawn_by: null, withdrawn_reason: null, drive_folder_id: null, drive_folder_url: null,
+    review_note: `Reopened ${now.slice(0, 10)} by ${by} (was ${app.status}). ${String(app.review_note ?? '')}`.trim(), updated_at: now,
+  }).eq('id', applicationId)
+  if (error) return { error: error.message }
+  return { ok: true, status }
 }

@@ -47,7 +47,7 @@ const CHECKR_META: Record<string, { label: string; c: string; b: string }> = {
   complete: { label: 'complete', c: '#166534', b: '#dcfce7' },
 }
 const FINALIZED_ROLE_LABEL: Record<string, string> = { staff: 'Staff', board: 'Board', onsite_manager: 'On-site manager' }
-const isDecided = (status: string) => status === 'approved' || status === 'declined' || status === 'withdrawn'
+const isDecided = (status: string) => status === 'approved' || status === 'declined' || status === 'withdrawn' || status === 'expired'
 interface ChecklistItem { label: string; provided_by: string; required: boolean; notarized: boolean; exampleUrl: string | null }
 interface TypeChecklist { type: string; label: string; blurb: string; items: ChecklistItem[] }
 const TYPE_ORDER = ['lease', 'lease_renewal', 'purchase', 'additional_occupant']
@@ -86,8 +86,9 @@ const STAGE_META: Record<string, { label: string; c: string; b: string }> = {
   approved:   { label: 'Approved',                           c: '#166534', b: '#dcfce7' },
   declined:   { label: 'Declined',                           c: '#991b1b', b: '#fee2e2' },
   withdrawn:  { label: 'Withdrawn',                          c: '#374151', b: '#e5e7eb' },
+  expired:    { label: 'Expired',                            c: '#374151', b: '#e5e7eb' },
 }
-const STAGE_ORDER = ['refused', 'applicant', 'not_sent', 'review', 'interview', 'letter', 'signature', 'approved', 'declined', 'withdrawn']
+const STAGE_ORDER = ['refused', 'applicant', 'not_sent', 'review', 'interview', 'letter', 'signature', 'approved', 'declined', 'withdrawn', 'expired']
 const ALARM_META: Record<string, { label: string; c: string; b: string }> = {
   overdue:   { label: '🚨 OVERDUE', c: '#fff', b: '#b91c1c' },
   due_soon:  { label: '⏳ Due soon', c: '#92400e', b: '#fef3c7' },
@@ -150,7 +151,7 @@ export default function PreApplyQueue() {
   const inTab = (a: App) => (tab === 'closed') === isDecided(a.status)
   const openCount = (apps ?? []).filter(a => !isDecided(a.status)).length + legacy.length
   const closedCount = (apps ?? []).filter(a => isDecided(a.status)).length
-  const tabChips = STAGE_ORDER.filter(k => (tab === 'closed') === (k === 'approved' || k === 'declined' || k === 'withdrawn'))
+  const tabChips = STAGE_ORDER.filter(k => (tab === 'closed') === (k === 'approved' || k === 'declined' || k === 'withdrawn' || k === 'expired'))
   // Not a stage: any open application with at least one uploaded document
   // nobody has decided on yet, whatever stage it's in.
   const REVIEW_FILTER = 'to_review'

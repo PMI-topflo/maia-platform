@@ -117,7 +117,7 @@ export async function GET() {
   // the two visually distinct here, same as before this rewire.
   const chipKey = (r: { stage: Stage; status: string }) => r.stage === 'decided' ? r.status : r.stage
   const stageLabel = (r: { stage: Stage; status: string }) =>
-    r.stage === 'decided' ? (r.status === 'approved' ? 'Approved' : r.status === 'withdrawn' ? 'Withdrawn' : 'Declined') : STAGE_LABEL[r.stage]
+    r.stage === 'decided' ? (r.status === 'approved' ? 'Approved' : r.status === 'withdrawn' ? 'Withdrawn' : r.status === 'expired' ? 'Expired' : 'Declined') : STAGE_LABEL[r.stage]
 
   return NextResponse.json({
     applications: dash.rows.map(r => ({
