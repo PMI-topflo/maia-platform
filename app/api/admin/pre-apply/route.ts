@@ -89,12 +89,18 @@ export async function GET() {
   // User direction, 2026-09-14 ("Hide abandoned rows").
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString()
   const isStaffEmail = (e: string | null | undefined) => /@(topfloridaproperties\.com|pmitop\.com)$/i.test(String(e ?? ''))
+  const emailOf = (r: { applicants: unknown }) => String(((r.applicants as { email?: string }[] | null)?.[0]?.email ?? '')).trim().toLowerCase()
+  // Emails that already have a PAID form (any age, bridged or not): an unpaid
+  // row for the same person is the abandoned first attempt at checkout
+  // (Ashlee Muthra 702 and Timothy Walker 706, 2026-09-14) — hide it at once.
+  const paidEmails = new Set((legacyRows ?? []).filter(r => r.stripe_payment_status === 'paid').map(emailOf).filter(Boolean))
   const legacy = (legacyRows ?? [])
     .filter(r => !r.is_test && !bridgedIds.has(String(r.id)))
     .filter(r => {
       if (r.stripe_payment_status === 'paid') return true
-      const first = (r.applicants as { email?: string }[] | null)?.[0]
-      if (isStaffEmail(first?.email)) return false
+      const email = emailOf(r)
+      if (isStaffEmail(email)) return false
+      if (email && paidEmails.has(email)) return false
       return String(r.created_at) >= weekAgo
     })
     .map(r => {
