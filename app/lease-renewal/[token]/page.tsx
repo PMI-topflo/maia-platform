@@ -38,6 +38,16 @@ export default function LeaseRenewalCheck({ params }: { params: Promise<{ token:
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [actionErr, setActionErr] = useState<string | null>(null)
+  // The reminder email has one button per answer (lib/lease-renewal-email.ts);
+  // the clicked one arrives here as ?occupancy=…&response=…. It is shown
+  // preselected with a single Confirm click — never auto-submitted, because
+  // mail-security link scanners follow every URL in an email.
+  const [pre, setPre] = useState<{ occupancy: string | null; response: string | null } | null>(null)
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const occupancy = q.get('occupancy'), response = q.get('response')
+    if (occupancy || response) setPre({ occupancy, response })
+  }, [])
 
   const load = useCallback(() => {
     fetch(`/api/lease-renewal/${token}`).then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || 'failed'); return j })
@@ -62,6 +72,7 @@ export default function LeaseRenewalCheck({ params }: { params: Promise<{ token:
   if (!d) return <div style={wrap}><div style={card}><p style={{ color: '#9ca3af' }}>Loading…</p></div></div>
 
   const fmt = (iso: string) => new Date(iso.includes('T') ? iso : `${iso}T00:00:00Z`).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })
+  const ended = d.leaseEnd.slice(0, 10) < new Date().toISOString().slice(0, 10)
 
   return (
     <div style={wrap}>
@@ -70,17 +81,37 @@ export default function LeaseRenewalCheck({ params }: { params: Promise<{ token:
         <h1 style={{ font: '800 24px/1.2 Georgia,serif', color: '#1c2333', margin: '0 0 12px' }}>Lease renewal check-in</h1>
         <div style={{ border: '1px solid #e7e2d9', borderRadius: 10, overflow: 'hidden', marginBottom: 18, fontSize: 13.5 }}>
           <div style={{ display: 'flex', gap: 12, padding: '9px 14px', background: '#faf8f4' }}><span style={{ width: 90, color: '#8a8f9a', font: '700 11px system-ui', textTransform: 'uppercase', letterSpacing: '.05em' }}>Unit</span><b style={{ color: '#1c2333' }}>{d.unitLabel}</b></div>
-          <div style={{ display: 'flex', gap: 12, padding: '9px 14px', borderTop: '1px solid #f2efe8' }}><span style={{ width: 90, color: '#8a8f9a', font: '700 11px system-ui', textTransform: 'uppercase', letterSpacing: '.05em' }}>Lease ends</span><b style={{ color: '#1c2333' }}>{fmt(d.leaseEnd)}</b></div>
+          <div style={{ display: 'flex', gap: 12, padding: '9px 14px', borderTop: '1px solid #f2efe8' }}><span style={{ width: 90, color: '#8a8f9a', font: '700 11px system-ui', textTransform: 'uppercase', letterSpacing: '.05em' }}>{ended ? 'Lease ended' : 'Lease ends'}</span><b style={{ color: '#1c2333' }}>{fmt(d.leaseEnd)}</b></div>
         </div>
         <p style={{ fontSize: 14.5, color: '#3f4756', margin: '0 0 18px' }}>
-          {d.name ? `Hi ${d.name}, y` : 'Y'}our lease is coming up on this unit. Let us know what&apos;s happening so we can help — pick whichever applies below.
+          {d.name ? `Hi ${d.name}, ` : ''}{introText(d.role, ended)}
         </p>
 
         {actionErr && <div style={{ font: '13px system-ui', color: '#b91c1c', marginBottom: 12 }}>{actionErr}</div>}
 
-        {d.role === 'owner'
-          ? <OwnerPanel d={d} busy={busy} post={post} />
-          : <TenantPanel d={d} busy={busy} post={post} />}
+        {(() => {
+          const answered = d.role === 'owner' ? !!(d.ownerResponse || (d.ownerOccupancy && d.ownerOccupancy !== 'leased')) : !!d.tenantResponse
+          const preset = pre && !answered ? presetLabel(d.role, pre) : null
+          if (preset) {
+            return (
+              <div style={{ border: '1.5px solid #c0571a', background: '#fff7f0', borderRadius: 12, padding: '16px 18px', marginBottom: 14 }}>
+                <div style={{ font: '700 12px system-ui', color: '#c0571a', textTransform: 'uppercase', letterSpacing: '.08em' }}>Your answer from the email</div>
+                <div style={{ font: '800 18px Georgia,serif', color: '#1c2333', margin: '6px 0 12px' }}>{preset.title}</div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <button disabled={!!busy} onClick={() => post(preset.body, 'preset')} style={{ background: '#c0571a', color: '#fff', border: 0, borderRadius: 9, padding: '11px 22px', font: '700 14px system-ui', cursor: busy ? 'default' : 'pointer' }}>
+                    {busy === 'preset' ? 'Saving…' : '✓ Confirm'}
+                  </button>
+                  <button disabled={!!busy} onClick={() => setPre(null)} style={{ background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 9, padding: '11px 16px', font: '600 13px system-ui', cursor: 'pointer' }}>
+                    Pick a different answer
+                  </button>
+                </div>
+              </div>
+            )
+          }
+          return d.role === 'owner'
+            ? <OwnerPanel d={d} busy={busy} post={post} />
+            : <TenantPanel d={d} busy={busy} post={post} />
+        })()}
 
         <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 22, borderTop: '1px solid #e7e2d9', paddingTop: 14 }}>
           Questions? Reply to the reminder email or contact <strong>PMI@topfloridaproperties.com</strong> · (305) 900-5077.
@@ -88,6 +119,64 @@ export default function LeaseRenewalCheck({ params }: { params: Promise<{ token:
       </div>
     </div>
   )
+}
+
+function introText(role: 'owner' | 'tenant', ended: boolean): string {
+  if (role === 'owner') {
+    return ended
+      ? 'the lease we have on file for this unit has ended. Tell us what is happening now so the association records are right — pick one option below.'
+      : 'the lease we have on file for this unit is about to end. Tell us what is happening next so the association records are right — pick one option below.'
+  }
+  return ended
+    ? 'the lease we have on file for you has ended. Tell us what is happening now — pick one option below.'
+    : 'your lease is about to end. Tell us what is happening next — pick one option below.'
+}
+
+/** What MAIA does after each answer — shown in the confirmation so the
+ *  person knows the click did something and what (if anything) comes next. */
+function nextStep(role: 'owner' | 'tenant', key: string, unit: string): string {
+  const k = `${role}:${key}`
+  switch (k) {
+    case 'owner:vacant': return `Unit ${unit} is now recorded as vacant and the office has been told. When a new tenant is found, they must apply and be approved by the association before moving in.`
+    case 'owner:owner_occupied': return `Unit ${unit} is now recorded as owner-occupied and the office has been told. No further action is needed.`
+    case 'owner:renew': return 'We opened the renewal application and emailed the list of documents needed. Nothing else is needed from you right now.'
+    case 'owner:signed': return 'Check your email for a secure link to upload the signed lease. That is the only thing still needed.'
+    case 'tenant:renew': return 'The office has been told you are staying; we will email you the next steps for the renewal.'
+    case 'tenant:vacating': return `Unit ${unit} will be recorded as vacant when your lease ends and the owner has been told. No further action is needed.`
+    case 'tenant:vacated': return `Unit ${unit} is now recorded as vacant and the owner has been told. No further action is needed.`
+    case 'tenant:signed': return 'Check your email for a secure link to upload the signed lease. That is the only thing still needed.'
+    case 'tenant:apply': return 'We opened the renewal application and emailed you the full list of documents needed.'
+    default: return 'The office has been told. No further action is needed.'
+  }
+}
+
+function DoneBox({ unit, title, next }: { unit: string; title: string; next: string }) {
+  return (
+    <div style={{ background: '#e8f3ec', border: '1px solid #15803d', borderRadius: 10, padding: '16px 18px' }}>
+      <div style={{ font: '700 12px system-ui', color: '#15803d', textTransform: 'uppercase', letterSpacing: '.08em' }}>✓ Answer received — Unit {unit}</div>
+      <div style={{ font: '800 18px Georgia,serif', color: '#14532d', margin: '6px 0 8px' }}>{title}</div>
+      <div style={{ font: '14px system-ui', color: '#166534', lineHeight: 1.5 }}>{next}</div>
+      <div style={{ font: '12.5px system-ui', color: '#4b5563', marginTop: 10 }}>You can close this page. Something changed? Reply to our email or call (305) 900-5077.</div>
+    </div>
+  )
+}
+
+/** Title + POST body for a choice carried in the email link, or null when
+ *  the query doesn't name a valid option for this party (then the normal
+ *  panel shows). Mirrors the keys the API accepts. */
+function presetLabel(role: 'owner' | 'tenant', pre: { occupancy: string | null; response: string | null }): { title: string; body: Record<string, unknown> } | null {
+  if (role === 'tenant') {
+    const o = TENANT_OPTIONS.find(x => x.key === pre.response)
+    return o ? { title: o.title, body: { response: o.key } } : null
+  }
+  if (pre.occupancy === 'leased') {
+    const a = OWNER_ACTIONS.find(x => x.key === pre.response)
+    return a ? { title: a.title, body: { occupancy: 'leased', response: a.key } } : null
+  }
+  const occ = OCCUPANCY.find(x => x.key === pre.occupancy)
+  if (!occ) return null
+  const title = occ.key === 'vacant' ? 'The unit is vacant' : occ.key === 'owner_occupied' ? 'I live in the unit myself' : occ.title
+  return { title, body: { occupancy: occ.key } }
 }
 
 function OptionButton({ title, blurb, active, disabled, onClick }: { title: string; blurb: string; active: boolean; disabled: boolean; onClick: () => void }) {
@@ -103,13 +192,7 @@ function OptionButton({ title, blurb, active, disabled, onClick }: { title: stri
 }
 
 function TenantPanel({ d, busy, post }: { d: Data; busy: string | null; post: (b: Record<string, unknown>, tag: string) => void }) {
-  if (d.tenantResponse) {
-    return (
-      <div style={{ background: '#e8f3ec', border: '1px solid #15803d', borderRadius: 10, padding: 16, color: '#166534', fontWeight: 600 }}>
-        ✓ Thanks — we have your answer ({TENANT_OPTIONS.find(o => o.key === d.tenantResponse)?.title ?? d.tenantResponse}). You can close this page.
-      </div>
-    )
-  }
+  if (d.tenantResponse) return <DoneBox unit={d.unitLabel} title={TENANT_OPTIONS.find(o => o.key === d.tenantResponse)?.title ?? d.tenantResponse} next={nextStep('tenant', d.tenantResponse, d.unitLabel)} />
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {TENANT_OPTIONS.map(o => (
@@ -124,13 +207,10 @@ function OwnerPanel({ d, busy, post }: { d: Data; busy: string | null; post: (b:
   const [occupancy, setOccupancy] = useState(d.ownerOccupancy)
   const done = d.ownerResponse || (occupancy && occupancy !== 'leased')
   if (done && d.ownerOccupancy) {
+    const answerKey = d.ownerResponse ?? d.ownerOccupancy ?? ''
     const label = d.ownerResponse ? OWNER_ACTIONS.find(o => o.key === d.ownerResponse)?.title ?? d.ownerResponse
-      : OCCUPANCY.find(o => o.key === d.ownerOccupancy)?.title
-    return (
-      <div style={{ background: '#e8f3ec', border: '1px solid #15803d', borderRadius: 10, padding: 16, color: '#166534', fontWeight: 600 }}>
-        ✓ Thanks — we have your answer ({label}). You can close this page.
-      </div>
-    )
+      : d.ownerOccupancy === 'vacant' ? 'The unit is vacant' : d.ownerOccupancy === 'owner_occupied' ? 'I live in the unit myself' : OCCUPANCY.find(o => o.key === d.ownerOccupancy)?.title ?? ''
+    return <DoneBox unit={d.unitLabel} title={label ?? ''} next={nextStep('owner', answerKey, d.unitLabel)} />
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

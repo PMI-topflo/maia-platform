@@ -124,3 +124,26 @@ export async function findMergedOwner(
 ): Promise<MergedOwner | null> {
   return mergeOwnerRows(await findOwnerRows(associationCode, account, opts))
 }
+
+
+/** Resolve a unit reference to its `account_number` — the only identity key
+ *  for unit-scoped tables (`unit_occupancy`, `unit_tenant_contacts`, ...).
+ *  Accepts an account number as-is; otherwise treats `ref` as the bare unit
+ *  label ("911") and returns the single active account carrying it. Returns
+ *  null when nothing (or more than one account) matches — the caller keeps
+ *  what it has rather than guessing. Real incident (MANXI 911/702/514/401,
+ *  2026-09-14): the lease-renewal check-in and the e-signed unit survey
+ *  wrote occupancy under the label while every reader keys by account, so
+ *  four owners' answers (vacant / owner-occupied) were silently ignored. */
+export async function accountNumberForUnit(associationCode: string, ref: string): Promise<string | null> {
+  const code = associationCode.toUpperCase()
+  const r = String(ref ?? '').trim()
+  if (!r) return null
+  const asAccount = await supabaseAdmin.from('owners').select('account_number')
+    .eq('association_code', code).eq('account_number', r).limit(1)
+  if (asAccount.data?.length) return r
+  const byLabel = await supabaseAdmin.from('owners').select('account_number')
+    .eq('association_code', code).eq('unit_number', r).or('status.neq.previous,status.is.null').limit(20)
+  const accounts = [...new Set((byLabel.data ?? []).map(o => String(o.account_number ?? '').trim()).filter(Boolean))]
+  return accounts.length === 1 ? accounts[0] : null
+}

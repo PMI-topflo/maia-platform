@@ -25,6 +25,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
 import { findOrCreateCheck, isSatisfied, hasOpenApplication } from '@/lib/lease-renewal-check'
 import { findMergedOwner } from '@/lib/owner-lookup'
+import { leaseRenewalResidentHtml, type Role } from '@/lib/lease-renewal-email'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -57,15 +58,9 @@ export function internalHtml(o: { unit: string; assoc: string; tenant: string; o
     <p style="color:#6b7280;font-size:12px">Please coordinate renewal or move-out. — MAIA, PMI Top Florida Properties</p>
   </div>`
 }
-export function residentHtml(o: { name: string; unit: string; assoc: string; end: string; days: number; link: string }): string {
-  return `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.5">
-    <p>Dear ${o.name ? esc(o.name) : 'Resident'},</p>
-    <p>This is a reminder that the lease for <strong>Unit ${esc(o.unit)}</strong> at <strong>${esc(o.assoc)}</strong> is scheduled to expire on <strong>${fmt(o.end)}</strong> — in <strong>${o.days} days</strong>.</p>
-    <p>Please let us know what's happening so we can help:</p>
-    <p style="margin:10px 0"><a href="${o.link}" style="display:inline-block;background:#c0571a;color:#fff;text-decoration:none;font-weight:600;padding:11px 20px;border-radius:8px">Tell us what's next</a></p>
-    <p style="margin:4px 0">Or contact us directly — ✉ <a href="mailto:PMI@topfloridaproperties.com">PMI@topfloridaproperties.com</a> · ☎ (305) 900-5077</p>
-    <p style="color:#9ca3af;font-size:11px">PMI Top Florida Properties</p>
-  </div>`
+/** Resident reminder before the end date — one button per answer (lib/lease-renewal-email.ts). */
+export function residentHtml(o: { role: Role; name: string; unit: string; assoc: string; end: string; days: number; link: string }): string {
+  return leaseRenewalResidentHtml({ role: o.role, phase: 'expiring', name: o.name, unit: o.unit, assoc: o.assoc, end: o.end, days: o.days, link: o.link })
 }
 
 export async function GET(req: Request) {
@@ -128,8 +123,8 @@ export async function GET(req: Request) {
 
       const subj = `Lease expiring in ${w.days} days — Unit ${unit}, ${assocName}`
       for (const to of internal) { try { await sendEmail({ to, subject: subj, html: internalHtml({ unit, assoc: assocName, tenant: tenantName, owner: ownerName, end: String(l.lease_end), days: w.days }) }) } catch { /* continue */ } }
-      if (sendOwner && check) { try { await sendEmail({ to: sendOwner, subject: `Lease renewal reminder — Unit ${unit}, ${assocName}`, html: residentHtml({ name: ownerName, unit, assoc: assocName, end: String(l.lease_end), days: w.days, link: `${APP}/lease-renewal/${check.owner_token}` }) }) } catch { /* */ } }
-      if (sendTenant && check) { try { await sendEmail({ to: sendTenant, subject: `Lease renewal reminder — Unit ${unit}, ${assocName}`, html: residentHtml({ name: tenantName, unit, assoc: assocName, end: String(l.lease_end), days: w.days, link: `${APP}/lease-renewal/${check.tenant_token}` }) }) } catch { /* */ } }
+      if (sendOwner && check) { try { await sendEmail({ to: sendOwner, subject: `Lease renewal reminder — Unit ${unit}, ${assocName}`, html: residentHtml({ role: 'owner', name: ownerName, unit, assoc: assocName, end: String(l.lease_end), days: w.days, link: `${APP}/lease-renewal/${check.owner_token}` }) }) } catch { /* */ } }
+      if (sendTenant && check) { try { await sendEmail({ to: sendTenant, subject: `Lease renewal reminder — Unit ${unit}, ${assocName}`, html: residentHtml({ role: 'tenant', name: tenantName, unit, assoc: assocName, end: String(l.lease_end), days: w.days, link: `${APP}/lease-renewal/${check.tenant_token}` }) }) } catch { /* */ } }
     }
   }
 

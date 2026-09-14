@@ -10,6 +10,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { categoriesForScope } from '@/lib/compliance-taxonomy'
+import { accountNumberForUnit } from '@/lib/owner-lookup'
 
 export type Occupancy = 'owner_occupied' | 'leased' | 'vacant'
 export const OCCUPANCY_LABEL: Record<Occupancy, string> = {
@@ -122,10 +123,48 @@ export async function getTenantComplianceState(assoc: string, unitRef: string): 
 }
 
 export async function setUnitOccupancy(assoc: string, unitRef: string, status: Occupancy, updatedBy: string): Promise<void> {
+  // unit_occupancy is keyed by ACCOUNT NUMBER everywhere it is read (unit
+  // audit, pre-apply unit picker, compliance outreach, required-docs). Two
+  // writers used to pass the bare unit label ("911"), which created a
+  // second row nobody read (MANXI 911 stayed "Leased" after the owner
+  // answered "Vacant", 2026-09-14). Resolve here so every writer is safe.
+  const account = (await accountNumberForUnit(assoc, unitRef)) ?? unitRef
   await supabaseAdmin.from('unit_occupancy').upsert(
-    { association_code: assoc, unit_ref: unitRef, status, updated_by: updatedBy, updated_at: new Date().toISOString() },
+    { association_code: assoc, unit_ref: account, status, updated_by: updatedBy, updated_at: new Date().toISOString() },
     { onConflict: 'association_code,unit_ref' },
   )
+  if (account !== unitRef) {
+    await supabaseAdmin.from('unit_occupancy').delete().eq('association_code', assoc).eq('unit_ref', unitRef)
+  }
+}
+
+/** One-time / repeatable repair: move every label-keyed unit_occupancy row
+ *  onto its account-keyed row (the newer answer wins) and drop the label
+ *  row. Returns what it did; safe to run again (finds nothing). */
+export async function normalizeUnitOccupancyRefs(assoc?: string): Promise<{ moved: string[]; kept: string[]; unresolved: string[] }> {
+  let q = supabaseAdmin.from('unit_occupancy').select('id, association_code, unit_ref, status, updated_by, updated_at').limit(5000)
+  if (assoc) q = q.eq('association_code', assoc.toUpperCase())
+  const { data } = await q
+  const rows = (data ?? []) as { id: string; association_code: string; unit_ref: string; status: Occupancy; updated_by: string | null; updated_at: string | null }[]
+  const out = { moved: [] as string[], kept: [] as string[], unresolved: [] as string[] }
+  for (const r of rows) {
+    const account = await accountNumberForUnit(r.association_code, r.unit_ref)
+    if (!account) { out.unresolved.push(`${r.association_code} ${r.unit_ref}`); continue }
+    if (account === r.unit_ref) continue
+    const twin = rows.find(x => x.association_code === r.association_code && x.unit_ref === account)
+    const newer = !twin || String(r.updated_at ?? '') >= String(twin.updated_at ?? '')
+    if (newer) {
+      await supabaseAdmin.from('unit_occupancy').upsert(
+        { association_code: r.association_code, unit_ref: account, status: r.status, updated_by: r.updated_by ?? 'normalize', updated_at: r.updated_at ?? new Date().toISOString() },
+        { onConflict: 'association_code,unit_ref' },
+      )
+      out.moved.push(`${r.association_code} ${r.unit_ref} → ${account} (${r.status})`)
+    } else {
+      out.kept.push(`${r.association_code} ${r.unit_ref}: account row newer (${twin!.status}), label row dropped`)
+    }
+    await supabaseAdmin.from('unit_occupancy').delete().eq('id', r.id)
+  }
+  return out
 }
 
 /** unit_occupancy.status is NOT NULL — a use-type save can't create a row
