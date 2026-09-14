@@ -102,6 +102,7 @@ export default function HousekeepingPage() {
                       <td style={{ padding: '6px 8px', color: '#92400e' }}>{a.notice && <span style={{ display: 'inline-block', font: '600 11px system-ui', color: '#1e40af', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 999, padding: '1px 8px', marginRight: 6 }}>notice sent · expires {fmtD(a.notice.dueAt)}</span>}{a.flags.join(' · ') || (!a.notice && <span style={{ color: '#9ca3af' }}>—</span>)}</td>
                       <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
                         {(a.stage === 'applicant' || a.stage === 'refused' || a.documents === 0) && <button disabled={!!busy} onClick={() => expire(a)} style={btn(a.suggestExpire)}>{busy === `Expire ${a.unitLabel}` ? 'Closing…' : 'Mark expired'}</button>}
+                        {a.notice?.kind === 'unpaid' && <button disabled={!!busy} onClick={() => act(`Screened elsewhere ${a.unitLabel}`, { action: 'screened_elsewhere', applicationId: a.id }, `Record that Unit ${a.unitLabel} paid / was screened outside MAIA (e.g. Tenant Evaluation)? The unpaid-fee notice is cancelled and MAIA will not ask for the fee.`)} style={{ ...btn(), marginLeft: 6 }}>Paid elsewhere</button>}
                       </td>
                     </tr>
                   ))}
