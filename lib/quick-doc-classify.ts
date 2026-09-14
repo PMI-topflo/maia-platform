@@ -41,11 +41,12 @@ function mediaTypeFor(ct: string | null): 'image/jpeg' | 'image/png' | 'image/we
 }
 
 const SCAN_PROMPT = `You are reading a single document for a condo leasing file. Return ONLY JSON:
-{"label":"<one label>","expiration":"<YYYY-MM-DD or null>"}
+{"label":"<one label>","expiration":"<YYYY-MM-DD or null>","issued":"<YYYY-MM-DD or null>"}
 - "label": the ONE best match from this list: ${LABELS.join(', ')} (use "other" if none fit). A document titled "FLORIDA VEHICLE REGISTRATION" or similar, with a plate/tag number, VIN, and vehicle year/make, is "vehicle registration" — NOT "certificate of use" (that label is a municipal rental/occupancy certificate, a DMV document is never one).
-- "expiration": ANY expiration / valid-through / "EXP" date printed on the document, in YYYY-MM-DD. Look hard for it: a driver's license or state ID "EXP" date, a vehicle registration "Expires" date, an insurance policy expiration/period-end, a certificate-of-use expiry, or a lease end date. Dates are printed American-style, MONTH/DAY/YEAR — e.g. a Florida registration showing "Expires Midnight Mon 3/8/2027" means March 8 2027 → "2027-03-08", NOT August 3. Read every digit carefully; do not guess or invent a date that is not actually printed. If the document genuinely has no expiration (e.g. a deed, an affidavit, a tax return), return null.`
+- "expiration": ANY expiration / valid-through / "EXP" date printed on the document, in YYYY-MM-DD. Look hard for it: a driver's license or state ID "EXP" date, a vehicle registration "Expires" date, an insurance policy expiration/period-end, a certificate-of-use expiry, or a lease end date. Dates are printed American-style, MONTH/DAY/YEAR — e.g. a Florida registration showing "Expires Midnight Mon 3/8/2027" means March 8 2027 → "2027-03-08", NOT August 3. Read every digit carefully; do not guess or invent a date that is not actually printed. If the document genuinely has no expiration (e.g. a deed, an affidavit, a tax return), return null. NEVER report an issue date as the expiration: on a vehicle registration, "Date Issued", "Plate Issued" and "Issued" are the day the registration was printed, NOT when it expires — the expiration is only the line that says "Expires" (e.g. "Expires Midnight Thu 11/13/2026"). When a registration shows an issued date but no "Expires" line at all, return expiration null and put the issued date in "issued".
+- "issued": the document's issue date ("Date Issued" / "Plate Issued" / "Issued" / "Issue Date") in YYYY-MM-DD when printed, else null.`
 
-export interface DocScan { label: string; expiration: string | null }
+export interface DocScan { label: string; expiration: string | null; issued?: string | null }
 /** A scan that also says whether it actually READ the document. `ok: false`
  *  means the read failed (no key, budget, unreadable file, bad model output) —
  *  which is NOT the same as "read it, the document has no expiration printed".
@@ -82,8 +83,19 @@ export async function quickDocScanDetailed(buf: Buffer, contentType: string | nu
     if (!m) return { label: 'other', expiration: null, ok: false, error: 'the model did not return JSON' }
     const o = JSON.parse(m[0]) as Record<string, unknown>
     const label = String(o.label ?? 'other').toLowerCase().trim()
-    const exp = typeof o.expiration === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.expiration.trim()) ? o.expiration.trim() : null
-    return { label: LABELS.includes(label) ? label : 'other', expiration: exp, ok: true }
+    let exp = typeof o.expiration === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.expiration.trim()) ? o.expiration.trim() : null
+    const issued = typeof o.issued === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.issued.trim()) ? o.issued.trim() : null
+    const finalLabel = LABELS.includes(label) ? label : 'other'
+    // A vehicle registration is valid for one year from issue. Most Florida
+    // registrations print only "Plate Issued" / "Date Issued" (user, 2026-09-14,
+    // MANXI 702): when no "Expires" line was read, the expiration is the
+    // issue date + 1 year; and an "expiration" equal to the issue date is
+    // the model echoing the wrong field — treat it the same way.
+    if (finalLabel === 'vehicle registration' && issued && (!exp || exp === issued)) {
+      const d = new Date(issued + 'T12:00:00Z'); d.setUTCFullYear(d.getUTCFullYear() + 1)
+      exp = d.toISOString().slice(0, 10)
+    }
+    return { label: finalLabel, expiration: exp, issued, ok: true }
   } catch (err) { return { label: 'other', expiration: null, ok: false, error: (err as Error).message } }
 }
 
