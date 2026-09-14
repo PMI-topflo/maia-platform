@@ -3,9 +3,12 @@
 //
 // "PMI Top Florida Daily News" — the daily (Mon–Fri) staff digest. One
 // branded HTML email to the whole team with a section per staff member
-// showing week-to-date (Monday → now, America/New_York) ticket + work
-// order activity, plus a "Team · Unassigned" catch-all so nothing with
-// no assignee hides. Each section links to /improve so anyone can drop
+// showing ticket + work order activity SINCE THE PREVIOUS EDITION (the
+// previous weekday's 5 AM ET — so Monday's edition covers Friday morning
+// through Sunday night), plus week-to-date totals in the team header and
+// a "Team · Unassigned" catch-all so nothing with no assignee hides.
+// (Until 2026-09-14 every cell counted "since Monday 00:00", so the
+// Monday edition, sent at 5 AM, showed 0 opened / 0 resolved everywhere.) Each section links to /improve so anyone can drop
 // a "make MAIA better" idea (triaged on /admin/ideas).
 //
 // Tickets AND work orders both live in `tickets` (type distinguishes
@@ -52,17 +55,22 @@ export function recentWhatsNew(nowIso: string, days = 7): WhatsNewItem[] {
     .sort((a, b) => b.date.localeCompare(a.date))
 }
 
-// "Late" age fallback (hours) when a ticket has no explicit due_at, by
-// priority. due_at, when set, always wins.
+// "Late" fallback (hours) when a ticket has no explicit due_at, by
+// priority. due_at, when set, always wins. Measured from the last
+// activity on the ticket (updated_at), not from creation: a ticket that
+// was worked yesterday is not late because it was opened a month ago.
 const LATE_AGE_HOURS: Record<string, number> = { urgent: 24, high: 72, normal: 168, low: 336 }
+
+/** The edition goes out at this Eastern hour on weekdays. */
+export const EDITION_HOUR_ET = 5
 
 const OPEN_STATUSES     = ['open', 'pending', 'waiting_external']
 const RESOLVED_STATUSES = ['resolved']
 
 export interface NewsMetrics {
-  ticketsOpened:   number
+  ticketsOpened:   number   // since the previous edition
   woOpened:        number
-  ticketsResolved: number
+  ticketsResolved: number   // since the previous edition
   woResolved:      number
   ticketsOpen:     number   // currently open (any age)
   woOpen:          number
@@ -82,9 +90,12 @@ export interface NewsSection {
 
 export interface StaffNewsData {
   weekStartIso: string
+  sinceIso:     string          // previous edition (previous weekday, 5 AM ET)
+  sinceLabel:   string          // e.g. "Friday's edition"
   generatedIso: string
   sections:     NewsSection[]   // active staff, then Team · Unassigned last
   totals:       NewsMetrics
+  weekTotals:   { opened: number; resolved: number }   // Monday 00:00 ET → now
 }
 
 interface TicketRow {
@@ -92,6 +103,7 @@ interface TicketRow {
   status:         string | null
   priority:       string | null
   created_at:     string | null
+  updated_at:     string | null
   resolved_at:    string | null
   due_at:         string | null
   assignee_email: string | null
@@ -140,17 +152,37 @@ export function startOfEtWeek(now: Date): Date {
   return new Date(todayEtMidnightUtc - daysSinceMon * 86_400_000)
 }
 
+/** The previous weekday's edition instant (EDITION_HOUR_ET on the last
+ *  Mon–Fri before `now`'s ET date), as a UTC Date. Monday → Friday 5 AM. */
+export function previousEditionStart(now: Date): Date {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now)
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? ''
+  let day = Date.UTC(Number(get('year')), Number(get('month')) - 1, Number(get('day')))
+  do { day -= 86_400_000 } while ([0, 6].includes(new Date(day).getUTCDay()))
+  const offMin = etOffsetMin(new Date(day + 12 * 3_600_000))
+  return new Date(day + EDITION_HOUR_ET * 3_600_000 - offMin * 60_000)
+}
+
 function isLate(t: TicketRow, nowMs: number): boolean {
   if (t.due_at) return new Date(t.due_at).getTime() < nowMs
-  if (!t.created_at) return false
-  const ageH = (nowMs - new Date(t.created_at).getTime()) / 3_600_000
-  return ageH > (LATE_AGE_HOURS[(t.priority ?? 'normal').toLowerCase()] ?? LATE_AGE_HOURS.normal)
+  const last = t.updated_at ?? t.created_at
+  if (!last) return false
+  const idleH = (nowMs - new Date(last).getTime()) / 3_600_000
+  return idleH > (LATE_AGE_HOURS[(t.priority ?? 'normal').toLowerCase()] ?? LATE_AGE_HOURS.normal)
 }
 
 /** Pull tickets/WOs and roll them up per staff for the current ET week. */
 export async function gatherStaffNews(now = new Date()): Promise<StaffNewsData> {
   const weekStart = startOfEtWeek(now)
   const weekStartIso = weekStart.toISOString()
+  const since = previousEditionStart(now)
+  const sinceIso = since.toISOString()
+  const sinceLabel = `${new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'long' }).format(since)}'s edition`
+  // Rows opened/resolved since whichever is earlier: the previous edition
+  // (Friday, on a Monday) or the start of the week.
+  const lowerIso = sinceIso < weekStartIso ? sinceIso : weekStartIso
   const nowMs = now.getTime()
 
   const staff = (await fetchStaffList()).filter(isHumanStaff)
@@ -167,11 +199,11 @@ export async function gatherStaffNews(now = new Date()): Promise<StaffNewsData> 
   // is simpler/safer than a complex .or() across nullable columns.)
   const [openRes, weekRes] = await Promise.all([
     supabaseAdmin.from('tickets')
-      .select('type,status,priority,created_at,resolved_at,due_at,assignee_email')
+      .select('type,status,priority,created_at,updated_at,resolved_at,due_at,assignee_email')
       .is('archived_at', null).in('status', OPEN_STATUSES).limit(5000),
     supabaseAdmin.from('tickets')
-      .select('type,status,priority,created_at,resolved_at,due_at,assignee_email')
-      .is('archived_at', null).in('status', RESOLVED_STATUSES).gte('resolved_at', weekStartIso).limit(5000),
+      .select('type,status,priority,created_at,updated_at,resolved_at,due_at,assignee_email')
+      .is('archived_at', null).in('status', RESOLVED_STATUSES).gte('resolved_at', lowerIso).limit(5000),
   ])
   const openRows = (openRes.data ?? []) as TicketRow[]
   const weekResolvedRows = (weekRes.data ?? []) as TicketRow[]
@@ -182,25 +214,30 @@ export async function gatherStaffNews(now = new Date()): Promise<StaffNewsData> 
   }
   const isWo = (t: TicketRow) => t.type === 'work_order'
 
-  // Currently-open rows: count open + late, and "opened this week" if their
-  // created_at is on/after Monday.
+  const weekTotals = { opened: 0, resolved: 0 }
+  // Currently-open rows: count open + late, and "opened" if created since
+  // the previous edition (plus the week-to-date total).
   for (const t of openRows) {
     const sec = sectionFor(t)
     if (isWo(t)) { sec.metrics.woOpen++; if (isLate(t, nowMs)) sec.metrics.woLate++ }
     else         { sec.metrics.ticketsOpen++; if (isLate(t, nowMs)) sec.metrics.ticketsLate++ }
-    if (t.created_at && t.created_at >= weekStartIso) {
+    if (t.created_at && t.created_at >= sinceIso) {
       if (isWo(t)) sec.metrics.woOpened++; else sec.metrics.ticketsOpened++
     }
+    if (t.created_at && t.created_at >= weekStartIso) weekTotals.opened++
   }
-  // Resolved-this-week rows (these are closed, so not in openRows). Also
-  // credit them as "opened this week" if they were both created & resolved
-  // within the window.
+  // Resolved rows (closed, so not in openRows): "resolved" if resolved since
+  // the previous edition; also "opened" if created in that window.
   for (const t of weekResolvedRows) {
     const sec = sectionFor(t)
-    if (isWo(t)) sec.metrics.woResolved++; else sec.metrics.ticketsResolved++
-    if (t.created_at && t.created_at >= weekStartIso) {
+    if (t.resolved_at && t.resolved_at >= sinceIso) {
+      if (isWo(t)) sec.metrics.woResolved++; else sec.metrics.ticketsResolved++
+    }
+    if (t.created_at && t.created_at >= sinceIso) {
       if (isWo(t)) sec.metrics.woOpened++; else sec.metrics.ticketsOpened++
     }
+    if (t.resolved_at && t.resolved_at >= weekStartIso) weekTotals.resolved++
+    if (t.created_at && t.created_at >= weekStartIso) weekTotals.opened++
   }
 
   // ── "Your tasks coming up" — active staff_tasks per person ──────────
@@ -229,7 +266,7 @@ export async function gatherStaffNews(now = new Date()): Promise<StaffNewsData> 
     return acc
   }, emptyMetrics())
 
-  return { weekStartIso, generatedIso: now.toISOString(), sections: ordered, totals }
+  return { weekStartIso, sinceIso, sinceLabel, generatedIso: now.toISOString(), sections: ordered, totals, weekTotals }
 }
 
 // ── Email builder ────────────────────────────────────────────────────
@@ -288,7 +325,7 @@ function sectionBlock(s: NewsSection, appUrl: string): string {
   return `<tr><td style="padding:16px 28px 4px">
     <div style="border:1px solid #e6e8ec;border-radius:10px;padding:14px 16px;background:#fbfcfe">
       <div style="font-size:16px;font-weight:700;color:${NAVY}"><a href="${esc(workUrl)}" style="color:${NAVY};text-decoration:none">${nameHtml}</a></div>
-      ${quiet ? `<div style="font-size:12px;color:#9ca3af;margin-top:6px">No tickets or work orders this week.</div>` : ''}
+      ${quiet ? `<div style="font-size:12px;color:#9ca3af;margin-top:6px">No tickets or work orders since the last edition.</div>` : ''}
       ${metricRow('Tickets', m.ticketsOpened, m.ticketsResolved, m.ticketsOpen, m.ticketsLate)}
       ${metricRow('Work orders', m.woOpened, m.woResolved, m.woOpen, m.woLate)}
       ${tasksBlock(s.tasks, appUrl)}
@@ -322,7 +359,7 @@ export function buildStaffNewsEmail(data: StaffNewsData, appUrl: string): { subj
           <div style="font-size:11px;color:#6b7280;letter-spacing:0.03em;margin-top:2px">by PMI Top Florida Properties</div>
         </td>
       </tr></table>
-      <div style="font-size:13px;color:#6b7280;margin-top:14px">📣 <strong style="color:#0f172a">Daily News</strong> · ${esc(dateLabel)} · week-to-date since Monday</div>
+      <div style="font-size:13px;color:#6b7280;margin-top:14px">📣 <strong style="color:#0f172a">Daily News</strong> · ${esc(dateLabel)} · since ${esc(data.sinceLabel)}</div>
     </td></tr>
 
     ${news.length ? `<tr><td style="padding:16px 28px 0">
@@ -336,20 +373,21 @@ export function buildStaffNewsEmail(data: StaffNewsData, appUrl: string): { subj
     </td></tr>` : ''}
 
     <tr><td style="padding:18px 28px 0">
-      <div style="font-size:11px;font-weight:600;color:${NAVY};margin-bottom:4px">TEAM THIS WEEK</div>
+      <div style="font-size:11px;font-weight:600;color:${NAVY};margin-bottom:4px">TEAM · SINCE ${esc(data.sinceLabel.toUpperCase())}</div>
       <table role="presentation" cellpadding="0" cellspacing="4" border="0" width="100%"><tr>
         <td align="center" style="padding:10px 4px;border:1px solid #e5e7eb;border-radius:6px"><div style="font-size:20px;font-weight:700;color:${NAVY}">${t.ticketsOpened + t.woOpened}</div><div style="font-size:9px;color:#6b7280;text-transform:uppercase">Opened</div></td>
         <td align="center" style="padding:10px 4px;border:1px solid #e5e7eb;border-radius:6px"><div style="font-size:20px;font-weight:700;color:${GREEN}">${t.ticketsResolved + t.woResolved}</div><div style="font-size:9px;color:#6b7280;text-transform:uppercase">Resolved</div></td>
         <td align="center" style="padding:10px 4px;border:1px solid #e5e7eb;border-radius:6px"><div style="font-size:20px;font-weight:700;color:${NAVY}">${t.ticketsOpen + t.woOpen}</div><div style="font-size:9px;color:#6b7280;text-transform:uppercase">Open</div></td>
         <td align="center" style="padding:10px 4px;border:1px solid #e5e7eb;border-radius:6px"><div style="font-size:20px;font-weight:700;color:${t.ticketsLate + t.woLate > 0 ? RED : GREEN}">${t.ticketsLate + t.woLate}</div><div style="font-size:9px;color:#6b7280;text-transform:uppercase">Late</div></td>
       </tr></table>
+      <div style="font-size:11px;color:#6b7280;margin-top:6px">This week so far (since Monday): <strong style="color:${NAVY}">${data.weekTotals.opened}</strong> opened · <strong style="color:${GREEN}">${data.weekTotals.resolved}</strong> resolved</div>
     </td></tr>
 
     ${data.sections.map(s => sectionBlock(s, appUrl)).join('\n')}
 
     <tr><td style="padding:16px 28px 22px;border-top:1px solid #eceff4">
       <p style="font-size:11px;color:#9ca3af;margin:14px 0 0">
-        "Late" = past its due date, or open longer than its priority window (urgent 1d · high 3d · normal 7d · low 14d).<br/>
+        Opened / Resolved count since the previous edition (${esc(data.sinceLabel)}, ${EDITION_HOUR_ET} AM ET). "Late" = past its due date, or no activity for longer than its priority window (urgent 1d · high 3d · normal 7d · low 14d).<br/>
         Maia · by PMI Top Florida Properties · <a href="${esc(appUrl)}" style="color:#9ca3af;text-decoration:none">${esc(appUrl.replace(/^https?:\/\//, ''))}</a>
       </p>
     </td></tr>
@@ -360,7 +398,7 @@ export function buildStaffNewsEmail(data: StaffNewsData, appUrl: string): { subj
 
   const text = [
     `Maia Daily News — ${dateLabel}`,
-    `Week-to-date since Monday.`,
+    `Since ${data.sinceLabel}. This week so far: ${data.weekTotals.opened} opened, ${data.weekTotals.resolved} resolved.`,
     '',
     ...(news.length ? ['New in Maia this week:', ...news.map(it => `  • ${it.title} — ${it.blurb}`), ''] : []),
     ...data.sections.map(s => {

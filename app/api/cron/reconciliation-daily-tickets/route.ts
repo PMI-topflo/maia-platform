@@ -14,7 +14,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { getOrCreateDailyReconTicket, easternDateStr } from '@/lib/reconciliation-tickets'
+import { getOrCreateDailyReconTicket, supersedeOlderReconTickets, easternDateStr } from '@/lib/reconciliation-tickets'
 
 export const dynamic     = 'force-dynamic'
 export const maxDuration = 30
@@ -44,11 +44,18 @@ export async function GET(req: Request) {
 
   const dateStr = easternDateStr()
   const created: string[] = []
+  let superseded = 0
   for (const s of staff ?? []) {
     if (!s.email) continue
-    const t = await getOrCreateDailyReconTicket({ staffEmail: String(s.email).toLowerCase(), staffName: s.name as string | null, dateStr })
+    const email = String(s.email).toLowerCase()
+    const t = await getOrCreateDailyReconTicket({ staffEmail: email, staffName: s.name as string | null, dateStr })
     if (t) created.push(`${s.email} → ${t.ticket_number}`)
+    // Yesterday's (and any older) still-open reconciliation ticket has no
+    // purpose once today's exists — close it as superseded so each person
+    // has at most one open at a time (2026-09-14: 146 had piled up).
+    const sup = await supersedeOlderReconTickets({ staffEmail: email, dateStr, todayTicketNumber: t?.ticket_number ?? null })
+    superseded += sup.superseded
   }
 
-  return NextResponse.json({ ok: true, date: dateStr, tickets: created })
+  return NextResponse.json({ ok: true, date: dateStr, tickets: created, superseded })
 }

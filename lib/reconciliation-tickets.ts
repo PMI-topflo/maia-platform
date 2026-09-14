@@ -120,6 +120,43 @@ export async function getOrCreateDailyReconTicket(opts: {
   return data as { id: number; ticket_number: string }
 }
 
+/** Close, as superseded, every EARLIER daily reconciliation ticket of a
+ *  staffer that is still open. One per weekday was created and nothing
+ *  ever closed the ones nobody clicked "Done" on: by 2026-09-14, 146 of
+ *  the 213 open tickets in MAIA were "Daily bank reconciliation — <date>"
+ *  rows from June to September (73 each for AP and AR), which made the
+ *  Daily News "open" and "late" counts meaningless. A day's reconciliation
+ *  ticket has no purpose once the next day's exists, so it is CANCELED
+ *  (not resolved — the work was not stamped done) with a note. Called by
+ *  the 6 AM cron after it opens today's ticket. */
+export async function supersedeOlderReconTickets(opts: {
+  staffEmail: string
+  dateStr?:   string
+  todayTicketNumber?: string | null
+}): Promise<{ superseded: number; ticketNumbers: string[] }> {
+  const dateStr = opts.dateStr ?? easternDateStr()
+  const { data: rows } = await supabaseAdmin
+    .from('tickets')
+    .select('id, ticket_number, summary')
+    .eq('assignee_email', opts.staffEmail)
+    .not('recon_date', 'is', null)
+    .lt('recon_date', dateStr)
+    .in('status', ['open', 'pending', 'waiting_external'])
+    .is('archived_at', null)
+    .limit(1000)
+  const list = (rows ?? []) as { id: number; ticket_number: string; summary: string | null }[]
+  if (!list.length) return { superseded: 0, ticketNumbers: [] }
+  const nowIso = new Date().toISOString()
+  const note = `Superseded${opts.todayTicketNumber ? ` by ${opts.todayTicketNumber}` : ''} — closed automatically because a newer daily reconciliation ticket exists. It was never marked Done.`
+  for (const r of list) {
+    await supabaseAdmin.from('tickets').update({
+      status: 'canceled', canceled_at: nowIso, updated_at: nowIso,
+      summary: `${(r.summary ?? '').trim()}\n\n${note}`.trim(),
+    }).eq('id', r.id)
+  }
+  return { superseded: list.length, ticketNumbers: list.map(r => r.ticket_number) }
+}
+
 /** Recompute a staffer's per-association counts for the day and rewrite
  *  their daily ticket's summary. `resolve` marks it done (the "Done"
  *  button); mark-paid calls it with resolve=false to keep accumulating. */
