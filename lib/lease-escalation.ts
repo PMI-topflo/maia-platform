@@ -85,6 +85,14 @@ const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso + 'T12:
 const fmt = (iso: string) => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 const money = (n: number) => '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 
+/** A check row whose unit_label is actually the CINC account number
+ *  ("MANXI710") rather than the unit label ("710") — see the shadow-row note
+ *  in buildEscalations. */
+const isAccountKeyed = (c: { association_code: string; unit_label: string }) =>
+  c.unit_label.toUpperCase().startsWith(c.association_code.toUpperCase()) && c.unit_label.length > c.association_code.length
+const bareUnit = (c: { association_code: string; unit_label: string }) =>
+  isAccountKeyed(c) ? c.unit_label.slice(c.association_code.length) : c.unit_label
+
 async function assocNames(codes: string[]): Promise<Map<string, string>> {
   if (!codes.length) return new Map()
   const { data } = await supabaseAdmin.from('associations').select('association_code, association_name').in('association_code', codes)
@@ -406,9 +414,21 @@ export async function buildEscalations(opts: { includeResolved?: boolean } = {})
     })
   }
 
+  // Shadow rows. Both reminder crons key the check on `owner?.unitNumber ||
+  // account`, so a run where findMergedOwner came back empty mints a SECOND
+  // row for the same unit keyed on the account number ("MANXI710" beside
+  // "710") with no owner name and no owner email. Measured 2026-09-15: 19 of
+  // 60 rows are account-keyed, none has an owner email, and 14 of them
+  // shadow a perfectly good row. They would read here as real "add an owner
+  // email" work, so a shadow is dropped — but an account-keyed row with NO
+  // twin is a unit whose owner never resolved at all, which IS real work and
+  // stays. (The root cause is in findOrCreateCheck's callers, not here.)
+  const twin = new Set([...checks, ...waiting].filter(c => !isAccountKeyed(c)).map(c => `${c.association_code}|${c.unit_label.toUpperCase()}|${c.lease_end}`))
+
   const backlog: BacklogRow[] = []
   for (const c of waiting) {
     if (isSatisfied(c).owner) continue
+    if (isAccountKeyed(c) && twin.has(`${c.association_code}|${bareUnit(c).toUpperCase()}|${c.lease_end}`)) continue
     if (await hasOpenApplication(c.association_code, c.unit_label)) continue
     backlog.push({
       id: c.id, association: c.association_code, associationName: names.get(c.association_code) ?? c.association_code, unit: c.unit_label,
