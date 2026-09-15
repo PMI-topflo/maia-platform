@@ -110,9 +110,20 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
   // see someone else's military-service disclosure.
   const leaseChecklistItem = checklist.find(d => d.doc_key === 'landlord_tenant_agreement' && applies(d.condition_key))
   const myLeaseRole: 'owner' | 'tenant' | null = me.role === 'owner' ? 'owner' : me.role === 'applicant' ? 'tenant' : null
-  const leaseAgreement = (leaseChecklistItem && myLeaseRole)
+  // Whoever we pass here is written onto the packet as the Tenant, and
+  // findUnitLeasePacket then blocks ever creating a second one — so a packet
+  // minted before the real applicant is on the roster is STUCK with the wrong
+  // name. MANXI 702 (2026-09-09): the agent started the application at 9:57,
+  // the owner opened his own link at 10:01, and the applicant was not added
+  // until 11:35 — the packet went out naming the agent as Tenant and was
+  // still chasing her for a tenant signature six days later.
+  // An applicant viewing their own link is the tenant, by definition.
+  const tenantForPacket = me.role === 'applicant'
+    ? { name: me.name ?? null, email: me.email ?? null, phone: me.phone ?? null }
+    : intake.applicant
+  const leaseAgreement = (leaseChecklistItem && myLeaseRole && (tenantForPacket?.email || tenantForPacket?.name))
     ? await getOrCreateLeasePacketLink(intake.associationCode, String(intake.unitLabel ?? ''), myLeaseRole, `token:pre-apply/${token}`, {
-        name: intake.applicant?.name ?? null, email: intake.applicant?.email ?? null, phone: intake.applicant?.phone ?? null,
+        name: tenantForPacket.name ?? null, email: tenantForPacket.email ?? null, phone: tenantForPacket.phone ?? null,
         leaseStart: (appRow?.lease_start as string | null) ?? null, leaseEnd: (appRow?.lease_end as string | null) ?? null,
       }).catch(() => null)
     : null

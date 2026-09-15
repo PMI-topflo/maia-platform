@@ -130,13 +130,24 @@ export async function sendLeasePacket(
 
   if (!ownerEmail && !tenantEmail) return { ok: false, error: 'No owner or tenant email on file — add one first.' }
 
+  // Does the unit's own record still describe a live tenancy? (No end date on
+  // file counts as live — only a date already in the past is disqualifying.)
+  const fallbackEnd = (tenant?.lease_end as string | null) ?? null
+  const currentTerm = !fallbackEnd || fallbackEnd >= new Date().toISOString().slice(0, 10)
+
   const { data: created, error } = await supabaseAdmin.from('lease_packets').insert({
     association_code: associationCode, unit_ref: account, unit_number: unitLabel,
     association_legal_name: legal, owner_name: ownerName, owner_email: ownerEmail, owner_mobile: ownerMobile,
     tenant_name: tenantName, tenant_email: tenantEmail, tenant_mobile: tenantMobile,
     property_address: propertyAddress,
-    lease_start: firstNonEmpty(tenantOverride?.leaseStart, tenant?.lease_start as string | null),
-    lease_end: firstNonEmpty(tenantOverride?.leaseEnd, tenant?.lease_end as string | null),
+    // The unit-wide fallback is only trustworthy while it describes a CURRENT
+    // tenancy. unit_tenant_contacts only refreshes on approval, so a unit
+    // between tenants still carries the last one's term — MANXI 702's packet
+    // went out stamped with a lease that ended 2024-05-04. An already-expired
+    // fallback is not a lease term, it is stale data: leave the field blank
+    // rather than print a term nobody is agreeing to.
+    lease_start: firstNonEmpty(tenantOverride?.leaseStart, currentTerm ? (tenant?.lease_start as string | null) : null),
+    lease_end: firstNonEmpty(tenantOverride?.leaseEnd, currentTerm ? (tenant?.lease_end as string | null) : null),
     effective_date: new Date().toISOString().slice(0, 10), status: 'sent', created_by: createdBy,
   }).select('id').single()
   if (error || !created) return { ok: false, error: `Could not create packet: ${error?.message ?? 'unknown'}` }
