@@ -23,7 +23,7 @@ import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
-import { findOrCreateCheck, isSatisfied, hasOpenApplication } from '@/lib/lease-renewal-check'
+import { findOrCreateCheck, isSatisfied, hasOpenApplication, unitLabelFor } from '@/lib/lease-renewal-check'
 import { findMergedOwner } from '@/lib/owner-lookup'
 import { leaseRenewalResidentHtml, type Role } from '@/lib/lease-renewal-email'
 
@@ -89,7 +89,7 @@ export async function GET(req: Request) {
         supabaseAdmin.from('association_board_members').select('email').eq('association_code', assoc).eq('active', true),
       ])
       const assocName = (assocRow?.association_name as string | null) ?? assoc
-      const unit = owner?.unitNumber || account
+      const unit = unitLabelFor(assoc, account, owner?.unitNumber)
       const ownerName = owner?.name || '—'
       const ownerEmail = owner?.firstEmail ?? null
       const tenantEmail = firstEmail((l.tenant_email as string | null) ?? null)

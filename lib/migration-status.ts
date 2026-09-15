@@ -4762,6 +4762,142 @@ ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS expiry_final_wa
 NOTIFY pgrst, 'reload schema';
 `,
   },
+  {
+    key:         'lease_renewal_escalation',
+    label:       'lease_renewal_checks escalation columns (lease non-renewal escalation)',
+    description: "Phase 5 of the Checkr-first redesign. The escalation notice sent on the day the lease ends, the 15-day violation-fee clock, staff's yes/no on the fee, and the further 30 days after which the application expires and the unit goes red on Leasing -> Lease escalations. User direction 2026-09-15: 15 days to renew after the lease ends, then 30 more before the application expires.",
+    filename:    '20260915_lease_renewal_escalation.sql',
+    artifact:    { type: 'column', table: 'lease_renewal_checks', column: 'escalated_at' },
+    sql: `-- =====================================================================
+-- 20260915_lease_renewal_escalation.sql
+--
+-- Phase 5 of the Checkr-first pipeline redesign (docs/ROADMAP.md): the
+-- lease non-renewal escalation. Until now the renewal reminders nagged at
+-- T-30 and T-7 and the weekly expired-leases digest nagged forever, with
+-- no consequence for an owner who simply never answered.
+--
+-- Timeline (user direction, 2026-09-15 — this REPLACES the T-30 start
+-- drawn in the roadmap's original diagram: "after the end of the lease,
+-- they have 15 days to renew, then more 30 days to have the application
+-- expired if they don't present any document and the renewal is not
+-- active"):
+--
+--   T (lease end)        T+15                       T+45
+--     escalation notice    15-day renew window ends   no document + renewal
+--     to the owner;        -> violation-fee decision   not active -> the
+--     15-day clock starts     (staff / board / mgr)    application expires
+--
+-- One row per (association, unit, lease_end) already exists in
+-- lease_renewal_checks; these columns hold the escalation state on it.
+-- Existing table: no GRANT block needed. Idempotent.
+-- =====================================================================
+
+-- ── The escalation notice + the 15-day violation-fee clock ───────────
+ALTER TABLE public.lease_renewal_checks ADD COLUMN IF NOT EXISTS escalated_at              timestamptz;
+ALTER TABLE public.lease_renewal_checks ADD COLUMN IF NOT EXISTS escalation_notice_sent_at timestamptz;
+-- Stamped the moment the owner finally answers — the clocks stop, no fee.
+ALTER TABLE public.lease_renewal_checks ADD COLUMN IF NOT EXISTS escalation_resolved_at    timestamptz;
+
+ALTER TABLE public.lease_renewal_checks ADD COLUMN IF NOT EXISTS violation_fee_deadline    date;
+ALTER TABLE public.lease_renewal_checks ADD COLUMN IF NOT EXISTS violation_fee_notified_at timestamptz;
+-- NULL = staff have not decided yet. true = pre-authorized, charge it if the
+-- deadline passes unanswered. false = staff decided not to charge.
+ALTER TABLE public.lease_renewal_checks ADD COLUMN IF NOT EXISTS violation_fee_authorized  boolean;
+ALTER TABLE public.lease_renewal_checks ADD COLUMN IF NOT EXISTS violation_fee_decided_at  timestamptz;
+ALTER TABLE public.lease_renewal_checks ADD COLUMN IF NOT EXISTS violation_fee_decided_by  text;
+ALTER TABLE public.lease_renewal_checks ADD COLUMN IF NOT EXISTS violation_fee_amount      numeric(10,2);
+-- MAIA cannot post a charge to CINC (lib/integrations/cinc.ts reads ledgers
+-- only). This stamps the moment AR was told to post it, not a CINC write.
+ALTER TABLE public.lease_renewal_checks ADD COLUMN IF NOT EXISTS violation_fee_applied_at  timestamptz;
+
+-- ── The 30 further days, then the application expires ────────────────
+ALTER TABLE public.lease_renewal_checks ADD COLUMN IF NOT EXISTS grace_deadline            date;
+-- renewal_active | expired_no_documents | new_application_required
+ALTER TABLE public.lease_renewal_checks ADD COLUMN IF NOT EXISTS grace_outcome             text;
+ALTER TABLE public.lease_renewal_checks ADD COLUMN IF NOT EXISTS grace_outcome_at          timestamptz;
+
+ALTER TABLE public.lease_renewal_checks DROP CONSTRAINT IF EXISTS chk_lrc_grace_outcome;
+ALTER TABLE public.lease_renewal_checks ADD CONSTRAINT chk_lrc_grace_outcome
+  CHECK (grace_outcome IS NULL OR grace_outcome IN ('renewal_active','expired_no_documents','new_application_required'));
+
+-- The staff screen lists escalated rows newest-first; the cron scans the
+-- two deadlines.
+CREATE INDEX IF NOT EXISTS lease_renewal_checks_escalated_idx ON public.lease_renewal_checks (escalated_at DESC) WHERE escalated_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS lease_renewal_checks_fee_deadline_idx ON public.lease_renewal_checks (violation_fee_deadline) WHERE escalation_resolved_at IS NULL;
+
+NOTIFY pgrst, 'reload schema';
+`,
+  },
+  {
+    key:         'lease_renewal_checks_normalize_labels',
+    label:       'lease_renewal_checks - clear the account-number-keyed rows',
+    description: "Data cleanup, no schema change. 19 check rows are keyed on the CINC account number (MANXI710 beside 710) with no owner name or email, all created in August before PR #850 fixed the co-owner .maybeSingle() lookup. Shadows of a correct row are deleted; orphans are relabelled in place, keeping their tokens. Scoped to pre-2026-09-09 rows carrying no resident answer. The artifact probe only checks the table exists, so this one always reads as applied - confirm by re-running, which finds nothing left to match.",
+    filename:    '20260915_lease_renewal_checks_normalize_labels.sql',
+    artifact:    { type: 'table', table: 'lease_renewal_checks' },
+    sql: `-- =====================================================================
+-- 20260915_lease_renewal_checks_normalize_labels.sql
+--
+-- Clean up the account-number-keyed lease_renewal_checks rows.
+--
+-- How they were made: both reminder crons key the check row on
+-- 'owner?.unitNumber || account'. Before PR #850 (2026-09-09) the owner
+-- lookup '.maybeSingle()'d 'owners' and threw PGRST116 on every CO-OWNED
+-- unit, which callers swallowed into a silent null — so for a co-owned unit
+-- the crons fell back to the raw CINC account number and minted a SECOND
+-- row, "MANXI710" beside "710", with no owner name and no owner email.
+--
+-- Measured 2026-09-15: 19 such rows, ALL created in August (newest
+-- 2026-08-31, none since the #850 fix), NONE carrying any answer,
+-- application or occupancy. 14 of them shadow a correct row.
+--
+-- The code-side fallback is fixed in the same PR ('unitLabelFor()' in
+-- lib/lease-renewal-check.ts strips the association prefix instead of
+-- keying on the account), so this only has to clear the historical debris.
+--
+--   * a shadow (a correctly-labelled twin exists)  -> DELETE
+--   * an orphan (no twin)                          -> RELABEL, keeping its
+--     tokens; the next cron run heals its owner name/email in place
+--
+-- Scoped hard to rows created before the #850 fix that carry NO resident
+-- answer, so nothing a resident actually submitted can be touched.
+-- Idempotent: re-running finds nothing left to match.
+-- =====================================================================
+
+-- ── 1. Shadows: a correctly-labelled row already exists ──────────────
+DELETE FROM public.lease_renewal_checks c
+ WHERE c.created_at < '2026-09-09'
+   AND upper(c.unit_label) LIKE upper(c.association_code) || '%'
+   AND length(c.unit_label) > length(c.association_code)
+   AND c.owner_occupancy IS NULL AND c.owner_response IS NULL
+   AND c.tenant_response IS NULL AND c.application_id IS NULL
+   AND EXISTS (
+     SELECT 1 FROM public.lease_renewal_checks t
+      WHERE t.association_code = c.association_code
+        AND t.lease_end        = c.lease_end
+        AND t.id             <> c.id
+        AND upper(t.unit_label) = upper(substring(c.unit_label from length(c.association_code) + 1))
+   );
+
+-- ── 2. Orphans: no twin — keep the row and its tokens, fix the label ──
+UPDATE public.lease_renewal_checks c
+   SET unit_label = substring(c.unit_label from length(c.association_code) + 1),
+       updated_at = now()
+ WHERE c.created_at < '2026-09-09'
+   AND upper(c.unit_label) LIKE upper(c.association_code) || '%'
+   AND length(c.unit_label) > length(c.association_code)
+   AND c.owner_occupancy IS NULL AND c.owner_response IS NULL
+   AND c.tenant_response IS NULL AND c.application_id IS NULL
+   AND NOT EXISTS (
+     SELECT 1 FROM public.lease_renewal_checks t
+      WHERE t.association_code = c.association_code
+        AND t.lease_end        = c.lease_end
+        AND t.id             <> c.id
+        AND upper(t.unit_label) = upper(substring(c.unit_label from length(c.association_code) + 1))
+   );
+
+NOTIFY pgrst, 'reload schema';
+`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

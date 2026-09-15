@@ -1,3 +1,62 @@
+# Session handoff — 2026-09-15 · previous entries below
+
+## Lease non-renewal escalation — Checkr-first Phase 5, the last unbuilt phase (shipped)
+
+`lib/lease-escalation.ts` + `/admin/lease-escalations` + `/api/cron/lease-escalations` + migration `20260915_lease_renewal_escalation.sql`. All seven phases of the Checkr-first redesign are now built.
+
+### The timeline is the user's, not the roadmap diagram's
+The roadmap drew the escalation starting at **T-30**. That cannot work: `lease_renewal_checks` rows are *created* by the T-30 reminder pass, so at T-30 nobody has had a chance to answer and every unit escalates instantly. User reset, 2026-09-15: *"after the end of the lease, they have 15 days to renew, then more 30 days to have the application expired if they don't present any document and the renewal is not active."*
+
+```
+T (lease end)        T+15                          T+45
+  escalation notice    15 days up -> violation-fee   no document + renewal not
+  to the OWNER;        decision for staff / board /  active -> application expires,
+  15-day clock starts  on-site manager               row goes RED
+```
+
+The clocks stop the moment the owner answers **anything** (`isSatisfied(check).owner`) — vacant, owner-occupied, renewing, already signed. The escalation is about an unresponsive owner, not about the lease.
+
+### What each step does
+- **T** — owner-only email (`leaseEscalationOwnerHtml`), reusing the existing one-click check-in buttons so "the lease was already renewed and I didn't tell you" closes it with no fee. Names the deadline and the consequence in a red block.
+- **T+15** — internal email to PMI/AR + the board (shared mailbox when set, `boardContactFor`) + on-site managers. Pre-authorized → `violation_fee_applied_at` is stamped and **AR is asked to post the charge in CINC**. MAIA cannot post it: `lib/integrations/cinc.ts` has `getHomeownerLedger` and no charge-write. Confirmed with the user before building.
+- **T+45** — `renewalState()` decides: active (documents or submitted) → cleared; an empty shell → `expireApplication()` (the existing silent, reversible close); nothing at all → `new_application_required`. Either of the last two turns the row red, same `#fef2f2` + `3px solid #b91c1c` treatment as an expired document on `/admin/pre-apply/[id]`.
+
+### Backlog guard — NOT in the spec, added after measuring live data
+A literal implementation would have escalated **24 owners on the first run**, the oldest a lease that ended **April 2024**. Those are stale `unit_tenant_contacts` rows, not owners ignoring us; a fee threat is the wrong opening move. The cron only escalates leases ended within `ESCALATION.backlogDays` (90). Older ones, and units with no owner email, land in a **Backlog** table on the staff screen with an "Escalate now" button (`escalateById`), so a person looks at the unit first.
+
+**Measured first run: 4 automatic (MANXI 105, 112, 510, 1011), 20 backlog, 17 with no owner email on file.** Those 17 are real work — an owner with no email can never be escalated.
+
+### Gotchas worth keeping
+- The engine **throws** rather than returning an empty list when the new columns are missing, and both routes surface it as a 503. An unapplied migration reading as "nothing to escalate" is exactly the #929 auto-expiry bug; don't let it come back.
+- A failed send does **not** stamp `escalated_at` — an owner is never put on a clock they were not told about. It retries on the next run.
+- Deadlines are `max(lease_end + 15, today + 15)`: a row backfilled late by the weekly digest would otherwise open and close the same day. Date math verified across DST, month ends, leap year and the year boundary.
+- The cron runs at **13:30 UTC**, 90 minutes after `lease-renewal-alerts` (12:00), so an owner who answers that morning is never escalated the same day.
+- A unit whose **tenant** already reported `vacated` / `vacating` is skipped (`skipped_vacated`). The escalation copy says a tenant occupying without an approved lease is a violation — on an empty unit that is simply untrue, and the owner would rightly object. The weekly digest keeps asking, just without a fee clock.
+- Authorizing the fee **after** the T+15 notice already went out emails AR from the button itself. The cron's T+15 branch is once-only (`!violation_fee_notified_at`), so without this the screen would record a fee nobody was ever asked to post.
+
+### Shadow check rows — root cause traced and closed
+
+Both reminder crons keyed the check row on `owner?.unitNumber || account`, so a run where the owner did not resolve minted a **second** row for the same unit keyed on the CINC account number — `MANXI710` beside `710` — with no owner name and no owner email.
+
+**The root cause was already fixed on 2026-09-09 by PR #850.** Before it, the owner lookup `.maybeSingle()`d `owners` and threw PGRST116 on every CO-OWNED unit, swallowed into a silent `null` — and every affected unit here is co-owned (MANXI 710, 113, 103… two owner rows each). Proof in the data: **all 19 account-keyed rows were created in August, newest 2026-08-31, and not one has been created in the 15 days since.** `findMergedOwner` resolves all of them correctly today.
+
+Two things shipped anyway:
+
+1. **`unitLabelFor()`** (`lib/lease-renewal-check.ts`), used by both crons instead of the raw fallback. A genuinely unresolvable owner now yields `710`, not `MANXI710` — the key stays stable whatever the lookup does. Display and keying only, **never a match key**: per CLAUDE.md `account_number` remains the identity.
+2. **`20260915_lease_renewal_checks_normalize_labels.sql`** clears the debris: shadows (a correct twin exists) are deleted, orphans are relabelled **in place keeping their tokens** so the next cron run heals their owner name/email. Scoped to pre-2026-09-09 rows carrying no resident answer, so nothing a resident submitted can be touched. **Applied 2026-09-15: 14 deleted, 5 relabelled (MANXI 103, 706, 903, 1003, 910), 0 account-keyed rows left, 7 answer-carrying rows untouched.** Four of the five relabelled units turn out to have an open application, so the escalation skips them (staff is already working them); 910's lease runs to 2027.
+
+`buildEscalations` keeps its read-time shadow filter as a belt-and-braces guard; after the migration it matches nothing. Third instance of the account-number-vs-label conflation — see [[unit_occupancy_account_key]].
+
+### Verified after the migrations were applied (2026-09-15)
+Both migrations are live. Engine dry run over 30 check rows: **4 would escalate** (MANXI 105, 510, 112, 1011 — all with a real owner email, answer due 2026-09-30, application expiring 2026-10-30), **20 backlog**, **6 skipped because staff already has an open application**, and **zero** rows blocked on a missing owner email, zero tenant-vacated skips, zero send failures.
+
+### Left for the user
+1. **Apply `20260915_lease_renewal_escalation.sql`** (Tools → migrations, from the logged-in session). Nothing escalates until it is applied — the cron 503s loudly instead of silently doing nothing.
+2. Then dry-run it: `/api/cron/lease-escalations` while signed in as staff returns `would_escalate` / `skipped_backlog` / `skipped_no_owner_email` per unit without sending. Add `?send=1` to fire for real.
+3. Decide the violation-fee **amount** — the screen asks for it per unit at authorization time; there is no association-wide default, deliberately, since nobody has stated one.
+
+---
+
 # Session handoff — 2026-09-14 · previous entries below
 
 ## Board pitch guide, then the onboarding questionnaire built (applications scope)
