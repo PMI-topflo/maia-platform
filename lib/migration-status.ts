@@ -4744,6 +4744,24 @@ ALTER TABLE public.listing_applications
 NOTIFY pgrst, 'reload schema';
 `,
   },
+  {
+    key:         'listing_applications_expiry_final_warning',
+    label:       'listing_applications.expiry_final_warned_at (24-hour renewal expiry warning)',
+    description: "Stamps the once-only 24-hour final warning that owner + tenant get before a lease-renewal application expires (staying without an approved renewal is a violation). User direction 2026-09-15.",
+    filename:    '20260915_listing_applications_expiry_final_warning.sql',
+    artifact:    { type: 'column', table: 'listing_applications', column: 'expiry_final_warned_at' },
+    sql: `-- =====================================================================
+-- 20260915_listing_applications_expiry_final_warning.sql
+-- Lease-renewal expiry: the 24-hour final warning to owner + tenant
+-- ("your renewal application expires in 24 hours; staying without an
+-- approved renewal is a violation") is sent once and stamped here, and
+-- the expiry itself then follows 24 hours later. User direction 2026-09-15.
+-- Idempotent.
+-- =====================================================================
+ALTER TABLE public.listing_applications ADD COLUMN IF NOT EXISTS expiry_final_warned_at timestamptz;
+NOTIFY pgrst, 'reload schema';
+`,
+  },
 ]
 
 // The one-time bootstrap function that the /admin/tools "Apply" button

@@ -17,6 +17,13 @@
 // A notice is cleared the moment the person acts (a document arrives or the
 // fee is paid). Expiry is the same silent close as Withdraw (files to the
 // unit's Archive, reopen possible) and is listed in the daily staff email.
+//
+// LEASE RENEWALS get two more steps (user direction, 2026-09-15): 24 hours
+// before the expiry the owner AND the tenant are warned that the renewal
+// expires in 24 hours and that staying on without an approved renewal is
+// a violation; when it expires, the owner is told the unit has no approved
+// lease and is treated as becoming vacant, and the board, on-site manager
+// and staff are told the tenant is expected to move out.
 // =====================================================================
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
@@ -27,6 +34,9 @@ import { getReviewStates } from '@/lib/board-review'
 import { isScreeningExpired, screeningValidThrough } from '@/lib/screening/validity'
 import { closeApplication } from '@/lib/application-withdraw'
 import { getApplicationDashboard } from '@/lib/application-dashboard'
+import { findMergedOwner } from '@/lib/owner-lookup'
+import { boardContactFor } from '@/lib/board-contact'
+import { OFFICE_EMAILS } from '@/lib/board-review-email'
 
 export type NoticeKind = 'no_files' | 'unpaid' | 'stale' | 'screening_expired'
 export const RULE = {
@@ -41,7 +51,11 @@ const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;',
 const H = 3_600_000, D = 86_400_000
 const fmtET = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET'
 
-export interface AutoExpiryAction { applicationId: string; unit: string | null; association: string; applicants: string[]; kind: NoticeKind; action: 'noticed' | 'expired' | 'cleared' | 'would_notice' | 'would_expire'; dueAt?: string | null; to?: string[]; detail?: string }
+export interface AutoExpiryAction { applicationId: string; unit: string | null; association: string; applicants: string[]; kind: NoticeKind; action: 'noticed' | 'final_warning' | 'expired' | 'cleared' | 'would_notice' | 'would_final_warn' | 'would_expire'; dueAt?: string | null; to?: string[]; detail?: string }
+const FINAL_WARNING_HOURS = 24
+// The daily run is ~24 h apart: warn at the run before the one that would
+// expire, and pin the expiry exactly 24 h after the warning.
+const FINAL_WARNING_LOOKAHEAD_HOURS = 30
 
 async function assocName(code: string): Promise<string> {
   const { data } = await supabaseAdmin.from('associations').select('legal_name, association_name').eq('association_code', code).maybeSingle()
@@ -79,6 +93,55 @@ function noticeHtml(o: { kind: NoticeKind; name: string | null; unit: string | n
   return { subject: `Your application at ${where} has expired`, html: wrap('Application expired', `<p>${hi}</p><p>The 45-day validity of your background check ended without the remaining documents, so the application for <strong>${esc(where)}</strong> has expired. To apply again, use the payment link we emailed you when the check expired, or reply to this email.</p>`) }
 }
 
+/** Owner emails for a renewal: the owner stakeholder(s) on the application,
+ *  else every co-owner on file for the unit (owners table by account). */
+async function ownerEmailsFor(applicationId: string, code: string, unit: string | null): Promise<{ name: string | null; emails: string[] }> {
+  const { data } = await supabaseAdmin.from('application_stakeholders').select('name, email').eq('application_id', applicationId).eq('role', 'owner')
+  const fromApp = (data ?? []).filter(s => String(s.email ?? '').includes('@'))
+  if (fromApp.length) return { name: fromApp.map(s => String(s.name ?? '')).filter(Boolean).join(' & ') || null, emails: [...new Set(fromApp.map(s => String(s.email).toLowerCase()))] }
+  const o = unit ? await findMergedOwner(code, `${code}${unit.replace(/\D/g, '')}`).catch(() => null) : null
+  return { name: o?.name ?? null, emails: (o?.allEmails ?? []).map(e => e.toLowerCase()) }
+}
+
+function renewalFinalWarningHtml(o: { to: 'owner' | 'tenant'; name: string | null; tenants: string; unit: string | null; assoc: string; expiresAt: string; link: string | null }): { subject: string; html: string } {
+  const where = `${o.assoc}${o.unit ? `, Unit ${o.unit}` : ''}`
+  const body = o.to === 'tenant'
+    ? `<p>Hi${o.name ? ` ${esc(o.name)}` : ''},</p><p>Your lease renewal application for <strong>${esc(where)}</strong> is still incomplete and <strong>expires in 24 hours, on ${esc(fmtET(o.expiresAt))}</strong>.</p><p>Once it expires there is no approved lease renewal on file for the unit. <strong>Staying in the unit without an approved renewal constitutes a violation of the association's rules</strong>, for you and for the unit owner. To avoid that, send the missing items before the deadline.</p>${o.link ? `<p style="text-align:center;margin:20px 0"><a href="${o.link}" style="background:#f26a1b;color:#fff;text-decoration:none;font-weight:700;padding:13px 26px;border-radius:10px;display:inline-block">Finish my renewal now →</a></p>` : ''}`
+    : `<p>Hi${o.name ? ` ${esc(o.name)}` : ''},</p><p>The lease renewal application for your tenant${o.tenants ? ` <strong>${esc(o.tenants)}</strong>` : ''} at <strong>${esc(where)}</strong> is still incomplete and <strong>expires in 24 hours, on ${esc(fmtET(o.expiresAt))}</strong>.</p><p>Once it expires there is no approved lease renewal on file. <strong>A tenant staying in the unit without an approved renewal constitutes a violation of the association's rules</strong>, and the owner is responsible. Please make sure the missing items are sent before the deadline, or tell us the tenant is moving out.</p>`
+  return { subject: `24 hours left — lease renewal at ${where} expires ${fmtET(o.expiresAt)}`, html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6;max-width:520px;margin:0 auto">
+    <p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#f26a1b;font-weight:700;margin:0 0 4px">PMI Top Florida Properties</p>
+    <h2 style="margin:0 0 8px;color:#1f2a44">Final notice: lease renewal expires in 24 hours</h2>${body}
+    <p style="color:#9ca3af;font-size:12px">Questions? Reply to this email or call (305) 900-5077.</p></div>` }
+}
+
+/** After a renewal expires: the owner hears the unit has no approved lease
+ *  and is treated as becoming vacant; the board, on-site manager and staff
+ *  hear the tenant is expected to move out. Best-effort, never throws. */
+async function notifyRenewalExpired(o: { applicationId: string; code: string; unit: string | null; assoc: string; tenants: string; expiredAt: string }): Promise<string[]> {
+  const sent: string[] = []
+  const where = `${o.assoc}${o.unit ? `, Unit ${o.unit}` : ''}`
+  const owner = await ownerEmailsFor(o.applicationId, o.code, o.unit)
+  const wrap = (title: string, body: string) => `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6;max-width:520px;margin:0 auto">
+    <p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#f26a1b;font-weight:700;margin:0 0 4px">PMI Top Florida Properties</p>
+    <h2 style="margin:0 0 8px;color:#1f2a44">${title}</h2>${body}
+    <p style="color:#9ca3af;font-size:12px">Questions? Reply to this email or call (305) 900-5077.</p></div>`
+  for (const to of owner.emails) {
+    try {
+      await sendEmail({ to: [to], subject: `Lease renewal expired — ${where}: no approved lease on file`, html: wrap('Lease renewal expired', `<p>Hi${owner.name ? ` ${esc(owner.name)}` : ''},</p><p>The lease renewal application for your tenant${o.tenants ? ` <strong>${esc(o.tenants)}</strong>` : ''} at <strong>${esc(where)}</strong> expired on <strong>${esc(fmtET(o.expiredAt))}</strong> without the required items.</p><p>There is now <strong>no approved lease on file</strong> for the unit, and the association will treat it as becoming vacant. If the tenant is moving out, please confirm the move-out date. If the tenant is staying, that is a violation of the association's rules until a new lease application is submitted and approved — reply to this email and we will open one.</p>`) })
+      sent.push(to)
+    } catch { /* continue */ }
+  }
+  const board = await boardContactFor(o.code).catch(() => ({ shared: null, members: [] as string[], managers: [] as string[] }))
+  const staffAndBoard = [...new Set([...OFFICE_EMAILS, ...board.members, ...board.managers, ...(board.shared ? [board.shared] : [])].map(e => e.toLowerCase()))].filter(e => !owner.emails.includes(e))
+  for (const to of staffAndBoard) {
+    try {
+      await sendEmail({ to: [to], subject: `Unit ${o.unit ?? '—'} — lease renewal expired, tenant expected to move out (${o.assoc})`, html: wrap('Lease renewal expired — tenant expected to move out', `<p><strong>Unit ${esc(o.unit ?? '—')}, ${esc(o.assoc)}</strong>: the lease renewal application for <strong>${esc(o.tenants || 'the tenant')}</strong> expired on ${esc(fmtET(o.expiredAt))} without the required items.</p><p>There is no approved lease on file. The owner${owner.name ? ` (${esc(owner.name)})` : ''} has been told the unit is treated as becoming vacant and that a tenant staying on is a violation. Expect a move-out, or a new lease application.</p><p style="color:#6b7280;font-size:12px">Sent automatically by MAIA. Staff can reopen the application from Leasing → Housekeeping if this was a mistake.</p>`) })
+      sent.push(to)
+    } catch { /* continue */ }
+  }
+  return sent
+}
+
 async function recipientsFor(applicationId: string, type: string): Promise<{ stakeholderId: string; name: string | null; email: string; role: string }[]> {
   const roles = type === 'lease_renewal' ? ['applicant', 'owner'] : ['applicant']
   const { data } = await supabaseAdmin.from('application_stakeholders').select('id, name, email, role').eq('application_id', applicationId).in('role', roles)
@@ -96,9 +159,11 @@ export async function runAutoExpiry(opts: { dry?: boolean; associationCode?: str
   const { data: baseApps } = await q
   // The notice columns arrive with a migration; read them separately so a
   // dry run before it is applied still works (no notices = none open).
-  const notices = await supabaseAdmin.from('listing_applications').select('id, expiry_notice_kind, expiry_notice_at, expiry_due_at').in('status', ['started', 'submitted'])
-    .then(r => new Map((r.data ?? []).map(n => [String(n.id), n])), () => new Map<string, { expiry_notice_kind: string | null; expiry_notice_at: string | null; expiry_due_at: string | null }>())
-  const apps = (baseApps ?? []).map(a => ({ ...a, ...(notices.get(String(a.id)) ?? { expiry_notice_kind: null, expiry_notice_at: null, expiry_due_at: null }) }))
+  type Notice = { expiry_notice_kind: string | null; expiry_notice_at: string | null; expiry_due_at: string | null; expiry_final_warned_at: string | null }
+  const empty: Notice = { expiry_notice_kind: null, expiry_notice_at: null, expiry_due_at: null, expiry_final_warned_at: null }
+  const notices = await supabaseAdmin.from('listing_applications').select('id, expiry_notice_kind, expiry_notice_at, expiry_due_at, expiry_final_warned_at').in('status', ['started', 'submitted'])
+    .then(r => new Map((r.data ?? []).map(n => [String(n.id), n as unknown as Notice & { id: string }])), () => new Map<string, Notice & { id: string }>())
+  const apps = (baseApps ?? []).map(a => ({ ...a, ...(notices.get(String(a.id)) ?? empty) }))
   const dash = await getApplicationDashboard({ includeDecided: false }).catch(() => null)
   const stageById = new Map((dash?.rows ?? []).map(r => [r.id, r.stage]))
   const states = await getReviewStates((apps ?? []).map(a => String(a.id))).catch(() => new Map())
@@ -144,6 +209,35 @@ export async function runAutoExpiry(opts: { dry?: boolean; associationCode?: str
         actions.push({ ...base, kind: noticeKind, action: 'cleared', detail: 'the person acted after the notice' })
         continue
       }
+      // Lease renewal: 24-hour final warning to owner + tenant, once, at the
+      // run before the one that would expire it; the expiry is then pinned
+      // exactly 24 h after the warning.
+      const finalWarnedAt = (a.expiry_final_warned_at as string | null) ?? null
+      if (type === 'lease_renewal' && !finalWarnedAt && dueAt <= new Date(now + FINAL_WARNING_LOOKAHEAD_HOURS * H).toISOString()) {
+        const expiresAt = new Date(now + FINAL_WARNING_HOURS * H).toISOString()
+        const tenantsLabel = applicants.join(' & ')
+        const recipients = await recipientsFor(id, type)
+        if (opts.dry) { actions.push({ ...base, kind: noticeKind, action: 'would_final_warn', dueAt: expiresAt, to: recipients.map(r => r.email) }); continue }
+        const sent: string[] = []
+        for (const r of recipients) {
+          try {
+            const t = r.role === 'owner' ? null : await signPreApplyToken(id, r.stakeholderId)
+            const link = t ? `${APP}/pre-apply/${encodeURIComponent(code)}?t=${encodeURIComponent(t)}` : null
+            const m = renewalFinalWarningHtml({ to: r.role === 'owner' ? 'owner' : 'tenant', name: r.name, tenants: tenantsLabel, unit, assoc: association, expiresAt, link })
+            await sendEmail({ to: [r.email], subject: m.subject, html: m.html }); sent.push(r.email)
+          } catch { /* continue */ }
+        }
+        // Owner not on the application → the owner(s) on file for the unit.
+        if (!recipients.some(r => r.role === 'owner')) {
+          const owner = await ownerEmailsFor(id, code, unit)
+          for (const to of owner.emails) {
+            try { const m = renewalFinalWarningHtml({ to: 'owner', name: owner.name, tenants: tenantsLabel, unit, assoc: association, expiresAt, link: null }); await sendEmail({ to: [to], subject: m.subject, html: m.html }); sent.push(to) } catch { /* continue */ }
+          }
+        }
+        await supabaseAdmin.from('listing_applications').update({ expiry_final_warned_at: nowIso, expiry_due_at: expiresAt }).eq('id', id)
+        actions.push({ ...base, kind: noticeKind, action: 'final_warning', dueAt: expiresAt, to: sent })
+        continue
+      }
       if (dueAt <= nowIso) {
         const reason = noticeKind === 'no_files' ? `No document uploaded ${RULE.noFilesNoticeDays} days after the notice`
           : noticeKind === 'unpaid' ? `Background-check fee still unpaid ${RULE.unpaidNoticeHours} hours after the notice`
@@ -154,7 +248,9 @@ export async function runAutoExpiry(opts: { dry?: boolean; associationCode?: str
           if ('error' in r) { actions.push({ ...base, kind: noticeKind, action: 'expired', detail: `FAILED: ${r.error}` }); continue }
           await supabaseAdmin.from('listing_applications').update({ expired_auto: true }).eq('id', id)
         }
-        actions.push({ ...base, kind: noticeKind, action: opts.dry ? 'would_expire' : 'expired', dueAt, detail: reason })
+        let notified: string[] = []
+        if (type === 'lease_renewal' && !opts.dry) notified = await notifyRenewalExpired({ applicationId: id, code, unit, assoc: association, tenants: applicants.join(' & '), expiredAt: nowIso })
+        actions.push({ ...base, kind: noticeKind, action: opts.dry ? 'would_expire' : 'expired', dueAt, detail: reason, to: notified })
         continue
       }
       continue   // notice running, nothing to do today
