@@ -1444,6 +1444,19 @@ function ChecklistRow({ id, c, doc, extraDocs, na, first, decided, onDone, drive
                   {busy === 'refile' ? 'Re-filing…' : '🔄 Re-file PDF'}
                 </button>
               )}
+              {/* The one item with no file behind it until BOTH parties sign —
+                  so while it is out for signature there is nothing to Preview
+                  and its contents are invisible. MANXI 702: the packet named
+                  the applicant's REALTOR as Tenant with a lease term from a
+                  tenancy that ended in 2024, the owner signed it, and nobody
+                  could see any of it for six days until the agent complained.
+                  This renders the live packet exactly as the next signer will
+                  see it. Read-only — nothing is sent or filed. */}
+              {c.doc_key === 'landlord_tenant_agreement' && c.esign.pending.length > 0 && (
+                <button onClick={() => window.open(`/api/admin/pre-apply/${id}/agreement-preview`, '_blank', 'noopener')} title="See the agreement exactly as the remaining signer will see it — check the Tenant name and lease dates BEFORE it goes out" style={{ font: '600 11px system-ui', color: '#4338ca', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 5, padding: '1px 7px', cursor: 'pointer' }}>
+                  👁 Preview agreement
+                </button>
+              )}
               {refileMsg && <span style={{ color: refileMsg.startsWith('✓') ? '#166534' : '#b91c1c' }}>{refileMsg}</span>}
             </div>
           )}
