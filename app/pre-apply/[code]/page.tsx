@@ -83,6 +83,7 @@ interface Info {
   leaseAgreement: { label: string; url: string } | null
   me: { name: string | null; role: string; roleLabel: string; signs: boolean; isPrimary: boolean; status: string; emailVerified: boolean; emailMasked: string | null; signed: boolean; checklistAckSignedAt: string | null; verifyChannel: 'email' | 'phone'; verifyTargetMasked: string | null }
   canAddCollaborators: boolean; submitted: boolean
+  waitingOnOthers?: string[]
   closed: string | null
   checklist: ChecklistItem[]; rules: { rule_key: string; label: string }[]; collaborators: Collaborator[]
   declarations: Declarations
@@ -398,6 +399,9 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
   const [agreed, setAgreed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<null | { appSubmitted: boolean }>(null)
+  // "Add or replace a document" on the done screen: show the checklist again
+  // for someone whose part is complete but who has something more to send.
+  const [reopenChecklist, setReopenChecklist] = useState(false)
 
   const load = useCallback(() => {
     fetch(`/api/pre-apply/${token}`).then(r => r.json()).then(d => { if (d.error) setErr(d.error); else setInfo(d) }).catch(() => setErr('Network error — please reload.'))
@@ -469,13 +473,22 @@ function DocsStep({ code, token, lang }: { code: string; token: string; lang: Po
   // paying IS the whole application) would otherwise show the applicant
   // "you're all done" before they've uploaded their own checklist items —
   // require the checklist to actually be done too.
-  const alreadyDone = done || (info.me.status === 'completed' && myRequiredDone)
+  const alreadyDone = !reopenChecklist && (done || (info.me.status === 'completed' && myRequiredDone))
   if (alreadyDone) {
     const appSubmitted = done?.appSubmitted ?? info.submitted
+    const others = info.waitingOnOthers ?? []
     return (
       <div style={wrap}>
-        <h1 style={{ color: '#f26a1b' }}>✅ {appSubmitted ? f.doneSubmittedH : f.doneH}</h1>
-        <p>{appSubmitted ? f.doneSubmittedP : f.doneP}</p>
+        <h1 style={{ color: '#f26a1b' }}>✅ {others.length ? f.doneH : appSubmitted ? f.doneSubmittedH : f.doneH}</h1>
+        <p>{others.length ? f.doneP : appSubmitted ? f.doneSubmittedP : f.doneP}</p>
+        {others.length > 0 && (
+          <div style={{ border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 10, padding: '12px 14px', margin: '14px 0' }}>
+            <div style={{ font: '700 13px system-ui', color: '#92400e', marginBottom: 6 }}>{f.waitingOthersH}</div>
+            <ul style={{ margin: 0, paddingLeft: 18, color: '#4b5563', fontSize: 13.5, lineHeight: 1.5 }}>{others.map((l, i) => <li key={i}>{l}</li>)}</ul>
+            <div style={{ font: '12px system-ui', color: '#6b7280', marginTop: 6 }}>{f.waitingOthersP}</div>
+          </div>
+        )}
+        <button onClick={() => setReopenChecklist(true)} style={{ background: '#fff', color: '#1f2a44', border: '1px solid #d1d5db', borderRadius: 9, padding: '9px 16px', font: '600 13px system-ui', cursor: 'pointer' }}>{f.addDocument}</button>
         <p style={{ color: '#6b7280', fontSize: 13, marginTop: 18 }}>{f.questions}</p>
       </div>
     )

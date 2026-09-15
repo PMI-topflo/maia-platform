@@ -198,6 +198,7 @@ export interface PreApplyFlowStrings {
   submitMyPart: string; submittingBtn: string
   // Done screens
   doneH: string; doneP: string; doneSubmittedH: string; doneSubmittedP: string; questions: string
+  waitingOthersH: string; waitingOthersP: string; addDocument: string
   // Manage collaborators (lead, on the documents page)
   peopleH: string; addSomeone: string
   statusInvited: string; statusActive: string; statusStarted: string; statusCompleted: string; youBadge: string; signsBadge: string
@@ -246,6 +247,7 @@ const flowEn: PreApplyFlowStrings = {
   submitMyPart: 'Submit my part', submittingBtn: 'Submitting…',
   doneH: 'Your part is complete', doneP: 'Thank you. We’ll take it from here and follow up if anything else is needed.',
   doneSubmittedH: 'Application submitted', doneSubmittedP: 'Thank you. PMI Top Florida Properties will review the documents and follow up. You don’t need to do anything else right now.',
+  waitingOthersH: 'Still waiting on the other people on this application', waitingOthersP: 'Each of them has their own link and answers their own questions — you cannot complete these for them. Reminders go to them automatically.', addDocument: 'Add or replace a document',
   questions: 'Questions? PMI Top Florida Properties · (305) 900-5077',
   peopleH: 'People on this application', addSomeone: '+ Add someone',
   statusInvited: 'Invited', statusActive: 'In progress', statusStarted: 'In progress', statusCompleted: 'Done', youBadge: 'You', signsBadge: 'signs',
@@ -295,6 +297,7 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     submitMyPart: 'Enviar mi parte', submittingBtn: 'Enviando…',
     doneH: 'Su parte está completa', doneP: 'Gracias. Nosotros continuamos desde aquí y le contactaremos si se necesita algo más.',
     doneSubmittedH: 'Solicitud enviada', doneSubmittedP: 'Gracias. PMI Top Florida Properties revisará los documentos y le contactará. No necesita hacer nada más por ahora.',
+    waitingOthersH: 'Todavía faltan cosas de las otras personas de esta solicitud', waitingOthersP: 'Cada uno tiene su propio enlace y responde sus propias preguntas; usted no puede completarlas por ellos. Los recordatorios les llegan automáticamente.', addDocument: 'Agregar o reemplazar un documento',
     questions: '¿Preguntas? PMI Top Florida Properties · (305) 900-5077',
     peopleH: 'Personas en esta solicitud', addSomeone: '+ Agregar a alguien',
     statusInvited: 'Invitado', statusActive: 'En progreso', statusStarted: 'En progreso', statusCompleted: 'Listo', youBadge: 'Usted', signsBadge: 'firma',
@@ -338,6 +341,7 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     submitMyPart: 'Enviar minha parte', submittingBtn: 'Enviando…',
     doneH: 'Sua parte está concluída', doneP: 'Obrigado. Continuamos a partir daqui e entraremos em contato se algo mais for necessário.',
     doneSubmittedH: 'Inscrição enviada', doneSubmittedP: 'Obrigado. A PMI Top Florida Properties revisará os documentos e entrará em contato. Você não precisa fazer mais nada agora.',
+    waitingOthersH: 'Ainda faltam itens das outras pessoas desta solicitação', waitingOthersP: 'Cada uma tem o próprio link e responde às próprias perguntas; você não pode completar por elas. Os lembretes vão para elas automaticamente.', addDocument: 'Adicionar ou substituir um documento',
     questions: 'Dúvidas? PMI Top Florida Properties · (305) 900-5077',
     peopleH: 'Pessoas nesta inscrição', addSomeone: '+ Adicionar alguém',
     statusInvited: 'Convidado', statusActive: 'Em andamento', statusStarted: 'Em andamento', statusCompleted: 'Concluído', youBadge: 'Você', signsBadge: 'assina',
@@ -381,6 +385,7 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     submitMyPart: 'Envoyer ma partie', submittingBtn: 'Envoi…',
     doneH: 'Votre partie est terminée', doneP: 'Merci. Nous prenons le relais et vous recontacterons si besoin.',
     doneSubmittedH: 'Demande envoyée', doneSubmittedP: 'Merci. PMI Top Florida Properties examinera les documents et vous recontactera. Vous n’avez rien d’autre à faire pour le moment.',
+    waitingOthersH: 'En attente des autres personnes de cette demande', waitingOthersP: 'Chacune a son propre lien et répond à ses propres questions ; vous ne pouvez pas le faire à leur place. Les rappels leur sont envoyés automatiquement.', addDocument: 'Ajouter ou remplacer un document',
     questions: 'Des questions ? PMI Top Florida Properties · (305) 900-5077',
     peopleH: 'Personnes sur cette demande', addSomeone: '+ Ajouter quelqu’un',
     statusInvited: 'Invité', statusActive: 'En cours', statusStarted: 'En cours', statusCompleted: 'Terminé', youBadge: 'Vous', signsBadge: 'signe',
@@ -424,6 +429,7 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     submitMyPart: 'Soumèt pati mwen an', submittingBtn: 'Y ap soumèt…',
     doneH: 'Pati ou a fini', doneP: 'Mèsi. N ap kontinye apati la epi n ap kontakte w si nou bezwen lòt bagay.',
     doneSubmittedH: 'Aplikasyon soumèt', doneSubmittedP: 'Mèsi. PMI Top Florida Properties ap revize dokiman yo epi kontakte w. Ou pa bezwen fè anyen lòt kounye a.',
+    waitingOthersH: 'Toujou ap tann lòt moun yo nan aplikasyon sa a', waitingOthersP: 'Chak moun gen pwòp lyen pa yo epi reponn pwòp kesyon pa yo; ou pa ka fè sa pou yo. Rapèl yo ale jwenn yo otomatikman.', addDocument: 'Ajoute oswa ranplase yon dokiman',
     questions: 'Kesyon? PMI Top Florida Properties · (305) 900-5077',
     peopleH: 'Moun nan aplikasyon sa a', addSomeone: '+ Ajoute yon moun',
     statusInvited: 'Envite', statusActive: 'K ap fèt', statusStarted: 'K ap fèt', statusCompleted: 'Fini', youBadge: 'Ou', signsBadge: 'siyen',
@@ -467,6 +473,7 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     submitMyPart: 'שליחת החלק שלי', submittingBtn: 'שולח…',
     doneH: 'החלק שלכם הושלם', doneP: 'תודה. אנו ממשיכים מכאן וניצור קשר אם יידרש משהו נוסף.',
     doneSubmittedH: 'הבקשה נשלחה', doneSubmittedP: 'תודה. PMI Top Florida Properties תבדוק את המסמכים ותיצור קשר. אינכם צריכים לעשות דבר נוסף כרגע.',
+    waitingOthersH: 'עדיין ממתינים לאנשים האחרים בבקשה זו', waitingOthersP: 'לכל אחד מהם קישור משלו והוא עונה על השאלות שלו; אינך יכול להשלים זאת עבורם. תזכורות נשלחות אליהם אוטומטית.', addDocument: 'הוספה או החלפה של מסמך',
     questions: 'שאלות? PMI Top Florida Properties · (305) 900-5077',
     peopleH: 'אנשים בבקשה זו', addSomeone: '+ הוספת מישהו',
     statusInvited: 'הוזמן', statusActive: 'בתהליך', statusStarted: 'בתהליך', statusCompleted: 'הושלם', youBadge: 'אתם', signsBadge: 'חותם',
@@ -510,6 +517,7 @@ const FLOW: Record<PortalLang, Partial<PreApplyFlowStrings>> = {
     submitMyPart: 'Отправить мою часть', submittingBtn: 'Отправка…',
     doneH: 'Ваша часть завершена', doneP: 'Спасибо. Мы продолжим дальше и свяжемся с вами, если потребуется что-то ещё.',
     doneSubmittedH: 'Заявка отправлена', doneSubmittedP: 'Спасибо. PMI Top Florida Properties проверит документы и свяжется с вами. Сейчас больше ничего делать не нужно.',
+    waitingOthersH: 'Ожидаем действий от других участников этой заявки', waitingOthersP: 'У каждого из них своя ссылка и свои вопросы; вы не можете сделать это за них. Напоминания приходят им автоматически.', addDocument: 'Добавить или заменить документ',
     questions: 'Вопросы? PMI Top Florida Properties · (305) 900-5077',
     peopleH: 'Участники этой заявки', addSomeone: '+ Добавить человека',
     statusInvited: 'Приглашён', statusActive: 'В процессе', statusStarted: 'В процессе', statusCompleted: 'Готово', youBadge: 'Вы', signsBadge: 'подписывает',
