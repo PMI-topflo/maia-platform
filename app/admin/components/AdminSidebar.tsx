@@ -56,6 +56,7 @@ const NAV: Node[] = [
   { type: 'group', label: 'Leasing', icon: '📝', items: [
     { label: 'Applications', href: '/admin/pre-apply' },
     { label: 'Housekeeping', href: '/admin/applications-housekeeping' },
+    { label: 'Lease escalations', href: '/admin/lease-escalations' },
     { label: 'Association Setup', href: '/admin/association-document-setup' },
   ] },
   { type: 'group', label: 'Flows', icon: '🔀', items: [
