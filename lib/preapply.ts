@@ -599,15 +599,29 @@ export async function getIntake(applicationId: string): Promise<IntakeState | nu
     .select('id, listing_id, association_code, application_type, applicant_role, unit_label, status, submitted_at, detailed_application_id')
     .eq('id', applicationId).maybeSingle()
   if (!app) return null
-  const [{ data: sh }, { data: docs }] = await Promise.all([
-    supabaseAdmin.from('application_stakeholders').select('name, email, phone').eq('application_id', applicationId).eq('is_primary', true).maybeSingle(),
+  const [{ data: shRows }, { data: docs }] = await Promise.all([
+    // `is_primary` is scoped PER ROLE (see CLAUDE.md), so an agent-started
+    // application legitimately has a primary agent AND a primary owner AND a
+    // primary applicant all at once. This used to be
+    // `.eq('is_primary', true).maybeSingle()` with no role filter, which:
+    //   • returned the AGENT whenever theirs was the only primary row yet
+    //     (agent starts the intake; the real applicant is added minutes
+    //     later) — MANXI 702, 2026-09-09: the owner opened his link in that
+    //     window and the Landlord–Tenant packet went out naming the
+    //     applicant's REALTOR as the Tenant, and
+    //   • threw PGRST116 once more than one role had a primary, swallowed
+    //     into a silent null.
+    // `applicant` means the applicant; never anyone else.
+    supabaseAdmin.from('application_stakeholders').select('name, email, phone')
+      .eq('application_id', applicationId).eq('role', 'applicant')
+      .order('is_primary', { ascending: false }).order('created_at', { ascending: true }).limit(1),
     supabaseAdmin.from('application_documents').select('doc_key, stakeholder_id').eq('application_id', applicationId),
   ])
   return {
     applicationId: app.id, listingId: app.listing_id, associationCode: String(app.association_code),
     type: app.application_type as ApplicationType, role: String(app.applicant_role ?? 'applicant'),
     unitLabel: (app.unit_label as string | null) ?? null, status: String(app.status), submittedAt: (app.submitted_at as string | null) ?? null,
-    applicant: sh ? { name: sh.name as string | null, email: sh.email as string | null, phone: sh.phone as string | null } : null,
+    applicant: shRows?.[0] ? { name: shRows[0].name as string | null, email: shRows[0].email as string | null, phone: shRows[0].phone as string | null } : null,
     docKeys: (docs ?? []).map(d => String(d.doc_key)).filter(Boolean),
     docs: (docs ?? []).filter(d => d.doc_key).map(d => ({ docKey: String(d.doc_key), stakeholderId: (d.stakeholder_id as string | null) ?? null })),
     detailedApplicationId: (app.detailed_application_id as string | null) ?? null,
