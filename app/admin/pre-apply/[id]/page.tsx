@@ -649,6 +649,7 @@ export default function PreApplyDetail({ params }: { params: Promise<{ id: strin
       {!decided && (
         <div style={{ marginTop: 16 }}>
           <RequestDocs id={id} items={requestItems} ownerName={d.ownerName} ownerEmails={d.ownerEmails} tenantEmail={d.tenantEmail} tenantEmailIsAgent={d.tenantEmailIsAgent}
+            applicantName={applicants.map(a => a.name).filter(Boolean).join(' & ') || null}
             listingAgent={(d.stakeholders ?? []).find(s => s.role === 'listing_agent') ?? null}
             applicantAgent={(d.stakeholders ?? []).find(s => s.role === 'applicant_agent') ?? null}
             onDone={load} preselect={requestFor} onPreselectHandled={() => setRequestFor(null)} />
@@ -2030,7 +2031,7 @@ function MaintenanceAssessmentPreviewButton({ id }: { id: string }) {
 // Request specific documents from the owner and/or tenant — tick items, tag each
 // Owner / Tenant / Both, and MAIA emails each recipient their list + an upload
 // link (the standard PMI email). Uploads file straight back onto the application.
-function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, tenantEmailIsAgent, listingAgent, applicantAgent, onDone, preselect, onPreselectHandled }: { id: string; items: { doc_key: string; label: string; provided_by: string; missing: boolean; refused: boolean }[]; ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null; tenantEmailIsAgent?: boolean; listingAgent?: { name: string | null; email: string | null } | null; applicantAgent?: { name: string | null; email: string | null } | null; onDone: () => void; preselect?: { doc_key: string; label: string } | null; onPreselectHandled?: () => void }) {
+function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, tenantEmailIsAgent, applicantName, listingAgent, applicantAgent, onDone, preselect, onPreselectHandled }: { id: string; items: { doc_key: string; label: string; provided_by: string; missing: boolean; refused: boolean }[]; ownerName: string | null; ownerEmails: string | null; tenantEmail: string | null; tenantEmailIsAgent?: boolean; applicantName?: string | null; listingAgent?: { name: string | null; email: string | null } | null; applicantAgent?: { name: string | null; email: string | null } | null; onDone: () => void; preselect?: { doc_key: string; label: string } | null; onPreselectHandled?: () => void }) {
   const [open, setOpen] = useState(false)
   type Rec = 'owner' | 'tenant' | 'both'
   const [state, setState] = useState<Record<string, { on: boolean; rec: Rec }>>(() =>
@@ -2092,6 +2093,14 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, tenantEma
     setTenantTo(cur => cur.trim() ? cur : next)
   }, [tenantEmail])
   const [busy, setBusy] = useState(false)
+  // Addressing the agent is a deliberate choice with its own wording in the
+  // email (lib/document-request-email.ts's agentCopy branch), so the panel has
+  // to know when the box currently holds the agent rather than the applicant.
+  const agentEmail = (applicantAgent?.email ?? '').trim()
+  const tenantIsAgentNow = !!agentEmail && tenantTo.trim().toLowerCase() === agentEmail.toLowerCase()
+  // What the box was prefilled with, so "send to the applicant instead" can put
+  // it back — only meaningful when the prefill was a real applicant address.
+  const applicantOwnEmail = tenantEmailIsAgent ? '' : (tenantEmail ?? '').trim()
 
   // "Request it" on a document row brings you here with that item ticked, so
   // the only choice left is who it goes to.
@@ -2260,6 +2269,23 @@ function RequestDocs({ id, items, ownerName, ownerEmails, tenantEmail, tenantEma
               {tenantEmailIsAgent && tenantTo && (
                 <div style={{ font: '11.5px system-ui', color: '#92400e', marginTop: 4, marginLeft: 104 }}>⚠ No applicant email on file — this is the agent&apos;s address. Replace it if you get the applicant&apos;s own.</div>
               )}
+              {/* Addressing the applicant's agent used to mean hand-typing their
+                  address into this box, which sent them the applicant's items
+                  under "Documents needed for YOUR lease" — real case, MANXI 702
+                  (2026-09-14): the agent wrote in asking to be removed as a
+                  tenant she had never been. One button instead of a typed
+                  address, and it says plainly what the agent will receive. */}
+              {!tenantEmailIsAgent && agentEmail && (tenantIsAgentNow ? (
+                <div style={{ font: '11.5px system-ui', color: '#92400e', marginTop: 4, marginLeft: 104 }}>
+                  ⚠ Going <strong>to {applicantAgent?.name || 'the applicant&apos;s agent'}</strong>, not to {applicantName || 'the applicant'}. The email says the items are {applicantName || 'the applicant'}&apos;s and that the agent is <strong>not</strong> a tenant on this application.
+                  {applicantOwnEmail && <> · <button onClick={() => setTenantTo(applicantOwnEmail)} style={{ font: '600 11.5px system-ui', color: '#1e40af', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>send to {applicantName || 'the applicant'} instead</button></>}
+                </div>
+              ) : (
+                <div style={{ font: '11.5px system-ui', color: '#6b7280', marginTop: 4, marginLeft: 104 }}>
+                  {applicantAgent?.name || "The applicant's agent"} is already CC&apos;d above. To address them <em>directly</em> instead (applicant unresponsive),{' '}
+                  <button onClick={() => setTenantTo(agentEmail)} style={{ font: '600 11.5px system-ui', color: '#1e40af', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>ask the agent instead</button> — never retype their address here.
+                </div>
+              ))}
             </div>
           )}
           {needTenant && !tenantTo.includes('@') && askingRoster && (
