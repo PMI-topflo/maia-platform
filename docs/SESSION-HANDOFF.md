@@ -1,3 +1,29 @@
+# Session handoff — 2026-09-15 (evening) · previous entries below
+
+## MANXI 702 — an agent was named as the Tenant, and nobody could see it (PRs #936, #937, #938)
+
+Reported by the agent herself, twice. Kata Gerrior (Keyes) is the applicant's Realtor on 702, recorded correctly as `applicant_agent`. She received (1) a document request headed "Documents needed for **your** lease", then (2) "Please e-sign the Landlord–Tenant Agreement — you are signing as the **Tenant**." She asked to be removed as a tenant from an application she was never on as one. **The stakeholder data was right the whole time; only what MAIA sent was wrong.**
+
+### Three separate defects, three PRs
+
+**#936 — document requests called the agent a tenant.** The agent-fallback copy ("the applicant doesn't have an email on file") was written for MANXI 115, where genuinely nobody did, but fired on *any* agent address in the tenant slot. Now split: `agentStandsIn` (unchanged) vs `agentCopy` — heading names the applicant's lease, the items column names the applicant instead of "You", and the footer says **"You are not listed as a tenant or applicant on this application."** All six agent-addressed requests in the system (702, 603 ×2, 706, 409, 115) had a reachable applicant, so all six agents were told otherwise. Also added an **"ask the agent instead"** action — previously the only way to reach an agent was to hand-type their address into the Applicant box, which is what produced this.
+
+**#937 — the lease packet named the agent as Tenant.** Root cause `lib/preapply.ts`'s `getIntake()`: `.eq('is_primary', true).maybeSingle()` with **no role filter**. `is_primary` is scoped PER ROLE, so an agent-started application has a primary agent AND owner AND applicant. That query returned the **agent** while hers was the only primary row yet, and threw PGRST116 once more than one role had one. 702's sequence: agent starts 9:57 → **owner opens his own link 10:01, packet created with Tenant = Kata** → owner signs 10:05 → applicant added 11:35. Fixed in four places: `getIntake` filters to `role='applicant'`; the pre-apply route will not mint a packet before the tenant is known (it is sticky — `findUnitLeasePacket` blocks a second); `flagDriveFolder` had the same unfiltered query; and `sendLeasePacket` no longer falls back to an **already-ended** `unit_tenant_contacts` term.
+
+**#937 also — the lease term came from the previous tenancy.** The packet printed `Lease End Date: May 4, 2024`, from MANXI702's `unit_tenant_contacts` row, which still holds the prior tenants (Octavius James, Shantavia Johnston). `listing_applications.lease_start/lease_end` — the override added 2026-08-27 for exactly this after the identical MANXI 706 bug — were null, because **`backfillPrimaryContactFromLease()` was called from ONE place: the STAFF upload route.** The agent uploaded the lease through her own link, so it never ran. The resident path runs `quickDocScan` (which is why the DOCUMENT carried the correct `expiration_date` 2027-10-14 while the APPLICATION carried nothing). Extraction now runs on the resident/agent `record-doc` path too, awaited, only for `signed_lease`.
+
+**#938 — the blind spot that hid all of it for six days.** The Landlord–Tenant Agreement is the only checklist item with no file behind it until BOTH parties sign; until then the row reads "1/2 signed, waiting on Tenant" and shows nothing. New **👁 Preview agreement** button + `GET /api/admin/pre-apply/[id]/agreement-preview` renders the live packet through the same `agreementPropsFromPacket()` the filed copy uses. Read-only. **This is the fix that would have caught it on day one** — the wrong tenant and the 2024 date were on page 1 the whole time, with no way to look.
+
+### 702's data, corrected by hand (user decision)
+The owner had already e-signed the wrong document. **User chose to correct the packet in place and keep his signature** rather than void and re-obtain it — so he is not chased again. Applied 2026-09-15: `tenant_name`/`tenant_email`/`tenant_mobile` → Ashlee Elizabeth Muthra, `lease_start`/`lease_end` → 2026-10-15 / 2027-10-14 (extracted from the executed lease, matching the board decision page), plus the same term onto `listing_applications`, and a `review_note` recording the correction. The owner's signature evidence now sits on content changed after the fact — the "as signed" PDF was rendered and handed to the user as the only record of what he actually signed, since the packet PDF is not generated until both sign.
+
+### Open on 702, not code
+1. **Carolyn Scharan** — the executed lease names TWO landlords ("Subhaschandra Scharan and Carolyn Scharan"); MAIA and CINC have only Subhasschandra Ivan Secharen (`isecharan64@gmail.com`, also owns 603). No owner row for her at all. Deed question — the Agreement currently binds only one of them.
+2. **Email discrepancy** — the lease reads `ashleyrie@gmail.com`, MAIA has the verified `ashemyrie@gmail.com`. One is a typo.
+3. Send the agreement to Ashlee: Request documents → tick Landlord–Tenant Agreement → Send (a packet exists, so MAIA resends and skips the signed owner).
+
+---
+
 # Session handoff — 2026-09-15 · previous entries below
 
 ## Lease non-renewal escalation — Checkr-first Phase 5, the last unbuilt phase (shipped)
