@@ -119,7 +119,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const ownerOverride = splitEmails(b.ownerEmail)
   const ownerEmails = ownerOverride.length ? ownerOverride : splitEmails(ownerRows.map(o => String(o.emails ?? '')).join(','))
   const tenantOverride = splitEmails(b.tenantEmail)
-  const directTenantEmails = splitEmails((tenant?.tenant_email as string | null) || ((applicants ?? []).find(a => a.is_primary)?.email as string | null) || ((applicants ?? [])[0]?.email as string | null))
+  // Every applicant with an email (lead AND co-applicants — MANXI 1002's
+  // Julian was silently left out), plus the tenant on file when different.
+  const directTenantEmails = [...new Set([
+    ...(applicants ?? []).flatMap(a => splitEmails((a.email as string | null) ?? null)),
+    ...splitEmails((tenant?.tenant_email as string | null) ?? null),
+  ].map(e => e.toLowerCase()))]
   // Real case, MANXI 115: neither applicant on the lease renewal had an email
   // on file at all, so the tenant-side link had nowhere to go — the only
   // contact PMI had was the owner's agent, and staff ended up hand-typing his

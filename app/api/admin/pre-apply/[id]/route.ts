@@ -160,7 +160,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   // rather than the applicant's own.
   const applicantAgentEmail = (stakeholders ?? []).find(s => s.role === 'applicant_agent')?.email as string | null ?? null
   const listingAgentEmail = (stakeholders ?? []).find(s => s.role === 'listing_agent')?.email as string | null ?? null
-  const directTenantEmail = (tenantRow?.tenant_email as string | null) || (sh?.email as string | null) || null
+  // EVERY applicant's email, not just the lead's — MANXI 1002 (2026-09-15):
+  // the co-applicant (Julian) never appeared in the request box, so his
+  // items were only ever asked of Ester. The tenant-on-file address is added
+  // when it is someone else (a renewal where the record lags).
+  const applicantEmails = [...new Set([
+    ...(stakeholders ?? []).filter(s => s.role === 'applicant').map(s => String(s.email ?? '').trim()).filter(e => e.includes('@')),
+    ...String((tenantRow?.tenant_email as string | null) ?? '').split(/[,;\s]+/).map(e => e.trim()).filter(e => e.includes('@')),
+  ].map(e => e.toLowerCase()))]
+  const directTenantEmail = applicantEmails.length ? applicantEmails.join(', ') : null
   const tenantEmail = directTenantEmail || applicantAgentEmail || listingAgentEmail || null
   const tenantEmailIsAgent = !directTenantEmail && !!tenantEmail
 
