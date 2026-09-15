@@ -43,9 +43,12 @@ Both reminder crons keyed the check row on `owner?.unitNumber || account`, so a 
 Two things shipped anyway:
 
 1. **`unitLabelFor()`** (`lib/lease-renewal-check.ts`), used by both crons instead of the raw fallback. A genuinely unresolvable owner now yields `710`, not `MANXI710` — the key stays stable whatever the lookup does. Display and keying only, **never a match key**: per CLAUDE.md `account_number` remains the identity.
-2. **`20260915_lease_renewal_checks_normalize_labels.sql`** clears the debris: shadows (a correct twin exists) are deleted, orphans are relabelled **in place keeping their tokens** so the next cron run heals their owner name/email. Scoped to pre-2026-09-09 rows carrying no resident answer, so nothing a resident submitted can be touched. Previewed against live data: **14 delete, 5 relabel (MANXI 103, 706, 903, 1003, 910), 0 left over, 7 answer-carrying rows protected.**
+2. **`20260915_lease_renewal_checks_normalize_labels.sql`** clears the debris: shadows (a correct twin exists) are deleted, orphans are relabelled **in place keeping their tokens** so the next cron run heals their owner name/email. Scoped to pre-2026-09-09 rows carrying no resident answer, so nothing a resident submitted can be touched. **Applied 2026-09-15: 14 deleted, 5 relabelled (MANXI 103, 706, 903, 1003, 910), 0 account-keyed rows left, 7 answer-carrying rows untouched.** Four of the five relabelled units turn out to have an open application, so the escalation skips them (staff is already working them); 910's lease runs to 2027.
 
 `buildEscalations` keeps its read-time shadow filter as a belt-and-braces guard; after the migration it matches nothing. Third instance of the account-number-vs-label conflation — see [[unit_occupancy_account_key]].
+
+### Verified after the migrations were applied (2026-09-15)
+Both migrations are live. Engine dry run over 30 check rows: **4 would escalate** (MANXI 105, 510, 112, 1011 — all with a real owner email, answer due 2026-09-30, application expiring 2026-10-30), **20 backlog**, **6 skipped because staff already has an open application**, and **zero** rows blocked on a missing owner email, zero tenant-vacated skips, zero send failures.
 
 ### Left for the user
 1. **Apply `20260915_lease_renewal_escalation.sql`** (Tools → migrations, from the logged-in session). Nothing escalates until it is applied — the cron 503s loudly instead of silently doing nothing.
