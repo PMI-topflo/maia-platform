@@ -48,7 +48,7 @@ export async function sendDocumentRequestEmails(requestId: string, opts?: { only
 
   const [{ data: assoc }, { data: applicants }, { data: onFileDocs }, { data: agents }] = await Promise.all([
     supabaseAdmin.from('associations').select('legal_name, association_name, principal_address, city, state, zip').eq('association_code', code).maybeSingle(),
-    supabaseAdmin.from('application_stakeholders').select('name').eq('application_id', id).eq('role', 'applicant').order('is_primary', { ascending: false }),
+    supabaseAdmin.from('application_stakeholders').select('name, email').eq('application_id', id).eq('role', 'applicant').order('is_primary', { ascending: false }),
     supabaseAdmin.from('application_documents').select('doc_key, doc_label, expiration_date, no_expiration, created_at').eq('application_id', id).order('created_at', { ascending: true }),
     supabaseAdmin.from('application_stakeholders').select('role, email').eq('application_id', id).in('role', ['listing_agent', 'applicant_agent']),
   ])
@@ -127,12 +127,27 @@ export async function sendDocumentRequestEmails(requestId: string, opts?: { only
   // reads "you're on the application" to someone who isn't would be worse
   // than the tenant side never sending at all.
   const tenantViaAgent = tenantEmails.length > 0 && tenantEmails.every(e => tenantAgentCc.includes(e) || ownerAgentCc.includes(e))
+  // Two very different reasons an agent's address is in the tenant slot, and
+  // they must not share wording. Real case, MANXI 702 (2026-09-14): Ashlee had
+  // an email and had already been sent her own copy three minutes earlier, but
+  // a second request addressed to her agent Kata still told Kata that Ashlee
+  // "doesn't have an email on file" — under the heading "Documents needed for
+  // YOUR lease". Kata read it, reasonably, as MAIA listing her as the tenant
+  // and wrote in asking to be removed from the application. She was never on
+  // it as a tenant; only the email said so.
+  const applicantHasEmail = (applicants ?? []).some(a => splitEmails(a.email as string | null).length > 0)
+  const agentStandsIn = tenantViaAgent && !applicantHasEmail   // nobody else to write to
+  const agentCopy     = tenantViaAgent && applicantHasEmail    // the applicant is reachable; this is a copy for the agent
 
-  const heading = `Documents needed for your ${typeLabel.toLowerCase()}`
   const applicantLabel = applicantNames.join(' & ') || 'the applicant'
+  const heading = `Documents needed for your ${typeLabel.toLowerCase()}`
+  // Never "your lease" to somebody whose lease it isn't.
+  const tenantHeading = agentCopy ? `Documents needed for ${applicantLabel}'s ${typeLabel.toLowerCase()}` : heading
   const intro = (reqRow.message as string | null)?.trim() || `We're almost done with your ${typeLabel.toLowerCase()}. Please upload the items below — it takes about a minute and doesn't require a login.`
-  const tenantIntro = tenantViaAgent
+  const tenantIntro = agentStandsIn
     ? `${applicantLabel} doesn't have an email on file, so this is going to you as their agent on record. Please forward it to them, or upload the items yourself if you have them.`
+    : agentCopy
+    ? `The items below are ${applicantLabel}'s, not yours. You're receiving this as their agent on record, so you can follow up with them — or upload the items yourself if you already have them. ${applicantLabel} has their own copy of this request.`
     : intro
   const subject = `${heading} — ${unit ? `Unit ${unit}` : legal}`
 
@@ -149,13 +164,21 @@ export async function sendDocumentRequestEmails(requestId: string, opts?: { only
     // Don't CC the same agent we're already TO-ing — a duplicate of yourself
     // in the CC line reads as a mistake, not a courtesy copy.
     const tenantCc = tenantViaAgent ? undefined : (tenantAgentCc.length ? tenantAgentCc : undefined)
-    await sendEmail({ to: tenantEmails, cc: tenantCc, replyTo: SUPPORT, subject,
-      html: renderMaiaEmail({ associationName: legal, associationCode: code, unit, propertyAddress: address, applicantNames, applicationType: typeLabel, heading, intro: tenantIntro,
-        items: tenantItems.map(i => decorate(i, i.recipient === 'both' ? 'You + Owner' : 'You')), onFile,
+    // "You" is wrong when the reader is the agent — the items belong to the
+    // applicant and the column should say so.
+    const tenantWhoFor = (i: RequestItem) => agentCopy
+      ? (i.recipient === 'both' ? `${applicantLabel} + Owner` : applicantLabel)
+      : (i.recipient === 'both' ? 'You + Owner' : 'You')
+    await sendEmail({ to: tenantEmails, cc: tenantCc, replyTo: SUPPORT, subject: `${tenantHeading} — ${unit ? `Unit ${unit}` : legal}`,
+      html: renderMaiaEmail({ associationName: legal, associationCode: code, unit, propertyAddress: address, applicantNames, applicationType: typeLabel, heading: tenantHeading, intro: tenantIntro,
+        items: tenantItems.map(i => decorate(i, tenantWhoFor(i))), onFile,
         alsoRequested: ownerItems.length ? { who: 'the owner', items: ownerItems.map(i => i.label) } : null,
         ctaUrl: `${APP}/request/${tenantToken}`,
-        footerReason: tenantViaAgent
+        footerReason: agentStandsIn
           ? `You're receiving this because ${applicantLabel} — who you're the agent on record for — has no email on file for ${unit ? `Unit ${unit}` : 'this unit'}.`
+          : agentCopy
+          // The sentence that would have saved MANXI 702's agent a phone call.
+          ? `You're receiving this as the agent on record for ${applicantLabel} on ${unit ? `Unit ${unit}` : 'this unit'}. You are not listed as a tenant or applicant on this application.`
           : `You're receiving this because you're on the application for ${unit ? `Unit ${unit}` : 'this unit'}.` }),
     }).then(() => { out.sentTenant = true }, () => null)
   }
