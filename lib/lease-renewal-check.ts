@@ -52,6 +52,27 @@ const PMI = process.env.STAFF_ALERT_EMAIL ?? 'PMI@topfloridaproperties.com'
 const AR = process.env.LEASE_ALERT_CC ?? 'ar@topfloridaproperties.com'
 const esc = (s: string) => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] ?? c))
 
+/** The unit LABEL to display and to key the check row on.
+ *
+ *  The owner record is the authority. When it cannot be resolved, both
+ *  reminder crons used to fall back to the raw CINC account number, which
+ *  keyed a SECOND row for the same unit ("MANXI710" beside "710") carrying no
+ *  owner name and no owner email. That is how the 19 stale rows cleaned up by
+ *  20260915_lease_renewal_checks_normalize_labels.sql were made: before
+ *  PR #850 (2026-09-09) the owner lookup `.maybeSingle()`d `owners` and threw
+ *  PGRST116 on every CO-OWNED unit, swallowing it into a silent null. That
+ *  bug is fixed, but the fallback itself is still the wrong shape, so strip
+ *  the association prefix instead of keying on the account.
+ *
+ *  Display and keying only — NEVER a match key. Per CLAUDE.md a unit label is
+ *  not unique across an association; `account_number` remains the identity. */
+export function unitLabelFor(associationCode: string, accountOrRef: string, ownerUnitNumber: string | null | undefined): string {
+  if (ownerUnitNumber) return ownerUnitNumber
+  const code = associationCode.toUpperCase()
+  const ref = String(accountOrRef ?? '')
+  return ref.toUpperCase().startsWith(code) && ref.length > code.length ? ref.slice(code.length) : ref
+}
+
 /** Find or create the check-in row for this unit's lease end — the SAME row
  *  across the 30-day and 7-day reminder, so the link in both emails matches. */
 export async function findOrCreateCheck(input: {

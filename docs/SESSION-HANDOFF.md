@@ -34,12 +34,18 @@ A literal implementation would have escalated **24 owners on the first run**, th
 - A unit whose **tenant** already reported `vacated` / `vacating` is skipped (`skipped_vacated`). The escalation copy says a tenant occupying without an approved lease is a violation — on an empty unit that is simply untrue, and the owner would rightly object. The weekly digest keeps asking, just without a fee clock.
 - Authorizing the fee **after** the T+15 notice already went out emails AR from the button itself. The cron's T+15 branch is once-only (`!violation_fee_notified_at`), so without this the screen would record a fee nobody was ever asked to post.
 
-### Shadow check rows — a pre-existing bug this surfaced, NOT fixed at the source
-Both reminder crons key the check row on `owner?.unitNumber || account`, so any run where `findMergedOwner` came back empty mints a **second** row for the same unit keyed on the CINC account number — `MANXI710` beside `710` — with no owner name and no owner email. Measured 2026-09-15: **19 of 60 `lease_renewal_checks` rows are account-keyed, none has an owner email, and 14 of them shadow a perfectly good row.**
+### Shadow check rows — root cause traced and closed
 
-`buildEscalations` drops a shadow (account-keyed **and** a twin exists) so the backlog does not show 14 fake "add an owner email" tasks. An account-keyed row with **no** twin is a unit whose owner never resolved at all and stays visible — that is **MANXI 706, 903 and 103** (103 is on this week's watch list). Backlog is 23 real rows, not 37.
+Both reminder crons keyed the check row on `owner?.unitNumber || account`, so a run where the owner did not resolve minted a **second** row for the same unit keyed on the CINC account number — `MANXI710` beside `710` — with no owner name and no owner email.
 
-**The root cause is still there** and the weekly digest keeps minting new shadows. The fix belongs in `findOrCreateCheck`'s two callers (`lease-renewal-alerts`, `expired-leases-digest`), not in the read model — deliberately left alone here because it touches two live sending crons and the table's unique key is that same label. See [[unit_occupancy_account_key]]: same account-number-vs-label conflation, third time in this codebase.
+**The root cause was already fixed on 2026-09-09 by PR #850.** Before it, the owner lookup `.maybeSingle()`d `owners` and threw PGRST116 on every CO-OWNED unit, swallowed into a silent `null` — and every affected unit here is co-owned (MANXI 710, 113, 103… two owner rows each). Proof in the data: **all 19 account-keyed rows were created in August, newest 2026-08-31, and not one has been created in the 15 days since.** `findMergedOwner` resolves all of them correctly today.
+
+Two things shipped anyway:
+
+1. **`unitLabelFor()`** (`lib/lease-renewal-check.ts`), used by both crons instead of the raw fallback. A genuinely unresolvable owner now yields `710`, not `MANXI710` — the key stays stable whatever the lookup does. Display and keying only, **never a match key**: per CLAUDE.md `account_number` remains the identity.
+2. **`20260915_lease_renewal_checks_normalize_labels.sql`** clears the debris: shadows (a correct twin exists) are deleted, orphans are relabelled **in place keeping their tokens** so the next cron run heals their owner name/email. Scoped to pre-2026-09-09 rows carrying no resident answer, so nothing a resident submitted can be touched. Previewed against live data: **14 delete, 5 relabel (MANXI 103, 706, 903, 1003, 910), 0 left over, 7 answer-carrying rows protected.**
+
+`buildEscalations` keeps its read-time shadow filter as a belt-and-braces guard; after the migration it matches nothing. Third instance of the account-number-vs-label conflation — see [[unit_occupancy_account_key]].
 
 ### Left for the user
 1. **Apply `20260915_lease_renewal_escalation.sql`** (Tools → migrations, from the logged-in session). Nothing escalates until it is applied — the cron 503s loudly instead of silently doing nothing.

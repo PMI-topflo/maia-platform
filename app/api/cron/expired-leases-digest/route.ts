@@ -24,7 +24,7 @@ import { cookies } from 'next/headers'
 import { verifySession, SESSION_COOKIE } from '@/lib/session'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail } from '@/lib/gmail'
-import { findOrCreateCheck, isSatisfied, hasOpenApplication } from '@/lib/lease-renewal-check'
+import { findOrCreateCheck, isSatisfied, hasOpenApplication, unitLabelFor } from '@/lib/lease-renewal-check'
 import { findMergedOwner } from '@/lib/owner-lookup'
 import { leaseRenewalResidentHtml, type Role } from '@/lib/lease-renewal-email'
 
@@ -94,7 +94,7 @@ export async function GET(req: Request) {
     const rows: Row[] = []
     for (const l of leases) {
       const o = await findMergedOwner(assoc, l.unit_ref)
-      const unitLabel = o?.unitNumber || l.unit_ref
+      const unitLabel = unitLabelFor(assoc, String(l.unit_ref), o?.unitNumber)
       // A unit already being actively worked (any non-terminal application)
       // doesn't need the nag — staff already has it.
       if (await hasOpenApplication(assoc, unitLabel)) continue
