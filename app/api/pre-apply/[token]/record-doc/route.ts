@@ -3,7 +3,7 @@
 // Records an uploaded intake document against its checklist item. Token auth.
 
 import { NextResponse } from 'next/server'
-import { getIntake, resolveToken, recordIntakeDoc, intakeClosed } from '@/lib/preapply'
+import { getIntake, resolveToken, recordIntakeDoc, intakeClosed, backfillPrimaryContactFromLease } from '@/lib/preapply'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { mirrorIntakeToDrive } from '@/lib/drive-application-mirror'
 
@@ -56,6 +56,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     uploaded_by_role: r.stakeholder.role,
   })
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: 500 })
+
+  // Read the lease's own term (and the tenant's contact details) off the file
+  // that was just uploaded. This ran ONLY in the staff upload route, so a lease
+  // sent through the applicant's or agent's own link — the normal path — never
+  // populated listing_applications.lease_start/lease_end, and the
+  // Landlord–Tenant Agreement packet then fell back to unit_tenant_contacts.
+  // MANXI 702: the agent uploaded "Fully Executed Lease.pdf" through her link,
+  // the application's own term stayed null, and the owner e-signed an agreement
+  // dated to a lease that had ended 2024-05-04 — the PREVIOUS tenants'. Awaited
+  // rather than fired-and-forgotten (and only for the lease itself) because the
+  // packet may be created moments later and has to see the real dates.
+  if (docKey === 'signed_lease') await backfillPrimaryContactFromLease(r.applicationId).catch(() => null)
 
   // Documents used to reach Drive — and staff — only when the applicant pressed
   // SUBMIT at the end. Anyone who uploaded and stopped left their files sitting
