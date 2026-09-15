@@ -12,6 +12,8 @@ import { activeConditions, declaredPetWhereProhibited, ANIMAL_KIND_LABEL, ANIMAL
 import { maskEmail, maskPhone } from '@/lib/esign-verify'
 import { getOrCreateEsignLink } from '@/lib/application-esign-forms'
 import { getOrCreateLeasePacketLink } from '@/lib/lease-packet'
+import { getOutstandingSummary } from '@/lib/application-outstanding-summary'
+import { linesForRecipient } from '@/lib/application-reminder'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -157,6 +159,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     // application but still need a way to add their own agent (Rule 2).
     canAddCollaborators: me.isPrimary || me.role === 'owner',
     submitted: !!intake.submittedAt,
+    // What is still waiting on the OTHER people on this application, in
+    // this person's words — so a finished owner reads "waiting on the
+    // tenants: …" instead of "you don't need to do anything" while the
+    // application is plainly not done (MANXI 1002 owner, 2026-09-15).
+    waitingOnOthers: await getOutstandingSummary(r.applicationId).then(sum => 'error' in sum ? [] : linesForRecipient(sum, { stakeholderId: me.id, name: me.name, email: me.email ?? '', role: me.role }).theirs, () => [] as string[]),
     providerLabels: PROVIDED_BY_LABEL,
     // Every checklist item, flagged "mine" (this stakeholder provides it) + uploaded
     checklist: await Promise.all(visible.map(async d => {

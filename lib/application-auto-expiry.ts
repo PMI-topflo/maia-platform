@@ -35,6 +35,8 @@ import { isScreeningExpired, screeningValidThrough } from '@/lib/screening/valid
 import { closeApplication } from '@/lib/application-withdraw'
 import { getApplicationDashboard } from '@/lib/application-dashboard'
 import { findMergedOwner } from '@/lib/owner-lookup'
+import { getOutstandingSummary } from '@/lib/application-outstanding-summary'
+import { linesForRecipient } from '@/lib/application-reminder'
 import { boardContactFor } from '@/lib/board-contact'
 import { OFFICE_EMAILS } from '@/lib/board-review-email'
 
@@ -69,9 +71,26 @@ async function feeRequired(code: string, type: string, provider: string | null):
   return list.some(d => d.doc_key === 'background_credit' && d.required !== false)
 }
 
-function noticeHtml(o: { kind: NoticeKind; name: string | null; unit: string | null; assoc: string; dueAt: string; link: string; payLink: string | null }): { subject: string; html: string } {
+function noticeHtml(o: { kind: NoticeKind; name: string | null; unit: string | null; assoc: string; dueAt: string; link: string; payLink: string | null; mine?: string[]; theirs?: string[] }): { subject: string; html: string } {
   const where = `${o.assoc}${o.unit ? `, Unit ${o.unit}` : ''}`
   const hi = `Hi${o.name ? ` ${esc(o.name)}` : ''},`
+  const mine = o.mine ?? [], theirs = o.theirs ?? []
+  const list = (title: string, items: string[], grey = false) => items.length ? `<p style="margin:10px 0 4px"><strong>${title}</strong></p><ul style="margin:0 0 12px${grey ? ';color:#6b7280' : ''}">${items.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''
+  // Nothing required from THIS person: an FYI without a button, so a
+  // finished owner is not told to "finish" something that is not his
+  // (MANXI 1002, 2026-09-15).
+  if (!mine.length && theirs.length && o.kind !== 'unpaid') {
+    return {
+      subject: `Application at ${where} expires ${fmtET(o.dueAt).replace(/,? \d+:\d+ [AP]M ET$/, '')} unless the applicants finish`,
+      html: `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6;max-width:520px;margin:0 auto">
+    <p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#f26a1b;font-weight:700;margin:0 0 4px">PMI Top Florida Properties</p>
+    <h2 style="margin:0 0 8px;color:#1f2a44">Nothing is needed from you — the applicants still have items to send</h2>
+    <p>${hi}</p><p>Your part of the application for <strong>${esc(where)}</strong> is complete. The people below still have to send their items by <strong>${esc(fmtET(o.dueAt))}</strong>; after that the application expires.</p>
+    ${list('Still waiting on the applicant(s)', theirs, true)}
+    <p style="color:#6b7280;font-size:12.5px">Each of them has their own link and has been reminded directly — you cannot complete these for them.</p>
+    <p style="color:#9ca3af;font-size:12px">Questions? Reply to this email or call (305) 900-5077.</p></div>`,
+    }
+  }
   const btn = (href: string, label: string, primary = true) => `<p style="text-align:center;margin:20px 0"><a href="${href}" style="background:${primary ? '#f26a1b' : '#fff'};color:${primary ? '#fff' : '#1f2a44'};${primary ? '' : 'border:1px solid #d1d5db;'}text-decoration:none;font-weight:700;padding:13px 26px;border-radius:10px;display:inline-block">${label}</a></p>`
   const wrap = (title: string, body: string) => `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#3a3f4a;line-height:1.6;max-width:520px;margin:0 auto">
     <p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#f26a1b;font-weight:700;margin:0 0 4px">PMI Top Florida Properties</p>
@@ -80,7 +99,7 @@ function noticeHtml(o: { kind: NoticeKind; name: string | null; unit: string | n
   </div>`
   if (o.kind === 'no_files') return {
     subject: `Your application at ${where} will expire on ${fmtET(o.dueAt).replace(/,? \d+:\d+ [AP]M ET$/, '')}`,
-    html: wrap('Your application is still empty', `<p>${hi}</p><p>The application you opened for <strong>${esc(where)}</strong> has no documents yet. To keep it, upload your first document by <strong>${esc(fmtET(o.dueAt))}</strong>. After that it expires and you would start again.</p>${btn(o.link, 'Open my application →')}`),
+    html: wrap('Your application is still empty', `<p>${hi}</p><p>The application you opened for <strong>${esc(where)}</strong> has no documents yet. To keep it, upload your first document by <strong>${esc(fmtET(o.dueAt))}</strong>. After that it expires and you would start again.</p>${list('Still needed from you', mine)}${list('Waiting on others', theirs, true)}${btn(o.link, 'Open my application →')}`),
   }
   if (o.kind === 'unpaid') return {
     subject: `48 hours to reactivate your application — ${where}`,
@@ -88,7 +107,7 @@ function noticeHtml(o: { kind: NoticeKind; name: string | null; unit: string | n
   }
   if (o.kind === 'stale') return {
     subject: `7 days to finish your application — ${where}`,
-    html: wrap('Your application has been waiting for a while', `<p>${hi}</p><p>Nothing has arrived on your application for <strong>${esc(where)}</strong> in three weeks. Send what is still missing by <strong>${esc(fmtET(o.dueAt))}</strong>; after that it expires and, if a background check was paid, it would have to be paid again.</p>${btn(o.link, 'Finish my application →')}`),
+    html: wrap('Your application has been waiting for a while', `<p>${hi}</p><p>Nothing has arrived on your application for <strong>${esc(where)}</strong> in three weeks. Send what is still missing by <strong>${esc(fmtET(o.dueAt))}</strong>; after that it expires and, if a background check was paid, it would have to be paid again.</p>${list('Still needed from you', mine)}${list('Waiting on others', theirs, true)}${btn(o.link, 'Finish my application →')}`),
   }
   return { subject: `Your application at ${where} has expired`, html: wrap('Application expired', `<p>${hi}</p><p>The 45-day validity of your background check ended without the remaining documents, so the application for <strong>${esc(where)}</strong> has expired. To apply again, use the payment link we emailed you when the check expired, or reply to this email.</p>`) }
 }
@@ -277,15 +296,21 @@ export async function runAutoExpiry(opts: { dry?: boolean; associationCode?: str
     if (!kind || !due) continue
 
     const recipients = await recipientsFor(id, type)
-    if (opts.dry) { actions.push({ ...base, kind, action: 'would_notice', dueAt: due.toISOString(), to: recipients.map(r => r.email) }); continue }
+    // Per person: what is theirs to send vs what waits on the others (same
+    // split the missing-documents reminder uses).
+    const summary = await getOutstandingSummary(id).then(x => 'error' in x ? null : x, () => null)
+    const linesFor = (r: { stakeholderId: string; name: string | null; email: string; role: string }) => summary ? linesForRecipient(summary, r) : { mine: [] as string[], theirs: [] as string[] }
+    const toNotify = recipients.filter(r => { const l = linesFor(r); return kind === 'unpaid' ? r.role === 'applicant' : (l.mine.length > 0 || l.theirs.length > 0 || kind === 'no_files') })
+    if (opts.dry) { actions.push({ ...base, kind, action: 'would_notice', dueAt: due.toISOString(), to: toNotify.map(r => r.email) }); continue }
     const sent: string[] = []
     if (kind !== 'screening_expired') {   // the day-45 email with the re-screen link already went out
-      for (const r of recipients) {
+      for (const r of toNotify) {
         try {
           const t = await signPreApplyToken(id, r.stakeholderId)
           const link = `${APP}/pre-apply/${encodeURIComponent(code)}?t=${encodeURIComponent(t)}`
           const payLink = kind === 'unpaid' ? `${APP}/apply?listingApp=${encodeURIComponent(id)}&assoc=${encodeURIComponent(code)}&unit=${encodeURIComponent(unit ?? '')}&lang=en` : null
-          const m = noticeHtml({ kind, name: r.name, unit, assoc: association, dueAt: due.toISOString(), link, payLink })
+          const l = linesFor(r)
+          const m = noticeHtml({ kind, name: r.name, unit, assoc: association, dueAt: due.toISOString(), link, payLink, mine: l.mine, theirs: l.theirs })
           await sendEmail({ to: [r.email], subject: m.subject, html: m.html })
           sent.push(r.email)
         } catch { /* one bad address must not stop the run */ }
