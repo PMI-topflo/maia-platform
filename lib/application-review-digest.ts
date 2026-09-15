@@ -151,7 +151,7 @@ export async function gatherApplicationReviewDigest(): Promise<ApplicationReview
   // housekeeping (user direction, 2026-09-14).
   const [{ data: expiredRows }, { data: noticeRows }] = await Promise.all([
     supabaseAdmin.from('listing_applications').select('id, unit_label, association_code, withdrawn_at, withdrawn_reason').eq('status', 'expired').eq('expired_auto', true).gte('withdrawn_at', sinceIso).order('withdrawn_at', { ascending: false }),
-    supabaseAdmin.from('listing_applications').select('id, unit_label, association_code, expiry_notice_kind, expiry_due_at').in('status', ['started', 'submitted']).not('expiry_due_at', 'is', null).order('expiry_due_at'),
+    supabaseAdmin.from('listing_applications').select('id, unit_label, association_code, expiry_notice_kind, expiry_due_at, expiry_final_warned_at').in('status', ['started', 'submitted']).not('expiry_due_at', 'is', null).order('expiry_due_at'),
   ])
   const assocNames = new Map<string, string>()
   const nameOf = async (code: string) => { if (!assocNames.has(code)) { const { data } = await supabaseAdmin.from('associations').select('legal_name, association_name').eq('association_code', code).maybeSingle(); assocNames.set(code, String(data?.legal_name || data?.association_name || code)) } return assocNames.get(code)! }
@@ -159,7 +159,7 @@ export async function gatherApplicationReviewDigest(): Promise<ApplicationReview
   const expiredAuto: ApplicationReviewDigestData['expiredAuto'] = []
   for (const r of expiredRows ?? []) expiredAuto.push({ id: String(r.id), unit: (r.unit_label as string | null) ?? null, association: await nameOf(String(r.association_code)), applicants: await applicantsOf(String(r.id)), reason: (r.withdrawn_reason as string | null) ?? null, at: String(r.withdrawn_at) })
   const expiringSoon: ApplicationReviewDigestData['expiringSoon'] = []
-  for (const r of noticeRows ?? []) expiringSoon.push({ id: String(r.id), unit: (r.unit_label as string | null) ?? null, association: await nameOf(String(r.association_code)), applicants: await applicantsOf(String(r.id)), kind: String(r.expiry_notice_kind ?? ''), dueAt: String(r.expiry_due_at) })
+  for (const r of noticeRows ?? []) expiringSoon.push({ id: String(r.id), unit: (r.unit_label as string | null) ?? null, association: await nameOf(String(r.association_code)), applicants: await applicantsOf(String(r.id)), kind: `${String(r.expiry_notice_kind ?? '')}${r.expiry_final_warned_at ? ' · 24-hour final warning sent to owner + tenant' : ''}`, dueAt: String(r.expiry_due_at) })
 
   return {
     generatedIso: dash.generatedAt,
@@ -323,7 +323,7 @@ export function buildApplicationReviewDigestEmail(data: ApplicationReviewDigestD
     ${data.expiringSoon.length ? `<tr><td style="padding:18px 28px 0">
     <div style="font-size:11px;font-weight:700;color:${NAVY};text-transform:uppercase;letter-spacing:.03em">On an expiry notice <span style="color:#9ca3af;font-weight:600;text-transform:none">(${data.expiringSoon.length})</span></div>
     <div style="font-size:12px;color:#6b7280;margin:2px 0 8px">MAIA emailed the applicant. Each expires on the date shown unless they act — nothing to do unless you want to step in.</div>
-    ${data.expiringSoon.map(x => `<div style="font-size:12.5px;color:#374151;padding:5px 0;border-top:1px solid #f3f4f6"><strong>${esc(x.applicants.join(', ') || 'no applicant name')}</strong> · ${esc(x.association)}${x.unit ? ` · Unit ${esc(x.unit)}` : ''} — ${esc({ no_files: 'no document yet', unpaid: 'fee unpaid', stale: 'nothing received in 3 weeks', screening_expired: 'screening validity ended' }[x.kind] ?? x.kind)} · expires ${esc(new Date(x.dueAt).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric' }))} ET <a href="${esc(appUrl)}/admin/pre-apply/${esc(x.id)}" style="color:${ORANGE};text-decoration:none;font-weight:700;margin-left:6px">Open &rarr;</a></div>`).join('')}
+    ${data.expiringSoon.map(x => `<div style="font-size:12.5px;color:#374151;padding:5px 0;border-top:1px solid #f3f4f6"><strong>${esc(x.applicants.join(', ') || 'no applicant name')}</strong> · ${esc(x.association)}${x.unit ? ` · Unit ${esc(x.unit)}` : ''} — ${esc({ no_files: 'no document yet', unpaid: 'fee unpaid', stale: 'nothing received in 3 weeks', screening_expired: 'screening validity ended' }[x.kind.split(' · ')[0]] ?? x.kind.split(' · ')[0])}${x.kind.includes(' · ') ? ` · ${esc(x.kind.split(' · ')[1])}` : ''} · expires ${esc(new Date(x.dueAt).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric' }))} ET <a href="${esc(appUrl)}/admin/pre-apply/${esc(x.id)}" style="color:${ORANGE};text-decoration:none;font-weight:700;margin-left:6px">Open &rarr;</a></div>`).join('')}
   </td></tr>` : ''}
 
     <tr><td style="padding:16px 28px 22px;border-top:1px solid #eceff4">
