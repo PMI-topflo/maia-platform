@@ -24,9 +24,16 @@ async function flagDriveFolder(appId: string): Promise<void> {
     const fid = String(a?.drive_folder_id ?? '')
     if (!fid) return
     const unitRef = `${String(a?.association_code ?? '').toUpperCase()}${String(a?.unit_label ?? '').replace(/\D/g, '')}`
-    const { data: sh } = await supabaseAdmin.from('application_stakeholders').select('name').eq('application_id', appId).eq('is_primary', true).maybeSingle()
+    // Same trap as lib/preapply.ts's getIntake(): `is_primary` is scoped PER
+    // ROLE, so an unfiltered .eq('is_primary', true) names the folder after
+    // whichever role happens to be primary — the AGENT on an agent-started
+    // application — and throws PGRST116 once more than one role has one.
+    // The folder is named for the applicant.
+    const { data: shRows } = await supabaseAdmin.from('application_stakeholders').select('name')
+      .eq('application_id', appId).eq('role', 'applicant')
+      .order('is_primary', { ascending: false }).order('created_at', { ascending: true }).limit(1)
     const label = TYPE_LABEL[String(a?.application_type ?? '')] ?? String(a?.application_type ?? '')
-    const name = [unitRef, label, (sh?.name as string | null)?.trim()].filter(Boolean).join(' — ').replace(/[\\/:*?"<>|]+/g, ' ')
+    const name = [unitRef, label, (shRows?.[0]?.name as string | null)?.trim()].filter(Boolean).join(' — ').replace(/[\\/:*?"<>|]+/g, ' ')
     if (name) await getDrive().files.update({ fileId: fid, requestBody: { name }, supportsAllDrives: true })
   } catch { /* prod-only Drive; never fails the save */ }
 }
