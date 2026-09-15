@@ -161,8 +161,17 @@ export async function runAutoExpiry(opts: { dry?: boolean; associationCode?: str
   // dry run before it is applied still works (no notices = none open).
   type Notice = { expiry_notice_kind: string | null; expiry_notice_at: string | null; expiry_due_at: string | null; expiry_final_warned_at: string | null }
   const empty: Notice = { expiry_notice_kind: null, expiry_notice_at: null, expiry_due_at: null, expiry_final_warned_at: null }
-  const notices = await supabaseAdmin.from('listing_applications').select('id, expiry_notice_kind, expiry_notice_at, expiry_due_at, expiry_final_warned_at').in('status', ['started', 'submitted'])
-    .then(r => new Map((r.data ?? []).map(n => [String(n.id), n as unknown as Notice & { id: string }])), () => new Map<string, Notice & { id: string }>())
+  // If a newer notice column is missing (migration not applied yet), fall
+  // back to the older set — and if even that fails, STOP rather than treat
+  // every notice as unsent and re-email everyone (dry run 2026-09-15).
+  const readNotices = async (cols: string) => {
+    const r = await supabaseAdmin.from('listing_applications').select(cols).in('status', ['started', 'submitted'])
+    if (r.error) throw new Error(r.error.message)
+    return new Map((r.data ?? []).map(n => { const x = n as unknown as Partial<Notice> & { id: string }; return [String(x.id), { ...empty, ...x }] }))
+  }
+  let notices: Map<string, Notice & { id: string }>
+  try { notices = await readNotices('id, expiry_notice_kind, expiry_notice_at, expiry_due_at, expiry_final_warned_at') }
+  catch { notices = await readNotices('id, expiry_notice_kind, expiry_notice_at, expiry_due_at') }   // throws if the base columns are missing too
   const apps = (baseApps ?? []).map(a => ({ ...a, ...(notices.get(String(a.id)) ?? empty) }))
   const dash = await getApplicationDashboard({ includeDecided: false }).catch(() => null)
   const stageById = new Map((dash?.rows ?? []).map(r => [r.id, r.stage]))
